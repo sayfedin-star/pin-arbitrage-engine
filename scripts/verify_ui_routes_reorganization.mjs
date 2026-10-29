@@ -280,6 +280,42 @@ async function testRoutes() {
     console.log('  ✓ [PASS] All UI templates eliminate render-blocking head scripts (Lucide & Alpine strictly deferred)');
   }
 
+  // 17. Campaign Workspace Multi-Room Routing (/folders, /folders/:id, /folders/:id/*) [INVARIANT: SSR-WORKSPACE-ROOM-ROUTING]
+  {
+    const folderRooms = [
+      { path: '/folders', expectedText: 'Campaign Folders & Crossover Studio' },
+      { path: '/folders/test-folder-1', expectedText: 'Campaign Workspace' },
+      { path: '/folders/test-folder-1/keywords', expectedText: 'Keywords Fleet Dashboard' },
+      { path: '/folders/test-folder-1/creators', expectedText: 'Creator Hub' },
+      { path: '/folders/test-folder-1/domains', expectedText: 'Domain Intelligence Studio' },
+      { path: '/folders/test-folder-1/settings', expectedText: 'foldersApp(\'test-folder-1\', \'settings\')' },
+      { path: '/keywords/folders', expectedText: 'Campaign Folders & Crossover Studio' },
+      { path: '/keywords/folders/test-folder-1', expectedText: 'Campaign Workspace' }
+    ];
+
+    for (const r of folderRooms) {
+      // GET -> 200 OK with expected HTML content
+      const resGet = await worker.fetch(new Request(`https://worker.test${r.path}`), mockEnv);
+      assert.strictEqual(resGet.status, 200, `GET ${r.path} must return 200 OK`);
+      assert.strictEqual(resGet.headers.get('Content-Type'), 'text/html; charset=utf-8');
+      const htmlGet = await resGet.text();
+      assert(htmlGet.includes(r.expectedText), `GET ${r.path} must contain "${r.expectedText}"`);
+
+      // HEAD -> 200 OK with empty body and identical headers
+      const resHead = await worker.fetch(new Request(`https://worker.test${r.path}`, { method: 'HEAD' }), mockEnv);
+      assert.strictEqual(resHead.status, 200, `HEAD ${r.path} must return 200 OK`);
+      assert.strictEqual(resHead.headers.get('Content-Type'), 'text/html; charset=utf-8');
+      const bodyHead = await resHead.text();
+      assert.strictEqual(bodyHead.length, 0, `HEAD ${r.path} body must be empty`);
+
+      // POST -> 405 Method Not Allowed (tamper resistance)
+      const resPost = await worker.fetch(new Request(`https://worker.test${r.path}`, { method: 'POST' }), mockEnv);
+      assert.strictEqual(resPost.status, 405, `POST ${r.path} must return 405 Method Not Allowed`);
+    }
+
+    console.log('  ✓ [PASS] Campaign Workspace Multi-Room Routing (/folders/:id/*) fully verified (GET 200, HEAD 200, POST 405)');
+  }
+
   console.log('\n[+] ALL UI ROUTE REORGANIZATION & LATENCY OPTIMIZATION TESTS PASSED (100% GREEN)!');
 }
 

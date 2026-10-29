@@ -631,7 +631,7 @@ export function getPinDetailPageHtml(pinId = '') {
             </div>
             <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
               <button type="button" @click="chartTimeframe = '7d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
-              <button type="button" @click="chartTimeframe = '14d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '14d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">14D</button>
+              <button type="button" @click="chartTimeframe = '15d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">15D</button>
               <button type="button" @click="chartTimeframe = '30d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">30D</button>
               <button type="button" @click="chartTimeframe = 'all'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">ALL</button>
             </div>
@@ -748,23 +748,39 @@ export function getPinDetailPageHtml(pinId = '') {
           
           <!-- Ledger Controls Ribbon -->
           <div class="p-3 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="text-slate-400 font-medium">Daily Snapshots:</span>
-              <span class="font-mono tabular-nums font-bold text-white" x-text="filteredDays().length"></span>
+              <span class="font-mono tabular-nums font-bold text-white">
+                <template x-if="totalUnfilteredDaysCount() > filteredDays().length">
+                  <span>Showing <span x-text="filteredDays().length"></span> of <span x-text="totalUnfilteredDaysCount()"></span> days</span>
+                </template>
+                <template x-if="totalUnfilteredDaysCount() <= filteredDays().length">
+                  <span x-text="filteredDays().length + ' days'"></span>
+                </template>
+              </span>
               <button type="button" @click="expandAllDays()" class="text-slate-400 hover:text-white underline text-[11px] ml-2 cursor-pointer">Expand All</button>
               <span class="text-slate-600">|</span>
               <button type="button" @click="collapseAllDays()" class="text-slate-400 hover:text-white underline text-[11px] cursor-pointer">Collapse All</button>
             </div>
 
-            <!-- Keyword Filter Dropdown -->
-            <div class="flex items-center gap-2">
-              <span class="text-slate-400 text-[11px]">Filter Keyword:</span>
-              <select x-model="selectedKeywordFilter" class="px-2.5 py-1 rounded-lg border border-[#27272A] bg-[#18181B] text-xs font-medium text-slate-200 focus:outline-none cursor-pointer">
-                <option value="ALL">All Keywords</option>
-                <template x-for="kw in (dossier?.pillar_2_keywords_context?.ranking_keywords || [])" :key="kw.keyword">
-                  <option :value="kw.keyword" x-text="kw.keyword + ' (#' + (kw.live_serp_rank || kw.rank || 'Vault') + ')'"></option>
-                </template>
-              </select>
+            <!-- Timeframe Selector Pill Bar & Keyword Filter -->
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
+                <button type="button" @click="chartTimeframe = '7d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
+                <button type="button" @click="chartTimeframe = '15d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">15D</button>
+                <button type="button" @click="chartTimeframe = '30d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">30D</button>
+                <button type="button" @click="chartTimeframe = 'all'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">ALL</button>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400 text-[11px]">Filter Keyword:</span>
+                <select x-model="selectedKeywordFilter" class="px-2.5 py-1 rounded-lg border border-[#27272A] bg-[#18181B] text-xs font-medium text-slate-200 focus:outline-none cursor-pointer">
+                  <option value="ALL">All Keywords</option>
+                  <template x-for="kw in (dossier?.pillar_2_keywords_context?.ranking_keywords || [])" :key="kw.keyword">
+                    <option :value="kw.keyword" x-text="kw.keyword + ' (' + (isKeywordDisplacedOrUnranked(kw) ? 'Vault' : '#' + (kw.live_serp_rank || kw.rank)) + ')'"></option>
+                  </template>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -801,7 +817,9 @@ export function getPinDetailPageHtml(pinId = '') {
                     <!-- Total Saves & Sparkbar -->
                     <td class="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap">
                       <div class="font-bold text-white" x-text="formatNumber(day.save_count || 0)"></div>
-                      <div class="text-[10.5px] text-emerald-400 font-semibold" x-text="formatDayDelta(day, dIdx)"></div>
+                      <div class="text-[10.5px] font-semibold"
+                           :class="formatDayDelta(day, dIdx) === 'Hydrated Baseline' ? 'text-amber-400 font-mono text-[10px]' : (formatDayDelta(day, dIdx).startsWith('-') ? 'text-rose-400' : 'text-emerald-400')"
+                           x-text="formatDayDelta(day, dIdx)"></div>
                     </td>
 
                     <!-- Velocity -->
@@ -820,10 +838,10 @@ export function getPinDetailPageHtml(pinId = '') {
                         <template x-for="kw in (day.ranking_keywords || []).slice(0, 4)" :key="kw.keyword">
                           <span 
                             class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono tabular-nums border"
-                            :class="kw.is_displaced ? 'bg-amber-950/50 text-amber-300 border-amber-800' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800'"
+                            :class="isKeywordDisplacedOrUnranked(kw) ? 'bg-amber-950/50 text-amber-300 border-amber-800' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800'"
                           >
                             <span x-text="kw.keyword"></span>
-                            <span class="font-bold" x-text="kw.is_displaced ? ('[Vault #' + (kw.vault_rank || kw.rank || '?') + ']') : ('[SERP #' + (kw.live_serp_rank || kw.rank) + ']')"></span>
+                            <span class="font-bold" x-text="formatKeywordRankBadge(kw)"></span>
                           </span>
                         </template>
                         <template x-if="(day.ranking_keywords || []).length > 4">
@@ -872,7 +890,7 @@ export function getPinDetailPageHtml(pinId = '') {
                                     <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
                                   </td>
                                   <td class="py-2 px-3 font-mono tabular-nums">
-                                    <span class="font-bold" :class="kw.is_displaced ? 'text-amber-400' : 'text-emerald-400'" x-text="kw.is_displaced ? ('[Vault #' + (kw.vault_rank || kw.rank || '?') + ']') : ('#' + (kw.live_serp_rank || kw.rank))"></span>
+                                    <span class="font-bold" :class="isKeywordDisplacedOrUnranked(kw) ? 'text-amber-400' : 'text-emerald-400'" x-text="formatKeywordRankBadge(kw, true)"></span>
                                   </td>
                                   <td class="py-2 px-3">
                                     <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
@@ -980,12 +998,12 @@ export function getPinDetailPageHtml(pinId = '') {
                     <td class="py-3 px-4">
                       <span 
                         class="px-2 py-0.5 rounded text-[10.5px] font-mono uppercase tracking-wider border"
-                        :class="kw.is_displaced ? 'bg-amber-950/50 text-amber-300 border-amber-800' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800'"
-                        x-text="kw.is_displaced ? 'Displaced Vault' : 'Live Active SERP'"
+                        :class="isKeywordDisplacedOrUnranked(kw) ? 'bg-amber-950/50 text-amber-300 border-amber-800' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800'"
+                        x-text="isKeywordDisplacedOrUnranked(kw) ? 'Displaced Vault' : 'Live Active SERP'"
                       ></span>
                     </td>
                     <td class="py-3 px-4 font-mono tabular-nums">
-                      <span class="font-bold" :class="kw.is_displaced ? 'text-amber-400' : 'text-emerald-400'" x-text="kw.is_displaced ? ('[Vault #' + (kw.vault_rank || kw.rank || '?') + ']') : ('#' + (kw.live_serp_rank || kw.rank))"></span>
+                      <span class="font-bold" :class="isKeywordDisplacedOrUnranked(kw) ? 'text-amber-400' : 'text-emerald-400'" x-text="formatKeywordRankBadge(kw, true)"></span>
                     </td>
                     <td class="py-3 px-4">
                       <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
@@ -1335,7 +1353,7 @@ export function getPinDetailPageHtml(pinId = '') {
         isSilentRefreshing: false,
         dossier: null,
         activeTab: 'ledger',
-        chartTimeframe: 'all',
+        chartTimeframe: '7d',
         chartMetric: 'saves',
         isDark: true,
         hoveredChartPoint: null,
@@ -1420,8 +1438,8 @@ export function getPinDetailPageHtml(pinId = '') {
           if (liveDelta !== undefined && liveDelta !== null) {
             return (liveDelta >= 0 ? '+' : '') + liveDelta + '/d';
           }
-          const trajVel = Number(this.dossier?.daily_trajectory?.[0]?.daily_save_velocity);
-          if (Number.isFinite(trajVel)) {
+          const trajVel = Number(this.dossier?.daily_trajectory?.[0]?.daily_save_velocity ?? this.dossier?.creative?.daily_save_velocity);
+          if (Number.isFinite(trajVel) && trajVel > 0) {
             return (trajVel >= 0 ? '+' : '') + trajVel.toFixed(1) + '/d';
           }
           return '+0/d';
@@ -1436,7 +1454,8 @@ export function getPinDetailPageHtml(pinId = '') {
             if (!isNaN(t)) {
               const diffDays = Math.max(1, Math.floor((Date.now() - t) / 86400000));
               const amortized = (saves / diffDays).toFixed(2);
-              return 'Lifetime: ' + amortized + '/d (' + diffDays + 'd)';
+              const ageStr = diffDays >= 365 ? (diffDays / 365).toFixed(1) + 'y' : diffDays + 'd';
+              return 'Lifetime: ' + amortized + '/d (' + ageStr + ')';
             }
           }
           return 'Lifetime: ' + rawVel.toFixed(1) + '/d';
@@ -1444,6 +1463,10 @@ export function getPinDetailPageHtml(pinId = '') {
 
         format24hSaveDelta() {
           const delta = this.computeDeltaUnified(0, 'save_count');
+          if (delta === null) {
+            const rawVel = Number(this.dossier?.creative?.daily_save_velocity || this.dossier?.daily_trajectory?.[0]?.daily_save_velocity || 0);
+            return '+' + rawVel.toFixed(1) + '/d (Amortized)';
+          }
           if (delta > 0) return '+' + this.formatNumber(delta) + ' today';
           if (delta < 0) return this.formatNumber(delta) + ' today';
           return '0 today (Steady)';
@@ -1900,7 +1923,7 @@ export function getPinDetailPageHtml(pinId = '') {
           }
           let days = Array.from(dayMap.values()).sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
           if (this.chartTimeframe === '7d') days = days.slice(-7);
-          else if (this.chartTimeframe === '14d') days = days.slice(-14);
+          else if (this.chartTimeframe === '15d') days = days.slice(-15);
           else if (this.chartTimeframe === '30d') days = days.slice(-30);
           return days;
         },
@@ -1966,70 +1989,144 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         computeDelta(currentIdx, field = 'save_count') {
-          if (Array.isArray(this.dossier?.snapshots) && this.dossier.snapshots.length > 0) {
-            const snaps = this.dossier.snapshots;
-            if (currentIdx >= snaps.length - 1 || currentIdx < 0) return 0;
-            const current = Number.isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
-            const previous = Number.isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
-            return current - previous;
-          }
           return this.computeDeltaUnified(currentIdx, field);
         },
 
+        isHydrationJump(curr, prev) {
+          if (!curr) return false;
+          if (curr.is_hydration_jump || curr.isHydrationJump) return true;
+          if (!prev) return false;
+          const currSaves = Number(curr.save_count || 0);
+          const currRepins = Number(curr.repin_count || 0);
+          const prevSaves = Number(prev.save_count || 0);
+          const prevRepins = Number(prev.repin_count || 0);
+
+          if (prevSaves < prevRepins) return true;
+          if (prevRepins > 0 && prevSaves === prevRepins && currSaves > currRepins * 1.35) return true;
+          if (prevRepins === 0 && currRepins >= 25 && currSaves >= prevSaves * 2.5) return true;
+          if (prevSaves > 0 && (currSaves / prevSaves) >= 4.0 && (currSaves - prevSaves) >= 2500) return true;
+          if (prevSaves === 0 && currSaves >= 50) return true;
+          return false;
+        },
+
         computeDeltaUnified(currentIdxOrCurr, fieldOrPrev = 'save_count') {
+          let curr = null;
+          let prev = null;
+          let field = 'save_count';
+
           if (typeof currentIdxOrCurr === 'object' && currentIdxOrCurr !== null) {
-            const currVal = Number(currentIdxOrCurr.save_count ?? currentIdxOrCurr) || 0;
-            const prevVal = Number(fieldOrPrev?.save_count ?? fieldOrPrev) || 0;
-            return currVal - prevVal;
+            curr = currentIdxOrCurr;
+            prev = (typeof fieldOrPrev === 'object' && fieldOrPrev !== null) ? fieldOrPrev : null;
+          } else {
+            const currentIdx = typeof currentIdxOrCurr === 'number' ? currentIdxOrCurr : 0;
+            field = typeof fieldOrPrev === 'string' ? fieldOrPrev : 'save_count';
+            const snaps = this.dossier?.snapshots || [];
+            const traj = this.dossier?.daily_trajectory || [];
+            const list = (traj.length > 0) ? traj : snaps;
+            if (list.length > currentIdx) curr = list[currentIdx];
+            if (list.length > currentIdx + 1) prev = list[currentIdx + 1];
           }
-          const currentIdx = typeof currentIdxOrCurr === 'number' ? currentIdxOrCurr : 0;
-          const field = typeof fieldOrPrev === 'string' ? fieldOrPrev : 'save_count';
-          const snaps = this.dossier?.snapshots || [];
-          if (snaps.length > 0) {
-            if (currentIdx >= snaps.length - 1 || currentIdx < 0) return 0;
-            const current = Number(snaps[currentIdx]?.[field] || 0);
-            const previous = Number(snaps[currentIdx + 1]?.[field] || 0);
-            return current - previous;
+
+          if (!curr || !prev) return 0;
+
+          if (field === 'save_count' && this.isHydrationJump(curr, prev)) {
+            return null;
           }
-          const traj = this.dossier?.daily_trajectory || [];
-          if (traj[currentIdx] && traj[currentIdx + 1]) {
-            return Number(traj[currentIdx]?.[field] || 0) - Number(traj[currentIdx + 1]?.[field] || 0);
-          }
-          return 0;
+
+          const currVal = Number(curr[field] ?? 0);
+          const prevVal = Number(prev[field] ?? 0);
+          return currVal - prevVal;
         },
 
         rebuildDateMapCache() {
           const map = new Map();
-          const days = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
             ? this.dossier.daily_trajectory
             : (this.dossier?.snapshots || []);
+          const dayMap = new Map();
+          for (const s of rawDays) {
+            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+            if (d && !dayMap.has(d)) dayMap.set(d, s);
+          }
+          const days = Array.from(dayMap.values()).sort((a, b) => String(b.snapshot_date).localeCompare(String(a.snapshot_date)));
           for (let i = 0; i < days.length; i++) {
-            map.set(days[i].snapshot_date, {
+            const fullDate = days[i].snapshot_date;
+            const shortDate = fullDate ? String(fullDate).slice(0, 10) : '';
+            const entry = {
               current: days[i],
               previous: days[i + 1] || null
-            });
+            };
+            if (fullDate) map.set(fullDate, entry);
+            if (shortDate && shortDate !== fullDate) map.set(shortDate, entry);
           }
           this._cachedDateMap = map;
         },
 
-        filteredDays() {
-          const days = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+        totalUnfilteredDaysCount() {
+          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
             ? this.dossier.daily_trajectory
             : (this.dossier?.snapshots || []);
-          if (!this.selectedKeywordFilter || this.selectedKeywordFilter === 'ALL') {
-            return days;
+          const dayMap = new Map();
+          for (const s of rawDays) {
+            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+            if (d && !dayMap.has(d)) dayMap.set(d, true);
           }
-          return days.filter(d => (d.ranking_keywords || []).some(k => k.keyword === this.selectedKeywordFilter));
+          return dayMap.size || rawDays.length || 0;
+        },
+
+        filteredDays() {
+          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : (this.dossier?.snapshots || []);
+          const dayMap = new Map();
+          for (const s of rawDays) {
+            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+            if (d && !dayMap.has(d)) dayMap.set(d, s);
+          }
+          let days = Array.from(dayMap.values()).sort((a, b) => String(b.snapshot_date).localeCompare(String(a.snapshot_date)));
+          if (this.selectedKeywordFilter && this.selectedKeywordFilter !== 'ALL') {
+            days = days.filter(d => (d.ranking_keywords || []).some(k => k.keyword === this.selectedKeywordFilter));
+          }
+          if (this.chartTimeframe === '7d') return days.slice(0, 7);
+          if (this.chartTimeframe === '15d') return days.slice(0, 15);
+          if (this.chartTimeframe === '30d') return days.slice(0, 30);
+          return days;
         },
 
         formatDayDelta(day, idx) {
-          const days = this.filteredDays();
-          if (idx >= days.length - 1) return '+0 (Baseline)';
-          const prev = days[idx + 1];
+          if (!day) return '+0 (Baseline)';
+          if (!this._cachedDateMap) this.rebuildDateMapCache();
+          const dStr = day.snapshot_date ? String(day.snapshot_date).slice(0, 10) : '';
+          const entry = this._cachedDateMap?.get(day.snapshot_date) || (dStr ? this._cachedDateMap?.get(dStr) : null);
+          const prev = entry ? entry.previous : null;
+
+          if (!prev) return '+0 (Baseline)';
+
+          if (this.isHydrationJump(day, prev)) {
+            return 'Hydrated Baseline';
+          }
+
           const delta = (Number(day.save_count) || 0) - (Number(prev.save_count) || 0);
           if (delta > 0) return '+' + this.formatNumber(delta) + ' 24h';
           if (delta < 0) return this.formatNumber(delta) + ' 24h';
           return '0 24h';
+        },
+
+        isKeywordDisplacedOrUnranked(kw) {
+          if (!kw) return true;
+          if (kw.is_displaced) return true;
+          const rankNum = Number(kw.live_serp_rank || kw.rank);
+          return !(rankNum > 0);
+        },
+
+        formatKeywordRankBadge(kw, isAccordion = false) {
+          if (!kw) return isAccordion ? '#?' : '[Vault #?]';
+          if (this.isKeywordDisplacedOrUnranked(kw)) {
+            const vaultRank = kw.vault_rank || kw.last_known_rank || kw.rank || '?';
+            return '[Vault #' + vaultRank + ']';
+          }
+          const rank = kw.live_serp_rank || kw.rank;
+          return isAccordion ? ('#' + rank) : ('[SERP #' + rank + ']');
         },
 
         toggleDayExpanded(date) {

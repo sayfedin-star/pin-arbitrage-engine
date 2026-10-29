@@ -49,9 +49,9 @@ export function renderCampaignWorkspaceHeader({
 
   return `
   <!-- [INVARIANT: CAMPAIGN-WORKSPACE-HEADER-PARITY] Shared Workspace Header -->
-  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-xs overflow-hidden flex flex-col mb-6">
+  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-xs relative z-30 flex flex-col mb-6">
     <!-- Top Identity Bar -->
-    <div class="p-5 border-b border-slate-100 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-4">
+    <div class="p-5 rounded-t-2xl border-b border-slate-100 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-4">
       <div class="flex items-center gap-3.5">
         <!-- Back to All Folders Link -->
         <a href="/folders" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-800 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Back to All Campaign Folders">
@@ -124,7 +124,7 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Settings Action -->
-        <button @click="typeof openFolderSettingsModal === 'function' ? openFolderSettingsModal() : (typeof openSettingsModal !== 'undefined' ? (openSettingsModal = true) : (window.location.href = '/folders/${cleanFolderId}'))"
+        <button @click="if (typeof currentRoom !== 'undefined') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${cleanFolderId}') + '/settings'); } catch (_) {} if (typeof syncFolderSettingsFromActive === 'function') syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}') + '/settings'; }"
                 class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Folder Settings & Rules">
           <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400 dark:text-[#71717A]"></i>
@@ -142,7 +142,7 @@ export function renderCampaignWorkspaceHeader({
     </div>
 
     <!-- SSR Navigation Tabs & Live Telemetry Counters -->
-    <div class="flex items-center justify-between px-3 bg-slate-50/60 dark:bg-[#09090B]/60 border-t border-slate-100 dark:border-[#27272A] overflow-x-auto">
+    <div class="flex items-center justify-between px-3 bg-slate-50/60 dark:bg-[#09090B]/60 rounded-b-2xl border-t border-slate-100 dark:border-[#27272A] overflow-x-auto">
       <nav class="flex items-center space-x-1 shrink-0">
         <!-- Room 1: Crossover & Super-Pins -->
         <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}'))"

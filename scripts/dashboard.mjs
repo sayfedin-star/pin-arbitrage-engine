@@ -87,7 +87,14 @@ import {
   removeKeywordFromFolder,
   getFoldersForKeyword,
   calculateFolderCrossover,
-  pruneFolderPins
+  pruneFolderPins,
+  listFolderCreators,
+  listFolderCreatorsWithDiscovery,
+  linkCreatorToFolder,
+  unlinkCreatorFromFolder,
+  listFolderPinnedDomains,
+  pinDomainToFolder,
+  unpinDomainFromFolder
 } from '../src/modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
@@ -2452,7 +2459,95 @@ const server = http.createServer(async (req, res) => {
       const parts = pathname.slice(basePrefix.length).split('/').filter(Boolean);
       const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
 
-      if (method === 'GET') {
+      // A. Sub-route: /api/folders/:id/creators
+      if (parts.length >= 2 && parts[1] === 'creators') {
+        if (!folderId) return sendJson(res, 400, { success: false, error: 'Valid folder ID is required' });
+
+        // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
+        if (method === 'GET' && parts.length === 2) {
+          const withDiscovery = searchParams.get('discovery') !== 'false';
+          if (withDiscovery) {
+            const discoveryData = await listFolderCreatorsWithDiscovery(targetSql, folderId);
+            return sendJson(res, 200, {
+              success: true,
+              folder_id: folderId,
+              creators: discoveryData.all_creators,
+              linked_creators: discoveryData.linked_creators,
+              discovered_creators: discoveryData.discovered_creators,
+              totals: discoveryData.totals
+            });
+          }
+          const creators = await listFolderCreators(targetSql, folderId);
+          return sendJson(res, 200, { success: true, creators, folder_id: folderId });
+        }
+
+        // POST /api/folders/:id/creators -> linkCreatorToFolder(sql, folderId, competitorId)
+        if (method === 'POST' && parts.length === 2) {
+          const body = await parseJsonBody(req).catch(() => ({}));
+          const competitorId = body.competitor_id || body.creator_id || body.id;
+          if (!competitorId) {
+            return sendJson(res, 400, { success: false, error: 'competitor_id is required' });
+          }
+          const linked = await linkCreatorToFolder(targetSql, folderId, competitorId);
+          return sendJson(res, 200, { success: true, linked, folder_id: folderId });
+        }
+
+        // DELETE /api/folders/:id/creators/:cid -> unlinkCreatorFromFolder(sql, folderId, competitorId)
+        if (method === 'DELETE' && parts.length === 3) {
+          const competitorId = Number(parts[2]);
+          if (!competitorId) {
+            return sendJson(res, 400, { success: false, error: 'Valid creator ID is required' });
+          }
+          const unlinked = await unlinkCreatorFromFolder(targetSql, folderId, competitorId);
+          return sendJson(res, 200, { success: true, unlinked, folder_id: folderId });
+        }
+
+        return sendJson(res, 405, { success: false, error: 'Method not allowed on /creators' });
+      }
+
+      // B. Sub-route: /api/folders/:id/domains
+      if (parts.length >= 2 && parts[1] === 'domains') {
+        if (!folderId) return sendJson(res, 400, { success: false, error: 'Valid folder ID is required' });
+
+        // GET /api/folders/:id/domains -> listFolderPinnedDomains(sql, folderId)
+        if (method === 'GET' && parts.length === 2) {
+          const domains = await listFolderPinnedDomains(targetSql, folderId);
+          return sendJson(res, 200, { success: true, domains, pinned_domains: domains, folder_id: folderId });
+        }
+
+        // POST /api/folders/:id/domains -> pinDomainToFolder(sql, folderId, domain, notes)
+        if (method === 'POST' && parts.length === 2) {
+          const body = await parseJsonBody(req).catch(() => ({}));
+          const domain = body.domain;
+          if (!domain) {
+            return sendJson(res, 400, { success: false, error: 'domain is required' });
+          }
+          const pinned = await pinDomainToFolder(targetSql, folderId, domain, body.notes || '');
+          return sendJson(res, 200, { success: true, pinned, folder_id: folderId });
+        }
+
+        // DELETE /api/folders/:id/domains/:domain -> unpinDomainFromFolder(sql, folderId, domain)
+        if (method === 'DELETE' && parts.length >= 3) {
+          const domain = decodeURIComponent(parts.slice(2).join('/'));
+          if (!domain) {
+            return sendJson(res, 400, { success: false, error: 'domain is required' });
+          }
+          const unpinned = await unpinDomainFromFolder(targetSql, folderId, domain);
+          return sendJson(res, 200, { success: true, unpinned, folder_id: folderId });
+        }
+
+        return sendJson(res, 405, { success: false, error: 'Method not allowed on /domains' });
+      }
+
+      if (parts.length >= 2 && parts[1] === 'prune-pins') {
+        if (!folderId) return sendJson(res, 400, { success: false, error: 'Valid folder ID is required' });
+        if (method !== 'POST') return sendJson(res, 405, { success: false, error: 'Method not allowed' });
+        const body = await parseJsonBody(req).catch(() => ({}));
+        const result = await pruneFolderPins(targetSql, folderId, body, { env: process.env });
+        return sendJson(res, 200, result);
+      }
+
+      if (method === 'GET' && parts.length <= 1) {
         if (folderId) {
           const folder = await getFolder(targetSql, folderId);
           if (!folder) return sendJson(res, 404, { error: 'Folder not found' });
@@ -2464,27 +2559,19 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, folders });
       }
 
-      if (parts.length >= 2 && parts[1] === 'prune-pins') {
-        if (!folderId) return sendJson(res, 400, { success: false, error: 'Valid folder ID is required' });
-        if (method !== 'POST') return sendJson(res, 405, { success: false, error: 'Method not allowed' });
-        const body = await parseJsonBody(req).catch(() => ({}));
-        const result = await pruneFolderPins(targetSql, folderId, body, { env: process.env });
-        return sendJson(res, 200, result);
-      }
-
       if (method === 'POST' && parts.length === 0) {
         const body = await parseJsonBody(req);
         const created = await createFolder(targetSql, body);
         return sendJson(res, 200, { success: true, folder: created });
       }
 
-      if ((method === 'PUT' || method === 'PATCH') && folderId) {
+      if ((method === 'PUT' || method === 'PATCH') && folderId && parts.length === 1) {
         const body = await parseJsonBody(req);
         const updated = await updateFolder(targetSql, folderId, body);
         return sendJson(res, 200, { success: true, folder: updated });
       }
 
-      if (method === 'DELETE' && folderId) {
+      if (method === 'DELETE' && folderId && parts.length === 1) {
         const deleted = await deleteFolder(targetSql, folderId);
         return sendJson(res, 200, { success: true, deleted });
       }
@@ -2830,6 +2917,10 @@ const server = http.createServer(async (req, res) => {
 
     // 8B. GET or HEAD /folders or /folders/:id -> Dedicated Campaign Folders Studio & Scoped Rooms
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/folders' || pathname.startsWith('/folders/'))) {
+      if (method === 'HEAD') {
+        res.writeHead(200, HTML_SECURITY_HEADERS);
+        return res.end();
+      }
       const segments = pathname.split('/').filter(Boolean);
       let folderId = segments[1] || '';
       try { folderId = decodeURIComponent(folderId); } catch (_) {}
@@ -2837,7 +2928,7 @@ const server = http.createServer(async (req, res) => {
 
       let html;
       if (!folderId) {
-        html = getCampaignFoldersPageHtml();
+        html = getCampaignFoldersPageHtml('');
       } else if (!room) {
         // Room 1: /folders/:id -> Crossover & Super-Pins Room
         html = getCampaignFoldersPageHtml(folderId);
@@ -2916,7 +3007,15 @@ const server = http.createServer(async (req, res) => {
         return sendHtml(res, method, html);
       }
       if (slugLower === 'folders') {
-        const html = getCampaignFoldersPageHtml();
+        if (method === 'HEAD') {
+          res.writeHead(200, HTML_SECURITY_HEADERS);
+          return res.end();
+        }
+        const segments = pathname.split('/').filter(Boolean);
+        const folderId = segments[2] || '';
+        let cleanFolderId = folderId;
+        try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
+        const html = getCampaignFoldersPageHtml(cleanFolderId);
         return sendHtml(res, method, html);
       }
       if (slugLower === 'domains') {

@@ -30,7 +30,10 @@ import {
   preloadNeonRegistry,
   syncPinAcrossAllFourPillars,
   fetchUniversalPinDossier,
-  fetchPinTrajectoryFromShard
+  fetchPinTrajectoryFromShard,
+  isUnifiedPostgres,
+  isMultiStageHydrationJump,
+  sanitizeDossierTrajectory
 } from '../sharding/fleet-router.mjs';
 
 /**
@@ -138,12 +141,18 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
   // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
   const CONCURRENCY = 4;
 
+  if (hubSql) {
+    try {
+      await preloadNeonRegistry(hubSql, env);
+    } catch (_) {}
+  }
+
   for (let i = 0; i < shardEntries.length; i += CONCURRENCY) {
     const chunk = shardEntries.slice(i, i + CONCURRENCY);
     await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
       try {
         const shardSql = await resolveShardConnection({ hubSql, shardId, env });
-        if (!shardSql || shardSql === hubSql) return;
+        if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return;
         const sorted = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
         const payload = JSON.stringify(sorted);
 
@@ -274,9 +283,9 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
 }
 
 /**
- * Batch-hydrates slim displaced index rows with creative metadata from their deterministic shards
+ * Batch-hydrates slim displaced index rows with creative metadata from Hub and deterministic shards
  */
-export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false) {
+export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false, ctx = null) {
   if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
   const needsHydration = indexRows.filter(r => !r.title && !r.image_url);
   if (needsHydration.length === 0) return indexRows;
@@ -294,7 +303,34 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       }
     }
 
-    // 2. Only query Neon Shards for pins that were not found in Cloudflare D1 (bypassed if skipShardHydration=true)
+    // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
+    const missingAfterD1 = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
+    if (hubSql && missingAfterD1.length > 0) {
+      const missingIds = missingAfterD1.map(r => String(r.pin_id));
+      try {
+        const hubRows = await hubSql`
+          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, '' as board_name, dominant_color, visual_annotations, created_at_pinterest
+          FROM keyword_serp_current
+          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          UNION ALL
+          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, board_name, dominant_color, visual_annotations, created_at_pinterest
+          FROM competitor_pins
+          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          UNION ALL
+          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, board_name, dominant_color, visual_annotations, created_at_pinterest
+          FROM pa_pins
+          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          LIMIT 100;
+        `.catch(() => []);
+        for (const hr of (hubRows || [])) {
+          if ((hr.title || hr.image_url) && !masterMap.has(String(hr.pin_id))) {
+            masterMap.set(String(hr.pin_id), hr);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Only query Neon Shards for pins that were not found in Cloudflare D1 or Hub
     const stillMissing = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
     if (!skipShardHydration && stillMissing.length > 0) {
       await preloadNeonRegistry(hubSql, env);
@@ -304,36 +340,49 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
       const shardEntries = Array.from(shardGroups.entries());
       const CONCURRENCY_LIMIT = 4;
-      for (let i = 0; i < shardEntries.length; i += CONCURRENCY_LIMIT) {
-        const chunk = shardEntries.slice(i, i + CONCURRENCY_LIMIT);
-        await Promise.allSettled(
-          chunk.map(async ([shardId, pins]) => {
-            const pids = pins.map(p => String(p.pin_id));
-            const shardSql = await resolveShardConnection({ hubSql, shardId, env });
-            if (!shardSql || shardSql === hubSql) return;
-            const rows = await executeShardQueryWithCircuitBreaker({
-              shardId,
-              shardSql,
-              // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
-              timeoutMs: 2000,
-              queryFn: async (client) => {
-                return await client`
-                  SELECT pin_id, title, domain, destination_url, image_url,
-                         creator_username, board_name, dominant_color,
-                         visual_annotations, alt_text, description, created_at_pinterest
-                  FROM universal_master_pins
-                  WHERE pin_id = ANY(${pids});
-                `;
-              },
-              fallbackFn: async () => []
-            });
-            for (const r of (rows || [])) {
-              masterMap.set(String(r.pin_id), r);
-              newlyHydratedFromShards.push(r);
-            }
-          })
-        );
-      }
+      const SCATTER_GATHER_DEADLINE_MS = 2200;
+
+      const scatterGatherTask = (async () => {
+        for (let i = 0; i < shardEntries.length; i += CONCURRENCY_LIMIT) {
+          const chunk = shardEntries.slice(i, i + CONCURRENCY_LIMIT);
+          await Promise.allSettled(
+            chunk.map(async ([shardId, pins]) => {
+              const pids = pins.map(p => String(p.pin_id));
+              const shardSql = await resolveShardConnection({ hubSql, shardId, env });
+              if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return;
+              const rows = await executeShardQueryWithCircuitBreaker({
+                shardId,
+                shardSql,
+                // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
+                timeoutMs: 2000,
+                queryFn: async (client) => {
+                  return await client`
+                    SELECT pin_id, title, domain, destination_url, image_url,
+                           creator_username, board_name, dominant_color,
+                           visual_annotations, alt_text, description, created_at_pinterest
+                    FROM universal_master_pins
+                    WHERE pin_id = ANY(${pids});
+                  `;
+                },
+                fallbackFn: async () => []
+              });
+              for (const r of (rows || [])) {
+                masterMap.set(String(r.pin_id), r);
+                newlyHydratedFromShards.push(r);
+              }
+            })
+          );
+        }
+      })();
+
+      let deadlineTimerId;
+      const deadlinePromise = new Promise(resolve => {
+        deadlineTimerId = setTimeout(resolve, SCATTER_GATHER_DEADLINE_MS);
+      });
+
+      await Promise.race([scatterGatherTask, deadlinePromise]).finally(() => {
+        if (deadlineTimerId) clearTimeout(deadlineTimerId);
+      });
 
       // Backfill Cloudflare D1 asynchronously so subsequent requests hit D1 in < 3ms with 0 Shard HTTP calls
       if (env?.PIN_D1_DB && newlyHydratedFromShards.length > 0) {
@@ -864,6 +913,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
   }
 
   if (options.force) force = Boolean(options.force);
+  const env = options?.env || maybeOptions?.env || null;
 
   // 1. Process-local fast-fail check and lock acquisition
   if (activeKeywordCrawls.has(kid) && !force) {
@@ -1882,6 +1932,24 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const shouldApplyDisplacement = !isSuspectedIncompleteCrawl && pinIds.length >= minRequiredForEviction;
 
       if (shouldApplyDisplacement) {
+        if (env?.PIN_D1_DB) {
+          // [INVARIANT: WRITE-TIME-D1-PRESERVATION]
+          // Preserve creative metadata of displaced pins in Cloudflare D1 before deletion from keyword_serp_current
+          try {
+            const displacedToPreserve = await sql`
+              SELECT pin_id, title, domain, destination_url, image_url,
+                     dominant_color, visual_annotations, description, created_at_pinterest
+              FROM keyword_serp_current
+              WHERE keyword_id = ${kid}
+                AND NOT (pin_id = ANY(${pinIds}))
+                AND (title <> '' OR image_url <> '');
+            `.catch(() => []);
+            if (displacedToPreserve && displacedToPreserve.length > 0) {
+              syncPinsBatchToD1(env, displacedToPreserve).catch(() => {});
+            }
+          } catch (_) {}
+        }
+
         // Remove any resurged pins from keyword_displaced_index
         txBatch.push((db) => db`
           DELETE FROM keyword_displaced_index
@@ -2669,12 +2737,16 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   if (!cleanPin) throw new Error('pin_id is required');
   const kid = keywordId ? Number(keywordId) : null;
 
-  const dossierKvKey = `dossier:pin:${cleanPin}:${kid || 0}`;
+  const dossierKvKey = `dossier:v3:pin:${cleanPin}:${kid || 0}`;
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-      const kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json' });
+      let kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json' });
+      if (!kvCached) {
+        kvCached = await env.PIN_ENGINE_KV.get(`dossier:pin:${cleanPin}:${kid || 0}`, { type: 'json' });
+      }
       if (kvCached && kvCached.success && kvCached.pin_id === cleanPin) {
+        sanitizeDossierTrajectory(kvCached);
         // Re-hydrate dual trajectory contract after JSON deserialization from KV
         if (Array.isArray(kvCached.trajectory) && !kvCached.trajectory.snapshots) {
           kvCached.trajectory.snapshots = kvCached.trajectory;
@@ -2734,7 +2806,9 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   const latest = rawSnaps[0] || traj[0] || {};
   const prev = rawSnaps[1] || traj[1] || latest;
 
-  const saves24h = Math.max(0, Number(latest.save_count ?? creative.save_count ?? 0) - Number(prev.save_count ?? latest.save_count ?? 0));
+  const jump24h = isMultiStageHydrationJump(prev, latest);
+  const rawSavesDiff = Number(latest.save_count ?? creative.save_count ?? 0) - Number(prev.save_count ?? latest.save_count ?? 0);
+  const saves24h = jump24h ? 0 : Math.max(0, rawSavesDiff);
   const repins24h = Math.max(0, Number(latest.repin_count ?? creative.repin_count ?? 0) - Number(prev.repin_count ?? latest.repin_count ?? 0));
   const shares24h = Math.max(0, Number(latest.share_count ?? creative.share_count ?? 0) - Number(prev.share_count ?? latest.share_count ?? 0));
   const reactions24h = Math.max(0, Number(latest.reaction_count ?? 0) - Number(prev.reaction_count ?? 0));
@@ -2808,7 +2882,11 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
 
   if (env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {
     try {
-      await env.PIN_ENGINE_KV.put(dossierKvKey, JSON.stringify(projectedDossier), { expirationTtl: 21600 });
+      const payloadStr = JSON.stringify(projectedDossier);
+      await Promise.all([
+        env.PIN_ENGINE_KV.put(dossierKvKey, payloadStr, { expirationTtl: 21600 }),
+        env.PIN_ENGINE_KV.put(`dossier:pin:${cleanPin}:${kid || 0}`, payloadStr, { expirationTtl: 21600 })
+      ]);
     } catch (_) {}
   }
 

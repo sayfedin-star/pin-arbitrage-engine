@@ -484,8 +484,8 @@ assert(
   'fleet-router.mjs must verify hasValidD1 before firing shard queries'
 );
 assert(
-  fleetRouterContent.includes('const masterPromise = hasValidD1') &&
-  fleetRouterContent.includes('? Promise.resolve(d1Record)'),
+  (fleetRouterContent.includes('const masterPromise = hasValidD1') && fleetRouterContent.includes('? Promise.resolve(d1Record)')) ||
+  fleetRouterContent.includes('hasValidD1 ? Promise.resolve([d1Record])'),
   'fleet-router.mjs must resolve masterPromise directly with d1Record when fresh, bypassing shard query'
 );
 

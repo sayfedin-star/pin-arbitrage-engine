@@ -429,8 +429,21 @@ async function inspectPin(pin, kw) {
       computedVelocity = calculateDailyVelocity({
         currentSaves: authenticSaves,
         baselineSaves,
+        currentRepins: authenticRepins,
+        baselineRepins: Number(pin.repin_count || 0),
         currentDate: new Date(),
         baselineDate: baseDateRaw,
+        createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
+        maxCap: 25000
+      });
+    } else if (rawDelta > 0 && !baseDateRaw && (pin.created_at_pinterest || detail?.created_at)) {
+      computedVelocity = calculateDailyVelocity({
+        currentSaves: authenticSaves,
+        baselineSaves: 0,
+        currentRepins: authenticRepins,
+        baselineRepins: 0,
+        currentDate: new Date(),
+        baselineDate: new Date(Date.now() - 86400000),
         createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
         maxCap: 25000
       });
@@ -1084,9 +1097,17 @@ async function flushToStorageShards(enrichedPins) {
                     WHEN prev.save_count IS NOT NULL AND prev.snapshot_date IS NOT NULL THEN
                       -- Shield against unhydrated 0-baseline jump in SQL fallback
                       CASE
-                        WHEN (COALESCE(MAX(rb.save_count), 0) - prev.save_count) > 2000
-                         AND prev.save_count < 500
-                         AND (prev.save_count = 0 OR (COALESCE(MAX(rb.save_count), 0)::numeric / GREATEST(1, prev.save_count)) > 20)
+                        WHEN prev.save_count = 0
+                          OR (
+                            (COALESCE(MAX(rb.save_count), 0) - prev.save_count) > 2000
+                            AND prev.save_count < 500
+                            AND (COALESCE(MAX(rb.save_count), 0)::numeric / GREATEST(1, prev.save_count)) > 20
+                          )
+                          OR (
+                            prev.save_count > 0 
+                            AND (COALESCE(MAX(rb.save_count), 0)::numeric / prev.save_count) >= 4.0 
+                            AND (COALESCE(MAX(rb.save_count), 0) - prev.save_count) >= 2500
+                          )
                         THEN 0::numeric
                         ELSE LEAST(
                           25000::numeric,

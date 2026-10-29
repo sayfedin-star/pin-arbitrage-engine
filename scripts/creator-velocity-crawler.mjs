@@ -323,7 +323,7 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
  * [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
  * [INVARIANT: ANTI-HYDRATION-SPIKE]
  */
-function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity) {
+function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, freshRepins = 0, prevRepins = 0) {
   const deltaSaves = Math.max(0, freshSaves - prevSaves);
   const now = new Date();
   const nowUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -360,6 +360,8 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity) 
     const computed = calculateDailyVelocity({
       currentSaves: freshSaves,
       baselineSaves: prevSaves,
+      currentRepins: freshRepins,
+      baselineRepins: prevRepins,
       currentDate: now,
       baselineDate: baseDateRaw,
       createdAt: pin.created_at_pinterest || null,
@@ -623,7 +625,7 @@ async function run() {
           const freshSaves = Math.max(prevSaves, rawFreshSaves, freshRepins);
           const freshComments = Math.max(prevComments, rawFreshComments);
 
-          const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity);
+          const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
           const deltaRepins = Math.max(0, freshRepins - prevRepins);
 
           const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
@@ -961,7 +963,7 @@ async function run() {
             const freshSaves = Math.max(prevSaves, rawFreshSaves, freshRepins);
             const freshComments = Math.max(prevComments, rawFreshComments);
 
-            const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity);
+            const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
             const deltaRepins = Math.max(0, freshRepins - prevRepins);
 
             const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)

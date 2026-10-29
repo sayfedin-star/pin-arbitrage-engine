@@ -39,6 +39,7 @@ import { getQualificationRules, isPinQualified } from '../src/modules/creators/s
 import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
 import { enforceNeonPoolerUrl, batchGroupByShard, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
+import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
 let undiciAgent = null;
 try {
@@ -1361,8 +1362,8 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               if ((!velocity || velocity <= 0) && saves > 0 && createdAtPinterest) {
                 const cTime = new Date(createdAtPinterest).getTime();
                 if (!isNaN(cTime)) {
-                  const elapsedDays = Math.max(1, Math.round((Date.now() - cTime) / 86400000));
-                  velocity = Math.round((saves / elapsedDays) * 10) / 10;
+                  const elapsedDays = (Date.now() - cTime) / 86400000;
+                  velocity = elapsedDays >= 2 ? Math.min(25000, Math.round((saves / elapsedDays) * 10) / 10) : 0;
                 }
               }
 
@@ -1835,8 +1836,22 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                 let velocity;
                 if (isSameDay && deltaSaves === 0) {
                   velocity = prevVelocity;
-                } else if (isSameDay && deltaSaves > 0) {
+                } else if (isSameDay && deltaSaves > 0 && prevSaves > 0) {
                   velocity = Math.max(prevVelocity, deltaSaves);
+                } else if (baselineDateVal && (prevSaves > 0 || p.created_at_pinterest)) {
+                  // [INVARIANT: ANTI-HYDRATION-SPIKE] Delegate to canonical velocity function with 0-baseline protection
+                  velocity = calculateDailyVelocity({
+                    currentSaves: freshSaves,
+                    baselineSaves: prevSaves,
+                    currentRepins: freshRepins,
+                    baselineRepins: prevRepins,
+                    currentDate: now,
+                    baselineDate: baselineDateVal,
+                    createdAt: p.created_at_pinterest || null,
+                    maxCap: 25000
+                  });
+                } else if (prevSaves <= 0 && !p.created_at_pinterest) {
+                  velocity = 0;
                 } else {
                   velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10;
                 }

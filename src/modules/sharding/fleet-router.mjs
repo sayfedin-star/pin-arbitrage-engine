@@ -142,6 +142,7 @@ export const registryCache = globalShardMap; // Backward compatibility alias
 export let globalShardMapLastFetched = 0;
 export const SHARD_MAP_TTL_MS = 10 * 60 * 1000; // 10 minutes (600,000ms)
 let inflightShardMapPromise = null;
+export let shardMapWarmupPromise = null;
 
 // Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
 export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task', timeoutMs = 25000) {
@@ -571,59 +572,68 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
  * @returns {Promise<number>} Number of shard mappings loaded
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
-  const now = Date.now();
-  try {
-    let rows = null;
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
-        if (Array.isArray(kvData) && kvData.length > 0) {
-          const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
-          if (!isPoisoned) {
-            rows = kvData;
-          } else {
-            console.warn('[preloadNeonRegistry] Evicting poisoned fleet:shards_map KV...');
-            env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
+  if (shardMapWarmupPromise) {
+    return await shardMapWarmupPromise;
+  }
+  shardMapWarmupPromise = (async () => {
+    const now = Date.now();
+    try {
+      let rows = null;
+      if (env?.PIN_ENGINE_KV) {
+        try {
+          const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+          if (Array.isArray(kvData) && kvData.length > 0) {
+            const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
+            if (!isPoisoned) {
+              rows = kvData;
+            } else {
+              console.warn('[preloadNeonRegistry] Evicting poisoned fleet:shards_map KV...');
+              env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (!rows && hubSql) {
+        rows = await hubSql`
+          SELECT id, project_id, project_name, database_url, status, assigned_shards
+          FROM neon_projects_registry
+          WHERE status = 'active';
+        `;
+        if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
+          env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
+        }
+      }
+
+      if (!rows) return 0;
+      let loaded = 0;
+      for (const row of rows) {
+        if (!isValidShardDsn(row.database_url)) continue;
+        const shardsList = normalizeAssignedShards(row.assigned_shards);
+        for (const sid of shardsList) {
+          globalShardMap.set(sid, { ...row, cachedAt: now });
+          loaded++;
+        }
+        const match = row.project_name?.match(/shard-(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num)) {
+            globalShardMap.set(num, { ...row, cachedAt: now });
           }
         }
-      } catch (_) {}
-    }
-
-    if (!rows && hubSql) {
-      rows = await hubSql`
-        SELECT id, project_id, project_name, database_url, status, assigned_shards
-        FROM neon_projects_registry
-        WHERE status = 'active';
-      `;
-      if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
-        env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
       }
+      globalShardMapLastFetched = now;
+      return loaded;
+    } catch (err) {
+      console.warn('[fleet-router] preloadNeonRegistry non-fatal warning:', err.message);
+      return 0;
+    } finally {
+      shardMapWarmupPromise = null;
     }
-
-    if (!rows) return 0;
-    let loaded = 0;
-    for (const row of rows) {
-      if (!isValidShardDsn(row.database_url)) continue;
-      const shardsList = normalizeAssignedShards(row.assigned_shards);
-      for (const sid of shardsList) {
-        globalShardMap.set(sid, { ...row, cachedAt: now });
-        loaded++;
-      }
-      const match = row.project_name?.match(/shard-(\d+)/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num)) {
-          globalShardMap.set(num, { ...row, cachedAt: now });
-        }
-      }
-    }
-    globalShardMapLastFetched = now;
-    return loaded;
-  } catch (err) {
-    console.warn('[fleet-router] preloadNeonRegistry non-fatal warning:', err.message);
-    return 0;
-  }
+  })();
+  return await shardMapWarmupPromise;
 }
+
 
 /**
  * 3. Cold-Start Immunity & Circuit-Breaker Executor
@@ -892,6 +902,136 @@ export async function getFolderCrossoverSynopsis(hubSql, folderId) {
 }
 
 /**
+ * Multi-Stage Hydration Jump Detector
+ * Evaluates whether a transition from previous telemetry to current telemetry
+ * represents an authentic 24h delta vs. a multi-stage hydration jump:
+ * 1. prev.save_count === 0 && curr.save_count > 0
+ * 2. prev.save_count < prev.repin_count
+ * 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+ * 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
+ * 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+ */
+export function isMultiStageHydrationJump(prev, curr) {
+  if (!prev || !curr) return false;
+  const pSaves = Number(prev.save_count || 0);
+  const cSaves = Number(curr.save_count || 0);
+  const pRepins = Number(prev.repin_count || 0);
+  const cRepins = Number(curr.repin_count || 0);
+
+  // 1. prev.save_count === 0 && curr.save_count > 0
+  if (pSaves === 0 && cSaves > 0) return true;
+
+  // 2. prev.save_count < prev.repin_count
+  if (pSaves < pRepins) return true;
+
+  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  if (pRepins > 0 && pSaves === pRepins && cSaves > cRepins * 1.35) return true;
+
+  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
+  if (pRepins === 0 && cRepins >= 25 && cSaves >= pSaves * 2.5) return true;
+
+  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+  if (pSaves > 0 && (cSaves / pSaves) >= 4.0 && (cSaves - pSaves) >= 2500) return true;
+
+  return false;
+}
+
+/**
+ * In-memory trajectory sanitizer for Pin Dossier payloads (including KV & D1 hits).
+ * Guarantees zero [SERP #null] badges and suppresses multi-stage hydration velocity explosions.
+ */
+export function sanitizeDossierTrajectory(dossier) {
+  if (!dossier || typeof dossier !== 'object') return dossier;
+  const traj = Array.isArray(dossier.daily_trajectory)
+    ? dossier.daily_trajectory
+    : (Array.isArray(dossier.trajectory) ? dossier.trajectory : (Array.isArray(dossier.snapshots) ? dossier.snapshots : null));
+  if (!Array.isArray(traj) || traj.length === 0) return dossier;
+
+  const chrono = [...traj].sort((a, b) => String(a.snapshot_date || '').localeCompare(String(b.snapshot_date || '')));
+  let runningMax = 0;
+  for (const d of chrono) {
+    const s = Number(d.save_count || 0);
+    if (s < runningMax) {
+      d.save_count = runningMax;
+    } else {
+      runningMax = s;
+    }
+  }
+
+  if (chrono[0] && chrono[0].is_hydration_jump === undefined) {
+    chrono[0].is_hydration_jump = false;
+  }
+
+  const master = dossier.master || dossier.pin || dossier.creative || dossier;
+  for (let i = 1; i < chrono.length; i++) {
+    const prev = chrono[i - 1];
+    const curr = chrono[i];
+    const isJump = isMultiStageHydrationJump(prev, curr);
+    if (isJump) {
+      curr.is_hydration_jump = true;
+      curr.velocity_mode = 'hydration_amortized';
+      const pinCreatedAt = (master?.created_at_pinterest || curr.created_at_pinterest)
+        ? new Date(master?.created_at_pinterest || curr.created_at_pinterest)
+        : null;
+      const currDate = new Date(curr.snapshot_date);
+      if (pinCreatedAt && !isNaN(pinCreatedAt.getTime())) {
+        const ageMs = currDate.getTime() - pinCreatedAt.getTime();
+        const ageDays = Math.round(ageMs / 86400000);
+        if (ageDays >= 2) {
+          curr.daily_save_velocity = Math.round((Number(curr.save_count || 0) / ageDays) * 10) / 10;
+        } else {
+          curr.daily_save_velocity = 0;
+        }
+      } else {
+        curr.daily_save_velocity = 0;
+      }
+    } else {
+      curr.is_hydration_jump = false;
+      if (!curr.velocity_mode) curr.velocity_mode = 'normal';
+      const currDate = new Date(curr.snapshot_date);
+      const prevDate = new Date(prev.snapshot_date);
+      const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
+      const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
+      if (diff <= 0) {
+        curr.daily_save_velocity = 0;
+      } else if (curr.daily_save_velocity === undefined || curr.daily_save_velocity === null || curr.daily_save_velocity > 25000) {
+        curr.daily_save_velocity = Math.round((diff / elapsed) * 10) / 10;
+      }
+    }
+  }
+
+  for (const day of chrono) {
+    if (Array.isArray(day.ranking_keywords)) {
+      for (const kw of day.ranking_keywords) {
+        const rawRank = Number(kw.rank_position ?? kw.rank ?? kw.live_serp_rank);
+        const hasPos = Number.isFinite(rawRank) && rawRank >= 1;
+        if (!hasPos) {
+          kw.is_displaced = true;
+          const fallback = Number(kw.vault_rank || kw.last_known_rank || kw.rank || 1) || 1;
+          kw.last_known_rank = fallback;
+          kw.vault_rank = fallback;
+          kw.rank = fallback;
+          kw.live_serp_rank = null;
+        } else if (kw.is_displaced) {
+          kw.vault_rank = Number(kw.vault_rank || kw.last_known_rank || rawRank) || 1;
+          kw.live_serp_rank = null;
+        } else {
+          kw.live_serp_rank = rawRank;
+          kw.vault_rank = null;
+          kw.rank = rawRank;
+        }
+      }
+    }
+  }
+
+  const desc = [...chrono].reverse();
+  if (Array.isArray(dossier.daily_trajectory)) dossier.daily_trajectory = desc;
+  if (Array.isArray(dossier.trajectory)) dossier.trajectory = desc;
+  if (Array.isArray(dossier.snapshots)) dossier.snapshots = desc;
+  return dossier;
+}
+
+/**
  * 7. Universal 4-Pillar Pin Dossier Aggregator
  * Gathers a unified intelligence dossier across all 4 pillars for any pin:
  * - Pillar 1: Creator & Board Context (Competitor handle, board slug, qualification)
@@ -913,8 +1053,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // L1.5 Tier: Check Cloudflare Workers KV dossier cache (< 1.5ms) before touching any databases
   if (env?.PIN_ENGINE_KV && !bypassEdgeCache) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier?pin_id=${cleanPinId}`, { type: 'json' });
+      const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier:v3?pin_id=${cleanPinId}`, { type: 'json' });
       if (kvCached && kvCached.success && kvCached.creative && Array.isArray(kvCached.daily_trajectory)) {
+        sanitizeDossierTrajectory(kvCached);
         return { ...kvCached, source: 'edge_kv' };
       }
     } catch (_) {}
@@ -997,80 +1138,82 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     )
   );
 
+  // t=0 Concurrent Dispatch: Dispatch Hub queries, competitor join, and Shard resolution concurrently!
+  const hubSerpPromise = hubSql`
+    SELECT 
+      sc.keyword_id, sc.pin_id, sc.title, sc.domain, sc.destination_url, sc.image_url,
+      sc.creator_username, sc.board_name, sc.save_count, sc.repin_count,
+      COALESCE(sc.comment_count, 0) as comment_count,
+      COALESCE(sc.share_count, 0) as share_count,
+      0 as reaction_count,
+      sc.daily_save_velocity, sc.dominant_color, sc.visual_annotations,
+      sc.rank_position, sc.prev_rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
+      COALESCE(sc.crawled_at, sc.updated_at) as crawled_at,
+      sc.updated_at,
+      sc.baseline_day_saves, sc.baseline_day_date,
+      tk.keyword AS keyword_name,
+      sc.creation_method,
+      sc.created_at_pinterest,
+      cprof.id as competitor_id,
+      cprof.username as competitor_username,
+      cprof.display_name as competitor_display_name,
+      cprof.is_active as competitor_active
+    FROM keyword_serp_current sc
+    LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
+    LEFT JOIN competitor_profiles cprof ON cprof.username = sc.creator_username
+    WHERE sc.pin_id = ${cleanPinId}
+    UNION ALL
+    SELECT 
+      kdi.keyword_id, kdi.pin_id, '' as title, '' as domain, '' as destination_url, '' as image_url,
+      '' as creator_username, '' as board_name, kdi.save_count, kdi.repin_count,
+      COALESCE(kdi.comment_count, 0) as comment_count,
+      COALESCE(kdi.share_count, 0) as share_count,
+      0 as reaction_count,
+      kdi.daily_save_velocity, '#888888' as dominant_color, '[]'::jsonb as visual_annotations,
+      NULL::int as rank_position, NULL::int as prev_rank_position, kdi.last_known_rank,
+      TRUE as is_displaced, '{}'::jsonb as metadata,
+      kdi.updated_at as crawled_at, kdi.updated_at,
+      NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
+      tk.keyword AS keyword_name,
+      NULL::text as creation_method,
+      NULL::timestamptz as created_at_pinterest,
+      NULL::bigint as competitor_id,
+      NULL::text as competitor_username,
+      NULL::text as competitor_display_name,
+      NULL::boolean as competitor_active
+    FROM keyword_displaced_index kdi
+    LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
+    WHERE kdi.pin_id = ${cleanPinId}
+      AND NOT EXISTS (
+        SELECT 1 FROM keyword_serp_current sc2
+        WHERE sc2.pin_id = kdi.pin_id AND sc2.keyword_id = kdi.keyword_id
+      )
+    ORDER BY save_count DESC;
+  `.catch(() => []);
+
+  const hubCompetitorPromise = hubSql`
+    SELECT 
+      cp.competitor_id, 
+      cprof.username as competitor_username, 
+      cprof.display_name, 
+      cprof.is_active as competitor_active
+    FROM competitor_pins cp
+    JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
+    WHERE cp.pin_id = ${cleanPinId}
+    LIMIT 1;
+  `.catch(() => []);
+
   let shardSql = null;
-  if (!hasValidTrajectoryFromD1) {
-    try {
-      shardSql = await resolveShardConnection({ hubSql, shardId, env });
-    } catch (_) {
-      shardSql = hubSql; // Graceful degradation to Hub
-    }
-  }
+  const shardResolutionPromise = !hasValidTrajectoryFromD1
+    ? resolveShardConnection({ hubSql, shardId, env }).catch(() => hubSql)
+    : Promise.resolve(null);
 
-  // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
-  // Resolve master record: When fresh D1 record exists (or multi-day trajectory cached), resolve directly from D1
-  const masterPromise = hasValidD1
-    ? Promise.resolve(d1Record)
-    : executeShardQueryWithCircuitBreaker({
-        shardId,
-        shardSql,
-        bypassBreaker: bypassEdgeCache,
-        queryFn: async (sqlClient) => {
-          const [row] = await sqlClient`
-            SELECT 
-              pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
-              image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-              first_discovered_pillar, first_discovered_at, updated_at,
-              COALESCE(metadata, '{}'::jsonb) AS metadata
-            FROM universal_master_pins
-            WHERE pin_id = ${cleanPinId}
-            LIMIT 1;
-          `;
-          if (!row) return null;
-          const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
-          return {
-            ...row,
-            creation_method: meta.creation_method || meta.method || null
-          };
-        },
-        fallbackFn: async (info) => {
-          shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
-          shardErrorMessage = info?.error?.message || null;
-          return d1Record || null;
-        },
-        timeoutMs: 8500,
-        batchId: dossierBatchId
-      });
-
-  // Zero-Wakeup Shard Immunity: When D1 contains a valid cached multi-day daily_trajectory,
-  // unpack into snapshot records directly from edge D1 mirror without touching the dormant storage shard.
-  let snapshotsPromise;
-  if (hasValidTrajectoryFromD1 && Array.isArray(d1Record?.daily_trajectory)) {
-    const expandedFromD1 = [];
-    for (const day of d1Record.daily_trajectory) {
-      const kws = Array.isArray(day.ranking_keywords) ? day.ranking_keywords : [];
-      if (kws.length === 0) {
-        expandedFromD1.push({
-          pin_id: cleanPinId,
-          snapshot_date: day.snapshot_date,
-          save_count: Number(day.save_count) || 0,
-          repin_count: Number(day.repin_count) || 0,
-          comment_count: Number(day.comment_count) || 0,
-          share_count: Number(day.share_count) || 0,
-          reaction_count: Number(day.reaction_count) || 0,
-          daily_save_velocity: Number(day.daily_save_velocity) || 0,
-          best_rank: day.best_rank,
-          keyword_id: null,
-          keyword_name: null,
-          rank_position: null,
-          is_displaced: false,
-          last_known_rank: null,
-          catalog_rank: null,
-          created_at: day.updated_at || day.crawled_at,
-          crawled_at: day.crawled_at,
-          updated_at: day.updated_at
-        });
-      } else {
-        for (const kw of kws) {
+  const shardDataPromise = (async () => {
+    if (hasValidTrajectoryFromD1 && Array.isArray(d1Record?.daily_trajectory)) {
+      const expandedFromD1 = [];
+      for (const day of d1Record.daily_trajectory) {
+        const kws = Array.isArray(day.ranking_keywords) ? day.ranking_keywords : [];
+        if (kws.length === 0) {
           expandedFromD1.push({
             pin_id: cleanPinId,
             snapshot_date: day.snapshot_date,
@@ -1080,64 +1223,77 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             share_count: Number(day.share_count) || 0,
             reaction_count: Number(day.reaction_count) || 0,
             daily_save_velocity: Number(day.daily_save_velocity) || 0,
-            best_rank: day.best_rank,
-            keyword_id: kw.keyword_id,
-            keyword_name: kw.keyword,
-            rank_position: kw.rank_position ?? kw.rank ?? null,
-            last_known_rank: kw.last_known_rank ?? kw.rank ?? null,
-            catalog_rank: kw.catalog_rank || null,
-            is_displaced: Boolean(kw.is_displaced),
+            keyword_id: null,
+            rank_position: null,
+            is_displaced: false,
+            last_known_rank: null,
+            catalog_rank: null,
             created_at: day.updated_at || day.crawled_at,
             crawled_at: day.crawled_at,
             updated_at: day.updated_at
           });
+        } else {
+          for (const kw of kws) {
+            expandedFromD1.push({
+              pin_id: cleanPinId,
+              snapshot_date: day.snapshot_date,
+              save_count: Number(day.save_count) || 0,
+              repin_count: Number(day.repin_count) || 0,
+              comment_count: Number(day.comment_count) || 0,
+              share_count: Number(day.share_count) || 0,
+              reaction_count: Number(day.reaction_count) || 0,
+              daily_save_velocity: Number(day.daily_save_velocity) || 0,
+              keyword_id: kw.keyword_id,
+              rank_position: kw.rank_position ?? kw.rank ?? null,
+              last_known_rank: kw.last_known_rank ?? kw.rank ?? null,
+              catalog_rank: kw.catalog_rank || null,
+              is_displaced: Boolean(kw.is_displaced),
+              created_at: day.updated_at || day.crawled_at,
+              crawled_at: day.crawled_at,
+              updated_at: day.updated_at
+            });
+          }
         }
       }
+      return { master: d1Record, snapshots: expandedFromD1 };
     }
-    snapshotsPromise = Promise.resolve(expandedFromD1);
-  } else {
-    snapshotsPromise = executeShardQueryWithCircuitBreaker({
+
+    const resolvedShardSql = await shardResolutionPromise;
+    shardSql = resolvedShardSql;
+
+    return await executeShardQueryWithCircuitBreaker({
       shardId,
-      shardSql,
+      shardSql: resolvedShardSql,
       bypassBreaker: bypassEdgeCache,
       queryFn: async (sqlClient) => {
-          // 1. Query Two-Tier view pins_daily_rollups_v2 first
-          try {
-            const rollups = await sqlClient`
-              SELECT 
-                pin_id, snapshot_date::text AS snapshot_date, save_count, repin_count,
-                comment_count, share_count, reaction_count, daily_save_velocity,
-                updated_at, serp_rankings
-              FROM pins_daily_rollups_v2
-              WHERE pin_id = ${cleanPinId}
-              ORDER BY snapshot_date DESC
-              LIMIT 90;
-            `;
-            if (rollups && rollups.length > 0) {
-              const expanded = [];
-              for (const r of rollups) {
-                const rankings = Array.isArray(r.serp_rankings) ? r.serp_rankings : [];
-                if (rankings.length === 0) {
-                  expanded.push({
-                    pin_id: r.pin_id,
-                    snapshot_date: r.snapshot_date,
-                    save_count: Number(r.save_count) || 0,
-                    repin_count: Number(r.repin_count) || 0,
-                    comment_count: Number(r.comment_count) || 0,
-                    share_count: Number(r.share_count) || 0,
-                    reaction_count: Number(r.reaction_count) || 0,
-                    daily_save_velocity: Number(r.daily_save_velocity) || 0,
-                    keyword_id: null,
-                    rank_position: null,
-                    is_displaced: false,
-                    last_known_rank: null,
-                    catalog_rank: null,
-                    created_at: r.updated_at,
-                    crawled_at: r.updated_at,
-                    updated_at: r.updated_at
-                  });
-                } else {
-                  for (const pos of rankings) {
+        const [masterRowArr, rollupsOrSnaps] = await Promise.all([
+          hasValidD1 ? Promise.resolve([d1Record]) : sqlClient`
+            SELECT 
+              pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
+              image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
+              first_discovered_pillar, first_discovered_at, updated_at,
+              COALESCE(metadata, '{}'::jsonb) AS metadata
+            FROM universal_master_pins
+            WHERE pin_id = ${cleanPinId}
+            LIMIT 1;
+          `.catch(() => []),
+          (async () => {
+            try {
+              const rollups = await sqlClient`
+                SELECT 
+                  pin_id, snapshot_date::text AS snapshot_date, save_count, repin_count,
+                  comment_count, share_count, reaction_count, daily_save_velocity,
+                  updated_at, serp_rankings
+                FROM pins_daily_rollups_v2
+                WHERE pin_id = ${cleanPinId}
+                ORDER BY snapshot_date DESC
+                LIMIT 90;
+              `;
+              if (rollups && rollups.length > 0) {
+                const expanded = [];
+                for (const r of rollups) {
+                  const rankings = Array.isArray(r.serp_rankings) ? r.serp_rankings : [];
+                  if (rankings.length === 0) {
                     expanded.push({
                       pin_id: r.pin_id,
                       snapshot_date: r.snapshot_date,
@@ -1147,98 +1303,95 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
                       share_count: Number(r.share_count) || 0,
                       reaction_count: Number(r.reaction_count) || 0,
                       daily_save_velocity: Number(r.daily_save_velocity) || 0,
-                      keyword_id: pos.keyword_id,
-                      rank_position: pos.rank_position,
-                      is_displaced: Boolean(pos.is_displaced),
-                      last_known_rank: pos.last_known_rank,
-                      catalog_rank: pos.catalog_rank,
+                      keyword_id: null,
+                      rank_position: null,
+                      is_displaced: false,
+                      last_known_rank: null,
+                      catalog_rank: null,
                       created_at: r.updated_at,
                       crawled_at: r.updated_at,
                       updated_at: r.updated_at
                     });
+                  } else {
+                    for (const pos of rankings) {
+                      expanded.push({
+                        pin_id: r.pin_id,
+                        snapshot_date: r.snapshot_date,
+                        save_count: Number(r.save_count) || 0,
+                        repin_count: Number(r.repin_count) || 0,
+                        comment_count: Number(r.comment_count) || 0,
+                        share_count: Number(r.share_count) || 0,
+                        reaction_count: Number(r.reaction_count) || 0,
+                        daily_save_velocity: Number(r.daily_save_velocity) || 0,
+                        keyword_id: pos.keyword_id,
+                        rank_position: pos.rank_position,
+                        is_displaced: Boolean(pos.is_displaced),
+                        last_known_rank: pos.last_known_rank,
+                        catalog_rank: pos.catalog_rank,
+                        created_at: r.updated_at,
+                        crawled_at: r.updated_at,
+                        updated_at: r.updated_at
+                      });
+                    }
                   }
                 }
+                return expanded;
               }
-              return expanded;
-            }
-          } catch (_) {}
+            } catch (_) {}
 
-          // 2. Graceful fallback to legacy pins_daily_snapshots
-          const rows = await sqlClient`
-            SELECT 
-              id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
-              comment_count, share_count, reaction_count, daily_save_velocity,
-              keyword_id, competitor_id, created_at, created_at AS crawled_at, created_at AS updated_at
-            FROM pins_daily_snapshots
-            WHERE pin_id = ${cleanPinId}
-            ORDER BY snapshot_date DESC, created_at DESC
-            LIMIT 90;
-          `;
-          return rows;
-        },
-        fallbackFn: async (info) => {
-          if (!shardErrorReason) shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
-          if (!shardErrorMessage) shardErrorMessage = info?.error?.message || null;
-          return [];
-        },
-        timeoutMs: 8500,
-        batchId: dossierBatchId
-      });
-  }
+            return await sqlClient`
+              SELECT 
+                id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
+                comment_count, share_count, reaction_count, daily_save_velocity,
+                keyword_id, competitor_id, created_at, created_at AS crawled_at, created_at AS updated_at
+              FROM pins_daily_snapshots
+              WHERE pin_id = ${cleanPinId}
+              ORDER BY snapshot_date DESC, created_at DESC
+              LIMIT 90;
+            `.catch(() => []);
+          })()
+        ]);
+
+        const row = masterRowArr[0] || null;
+        let masterData = null;
+        if (row) {
+          const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
+          masterData = {
+            ...row,
+            creation_method: meta.creation_method || meta.method || null
+          };
+        } else if (d1Record) {
+          masterData = d1Record;
+        }
+
+        return {
+          master: masterData,
+          snapshots: rollupsOrSnaps || []
+        };
+      },
+      fallbackFn: async (info) => {
+        shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+        shardErrorMessage = info?.error?.message || null;
+        return { master: d1Record || null, snapshots: [] };
+      },
+      timeoutMs: 8500,
+      batchId: dossierBatchId
+    });
+  })();
 
   const [
-    initialMaster,
-    initialSnapshots,
+    shardData,
     hubSerpRowsRaw,
-    hubSnapshotsRaw
+    hubCompetitorRowsRaw
   ] = await Promise.all([
-    masterPromise,
-    snapshotsPromise,
-    hubSql`
-      SELECT 
-        sc.keyword_id, sc.pin_id, sc.title, sc.domain, sc.destination_url, sc.image_url,
-        sc.creator_username, sc.board_name, sc.save_count, sc.repin_count,
-        COALESCE(sc.comment_count, 0) as comment_count,
-        COALESCE(sc.share_count, 0) as share_count,
-        0 as reaction_count,
-        sc.daily_save_velocity, sc.dominant_color, sc.visual_annotations,
-        sc.rank_position, sc.prev_rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
-        COALESCE(sc.crawled_at, sc.updated_at) as crawled_at,
-        sc.updated_at,
-        sc.baseline_day_saves, sc.baseline_day_date,
-        tk.keyword AS keyword_name,
-        sc.creation_method,
-        sc.created_at_pinterest
-      FROM keyword_serp_current sc
-      LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
-      WHERE sc.pin_id = ${cleanPinId}
-      UNION ALL
-      SELECT 
-        kdi.keyword_id, kdi.pin_id, '' as title, '' as domain, '' as destination_url, '' as image_url,
-        '' as creator_username, '' as board_name, kdi.save_count, kdi.repin_count,
-        COALESCE(kdi.comment_count, 0) as comment_count,
-        COALESCE(kdi.share_count, 0) as share_count,
-        0 as reaction_count,
-        kdi.daily_save_velocity, '#888888' as dominant_color, '[]'::jsonb as visual_annotations,
-        NULL::int as rank_position, NULL::int as prev_rank_position, kdi.last_known_rank,
-        TRUE as is_displaced, '{}'::jsonb as metadata,
-        kdi.updated_at as crawled_at, kdi.updated_at,
-        NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
-        tk.keyword AS keyword_name,
-        NULL::text as creation_method,
-        NULL::timestamptz as created_at_pinterest
-      FROM keyword_displaced_index kdi
-      LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      WHERE kdi.pin_id = ${cleanPinId}
-        AND NOT EXISTS (
-          SELECT 1 FROM keyword_serp_current sc2
-          WHERE sc2.pin_id = kdi.pin_id AND sc2.keyword_id = kdi.keyword_id
-        )
-      ORDER BY save_count DESC;
-    `.catch(() => []),
-    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub has no historical snapshot tables; time series lives strictly on Shards
-    Promise.resolve([])
+    shardDataPromise,
+    hubSerpPromise,
+    hubCompetitorPromise
   ]);
+
+  const initialMaster = shardData?.master || null;
+  const initialSnapshots = shardData?.snapshots || [];
+
 
   let masterRecord = initialMaster || d1Record;
   if (masterRecord) {
@@ -1252,7 +1405,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
-  const hubSnapshots = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
+  const hubSnapshots = [];
   const snapRows = [...hubSnapshots]
     .sort((a, b) => (Boolean(b.metadata) - Boolean(a.metadata)) || (Number(b.save_count || 0) - Number(a.save_count || 0)))
     .slice(0, 10);
@@ -1844,27 +1997,51 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const isToday = Boolean(sDate && sDate === todayUtcStr);
     const serpMatch = isToday ? ((kid ? serpByKeyword.get(kid) : null) || hubSerpRows[0] || null) : null;
 
-    // [INVARIANT: DECOUPLE-LIVE-SERP-FROM-HISTORICAL-SNAPSHOTS]
-    // Current-day Hub SERP state (serpMatch?.is_displaced) must ONLY enrich snapshots matching sDate === todayUtcStr.
-    // Historical snapshots (sDate < todayUtcStr) must strictly evaluate displaced status and rank positions
-    // from their own snapshot data (s.is_displaced, s.rank_position, s.last_known_rank), preventing active historical
-    // rankings from degrading into [Vault #...] badges.
-    const isDisplaced = isToday
-      ? Boolean(
-          s.is_displaced ||
-          serpMatch?.is_displaced ||
-          (!s.rank_position && (s.last_known_rank || serpMatch?.last_known_rank))
-        )
-      : Boolean(
-          s.is_displaced ||
-          (!s.rank_position && s.last_known_rank)
-        );
+    const rawRankPos = Number(s.rank_position);
+    const hasValidPositiveRank = Number.isFinite(rawRankPos) && rawRankPos >= 1;
 
-    const lastKnownRank = isToday
-      ? (s.last_known_rank || serpMatch?.last_known_rank || (isDisplaced ? (s.rank_position || serpMatch?.rank_position) : null))
-      : (s.last_known_rank || (isDisplaced ? s.rank_position : null));
+    let isDisplaced;
+    let rankPosition;
+    let lastKnownRank;
 
-    const catalogRank = s.catalog_rank || (isDisplaced ? (100 + (sIdx + 1)) : (s.rank_position || (isToday ? (serpMatch?.rank_position || 1) : 1)));
+    if (isToday) {
+      if (s.is_displaced || serpMatch?.is_displaced || !hasValidPositiveRank) {
+        isDisplaced = true;
+        rankPosition = null;
+        lastKnownRank = Number(s.last_known_rank) > 0
+          ? Number(s.last_known_rank)
+          : (Number(serpMatch?.last_known_rank) > 0
+              ? Number(serpMatch.last_known_rank)
+              : (Number(serpMatch?.prev_rank_position) > 0
+                  ? Number(serpMatch.prev_rank_position)
+                  : (Number(serpMatch?.rank_position) > 0 ? Number(serpMatch.rank_position) : 100)));
+      } else {
+        isDisplaced = false;
+        rankPosition = rawRankPos;
+        lastKnownRank = Number(s.last_known_rank) > 0 ? Number(s.last_known_rank) : rawRankPos;
+      }
+    } else {
+      // Historical snapshot (sDate < todayUtcStr)
+      if (s.is_displaced || !hasValidPositiveRank) {
+        isDisplaced = true;
+        rankPosition = null;
+        lastKnownRank = Number(s.last_known_rank) > 0
+          ? Number(s.last_known_rank)
+          : (kid && Number(serpByKeyword.get(kid)?.last_known_rank) > 0
+              ? Number(serpByKeyword.get(kid).last_known_rank)
+              : (kid && Number(serpByKeyword.get(kid)?.prev_rank_position) > 0
+                  ? Number(serpByKeyword.get(kid).prev_rank_position)
+                  : (kid && Number(serpByKeyword.get(kid)?.rank_position) > 0
+                      ? Number(serpByKeyword.get(kid).rank_position)
+                      : (Number(s.catalog_rank) > 0 ? Number(s.catalog_rank) : 100))));
+      } else {
+        isDisplaced = false;
+        rankPosition = rawRankPos;
+        lastKnownRank = Number(s.last_known_rank) > 0 ? Number(s.last_known_rank) : rawRankPos;
+      }
+    }
+
+    const catalogRank = s.catalog_rank || (isDisplaced ? (Number(lastKnownRank || 100) + 250) : rankPosition);
     const crawlTimestamp = safeIsoDate(s.crawled_at || s.updated_at || s.created_at) || (sDate ? sDate + 'T00:00:00.000Z' : null);
     const updatedTimestamp = safeIsoDate(s.updated_at) || crawlTimestamp;
     return {
@@ -1874,6 +2051,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       updated_at: updatedTimestamp,
       keyword_name: kid ? (kwMap.get(kid) || s.keyword_name || `Keyword #${kid}`) : (s.keyword_name || null),
       is_displaced: isDisplaced,
+      rank_position: rankPosition,
       last_known_rank: lastKnownRank,
       catalog_rank: catalogRank
     };
@@ -1918,16 +2096,29 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
     if (s.keyword_name) {
       const isDisplaced = Boolean(s.is_displaced);
-      const liveRank = isDisplaced ? null : (Number(s.rank_position) || null);
-      const vaultRank = isDisplaced ? (Number(s.last_known_rank) || 1) : null;
-      const sortRank = isDisplaced ? (vaultRank + 250) : (liveRank || 999);
+      const rawPos = Number(s.rank_position);
+      const hasPos = Number.isFinite(rawPos) && rawPos >= 1;
+
+      const effDisplaced = isDisplaced || !hasPos;
+      const liveRank = effDisplaced ? null : rawPos;
+      const vaultRank = effDisplaced
+        ? (Number(s.last_known_rank) > 0
+            ? Number(s.last_known_rank)
+            : (s.keyword_id && Number(serpByKeyword.get(Number(s.keyword_id))?.last_known_rank) > 0
+                ? Number(serpByKeyword.get(Number(s.keyword_id)).last_known_rank)
+                : (s.keyword_id && Number(serpByKeyword.get(Number(s.keyword_id))?.rank_position) > 0
+                    ? Number(serpByKeyword.get(Number(s.keyword_id)).rank_position)
+                    : 100)))
+        : null;
+      const effRank = effDisplaced ? vaultRank : liveRank;
+      const sortRank = effDisplaced ? (vaultRank + 250) : (liveRank || 999);
       const kwObj = {
         keyword_id: s.keyword_id,
         keyword: s.keyword_name,
         rank: effRank,
-        rank_position: s.rank_position || null,
-        last_known_rank: s.last_known_rank || null,
-        is_displaced: isDisplaced,
+        rank_position: liveRank,
+        last_known_rank: vaultRank,
+        is_displaced: effDisplaced,
         live_serp_rank: liveRank,
         vault_rank: vaultRank,
         effective_sort_rank: sortRank,
@@ -1957,6 +2148,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       runningMaxSaves = d.save_count;
     }
   }
+
+  if (chronoDays[0] && chronoDays[0].is_hydration_jump === undefined) {
+    chronoDays[0].is_hydration_jump = false;
+  }
+
   for (let i = 1; i < chronoDays.length; i++) {
     const prev = chronoDays[i - 1];
     const curr = chronoDays[i];
@@ -1965,26 +2161,28 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const elapsedDays = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = curr.save_count - prev.save_count;
 
-    // [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
-    // Symmetrically compute inter-day velocity based on real save delta and elapsed calendar days
-    // Prevents trapping stalled or slowing pins in an eternal monotonic GREATEST ratchet
-    if (elapsedDays >= 1) {
-      if (diff === 0) {
+    const isJump = isMultiStageHydrationJump(prev, curr);
+    if (isJump) {
+      curr.is_hydration_jump = true;
+      curr.velocity_mode = 'hydration_amortized';
+      const pinCreatedAt = masterRecord?.created_at_pinterest ? new Date(masterRecord.created_at_pinterest) : null;
+      if (pinCreatedAt && !isNaN(pinCreatedAt.getTime())) {
+        const ageMs = Math.max(86400000, currDate.getTime() - pinCreatedAt.getTime());
+        const ageDays = Math.max(1, Math.round(ageMs / 86400000));
+        if (ageDays >= 2) {
+          curr.daily_save_velocity = Math.round((Number(curr.save_count || 0) / ageDays) * 10) / 10;
+        } else {
+          curr.daily_save_velocity = 0;
+        }
+      } else {
         curr.daily_save_velocity = 0;
-      } else if (diff > 0) {
-        // [INVARIANT: ANTI-HYDRATION-SPIKE]
-        // Guard against unhydrated snapshot records where prev.save_count < prev.repin_count or (prev.save_count === 0 && curr.save_count > 0).
-        // Treat as isHydrationJump: amortize velocity across estimated pin lifetime (ageDays) or suppress velocity delta to 0 until an authentic Day-2 baseline exists.
-        const isHydrationJump = (prev.save_count < prev.repin_count) || (prev.save_count === 0 && curr.save_count > 0);
-        if (isHydrationJump) {
-          const pinCreatedAt = masterRecord?.created_at_pinterest ? new Date(masterRecord.created_at_pinterest) : null;
-          if (pinCreatedAt && !isNaN(pinCreatedAt.getTime())) {
-            const ageMs = Math.max(86400000, currDate.getTime() - pinCreatedAt.getTime());
-            const ageDays = Math.max(1, Math.round(ageMs / 86400000));
-            curr.daily_save_velocity = Math.round((curr.save_count / ageDays) * 10) / 10;
-          } else {
-            curr.daily_save_velocity = 0;
-          }
+      }
+    } else {
+      curr.is_hydration_jump = false;
+      curr.velocity_mode = 'normal';
+      if (elapsedDays >= 1) {
+        if (diff <= 0) {
+          curr.daily_save_velocity = 0;
         } else {
           curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
         }
@@ -1997,16 +2195,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     .filter(sc => sc.keyword_id && (sc.keyword_name || kwMap.get(Number(sc.keyword_id))))
     .map(sc => {
       const isDisplaced = Boolean(sc.is_displaced);
-      const liveRank = isDisplaced ? null : (Number(sc.rank_position) || null);
-      const vaultRank = isDisplaced ? (Number(sc.last_known_rank) || 1) : null;
-      const sortRank = isDisplaced ? (vaultRank + 250) : (liveRank || 999);
+      const rawPos = Number(sc.rank_position);
+      const hasPos = Number.isFinite(rawPos) && rawPos >= 1;
+      const effDisplaced = isDisplaced || !hasPos;
+      const liveRank = effDisplaced ? null : rawPos;
+      const vaultRank = effDisplaced ? (Number(sc.last_known_rank) || 1) : null;
+      const sortRank = effDisplaced ? (vaultRank + 250) : (liveRank || 999);
       return {
         keyword_id: Number(sc.keyword_id),
         keyword: sc.keyword_name || kwMap.get(Number(sc.keyword_id)),
-        rank: sc.rank_position ?? sc.last_known_rank ?? null,
-        rank_position: sc.rank_position ?? null,
-        last_known_rank: sc.last_known_rank ?? null,
-        is_displaced: isDisplaced,
+        rank: effDisplaced ? vaultRank : liveRank,
+        rank_position: liveRank,
+        last_known_rank: vaultRank,
+        is_displaced: effDisplaced,
         live_serp_rank: liveRank,
         vault_rank: vaultRank,
         effective_sort_rank: sortRank,
@@ -2016,16 +2217,26 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     });
 
   let competitorInfo = null;
-  if (masterRecord?.creator_username) {
+  if (hubCompetitorRowsRaw && hubCompetitorRowsRaw.length > 0 && hubCompetitorRowsRaw[0].competitor_id) {
+    competitorInfo = hubCompetitorRowsRaw[0];
+  } else if (hubSerpRows.length > 0 && hubSerpRows[0].competitor_id) {
+    competitorInfo = {
+      competitor_id: hubSerpRows[0].competitor_id,
+      competitor_username: hubSerpRows[0].competitor_username,
+      display_name: hubSerpRows[0].competitor_display_name,
+      competitor_active: hubSerpRows[0].competitor_active
+    };
+  } else if (masterRecord?.creator_username) {
     const [compRow] = await hubSql`
       SELECT id as competitor_id, username as competitor_username, display_name, is_active as competitor_active
       FROM competitor_profiles
-      WHERE LOWER(username) = LOWER(${masterRecord.creator_username})
+      WHERE username = ${masterRecord.creator_username}
       LIMIT 1;
     `.catch(() => []);
     competitorInfo = compRow || null;
   }
   const hubContext = { ranking_keywords: rankingKeywordsFromMem, competitor_info: competitorInfo };
+
 
   if (!masterRecord && snapshots.length === 0 && (!hubContext?.ranking_keywords || hubContext.ranking_keywords.length === 0)) {
     if (shardErrorReason) {
@@ -2321,6 +2532,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         try {
           const kvPayload = JSON.stringify(dossierResult);
           await Promise.all([
+            env.PIN_ENGINE_KV.put(`pin:dossier:v3?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
+            env.PIN_ENGINE_KV.put(`dossier:v3:pin:${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
             env.PIN_ENGINE_KV.put(`pin:dossier?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
             env.PIN_ENGINE_KV.put(`dossier:pin:${cleanPinId}`, kvPayload, { expirationTtl: 43200 })
           ]);
@@ -2341,6 +2554,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
+  sanitizeDossierTrajectory(dossierResult);
   return dossierResult;
 }
 
@@ -2363,9 +2577,13 @@ export async function getFastEdgeDossier(pinId, env) {
   // 1. Try KV Cache first (< 1ms)
   if (env?.PIN_ENGINE_KV) {
     try {
-      const kvKey = `pin:dossier?pin_id=${cleanPinId}`;
-      const kvData = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+      const kvKey = `pin:dossier:v3?pin_id=${cleanPinId}`;
+      let kvData = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+      if (!kvData) {
+        kvData = await env.PIN_ENGINE_KV.get(`pin:dossier?pin_id=${cleanPinId}`, 'json');
+      }
       if (kvData) {
+        sanitizeDossierTrajectory(kvData);
         return { ...kvData, source: 'edge_kv' };
       }
     } catch (_) {}
@@ -2404,7 +2622,7 @@ export async function getFastEdgeDossier(pinId, env) {
           } catch (_) {}
         }
 
-        return {
+        const d1Result = {
           success: true,
           pin_id: cleanPinId,
           source: 'edge_d1',
@@ -2440,6 +2658,8 @@ export async function getFastEdgeDossier(pinId, env) {
           daily_trajectory: parsedTrajectory,
           snapshots: parsedTrajectory
         };
+        sanitizeDossierTrajectory(d1Result);
+        return d1Result;
       }
     } catch (_) {}
   }
@@ -2502,12 +2722,27 @@ export async function fetchPinTrajectoryFromShard({ hubSql, shardSql, pinId, tim
       `;
     }, { timeoutMs: 2000, shardSql: sqlClient });
 
+    const processedSnapshots = (snapshots || []).map(s => ({ ...s }));
+    for (let i = 1; i < processedSnapshots.length; i++) {
+      const prev = processedSnapshots[i - 1];
+      const curr = processedSnapshots[i];
+      const isJump = isMultiStageHydrationJump(prev, curr);
+      if (isJump) {
+        curr.is_hydration_jump = true;
+        curr.velocity_mode = 'hydration_amortized';
+        curr.daily_save_velocity = 0;
+      } else {
+        curr.is_hydration_jump = false;
+        curr.velocity_mode = 'normal';
+      }
+    }
+
     return {
       success: true,
       shard_id: shardId,
       timeframe,
-      trajectory: snapshots || [],
-      snapshots: snapshots || []
+      trajectory: processedSnapshots,
+      snapshots: processedSnapshots
     };
   } catch (err) {
     console.error(`🚨 [TRAJECTORY-SHARD-ERROR] Pin ${cleanId} on shard ${shardId}:`, err);
@@ -2808,12 +3043,29 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     baselineDate = todayShardRow.snapshot_date;
   }
 
-  const computedVelocity = calculateDailyVelocity({
-    currentSaves: newSaves,
-    baselineSaves,
-    currentDate: nowDate,
-    baselineDate
-  });
+  const jumpDetected = isMultiStageHydrationJump(
+    { save_count: baselineSaves, repin_count: 0 },
+    { save_count: newSaves, repin_count: newRepins }
+  );
+  let computedVelocity = 0;
+  if (jumpDetected) {
+    const pinCreatedAt = scrapedPin.created_at_pinterest || scrapedPin.created_at;
+    const pinCreatedDate = pinCreatedAt ? new Date(pinCreatedAt) : null;
+    if (pinCreatedDate && !isNaN(pinCreatedDate.getTime())) {
+      const ageMs = Math.max(86400000, nowDate.getTime() - pinCreatedDate.getTime());
+      const ageDays = Math.max(1, Math.round(ageMs / 86400000));
+      computedVelocity = Math.round((newSaves / ageDays) * 10) / 10;
+    } else {
+      computedVelocity = 0;
+    }
+  } else {
+    computedVelocity = calculateDailyVelocity({
+      currentSaves: newSaves,
+      baselineSaves,
+      currentDate: nowDate,
+      baselineDate
+    });
+  }
 
   const existingPositiveVelocity = Math.max(
     0,
@@ -3053,8 +3305,12 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     const evictions = [
       `dossier:pin:${cleanPinId}`,
       `dossier:pin:${cleanPinId}:0`,
+      `dossier:v3:pin:${cleanPinId}`,
+      `dossier:v3:pin:${cleanPinId}:0`,
       `pin:dossier:${cleanPinId}`,
+      `pin:dossier:v3:${cleanPinId}`,
       `pin:dossier?pin_id=${cleanPinId}`,
+      `pin:dossier:v3?pin_id=${cleanPinId}`,
       `traj:pin:${cleanPinId}`,
       `traj:pin:${cleanPinId}:0`,
       `traj:pin:${cleanPinId}:all`,
@@ -3063,6 +3319,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       `traj:pin:${cleanPinId}:30d`,
       `pin:trajectory?pin_id=${cleanPinId}`,
       ...associatedKids.map(kid => `dossier:pin:${cleanPinId}:${kid}`),
+      ...associatedKids.map(kid => `dossier:v3:pin:${cleanPinId}:${kid}`),
       ...associatedKids.map(kid => `traj:pin:${cleanPinId}:${kid}`),
       ...serpKeys
     ].map(k => env.PIN_ENGINE_KV.delete(k));
@@ -3121,6 +3378,11 @@ export async function writeBatchToDeterministicShards(params = {}) {
   const concurrency = Math.max(1, Math.min(8, options.concurrency || 4));
 
   const entries = Array.from(shardGroups.entries());
+  if (hubSql) {
+    try {
+      await preloadNeonRegistry(hubSql, env);
+    } catch (_) {}
+  }
   for (let i = 0; i < entries.length; i += concurrency) {
     const batch = entries.slice(i, i + concurrency);
     await Promise.allSettled(batch.map(async ([shardId, rawShardPins]) => {

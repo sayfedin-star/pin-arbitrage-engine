@@ -1145,8 +1145,13 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
         kvKeysToEvict.add(`dossier:pin:${p.pid}`);
         kvKeysToEvict.add(`dossier:pin:${p.pid}:0`);
         kvKeysToEvict.add(`dossier:pin:${p.pid}:${p.kid}`);
+        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}`);
+        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}:0`);
+        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}:${p.kid}`);
         kvKeysToEvict.add(`pin:dossier:${p.pid}`);
+        kvKeysToEvict.add(`pin:dossier:v3:${p.pid}`);
         kvKeysToEvict.add(`pin:dossier?pin_id=${p.pid}`);
+        kvKeysToEvict.add(`pin:dossier:v3?pin_id=${p.pid}`);
         kvKeysToEvict.add(`traj:pin:${p.pid}`);
         kvKeysToEvict.add(`traj:pin:${p.pid}:0`);
         kvKeysToEvict.add(`traj:pin:${p.pid}:${p.kid}`);

@@ -1183,7 +1183,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           </div>
         </div>
       </div>
-      <!-- End of Room 1 Content -->
+    </div>
+    <!-- End of Room 1 Content -->
 
       <!-- ROOM 5 VIEW: Dedicated Folder Settings & Smart Bulk Pin Pruning Studio -->
       <div x-show="currentRoom === 'settings'" class="space-y-6" x-cloak>
@@ -1316,7 +1317,6 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
       </div>
       <!-- Legacy Section 5 monopoly tables purged in favor of dedicated /folders/:id/domains and /folders/:id/creators rooms -->
 
-    </div>
     </div> <!-- [INVARIANT: SIBLING-VIEW-ISOLATION] Closes VIEW A (activeFolderId) before VIEW B -->
 
     <!-- ========================================================================= -->
