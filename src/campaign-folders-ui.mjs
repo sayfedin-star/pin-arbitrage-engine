@@ -399,7 +399,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                              onerror="this.src='https://via.placeholder.com/60x90?text=Pin'">
                       </div>
                       <div class="flex flex-col gap-1 max-w-xs">
-                        <a :href="'/pins/' + sp.pin_id" 
+                        <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->
+                        <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" 
                            class="font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate block" 
                            x-text="sp.title || ('Pin #' + sp.pin_id)"></a>
                         <div class="flex items-center gap-1.5 flex-wrap">
@@ -503,7 +504,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   </td>
 
                   <td class="p-3.5 text-right font-sans">
-                    <a :href="'/pins/' + sp.pin_id" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
+                    <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
                       View Dossier →
                     </a>
                   </td>
@@ -1187,6 +1188,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
     <!-- End of Room 1 Content -->
 
       <!-- ROOM 5 VIEW: Dedicated Folder Settings & Smart Bulk Pin Pruning Studio -->
+      <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 1: Room 1 & Room 5 Sibling DOM Hierarchy -->
       <div x-show="currentRoom === 'settings'" class="space-y-6" x-cloak>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-6 shadow-sm">
           <div class="flex items-center justify-between flex-wrap gap-4 pb-6 border-b border-slate-100 dark:border-[#27272A]">
@@ -2064,6 +2066,33 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                 }
               }
             });
+
+            // [INVARIANT: FOLDER-SCOPED-POPSTATE-PRESERVATION] Synchronize currentRoom with URL on browser Back/Forward (LND-15)
+            window.addEventListener('popstate', () => {
+              try {
+                const path = window.location.pathname || '';
+                const segs = path.split('/').filter(Boolean);
+                if (segs[0] === 'folders' && segs[1]) {
+                  const subRoute = (segs[2] || '').toLowerCase();
+                  if (subRoute === 'settings') {
+                    this.currentRoom = 'settings';
+                  } else if (subRoute === 'crossover' || !subRoute) {
+                    this.currentRoom = 'crossover';
+                  } else if (subRoute === 'keywords') {
+                    this.currentRoom = 'keywords';
+                  } else if (subRoute === 'creators') {
+                    this.currentRoom = 'creators';
+                  } else if (subRoute === 'domains') {
+                    this.currentRoom = 'domains';
+                  }
+                  this.$nextTick(() => {
+                    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                      window.lucide.createIcons();
+                    }
+                  });
+                }
+              } catch (_) {}
+            });
           }
 
           if (this.darkMode) {
@@ -2736,9 +2765,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           } else if (this.sortBy === 'velocity_desc') {
             list = list.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'pin_age_asc') {
-            list = list.slice().sort((a, b) => (Number(a.pin_age_days) || 0) - (Number(b.pin_age_days) || 0));
+            list = list.slice().sort((a, b) => (a.pin_age_days != null && isFinite(a.pin_age_days) ? Number(a.pin_age_days) : Infinity) - (b.pin_age_days != null && isFinite(b.pin_age_days) ? Number(b.pin_age_days) : Infinity));
           } else if (this.sortBy === 'pin_age_desc') {
-            list = list.slice().sort((a, b) => (Number(b.pin_age_days) || 0) - (Number(a.pin_age_days) || 0));
+            list = list.slice().sort((a, b) => (b.pin_age_days != null && isFinite(b.pin_age_days) ? Number(b.pin_age_days) : -Infinity) - (a.pin_age_days != null && isFinite(a.pin_age_days) ? Number(a.pin_age_days) : -Infinity));
           } else if (this.sortBy === 'folder_age_desc') {
             list = list.slice().sort((a, b) => (Number(b.folder_age_days) || 0) - (Number(a.folder_age_days) || 0));
           } else if (this.sortBy === 'folder_age_asc') {
@@ -2906,7 +2935,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
       } else {
         initLucide();
       }
-      window.addEventListener('load', initLucide);
+      if (typeof window !== 'undefined') {
+        window.addEventListener('load', initLucide);
+      }
     }
   </script>
   ${getEdgeShieldClientScript()}

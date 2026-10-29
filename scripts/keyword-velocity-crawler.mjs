@@ -24,6 +24,7 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
+import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
 import { fetchPinFromPinterest, fetchPinHybrid, setDefaultDispatcher } from './lib/pinterest.mjs';
 import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId, crc32 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
@@ -2062,7 +2063,8 @@ async function run() {
             AND ksc.is_displaced = FALSE
             AND (
               ksc.shard_id = ANY(${assignedShards}::smallint[])
-              OR (ksc.shard_id IS NULL AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+              -- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: IEEE 802.3 CRC32 Hash Parity
+              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -2121,7 +2123,7 @@ async function run() {
             AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
             AND (
               ksc.shard_id = ANY(${assignedShards}::smallint[])
-              OR (ksc.shard_id IS NULL AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -2144,7 +2146,7 @@ async function run() {
             AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND (
               kdi.shard_id = ANY(${assignedShards}::smallint[])
-              OR (kdi.shard_id IS NULL AND mod(abs(hashtext(kdi.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip

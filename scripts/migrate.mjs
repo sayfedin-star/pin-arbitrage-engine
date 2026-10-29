@@ -213,6 +213,16 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '029_displaced',
     name: 'keyword_snapshots_not_null_displaced',
     aliases: ['029_displaced', 'keyword_snapshots_not_null_displaced']
+  },
+  '038_campaign_workspace_scoping.sql': {
+    version: '038',
+    name: '038_campaign_workspace_scoping.sql',
+    aliases: ['038', '038_campaign_workspace_scoping.sql', '038_campaign_workspace_scoping']
+  },
+  '038_pa_pins_competitor_pins_shard_id.sql': {
+    version: '038_shard_id',
+    name: '038_pa_pins_competitor_pins_shard_id',
+    aliases: ['038_shard_id', '038_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id']
   }
 };
 

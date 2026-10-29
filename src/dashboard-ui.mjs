@@ -3215,27 +3215,40 @@ export function getDashboardHtml(folderId = '') {
 
           <!-- Campaign Folder Scoped Control Bar -->
           <template x-if="scopedFolderId">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm">
-              <div class="flex items-center gap-2.5">
-                <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
-                  <i data-lucide="users" class="w-5 h-5"></i>
-                </div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums">Campaign Creators</span>
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(filteredCompetitors ? filteredCompetitors.length : 0) + ' Linked'"></span>
+            <div class="flex flex-col gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5">
+                  <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                    <i data-lucide="users" class="w-5 h-5"></i>
                   </div>
-                  <p class="text-[11px] text-slate-500 dark:text-slate-400">Creators tracked and monitored specifically for this campaign folder.</p>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums">Campaign Creators</span>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(filteredCompetitors ? filteredCompetitors.length : 0) + ' Total'"></span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Creators tracked and monitored specifically for this campaign folder.</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button @click="openAssignExistingCreatorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition flex items-center space-x-1.5 shadow-sm cursor-pointer">
+                    <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
+                    <span>+ Assign Existing Creators</span>
+                  </button>
+                  <button @click="openAddCompetitorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer active:scale-95">
+                    <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                    <span>+ Track New Creator</span>
+                  </button>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
-                <button @click="openAssignExistingCreatorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition flex items-center space-x-1.5 shadow-sm cursor-pointer">
-                  <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
-                  <span>+ Assign Existing Creators</span>
-                </button>
-                <button @click="openAddCompetitorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer active:scale-95">
-                  <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-                  <span>+ Track New Creator</span>
+              <!-- Bulk Pulse Track SERP Creators Bar -->
+              <div class="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100 dark:border-[#27272A]/60">
+                <div class="flex items-center gap-2 w-full sm:w-auto flex-1">
+                  <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">Custom Label:</span>
+                  <input type="text" x-model="bulkPulseCustomLabel" :placeholder="'SERP Auto • ' + (activeFolder?.name || 'Folder')" class="px-3 py-1 text-xs rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 w-full sm:max-w-xs focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono">
+                </div>
+                <button @click="bulkPulseTrackSerpCreators()" :disabled="isBulkPulseTracking" class="w-full sm:w-auto px-3.5 py-1.5 text-xs font-bold rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap">
+                  <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="isBulkPulseTracking ? 'animate-spin' : ''"></i>
+                  <span x-text="isBulkPulseTracking ? '⚡ Auto-Tracking...' : '⚡ Auto-Track All SERP Creators (Lightweight 24h Pulse)'"></span>
                 </button>
               </div>
             </div>
@@ -3363,18 +3376,24 @@ export function getDashboardHtml(folderId = '') {
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
-                <template x-for="c in filteredCompetitors" :key="c.id">
+                <template x-for="c in filteredCompetitors" :key="c.id || ('serp_' + (c.username || 'unknown'))">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="c.is_active === false ? 'opacity-75 bg-amber-500/[0.03] dark:bg-amber-500/[0.05]' : ''">
                     <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
                       <div class="flex items-center space-x-2.5 cursor-pointer" @click="openCreatorDossier(c)">
                         <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-[#27272A] hover:scale-105 transition">
                         <div>
-                          <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1">
+                          <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1 flex-wrap">
                             <span x-text="'@' + c.username"></span>
                             <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                             <template x-if="c.is_active === false">
                               <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">⏸ Paused</span>
+                            </template>
+                            <template x-if="c.tracking_mode === 'pulse_only'">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 whitespace-nowrap">⚡ Pulse Only</span>
+                            </template>
+                            <template x-if="c.custom_label">
+                              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 whitespace-nowrap" x-text="c.custom_label"></span>
                             </template>
                             <template x-if="c._shard_name && selectedProject === 'all'">
                               <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
@@ -3386,30 +3405,37 @@ export function getDashboardHtml(folderId = '') {
                     </td>
                     <td class="py-3 px-3 text-right">
                       <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
-                      <!-- Multi-Window Deltas (+24h, +5d, +10d) [INVARIANT: CREATOR-WINDOW-DELTAS] -->
+                      <!-- 24h & 7d Deltas -->
                       <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
-                        <template x-if="c.delta_24h != null">
-                          <span class="text-emerald-500 font-semibold" x-text="'+' + formatNumber(c.delta_24h) + ' (+24h)'">+24h</span>
+                        <template x-if="(c.delta_reach_24h != null && c.delta_reach_24h !== 0) || (c.delta_24h != null && c.delta_24h !== 0)">
+                          <span :class="(c.delta_reach_24h || c.delta_24h) > 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'" x-text="((c.delta_reach_24h || c.delta_24h) > 0 ? '+' : '') + formatNumber(c.delta_reach_24h || c.delta_24h) + ' 24h'"></span>
                         </template>
-                        <template x-if="c.delta_5d != null">
-                          <span class="text-sky-500" x-text="'+' + formatNumber(c.delta_5d) + ' (+5d)'">+5d</span>
-                        </template>
-                        <template x-if="c.delta_10d != null">
-                          <span class="text-indigo-500" x-text="'+' + formatNumber(c.delta_10d) + ' (+10d)'">+10d</span>
-                        </template>
-                        <template x-if="c.delta_24h == null && c.reach_delta_7d !== 0">
-                          <span :class="c.reach_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(c.reach_delta_7d) + ')'"></span>
+                        <template x-if="c.reach_delta_7d != null && c.reach_delta_7d !== 0">
+                          <span :class="c.reach_delta_7d > 0 ? 'text-sky-500' : 'text-rose-400'" x-text="(c.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(c.reach_delta_7d) + ' 7d)'"></span>
                         </template>
                       </div>
                     </td>
                     <td class="py-3 px-3 text-right">
-                      <span class="text-slate-700 dark:text-slate-300" x-text="formatNumber(c.profile_views)"></span>
-                      <template x-if="c.views_delta_7d !== 0">
-                        <span class="text-[10px] font-bold ml-1.5" :class="c.views_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.views_delta_7d > 0 ? '(+' : '(') + formatNumber(c.views_delta_7d) + ')'"></span>
-                      </template>
+                      <span class="text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(c.profile_views)"></span>
+                      <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
+                        <template x-if="c.delta_views_24h != null && c.delta_views_24h !== 0">
+                          <span :class="c.delta_views_24h > 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'" x-text="(c.delta_views_24h > 0 ? '+' : '') + formatNumber(c.delta_views_24h) + ' 24h'"></span>
+                        </template>
+                        <template x-if="c.views_delta_7d != null && c.views_delta_7d !== 0">
+                          <span :class="c.views_delta_7d > 0 ? 'text-sky-500' : 'text-rose-400'" x-text="(c.views_delta_7d > 0 ? '(+' : '(') + formatNumber(c.views_delta_7d) + ' 7d)'"></span>
+                        </template>
+                      </div>
                     </td>
                     <td class="py-3 px-3 text-right font-bold text-slate-800 dark:text-slate-200">
                       <span x-text="formatNumber(c.total_pins)"></span>
+                      <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums font-normal">
+                        <template x-if="c.delta_pins_24h != null && c.delta_pins_24h !== 0">
+                          <span :class="c.delta_pins_24h > 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'" x-text="(c.delta_pins_24h > 0 ? '+' : '') + formatNumber(c.delta_pins_24h) + ' 24h'"></span>
+                        </template>
+                        <template x-if="c.pins_delta_7d != null && c.pins_delta_7d !== 0">
+                          <span :class="c.pins_delta_7d > 0 ? 'text-sky-500' : 'text-rose-400'" x-text="(c.pins_delta_7d > 0 ? '(+' : '(') + formatNumber(c.pins_delta_7d) + ' 7d)'"></span>
+                        </template>
+                      </div>
                       <!-- Pinning Cadence (Pins / Day) [INVARIANT: PINNING-CADENCE] -->
                       <div class="text-[10px] text-slate-400 font-mono tabular-nums font-normal" x-text="(c.pins_per_day || (c.total_pins ? (c.total_pins / 365).toFixed(1) : 0)) + ' Pins / Day'">0 Pins / Day</div>
                     </td>
@@ -3418,6 +3444,14 @@ export function getDashboardHtml(folderId = '') {
                         <span x-text="formatNumber(c.total_boards)"></span>
                         <i data-lucide="layout-grid" class="w-3 h-3 text-purple-500"></i>
                       </button>
+                      <div class="flex items-center justify-center gap-1 text-[9px] font-mono tabular-nums mt-0.5">
+                        <template x-if="c.delta_boards_24h != null && c.delta_boards_24h !== 0">
+                          <span :class="c.delta_boards_24h > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.delta_boards_24h > 0 ? '+' : '') + formatNumber(c.delta_boards_24h) + ' 24h'"></span>
+                        </template>
+                        <template x-if="c.boards_delta_7d != null && c.boards_delta_7d !== 0">
+                          <span :class="c.boards_delta_7d > 0 ? 'text-sky-500' : 'text-rose-400'" x-text="(c.boards_delta_7d > 0 ? '(+' : '(') + formatNumber(c.boards_delta_7d) + ' 7d)'"></span>
+                        </template>
+                      </div>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap" x-text="'• ' + (c.activity_status || '1d ago')"></span>
@@ -5876,6 +5910,10 @@ export function getDashboardHtml(folderId = '') {
         competitors: [],
         competitorFilter: 'all',
         competitorSearch: '',
+        creatorDiscoveryFilter: 'all',
+        bulkPulseCustomLabel: '',
+        isBulkPulseTracking: false,
+        folderCompetitorTotalsData: null,
         selectedCompetitorIds: [],
         isBulkFastRefreshing: false,
         isBulkDiscoveringCatalog: false,
@@ -6038,14 +6076,19 @@ export function getDashboardHtml(folderId = '') {
               list = list.filter(c => c.account_type === this.competitorFilter);
             }
           }
-          if (this.scopedFolderId || this.folderFilter) {
-            const fid = String(this.folderFilter || this.scopedFolderId).trim();
-            const creatorIds = this.folderCreatorMap[fid] || (this.scopedFolderId && String(this.scopedFolderId) === fid ? this.scopedFolderCreatorIds : null) || this.scopedFolderCreatorIds || null;
+          if (this.scopedFolderId) {
+            const linkedSet = this.scopedFolderCreatorIds || new Set();
+            // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Room 3 Creator Hub Discovery Filter
+            if (this.creatorDiscoveryFilter === 'tracked') {
+              list = list.filter(c => c.is_linked || c.is_tracked || linkedSet.has(Number(c.id || c.competitor_id)));
+            } else if (this.creatorDiscoveryFilter === 'discovered' || this.creatorDiscoveryFilter === 'auto_discovered') {
+              list = list.filter(c => !c.is_linked && !c.is_tracked && !linkedSet.has(Number(c.id || c.competitor_id)));
+            }
+          } else if (this.folderFilter) {
+            const fid = String(this.folderFilter).trim();
+            const creatorIds = this.folderCreatorMap[fid];
             if (creatorIds && creatorIds instanceof Set) {
               list = list.filter(c => creatorIds.has(Number(c.id)) || creatorIds.has(String(c.id)));
-            } else if (this.scopedFolderId) {
-              // Strictly scoped to campaign folder: never leak global catalog if no creators linked
-              return [];
             }
           }
           if (this.competitorSearch) {
@@ -6072,11 +6115,12 @@ export function getDashboardHtml(folderId = '') {
         },
 
         get folderCompetitorTotals() {
+          if (this.folderCompetitorTotalsData) return this.folderCompetitorTotalsData;
           const list = this.filteredCompetitors || [];
           const combinedAudience = list.reduce((sum, c) => sum + (Number(c.monthly_reach) || 0), 0);
           const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
           const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
-          const delta24h = list.reduce((sum, c) => sum + (Number(c.delta_24h) || 0), 0);
+          const delta24h = list.reduce((sum, c) => sum + (Number(c.delta_reach_24h || c.delta_24h) || 0), 0);
           const avgCadence = list.length > 0
             ? Number((list.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / list.length).toFixed(1))
             : 0;
@@ -6097,11 +6141,14 @@ export function getDashboardHtml(folderId = '') {
           try {
             const fid = this.scopedFolderId || this.folderFilter;
             if (fid) {
-              await fetch(this.getApiUrl('/api/folders/' + encodeURIComponent(fid) + '/creators'), {
+              const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/' + encodeURIComponent(fid) + '/creators'), {
                 method: wasTracked ? 'DELETE' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ competitor_id: c.id, username: c.username })
+                body: JSON.stringify({ competitor_id: c.competitor_id || c.id, username: c.username })
               });
+              if (res.ok) {
+                await this.loadFolderCreators(fid);
+              }
             }
             if (typeof this.showToast === 'function') {
               this.showToast(c.is_tracked ? 'Tracking @' + c.username : 'Untracked @' + c.username, 'success');
@@ -7478,6 +7525,8 @@ export function getDashboardHtml(folderId = '') {
                 this.openCreatorByHandle(first, targetTab);
               } else if (second) {
                 this.openCreatorByHandle(first, 'overview', false).then(() => {
+                  // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Ghost Board Shield for Untracked Creators
+                  if (!this.activeCreator) return;
                   const targetSlug = this.normalizeBoardSlug(decodeURIComponent(second));
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     this.normalizeBoardSlug(b.name) === targetSlug ||
@@ -7542,6 +7591,7 @@ export function getDashboardHtml(folderId = '') {
                   if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
                     await this.openCreatorByHandle(pFirst, 'overview', false);
                   }
+                  if (!this.activeCreator) return;
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     this.normalizeBoardSlug(b.name) === targetSlug ||
                     (b.board_slug && b.board_slug === targetSlug) ||
@@ -7773,16 +7823,52 @@ export function getDashboardHtml(folderId = '') {
           if (!folderId) return;
           const fid = String(folderId);
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators');
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true');
             if (res.ok) {
               const data = await res.json();
-              const ids = new Set((data.creators || data.items || []).map(c => Number(c.id || c.competitor_id)));
-              this.folderCreatorMap[fid] = ids;
+              const linkedList = Array.isArray(data.linked_creators) ? data.linked_creators : [];
+              const discoveredList = Array.isArray(data.discovered_creators) ? data.discovered_creators : [];
+              const allList = Array.isArray(data.creators) ? data.creators : [...linkedList, ...discoveredList];
+
+              const linkedIds = new Set(linkedList.map(c => Number(c.competitor_id || c.id)).filter(Boolean));
+              this.folderCreatorMap[fid] = linkedIds;
+
               if (this.scopedFolderId && String(this.scopedFolderId) === fid) {
-                this.scopedFolderCreatorIds = ids;
+                this.scopedFolderCreatorIds = linkedIds;
+                this.folderCompetitorTotalsData = data.totals || null;
+                this.competitors = allList;
               }
             }
           } catch (_) {}
+        },
+
+        async bulkPulseTrackSerpCreators() {
+          if (!this.scopedFolderId) return;
+          this.isBulkPulseTracking = true;
+          try {
+            const body = {
+              custom_label: (this.bulkPulseCustomLabel || '').trim() || undefined,
+              tracking_mode: 'pulse_only',
+              sync_now: true
+            };
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.scopedFolderId) + '/creators/bulk-pulse-track', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('⚡ Auto-tracked ' + (data.tracked_count || 0) + ' creators with 24h lightweight pulse!', 'success');
+              await this.loadFolderCreators(this.scopedFolderId);
+            } else {
+              const err = await res.json().catch(() => ({}));
+              this.showToast('Failed to auto-track creators: ' + (err.error || res.statusText), 'error');
+            }
+          } catch (e) {
+            this.showToast('Network error: ' + (e.message || 'Unknown error'), 'error');
+          } finally {
+            this.isBulkPulseTracking = false;
+          }
         },
 
         async loadFolders() {

@@ -176,3 +176,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/refresh-domain-rollup.mjs
+
+      - name: 6. Invalidate Edge Fleet Cache
+        if: success()
+        env:
+          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL || 'https://pin.zizeeba.com' }}
+        run: |
+          if [ -n "$API_SECRET_KEY" ]; then
+            curl -s -X POST "${CLOUDFLARE_WORKER_URL}/api/fleet/cache-invalidate" \
+              -H "x-api-key: $API_SECRET_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"scope":"all_folders","event":"crawl_complete"}' || true
+          fi

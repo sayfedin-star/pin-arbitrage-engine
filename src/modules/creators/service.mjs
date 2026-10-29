@@ -93,6 +93,7 @@ export async function getCompetitorsOverview(sql) {
         COUNT(CASE WHEN is_active = TRUE THEN 1 END)::int AS active_count,
         COUNT(CASE WHEN is_active = FALSE THEN 1 END)::int AS paused_count,
         COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
+        COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
         -- [INVARIANT: PINTEREST-BUSINESS-ANALYTICS-PARITY]
         -- Align metrics with official Pinterest analytics: monthly_reach -> Total audience, profile_views -> Impressions
         COALESCE(SUM(monthly_reach), 0)::bigint AS total_audience,
@@ -254,9 +255,29 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
 /**
  * Resilient live crawl of a Pinterest user profile
  */
-export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
+export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null), options = {}) {
+  if (typeof cookie === 'object' && cookie !== null) {
+    options = cookie;
+    cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
+  }
+  options = options || {};
+
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
+
+  const [existingProfile] = await sql`
+    SELECT id, tracking_mode, custom_label, source_folder_id, metadata
+    FROM competitor_profiles
+    WHERE username = ${cleanUsername}
+    LIMIT 1;
+  `;
+
+  const isPulseOnly = Boolean(
+    options.pulseOnly ||
+    options.tracking_mode === 'pulse_only' ||
+    existingProfile?.tracking_mode === 'pulse_only' ||
+    existingProfile?.metadata?.profile_pulse_only === true
+  );
 
   const formattedCookie = formatPinterestCookie(cookie);
   const res = await fetchUserResource(cleanUsername, formattedCookie);
@@ -279,18 +300,50 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const avatarUrl = res.avatar_url || null;
   const displayName = res.display_name || cleanUsername;
 
-  // Retrieve previous snapshot to calculate 7d deltas
-  const [prevSnapshot] = await sql`
-    SELECT monthly_reach, profile_views
+  // [INVARIANT: LIGHTWEIGHT-CREATOR-PULSE]
+  // 1. Query latest prior snapshot (recorded_date < CURRENT_DATE) for true 24h deltas
+  const [prior24h] = await sql`
+    SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
     FROM competitor_history_snapshots
-    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1)
+    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
+      AND recorded_date < CURRENT_DATE
+    ORDER BY recorded_date DESC
+    LIMIT 1;
+  `;
+
+  const deltaReach24h = (prior24h && monthlyReach > 0) ? (monthlyReach - Number(prior24h.monthly_reach || 0)) : 0;
+  const deltaViews24h = (prior24h && profileViews > 0) ? (profileViews - Number(prior24h.profile_views || 0)) : 0;
+  const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
+  const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
+
+  // 2. Query 7-day baseline snapshot (recorded_date <= CURRENT_DATE - INTERVAL '6 days', fallback to earliest if < 7 days old)
+  let [baseline7d] = await sql`
+    SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
+    FROM competitor_history_snapshots
+    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
       AND recorded_date <= CURRENT_DATE - INTERVAL '6 days'
     ORDER BY recorded_date DESC
     LIMIT 1;
   `;
 
-  const reachDelta = (prevSnapshot && monthlyReach > 0) ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
-  const viewsDelta = (prevSnapshot && profileViews > 0) ? (profileViews - Number(prevSnapshot.profile_views || 0)) : 0;
+  if (!baseline7d) {
+    const [earliest] = await sql`
+      SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
+      FROM competitor_history_snapshots
+      WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
+        AND recorded_date < CURRENT_DATE
+      ORDER BY recorded_date ASC
+      LIMIT 1;
+    `;
+    if (earliest) {
+      baseline7d = earliest;
+    }
+  }
+
+  const reachDelta7d = (baseline7d && monthlyReach > 0) ? (monthlyReach - Number(baseline7d.monthly_reach || 0)) : 0;
+  const viewsDelta7d = (baseline7d && profileViews > 0) ? (profileViews - Number(baseline7d.profile_views || 0)) : 0;
+  const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
+  const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
   const metaUpdate = {};
   if (res.account_created_at) metaUpdate.account_created_at = res.account_created_at;
@@ -320,6 +373,10 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     }
   }
 
+  const effectiveTrackingMode = options.tracking_mode || (isPulseOnly ? 'pulse_only' : 'full');
+  const effectiveCustomLabel = options.custom_label || existingProfile?.custom_label || '';
+  const effectiveSourceFolderId = options.source_folder_id || existingProfile?.source_folder_id || null;
+
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
     INSERT INTO competitor_profiles (
@@ -327,14 +384,23 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       display_name,
       avatar_url,
       monthly_reach,
+      delta_reach_24h,
       reach_delta_7d,
       profile_views,
+      delta_views_24h,
       views_delta_7d,
       total_pins,
+      delta_pins_24h,
+      pins_delta_7d,
       total_boards,
+      delta_boards_24h,
+      boards_delta_7d,
       follower_count,
       activity_status,
       account_type,
+      tracking_mode,
+      custom_label,
+      source_folder_id,
       last_synced_at,
       is_active,
       metadata,
@@ -345,14 +411,23 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       ${displayName},
       ${avatarUrl},
       ${monthlyReach},
-      ${reachDelta},
+      ${deltaReach24h},
+      ${reachDelta7d},
       ${profileViews},
-      ${viewsDelta},
+      ${deltaViews24h},
+      ${viewsDelta7d},
       ${totalPins},
+      ${deltaPins24h},
+      ${pinsDelta7d},
       ${totalBoards},
+      ${deltaBoards24h},
+      ${boardsDelta7d},
       ${followers},
       ${activityStatus},
       'competitor',
+      ${effectiveTrackingMode},
+      ${effectiveCustomLabel},
+      ${effectiveSourceFolderId},
       NOW(),
       TRUE,
       ${JSON.stringify(metaUpdate)}::jsonb,
@@ -363,13 +438,22 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       display_name = EXCLUDED.display_name,
       avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
       monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
-      reach_delta_7d = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.reach_delta_7d ELSE competitor_profiles.reach_delta_7d END,
+      delta_reach_24h = EXCLUDED.delta_reach_24h,
+      reach_delta_7d = EXCLUDED.reach_delta_7d,
       profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
-      views_delta_7d = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.views_delta_7d ELSE competitor_profiles.views_delta_7d END,
+      delta_views_24h = EXCLUDED.delta_views_24h,
+      views_delta_7d = EXCLUDED.views_delta_7d,
       total_pins = GREATEST(competitor_profiles.total_pins, EXCLUDED.total_pins),
+      delta_pins_24h = EXCLUDED.delta_pins_24h,
+      pins_delta_7d = EXCLUDED.pins_delta_7d,
       total_boards = GREATEST(competitor_profiles.total_boards, EXCLUDED.total_boards),
+      delta_boards_24h = EXCLUDED.delta_boards_24h,
+      boards_delta_7d = EXCLUDED.boards_delta_7d,
       follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_profiles.follower_count END,
       activity_status = ${activityStatus},
+      tracking_mode = COALESCE(NULLIF(EXCLUDED.tracking_mode, ''), competitor_profiles.tracking_mode),
+      custom_label = CASE WHEN competitor_profiles.custom_label IS NULL OR competitor_profiles.custom_label = '' THEN EXCLUDED.custom_label ELSE competitor_profiles.custom_label END,
+      source_folder_id = COALESCE(competitor_profiles.source_folder_id, EXCLUDED.source_folder_id),
       metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb,
       last_synced_at = NOW(),
       updated_at = NOW()
@@ -378,18 +462,32 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 
   // Record daily history snapshot
   if (updated) {
-    let pinAgg = { total_saves: 0, total_repins: 0 };
-    try {
-      const [agg] = await sql`
-        SELECT COALESCE(SUM(save_count), 0)::bigint AS total_saves, COALESCE(SUM(repin_count), 0)::bigint AS total_repins
-        FROM competitor_pins
-        WHERE competitor_id = ${updated.id};
-      `;
-      if (agg) {
-        pinAgg.total_saves = Number(agg.total_saves || 0);
-        pinAgg.total_repins = Number(agg.total_repins || 0);
-      }
-    } catch (_) {}
+    let pinAgg = {
+      total_saves: 0,
+      total_repins: 0,
+      delta_reach_24h: deltaReach24h,
+      reach_delta_7d: reachDelta7d,
+      delta_views_24h: deltaViews24h,
+      views_delta_7d: viewsDelta7d,
+      delta_pins_24h: deltaPins24h,
+      pins_delta_7d: pinsDelta7d,
+      delta_boards_24h: deltaBoards24h,
+      boards_delta_7d: boardsDelta7d
+    };
+
+    if (!isPulseOnly) {
+      try {
+        const [agg] = await sql`
+          SELECT COALESCE(SUM(save_count), 0)::bigint AS total_saves, COALESCE(SUM(repin_count), 0)::bigint AS total_repins
+          FROM competitor_pins
+          WHERE competitor_id = ${updated.id};
+        `;
+        if (agg) {
+          pinAgg.total_saves = Number(agg.total_saves || 0);
+          pinAgg.total_repins = Number(agg.total_repins || 0);
+        }
+      } catch (_) {}
+    }
 
     await sql`
       INSERT INTO competitor_history_snapshots (
@@ -417,21 +515,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
         total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
         total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),
-        metadata = jsonb_set(
-          jsonb_set(
-            COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb),
-            '{total_saves}',
-            to_jsonb(GREATEST(
-              COALESCE((competitor_history_snapshots.metadata->>'total_saves')::bigint, 0),
-              COALESCE((EXCLUDED.metadata->>'total_saves')::bigint, 0)
-            ))
-          ),
-          '{total_repins}',
-          to_jsonb(GREATEST(
-            COALESCE((competitor_history_snapshots.metadata->>'total_repins')::bigint, 0),
-            COALESCE((EXCLUDED.metadata->>'total_repins')::bigint, 0)
-          ))
-        )
+        metadata = COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb) || ${JSON.stringify(pinAgg)}::jsonb
       WHERE 
         competitor_history_snapshots.monthly_reach IS DISTINCT FROM EXCLUDED.monthly_reach
         OR competitor_history_snapshots.profile_views IS DISTINCT FROM EXCLUDED.profile_views
@@ -441,7 +525,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     `;
 
     // Atomic batch upsert for initial boards via jsonb_to_recordset (1 single roundtrip instead of N queries)
-    if (Array.isArray(res.initial_boards) && res.initial_boards.length > 0) {
+    // Strictly skipped when pulse_only is active
+    if (!isPulseOnly && Array.isArray(res.initial_boards) && res.initial_boards.length > 0) {
       try {
         const boardsPayload = res.initial_boards.map(b => ({
           competitor_id: updated.id,
@@ -2406,7 +2491,10 @@ export async function getTopDestinationUrls(sql, competitorId, {
       WHERE clean_slug IS NOT NULL AND clean_slug != '' AND clean_slug != '/'
       GROUP BY clean_slug
     )
-    SELECT *
+    -- [INVARIANT: SARGABLE-INDEX-SEEKING] Single-pass window count eliminating duplicate CTE scan
+    SELECT 
+      *,
+      COUNT(*) OVER()::int AS total_count
     FROM aggregated
     WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern})
       AND (
@@ -2426,47 +2514,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
     LIMIT ${pLim} OFFSET ${offset};
   `;
 
-  const [countRow] = await sql`
-    WITH base AS (
-      SELECT 
-        LOWER(
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(
-              REGEXP_REPLACE(destination_url, 'https?://(www\\.)?[^/]+', ''),
-              '\\?.*$', ''
-            ),
-            '#.*$', ''
-          )
-        ) AS clean_slug,
-        link_domain,
-        is_product
-      FROM competitor_pins
-      WHERE competitor_id = ${numericId}
-        AND destination_url IS NOT NULL 
-        AND destination_url != ''
-        AND destination_url NOT LIKE '%pinterest.com%'
-    ),
-    aggregated AS (
-      SELECT 
-        clean_slug,
-        BOOL_OR(COALESCE(is_product, false)) AS is_product,
-        BOOL_OR(COALESCE(link_domain ILIKE '%amazon%' OR link_domain ILIKE '%amzn.to%' OR link_domain ILIKE '%etsy%' OR link_domain ILIKE '%shopify%' OR link_domain ILIKE '%rstyle%' OR link_domain ILIKE '%liketoknow%' OR link_domain ILIKE '%shopstyle%' OR link_domain ILIKE '%shareasale%' OR link_domain ILIKE '%rewardstyle%', false)) AS is_affiliate
-      FROM base
-      WHERE clean_slug IS NOT NULL AND clean_slug != '' AND clean_slug != '/'
-      GROUP BY clean_slug
-    )
-    SELECT COUNT(*)::int AS total
-    FROM aggregated
-    WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern})
-      AND (
-        ${filter_type} = 'all' OR
-        (${filter_type} = 'articles_only' AND is_product = FALSE) OR
-        (${filter_type} = 'products_only' AND is_product = TRUE) OR
-        (${filter_type} = 'affiliate_only' AND is_affiliate = TRUE)
-      );
-  `;
-
-  const total = countRow ? countRow.total : 0;
+  const total = rows.length > 0 ? (rows[0].total_count || 0) : 0;
   const total_pages = Math.ceil(total / pLim);
 
   return {
@@ -2877,8 +2925,8 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
         alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text, EXCLUDED.title, pa_pins.title),
         saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
         repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-        comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
-        velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+        -- [INVARIANT: PRESERVE-AUTHENTIC-24H-VELOCITY] Fix LND-2: Preserve authentic daily velocity over lifetime average
+        velocity = CASE WHEN pa_pins.velocity > 0 THEN pa_pins.velocity WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
         is_product = (pa_pins.is_product OR EXCLUDED.is_product),
         last_updated_at = NOW()
       RETURNING pin_id;

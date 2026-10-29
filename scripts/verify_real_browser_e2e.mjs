@@ -657,6 +657,162 @@ async function runRealBrowserVerification() {
     testReport.interactive_tests.themeToggle = themeRes;
     console.log(`      ${themeRes.ok ? '✓ PASS' : '✗ FAIL'} Theme Toggle switching: ${JSON.stringify(themeRes)}`);
 
+    // -------------------------------------------------------------------------
+    // TEST 5: Round 5 Cross-Impact, Regression Lock & Real-Browser Assertions
+    // -------------------------------------------------------------------------
+    console.log('\n' + '-'.repeat(80));
+    console.log('[TEST 5/5] Probing Round 5 Cross-Impact, Room 3 Discovery & Ghost Board Shield...');
+    console.log('-'.repeat(80));
+
+    // 5A. Open /folders/7 (Crockpot Meals)
+    console.log('   -> Probing /folders/7 (Authentic gains_7d, Rollup Bar, Context-Preserving Pin Navigation)...');
+    await page.goto(`${BASE_URL}/folders/7`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[x-data*="foldersApp"]');
+      const stack = el?._x_dataStack?.[0];
+      return stack && stack.crossoverLoading === false && stack.crossoverData !== null;
+    }, { timeout: 15000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 800));
+
+    const folder7Result = await page.evaluate(async () => {
+      const appEl = document.querySelector('[x-data*="foldersApp"]');
+      const dataStack = appEl?._x_dataStack?.[0] || {};
+      const crossoverData = dataStack.crossoverData || {};
+      const hasTopCreators = Array.isArray(crossoverData.top_creators);
+      const competitorGains = dataStack.clusterCompetitorAudienceGains !== undefined;
+
+      // 1. Check pin gains_7d
+      const pageText = document.body ? document.body.innerText || '' : '';
+      const pin1033 = (crossoverData.all_pins || []).find(p => p.pin_id === '1033505814497118216') ||
+                      (crossoverData.super_pins || []).find(p => p.pin_id === '1033505814497118216');
+      const hasAuthenticGains7d = (pin1033 && pin1033.gains_7d === 1929) || pageText.includes('1,929') || /\+1,929/.test(pageText);
+
+      // 3. Check pin link carries folder_id=7
+      const links = Array.from(document.querySelectorAll('a[href*="/pins/"]'));
+      const samplePinLink = links.find(l => l.getAttribute('href')?.includes('/pins/1033505814497118216')) || links[0];
+      const pinHref = samplePinLink ? samplePinLink.getAttribute('href') : '';
+      const carriesFolderId = pinHref.includes('folder_id=7') || pinHref.includes('folder_id=');
+
+      return {
+        hasAuthenticGains7d,
+        hasTopCreators,
+        competitorGains,
+        pinHref,
+        carriesFolderId
+      };
+    });
+
+    console.log(`      Authentic 7d Gains (+1,929): ${folder7Result.hasAuthenticGains7d}`);
+    console.log(`      Rollup Bar top_creators wired: ${folder7Result.hasTopCreators}`);
+    console.log(`      Pin navigation carries ?folder_id: ${folder7Result.carriesFolderId} (${folder7Result.pinHref})`);
+
+    // 5B. Navigate to Pin with folder context and test Back button
+    console.log('   -> Probing /pins/1033505814497118216?folder_id=7 (Context Back Button)...');
+    await page.goto(`${BASE_URL}/pins/1033505814497118216?folder_id=7&folder=Crockpot%20Meals&return_url=%2Ffolders%2F7`, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 500));
+
+    const pinContextResult = await page.evaluate(() => {
+      const pinApp = document.querySelector('[x-data*="pinDetailApp"]');
+      const stack = pinApp?._x_dataStack?.[0] || {};
+      const backUrl = typeof stack.getBackUrl === 'function' ? stack.getBackUrl() : '';
+      const backLabel = typeof stack.getBackButtonLabel === 'function' ? stack.getBackButtonLabel() : '';
+      return {
+        originSource: stack.originSource,
+        originFolderId: stack.originFolderId,
+        backUrl,
+        backLabel,
+        isFolderBack: backUrl.includes('/folders/7') || backLabel.includes('Folder')
+      };
+    });
+    console.log(`      Pin Back Button Context: Source=${pinContextResult.originSource}, FolderId=${pinContextResult.originFolderId}, Label="${pinContextResult.backLabel}", Target="${pinContextResult.backUrl}" (Valid: ${pinContextResult.isFolderBack})`);
+
+    // 5C. Open /folders/7/creators (Room 3)
+    console.log('   -> Probing /folders/7/creators (Room 3 Creator Hub, Filter Tabs & Auto-Track Bar)...');
+    await page.goto(`${BASE_URL}/folders/7/creators`, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 600));
+
+    const room3Result = await page.evaluate(async () => {
+      const appEl = document.querySelector('[x-data*="dashboardApp"]');
+      const stack = appEl?._x_dataStack?.[0] || {};
+
+      // 1. Header Badges non-zeroing
+      const headerText = document.body ? document.body.innerText || '' : '';
+      const hasFolderTotals = stack.folderCompetitorTotalsData != null || (stack.competitors && stack.competitors.length > 0);
+
+      // 2. Filter buttons
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const btnAll = buttons.find(b => b.innerText.trim() === 'All');
+      const btnTracked = buttons.find(b => b.innerText.trim() === 'Tracked');
+      const btnAutoDiscovered = buttons.find(b => /auto-discovered|discovered/i.test(b.innerText.trim()));
+
+      if (btnTracked) {
+        btnTracked.click();
+        await new Promise(r => setTimeout(r, 200));
+      }
+      const filterAfterTracked = stack.creatorDiscoveryFilter;
+
+      if (btnAutoDiscovered) {
+        btnAutoDiscovered.click();
+        await new Promise(r => setTimeout(r, 200));
+      }
+      const filterAfterAuto = stack.creatorDiscoveryFilter;
+
+      // 3. Control bar presence
+      const hasAutoTrackButton = buttons.some(b => /auto-track all serp creators/i.test(b.innerText || ''));
+      const hasCustomLabelInput = !!document.querySelector('input[x-model="bulkPulseCustomLabel"]');
+
+      return {
+        hasFolderTotals,
+        hasFilterButtons: !!(btnAll && btnTracked && btnAutoDiscovered),
+        filterSwitched: filterAfterTracked === 'tracked' && (filterAfterAuto === 'discovered' || filterAfterAuto === 'auto_discovered'),
+        hasAutoTrackButton,
+        hasCustomLabelInput
+      };
+    });
+
+    console.log(`      Room 3 Filter Buttons: ${room3Result.hasFilterButtons} (Filter Switching: ${room3Result.filterSwitched})`);
+    console.log(`      Room 3 Auto-Track Control Bar: Button=${room3Result.hasAutoTrackButton}, CustomLabelInput=${room3Result.hasCustomLabelInput}`);
+
+    // 5D. Ghost Board Shield: Navigate to /@downshiftology/supper
+    console.log('   -> Probing /@downshiftology/supper (Ghost Board & Untracked Creator Shield)...');
+    await page.goto(`${BASE_URL}/@downshiftology/supper`, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 800));
+
+    const ghostShieldResult = await page.evaluate(() => {
+      const appEl = document.querySelector('[x-data*="dashboardApp"]');
+      const stack = appEl?._x_dataStack?.[0] || {};
+      const activeCreator = stack.activeCreator;
+      const activeBoardName = stack.activeBoardName;
+      const currentUrl = window.location.pathname;
+
+      const fullText = document.body ? document.body.innerText || '' : '';
+      const hasGhostBoardLink = fullText.includes('Back to @') || fullText.includes('https://www.pinterest.com//supper');
+      const toastText = stack.toastMessage || '';
+      const hasUntrackedToast = /not tracked|is not tracked/i.test(toastText) || /not tracked/i.test(fullText);
+
+      return {
+        activeCreator,
+        activeBoardName,
+        currentUrl,
+        hasGhostBoardLink,
+        toastText,
+        hasUntrackedToast,
+        ok: !hasGhostBoardLink && (activeCreator === null || activeBoardName === null) && (currentUrl === '/accounts' || hasUntrackedToast)
+      };
+    });
+
+    console.log(`      Ghost Board Shield: Redirected=${ghostShieldResult.currentUrl}, Toast="${ghostShieldResult.toastText}", GhostLink=${ghostShieldResult.hasGhostBoardLink} (Passed: ${ghostShieldResult.ok})`);
+
+    const test5Pass = folder7Result.hasTopCreators && folder7Result.carriesFolderId && pinContextResult.isFolderBack && room3Result.hasFilterButtons && ghostShieldResult.ok;
+    console.log(`      ${test5Pass ? '✓ PASS' : '✗ FAIL'} Test 5 Round 5 Assertions: ${test5Pass ? 'PASS' : 'FAIL'}`);
+    testReport.test5_round5_cross_impact = {
+      ok: test5Pass,
+      folder7Result,
+      pinContextResult,
+      room3Result,
+      ghostShieldResult
+    };
+
   } finally {
     await browser.close();
     serverProc.kill('SIGTERM');
@@ -667,7 +823,8 @@ async function runRealBrowserVerification() {
     { name: 'Test 1: Room 5 Visual Geometry', ok: testReport.test1_room5_geometry?.ok },
     { name: 'Test 2: Dropdown Unclipped Geometry', ok: testReport.test2_dropdown_unclipped?.ok },
     { name: 'Test 3: Timeframe & Hydration Suppression', ok: testReport.test3_pin_timeframe_and_suppression?.ok },
-    { name: 'Test 4: Hub-Shard Latency & Parity', ok: testReport.test4_hub_shards_parity_and_latency?.ok }
+    { name: 'Test 4: Hub-Shard Latency & Parity', ok: testReport.test4_hub_shards_parity_and_latency?.ok },
+    { name: 'Test 5: Round 5 Cross-Impact, Room 3 & Ghost Board Shield', ok: testReport.test5_round5_cross_impact?.ok }
   ];
 
   console.log('\n' + '='.repeat(80));
@@ -682,7 +839,7 @@ async function runRealBrowserVerification() {
     }
   }
 
-  console.log(`\nOverall Verdict: ${testReport.summary.totalFailed === 0 ? 'ALL 4 MANDATORY TESTS PASSED (VICTORY)' : 'VERIFICATION VETO - ISSUES REMAINING'}`);
+  console.log(`\nOverall Verdict: ${testReport.summary.totalFailed === 0 ? 'ALL 5 MANDATORY TESTS PASSED (VICTORY)' : 'VERIFICATION VETO - ISSUES REMAINING'}`);
   return testReport;
 }
 

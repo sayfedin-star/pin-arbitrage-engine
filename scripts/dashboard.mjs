@@ -94,7 +94,8 @@ import {
   unlinkCreatorFromFolder,
   listFolderPinnedDomains,
   pinDomainToFolder,
-  unpinDomainFromFolder
+  unpinDomainFromFolder,
+  bulkPulseTrackFolderCreators
 } from '../src/modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
@@ -2481,6 +2482,13 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, { success: true, creators, folder_id: folderId });
         }
 
+        // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body)
+        if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-pulse-track') {
+          const body = await parseJsonBody(req).catch(() => ({}));
+          const result = await bulkPulseTrackFolderCreators(targetSql, folderId, body);
+          return sendJson(res, 200, result);
+        }
+
         // POST /api/folders/:id/creators -> linkCreatorToFolder(sql, folderId, competitorId)
         if (method === 'POST' && parts.length === 2) {
           const body = await parseJsonBody(req).catch(() => ({}));
@@ -2492,9 +2500,15 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, { success: true, linked, folder_id: folderId });
         }
 
-        // DELETE /api/folders/:id/creators/:cid -> unlinkCreatorFromFolder(sql, folderId, competitorId)
-        if (method === 'DELETE' && parts.length === 3) {
-          const competitorId = Number(parts[2]);
+        // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query) -> unlinkCreatorFromFolder(sql, folderId, competitorId)
+        if (method === 'DELETE' && (parts.length === 2 || parts.length === 3)) {
+          let competitorId = null;
+          if (parts.length === 3) {
+            competitorId = Number(parts[2]);
+          } else if (parts.length === 2) {
+            const body = await parseJsonBody(req).catch(() => ({}));
+            competitorId = Number(body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid'));
+          }
           if (!competitorId) {
             return sendJson(res, 400, { success: false, error: 'Valid creator ID is required' });
           }

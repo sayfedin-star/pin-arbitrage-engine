@@ -231,6 +231,9 @@ export function getPinKvKeysToEvict(pinId, associatedKids = []) {
     `dossier:pin:${pid}:0`,
     `pin:dossier:${pid}`,
     `pin:dossier?pin_id=${pid}`,
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: KV Edge Dossier v3 Keys
+    `pin:dossier:v3?pin_id=${pid}`,
+    `dossier:v3:pin:${pid}`,
     `traj:pin:${pid}`,
     `traj:pin:${pid}:0`,
     `traj:pin:${pid}:all`,
@@ -266,6 +269,8 @@ export async function ensureEdgeFoldersTable(env) {
         creator_count INTEGER DEFAULT 0,
         domain_count INTEGER DEFAULT 0,
         pinned_domain_count INTEGER DEFAULT 0,
+        unique_pins_count INTEGER DEFAULT 0,
+        discovered_creator_count INTEGER DEFAULT 0,
         status TEXT DEFAULT 'active',
         metadata TEXT DEFAULT '{}',
         updated_at TEXT DEFAULT (datetime('now'))
@@ -278,6 +283,8 @@ export async function ensureEdgeFoldersTable(env) {
       'ALTER TABLE edge_campaign_folders ADD COLUMN creator_count INTEGER DEFAULT 0',
       'ALTER TABLE edge_campaign_folders ADD COLUMN domain_count INTEGER DEFAULT 0',
       'ALTER TABLE edge_campaign_folders ADD COLUMN pinned_domain_count INTEGER DEFAULT 0',
+      'ALTER TABLE edge_campaign_folders ADD COLUMN unique_pins_count INTEGER DEFAULT 0',
+      'ALTER TABLE edge_campaign_folders ADD COLUMN discovered_creator_count INTEGER DEFAULT 0',
       "ALTER TABLE edge_campaign_folders ADD COLUMN status TEXT DEFAULT 'active'",
       "ALTER TABLE edge_campaign_folders ADD COLUMN metadata TEXT DEFAULT '{}'"
     ];
@@ -302,16 +309,19 @@ export async function syncFolderToD1(env, folder) {
     const name = String(folder.name || 'Untitled');
     const color = String(folder.color || '#e60023');
     const description = folder.description || null;
-    const keywordCount = Math.max(0, Number(
-      folder.keyword_count ??
-      folder.item_count ??
-      (Array.isArray(folder.items) ? folder.items.length : 0) ??
-      0
-    ));
+    const keywordCount = folder.keyword_count != null
+      ? Number(folder.keyword_count)
+      : (folder.item_count != null
+        ? Number(folder.item_count)
+        : (Array.isArray(folder.items) ? folder.items.length : null));
     const itemCount = keywordCount;
-    const creatorCount = Math.max(0, Number(folder.creator_count || 0));
-    const domainCount = Math.max(0, Number(folder.domain_count || 0));
-    const pinnedDomainCount = Math.max(0, Number(folder.pinned_domain_count || 0));
+    const creatorCount = folder.creator_count != null ? Number(folder.creator_count) : null;
+    const domainCount = folder.domain_count != null ? Number(folder.domain_count) : null;
+    const pinnedDomainCount = folder.pinned_domain_count != null ? Number(folder.pinned_domain_count) : null;
+    const uniquePinsCount = folder.unique_pins_count != null
+      ? Number(folder.unique_pins_count)
+      : (folder.pin_count != null ? Number(folder.pin_count) : null);
+    const discoveredCreatorCount = folder.discovered_creator_count != null ? Number(folder.discovered_creator_count) : null;
     const status = String(folder.status || 'active');
     const metadata = typeof folder.metadata === 'object' && folder.metadata !== null
       ? JSON.stringify(folder.metadata)
@@ -321,24 +331,27 @@ export async function syncFolderToD1(env, folder) {
     await env.PIN_D1_DB.prepare(`
       INSERT INTO edge_campaign_folders (
         id, name, color, description, item_count, keyword_count,
-        creator_count, domain_count, pinned_domain_count, status, metadata, updated_at
+        creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        color = excluded.color,
-        description = excluded.description,
-        item_count = excluded.item_count,
-        keyword_count = excluded.keyword_count,
-        creator_count = excluded.creator_count,
-        domain_count = excluded.domain_count,
-        pinned_domain_count = excluded.pinned_domain_count,
-        status = excluded.status,
-        metadata = excluded.metadata,
+        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Non-Zeroing Defensive Coalescence
+        name = COALESCE(excluded.name, edge_campaign_folders.name),
+        color = COALESCE(excluded.color, edge_campaign_folders.color),
+        description = COALESCE(excluded.description, edge_campaign_folders.description),
+        item_count = COALESCE(excluded.item_count, edge_campaign_folders.item_count),
+        keyword_count = COALESCE(excluded.keyword_count, edge_campaign_folders.keyword_count),
+        creator_count = COALESCE(excluded.creator_count, edge_campaign_folders.creator_count),
+        domain_count = COALESCE(excluded.domain_count, edge_campaign_folders.domain_count),
+        pinned_domain_count = COALESCE(excluded.pinned_domain_count, edge_campaign_folders.pinned_domain_count),
+        unique_pins_count = COALESCE(excluded.unique_pins_count, edge_campaign_folders.unique_pins_count),
+        discovered_creator_count = COALESCE(excluded.discovered_creator_count, edge_campaign_folders.discovered_creator_count),
+        status = COALESCE(excluded.status, edge_campaign_folders.status),
+        metadata = COALESCE(excluded.metadata, edge_campaign_folders.metadata),
         updated_at = excluded.updated_at
     `).bind(
       id, name, color, description, itemCount, keywordCount,
-      creatorCount, domainCount, pinnedDomainCount, status, metadata, updatedAt
+      creatorCount, domainCount, pinnedDomainCount, uniquePinsCount, discoveredCreatorCount, status, metadata, updatedAt
     ).run();
   } catch (err) {
     console.warn('[syncFolderToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
@@ -553,7 +566,8 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
 export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
   if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
   await ensureEdgeKeywordsCatalogTable(env);
-  const isFullCatalog = options.isFullCatalog ?? (keywords.length >= 20);
+  // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: Safe D1 Catalog Synchronization
+  const isFullCatalog = options.isFullCatalog === true;
   try {
     const CHUNK_SIZE = 50;
     for (let i = 0; i < keywords.length; i += CHUNK_SIZE) {

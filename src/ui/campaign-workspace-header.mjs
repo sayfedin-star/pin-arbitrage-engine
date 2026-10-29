@@ -49,6 +49,7 @@ export function renderCampaignWorkspaceHeader({
 
   return `
   <!-- [INVARIANT: CAMPAIGN-WORKSPACE-HEADER-PARITY] Shared Workspace Header -->
+  <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 1: Unclipped Header Wrapper -->
   <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-xs relative z-30 flex flex-col mb-6">
     <!-- Top Identity Bar -->
     <div class="p-5 rounded-t-2xl border-b border-slate-100 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-4">

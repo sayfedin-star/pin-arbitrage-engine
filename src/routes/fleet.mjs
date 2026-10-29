@@ -15,6 +15,7 @@ import {
 import { resolveShardConnection, getPinShardId, isValidShardDsn } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
 import { verifyApiAuthentication } from '../worker.mjs';
+import { invalidateFolderCache } from '../modules/keywords/folders-service.mjs';
 
 // Predictive Hover JIT Warming deduplication & rate limiting
 const recentWarmedShards = new Map(); // shardId -> epochMs
@@ -106,6 +107,37 @@ export async function handleFleetRoutes(routeCtx) {
     const targetProj = body?.project_id || searchParams.get('project_id');
     const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
     return jsonResponse(syncRes);
+  }
+
+  // 3b. Cache Invalidation Webhook: POST /api/fleet/cache-invalidate
+  // [INVARIANT: GLOBAL-KV-CACHE-EPOCH-INVALIDATION]
+  if (pathname === '/api/fleet/cache-invalidate') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    const auth = verifyApiAuthentication(request, env);
+    if (!auth.authorized) {
+      if (auth.response) return auth.response;
+      return jsonResponse({
+        success: false,
+        error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
+        message: auth.reason || 'Authentication required for cache invalidation.'
+      }, auth.status || 401);
+    }
+    const body = await request.json().catch(() => ({}));
+    const newEpoch = String(Date.now());
+    if (env?.PIN_ENGINE_KV) {
+      await env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch);
+    }
+    invalidateFolderCache();
+    invalidateEdgeCache('fleet_projects');
+    return jsonResponse({
+      success: true,
+      message: 'Global cache epoch invalidated successfully',
+      epoch: newEpoch,
+      scope: body?.scope || 'all_folders',
+      event: body?.event || 'manual'
+    });
   }
 
   // 4. Ping Project

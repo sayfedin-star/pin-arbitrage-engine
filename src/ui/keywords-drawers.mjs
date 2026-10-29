@@ -396,14 +396,14 @@ export function getKeywordDrawersAndModalsHtml() {
                 </div>
               </template>
 
-              <template x-if="!isTrajectoryLoading && (!trajectoryData?.snapshots || trajectoryData.snapshots.length === 0)">
+              <template x-if="!isTrajectoryLoading && (!(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData?.snapshots)?.length)">
                 <div class="py-10 text-center text-xs text-slate-400 font-mono">
                   No snapshot history recorded yet for this pin.
                 </div>
               </template>
 
               <!-- N=1 Single Baseline Dot -->
-              <template x-if="!isTrajectoryLoading && trajectoryData?.snapshots && trajectoryData.snapshots.length === 1">
+              <template x-if="!isTrajectoryLoading && (Array.isArray(trajectoryData) ? trajectoryData : trajectoryData?.snapshots)?.length === 1">
                 <div class="text-center py-6 space-y-2">
                   <div class="w-4 h-4 rounded-full bg-emerald-500 mx-auto shadow-md shadow-emerald-500/30"></div>
                   <p class="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono">Baseline Recorded</p>
@@ -412,11 +412,11 @@ export function getKeywordDrawersAndModalsHtml() {
               </template>
 
               <!-- N >= 2 Dual-Axis Normalized SVG Chart -->
-              <template x-if="!isTrajectoryLoading && trajectoryData?.snapshots && trajectoryData.snapshots.length >= 2">
+              <template x-if="!isTrajectoryLoading && (Array.isArray(trajectoryData) ? trajectoryData : trajectoryData?.snapshots)?.length >= 2">
                 <div class="w-full space-y-2">
                   <div class="flex items-center justify-between text-[10px] font-mono px-1">
-                    <span class="text-rose-500 font-bold">● Saves (Red Scale: 0 to <span x-text="formatNumber(getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).savesMax)"></span>)</span>
-                    <span class="text-blue-500 font-bold">● Repins (Blue Scale: 0 to <span x-text="formatNumber(getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).repinsMax)"></span>)</span>
+                    <span class="text-rose-500 font-bold">● Saves (Red Scale: 0 to <span x-text="formatNumber(getTrajectoryDualSvg(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData.snapshots, 600, 200).savesMax)"></span>)</span>
+                    <span class="text-blue-500 font-bold">● Repins (Blue Scale: 0 to <span x-text="formatNumber(getTrajectoryDualSvg(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData.snapshots, 600, 200).repinsMax)"></span>)</span>
                   </div>
 
                   <svg class="w-full h-48 overflow-visible" viewBox="0 0 600 200" preserveAspectRatio="none">
@@ -433,11 +433,11 @@ export function getKeywordDrawersAndModalsHtml() {
                     <line x1="0" y1="160" x2="600" y2="160" stroke="#334155" stroke-dasharray="3" stroke-width="0.8" opacity="0.3"/>
 
                     <!-- Saves Area & Line (Red) -->
-                    <path :d="getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).savesArea" fill="url(#savesTrajectoryGrad)"/>
-                    <path :d="getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).savesLine" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round"/>
+                    <path :d="getTrajectoryDualSvg(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData.snapshots, 600, 200).savesArea" fill="url(#savesTrajectoryGrad)"/>
+                    <path :d="getTrajectoryDualSvg(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData.snapshots, 600, 200).savesLine" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round"/>
 
                     <!-- Repins Line (Blue) -->
-                    <path :d="getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).repinsLine" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+                    <path :d="getTrajectoryDualSvg(Array.isArray(trajectoryData) ? trajectoryData : trajectoryData.snapshots, 600, 200).repinsLine" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
                   </svg>
                 </div>
               </template>

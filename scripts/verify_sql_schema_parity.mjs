@@ -48,7 +48,12 @@ export const KNOWN_TABLE_COLUMNS = {
     'prev_rank_position',
     'baseline_day_saves',
     'baseline_day_date',
-    'shard_id'
+    'shard_id',
+    'delta_repins_24h',
+    'gains_5d',
+    'gains_7d',
+    'gains_10d',
+    'gains_15d'
   ]),
   keyword_displaced_index: new Set([
     'keyword_id',
@@ -63,7 +68,12 @@ export const KNOWN_TABLE_COLUMNS = {
     'daily_save_velocity',
     'updated_at',
     'domain',
-    'shard_id'
+    'shard_id',
+    'delta_repins_24h',
+    'gains_5d',
+    'gains_7d',
+    'gains_10d',
+    'gains_15d'
   ]),
   pin_serp_positions: new Set([
     'pin_id',
@@ -169,7 +179,9 @@ export const KNOWN_TABLE_COLUMNS = {
     'id',
     'folder_id',
     'competitor_id',
-    'added_at'
+    'added_at',
+    'custom_label',
+    'source'
   ]),
   folder_pinned_domains: new Set([
     'id',
@@ -207,7 +219,16 @@ export const KNOWN_TABLE_COLUMNS = {
     'metadata',
     'created_at',
     'updated_at',
-    'last_harvest_metadata'
+    'last_harvest_metadata',
+    'tracking_mode',
+    'custom_label',
+    'source_folder_id',
+    'delta_reach_24h',
+    'delta_views_24h',
+    'delta_pins_24h',
+    'delta_boards_24h',
+    'pins_delta_7d',
+    'boards_delta_7d'
   ]),
   competitor_boards: new Set([
     'id',
@@ -246,7 +267,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'enrich_attempts',
     'claim_token',
     'board_slug',
-    'is_deleted'
+    'is_deleted',
+    'shard_id'
   ]),
   competitor_history_snapshots: new Set([
     'id',
@@ -282,7 +304,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'created_at_pinterest',
     'first_seen_at',
     'last_updated_at',
-    'alt_text'
+    'alt_text',
+    'shard_id'
   ]),
   pa_qualification_rules: new Set([
     'id',

@@ -131,10 +131,10 @@ export function getPinDetailPageHtml(pinId = '') {
       <a 
         :href="getBackUrl()" 
         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-xs font-semibold text-slate-300 hover:text-white transition shadow-2xs shrink-0"
-        :title="isCreatorContext() ? ('Back to @' + originCreator) : (originKeyword ? ('Back to ' + originKeyword) : 'Back to Radar')"
+        :title="getBackButtonTitle()"
       >
         <span class="text-slate-400">←</span>
-        <span class="truncate max-w-[120px] sm:max-w-[160px]" x-text="isCreatorContext() ? ('@' + originCreator) : (originKeyword ? originKeyword : 'Radar')"></span>
+        <span class="truncate max-w-[120px] sm:max-w-[160px]" x-text="getBackButtonLabel()"></span>
       </a>
 
       <!-- Breadcrumbs Trail -->
@@ -142,7 +142,7 @@ export function getPinDetailPageHtml(pinId = '') {
         <template x-if="isCreatorContext()">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
-            <a href="/accounts" class="text-slate-400 hover:text-white">Creator Archive</a>
+            <a href="/accounts" class="text-slate-400 hover:text-white" title="Creator Archive">Creator Hub</a>
             <span class="text-slate-600">/</span>
             <a :href="'/' + encodeURIComponent(originCreator)" class="text-rose-400 hover:underline font-medium truncate" x-text="'@' + originCreator"></a>
             <template x-if="originBoard">
@@ -153,7 +153,31 @@ export function getPinDetailPageHtml(pinId = '') {
             </template>
           </div>
         </template>
-        <template x-if="!isCreatorContext()">
+        <template x-if="!isCreatorContext() && originSource === 'folder'">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-slate-600">/</span>
+            <a href="/folders" class="text-slate-400 hover:text-white">Campaign Folders</a>
+            <template x-if="originFolderId">
+              <span class="flex items-center gap-1.5 truncate">
+                <span class="text-slate-600">/</span>
+                <a :href="'/folders/' + encodeURIComponent(originFolderId)" class="text-indigo-400 hover:underline truncate" x-text="originFolderName || ('Folder #' + originFolderId)"></a>
+              </span>
+            </template>
+          </div>
+        </template>
+        <template x-if="!isCreatorContext() && originSource === 'domain'">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-slate-600">/</span>
+            <a href="/domains" class="text-slate-400 hover:text-white">Domain Studio</a>
+            <template x-if="originDomain">
+              <span class="flex items-center gap-1.5 truncate">
+                <span class="text-slate-600">/</span>
+                <a :href="'/domains/' + encodeURIComponent(originDomain)" class="text-sky-400 hover:underline truncate" x-text="originDomain"></a>
+              </span>
+            </template>
+          </div>
+        </template>
+        <template x-if="!isCreatorContext() && originSource !== 'folder' && originSource !== 'domain'">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
             <a href="/keywords" class="text-slate-400 hover:text-white">Keywords Radar</a>
@@ -357,12 +381,23 @@ export function getPinDetailPageHtml(pinId = '') {
           <span class="text-slate-400 shrink-0">Creator</span>
           <div class="text-right truncate">
             <template x-if="dossier?.pillar_1_creator_context?.creator_username">
-              <a :href="'/' + encodeURIComponent(dossier.pillar_1_creator_context.creator_username)" class="font-bold text-rose-400 hover:underline flex items-center justify-end gap-1">
-                <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
-                <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
-                  <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
-                </template>
-              </a>
+              <template x-if="dossier?.pillar_1_creator_context?.is_tracked_competitor">
+                <a :href="'/' + encodeURIComponent(dossier.pillar_1_creator_context.creator_username)" class="font-bold text-rose-400 hover:underline flex items-center justify-end gap-1">
+                  <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
+                  <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
+                    <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                  </template>
+                </a>
+              </template>
+              <template x-if="!dossier?.pillar_1_creator_context?.is_tracked_competitor">
+                <span class="font-medium text-slate-300 flex items-center justify-end gap-1" :title="'Untracked creator @' + dossier.pillar_1_creator_context.creator_username">
+                  <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
+                  <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">untracked</span>
+                  <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
+                    <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                  </template>
+                </span>
+              </template>
             </template>
             <template x-if="!dossier?.pillar_1_creator_context?.creator_username">
               <span class="text-slate-500">Unattributed</span>
@@ -1353,6 +1388,7 @@ export function getPinDetailPageHtml(pinId = '') {
         isSilentRefreshing: false,
         dossier: null,
         activeTab: 'ledger',
+        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Pin Dossier Timeframe & SERP Badge
         chartTimeframe: '7d',
         chartMetric: 'saves',
         isDark: true,
@@ -1382,6 +1418,7 @@ export function getPinDetailPageHtml(pinId = '') {
         originKeyword: '',
         originFolderId: null,
         originFolderName: '',
+        originDomain: '',
         originReturnUrl: '',
 
         onImageLoad(event) {
@@ -1505,7 +1542,7 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         isCreatorContext() {
-          return this.originSource === 'creator' || (Boolean(this.originCreator) && !this.originKeyword);
+          return this.originSource === 'creator' && Boolean(this.originCreator);
         },
 
         getBoardSlug(name) {
@@ -1515,6 +1552,12 @@ export function getPinDetailPageHtml(pinId = '') {
 
         getBackUrl() {
           if (this.originReturnUrl) return this.originReturnUrl;
+          if (this.originSource === 'folder' && this.originFolderId) {
+            return '/folders/' + encodeURIComponent(this.originFolderId);
+          }
+          if (this.originSource === 'domain' && this.originDomain) {
+            return '/domains/' + encodeURIComponent(this.originDomain);
+          }
           if (this.originSource === 'creator' && this.originCreator) {
             const cleanUser = String(this.originCreator).replace(/^@+/, '').trim();
             const bSlug = this.getBoardSlug(this.originBoard);
@@ -1524,6 +1567,38 @@ export function getPinDetailPageHtml(pinId = '') {
             return '/keywords?q=' + encodeURIComponent(this.originKeyword);
           }
           return '/keywords';
+        },
+
+        getBackButtonLabel() {
+          if (this.originSource === 'folder') {
+            return this.originFolderName || (this.originFolderId ? ('Folder #' + this.originFolderId) : 'Folders');
+          }
+          if (this.originSource === 'domain' && this.originDomain) {
+            return this.originDomain;
+          }
+          if (this.isCreatorContext() && this.originCreator) {
+            return '@' + this.originCreator;
+          }
+          if (this.originKeyword) {
+            return this.originKeyword;
+          }
+          return 'Radar';
+        },
+
+        getBackButtonTitle() {
+          if (this.originSource === 'folder') {
+            return 'Back to ' + (this.originFolderName || ('Folder #' + this.originFolderId));
+          }
+          if (this.originSource === 'domain' && this.originDomain) {
+            return 'Back to ' + this.originDomain;
+          }
+          if (this.isCreatorContext() && this.originCreator) {
+            return 'Back to @' + this.originCreator;
+          }
+          if (this.originKeyword) {
+            return 'Back to ' + this.originKeyword;
+          }
+          return 'Back to Radar';
         },
 
         async init() {
@@ -1538,6 +1613,7 @@ export function getPinDetailPageHtml(pinId = '') {
             const kidParam = params.get('keyword_id') || '';
             const fidParam = params.get('folder_id') || '';
             const fNameParam = params.get('folder') || '';
+            const domainParam = params.get('domain') || '';
             const returnUrlParam = params.get('return_url') || '';
 
             if (creatorParam) {
@@ -1555,7 +1631,12 @@ export function getPinDetailPageHtml(pinId = '') {
             if (fidParam) {
               this.originFolderId = fidParam.trim();
               this.originFolderName = fNameParam.trim();
-              if (!this.originSource) this.originSource = 'keyword';
+              if (!this.originSource || this.originSource === 'keyword') this.originSource = 'folder';
+              hasUrlContext = true;
+            }
+            if (domainParam) {
+              this.originDomain = domainParam.trim();
+              if (!this.originSource) this.originSource = 'domain';
               hasUrlContext = true;
             }
             if (returnUrlParam) {
@@ -1574,6 +1655,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   keywordId: this.originKeywordId,
                   folderId: this.originFolderId,
                   folderName: this.originFolderName,
+                  domain: this.originDomain,
                   returnUrl: this.originReturnUrl,
                   ts: Date.now()
                 }));
@@ -1588,7 +1670,7 @@ export function getPinDetailPageHtml(pinId = '') {
           }
 
           // Tier 2: sessionStorage ('pae_pin_breadcrumb_ctx')
-          if (!this.originCreator && !this.originKeyword && typeof window !== 'undefined' && window.sessionStorage) {
+          if (!this.originCreator && !this.originKeyword && !this.originFolderId && !this.originDomain && !this.originReturnUrl && typeof window !== 'undefined' && window.sessionStorage) {
             try {
               const rawCtx = sessionStorage.getItem('pae_pin_breadcrumb_ctx');
               if (rawCtx) {
@@ -1600,6 +1682,15 @@ export function getPinDetailPageHtml(pinId = '') {
                     this.originSource = 'creator';
                     this.originCreator = (saved.creator || '').replace(/^@+/, '').trim();
                     this.originBoard = saved.board || '';
+                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                  } else if (saved.source === 'folder' || saved.folderId) {
+                    this.originSource = 'folder';
+                    this.originFolderId = saved.folderId || null;
+                    this.originFolderName = saved.folderName || '';
+                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                  } else if (saved.source === 'domain' || saved.domain) {
+                    this.originSource = 'domain';
+                    this.originDomain = saved.domain || '';
                     this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
                   } else if (saved.source === 'keyword' || saved.keyword) {
                     this.originSource = 'keyword';
@@ -1615,11 +1706,26 @@ export function getPinDetailPageHtml(pinId = '') {
           }
 
           // Tier 3: Same-Origin document.referrer Inspection
-          if (!this.originCreator && !this.originKeyword && typeof document !== 'undefined' && document.referrer) {
+          // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Folder Context Referrer Check
+          if (!this.originCreator && !this.originKeyword && !this.originFolderId && !this.originDomain && !this.originReturnUrl && typeof document !== 'undefined' && document.referrer) {
             try {
               const refUrl = new URL(document.referrer);
               if (typeof window !== 'undefined' && refUrl.origin === window.location.origin) {
-                if (refUrl.pathname.startsWith('/keywords')) {
+                if (refUrl.pathname.startsWith('/folders')) {
+                  this.originSource = 'folder';
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const fSegs = refUrl.pathname.split('/').filter(Boolean);
+                  if (fSegs.length > 1) this.originFolderId = fSegs[1];
+                  const qFolderId = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
+                  if (qFolderId) this.originFolderId = qFolderId;
+                } else if (refUrl.pathname.startsWith('/domains')) {
+                  this.originSource = 'domain';
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const dSegs = refUrl.pathname.split('/').filter(Boolean);
+                  if (dSegs.length > 1) this.originDomain = dSegs[1];
+                  const qDomain = refUrl.searchParams.get('domain');
+                  if (qDomain) this.originDomain = qDomain;
+                } else if (refUrl.pathname.startsWith('/keywords')) {
                   this.originSource = 'keyword';
                   this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
                   const refKw = refUrl.searchParams.get('q') || refUrl.searchParams.get('keyword');
@@ -1657,14 +1763,17 @@ export function getPinDetailPageHtml(pinId = '') {
           }
           await this.loadDossier();
 
-          // Tier 4: Fallback from Pin Dossier Metadata
-          if (!this.originCreator && !this.originKeyword) {
+          // Tier 4: Fallback from Pin Dossier Metadata (Only for tracked competitors)
+          // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Untracked Creator Shield
+          if (!this.originCreator && !this.originKeyword && !this.originFolderId && !this.originDomain && !this.originReturnUrl) {
             const creatorCtx = this.dossier?.pillar_1_creator_context;
-            const creatorUser = creatorCtx?.creator_username || this.dossier?.creative?.creator_username;
-            if (creatorUser) {
-              this.originCreator = String(creatorUser).replace(/^@+/, '').trim();
-              this.originBoard = this.originBoard || creatorCtx?.board_name || '';
-              this.originSource = 'creator';
+            if (creatorCtx?.is_tracked_competitor) {
+              const creatorUser = creatorCtx?.creator_username || this.dossier?.creative?.creator_username;
+              if (creatorUser) {
+                this.originCreator = String(creatorUser).replace(/^@+/, '').trim();
+                this.originBoard = this.originBoard || creatorCtx?.board_name || '';
+                this.originSource = 'creator';
+              }
             }
           }
           if (this.dossier?.pillar_1_creator_context?.board_name) {
@@ -1672,7 +1781,7 @@ export function getPinDetailPageHtml(pinId = '') {
           }
 
           // Persist hydrated breadcrumb context to sessionStorage so F5 refreshes retain Tier 3 / Tier 4 context
-          if (typeof window !== 'undefined' && window.sessionStorage && (this.originCreator || this.originKeyword)) {
+          if (typeof window !== 'undefined' && window.sessionStorage && (this.originCreator || this.originKeyword || this.originFolderId || this.originDomain || this.originReturnUrl)) {
             try {
               sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
                 source: this.originSource,
@@ -1683,6 +1792,7 @@ export function getPinDetailPageHtml(pinId = '') {
                 keywordId: this.originKeywordId,
                 folderId: this.originFolderId,
                 folderName: this.originFolderName,
+                domain: this.originDomain,
                 returnUrl: this.originReturnUrl,
                 ts: Date.now()
               }));
@@ -2112,6 +2222,7 @@ export function getPinDetailPageHtml(pinId = '') {
           return '0 24h';
         },
 
+        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Displaced / Unranked SERP Badge Guard
         isKeywordDisplacedOrUnranked(kw) {
           if (!kw) return true;
           if (kw.is_displaced) return true;

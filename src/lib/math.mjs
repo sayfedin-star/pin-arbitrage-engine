@@ -23,6 +23,7 @@
  * @param {object} params
  * @returns {boolean} True if the transition represents a multi-stage hydration jump
  */
+// [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Anti-Hydration Jump Detection
 export function detectHydrationJump(params) {
   if (!params || typeof params !== 'object') return false;
   const curSaves = Number(params.currentSaves ?? 0);

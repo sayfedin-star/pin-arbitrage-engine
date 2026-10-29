@@ -940,6 +940,7 @@ export function isMultiStageHydrationJump(prev, curr) {
  * In-memory trajectory sanitizer for Pin Dossier payloads (including KV & D1 hits).
  * Guarantees zero [SERP #null] badges and suppresses multi-stage hydration velocity explosions.
  */
+// [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Pin Dossier Trajectory Sanitizer
 export function sanitizeDossierTrajectory(dossier) {
   if (!dossier || typeof dossier !== 'object') return dossier;
   const traj = Array.isArray(dossier.daily_trajectory)
@@ -1117,7 +1118,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const hasValidD1 = Boolean(
     d1Record && d1Record.pin_id &&
     (d1Record.title || d1Record.image_url) &&
-    (d1Record.description && d1Record.description.length > 5) &&
     d1Record.created_at_pinterest &&
     d1UpdatedMs > 0 &&
     (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000

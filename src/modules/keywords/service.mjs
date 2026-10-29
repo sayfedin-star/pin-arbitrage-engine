@@ -20,7 +20,7 @@ import { formatPinterestCookie } from '../../utils.mjs';
 import { getPinterestHeaders } from '../shared/pinterest-headers.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
-import { derivePinTitle } from './folders-service.mjs';
+import { derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import {
   getPinShardId,
@@ -152,6 +152,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
     await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
       try {
         const shardSql = await resolveShardConnection({ hubSql, shardId, env });
+        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Unified Postgres Toplogy Check
         if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return;
         const sorted = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
         const payload = JSON.stringify(sorted);
@@ -2080,6 +2081,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
     leaseCommittedInTx = true;
+
+    // Auto-discover newly ranked creators into tracking folders if enabled (R3)
+    autoDiscoverFolderCreatorsForKeyword(sql, kid).catch(err => {
+      console.warn(`[crawlKeywordSERP] Auto-discover folder creators warning for keyword ${kid}:`, err?.message);
+    });
 
     // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the 99 Shards + D1
     // Bypassed during Fleet Phase 1A when skip_shard_offload=true since Phase 1B performs global deduplicated shard sync

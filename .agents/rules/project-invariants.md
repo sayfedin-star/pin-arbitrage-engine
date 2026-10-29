@@ -185,6 +185,38 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
   - If duration/age is $< 365\text{ days}$: display strictly in **days only** (e.g. `145d`).
 - **Universal Parity:** Apply this rule uniformly across tables, cards, drawer headers, and Pin Dossier trajectories via `formatUniversalAge()`.
 
+## 32. Room 1–5 Sibling DOM Hierarchy & Unclipped Workspace Header
+- **Direct Sibling Isolation:** In `src/campaign-folders-ui.mjs`, Room 5 (`x-show="currentRoom === 'settings'"`) MUST remain a direct sibling of Room 1 (`x-show="currentRoom !== 'settings'"`), enclosed exclusively within VIEW A (`x-show="activeFolderId"`). Room 5 must never be nested inside Room 1, preventing conflicting Alpine visibility evaluations.
+- **Unclipped Header Geometry:** In `src/ui/campaign-workspace-header.mjs`, the outer workspace header container (`.rounded-2xl`) must NEVER specify `overflow-hidden` or `overflow-x-hidden`. Workspace headers house floating relative/absolute elements (such as the folder switcher dropdown and export menus) that must render unobstructed with zero pixel clipping.
+
+## 33. Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
+- **Zero Whole-Table Scans across Distributed Runners:** Distributed fleet runners (such as `scripts/creator-velocity-crawler.mjs`) MUST NEVER query full Hub tables (`pa_pins`, `competitor_pins`) into Node.js memory to filter by assigned shards.
+- **Mandatory Storage Shard Predicates:** All runner queries against `pa_pins` and `competitor_pins` must push shard filtering down to the database engine via stored generated `shard_id` (`WHERE shard_id = ANY(${assignedShards}::smallint[])`), utilizing physical B-tree indexes (`idx_pa_pins_shard_id`, `idx_competitor_pins_shard_id`) to eliminate 95% of egress transfer.
+- **CRC32 Shard Function Parity:** All shard-assignment and partitioning logic in SQL queries must use canonical `pae_crc32_shard_id(pin_id, 99)`. Bob Jenkins' `hashtext` is strictly banned.
+
+## 34. Authentic Rolling Multi-Window Gains (Anti-Linear-Multiplier Invariant)
+- **Ban on Linear Extrapolation:** Multi-window velocity gains (`delta_repins_24h`, `gains_5d`, `gains_7d`, `gains_10d`, `gains_15d`) MUST NEVER be synthesized via linear multiplication (`Math.round(vel * 7)`).
+- **Physical Column Pre-Computation:** Central Hub tables (`keyword_serp_current`, `keyword_displaced_index`) maintain physical rolling window columns populated from authentic historical shard snapshots via scheduled fleet crawlers.
+- **Crossover & Rollup Wiring:** `_executeFolderCrossover` in `src/modules/keywords/folders-service.mjs` must project `row.gains_7d` directly, and wire `top_creators: creatorMonopoly` with joined `competitor_profiles` audience deltas so cluster rollup bars display authentic growth deltas instead of static zeroes.
+
+## 35. Lightweight SERP Business Creator Pulse
+- **Fast-Path Profile Monitoring:** Auto-discovered ranking creators linked from SERPs default to `tracking_mode = 'pulse_only'`. Crawler loops (`scripts/creator-velocity-crawler.mjs`, `scripts/crawler-engine.mjs`) MUST bypass pin harvesting, board crawling, and `pa_pins` reconciliation for pulse-only accounts.
+- **24h & 7d Metric Deltas:** Profile syncs update `competitor_profiles` with authentic daily deltas (`delta_reach_24h`, `delta_views_24h`, `reach_delta_7d`, `views_delta_7d`, `pins_delta_7d`, `boards_delta_7d`) derived from `competitor_history_snapshots`, consuming less than 1 KB per account without database bloat.
+- **Room 3 Discovery Parity:** The Creator Hub UI (`src/dashboard-ui.mjs`) must preserve `creatorDiscoveryFilter` ('all', 'tracked', 'auto_discovered') and display auto-discovered creators with custom label badges (`SERP Auto • ...`) and delta telemetry.
+
+## 36. Context-Preserving Pin Dossier Navigation & Untracked Creator Guard
+- **Explicit Provenance Propagation:** Pin links generated in Campaign Folders (`src/campaign-folders-ui.mjs`) and Domain Studio (`src/domains-ui.mjs`) must append origin context parameters (`?folder_id=...&folder=...&return_url=...` or `?domain=...`).
+- **4-Tier Context Resolution:** `src/pin-details-ui.mjs` inspects URL parameters (Tier 1), `sessionStorage` (Tier 2), and same-origin `document.referrer` (Tier 3, supporting `/folders`, `/domains`, and `/keywords`).
+- **Untracked Competitor Shield:** Tier 4 fallback in `src/pin-details-ui.mjs` must strictly verify `creatorCtx?.is_tracked_competitor === true`. Guest-scraped creators must never set `originSource = 'creator'`.
+- **Ghost Board Execution Prevention:** In `src/dashboard-ui.mjs`, all `openCreatorByHandle(...).then(...)` callbacks MUST guard with `if (!this.activeCreator) return;` to prevent opening 404 ghost boards when navigating to untracked creator routes.
+
+## 37. Defensive D1 Coalescence & Epoch Cache Coherency
+- **Defensive D1 Count Coalescence:** `syncFolderToD1` in `src/worker.mjs` must use `COALESCE(excluded.creator_count, edge_campaign_folders.creator_count)` and `COALESCE(excluded.unique_pins_count, edge_campaign_folders.unique_pins_count)`. Incoming undefined counts must never overwrite D1 edge caches with `0`.
+- **Global Epoch Invalidation:** Edge caches for folder crossover and creator listings are namespaced with `fleet:cache_epoch` in Workers KV (`fep:${epoch}:folder:${id}:*`). Scheduled crawler consolidators invalidate all Cloudflare edge PoPs globally via authenticated `POST /api/fleet/cache-invalidate`.
+- **Full Catalog Guard:** `syncKeywordsCatalogToD1` must only prune obsolete records when `options.isFullCatalog === true` is explicitly provided, never defaulting to full catalog based on arbitrary array lengths (`keywords.length >= 20`).
+- **Cache Eviction v3 Parity:** `getPinKvKeysToEvict` must purge both v1/v2 and active v3 dossier keys (`pin:dossier:v3?pin_id=...`, `dossier:v3:pin:...`).
+
+
 
 
 

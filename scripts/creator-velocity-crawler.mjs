@@ -403,10 +403,11 @@ async function run() {
     let targetAccount = targetAccountInput;
     let targetId = accountIdInput;
     let targetMetadata = {};
+    let targetTrackingMode = 'full';
 
     if (!targetId) {
       const [row] = await sql`
-        SELECT id, username, metadata FROM competitor_profiles WHERE username = ${targetAccount} LIMIT 1;
+        SELECT id, username, metadata, tracking_mode FROM competitor_profiles WHERE username = ${targetAccount} LIMIT 1;
       `;
       if (!row) {
         console.error(`[-] FATAL: Account @${targetAccount} not found in database.`);
@@ -415,15 +416,19 @@ async function run() {
       targetId = row.id;
       targetAccount = row.username;
       targetMetadata = row.metadata || {};
+      targetTrackingMode = row.tracking_mode || 'full';
     } else {
       const [row] = await sql`
-        SELECT id, username, metadata FROM competitor_profiles WHERE id = ${targetId} LIMIT 1;
+        SELECT id, username, metadata, tracking_mode FROM competitor_profiles WHERE id = ${targetId} LIMIT 1;
       `;
       if (row) {
         targetAccount = row.username || targetAccount;
         targetMetadata = row.metadata || {};
+        targetTrackingMode = row.tracking_mode || 'full';
       }
     }
+
+    const isPulseOnly = targetTrackingMode === 'pulse_only' || targetMetadata.profile_pulse_only === true;
 
     const accRules = targetMetadata.qualification_rules || {};
     const earlyStop = Number(accRules.early_stop_pages) || 3;
@@ -431,7 +436,7 @@ async function run() {
       ? (Number(accRules.max_pages) || maxPages || 500)
       : (crawlMode === 'refresh' ? earlyStop : (maxPages || 500));
 
-    console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId}) [target: ${targetPages} pages, early-stop: ${earlyStop}]`);
+    console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId}) [target: ${targetPages} pages, early-stop: ${earlyStop}, pulseOnly: ${isPulseOnly}]`);
 
     // -------------------------------------------------------------------------
     // Phase 1: Ingestion on Worker 0
@@ -453,31 +458,32 @@ async function run() {
       `.catch(() => {});
 
       try {
-        await syncCompetitorProfile(sql, targetAccount, cookie);
+        await syncCompetitorProfile(sql, targetAccount, cookie, { pulseOnly: isPulseOnly });
       } catch (err) {
         console.warn(`[Phase 1] Profile sync warning:`, err.message);
       }
 
-      try {
-        await syncCompetitorBoards(sql, targetId, targetAccount, cookie);
-      } catch (err) {
-        console.warn(`[Phase 1] Boards sync warning:`, err.message);
-      }
+      if (!isPulseOnly) {
+        try {
+          await syncCompetitorBoards(sql, targetId, targetAccount, cookie);
+        } catch (err) {
+          console.warn(`[Phase 1] Boards sync warning:`, err.message);
+        }
 
-      let feedPinsCount = 0;
-      try {
-        const feedRes = await syncCompetitorPins(sql, targetId, targetAccount, {
-          mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
-          maxPages: targetPages,
-          cookie: cookie
-        });
-        feedPinsCount = feedRes?.total_fetched ?? feedRes?.crawled ?? 0;
-      } catch (err) {
-        console.warn(`[Phase 1] Pins discovery warning:`, err.message);
-      }
+        let feedPinsCount = 0;
+        try {
+          const feedRes = await syncCompetitorPins(sql, targetId, targetAccount, {
+            mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
+            maxPages: targetPages,
+            cookie: cookie
+          });
+          feedPinsCount = feedRes?.total_fetched ?? feedRes?.crawled ?? 0;
+        } catch (err) {
+          console.warn(`[Phase 1] Pins discovery warning:`, err.message);
+        }
 
-      // If sharded_boards mode or target_boards specified or feed has few pins, crawl boards to ensure complete catalog
-      if (crawlMode === 'sharded_boards' || targetBoardsInput || feedPinsCount < 100) {
+        // If sharded_boards mode or target_boards specified or feed has few pins, crawl boards to ensure complete catalog
+        if (crawlMode === 'sharded_boards' || targetBoardsInput || feedPinsCount < 100) {
         console.log(`[*] [Phase 1: Worker 0] Crawling creator boards for complete catalog ingestion...`);
         try {
           const boards = await sql`
@@ -512,6 +518,9 @@ async function run() {
           console.warn(`[Phase 1] Boards query warning:`, bQueryErr.message);
         }
       }
+    } else {
+      console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
+    }
 
       // Mark Phase 1 complete in heartbeats table
       await sql`
@@ -557,19 +566,15 @@ async function run() {
       }
     }
 
+    if (isPulseOnly) {
+      console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Account @${targetAccount} is in pulse_only mode. Skipping catalog pin scraping.`);
+      return;
+    }
+
     // -------------------------------------------------------------------------
     // Phase 2: 20-Runner Catalog Slice (CRC32 Modulo Partition)
     // -------------------------------------------------------------------------
     console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Fetching catalog slice for @${targetAccount}...`);
-
-    const catalogPins = await sql`
-      SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
-             enrichment_status, created_at_pinterest, title, description, destination_url, image_url, metadata
-      FROM competitor_pins
-      WHERE competitor_id = ${targetId}
-        AND pin_id IS NOT NULL AND pin_id <> ''
-      ORDER BY id ASC;
-    `;
 
     // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
     // Binds worker connections to at most 5 shards: S_w = { s in [1, 99] | (s - 1) % workerTotal === workerIndex }
@@ -579,14 +584,22 @@ async function run() {
         assignedShards.add(s);
       }
     }
-    console.log(`[Worker ${workerIndex + 1}/${workerTotal}] Shard-Affine Partition active: Assigned ${assignedShards.size} shards: [${Array.from(assignedShards).join(', ')}]`);
+    const assignedArray = Array.from(assignedShards);
+    console.log(`[Worker ${workerIndex + 1}/${workerTotal}] Shard-Affine Partition active: Assigned ${assignedShards.size} shards: [${assignedArray.join(', ')}]`);
 
-    // Filtering pins in memory strictly to assigned shards:
-    const myCatalogSlice = catalogPins.filter(pin => {
-      const targetShard = getPinShardId(pin.pin_id, 99);
-      return assignedShards.has(targetShard);
-    });
-    console.log(`[Phase 2] Worker #${workerIndex + 1}/${workerTotal} assigned ${myCatalogSlice.length}/${catalogPins.length} pins.`);
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
+    const catalogPins = await sql`
+      SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
+             enrichment_status, created_at_pinterest, title, description, destination_url, image_url, metadata
+      FROM competitor_pins
+      WHERE competitor_id = ${targetId}
+        AND pin_id IS NOT NULL AND pin_id <> ''
+        AND shard_id = ANY(${assignedArray}::smallint[])
+      ORDER BY id ASC;
+    `;
+
+    const myCatalogSlice = catalogPins;
+    console.log(`[Phase 2] Worker #${workerIndex + 1}/${workerTotal} assigned ${myCatalogSlice.length} pins.`);
 
     let refreshedCount = 0;
     const refreshedPins = [];
@@ -688,8 +701,8 @@ async function run() {
       // 1. Commit active telemetry to competitor_pins on Central Hub
       await sql`
         UPDATE competitor_pins AS cp
-        SET save_count = GREATEST(cp.save_count, x.saves::int),
-            repin_count = GREATEST(cp.repin_count, x.repins::int),
+        SET save_count = GREATEST(cp.save_count, x.saves::bigint),
+            repin_count = GREATEST(cp.repin_count, x.repins::bigint),
             comment_count = GREATEST(cp.comment_count, x.comments::int),
             enrichment_status = 'enriched',
             metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
@@ -723,13 +736,16 @@ async function run() {
       }
 
       // 4. One-Way Promotion of qualified pins into pa_pins
-      try {
-        const recon = await reconcileQualifiedCatalogPins(sql, targetId);
-        if (recon?.promoted_or_updated > 0) {
-          console.log(`[Phase 2] Promoted ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+      // [INVARIANT: RUNNER-0-RECONCILIATION-LEADER] Only worker 0 runs reconciliation to prevent stampede
+      if (workerIndex === 0) {
+        try {
+          const recon = await reconcileQualifiedCatalogPins(sql, targetId);
+          if (recon?.promoted_or_updated > 0) {
+            console.log(`[Phase 2] Promoted ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+          }
+        } catch (rErr) {
+          console.warn(`[Phase 2] Qualification reconciliation warning:`, rErr.message);
         }
-      } catch (rErr) {
-        console.warn(`[Phase 2] Qualification reconciliation warning:`, rErr.message);
       }
     }
 
@@ -777,7 +793,7 @@ async function run() {
     let myAccounts = [];
     if (myAccountIds.length > 0) {
       myAccounts = await sql`
-        SELECT id, username, display_name, metadata
+        SELECT id, username, display_name, metadata, tracking_mode
         FROM competitor_profiles
         WHERE id = ANY(${myAccountIds});
       `;
@@ -807,42 +823,49 @@ async function run() {
       console.log(`[Phase 1: ${i + 1}/${myAccounts.length}] Daily Pulse: @${cleanUser} (Account ID: ${acc.id})`);
       console.log(`----------------------------------------------------------------`);
 
+      // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Lightweight Creator Pulse Fast-Path Bypass
+      const isPulseOnly = acc.tracking_mode === 'pulse_only' || acc.metadata?.profile_pulse_only === true;
+
       // 1. Sync Creator Profile & Reach
       try {
         console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
-        await syncCompetitorProfile(sql, cleanUser, cookie);
+        await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: isPulseOnly });
       } catch (pErr) {
         console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
       }
 
-      // 2. Discover Boards
-      try {
-        await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
-      } catch (_) {}
+      if (!isPulseOnly) {
+        // 2. Discover Boards
+        try {
+          await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
+        } catch (_) {}
 
-      // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages)
-      try {
-        const accRules = acc.metadata?.qualification_rules || {};
-        const earlyStop = Number(accRules.early_stop_pages) || 3;
-        const targetPages = crawlMode === 'deep' || crawlMode === 'all'
-          ? (Number(accRules.max_pages) || maxPages || 500)
-          : earlyStop;
-        console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
-        await syncCompetitorPins(sql, acc.id, cleanUser, {
-          mode: 'refresh',
-          maxPages: targetPages,
-          cookie: cookie
-        });
-      } catch (_) {}
+        // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages)
+        try {
+          const accRules = acc.metadata?.qualification_rules || {};
+          const earlyStop = Number(accRules.early_stop_pages) || 3;
+          const targetPages = crawlMode === 'deep' || crawlMode === 'all'
+            ? (Number(accRules.max_pages) || maxPages || 500)
+            : earlyStop;
+          console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
+          await syncCompetitorPins(sql, acc.id, cleanUser, {
+            mode: 'refresh',
+            maxPages: targetPages,
+            cookie: cookie
+          });
+        } catch (_) {}
 
-      // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
-      try {
-        const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
-        if (recon?.promoted_or_updated > 0) {
-          console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+        // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
+        try {
+          const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
+          if (recon?.promoted_or_updated > 0) {
+            console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+          }
+        } catch (rErr) {
+          console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
         }
-      } catch (rErr) {
-        console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
+      } else {
+        console.log(`[*] Account @${cleanUser} is in pulse_only mode. Skipping boards, pins, and catalog reconciliation.`);
       }
 
       // Stamp updated_at so accounts reflect active sync
@@ -896,15 +919,6 @@ async function run() {
     // -------------------------------------------------------------------------
     console.log(`\n[*] [Phase 2] Querying all active winning pins from pa_pins on Central Hub...`);
 
-    const allWinningPins = await sql`
-      SELECT 
-        pin_id, title, description, link, domain, board_name, image_url, dominant_color,
-        annotations, is_video, is_product, alt_text, saves, repins, comments, share_count,
-        velocity, last_updated_at, created_at_pinterest, account_username
-      FROM pa_pins
-      ORDER BY saves DESC;
-    `;
-
     // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
     // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
     // Filter slice for this worker using shard-affine partitioning
@@ -915,13 +929,22 @@ async function run() {
         assignedWinningShards.add(s);
       }
     }
-    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} Shard-Affine Partition active: Assigned ${assignedWinningShards.size} shards: [${Array.from(assignedWinningShards).join(', ')}]`);
+    const assignedWinningArray = Array.from(assignedWinningShards);
+    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} Shard-Affine Partition active: Assigned ${assignedWinningShards.size} shards: [${assignedWinningArray.join(', ')}]`);
 
-    const myWinningSlice = allWinningPins.filter(p => {
-      const targetShard = getPinShardId(p.pin_id, 99);
-      return assignedWinningShards.has(targetShard);
-    });
-    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length}/${allWinningPins.length} global winning pins.`);
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (pa_pins)
+    const myWinningSlice = await sql`
+      SELECT 
+        p.pin_id, p.title, p.description, p.link, p.domain, p.board_name, p.image_url, p.dominant_color,
+        p.annotations, p.is_video, p.is_product, p.alt_text, p.saves, p.repins, p.comments, p.share_count,
+        p.velocity, p.last_updated_at, p.created_at_pinterest, p.account_username
+      FROM pa_pins p
+      LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
+      WHERE p.shard_id = ANY(${assignedWinningArray}::smallint[])
+        AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
+      ORDER BY p.saves DESC;
+    `;
+    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global winning pins.`);
 
     let refreshedWinningCount = 0;
     const refreshedPins = [];
@@ -1047,8 +1070,8 @@ async function run() {
       // 2. Atomic batch commit to competitor_pins on Hub
       await sql`
         UPDATE competitor_pins AS cp
-        SET save_count = GREATEST(cp.save_count, x.saves::int),
-            repin_count = GREATEST(cp.repin_count, x.repins::int),
+        SET save_count = GREATEST(cp.save_count, x.saves::bigint),
+            repin_count = GREATEST(cp.repin_count, x.repins::bigint),
             comment_count = GREATEST(cp.comment_count, x.comments::int),
             metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
               'delta_saves_24h', x.delta_saves,

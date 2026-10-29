@@ -160,9 +160,6 @@ export async function handleDomainsRoutes(routeCtx) {
             // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
             const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
             if (kvCached) {
-              if (!folderId) {
-                safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, kvCached), 'sync_single_domain_rollup_kv');
-              }
               return kvCached;
             }
           } catch (_) {}

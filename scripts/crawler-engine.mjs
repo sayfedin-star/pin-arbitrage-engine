@@ -597,7 +597,7 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
   let allAccounts = [];
   try {
     allAccounts = await sqlClient`
-      SELECT id, username, display_name, monthly_reach, profile_views, follower_count, total_pins, total_boards, last_synced_at
+      SELECT id, username, display_name, monthly_reach, profile_views, follower_count, total_pins, total_boards, last_synced_at, tracking_mode, metadata
       FROM competitor_profiles
       WHERE is_active = TRUE
       ORDER BY last_synced_at ASC NULLS FIRST, id ASC;
@@ -710,16 +710,18 @@ export async function getBoardsForTargetAccount(sqlClient, username, cookie = ''
 /**
  * STAGE 1: Discovery Job (Ingests 100% of pin IDs into competitor_pins as 'pending')
  */
-async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie, targetBoardsRaw, crawlMode = 'discovery') {
+async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie, targetBoardsRaw, crawlMode = 'discovery', options = {}) {
   console.log(`\n================================================================`);
   console.log(`🔎 [STAGE 1: DISCOVERY] Full Catalog Discovery for @${cleanUser} (Mode: ${crawlMode})`);
   console.log(`================================================================`);
+
+  const isPulseOnly = Boolean(crawlMode === 'pulse_only' || options?.pulseOnly || options?.tracking_mode === 'pulse_only');
 
   // 1. Sync Profile & Baseline
   let compProfile = null;
   try {
     console.log(`[*] [1/3 Profile] Refreshing profile stats for @${cleanUser}...`);
-    const profRes = await syncCompetitorProfile(sqlClient, cleanUser, cookie);
+    const profRes = await syncCompetitorProfile(sqlClient, cleanUser, cookie, { pulseOnly: isPulseOnly });
     compProfile = profRes?.profile || profRes || null;
     console.log(`    [✓] Profile synced (Reach: ${compProfile?.monthly_reach ?? 'N/A'}, Views: ${compProfile?.profile_views ?? 'N/A'})`);
   } catch (err) {
@@ -734,6 +736,11 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
   if (!compId) {
     console.error(`[-] CRITICAL: Competitor @${cleanUser} does not exist in competitor_profiles. Aborting discovery.`);
     return;
+  }
+
+  if (isPulseOnly || compProfile?.tracking_mode === 'pulse_only' || compProfile?.metadata?.profile_pulse_only === true) {
+    console.log(`[*] Competitor @${cleanUser} is in pulse_only mode. Skipping board & pin catalog discovery.`);
+    return compProfile;
   }
 
   // Mark discovery as active
@@ -1718,12 +1725,19 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
     console.log(`[${i + 1}/${queue.length}] Daily Pulse: @${username} (Shard ${shardNumber}/${shardTotal})`);
     console.log(`----------------------------------------------------------------`);
 
+    const isPulseOnly = acc.tracking_mode === 'pulse_only' || acc.metadata?.profile_pulse_only === true;
+
     // 1. Sync Profile & Snapshot
     console.log(`[*] [1/4 Profile] Updating reach & daily snapshot for @${username}...`);
     try {
-      await syncCompetitorProfile(sqlClient, username, cookie);
+      await syncCompetitorProfile(sqlClient, username, cookie, { pulseOnly: isPulseOnly });
     } catch (pErr) {
       console.warn(`[!] Profile sync warning:`, pErr.message);
+    }
+
+    if (isPulseOnly) {
+      console.log(`[*] Account @${username} is in pulse_only mode. Skipping boards, fresh pins, and catalog reconciliation.`);
+      continue;
     }
 
     // 2. Discover Boards

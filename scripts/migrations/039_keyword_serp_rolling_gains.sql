@@ -1,0 +1,17 @@
+-- Migration 039: Rolling Multi-Window Gains Telemetry
+-- [INVARIANT: TRUE-HISTORICAL-ROLLING-TELEMETRY]
+-- Add true multi-window gains and 24h repin deltas to Central Hub operational tables
+
+ALTER TABLE keyword_serp_current
+  ADD COLUMN IF NOT EXISTS delta_repins_24h INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_5d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_7d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_10d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_15d INT DEFAULT 0;
+
+ALTER TABLE keyword_displaced_index
+  ADD COLUMN IF NOT EXISTS delta_repins_24h INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_5d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_7d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_10d INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS gains_15d INT DEFAULT 0;

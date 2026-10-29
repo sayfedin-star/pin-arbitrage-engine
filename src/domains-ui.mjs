@@ -1313,7 +1313,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                           <span x-text="'Pin #' + p.pin_id"></span>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <template x-if="p.creator_username">
-                            <a :href="safeUrl('/?competitor=@' + p.creator_username)"
+                            <a :href="safeUrl('/accounts?creator=' + encodeURIComponent(p.creator_username.replace(/^@+/, '')))"
                                target="_blank"
                                class="text-purple-600 dark:text-purple-400 hover:underline"
                                :title="'Inspect creator @' + p.creator_username"
@@ -1353,7 +1353,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     </div>
 
                     <div class="flex items-center gap-2 shrink-0">
-                      <a :href="safeUrl('/pin/' + p.pin_id)"
+                      <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + '&return_url=' + encodeURIComponent('/domains/' + dossierDomain))"
                          target="_blank"
                          class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums">
                         Inspect ↗
@@ -1517,7 +1517,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                             <!-- Bottom Rank & Saves Overlay -->
                             <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono tabular-nums text-white flex items-center justify-between">
-                              <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
+                              <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + '&return_url=' + encodeURIComponent('/domains/' + dossierDomain))" target="_blank" class="hover:underline flex items-center gap-0.5">
                                 <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
                                 <span class="text-[8px]">↗</span>
                               </a>
@@ -1682,7 +1682,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                           <div class="font-bold text-emerald-600 dark:text-emerald-400 text-sm" x-text="formatNumber(acc.total_saves)"></div>
                           <div class="text-[10px] text-slate-400">total saves</div>
                         </div>
-                        <a :href="safeUrl('/?tab=competitors&action=track&creator=' + encodeURIComponent(acc.username))"
+                        <a :href="safeUrl('/accounts?action=track&creator=' + encodeURIComponent(acc.username))"
                            target="_blank"
                            class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition font-mono tabular-nums">
                           + Track

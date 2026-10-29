@@ -15,6 +15,7 @@
  */
 
 import { fetchPinterestTrends } from './trends-service.mjs';
+import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
 
 export const folderTrendsCache = new Map();
 
@@ -383,7 +384,9 @@ export async function updateFolder(sql, folderId, {
   `;
 
   invalidateFolderCache(fid);
-  return updated ? { ...updated, metadata: normalizeFolderMetadata(updated.metadata) } : null;
+  if (!updated) return null;
+  const fullFolder = await getFolder(sql, fid).catch(() => null);
+  return fullFolder || { ...updated, metadata: normalizeFolderMetadata(updated.metadata) };
 }
 
 /**
@@ -756,12 +759,13 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId) {
       GROUP BY LOWER(TRIM(ksc.creator_username))
     )
     SELECT
+      COALESCE(cp.id::text, 'serp_' || fcs.clean_username) AS id,
+      cp.id AS competitor_id,
       fcs.clean_username AS username,
       fcs.pin_count,
       fcs.keywords_ranked,
       fcs.top_pin_saves,
       fcs.max_velocity,
-      cp.id AS competitor_id,
       cp.display_name,
       cp.avatar_url,
       COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
@@ -771,6 +775,17 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId) {
       cp.follower_count,
       cp.activity_status,
       cp.metadata,
+      COALESCE(cp.tracking_mode, 'pulse_only') AS tracking_mode,
+      COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
+      COALESCE(fci.source, 'discovered') AS discovery_source,
+      COALESCE(cp.delta_reach_24h, 0)::bigint AS delta_reach_24h,
+      COALESCE(cp.reach_delta_7d, 0)::bigint AS reach_delta_7d,
+      COALESCE(cp.delta_views_24h, 0)::bigint AS delta_views_24h,
+      COALESCE(cp.views_delta_7d, 0)::bigint AS views_delta_7d,
+      COALESCE(cp.delta_pins_24h, 0)::int AS delta_pins_24h,
+      COALESCE(cp.delta_boards_24h, 0)::int AS delta_boards_24h,
+      COALESCE(cp.pins_delta_7d, 0)::int AS pins_delta_7d,
+      COALESCE(cp.boards_delta_7d, 0)::int AS boards_delta_7d,
       (fci.id IS NOT NULL) AS is_linked,
       (fci.id IS NOT NULL) AS is_tracked,
       (fci.id IS NULL) AS auto_discovered
@@ -783,12 +798,13 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId) {
   // Also include any explicitly linked competitors that might not have active pins in SERP currently
   const linkedItems = await sql`
     SELECT
+      cp.id::text AS id,
+      cp.id AS competitor_id,
       LOWER(TRIM(cp.username)) AS username,
       0::int AS pin_count,
       ARRAY[]::text[] AS keywords_ranked,
       0::bigint AS top_pin_saves,
       0::numeric AS max_velocity,
-      cp.id AS competitor_id,
       cp.display_name,
       cp.avatar_url,
       COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
@@ -798,6 +814,17 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId) {
       cp.follower_count,
       cp.activity_status,
       cp.metadata,
+      COALESCE(cp.tracking_mode, 'full') AS tracking_mode,
+      COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
+      COALESCE(fci.source, 'manual') AS discovery_source,
+      COALESCE(cp.delta_reach_24h, 0)::bigint AS delta_reach_24h,
+      COALESCE(cp.reach_delta_7d, 0)::bigint AS reach_delta_7d,
+      COALESCE(cp.delta_views_24h, 0)::bigint AS delta_views_24h,
+      COALESCE(cp.views_delta_7d, 0)::bigint AS views_delta_7d,
+      COALESCE(cp.delta_pins_24h, 0)::int AS delta_pins_24h,
+      COALESCE(cp.delta_boards_24h, 0)::int AS delta_boards_24h,
+      COALESCE(cp.pins_delta_7d, 0)::int AS pins_delta_7d,
+      COALESCE(cp.boards_delta_7d, 0)::int AS boards_delta_7d,
       TRUE AS is_linked,
       TRUE AS is_tracked,
       FALSE AS auto_discovered
@@ -889,6 +916,264 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
     await linkCreatorToFolder(sql, fid, competitorId);
     return { success: true, is_tracked: true, auto_discovered: false, folder_id: fid, competitor_id: competitorId };
   }
+}
+
+/**
+ * Bulk-track creators for a folder in lightweight pulse-only mode (R3)
+ * Auto-extracts SERP ranking creators if usernames omitted.
+ * Sets custom_label (defaulting to 'SERP Auto • ${folder.name}') and tracking_mode = 'pulse_only'.
+ * Triggers initial lightweight pulse if options.sync_now === true.
+ */
+export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, { env = null, ctx = null } = {}) {
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+
+  const [folder] = await sql`
+    SELECT id, name, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+  `;
+  if (!folder) throw new Error(`Folder ${fid} not found`);
+
+  const customLabel = (typeof options.custom_label === 'string' && options.custom_label.trim())
+    ? options.custom_label.trim()
+    : `SERP Auto • ${folder.name || 'Folder ' + fid}`;
+  const trackingMode = (typeof options.tracking_mode === 'string' && options.tracking_mode.trim())
+    ? options.tracking_mode.trim()
+    : 'pulse_only';
+
+  let targetUsernames = [];
+  if (Array.isArray(options.usernames) && options.usernames.length > 0) {
+    targetUsernames = options.usernames
+      .map(u => normalizePinterestUsername(u))
+      .filter(u => u && !RESERVED_PINTEREST_PATHS.has(u));
+  } else {
+    // Extract unique ranking creators from active SERP for this folder's keywords
+    const serpCreators = await sql`
+      SELECT DISTINCT LOWER(TRIM(ksc.creator_username)) AS username
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND ksc.is_displaced IS FALSE
+        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
+    `;
+    targetUsernames = (serpCreators || [])
+      .map(r => normalizePinterestUsername(r.username))
+      .filter(u => u && !RESERVED_PINTEREST_PATHS.has(u));
+  }
+
+  // Deduplicate target usernames
+  targetUsernames = [...new Set(targetUsernames)];
+  if (targetUsernames.length === 0) {
+    return {
+      success: true,
+      folder_id: fid,
+      tracked_count: 0,
+      custom_label: customLabel,
+      tracking_mode: trackingMode,
+      synced_count: 0,
+      items: []
+    };
+  }
+
+  // Atomically upsert into competitor_profiles and link into folder_competitor_items
+  const linkedRows = await sql`
+    WITH target_handles AS (
+      SELECT UNNEST(${targetUsernames}::text[]) AS username
+    ),
+    upserted_profiles AS (
+      INSERT INTO competitor_profiles (
+        username,
+        display_name,
+        account_type,
+        is_active,
+        tracking_mode,
+        custom_label,
+        source_folder_id,
+        created_at,
+        updated_at
+      )
+      SELECT
+        th.username,
+        th.username,
+        'competitor',
+        TRUE,
+        ${trackingMode},
+        ${customLabel},
+        ${fid},
+        NOW(),
+        NOW()
+      FROM target_handles th
+      ON CONFLICT (username) DO UPDATE SET
+        tracking_mode = COALESCE(EXCLUDED.tracking_mode, competitor_profiles.tracking_mode),
+        custom_label = COALESCE(EXCLUDED.custom_label, competitor_profiles.custom_label),
+        source_folder_id = COALESCE(competitor_profiles.source_folder_id, EXCLUDED.source_folder_id),
+        updated_at = NOW()
+      RETURNING id, username
+    ),
+    all_profiles AS (
+      SELECT id, username FROM upserted_profiles
+      UNION
+      SELECT cp.id, cp.username
+      FROM competitor_profiles cp
+      JOIN target_handles th ON LOWER(cp.username) = LOWER(th.username)
+    )
+    INSERT INTO folder_competitor_items (
+      folder_id,
+      competitor_id,
+      custom_label,
+      source,
+      added_at
+    )
+    SELECT
+      ${fid},
+      ap.id,
+      ${customLabel},
+      'serp_auto',
+      NOW()
+    FROM all_profiles ap
+    ON CONFLICT (folder_id, competitor_id) DO UPDATE SET
+      custom_label = COALESCE(EXCLUDED.custom_label, folder_competitor_items.custom_label),
+      source = 'serp_auto'
+    RETURNING folder_id, competitor_id;
+  `;
+
+  await sql`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+
+  // If sync_now requested, perform initial pulse sync on target creators
+  let syncedCount = 0;
+  if (options.sync_now === true) {
+    const pulseTargets = targetUsernames.slice(0, 10);
+    const backgroundTargets = targetUsernames.slice(10);
+
+    for (const username of pulseTargets) {
+      try {
+        await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
+        syncedCount++;
+      } catch (err) {
+        console.warn(`[BulkPulseTrack] Initial sync failed for ${username}:`, err.message);
+      }
+    }
+
+    if (backgroundTargets.length > 0 && ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil((async () => {
+        for (const username of backgroundTargets) {
+          try {
+            await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
+          } catch (_) {}
+        }
+      })());
+    }
+  }
+
+  return {
+    success: true,
+    folder_id: fid,
+    tracked_count: linkedRows.length,
+    custom_label: customLabel,
+    tracking_mode: trackingMode,
+    synced_count: syncedCount,
+    items: linkedRows
+  };
+}
+
+/**
+ * Auto-discover SERP creators for a keyword and associate them with all folders tracking that keyword
+ * Hooked after keyword SERP crawl when folder.metadata.auto_discover_creators !== false.
+ */
+export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
+  const kid = Number(keywordId);
+  if (!kid) return { discovered: 0 };
+
+  const folders = await sql`
+    SELECT f.id, f.name, f.metadata
+    FROM keyword_folder_items kfi
+    JOIN keyword_folders f ON f.id = kfi.folder_id
+    WHERE kfi.keyword_id = ${kid};
+  `;
+
+  if (!folders || folders.length === 0) return { discovered: 0 };
+
+  let totalDiscovered = 0;
+  for (const folder of folders) {
+    const meta = normalizeFolderMetadata(folder.metadata);
+    if (meta.auto_discover_creators === false) {
+      continue;
+    }
+
+    const fid = folder.id;
+    const customLabel = `SERP Auto • ${folder.name || 'Folder ' + fid}`;
+
+    const linked = await sql`
+      WITH ranked_creators AS (
+        SELECT DISTINCT LOWER(TRIM(ksc.creator_username)) AS username
+        FROM keyword_serp_current ksc
+        WHERE ksc.keyword_id = ${kid}
+          AND ksc.is_displaced IS FALSE
+          AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+          AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      ),
+      upserted_profiles AS (
+        INSERT INTO competitor_profiles (
+          username,
+          display_name,
+          account_type,
+          is_active,
+          tracking_mode,
+          custom_label,
+          source_folder_id,
+          created_at,
+          updated_at
+        )
+        SELECT
+          rc.username,
+          rc.username,
+          'competitor',
+          TRUE,
+          'pulse_only',
+          ${customLabel},
+          ${fid},
+          NOW(),
+          NOW()
+        FROM ranked_creators rc
+        ON CONFLICT (username) DO UPDATE SET
+          updated_at = NOW()
+        RETURNING id, username
+      ),
+      all_target_profiles AS (
+        SELECT id, username FROM upserted_profiles
+        UNION
+        SELECT cp.id, cp.username
+        FROM competitor_profiles cp
+        JOIN ranked_creators rc ON LOWER(cp.username) = LOWER(rc.username)
+      )
+      INSERT INTO folder_competitor_items (
+        folder_id,
+        competitor_id,
+        custom_label,
+        source,
+        added_at
+      )
+      SELECT
+        ${fid},
+        atp.id,
+        ${customLabel},
+        'serp_auto',
+        NOW()
+      FROM all_target_profiles atp
+      ON CONFLICT (folder_id, competitor_id) DO NOTHING
+      RETURNING id;
+    `;
+
+    totalDiscovered += (linked ? linked.length : 0);
+  }
+
+  return { discovered: totalDiscovered };
 }
 
 /**
@@ -1541,7 +1826,7 @@ function synthesizeSpokeTitle(modifier, targetKw) {
  * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
  * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
  */
-export async function calculateFolderCrossover(sql, folderId, { refresh = false } = {}) {
+export async function calculateFolderCrossover(sql, folderId, { refresh = false, env = null } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
@@ -1550,6 +1835,17 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false 
     const cached = crossoverCache.get(fid);
     if (cached && (now - cached.timestamp < CROSSOVER_TTL_MS)) {
       return cached.data;
+    }
+    if (env?.PIN_ENGINE_KV) {
+      try {
+        const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover`;
+        const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
+        if (kvData) {
+          crossoverCache.set(fid, { timestamp: now, data: kvData });
+          return kvData;
+        }
+      } catch (_) {}
     }
   }
 
@@ -1566,6 +1862,13 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false 
         if (oldest) crossoverCache.delete(oldest);
       }
       crossoverCache.set(fid, { timestamp: Date.now(), data: result });
+      if (env?.PIN_ENGINE_KV) {
+        try {
+          const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+          const kvKey = `fep:${epoch}:folder:${fid}:crossover`;
+          await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: 86400 });
+        } catch (_) {}
+      }
       return result;
     } finally {
       inflightCrossover.delete(flightKey);
@@ -1650,6 +1953,11 @@ async function _executeFolderCrossover(sql, fid) {
       c.repin_count,
       c.comment_count,
       c.daily_save_velocity,
+      c.delta_repins_24h,
+      c.gains_5d,
+      c.gains_7d,
+      c.gains_10d,
+      c.gains_15d,
       c.created_at_pinterest,
       c.crawled_at,
       c.baseline_day_saves,
@@ -1758,11 +2066,12 @@ async function _executeFolderCrossover(sql, fid) {
         pin_age_days: pinAgeDays,
         folder_age_days: folderAgeDays,
         delta_saves_24h: vel,
-        delta_repins_24h: Math.round(vel * 0.1),
-        gains_5d: Math.round(vel * 5),
-        gains_7d: Math.round(vel * 7),
-        gains_10d: Math.round(vel * 10),
-        gains_15d: Math.round(vel * 15),
+        delta_repins_24h: safeNum(row.delta_repins_24h, Math.round(vel * 0.1)),
+        gains_5d: safeNum(row.gains_5d, Math.round(vel * 5)),
+        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Authentic Multi-Window Gains
+        gains_7d: safeNum(row.gains_7d, Math.round(vel * 7)),
+        gains_10d: safeNum(row.gains_10d, Math.round(vel * 10)),
+        gains_15d: safeNum(row.gains_15d, Math.round(vel * 15)),
         rankings: []
       });
     } else {
@@ -1772,11 +2081,11 @@ async function _executeFolderCrossover(sql, fid) {
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
       existingPin.daily_save_velocity = Math.max(existingPin.daily_save_velocity, vel);
       existingPin.delta_saves_24h = existingPin.daily_save_velocity;
-      existingPin.delta_repins_24h = Math.round(existingPin.daily_save_velocity * 0.1);
-      existingPin.gains_5d = Math.round(existingPin.daily_save_velocity * 5);
-      existingPin.gains_7d = Math.round(existingPin.daily_save_velocity * 7);
-      existingPin.gains_10d = Math.round(existingPin.daily_save_velocity * 10);
-      existingPin.gains_15d = Math.round(existingPin.daily_save_velocity * 15);
+      existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, Math.round(existingPin.daily_save_velocity * 0.1)));
+      existingPin.gains_5d = Math.max(existingPin.gains_5d || 0, safeNum(row.gains_5d, Math.round(existingPin.daily_save_velocity * 5)));
+      existingPin.gains_7d = Math.max(existingPin.gains_7d || 0, safeNum(row.gains_7d, Math.round(existingPin.daily_save_velocity * 7)));
+      existingPin.gains_10d = Math.max(existingPin.gains_10d || 0, safeNum(row.gains_10d, Math.round(existingPin.daily_save_velocity * 10)));
+      existingPin.gains_15d = Math.max(existingPin.gains_15d || 0, safeNum(row.gains_15d, Math.round(existingPin.daily_save_velocity * 15)));
       if (!existingPin.created_at_pinterest && row.created_at_pinterest) {
         existingPin.created_at_pinterest = row.created_at_pinterest;
         existingPin.pin_age_days = pinAgeDays;
@@ -2054,16 +2363,55 @@ async function _executeFolderCrossover(sql, fid) {
     return b.total_saves - a.total_saves;
   });
 
-  const creatorMonopoly = Array.from(creatorMap.values()).map(c => ({
-    username: c.username,
-    display_name: c.display_name,
-    keywords_covered: Array.from(c.keywords_set),
-    keywords_count: c.keywords_set.size,
-    overlap_percentage: Math.round((c.keywords_set.size / totalKeywords) * 100),
-    pin_count: c.pin_count,
-    total_saves: c.total_saves,
-    top_pins: c.top_pins
-  }))
+  const creatorUsernames = Array.from(creatorMap.keys()).filter(Boolean);
+  const creatorProfilesMap = new Map();
+  if (creatorUsernames.length > 0) {
+    const creatorRows = await sql`
+      SELECT 
+        LOWER(username) AS username,
+        monthly_reach,
+        profile_views,
+        delta_reach_24h,
+        reach_delta_7d,
+        delta_views_24h,
+        views_delta_7d,
+        delta_pins_24h,
+        pins_delta_7d,
+        delta_boards_24h,
+        boards_delta_7d
+      FROM competitor_profiles
+      WHERE LOWER(username) = ANY(${creatorUsernames})
+    `;
+    for (const cp of (creatorRows || [])) {
+      if (cp.username) creatorProfilesMap.set(cp.username.toLowerCase(), cp);
+    }
+  }
+
+  const creatorMonopoly = Array.from(creatorMap.values()).map(c => {
+    const cp = creatorProfilesMap.get(c.username) || {};
+    return {
+      username: c.username,
+      display_name: c.display_name,
+      keywords_covered: Array.from(c.keywords_set),
+      keywords_count: c.keywords_set.size,
+      overlap_percentage: Math.round((c.keywords_set.size / totalKeywords) * 100),
+      pin_count: c.pin_count,
+      total_saves: c.total_saves,
+      top_pins: c.top_pins,
+      monthly_reach: cp.monthly_reach ?? null,
+      profile_views: cp.profile_views ?? null,
+      delta_monthly_reach: cp.delta_reach_24h ?? null,
+      reach_delta_7d: cp.reach_delta_7d ?? null,
+      delta_reach_24h: cp.delta_reach_24h ?? null,
+      delta_views_24h: cp.delta_views_24h ?? null,
+      views_delta_7d: cp.views_delta_7d ?? null,
+      delta_pins_24h: cp.delta_pins_24h ?? null,
+      pins_delta_7d: cp.pins_delta_7d ?? null,
+      delta_boards_24h: cp.delta_boards_24h ?? null,
+      boards_delta_7d: cp.boards_delta_7d ?? null,
+      delta_audience_30d: (cp.reach_delta_7d ?? cp.delta_reach_24h ?? null)
+    };
+  })
   .sort((a, b) => {
     if (b.keywords_count !== a.keywords_count) return b.keywords_count - a.keywords_count;
     return b.pin_count - a.pin_count;
@@ -2340,6 +2688,8 @@ async function _executeFolderCrossover(sql, fid) {
     guided_pivots: guidedPivots,
     domain_monopoly: domainMonopoly,
     creator_monopoly: creatorMonopoly,
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Top Creators Rollup Wiring
+    top_creators: creatorMonopoly,
     seasonality: {
       status: hasTrends ? 'available' : 'insufficient_data',
       composite_wave: normalizedWeeklyWave,

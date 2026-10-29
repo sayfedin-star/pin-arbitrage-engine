@@ -51,7 +51,9 @@ import {
   pinDomainToFolder,
   unpinDomainFromFolder,
   pruneFolderPins,
-  cacheFolderTrends
+  cacheFolderTrends,
+  invalidateFolderCache,
+  bulkPulseTrackFolderCreators
 } from '../modules/keywords/folders-service.mjs';
 
 import {
@@ -896,7 +898,7 @@ export async function handleKeywordsRoutes({
       }, 400);
     }
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh });
+    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env });
     return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
   }
 
@@ -1025,19 +1027,54 @@ export async function handleKeywordsRoutes({
       // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
       if (method === 'GET' && parts.length === 2) {
         const withDiscovery = searchParams.get('discovery') !== 'false';
+        const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+
+        let epoch = '0';
+        if (!refresh && env?.PIN_ENGINE_KV) {
+          try {
+            epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}`;
+            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
+            if (kvCached) {
+              return jsonResponse({ ...kvCached, source: 'kv_edge' }, 200, 30);
+            }
+          } catch (_) {}
+        }
+
+        let payload;
         if (withDiscovery) {
           const discoveryData = await listFolderCreatorsWithDiscovery(sql, folderId);
-          return jsonResponse({
+          payload = {
             success: true,
             folder_id: folderId,
             creators: discoveryData.all_creators,
             linked_creators: discoveryData.linked_creators,
             discovered_creators: discoveryData.discovered_creators,
             totals: discoveryData.totals
-          });
+          };
+        } else {
+          const creators = await listFolderCreators(sql, folderId);
+          payload = { success: true, creators, folder_id: folderId };
         }
-        const creators = await listFolderCreators(sql, folderId);
-        return jsonResponse({ success: true, creators, folder_id: folderId });
+
+        if (env?.PIN_ENGINE_KV && payload) {
+          try {
+            if (!epoch || epoch === '0') {
+              epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            }
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}`;
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(payload), { expirationTtl: 86400 }), 'kv_put_folder_creators');
+          } catch (_) {}
+        }
+
+        return jsonResponse(payload, 200, refresh ? 0 : 30);
+      }
+
+      // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx })
+      if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-pulse-track') {
+        const body = await request.json().catch(() => ({}));
+        const result = await bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx });
+        return jsonResponse(result, 200);
       }
 
       // POST /api/folders/:id/creators -> linkCreatorToFolder(sql, folderId, competitorId)
@@ -1048,16 +1085,24 @@ export async function handleKeywordsRoutes({
           return jsonResponse({ success: false, error: 'competitor_id is required' }, 400);
         }
         const linked = await linkCreatorToFolder(sql, folderId, competitorId);
+        invalidateFolderCache(folderId);
         return jsonResponse({ success: true, linked, folder_id: folderId });
       }
 
-      // DELETE /api/folders/:id/creators/:cid -> unlinkCreatorFromFolder(sql, folderId, competitorId)
-      if (method === 'DELETE' && parts.length === 3) {
-        const competitorId = Number(parts[2]);
+      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query) -> unlinkCreatorFromFolder(sql, folderId, competitorId)
+      if (method === 'DELETE' && (parts.length === 2 || parts.length === 3)) {
+        let competitorId = null;
+        if (parts.length === 3) {
+          competitorId = Number(parts[2]);
+        } else if (parts.length === 2) {
+          const body = await request.json().catch(() => ({}));
+          competitorId = Number(body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid'));
+        }
         if (!competitorId) {
           return jsonResponse({ success: false, error: 'Valid creator ID is required' }, 400);
         }
         const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
+        invalidateFolderCache(folderId);
         return jsonResponse({ success: true, unlinked, folder_id: folderId });
       }
 
@@ -1101,29 +1146,39 @@ export async function handleKeywordsRoutes({
     if (method === 'GET') {
       const isRefreshRequested = searchParams.get('refresh') === 'true';
       if (folderId && parts.length === 1) {
+        // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 10m) before hitting Neon Hub
+        if (!isRefreshRequested && env?.PIN_D1_DB) {
+          try {
+            const d1Folder = await env.PIN_D1_DB.prepare(
+              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
+            ).bind(String(folderId)).first();
+            if (d1Folder) {
+              const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
+              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
+              if (isFresh) {
+                const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
+                const normalizedD1Folder = {
+                  ...d1Folder,
+                  keyword_count: count,
+                  item_count: count,
+                  unique_pins_count: Number(d1Folder.unique_pins_count || 0),
+                  creator_count: Number(d1Folder.creator_count || 0),
+                  domain_count: Number(d1Folder.domain_count || 0),
+                  pinned_domain_count: Number(d1Folder.pinned_domain_count || 0),
+                  metadata: typeof d1Folder.metadata === 'string' ? JSON.parse(d1Folder.metadata || '{}') : (d1Folder.metadata || {}),
+                  items: []
+                };
+                return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
+              }
+            }
+          } catch (_) {}
+        }
+
         // [INVARIANT: FOLDER-SSOT-LOOKUP] Serve authoritative live data from Central Hub getFolder(sql, folderId) (< 5ms)
         let folder = null;
         if (sql) {
           try {
             folder = await getFolder(sql, folderId);
-          } catch (_) {}
-        }
-        // Fallback to D1 edge database if SQL has no record (e.g. edge-only test environments or offline Hub)
-        if (!folder && !isRefreshRequested && env?.PIN_D1_DB) {
-          try {
-            const d1Folder = await env.PIN_D1_DB.prepare(
-              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
-            ).bind(String(folderId)).first();
-            if (d1Folder) {
-              const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
-              const normalizedD1Folder = {
-                ...d1Folder,
-                keyword_count: count,
-                item_count: count,
-                items: []
-              };
-              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
-            }
           } catch (_) {}
         }
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);

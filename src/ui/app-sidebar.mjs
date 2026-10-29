@@ -155,8 +155,8 @@ export function renderAppSidebar({
             <i data-lucide="folder-kanban" class="w-4 h-4 shrink-0 ${isFolders ? iconActive : iconInactive}"></i>
             <span>Campaign Folders</span>
           </div>
-          <span x-show="typeof folders !== 'undefined' && folders && folders.length > 0" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof folders !== 'undefined' && folders) ? folders.length : ''"></span>
-          <span x-show="typeof folders === 'undefined' || !folders || !folders.length" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
+          <span x-show="(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) || (typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) ? foldersList.length : ((typeof folders !== 'undefined' && folders) ? folders.length : '')"></span>
+          <span x-show="!(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) && !(typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
         </a>
       </nav>
 
@@ -332,8 +332,8 @@ export function renderAppSidebar({
             <i data-lucide="folder-kanban" class="w-4 h-4 shrink-0 ${isFolders ? iconActive : iconInactive}"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Campaign Folders</span>
           </div>
-          <span x-show="!isSidebarCollapsed && (typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof folders !== 'undefined' && folders) ? folders.length : ''"></span>
-          <span x-show="!isSidebarCollapsed && (typeof folders === 'undefined' || !folders || !folders.length)" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
+          <span x-show="!isSidebarCollapsed && ((typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) || (typeof folders !== 'undefined' && folders && folders.length > 0))" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) ? foldersList.length : ((typeof folders !== 'undefined' && folders) ? folders.length : '')"></span>
+          <span x-show="!isSidebarCollapsed && !(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) && !(typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
           ${isFolders ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
       </nav>

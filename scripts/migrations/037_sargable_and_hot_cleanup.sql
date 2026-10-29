@@ -64,10 +64,18 @@ BEGIN
   END IF;
 END $$;
 
--- Populate canonical_keyword for any existing null rows
-UPDATE tracked_keywords
-SET canonical_keyword = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(keyword), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g'))
-WHERE canonical_keyword IS NULL OR canonical_keyword = '';
+-- Populate canonical_keyword for any existing null rows (if not already generated)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tracked_keywords' AND column_name = 'canonical_keyword' AND is_generated = 'NEVER'
+  ) THEN
+    UPDATE tracked_keywords
+    SET canonical_keyword = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(keyword), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g'))
+    WHERE canonical_keyword IS NULL OR canonical_keyword = '';
+  END IF;
+END $$;
 
 -- Create unique index to enable instant O(1) B-tree lookup in resolveKeywordBySlug
 CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords

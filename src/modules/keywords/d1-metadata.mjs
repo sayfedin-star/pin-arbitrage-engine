@@ -42,6 +42,8 @@ export async function ensureEdgePinsMetadataTable(env) {
     ]).catch(() => {});
     // Defensive column upgrade if table was initialized by earlier migration (run separately to avoid batch failure on duplicate column)
     await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN daily_trajectory TEXT DEFAULT '[]'`).run().catch(() => {});
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Schema Parity (metadata column)
+    await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN metadata TEXT DEFAULT '{}'`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
 }

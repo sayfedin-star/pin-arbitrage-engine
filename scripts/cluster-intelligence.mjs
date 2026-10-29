@@ -1338,7 +1338,7 @@ async function crawlSeed(seed) {
         SELECT
           x.seed_pin_id, x.candidate_pin_id, x.title, x.dominant_color, x.aspect_ratio,
           x.saves, x.repins, x.save_rate, x.domain, x.is_product, x.ocr_text, NOW(),
-          x.pin_created_at::timestamptz, x.age_days, x.daily_velocity, x.provenance_engine,
+          NULLIF(TRIM(x.pin_created_at), '')::timestamptz, x.age_days, x.daily_velocity, x.provenance_engine,
           x.individual_prod_score, x.recgpt_transition_score, x.sequence_role,
           x.is_recgpt_candidate, x.visual_entropy_score,
           x.image_url, x.is_video, x.ingestion_method
