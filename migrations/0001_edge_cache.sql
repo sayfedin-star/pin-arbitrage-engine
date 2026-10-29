@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS edge_campaign_folders (
   color TEXT DEFAULT '#e60023',
   description TEXT,
   item_count INTEGER DEFAULT 0,
+  keyword_count INTEGER DEFAULT 0,
+  creator_count INTEGER DEFAULT 0,
+  domain_count INTEGER DEFAULT 0,
+  pinned_domain_count INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'active',
+  metadata TEXT DEFAULT '{}',
   updated_at TEXT DEFAULT (datetime('now'))
 );
 

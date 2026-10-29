@@ -14,6 +14,7 @@ import {
 } from '../modules/fleet/service.mjs';
 import { resolveShardConnection, getPinShardId, isValidShardDsn } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
+import { verifyApiAuthentication } from '../worker.mjs';
 
 // Predictive Hover JIT Warming deduplication & rate limiting
 const recentWarmedShards = new Map(); // shardId -> epochMs
@@ -183,6 +184,16 @@ export async function handleFleetRoutes(routeCtx) {
   if (pathname === '/api/fleet/warm') {
     if (method !== 'GET' && method !== 'POST') {
       return methodNotAllowedResponse('GET, POST, OPTIONS');
+    }
+
+    const auth = verifyApiAuthentication(request, env);
+    if (!auth.authorized) {
+      if (auth.response) return auth.response;
+      return jsonResponse({
+        success: false,
+        error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
+        message: auth.reason || 'Authentication required for fleet warming.'
+      }, auth.status || 401);
     }
 
     let targetShardId = null;

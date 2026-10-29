@@ -1836,17 +1836,35 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
+  const todayUtcStr = formatUtcDate(new Date());
+
   const enrichedSnapshots = rawSnapshots.map((s, sIdx) => {
     const sDate = formatUtcDate(s.snapshot_date);
     const kid = s.keyword_id != null ? Number(s.keyword_id) : null;
-    const serpMatch = (kid ? serpByKeyword.get(kid) : null) || hubSerpRows[0] || null;
-    const isDisplaced = Boolean(
-      s.is_displaced ||
-      serpMatch?.is_displaced ||
-      (!s.rank_position && (s.last_known_rank || serpMatch?.last_known_rank))
-    );
-    const lastKnownRank = s.last_known_rank || serpMatch?.last_known_rank || (isDisplaced ? (s.rank_position || serpMatch?.rank_position) : null);
-    const catalogRank = s.catalog_rank || (isDisplaced ? (100 + (sIdx + 1)) : (s.rank_position || 1));
+    const isToday = Boolean(sDate && sDate === todayUtcStr);
+    const serpMatch = isToday ? ((kid ? serpByKeyword.get(kid) : null) || hubSerpRows[0] || null) : null;
+
+    // [INVARIANT: DECOUPLE-LIVE-SERP-FROM-HISTORICAL-SNAPSHOTS]
+    // Current-day Hub SERP state (serpMatch?.is_displaced) must ONLY enrich snapshots matching sDate === todayUtcStr.
+    // Historical snapshots (sDate < todayUtcStr) must strictly evaluate displaced status and rank positions
+    // from their own snapshot data (s.is_displaced, s.rank_position, s.last_known_rank), preventing active historical
+    // rankings from degrading into [Vault #...] badges.
+    const isDisplaced = isToday
+      ? Boolean(
+          s.is_displaced ||
+          serpMatch?.is_displaced ||
+          (!s.rank_position && (s.last_known_rank || serpMatch?.last_known_rank))
+        )
+      : Boolean(
+          s.is_displaced ||
+          (!s.rank_position && s.last_known_rank)
+        );
+
+    const lastKnownRank = isToday
+      ? (s.last_known_rank || serpMatch?.last_known_rank || (isDisplaced ? (s.rank_position || serpMatch?.rank_position) : null))
+      : (s.last_known_rank || (isDisplaced ? s.rank_position : null));
+
+    const catalogRank = s.catalog_rank || (isDisplaced ? (100 + (sIdx + 1)) : (s.rank_position || (isToday ? (serpMatch?.rank_position || 1) : 1)));
     const crawlTimestamp = safeIsoDate(s.crawled_at || s.updated_at || s.created_at) || (sDate ? sDate + 'T00:00:00.000Z' : null);
     const updatedTimestamp = safeIsoDate(s.updated_at) || crawlTimestamp;
     return {
@@ -1954,7 +1972,22 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       if (diff === 0) {
         curr.daily_save_velocity = 0;
       } else if (diff > 0) {
-        curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
+        // [INVARIANT: ANTI-HYDRATION-SPIKE]
+        // Guard against unhydrated snapshot records where prev.save_count < prev.repin_count or (prev.save_count === 0 && curr.save_count > 0).
+        // Treat as isHydrationJump: amortize velocity across estimated pin lifetime (ageDays) or suppress velocity delta to 0 until an authentic Day-2 baseline exists.
+        const isHydrationJump = (prev.save_count < prev.repin_count) || (prev.save_count === 0 && curr.save_count > 0);
+        if (isHydrationJump) {
+          const pinCreatedAt = masterRecord?.created_at_pinterest ? new Date(masterRecord.created_at_pinterest) : null;
+          if (pinCreatedAt && !isNaN(pinCreatedAt.getTime())) {
+            const ageMs = Math.max(86400000, currDate.getTime() - pinCreatedAt.getTime());
+            const ageDays = Math.max(1, Math.round(ageMs / 86400000));
+            curr.daily_save_velocity = Math.round((curr.save_count / ageDays) * 10) / 10;
+          } else {
+            curr.daily_save_velocity = 0;
+          }
+        } else {
+          curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
+        }
       }
     }
   }

@@ -892,6 +892,95 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
 }
 
 /**
+ * Identify candidate pins for smart pruning across keyword_serp_current and keyword_displaced_index
+ */
+export async function getPruningCandidates(sql, folderId, options = {}) {
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+
+  const {
+    keywordIds = [],
+    scope = 'displaced',
+    minFolderAgeDays = null,
+    minPinAgeDays = null,
+    maxSaves = null,
+    maxRepins = null
+  } = options;
+
+  const validKids = (Array.isArray(keywordIds) ? keywordIds : String(keywordIds).split(',')).map(Number).filter(Boolean);
+  const targetScope = String(scope || 'displaced').toLowerCase();
+  const resolvedMinFolderAge = minFolderAgeDays !== null && minFolderAgeDays !== undefined ? Number(minFolderAgeDays) : null;
+  const resolvedMinPinAge = minPinAgeDays !== null && minPinAgeDays !== undefined ? Number(minPinAgeDays) : null;
+  const resolvedMaxSaves = maxSaves !== null && maxSaves !== undefined ? Number(maxSaves) : null;
+  const resolvedMaxRepins = maxRepins !== null && maxRepins !== undefined ? Number(maxRepins) : null;
+
+  return await sql`
+    SELECT
+      ksc.keyword_id,
+      ksc.pin_id,
+      ksc.title,
+      ksc.save_count,
+      ksc.repin_count,
+      ksc.daily_save_velocity,
+      ksc.is_displaced,
+      ksc.created_at_pinterest,
+      tk.keyword,
+      i.added_at AS folder_added_at
+    FROM keyword_folder_items i
+    JOIN tracked_keywords tk ON tk.id = i.keyword_id
+    JOIN keyword_serp_current ksc ON ksc.keyword_id = i.keyword_id
+    WHERE i.folder_id = ${fid}
+      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+      AND (
+        (${targetScope} = 'all') OR
+        (${targetScope} = 'displaced' AND ksc.is_displaced = TRUE) OR
+        (${targetScope} = 'active' AND ksc.is_displaced = FALSE)
+      )
+      AND (${resolvedMaxSaves === null} OR COALESCE(ksc.save_count, 0) <= ${resolvedMaxSaves})
+      AND (${resolvedMaxRepins === null} OR COALESCE(ksc.repin_count, 0) <= ${resolvedMaxRepins})
+      AND (
+        ${resolvedMinPinAge === null} OR
+        (ksc.created_at_pinterest IS NOT NULL AND ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
+      )
+      AND (
+        ${resolvedMinFolderAge === null} OR
+        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
+      )
+
+    UNION ALL
+
+    SELECT
+      kdi.keyword_id,
+      kdi.pin_id,
+      NULL::text AS title,
+      kdi.save_count,
+      kdi.repin_count,
+      kdi.daily_save_velocity,
+      TRUE AS is_displaced,
+      NULL::timestamptz AS created_at_pinterest,
+      tk.keyword,
+      i.added_at AS folder_added_at
+    FROM keyword_folder_items i
+    JOIN tracked_keywords tk ON tk.id = i.keyword_id
+    JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
+    WHERE i.folder_id = ${fid}
+      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+      AND (${targetScope} IN ('all', 'displaced'))
+      AND (${resolvedMaxSaves === null} OR COALESCE(kdi.save_count, 0) <= ${resolvedMaxSaves})
+      AND (${resolvedMaxRepins === null} OR COALESCE(kdi.repin_count, 0) <= ${resolvedMaxRepins})
+      AND (${resolvedMinPinAge === null})
+      AND (
+        ${resolvedMinFolderAge === null} OR
+        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM keyword_serp_current ksc_dup
+        WHERE ksc_dup.keyword_id = kdi.keyword_id AND ksc_dup.pin_id = kdi.pin_id
+      );
+  `;
+}
+
+/**
  * Smart Pin Pruning Service (R4)
  * Supports dry-run preview and atomic deletion with keyword_ignored_pins tombstoning and edge cache evictions
  */
@@ -926,40 +1015,15 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
   const resolvedMaxSaves = max_saves !== null && max_saves !== undefined ? Number(max_saves) : (maxSaves !== null ? Number(maxSaves) : null);
   const resolvedMaxRepins = max_repins !== null && max_repins !== undefined ? Number(max_repins) : (maxRepins !== null ? Number(maxRepins) : null);
 
-  // 1. Identify Candidate Pins from keyword_serp_current
-  const candidates = await sql`
-    SELECT
-      ksc.keyword_id,
-      ksc.pin_id,
-      ksc.title,
-      ksc.save_count,
-      ksc.repin_count,
-      ksc.daily_save_velocity,
-      ksc.is_displaced,
-      ksc.created_at_pinterest,
-      tk.keyword,
-      i.added_at AS folder_added_at
-    FROM keyword_folder_items i
-    JOIN tracked_keywords tk ON tk.id = i.keyword_id
-    JOIN keyword_serp_current ksc ON ksc.keyword_id = i.keyword_id
-    WHERE i.folder_id = ${fid}
-      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
-      AND (
-        (${targetScope} = 'all') OR
-        (${targetScope} = 'displaced' AND ksc.is_displaced = TRUE) OR
-        (${targetScope} = 'active' AND ksc.is_displaced = FALSE)
-      )
-      AND (${resolvedMaxSaves === null} OR COALESCE(ksc.save_count, 0) <= ${resolvedMaxSaves})
-      AND (${resolvedMaxRepins === null} OR COALESCE(ksc.repin_count, 0) <= ${resolvedMaxRepins})
-      AND (
-        ${resolvedMinPinAge === null} OR
-        (ksc.created_at_pinterest IS NOT NULL AND ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
-      )
-      AND (
-        ${resolvedMinFolderAge === null} OR
-        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-      );
-  `;
+  // 1. Identify Candidate Pins from keyword_serp_current and keyword_displaced_index
+  const candidates = await getPruningCandidates(sql, fid, {
+    keywordIds: validKids,
+    scope: targetScope,
+    minFolderAgeDays: resolvedMinFolderAge,
+    minPinAgeDays: resolvedMinPinAge,
+    maxSaves: resolvedMaxSaves,
+    maxRepins: resolvedMaxRepins
+  });
 
   if (isDryRun) {
     return {
@@ -967,6 +1031,7 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
       dry_run: true,
       dryRun: true,
       matched_count: candidates.length,
+      candidates_count: candidates.length,
       sample_pins: candidates.slice(0, 30),
       summary: {
         scope: targetScope,
@@ -985,51 +1050,121 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
   }
 
   if (candidates.length === 0) {
-    return { success: true, dry_run: false, dryRun: false, pruned_count: 0 };
+    return {
+      success: true,
+      dry_run: false,
+      dryRun: false,
+      matched_count: 0,
+      candidates_count: 0,
+      pruned_count: 0,
+      pruned_pins: 0
+    };
   }
 
-  const pinIds = candidates.map(c => String(c.pin_id).trim()).filter(Boolean);
-  const keywordIdList = [...new Set(candidates.map(c => Number(c.keyword_id)))];
-
-  // A. Tombstone in keyword_ignored_pins to prevent zombie resurrection on future crawls
+  // Deduplicate exact (keyword_id, pin_id) candidate pairs to prevent Cartesian or duplicate execution
+  const uniquePairs = [];
+  const seenPair = new Set();
   for (const c of candidates) {
+    const kid = Number(c.keyword_id);
+    const pid = String(c.pin_id || '').trim();
+    if (kid && pid) {
+      const key = `${kid}:${pid}`;
+      if (!seenPair.has(key)) {
+        seenPair.add(key);
+        uniquePairs.push({ kid, pid });
+      }
+    }
+  }
+
+  const pruneKeywordIds = uniquePairs.map(p => p.kid);
+  const prunePinIds = uniquePairs.map(p => p.pid);
+  const uniqueKeywordIds = [...new Set(pruneKeywordIds)];
+  const uniquePinIds = [...new Set(prunePinIds)];
+
+  // A. Batched Tombstone in keyword_ignored_pins to prevent zombie resurrection on future crawls
+  if (pruneKeywordIds.length > 0) {
     await sql`
       INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
-      VALUES (${c.keyword_id}, ${c.pin_id}, 'folder_smart_pruning', NOW())
+      SELECT
+        target.kid,
+        target.pid,
+        'folder_smart_pruning',
+        NOW()
+      FROM (
+        SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid
+      ) target
       ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
         ignored_reason = EXCLUDED.ignored_reason,
         ignored_at = EXCLUDED.ignored_at;
-    `.catch(() => {});
+    `.catch((err) => {
+      console.warn(`[pruneFolderPins] Tombstone batch insert warning: ${err.message}`);
+    });
   }
 
-  // B. Delete from Central Hub operational tables
-  await sql`
-    DELETE FROM keyword_serp_current
-    WHERE keyword_id = ANY(${keywordIdList}::int[]) AND pin_id = ANY(${pinIds}::text[]);
-  `;
-  await sql`
-    DELETE FROM keyword_displaced_index
-    WHERE keyword_id = ANY(${keywordIdList}::int[]) AND pin_id = ANY(${pinIds}::text[]);
-  `;
+  // B. Delete from Central Hub operational tables using atomic paired UNNEST tuple deletion
+  // [INVARIANT: ATOMIC-UNNEST-TUPLE-DELETION]
+  // Eliminates Cartesian cross-product (K x P) data-loss bug by strictly matching (keyword_id, pin_id) tuples
+  if (pruneKeywordIds.length > 0) {
+    await sql`
+      DELETE FROM keyword_serp_current ksc
+      USING (SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid) target
+      WHERE ksc.keyword_id = target.kid AND ksc.pin_id = target.pid;
+    `;
+    await sql`
+      DELETE FROM keyword_displaced_index kdi
+      USING (SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid) target
+      WHERE kdi.keyword_id = target.kid AND kdi.pin_id = target.pid;
+    `;
+  }
 
-  // C. Evict Edge Caches (Cloudflare D1 edge_pins_metadata and KV)
+  // C. Evict Edge Caches (Cloudflare D1 edge_pins_metadata and PIN_ENGINE_KV)
   if (env?.DB || env?.PIN_D1_DB) {
     const d1 = env.DB || env.PIN_D1_DB;
     try {
-      for (const pid of pinIds) {
-        await d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid).run().catch(() => {});
+      if (typeof d1.batch === 'function') {
+        const statements = uniquePinIds.map(pid =>
+          d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid)
+        );
+        for (let i = 0; i < statements.length; i += 50) {
+          await d1.batch(statements.slice(i, i + 50));
+        }
+      } else {
+        for (const pid of uniquePinIds) {
+          await d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid).run().catch(() => {});
+        }
       }
-    } catch (_) {}
+    } catch (d1Err) {
+      console.warn(`[pruneFolderPins] D1 edge cache eviction warning: ${d1Err.message}`);
+    }
   }
+
   if (env?.PIN_ENGINE_KV) {
     try {
-      for (const pid of pinIds) {
-        await env.PIN_ENGINE_KV.delete(`dossier:pin:${pid}`).catch(() => {});
+      const kvKeysToEvict = new Set();
+      for (const p of uniquePairs) {
+        kvKeysToEvict.add(`dossier:pin:${p.pid}`);
+        kvKeysToEvict.add(`dossier:pin:${p.pid}:0`);
+        kvKeysToEvict.add(`dossier:pin:${p.pid}:${p.kid}`);
+        kvKeysToEvict.add(`pin:dossier:${p.pid}`);
+        kvKeysToEvict.add(`pin:dossier?pin_id=${p.pid}`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:0`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:${p.kid}`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:all`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:7d`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:14d`);
+        kvKeysToEvict.add(`traj:pin:${p.pid}:30d`);
+        kvKeysToEvict.add(`pin:trajectory?pin_id=${p.pid}`);
       }
-      for (const kid of keywordIdList) {
-        await env.PIN_ENGINE_KV.delete(`serp:comp:${kid}`).catch(() => {});
+      for (const kid of uniqueKeywordIds) {
+        kvKeysToEvict.add(`serp:comp:${kid}`);
       }
-    } catch (_) {}
+      await Promise.all(
+        Array.from(kvKeysToEvict).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}))
+      );
+    } catch (kvErr) {
+      console.warn(`[pruneFolderPins] KV eviction warning: ${kvErr.message}`);
+    }
   }
 
   // D. Invalidate in-memory crossover cache
@@ -1039,8 +1174,10 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
     success: true,
     dry_run: false,
     dryRun: false,
+    matched_count: candidates.length,
+    candidates_count: candidates.length,
     pruned_count: candidates.length,
-    pruned_pins: pinIds.length
+    pruned_pins: uniquePinIds.length
   };
 }
 

@@ -93,9 +93,11 @@ export async function getCompetitorsOverview(sql) {
         COUNT(CASE WHEN is_active = TRUE THEN 1 END)::int AS active_count,
         COUNT(CASE WHEN is_active = FALSE THEN 1 END)::int AS paused_count,
         COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
-        COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
+        -- [INVARIANT: PINTEREST-BUSINESS-ANALYTICS-PARITY]
+        -- Align metrics with official Pinterest analytics: monthly_reach -> Total audience, profile_views -> Impressions
+        COALESCE(SUM(monthly_reach), 0)::bigint AS total_audience,
+        COALESCE(SUM(profile_views), 0)::bigint AS total_impressions,
         COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
-        COALESCE(SUM(profile_views), 0)::bigint AS total_audience,
         COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
       FROM competitor_profiles;
     `;
@@ -116,8 +118,9 @@ export async function getCompetitorsOverview(sql) {
       paused_count: totals.paused_count || 0,
       competitor_count: totals.competitor_count || 0,
       own_count: totals.own_count || 0,
-      combined_reach: Number(totals.combined_reach || 0),
       total_audience: Number(totals.total_audience || 0),
+      total_impressions: Number(totals.total_impressions || 0),
+      combined_reach: Number(totals.combined_reach || totals.total_audience || 0),
       pins_tracked: totals.total_pins_tracked || 0,
       top_competitor: topProfile ? {
         handle: `@${topProfile.username}`,
@@ -131,8 +134,9 @@ export async function getCompetitorsOverview(sql) {
       tracked_profiles: 0,
       competitor_count: 0,
       own_count: 0,
-      combined_reach: 0,
       total_audience: 0,
+      total_impressions: 0,
+      combined_reach: 0,
       pins_tracked: 0,
       top_competitor: null
     };

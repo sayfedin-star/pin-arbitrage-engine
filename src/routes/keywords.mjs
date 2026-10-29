@@ -1143,11 +1143,9 @@ export async function handleKeywordsRoutes({
               const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
               return !isNaN(t) && t >= tenMinutesAgo;
             });
-            const totalItems = d1Folders.results.reduce(
-              (sum, f) => sum + Number(f.keyword_count ?? f.item_count ?? 0),
-              0
-            );
-            if (allFresh && totalItems > 0) {
+            // [INVARIANT: D1-EDGE-CACHE-PRESERVE-EMPTY-FOLDERS]
+            // Allow empty folders in D1 cache (d1Folders.results.length > 0) without forcing Neon Hub wakeups
+            if (allFresh && d1Folders.results.length > 0) {
               const normalizedList = d1Folders.results.map(f => ({
                 ...f,
                 keyword_count: Number(f.keyword_count ?? f.item_count ?? 0),

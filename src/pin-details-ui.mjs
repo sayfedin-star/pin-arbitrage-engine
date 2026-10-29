@@ -641,31 +641,38 @@ export function getPinDetailPageHtml(pinId = '') {
         <!-- Rendered Interactive SVG Canvas -->
         <div class="relative w-full h-44 bg-[#18181B]/60 rounded-lg border border-[#27272A] p-2 flex items-center justify-center overflow-hidden">
           <template x-if="computeChartPoints().length >= 2">
-            <svg class="w-full h-full" viewBox="0 0 800 180" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="chart-area-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.35" />
-                  <stop offset="100%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.0" />
-                </linearGradient>
-              </defs>
-              <!-- Horizontal Grid Lines -->
-              <line x1="40" y1="30" x2="760" y2="30" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
-              <line x1="40" y1="90" x2="760" y2="90" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
-              <line x1="40" y1="150" x2="760" y2="150" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
+            <div class="relative w-full h-full">
+              <svg class="w-full h-full" viewBox="0 0 800 180" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="chart-area-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.35" />
+                    <stop offset="100%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.0" />
+                  </linearGradient>
+                </defs>
+                <!-- Horizontal Grid Lines -->
+                <line x1="40" y1="30" x2="760" y2="30" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
+                <line x1="40" y1="90" x2="760" y2="90" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
+                <line x1="40" y1="150" x2="760" y2="150" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
 
-              <!-- Area Path -->
-              <path :d="buildSvgAreaPath()" fill="url(#chart-area-grad)" />
+                <!-- Area Path -->
+                <path :d="buildSvgAreaPath()" fill="url(#chart-area-grad)" />
 
-              <!-- Line Path -->
-              <path :d="buildSvgLinePath()" fill="none" :stroke="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                <!-- Line Path -->
+                <path :d="buildSvgLinePath()" fill="none" :stroke="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
 
-              <!-- Interactive Points -->
-              <template x-for="(pt, idx) in computeChartPoints()" :key="idx">
-                <g class="cursor-pointer" @mouseenter="hoveredChartPoint = pt" @mouseleave="hoveredChartPoint = null">
-                  <circle :cx="pt.x" :cy="pt.y" r="4" :fill="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stroke="#FFFFFF" stroke-width="1.5" class="transition-transform hover:scale-150" />
-                </g>
-              </template>
-            </svg>
+              <!-- Interactive Points HTML Overlay [INVARIANT: SVG-SAFE-TEMPLATE-OVERLAY] -->
+              <div class="absolute inset-0 pointer-events-none">
+                <template x-for="(pt, idx) in computeChartPoints()" :key="idx">
+                  <div
+                    class="absolute pointer-events-auto cursor-pointer rounded-full transition-transform hover:scale-150 -translate-x-1/2 -translate-y-1/2"
+                    :style="'left: ' + ((pt.x / 800) * 100) + '%; top: ' + ((pt.y / 180) * 100) + '%; width: 8px; height: 8px; background-color: ' + (chartMetric === 'velocity' ? '#10B981' : '#E11D48') + '; border: 1.5px solid #FFFFFF;'"
+                    @mouseenter="hoveredChartPoint = pt"
+                    @mouseleave="hoveredChartPoint = null"
+                  ></div>
+                </template>
+              </div>
+            </div>
           </template>
 
           <template x-if="computeChartPoints().length < 2">

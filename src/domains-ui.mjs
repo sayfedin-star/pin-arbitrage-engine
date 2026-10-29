@@ -1780,7 +1780,6 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               </div>
 
             </div>
-          </div>
         </template>
       </div>
 
@@ -2228,7 +2227,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               if (this.scopedFolderId) {
                 this.selectedFolderId = String(this.scopedFolderId);
                 const matched = this.folders.find(f => String(f.id) === String(this.scopedFolderId));
-                if (matched) this.activeFolder = matched;
+                if (matched) this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
               }
             }
           } catch (_) {}

@@ -4267,12 +4267,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         popularPinsView: 'full',
         selectedProjectId: '',
         fleetProjects: [],
-        darkMode: true,
         toast: { show: false, message: '', type: 'info' },
 
         // Campaign Folders & Crossover Engine State
         folders: [],
-        activeFolder: null,
         crossoverData: null,
         isCrossoverLoading: false,
         currentKeywordFolders: [],
@@ -4284,7 +4282,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         selectedFolderKeywordIds: [],
 
         // Pin Table Filter & Sort Controls
-        serpScope: 'all',
         intelScope: 'all',
         activeVisualTagFilter: '',
         activeDomainFilter: '',
@@ -5613,23 +5610,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           return urlParams.get('q') || urlParams.get('keyword') || urlParams.get('slug') || '';
         },
 
-        applyTheme() {
-          if (this.darkMode) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('pa_theme', 'dark');
-            localStorage.setItem('pin_theme', 'dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('pa_theme', 'light');
-            localStorage.setItem('pin_theme', 'light');
-          }
-        },
-
-        toggleTheme() {
-          this.darkMode = !this.darkMode;
-          this.applyTheme();
-        },
-
         showToast(message, type = 'info') {
           this.toast = { show: true, message, type };
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -6788,7 +6768,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               if (this.folders.length > 0) {
                 if (this.activeFolderId) {
                   const matched = this.folders.find(f => String(f.id) === String(this.activeFolderId));
-                  if (matched) this.activeFolder = matched;
+                  if (matched) this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
                 } else if (!this.activeFolder) {
                   this.activeFolder = this.folders[0];
                 }

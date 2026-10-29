@@ -86,7 +86,8 @@ import {
   batchAddKeywordsToFolder,
   removeKeywordFromFolder,
   getFoldersForKeyword,
-  calculateFolderCrossover
+  calculateFolderCrossover,
+  pruneFolderPins
 } from '../src/modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
@@ -120,6 +121,7 @@ const PORT = Number(process.env.PORT || 3456);
 
 // [INVARIANT: SEC-02 LOCALHOST CORS & CSRF GUARD]
 const DASHBOARD_CSRF_TOKEN = crypto.randomBytes(24).toString('hex');
+const SESSION_CSRF_TOKEN = DASHBOARD_CSRF_TOKEN;
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:3456',
   'http://127.0.0.1:3456',
@@ -441,6 +443,51 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+// Helper to send HTML response with CSRF token and fetch interceptor injected
+function sendHtml(res, method, html) {
+  // [INVARIANT: CSRF-TOKEN-INJECTION-ALL-HTML-ROUTES]
+  // Inject window.__DASHBOARD_CSRF__ and automatic fetch CSRF header interceptor right before </head>
+  const csrfScript = `<script>window.__DASHBOARD_CSRF__ = "${SESSION_CSRF_TOKEN}";\n` +
+    `(function() {\n` +
+    `  if (typeof window === 'undefined' || window.__dashboardCsrfInterceptorInstalled) return;\n` +
+    `  window.__dashboardCsrfInterceptorInstalled = true;\n` +
+    `  const _origFetch = window.fetch;\n` +
+    `  window.fetch = async function(input, init) {\n` +
+    `    init = init || {};\n` +
+    `    const method = (init.method || (input && input.method) || 'GET').toUpperCase();\n` +
+    `    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {\n` +
+    `      if (init.headers instanceof Headers) {\n` +
+    `        if (!init.headers.has('x-csrf-token') && window.__DASHBOARD_CSRF__) {\n` +
+    `          init.headers.set('x-csrf-token', window.__DASHBOARD_CSRF__);\n` +
+    `        }\n` +
+    `      } else if (Array.isArray(init.headers)) {\n` +
+    `        if (!init.headers.some(h => (h[0] || '').toLowerCase() === 'x-csrf-token') && window.__DASHBOARD_CSRF__) {\n` +
+    `          init.headers.push(['x-csrf-token', window.__DASHBOARD_CSRF__]);\n` +
+    `        }\n` +
+    `      } else {\n` +
+    `        init.headers = Object.assign({}, init.headers);\n` +
+    `        if (!init.headers['x-csrf-token'] && !init.headers['X-CSRF-Token'] && window.__DASHBOARD_CSRF__) {\n` +
+    `          init.headers['x-csrf-token'] = window.__DASHBOARD_CSRF__;\n` +
+    `        }\n` +
+    `      }\n` +
+    `    }\n` +
+    `    return _origFetch.call(this, input, init);\n` +
+    `  };\n` +
+    `})();\n` +
+    `</script>`;
+
+  const injectedHtml = typeof html === 'string' && html.includes('</head>')
+    ? html.replace('</head>', () => `${csrfScript}</head>`)
+    : `${html}${csrfScript}`;
+
+  res.writeHead(200, {
+    ...HTML_SECURITY_HEADERS,
+    'Content-Length': Buffer.byteLength(injectedHtml)
+  });
+  if (method === 'HEAD') return res.end();
+  return res.end(injectedHtml);
+}
+
 function handleCorsAndCsrf(req, res) {
   const origin = req.headers['origin'];
   const host = req.headers['host'];
@@ -460,7 +507,7 @@ function handleCorsAndCsrf(req, res) {
       return false;
     }
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-csrf-token');
   }
 
@@ -470,8 +517,8 @@ function handleCorsAndCsrf(req, res) {
     return false;
   }
 
-  // Validate CSRF token for mutative POST requests originating from browsers
-  if (req.method === 'POST' && origin) {
+  // Validate CSRF token for mutative requests originating from browsers
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && origin) {
     const clientToken = req.headers['x-csrf-token'];
     if (!clientToken || clientToken !== DASHBOARD_CSRF_TOKEN) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -2417,6 +2464,14 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, folders });
       }
 
+      if (parts.length >= 2 && parts[1] === 'prune-pins') {
+        if (!folderId) return sendJson(res, 400, { success: false, error: 'Valid folder ID is required' });
+        if (method !== 'POST') return sendJson(res, 405, { success: false, error: 'Method not allowed' });
+        const body = await parseJsonBody(req).catch(() => ({}));
+        const result = await pruneFolderPins(targetSql, folderId, body, { env: process.env });
+        return sendJson(res, 200, result);
+      }
+
       if (method === 'POST' && parts.length === 0) {
         const body = await parseJsonBody(req);
         const created = await createFolder(targetSql, body);
@@ -2770,12 +2825,7 @@ const server = http.createServer(async (req, res) => {
       pathname.startsWith('/discovery/')
     )) {
       const html = getDiscoveryPageHtml();
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 8B. GET or HEAD /folders or /folders/:id -> Dedicated Campaign Folders Studio & Scoped Rooms
@@ -2802,16 +2852,14 @@ const server = http.createServer(async (req, res) => {
         let domainParam = segments[3] || '';
         try { domainParam = decodeURIComponent(domainParam); } catch (_) {}
         html = getDomainsPageHtml(domainParam, folderId);
+      } else if (room === 'settings') {
+        // Room 5: /folders/:id/settings -> Campaign Folder Settings & Smart Bulk Pin Pruning
+        html = getCampaignFoldersPageHtml(folderId, 'settings');
       } else {
         html = getCampaignFoldersPageHtml(folderId);
       }
 
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 8B-2. Universal Pin Intelligence Sub-Router (/api/pins/*)
@@ -2849,24 +2897,14 @@ const server = http.createServer(async (req, res) => {
     if ((method === 'GET' || method === 'HEAD') && (pathname.startsWith('/pins/') || pathname.startsWith('/pin/'))) {
       const pinId = pathname.replace(/^\/pins?\//, '').split('/')[0];
       const html = getPinDetailPageHtml(pinId);
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 9. GET or HEAD /domains or /domains/* -> Dedicated Domain Intelligence Studio
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/domains' || pathname.startsWith('/domains/'))) {
       const domain = pathname.startsWith('/domains/') ? decodeURIComponent(pathname.slice('/domains/'.length)) : '';
       const html = getDomainsPageHtml(domain);
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 10. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
@@ -2875,41 +2913,24 @@ const server = http.createServer(async (req, res) => {
       const slugLower = (slug || '').toLowerCase();
       if (slugLower === 'discovery') {
         const html = getDiscoveryPageHtml();
-        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
-        if (method === 'HEAD') return res.end();
-        return res.end(html);
+        return sendHtml(res, method, html);
       }
       if (slugLower === 'folders') {
         const html = getCampaignFoldersPageHtml();
-        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
-        if (method === 'HEAD') return res.end();
-        return res.end(html);
+        return sendHtml(res, method, html);
       }
       if (slugLower === 'domains') {
         const html = getDomainsPageHtml();
-        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
-        if (method === 'HEAD') return res.end();
-        return res.end(html);
+        return sendHtml(res, method, html);
       }
       const html = getKeywordsPageHtml(slug);
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 10. GET or HEAD / or SPA creator routes (e.g. /wifesrecipesbyme)
     if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/api/')) {
       let html = getDashboardHtml();
-      html = html.replace('</head>', `<script>window.__DASHBOARD_CSRF__ = "${DASHBOARD_CSRF_TOKEN}";</script></head>`);
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
+      return sendHtml(res, method, html);
     }
 
     // 404

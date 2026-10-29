@@ -119,7 +119,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
     </template>
   </div>
 
-  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'loadFolders()' })}
+  ${renderAppSidebar({ activeNav: 'folders', refreshHandler: 'loadFolders()' })}
 
   <!-- Main View (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
@@ -1166,7 +1166,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                     <td class="p-3 font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
                     <td class="p-3">
                       <div class="flex flex-col gap-0.5">
-                        <span class="font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(tb.saves_gain || tb.metric_gains?.saves || Math.round((tb.total_saves || 0) * 0.15)) + ' saves_gain'"></span>
+                        <span class="font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(tb.saves_gain || tb.metric_gains?.saves || 0) + ' saves_gain'"></span>
                         <span class="text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + (tb.velocity_gain || tb.metric_gains?.velocity || ((tb.pin_count || 1) * 2.4).toFixed(1)) + ' vel/d'"></span>
                       </div>
                     </td>
@@ -1297,7 +1297,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                 <div x-show="prunePreviewResult" class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-xs font-mono">
                   <div class="flex items-center justify-between text-slate-700 dark:text-slate-300">
                     <span>Candidates found:</span>
-                    <span class="font-bold text-amber-500" x-text="prunePreviewResult?.candidates_count ?? 0"></span>
+                    <span class="font-bold text-amber-500" x-text="prunePreviewResult?.candidates_count ?? prunePreviewResult?.matched_count ?? 0"></span>
                   </div>
                 </div>
 
@@ -1305,7 +1305,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   <button type="button" @click="runPrunePreview()" :disabled="pruningLoading" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition cursor-pointer">
                     <span x-text="pruningLoading ? 'Inspecting...' : 'Preview Candidates (Dry-Run)'"></span>
                   </button>
-                  <button type="button" @click="executePrune()" :disabled="pruningLoading || !prunePreviewResult?.candidates_count" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition cursor-pointer">
+                  <button type="button" @click="executePrune()" :disabled="pruningLoading || !(prunePreviewResult?.candidates_count || prunePreviewResult?.matched_count)" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition cursor-pointer">
                     Execute Atomic Prune
                   </button>
                 </div>
@@ -1317,6 +1317,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
       <!-- Legacy Section 5 monopoly tables purged in favor of dedicated /folders/:id/domains and /folders/:id/creators rooms -->
 
     </div>
+    </div> <!-- [INVARIANT: SIBLING-VIEW-ISOLATION] Closes VIEW A (activeFolderId) before VIEW B -->
 
     <!-- ========================================================================= -->
     <!-- VIEW B: HUB VIEW (/folders)                                               -->
@@ -1346,7 +1347,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         </div>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-1 shadow-sm">
           <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">Tracked Keywords Across Folders</span>
-          <span class="text-2xl font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="totalKeywordsCount()">0</span>
+          <span class="text-2xl font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="totalKeywordsCount">0</span>
         </div>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-1 shadow-sm">
           <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">Crossover Engine Readiness</span>
@@ -1716,7 +1717,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           if (!pins.length) return 0;
           const win = this.selectedTimeWindow;
           const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 30;
-          return Math.round(pins.reduce((sum, p) => sum + (Number(p.repin_count || 0) * (mult / 60)), 0));
+          return Math.round(pins.reduce((sum, p) => sum + (Number(p.delta_repins_24h || p.daily_repin_velocity || 0) * mult), 0));
         },
 
         get clusterAvgVelocity() {
@@ -1728,11 +1729,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
         get clusterCompetitorAudienceGains() {
           const creators = this.crossoverData?.top_creators || [];
-          if (!creators.length) return Math.round(this.clusterWindowSavesGains * 1.8);
-          const win = this.selectedTimeWindow;
-          const factor = win === '24h' ? 0.03 : win === '5d' ? 0.08 : win === '7d' ? 0.12 : win === '10d' ? 0.15 : win === '15d' ? 0.22 : 0.45;
-          const totalAudience = creators.reduce((sum, c) => sum + (Number(c.monthly_reach || c.total_audience || 0)), 0);
-          return Math.round(totalAudience * factor);
+          if (!creators.length) return 0;
+          return creators.reduce((sum, c) => sum + (Number(c.delta_monthly_reach || c.delta_audience_30d || 0)), 0);
         },
 
         formatUniversalAge(days) {
@@ -1787,8 +1785,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             });
             const data = await res.json();
             if (res.ok) {
-              this.prunePreviewResult = data;
-              this.showToast('Dry run preview: ' + (data.candidates_count || 0) + ' candidate pins identified for pruning', 'info');
+              const count = data.candidates_count ?? data.matched_count ?? 0;
+              this.prunePreviewResult = { ...data, candidates_count: count, matched_count: count };
+              this.showToast('Dry run preview: ' + count + ' candidate pins identified for pruning', 'info');
             } else {
               this.showToast(data.message || 'Prune preview failed', 'error');
             }
@@ -2081,9 +2080,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
           if (this.activeFolderId) {
             await this.loadActiveFolder();
-          } else {
-            await this.loadFolders();
           }
+          await this.loadFolders();
 
           this.$nextTick(() => {
             if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
@@ -2130,6 +2128,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
               this.foldersList = data.folders || [];
+              if (this.activeFolderId) {
+                const matched = this.foldersList.find(f => String(f.id) === String(this.activeFolderId));
+                if (matched) {
+                  this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
+                }
+              }
             } else {
               this.showToast('Failed to load campaign folders', 'error');
             }
@@ -2147,7 +2151,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             const folderRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId);
             if (folderRes.ok) {
               const data = await folderRes.json().catch(() => ({}));
-              this.activeFolder = data.folder || null;
+              const fetched = data.folder || null;
+              this.activeFolder = fetched ? (this.activeFolder ? { ...this.activeFolder, ...fetched } : fetched) : null;
               this.syncFolderSettingsFromActive();
             } else {
               this.showToast('Campaign folder not found', 'error');
@@ -2825,10 +2830,6 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           if (count <= 0) return 0;
           const pct = Math.round((count / total) * 100);
           return Math.min(100, Math.max(0, pct));
-        },
-
-        totalKeywordsCount() {
-          return this.foldersList.reduce((acc, f) => acc + (f.keyword_count || 0), 0);
         },
 
         async createFolder() {

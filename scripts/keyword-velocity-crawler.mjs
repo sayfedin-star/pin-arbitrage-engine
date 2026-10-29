@@ -402,7 +402,7 @@ async function inspectPin(pin, kw) {
   }
 
   const detailSaves = Math.max(Number(detail?.saves || 0), Number(detail?.save_count || 0));
-  const authenticSaves = (!wasDeepHydrated && detailSaves > 0)
+  const rawAuthenticSaves = (!wasDeepHydrated && detailSaves > 0)
     ? detailSaves
     : Math.max(Number(pin.save_count || 0), detailSaves);
   const authenticRepins = Math.max(
@@ -410,6 +410,8 @@ async function inspectPin(pin, kw) {
     Number(detail?.repins || 0),
     Number(detail?.repin_count || 0)
   );
+  // Physical Invariant: Total saves must always be at least verified repin count
+  const authenticSaves = Math.max(rawAuthenticSaves, authenticRepins);
   const authenticComments = Number(detail?.comments || detail?.comment_count || 0);
   const authenticShares = Number(detail?.shares || detail?.share_count || 0);
 
@@ -637,7 +639,15 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+          'creation_method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
+          'method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
           'is_deleted', u.is_dead::boolean,
           'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'has_treasures', TRUE,
@@ -735,7 +745,15 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+          'creation_method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
+          'method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
           'is_deleted', u.is_dead::boolean,
           'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'has_treasures', TRUE,
@@ -837,7 +855,15 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
+          'creation_method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
+          'method', CASE
+            WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+            ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+          END,
           'is_deleted', u.is_dead::boolean,
           'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'has_treasures', TRUE,

@@ -708,7 +708,7 @@ export function getCorsHeaders(requestOrigin = null, env = {}) {
 
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -744,34 +744,11 @@ export function verifyApiAuthentication(request, env = {}) {
     (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
   );
 
-  // If secret key is missing, allow test/local dev or authenticated same-origin browser UI requests
+  // If secret key is missing, allow test/local dev; in production, fail-closed unconditionally
   if (!secretKey) {
     if (isTestOrLocalDev) {
       return { authorized: true };
     }
-    // Allow same-origin browser UI requests (prevent blocking UI mutations when API_SECRET_KEY is not provisioned)
-    try {
-      const secFetchSite = request.headers.get('Sec-Fetch-Site') || request.headers.get('sec-fetch-site');
-      if (secFetchSite === 'same-origin') {
-        return { authorized: true };
-      }
-      const reqUrl = new URL(request.url);
-      const originHeader = request.headers.get('Origin') || request.headers.get('origin');
-      if (originHeader) {
-        const originUrl = new URL(originHeader);
-        if (originUrl.hostname === reqUrl.hostname) {
-          return { authorized: true };
-        }
-      }
-      const refererHeader = request.headers.get('Referer') || request.headers.get('referer');
-      if (refererHeader) {
-        const refererUrl = new URL(refererHeader);
-        if (refererUrl.hostname === reqUrl.hostname) {
-          return { authorized: true };
-        }
-      }
-    } catch (_) {}
-
     return {
       authorized: false,
       status: 503,
@@ -854,7 +831,7 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': resolvedOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -894,7 +871,7 @@ export function methodNotAllowedResponse(allow, customCors = null) {
   });
 }
 
-export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, DELETE, OPTIONS') {
+export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, PUT, PATCH, DELETE, OPTIONS') {
   const cors = getCorsHeaders(requestOrigin, env);
   return new Response(null, {
     status: 204,
@@ -1385,7 +1362,7 @@ export default {
 
     // Security Authentication Gate for Mutating Methods & Sensitive Operations [CAP-02, CAP-03, CAP-04]
     const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
-    const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname.startsWith('/api/crawl/dispatch');
+    const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname === '/api/fleet/warm' || pathname.startsWith('/api/crawl/dispatch');
     if (isMutatingMethod || isSensitiveEndpoint) {
       const auth = verifyApiAuthentication(request, env);
       if (!auth.authorized) {

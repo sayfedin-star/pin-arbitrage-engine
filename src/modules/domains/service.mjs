@@ -940,7 +940,9 @@ export async function listDomainsIntelligence(sql, {
         '/' AS url_slug,
         TRUE AS is_serp_ranked
       FROM keyword_displaced_index kdi
-      WHERE (${fId}::int IS NULL OR ${pillar} = 'displaced')
+      -- [INVARIANT: CAMPAIGN-FOLDER-DISPLACED-PINS-PRESERVATION]
+      -- Include displaced pins in campaign folder Domain Studio when pillar = 'all' or 'displaced'
+      WHERE (${fId}::int IS NULL OR ${pillar} IN ('all', 'displaced'))
         AND (${pillar} IN ('all', 'serp', 'displaced', 'competitors'))
         AND kdi.domain IS NOT NULL AND kdi.domain <> ''
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
@@ -1995,6 +1997,17 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
 
+  // [INVARIANT: DEFENSIVE-QUERY-TIMEOUT-GUARD]
+  // Catch blocks must only handle genuine network timeouts/aborts per Invariant 4, never swallow SQL syntax or schema errors
+  const guardQueryTimeout = (err, queryName = 'query') => {
+    const isTimeout = err?.name === 'AbortError' || err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout');
+    if (isTimeout) {
+      console.warn(`[getDomainDeepDossier] Query ${queryName} timed out, falling back to empty set:`, err.message);
+      return [];
+    }
+    throw err;
+  };
+
   const [ageInfo, adInfo, serpPins, archivePins, compPins, displacedPins] = await Promise.all([
     isOrganicVault ? Promise.resolve({
       domain: 'Uploaded by user',
@@ -2038,7 +2051,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC
       LIMIT 300;
-    `.catch(() => []),
+    `.catch(err => guardQueryTimeout(err, 'keyword_serp_current')),
     sql`
       SELECT
         pa.pin_id,
@@ -2055,9 +2068,14 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.created_at_pinterest
       FROM pa_pins pa
       WHERE (pa.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(pa.domain) = 'uploaded by user'))
+        AND (${fId}::int IS NULL OR pa.account_username IN (
+          SELECT prof.username FROM folder_competitor_items fci
+          JOIN competitor_profiles prof ON prof.id = fci.competitor_id
+          WHERE fci.folder_id = ${fId}
+        ))
       ORDER BY pa.saves DESC
       LIMIT 200;
-    `.catch(() => []),
+    `.catch(err => guardQueryTimeout(err, 'pa_pins')),
     sql`
       SELECT
         cp.pin_id,
@@ -2073,9 +2091,10 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
       WHERE (cp.link_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(cp.link_domain) = 'uploaded by user'))
+        AND (${fId}::int IS NULL OR cp.competitor_id IN (SELECT competitor_id FROM folder_competitor_items WHERE folder_id = ${fId}))
       ORDER BY cp.save_count DESC
       LIMIT 200;
-    `.catch(() => []),
+    `.catch(err => guardQueryTimeout(err, 'competitor_pins')),
     sql`
       SELECT
         kdi.pin_id,
@@ -2104,7 +2123,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
       ORDER BY kdi.save_count DESC
       LIMIT 300;
-    `.catch(() => [])
+    `.catch(err => guardQueryTimeout(err, 'keyword_displaced_index'))
   ]);
 
   // 1. Consolidate Unique Pins with their SERP Rank Appearances

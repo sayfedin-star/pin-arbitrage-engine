@@ -5545,15 +5545,16 @@ export function getDashboardHtml(folderId = '') {
     function dashboardApp() {
       return {
         safeUrl,
+        creatorDiscoveryFilter: 'all',
         isDark: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') === 'dark' || localStorage.getItem('pin_theme') === 'dark') : false;
-          } catch (_) { return false; }
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
+          } catch (_) { return true; }
         })(),
         darkMode: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') === 'dark' || localStorage.getItem('pin_theme') === 'dark') : false;
-          } catch (_) { return false; }
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
+          } catch (_) { return true; }
         })(),
         toggleTheme() {
           this.isDark = !this.isDark;
@@ -6008,7 +6009,6 @@ export function getDashboardHtml(folderId = '') {
         isBoardsModalOpen: false,
         activeBoardsCompetitor: null,
         competitorBoardsList: [],
-        isLoadingBoards: false,
         isSyncingBoards: false,
 
         // GitHub Actions 20-Shard Crawler & Board Sharding Modal State
@@ -6019,7 +6019,6 @@ export function getDashboardHtml(folderId = '') {
         ghaBoardScope: 'all',
         ghaTargetBoards: [],
         ghaBoardSearch: '',
-        isDispatchingGitHubCrawl: false,
 
         get filteredGhaBoards() {
           const boards = this.activeCreatorBoards || [];
@@ -6671,14 +6670,6 @@ export function getDashboardHtml(folderId = '') {
         deleteTarget: null,
         deletePurgeNeon: true,
         isDeleting: false,
-
-        toggleTheme() {
-          this.isDark = !this.isDark;
-          localStorage.setItem('pin_theme', this.isDark ? 'dark' : 'light');
-          this.$nextTick(() => {
-            if (window.lucide) window.lucide.createIcons();
-          });
-        },
 
         normalizeBoardSlug(str) {
           if (!str) return '';
@@ -7801,7 +7792,8 @@ export function getDashboardHtml(folderId = '') {
               const data = await res.json();
               this.foldersList = data.folders || [];
               if (this.scopedFolderId) {
-                this.activeFolder = this.foldersList.find(f => String(f.id) === String(this.scopedFolderId)) || null;
+                const matched = this.foldersList.find(f => String(f.id) === String(this.scopedFolderId)) || null;
+                if (matched) this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
               }
             }
           } catch (_) {}
@@ -10515,13 +10507,6 @@ export function getDashboardHtml(folderId = '') {
 
         async deleteSeed(pinId, label) {
           this.openDeleteModal({ pin_id: pinId, label: label });
-        },
-
-        safeUrl(url) {
-          if (!url) return '#';
-          const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
-          return '#';
         },
 
         sanitizeCsvCell(val) {

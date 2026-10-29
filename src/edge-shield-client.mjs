@@ -283,28 +283,7 @@ export function getEdgeShieldClientScript() {
     if (window.__edgeShieldInstalled) return;
     window.__edgeShieldInstalled = true;
 
-    // 1. User Activity Tracker (Inactivity cutoff: 15 minutes)
-    var lastUserActivity = Date.now();
-    var INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
-    var markActive = function() { lastUserActivity = Date.now(); };
-    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(function(evt) {
-      window.addEventListener(evt, markActive, { passive: true });
-    });
-
-    // 2. Operator Session Keep-Alive Heartbeat (4-min interval)
-    // Only fires if tab is visible AND user was active within last 15 minutes
-    // Sends body '{}' -> 0 shards awakened, keeps Cloudflare Worker & Hub warm
-    setInterval(function() {
-      if (document.hidden) return;
-      if (Date.now() - lastUserActivity > INACTIVITY_TIMEOUT_MS) return;
-      fetch('/api/fleet/keep-alive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}'
-      }).catch(function() {});
-    }, 240000);
-
-    // 3. Smart Prefetch & Predictive JIT Warming on Hover (130ms debounce)
+    // Smart Prefetch & Predictive JIT Warming on Hover (130ms debounce)
     // [INVARIANT: PREDICTIVE-HOVER-JIT-WARMING]
     // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
     // 1. Fast Edge Prefetch (< 3ms) from Cloudflare D1 / KV cache
