@@ -19,7 +19,12 @@
 import { formatPinterestCookie } from '../../utils.mjs';
 import { getPinterestHeaders } from '../shared/pinterest-headers.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
-import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
+import {
+  extractPinData,
+  PINTEREST_PAGE_HEADERS,
+  fetchPinFromPinterest,
+  fetchPinsBatchFromPidgets
+} from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import {
@@ -33,7 +38,8 @@ import {
   fetchPinTrajectoryFromShard,
   isUnifiedPostgres,
   isMultiStageHydrationJump,
-  sanitizeDossierTrajectory
+  sanitizeDossierTrajectory,
+  safeWaitUntil
 } from '../sharding/fleet-router.mjs';
 
 /**
@@ -387,7 +393,7 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
 
       // Backfill Cloudflare D1 asynchronously so subsequent requests hit D1 in < 3ms with 0 Shard HTTP calls
       if (env?.PIN_D1_DB && newlyHydratedFromShards.length > 0) {
-        syncPinsBatchToD1(env, newlyHydratedFromShards).catch(() => {});
+        safeWaitUntil(ctx, syncPinsBatchToD1(env, newlyHydratedFromShards), 'sync_pins_batch_to_d1');
       }
     }
 
@@ -1516,6 +1522,73 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       rank++;
     }
 
+    // Batch Pidgets SERP Pre-Enrichment (LND-801)
+    // Run fetchPinsBatchFromPidgets across 100% of SERP pins in chunks of 50
+    if (typeof fetchPinsBatchFromPidgets === 'function' && preparedPins.length > 0) {
+      const allPinIds = preparedPins.map(p => p.pin_id).filter(Boolean);
+      for (let i = 0; i < allPinIds.length; i += 50) {
+        const chunk = allPinIds.slice(i, i + 50);
+        try {
+          const pidgetsMap = await fetchPinsBatchFromPidgets(chunk);
+          if (pidgetsMap) {
+            for (const p of preparedPins) {
+              const pidStr = String(p.pin_id);
+              if (!pidgetsMap.has(pidStr)) continue;
+              const pData = pidgetsMap.get(pidStr);
+              if (!pData || pData.is_missing) continue;
+
+              const pidgetSaves = Number(pData.saves ?? pData.save_count ?? 0);
+              const pidgetRepins = Number(pData.repins ?? pData.repin_count ?? 0);
+              if (pidgetSaves > 0) {
+                p.save_count = Math.max(p.save_count, pidgetSaves);
+              }
+              if (pidgetRepins > 0) {
+                p.repin_count = Math.max(p.repin_count, pidgetRepins);
+              }
+              if (pData.title && (!p.title || p.title === '')) {
+                p.title = pData.title;
+              }
+              if (pData.image_hd_url) {
+                p.image_hd_url = pData.image_hd_url;
+                if (p.metadata) p.metadata.image_hd_url = pData.image_hd_url;
+              }
+
+              // Recalculate daily save velocity against baseline using calculateDailyVelocity to prevent hydration jumps (LND-801)
+              const baseEntry = baselineMap.get(p.pin_id);
+              if (baseEntry !== undefined && baseEntry !== null) {
+                const baseSavesNum = (typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
+                const baseDateRaw = (typeof baseEntry === 'object' && baseEntry.date) ? new Date(baseEntry.date) : baselineSnapshotDate;
+                const newVel = calculateDailyVelocity({
+                  currentSaves: p.save_count,
+                  baselineSaves: baseSavesNum,
+                  currentRepins: p.repin_count,
+                  baselineRepins: Number(p.metadata?.baseline_repins || 0),
+                  currentDate: new Date(),
+                  baselineDate: baseDateRaw,
+                  createdAt: p.created_at_pinterest || null,
+                  maxCap: 25000
+                });
+                p.daily_save_velocity = newVel;
+                const pIdxInPrepared = preparedPins.indexOf(p);
+                if (pIdxInPrepared !== -1) {
+                  pinVelocities[pIdxInPrepared] = newVel;
+                }
+                if (p.metadata) {
+                  p.metadata.prev_save_count = baseSavesNum;
+                  if (newVel >= 50) p.metadata.velocity_tier = 'explosive';
+                  else if (newVel >= 10) p.metadata.velocity_tier = 'trending';
+                  else if (newVel > 0) p.metadata.velocity_tier = 'steady';
+                  else p.metadata.velocity_tier = 'stagnant';
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[crawlKeywordSERP] Batch Pidgets pre-enrichment chunk warning:', err?.message || err);
+        }
+      }
+    }
+
     // Enrich top 10 ranking pins + up to 10 detected breakout candidates with verified live deep metrics via fetchPinFromPinterest
     const skipTopEnrich = Boolean(options.skip_top_enrich);
     const topSlice = skipTopEnrich ? [] : preparedPins.slice(0, 10);
@@ -1592,18 +1665,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (scraped.golden_set_interest) p.metadata.golden_set_interest = scraped.golden_set_interest;
             }
 
-            // Recalculate daily save velocity against baseline if saves updated
+            // Recalculate daily save velocity against baseline using calculateDailyVelocity to prevent hydration jumps (LND-801)
             const baseEntry = baselineMap.get(p.pin_id);
             if (baseEntry !== undefined && baseEntry !== null) {
               const baseSavesNum = (typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
               const baseDateRaw = (typeof baseEntry === 'object' && baseEntry.date) ? new Date(baseEntry.date) : baselineSnapshotDate;
-              let daysElapsed = 1;
-              if (baseDateRaw && !isNaN(baseDateRaw.getTime())) {
-                const baseUtc = Date.UTC(baseDateRaw.getUTCFullYear(), baseDateRaw.getUTCMonth(), baseDateRaw.getUTCDate());
-                daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
-              }
-              const rawDelta = Math.max(0, p.save_count - baseSavesNum);
-              const newVel = Math.min(25000, Math.round(rawDelta / daysElapsed));
+              const newVel = calculateDailyVelocity({
+                currentSaves: p.save_count,
+                baselineSaves: baseSavesNum,
+                currentRepins: p.repin_count,
+                baselineRepins: Number(p.metadata?.baseline_repins || 0),
+                currentDate: new Date(),
+                baselineDate: baseDateRaw,
+                createdAt: p.created_at_pinterest || null,
+                maxCap: 25000
+              });
               p.daily_save_velocity = newVel;
               const pIdxInPrepared = preparedPins.indexOf(p);
               if (pIdxInPrepared !== -1) {
@@ -1865,6 +1941,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = u.pin_id
         )
+        ORDER BY u.pin_id ASC
         ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
           prev_rank_position = COALESCE(keyword_serp_current.rank_position, EXCLUDED.prev_rank_position),
           rank_position = EXCLUDED.rank_position,

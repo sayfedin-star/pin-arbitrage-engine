@@ -16,6 +16,7 @@
 
 import { fetchPinterestTrends } from './trends-service.mjs';
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
+import { safeWaitUntil } from '../sharding/fleet-router.mjs';
 
 export const folderTrendsCache = new Map();
 
@@ -1439,33 +1440,12 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
 
   if (env?.PIN_ENGINE_KV) {
     try {
-      const kvKeysToEvict = new Set();
-      for (const p of uniquePairs) {
-        kvKeysToEvict.add(`dossier:pin:${p.pid}`);
-        kvKeysToEvict.add(`dossier:pin:${p.pid}:0`);
-        kvKeysToEvict.add(`dossier:pin:${p.pid}:${p.kid}`);
-        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}`);
-        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}:0`);
-        kvKeysToEvict.add(`dossier:v3:pin:${p.pid}:${p.kid}`);
-        kvKeysToEvict.add(`pin:dossier:${p.pid}`);
-        kvKeysToEvict.add(`pin:dossier:v3:${p.pid}`);
-        kvKeysToEvict.add(`pin:dossier?pin_id=${p.pid}`);
-        kvKeysToEvict.add(`pin:dossier:v3?pin_id=${p.pid}`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:0`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:${p.kid}`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:all`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:7d`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:14d`);
-        kvKeysToEvict.add(`traj:pin:${p.pid}:30d`);
-        kvKeysToEvict.add(`pin:trajectory?pin_id=${p.pid}`);
-      }
-      for (const kid of uniqueKeywordIds) {
-        kvKeysToEvict.add(`serp:comp:${kid}`);
-      }
-      await Promise.all(
-        Array.from(kvKeysToEvict).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}))
-      );
+      // [LND-805 FIX] Replace unbounded 18-key-per-pin loop (~3,600 subrequests)
+      // with epoch bump (fleet:cache_epoch) + bounded primary key eviction (<= 20 keys via safeWaitUntil)
+      const newEpoch = String(Date.now());
+      safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch), 'kv_bump_epoch');
+      const primaryKeys = Array.from(new Set(uniquePairs.map(p => `pin:dossier:v3?pin_id=${p.pid}`))).slice(0, 20);
+      safeWaitUntil(ctx, Promise.all(primaryKeys.map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}))), 'kv_prune_primary');
     } catch (kvErr) {
       console.warn(`[pruneFolderPins] KV eviction warning: ${kvErr.message}`);
     }

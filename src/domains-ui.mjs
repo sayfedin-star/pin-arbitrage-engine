@@ -1437,6 +1437,19 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                           <span class="font-bold text-amber-600 dark:text-amber-400" x-text="art.pins_count + ' creative pins'"></span>
                           <span>•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
+                          <template x-if="art.url_global_saves != null">
+                            <span class="inline-flex items-center gap-1 font-mono">
+                              <span>•</span>
+                              <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'🌐 ' + formatNumber(art.url_global_saves) + ' Article Saves'"></span>
+                            </span>
+                          </template>
+                          <template x-if="art.url_global_saves != null && (Number(art.url_global_saves) / Math.max(1, Number(art.total_saves || 1))) >= 5.0">
+                            <span class="inline-flex items-center gap-1">
+                              <span>•</span>
+                              <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                                    x-text="'[' + (Number(art.url_global_saves) / Math.max(1, Number(art.total_saves || 1))).toFixed(1) + 'x Alpha Breakout]'"></span>
+                            </span>
+                          </template>
                           <template x-if="art.best_rank">
                             <span>•</span>
                             <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'Best Rank #' + art.best_rank"></span>
@@ -2096,6 +2109,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
         toasts: [],
         loadError: null,
+        _loadDomainsAbortController: null,
+        _loadReqSeq: 0,
 
         init() {
           if (typeof window !== 'undefined') {
@@ -2108,6 +2123,21 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 }
               }
             });
+
+            // Parse URL parameters for deep-linking from Pin Dossier (LND-814)
+            if (window.location?.search) {
+              try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const qParam = urlParams.get('q') || urlParams.get('domain') || urlParams.get('search');
+                if (qParam && qParam.trim()) {
+                  this.searchQuery = qParam.trim();
+                }
+                const folderParam = urlParams.get('folder_id');
+                if (folderParam && !this.selectedFolderId) {
+                  this.selectedFolderId = String(folderParam);
+                }
+              } catch (_) {}
+            }
           }
           if (this.scopedFolderId) {
             this.selectedFolderId = String(this.scopedFolderId);
@@ -2238,6 +2268,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           this.loading = true;
           this.loadError = null;
 
+          if (this._loadDomainsAbortController) {
+            this._loadDomainsAbortController.abort();
+          }
+          this._loadDomainsAbortController = new AbortController();
+          const signal = this._loadDomainsAbortController.signal;
+          const reqSeq = ++this._loadReqSeq;
+
           const params = new URLSearchParams({
             page: String(this.currentPage),
             limit: String(this.limit),
@@ -2284,12 +2321,15 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           try {
             const fetchFn = window.safeApiFetch || fetch;
             const res = await fetchFn('/api/domains?' + params.toString(), {
+              signal,
               timeout: 18000,
               cache: forceRefresh ? 'no-store' : 'default',
               headers: { 'Accept': 'application/json' }
             });
+            if (reqSeq !== this._loadReqSeq) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
+            if (reqSeq !== this._loadReqSeq) return;
             if (data.success === false) throw new Error(data.error || 'Server error');
 
             let rawDomains = Array.isArray(data.domains) ? data.domains : [];
@@ -2301,11 +2341,15 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             this.totalDomains = data.total || (data.overview?.total_domains || 0);
             this.totalPages = data.total_pages || Math.max(1, Math.ceil(this.totalDomains / this.limit));
           } catch (err) {
+            if (err.name === 'AbortError') return;
+            if (reqSeq !== this._loadReqSeq) return;
             console.error('[DomainRadar] loadDomains error:', err);
             this.loadError = err.message || 'Failed to connect to domain intelligence';
             this.showToast('Failed to load domains: ' + err.message, 'error');
           } finally {
-            this.loading = false;
+            if (reqSeq === this._loadReqSeq) {
+              this.loading = false;
+            }
           }
         },
 
@@ -2694,6 +2738,33 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.dossierData = await res.json();
+            if (Array.isArray(this.dossierData?.top_articles) && this.dossierData.top_articles.length > 0) {
+              const sampleUrls = this.dossierData.top_articles.map(a => a.sample_url).filter(Boolean).slice(0, 15);
+              if (sampleUrls.length > 0) {
+                (async () => {
+                  try {
+                    const batchRes = await (window.safeApiFetch || fetch)('/api/urls/batch-global-saves', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ urls: sampleUrls })
+                    });
+                    if (batchRes.ok) {
+                      const batchData = await batchRes.json();
+                      const results = batchData.results || batchData.data || [];
+                      const countMap = new Map();
+                      for (const r of results) {
+                        if (r.url) countMap.set(r.url, Number(r.count || r.global_saves || 0));
+                      }
+                      for (const art of (this.dossierData?.top_articles || [])) {
+                        if (art.sample_url && countMap.has(art.sample_url)) {
+                          art.url_global_saves = countMap.get(art.sample_url);
+                        }
+                      }
+                    }
+                  } catch (_) {}
+                })();
+              }
+            }
           } catch (err) {
             this.showToast('Failed to load dossier: ' + err.message, 'error');
           } finally {

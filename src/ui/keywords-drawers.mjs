@@ -134,8 +134,18 @@ export function getKeywordDrawersAndModalsHtml() {
           <!-- Large Pin Creative, Dominant Color Accent & Meta -->
           <div class="space-y-3">
             <template x-if="dossierData?.image_url || activeInspectorPin?.image_url">
-              <div class="rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] max-h-96 flex items-center justify-center bg-slate-100 dark:bg-slate-900 shadow-sm relative">
-                <img :src="dossierData?.image_url || activeInspectorPin?.image_url" class="w-full max-h-96 object-contain">
+              <div class="rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] max-h-96 flex items-center justify-center bg-slate-100 dark:bg-slate-900 shadow-sm relative group">
+                <img :src="resolveHdImageUrl(dossierData?.image_hd_url || dossierData?.image_url || activeInspectorPin?.image_url)"
+                     class="w-full max-h-96 object-contain"
+                     @error="if ($el.src !== (dossierData?.image_url || activeInspectorPin?.image_url || '')) { $el.src = (dossierData?.image_url || activeInspectorPin?.image_url || ''); }">
+                <div class="absolute top-3 right-3 flex items-center gap-1.5">
+                  <button type="button" @click="downloadHdAsset(dossierData?.image_url || activeInspectorPin?.image_url, activeInspectorPin?.pin_id)"
+                          class="px-2.5 py-1 rounded-lg bg-slate-950/80 hover:bg-slate-900 text-emerald-400 text-[10px] font-mono font-bold border border-emerald-500/30 backdrop-blur-xs flex items-center gap-1 cursor-pointer transition shadow-sm"
+                          title="Download lossless HD asset">
+                    <i data-lucide="download" class="w-3 h-3"></i>
+                    <span>⬇️ Download HD</span>
+                  </button>
+                </div>
                 <template x-if="dossierData?.dominant_color">
                   <div class="absolute bottom-3 right-3 px-2 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-[10px] font-mono text-white flex items-center space-x-1.5">
                     <span class="w-2.5 h-2.5 rounded-full" :style="'background-color: ' + dossierData.dominant_color"></span>
@@ -299,6 +309,14 @@ export function getKeywordDrawersAndModalsHtml() {
                       x-text="formatNumber(dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count ?? activeInspectorPin?.metadata?.raw_saves ?? 0)"></span>
                 <template x-if="dossierData?.deltas?.saves_24h">
                   <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.saves_24h + ' 24h'"></span>
+                </template>
+                <template x-if="dossierData?.url_global_saves || activeInspectorPin?.url_global_saves">
+                  <span class="text-[9px] font-bold text-sky-400 font-mono block truncate" :title="'Global Article Saves: ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves)"
+                        x-text="'🌐 ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves) + ' Art.'"></span>
+                </template>
+                <template x-if="computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) >= 5.0">
+                  <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono inline-block mt-0.5"
+                        x-text="'[' + computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) + 'x Alpha Breakout]'"></span>
                 </template>
               </div>
 

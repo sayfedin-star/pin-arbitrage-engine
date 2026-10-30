@@ -17,7 +17,7 @@ import {
   syncPinAcrossAllFourPillars
 } from '../modules/sharding/fleet-router.mjs';
 
-import { fetchPinFromPinterest } from '../../scripts/lib/pinterest.mjs';
+import { fetchPinFromPinterest, resolvePinterestShortlink } from '../../scripts/lib/pinterest.mjs';
 
 // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard masterRecord and Central Hub keyword_serp_current (NL-04)
 async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetDate }) {
@@ -85,6 +85,60 @@ export async function handlePinsRoutes({
 }) {
   const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
   const pinId = parts[0];
+
+  // 0. GET /api/pins/resolve-shortlink?url=...
+  if (pinId === 'resolve-shortlink') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const rawUrl = searchParams.get('url') || searchParams.get('shortlink') || searchParams.get('slug') || '';
+    if (!rawUrl) {
+      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Missing url query parameter' }, 400);
+    }
+    const slugMatch = String(rawUrl).match(/pin\.it\/([a-zA-Z0-9_-]+)/i);
+    const cleanSlug = slugMatch ? slugMatch[1] : String(rawUrl).replace(/^https?:\/\//i, '').replace(/^pin\.it\//i, '').split('/')[0].split('?')[0].trim();
+    const kvKey = `shortlink:${cleanSlug || rawUrl}`;
+
+    if (env?.PIN_ENGINE_KV && cleanSlug) {
+      try {
+        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+        if (cached && cached.pin_id) {
+          return jsonResponse({
+            ok: true,
+            pin_id: cached.pin_id,
+            resolved_url: cached.resolved_url,
+            cached: true
+          }, 200, 2592000);
+        }
+      } catch (_) {}
+    }
+
+    try {
+      const res = await resolvePinterestShortlink(rawUrl);
+      if (res && res.ok && res.pin_id) {
+        if (env?.PIN_ENGINE_KV && cleanSlug) {
+          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify({
+            pin_id: res.pin_id,
+            resolved_url: res.resolved_url
+          }), { expirationTtl: 2592000 }).catch(() => {}), 'kv_cache_shortlink');
+        }
+        return jsonResponse({
+          ok: true,
+          pin_id: res.pin_id,
+          resolved_url: res.resolved_url
+        }, 200, 2592000);
+      }
+      return jsonResponse({
+        ok: false,
+        pin_id: null,
+        resolved_url: res?.resolved_url || '',
+        error: res?.error || 'SHORTLINK_RESOLUTION_FAILED',
+        message: 'Unable to resolve Pinterest shortlink'
+      }, 404);
+    } catch (err) {
+      return jsonResponse({ ok: false, pin_id: null, error: err.message }, 500);
+    }
+  }
 
   // 1. DELETE /api/pins/:pin_id/snapshots/:snapshot_id
   if (parts[1] === 'snapshots') {

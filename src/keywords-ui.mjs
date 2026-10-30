@@ -3135,7 +3135,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-                <template x-for="(pin, idx) in filteredDisplacedPins" :key="pin.pin_id">
+                <template x-for="(pin, idx) in paginatedDisplacedPins" :key="pin.pin_id">
                   <tr :data-pin-id="pin.pin_id"
                       class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
                       @click="openPinInspector(pin)">
@@ -3274,7 +3274,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- VAULT CARDS VIEW -->
         <template x-if="!isDisplacedLoading && filteredDisplacedPins && filteredDisplacedPins.length > 0 && viewMode === 'cards'">
           <div class="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            <template x-for="pin in filteredDisplacedPins" :key="pin.pin_id">
+            <template x-for="pin in paginatedDisplacedPins" :key="pin.pin_id">
               <div :data-pin-id="pin.pin_id"
                    @click="openPinInspector(pin)"
                    class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] hover:border-rose-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
@@ -3342,6 +3342,25 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
               </div>
             </template>
+          </div>
+        </template>
+
+        <!-- Windowed Pagination Controls (LND-806) -->
+        <template x-if="!isDisplacedLoading && filteredDisplacedPins && filteredDisplacedPins.length > displacedPageSize">
+          <div class="px-5 py-3 border-t border-slate-200/80 dark:border-[#27272A] flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900/40 text-xs font-mono tabular-nums">
+            <div class="flex items-center space-x-2">
+              <span class="text-slate-500">Page Size:</span>
+              <select x-model="displacedPageSize" @change="displacedPage = 1" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-800 dark:text-slate-200 text-xs">
+                <option value="25">25 per page</option>
+                <option value="50">50 per page</option>
+              </select>
+              <span class="text-slate-400" x-text="'Showing ' + (((displacedPage - 1) * displacedPageSize) + 1) + '–' + Math.min(displacedPage * displacedPageSize, filteredDisplacedPins.length) + ' of ' + filteredDisplacedPins.length"></span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <button type="button" @click="displacedPage = Math.max(1, displacedPage - 1)" :disabled="displacedPage <= 1" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition">Prev</button>
+              <span class="px-2 text-slate-500" x-text="displacedPage + ' / ' + totalDisplacedPages"></span>
+              <button type="button" @click="displacedPage = Math.min(totalDisplacedPages, displacedPage + 1)" :disabled="displacedPage >= totalDisplacedPages" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition">Next</button>
+            </div>
           </div>
         </template>
 
@@ -4199,6 +4218,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         displacedStatusFilter: 'ALL',
         isDisplacedLoading: false,
         isLoadingMoreDisplaced: false,
+        displacedPage: 1,
+        displacedPageSize: 25,
 
         // Pin Deep Dossier & Performance Trajectory State (Image 2 Parity)
         dossierData: null,
@@ -4746,6 +4767,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             return [...list].sort((a, b) => new Date(b.displaced_date || 0) - new Date(a.displaced_date || 0));
           }
           return [...list].sort((a, b) => Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0));
+        },
+
+        get paginatedDisplacedPins() {
+          const list = this.filteredDisplacedPins || [];
+          const sz = Number(this.displacedPageSize) || 25;
+          const start = (this.displacedPage - 1) * sz;
+          return list.slice(start, start + sz);
+        },
+
+        get totalDisplacedPages() {
+          const list = this.filteredDisplacedPins || [];
+          const sz = Number(this.displacedPageSize) || 25;
+          return Math.max(1, Math.ceil(list.length / sz));
         },
 
         rebuildPinCaches() {
@@ -5344,7 +5378,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           this.$watch('dashboardPageSize', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardTotalPages', (total) => { if (this.dashboardPage > total) this.dashboardPage = Math.max(1, total); });
           this.$watch('dashboardViewMode', () => { this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
-          this.$watch('pinSearch', () => { this.pinPage = 1; });
+          this.$watch('pinSearch', async (val) => {
+            this.pinPage = 1;
+            if (val && String(val).includes('pin.it/') && /pin[.]it[/][a-zA-Z0-9_-]+/i.test(String(val).trim())) {
+              await this.resolveAndInspectShortlink(String(val).trim());
+            }
+          });
           this.$watch('serpScope', () => { this.pinPage = 1; });
           this.$watch('formatFilter', () => { this.pinPage = 1; });
           this.$watch('pinSort', () => { this.pinPage = 1; });
@@ -5893,6 +5932,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               if (currentReqId !== this.activePinRequestId) return;
               if (data.success) {
                 this.dossierData = data.dossier || data;
+                const linkUrl = this.dossierData.link || this.activeInspectorPin?.link || this.dossierData.url;
+                if (linkUrl) {
+                  this.hydratePinUrlGlobalSaves(linkUrl);
+                }
               }
             }
           } catch (err) {
@@ -6303,7 +6346,78 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           if (!raw) return;
           this.isOmnibarDropdownOpen = false;
           this.omnibarQuery = '';
+          if (raw.includes('pin.it/') && /pin[.]it[/][a-zA-Z0-9_-]+/i.test(raw)) {
+            await this.resolveAndInspectShortlink(raw);
+            return;
+          }
           await this.loadKeywordBySlugOrText(raw, true, true);
+        },
+
+        async resolveAndInspectShortlink(url) {
+          if (!url) return;
+          try {
+            const res = await fetch('/api/pins/resolve-shortlink?url=' + encodeURIComponent(url), {
+              signal: AbortSignal.timeout(8000)
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data?.ok && data.pin_id) {
+              await this.openPinInspector({ pin_id: data.pin_id });
+            }
+          } catch (_) {}
+        },
+
+        resolveHdImageUrl(url) {
+          if (!url || typeof url !== 'string') return '';
+          return url.replace(/[/](236x|474x|564x|736x)[/]/, '/1200x/');
+        },
+
+        resolveLosslessImageUrl(url) {
+          if (!url || typeof url !== 'string') return '';
+          return url.replace(/[/](236x|474x|564x|736x|1200x)[/]/, '/originals/');
+        },
+
+        async downloadHdAsset(url, pinId) {
+          if (!url) return;
+          const originalUrl = this.resolveLosslessImageUrl(url);
+          const hdUrl = this.resolveHdImageUrl(url);
+          try {
+            const a = document.createElement('a');
+            a.href = originalUrl;
+            a.download = 'pin_' + (pinId || 'hd') + '_asset.jpg';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } catch (_) {
+            window.open(hdUrl, '_blank');
+          }
+        },
+
+        computeViralityRatio(globalSaves, pinSaves) {
+          const g = Number(globalSaves || 0);
+          const p = Math.max(1, Number(pinSaves || 0));
+          return (g / p).toFixed(1);
+        },
+
+        async hydratePinUrlGlobalSaves(url) {
+          if (!url) return;
+          try {
+            const res = await fetch('/api/urls/global-saves?url=' + encodeURIComponent(url), {
+              signal: AbortSignal.timeout(6000)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.ok && data.global_saves !== undefined) {
+                if (this.dossierData) {
+                  this.dossierData.url_global_saves = Number(data.global_saves);
+                }
+                if (this.activeInspectorPin) {
+                  this.activeInspectorPin.url_global_saves = Number(data.global_saves);
+                }
+              }
+            }
+          } catch (_) {}
         },
 
         async trackNewKeyword(term) {

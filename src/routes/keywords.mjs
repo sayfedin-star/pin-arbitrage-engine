@@ -63,6 +63,7 @@ import {
 } from '../modules/sharding/fleet-router.mjs';
 
 import { escapeSqlWildcards } from '../utils.mjs';
+import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../../scripts/lib/pinterest.mjs';
 
 /**
  * Fast URI discriminator for Keywords & Folders routes
@@ -75,7 +76,9 @@ export function isKeywordsRoute(pathname) {
     pathname === '/api/folders' ||
     pathname.startsWith('/api/folders/') ||
     pathname === '/api/campaign-folders' ||
-    pathname.startsWith('/api/campaign-folders/');
+    pathname.startsWith('/api/campaign-folders/') ||
+    pathname === '/api/urls/global-saves' ||
+    pathname === '/api/urls/batch-global-saves';
 }
 
 /**
@@ -109,6 +112,167 @@ export async function handleKeywordsRoutes({
   tripPinterestCircuitBreaker,
   redactSecrets
 }) {
+  // 0A. GET /api/urls/global-saves?url=...
+  if (pathname === '/api/urls/global-saves') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const rawUrl = searchParams.get('url') || searchParams.get('destination_url') || '';
+    if (!rawUrl) {
+      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Missing url query parameter' }, 400);
+    }
+    const cleanUrl = sanitizeDestinationUrl(rawUrl);
+    if (!cleanUrl) {
+      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Invalid destination url' }, 400);
+    }
+    const kvKey = `url_saves:${cleanUrl}`;
+
+    if (env?.PIN_ENGINE_KV) {
+      try {
+        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+        if (cached && typeof cached.count === 'number') {
+          return jsonResponse({
+            ok: true,
+            url: cleanUrl,
+            count: cached.count,
+            global_saves: cached.count,
+            cached: true
+          }, 200, 86400);
+        }
+      } catch (_) {}
+    }
+
+    try {
+      const fetchRes = await fetchUrlGlobalSaves(cleanUrl);
+      const count = Number(fetchRes?.count || 0);
+      if (fetchRes && fetchRes.ok) {
+        if (env?.PIN_ENGINE_KV) {
+          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify({ url: cleanUrl, count }), { expirationTtl: 86400 }).catch(() => {}), 'kv_put_url_saves');
+        }
+        if (sql && count > 0) {
+          safeWaitUntil(ctx, (async () => {
+            await sql`
+              UPDATE keyword_serp_current
+              SET url_global_saves = ${count}
+              WHERE destination_url = ${cleanUrl}
+                 OR destination_url = ${cleanUrl + '/'}
+                 OR destination_url LIKE ${cleanUrl + '?%'};
+            `.catch(() => {});
+          })(), 'write_back_single_url_global_saves');
+        }
+        return jsonResponse({
+          ok: true,
+          url: cleanUrl,
+          count,
+          global_saves: count
+        }, 200, 86400);
+      }
+      return jsonResponse({
+        ok: false,
+        url: cleanUrl,
+        count: 0,
+        global_saves: 0,
+        error: fetchRes?.error || 'FETCH_FAILED'
+      }, 502);
+    } catch (err) {
+      return jsonResponse({ ok: false, url: cleanUrl, count: 0, global_saves: 0, error: err.message }, 500);
+    }
+  }
+
+  // 0B. POST /api/urls/batch-global-saves
+  if (pathname === '/api/urls/batch-global-saves') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (_) {
+      body = {};
+    }
+    const rawList = Array.isArray(body?.urls) ? body.urls : (Array.isArray(body?.destination_urls) ? body.destination_urls : []);
+    const cleanUrls = Array.from(new Set(rawList.map(u => sanitizeDestinationUrl(u)).filter(Boolean))).slice(0, 15);
+
+    if (cleanUrls.length === 0) {
+      return jsonResponse({ ok: true, results: {}, counts: {}, total: 0 });
+    }
+
+    const results = {};
+    const uncached = [];
+
+    if (env?.PIN_ENGINE_KV) {
+      try {
+        const kvResults = await Promise.all(
+          cleanUrls.map(async (u) => {
+            const cached = await env.PIN_ENGINE_KV.get(`url_saves:${u}`, 'json').catch(() => null);
+            return { url: u, cached };
+          })
+        );
+        for (const item of kvResults) {
+          if (item?.cached && typeof item.cached.count === 'number') {
+            results[item.url] = item.cached.count;
+          } else {
+            uncached.push(item.url);
+          }
+        }
+      } catch (_) {
+        uncached.push(...cleanUrls);
+      }
+    } else {
+      uncached.push(...cleanUrls);
+    }
+
+    const writeBackEntries = [];
+    if (uncached.length > 0) {
+      const fetchResults = await Promise.allSettled(
+        uncached.map(u => fetchUrlGlobalSaves(u))
+      );
+
+      for (let i = 0; i < uncached.length; i++) {
+        const targetUrl = uncached[i];
+        const res = fetchResults[i];
+        if (res.status === 'fulfilled' && res.value?.ok) {
+          const count = Number(res.value.count || 0);
+          results[targetUrl] = count;
+          writeBackEntries.push({ url: targetUrl, count });
+          if (env?.PIN_ENGINE_KV) {
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(
+              `url_saves:${targetUrl}`,
+              JSON.stringify({ url: targetUrl, count }),
+              { expirationTtl: 86400 }
+            ).catch(() => {}), 'kv_batch_url_saves');
+          }
+        } else {
+          results[targetUrl] = 0;
+        }
+      }
+    }
+
+    // Write-Back UPDATE to keyword_serp_current.url_global_saves via safeWaitUntil
+    if (sql && writeBackEntries.length > 0) {
+      safeWaitUntil(ctx, (async () => {
+        for (const entry of writeBackEntries) {
+          if (entry.count > 0 && entry.url) {
+            await sql`
+              UPDATE keyword_serp_current
+              SET url_global_saves = ${entry.count}
+              WHERE destination_url = ${entry.url}
+                 OR destination_url = ${entry.url + '/'}
+                 OR destination_url LIKE ${entry.url + '?%'};
+            `.catch(() => {});
+          }
+        }
+      })(), 'write_back_batch_global_saves');
+    }
+
+    return jsonResponse({
+      ok: true,
+      results,
+      counts: results,
+      total: Object.keys(results).length
+    });
+  }
+
   // 1. GET /api/keywords
   if (method === 'GET' && pathname === '/api/keywords') {
     const search = searchParams.get('search') || '';

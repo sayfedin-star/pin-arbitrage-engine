@@ -938,16 +938,6 @@ async function flushBatchToHub(pinsChunk, kw) {
   }
 }
 
-async function inspectAndSyncPin(pin, kw) {
-  const enriched = await inspectPin(pin, kw);
-  if (enriched) {
-    await flushBatchToHub([enriched], kw).catch(err => {
-      console.warn('    [inspectAndSyncPin Flush Warning]:', err.message);
-    });
-  }
-  return enriched;
-}
-
 /**
  * Flush enriched pin records across the 99 Neon Storage Shards
  * Includes LATERAL historical baseline lookup on pins_daily_metrics to guarantee authentic Vault velocity.
@@ -1439,6 +1429,7 @@ async function run() {
             cookie,
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
+            skip_shard_offload: true,
             force: true
           });
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
@@ -1724,6 +1715,7 @@ async function run() {
             cookie,
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
+            skip_shard_offload: true,
             force: true
           });
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');

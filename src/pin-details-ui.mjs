@@ -327,9 +327,10 @@ export function getPinDetailPageHtml(pinId = '') {
       <div class="rounded-xl border border-[#27272A] bg-[#121215] overflow-hidden shadow-sm flex flex-col">
         <div class="relative w-full aspect-[2/3] overflow-hidden flex items-center justify-center" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)">
           <img 
-            :src="dossier?.creative?.image_url" 
+            :src="resolveHdImageUrl(dossier?.creative?.image_hd_url || dossier?.creative?.image_url)" 
             :alt="dossier?.creative?.alt_text || dossier?.creative?.title"
             @load="onImageLoad($event)"
+            @error="if ($el.src !== (dossier?.creative?.image_url || '')) { $el.src = (dossier?.creative?.image_url || ''); }"
             loading="lazy" 
             class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
           />
@@ -337,6 +338,19 @@ export function getPinDetailPageHtml(pinId = '') {
 
         <!-- Clean Media Strip directly beneath the image -->
         <div class="p-3 border-t border-[#27272A] bg-[#18181B] space-y-2">
+          <!-- 3-Tier HD Asset Download Action -->
+          <div class="pb-1 border-b border-[#27272A]">
+            <button
+              type="button"
+              @click="downloadHdAsset(dossier?.creative?.image_url, pinId)"
+              class="w-full py-1.5 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+              title="Download lossless original asset (with 1200x fallback)"
+            >
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              <span>⬇️ Download HD Asset</span>
+            </button>
+          </div>
+
           <div class="flex items-center justify-between text-[11px]">
             <span class="text-slate-400 font-medium">Creation Method</span>
             <span class="px-2 py-0.5 rounded text-[10px] font-semibold border" :class="getCreationMethodBadgeClass()" x-text="formatCreationMethodLabel()"></span>
@@ -390,13 +404,24 @@ export function getPinDetailPageHtml(pinId = '') {
                 </a>
               </template>
               <template x-if="!dossier?.pillar_1_creator_context?.is_tracked_competitor">
-                <span class="font-medium text-slate-300 flex items-center justify-end gap-1" :title="'Untracked creator @' + dossier.pillar_1_creator_context.creator_username">
-                  <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
-                  <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">untracked</span>
+                <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                  <span class="font-medium text-slate-300 flex items-center gap-1" :title="'Untracked creator @' + dossier.pillar_1_creator_context.creator_username">
+                    <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
+                  </span>
+                  <button 
+                    type="button"
+                    @click="trackCreatorPulse(dossier.pillar_1_creator_context.creator_username)"
+                    :disabled="isTrackingCreator"
+                    class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition flex items-center gap-1 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    title="Track creator with 24h lightweight pulse sync"
+                  >
+                    <i data-lucide="zap" class="w-2.5 h-2.5 text-rose-400" :class="isTrackingCreator ? 'animate-spin' : ''"></i>
+                    <span x-text="isTrackingCreator ? 'Tracking...' : '+ Track Creator (Pulse)'"></span>
+                  </button>
                   <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
                     <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
                   </template>
-                </span>
+                </div>
               </template>
             </template>
             <template x-if="!dossier?.pillar_1_creator_context?.creator_username">
@@ -444,6 +469,18 @@ export function getPinDetailPageHtml(pinId = '') {
                 <span>Copy link</span>
                 <span class="text-[9px]">📋</span>
               </button>
+            </template>
+            <template x-if="dossier?.creative?.url_global_saves != null || dossier?.url_global_saves != null">
+              <div class="text-[10px] text-emerald-400 font-mono tabular-nums font-bold mt-1 flex items-center justify-end gap-1">
+                <span>🌐 Article Saves:</span>
+                <span x-text="formatNumber(dossier?.creative?.url_global_saves ?? dossier?.url_global_saves ?? 0)"></span>
+              </div>
+            </template>
+            <template x-if="computeViralityRatio() >= 5.0">
+              <div class="mt-1">
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 inline-flex items-center gap-1"
+                      x-text="'[' + computeViralityRatio() + 'x Alpha Breakout]'"></span>
+              </div>
             </template>
           </div>
         </div>
@@ -1401,6 +1438,7 @@ export function getPinDetailPageHtml(pinId = '') {
         snapshotToDelete: null,
         isDeleting: false,
         isSyncing: false,
+        isTrackingCreator: false,
         selectedKeywordFilter: 'ALL',
         expandedDays: {},
         searchKeywordInput: '',
@@ -1849,6 +1887,9 @@ export function getPinDetailPageHtml(pinId = '') {
               } else {
                 this._autoRefreshAttempts = 0;
               }
+              if (this.dossier?.creative?.destination_url && this.dossier.creative.url_global_saves == null) {
+                this.hydrateUrlGlobalSaves(this.dossier.creative.destination_url);
+              }
             } else {
               this.isShardWarming = (res.status === 503);
               if (!silent) {
@@ -1866,6 +1907,88 @@ export function getPinDetailPageHtml(pinId = '') {
           } finally {
             if (!silent) this.loading = false;
             this.isSilentRefreshing = false;
+          }
+        },
+
+        resolveHdImageUrl(url) {
+          if (!url || typeof url !== 'string') return '';
+          return url.replace(/[/](236x|474x|564x|736x)[/]/, '/1200x/');
+        },
+
+        resolveLosslessImageUrl(url) {
+          if (!url || typeof url !== 'string') return '';
+          return url.replace(/[/](236x|474x|564x|736x|1200x)[/]/, '/originals/');
+        },
+
+        async downloadHdAsset(url, pinId) {
+          if (!url) return;
+          const originalUrl = this.resolveLosslessImageUrl(url);
+          const hdUrl = this.resolveHdImageUrl(url);
+          try {
+            const a = document.createElement('a');
+            a.href = originalUrl;
+            a.download = 'pin_' + (pinId || 'hd') + '_asset.jpg';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } catch (_) {
+            window.open(hdUrl, '_blank');
+          }
+        },
+
+        computeViralityRatio() {
+          const globalSaves = Number(this.dossier?.creative?.url_global_saves ?? this.dossier?.url_global_saves ?? 0);
+          const pinSaves = Math.max(1, Number(this.dossier?.creative?.save_count ?? this.dossier?.save_count ?? 0));
+          return (globalSaves / pinSaves).toFixed(1);
+        },
+
+        async hydrateUrlGlobalSaves(url) {
+          if (!url) return;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/urls/global-saves?url=' + encodeURIComponent(url));
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.global_saves !== undefined) {
+                if (this.dossier?.creative) {
+                  this.dossier.creative.url_global_saves = Number(data.global_saves || 0);
+                } else if (this.dossier) {
+                  this.dossier.url_global_saves = Number(data.global_saves || 0);
+                }
+              }
+            }
+          } catch (_) {}
+        },
+
+        async trackCreatorPulse(username) {
+          if (!username || this.isTrackingCreator) return;
+          this.isTrackingCreator = true;
+          try {
+            const cleanUser = String(username).replace(/^@+/, '').trim();
+            const res = await (window.safeApiFetch || fetch)('/api/competitors', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username: cleanUser,
+                tracking_mode: 'pulse_only',
+                ingest_interval: 'daily',
+                is_active: true
+              })
+            });
+            if (res.ok) {
+              if (this.dossier?.pillar_1_creator_context) {
+                this.dossier.pillar_1_creator_context.is_tracked_competitor = true;
+              }
+              this.showToast('⚡ Creator @' + cleanUser + ' added with 24h Pulse tracking!', 'success');
+            } else {
+              const err = await res.json().catch(() => ({}));
+              this.showToast('Failed to track creator: ' + (err.error || res.statusText), 'error');
+            }
+          } catch (err) {
+            this.showToast('Network error: ' + err.message, 'error');
+          } finally {
+            this.isTrackingCreator = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 

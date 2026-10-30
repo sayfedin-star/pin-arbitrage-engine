@@ -7,7 +7,7 @@
 
 export function getDashboardModalsHtml() {
   return `  <!-- ======================================================== -->
-  <!-- FULL IMAGE LIGHTBOX MODAL (تكبير وتصفح الصور بالأسهم)    -->
+  <!-- FULL IMAGE LIGHTBOX MODAL (Enlarge and browse images)      -->
   <!-- ======================================================== -->
   <div x-show="isLightboxOpen" x-cloak 
        class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
@@ -21,7 +21,7 @@ export function getDashboardModalsHtml() {
         <span class="px-2.5 py-1 rounded-md text-[10px] font-mono tabular-nums font-bold uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
           EXPLORE ARTICLE CAPSULE
         </span>
-        <span class="text-xs font-mono tabular-nums text-slate-400" x-text="'صورة ' + (lightboxIndex + 1) + ' من ' + (dossierGuidedCapsules ? dossierGuidedCapsules.length : 0)"></span>
+        <span class="text-xs font-mono tabular-nums text-slate-400" x-text="'Image ' + (lightboxIndex + 1) + ' of ' + (dossierGuidedCapsules ? dossierGuidedCapsules.length : 0)"></span>
       </div>
 
       <button @click="closeLightbox()" class="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition flex items-center space-x-1.5 font-mono text-xs">
@@ -36,7 +36,7 @@ export function getDashboardModalsHtml() {
       <button @click="prevLightboxImage()" 
               x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
               class="absolute left-2 sm:left-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
-              title="الصورة السابقة (Arrow Left)">
+              title="Previous Image (Arrow Left)">
         <i data-lucide="chevron-left" class="w-6 h-6 group-hover:-translate-x-0.5 transition-transform"></i>
       </button>
 
@@ -51,7 +51,7 @@ export function getDashboardModalsHtml() {
       <button @click="nextLightboxImage()" 
               x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
               class="absolute right-2 sm:right-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
-              title="الصورة التالية (Arrow Right)">
+              title="Next Image (Arrow Right)">
         <i data-lucide="chevron-right" class="w-6 h-6 group-hover:translate-x-0.5 transition-transform"></i>
       </button>
     </div>
@@ -561,13 +561,13 @@ export function getDashboardModalsHtml() {
         <button @click="addSeedTab = 'bulk'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
                 :class="addSeedTab === 'bulk' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
           <i data-lucide="layers" class="w-3.5 h-3.5"></i>
-          <span>Bulk Pins Ingestion (استيراد بالجملة)</span>
+          <span>Bulk Pins Ingestion</span>
           <span class="px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 text-[10px] font-bold">Fast</span>
         </button>
         <button @click="addSeedTab = 'single'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
                 :class="addSeedTab === 'single' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
           <i data-lucide="hash" class="w-3.5 h-3.5"></i>
-          <span>Single Pin (بين فردي)</span>
+          <span>Single Pin</span>
         </button>
       </div>
 
@@ -576,7 +576,7 @@ export function getDashboardModalsHtml() {
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="font-semibold text-slate-700 dark:text-slate-300">
-              Paste Pinterest Pin IDs or URLs (أرقام أو روابط البين)
+              Paste Pinterest Pin IDs or URLs
             </label>
             <span class="font-mono text-[11px]" :class="bulkParsedPinIds.length > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'"
                   x-text="bulkParsedPinIds.length + ' Valid Pins Detected'"></span>
@@ -704,12 +704,12 @@ export function getDashboardModalsHtml() {
         <button @click="crawlModalTab = 'launch'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
                 :class="crawlModalTab === 'launch' ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
           <i data-lucide="play" class="w-3.5 h-3.5"></i>
-          <span>Launch Crawl (إطلاق عملية زحف)</span>
+          <span>Launch Crawl</span>
         </button>
         <button @click="crawlModalTab = 'history'; fetchWorkflowRuns();" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
                 :class="crawlModalTab === 'history' ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
           <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i>
-          <span>GitHub Actions Workflow Runs (سجل التشغيل الحي)</span>
+          <span>GitHub Actions Workflow Runs (Live Log)</span>
           <span class="px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 text-[10px]" x-text="workflowRuns.length"></span>
         </button>
       </div>
@@ -719,7 +719,7 @@ export function getDashboardModalsHtml() {
         
         <!-- Step 1: Target Scope Selection -->
         <div class="space-y-2">
-          <label class="font-bold text-slate-900 dark:text-white block">1. Select Target Pin(s) Scope (تحديد الهدف)</label>
+          <label class="font-bold text-slate-900 dark:text-white block">1. Select Target Pin(s) Scope</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             
             <!-- Selected Pins Option -->
@@ -773,7 +773,7 @@ export function getDashboardModalsHtml() {
 
         <!-- Step 2: Execution Engine Selection -->
         <div class="space-y-2 pt-2 border-t border-slate-200 dark:border-[#27272A]">
-          <label class="font-bold text-slate-900 dark:text-white block">2. Execution Engine & Runner (بيئة التشغيل)</label>
+          <label class="font-bold text-slate-900 dark:text-white block">2. Execution Engine & Runner</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             
             <!-- GitHub Actions Workflow Engine -->
@@ -914,9 +914,9 @@ export function getDashboardModalsHtml() {
           <label class="flex items-start space-x-2.5 cursor-pointer">
             <input type="checkbox" x-model="deletePurgeNeon" class="mt-0.5 w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500">
             <div>
-              <span class="font-bold text-rose-900 dark:text-rose-300">حذف وتطهير شامل من قاعدة بيانات Neon (Purge from DB)</span>
+              <span class="font-bold text-rose-900 dark:text-rose-300">Comprehensive Purge from Neon Database</span>
               <p class="text-[11px] text-rose-800/80 dark:text-rose-400/80 mt-0.5 leading-relaxed">
-                يقوم بحذف جميع الكانديديت المحصودة (<code class="text-[10px]">candidate_graph_nodes</code>)، وكبسولات الاستكشاف (<code class="text-[10px]">seed_guided_search_capsules</code>)، والمقاييس التحليلية (<code class="text-[10px]">cluster_arbitrage_metrics</code>) المرتبطة بهذه البذور من Neon Serverless نهائياً.
+                Permanently purges all harvested candidates (<code class="text-[10px]">candidate_graph_nodes</code>), discovery capsules (<code class="text-[10px]">seed_guided_search_capsules</code>), and analytical metrics (<code class="text-[10px]">cluster_arbitrage_metrics</code>) associated with these seeds from Neon Serverless.
               </p>
             </div>
           </label>
@@ -939,7 +939,7 @@ export function getDashboardModalsHtml() {
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
         <div class="flex items-center space-x-2">
           <i data-lucide="key" class="w-5 h-5 text-amber-500"></i>
-          <h3 class="font-bold text-sm">إعداد كوكيز جلسة بينترست (Pinterest Session Cookie)</h3>
+          <h3 class="font-bold text-sm">Configure Pinterest Session Cookie</h3>
         </div>
         <button @click="isCookieModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -948,38 +948,38 @@ export function getDashboardModalsHtml() {
 
       <div class="space-y-3 text-xs">
         <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1.5 text-amber-800 dark:text-amber-300 font-mono">
-          <p class="font-bold">⚡ لماذا الكوكيز ضرورية لاستخراج BUBBLE_ONE_COL و RecGPT؟</p>
+          <p class="font-bold">⚡ Why are session cookies required for BUBBLE_ONE_COL and RecGPT extraction?</p>
           <p class="text-[11px] leading-relaxed">
-            منصة بنترست تعامل أي طلب بدون كوكيز كـ "زائر مجهول" فترسل 0 كبسولات بحثية و 0 كانديديت لـ RecGPT. عند إضافة الكوكيز، يتعرف بنترست على حسابك ويرسل كبسولات الاستكشاف الموجه (BUBBLE_ONE_COL) وكوتا RecGPT الكاملة (147 كانديديت).
+            Pinterest treats unauthenticated requests as anonymous visitors, returning 0 search capsules and 0 RecGPT candidates. Adding an active session cookie allows the engine to retrieve BUBBLE_ONE_COL guided capsules and the full 147 RecGPT candidate quota.
           </p>
         </div>
 
         <div class="space-y-1 text-slate-600 dark:text-slate-400 text-[11px]">
-          <p class="font-semibold text-slate-800 dark:text-slate-200">📌 طريقة النسخ في 3 خطوات بسيطة:</p>
+          <p class="font-semibold text-slate-800 dark:text-slate-200">📌 3-Step Setup Guide:</p>
           <ol class="list-decimal list-inside space-y-0.5">
-            <li>افتح <code class="text-rose-500">pinterest.com</code> في متصفحك وسجل الدخول.</li>
-            <li>اضغط <code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">F12</code> ثم اذهب لتبويب <strong>Network</strong>.</li>
-            <li>اختر أي طلب، وانسخ قيمة سطر <strong>Cookie:</strong> من قسم <em>Request Headers</em> والصقها هنا:</li>
+            <li>Open <code class="text-rose-500">pinterest.com</code> in your browser and log in.</li>
+            <li>Press <code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">F12</code> and navigate to the <strong>Network</strong> tab.</li>
+            <li>Select any request, copy the value of the <strong>Cookie:</strong> line from <em>Request Headers</em>, and paste it below:</li>
           </ol>
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">PINTEREST_COOKIE (قيمة الكوكيز الكاملة)</label>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">PINTEREST_COOKIE (Full Cookie String)</label>
           <textarea x-model="cookieInput" rows="4" placeholder="_auth=1; _pinterest_sess=TWc9PSZ..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono text-[11px]"></textarea>
         </div>
 
         <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
-          <span>الحالة الحالية:</span>
-          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? '✅ موثق (Active Cookie)' : '❌ غير متصل (Guest Mode)'"></span>
+          <span>Current Status:</span>
+          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? '✅ Authenticated (Active Cookie)' : '❌ Unauthenticated (Guest Mode)'"></span>
           <span x-show="cookieStatus.preview" class="text-[10px] text-slate-400" x-text="'(' + cookieStatus.preview + ')'"></span>
         </div>
       </div>
 
       <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex justify-end space-x-2">
-        <button @click="isCookieModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">إلغاء</button>
+        <button @click="isCookieModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
         <button @click="saveCookie()" :disabled="isSavingCookie" class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
           <i data-lucide="check" class="w-3.5 h-3.5"></i>
-          <span x-text="isSavingCookie ? 'جاري الحفظ...' : 'حفظ وتفعيل الجلسة فوراً'"></span>
+          <span x-text="isSavingCookie ? 'Saving...' : 'Save & Activate Session'"></span>
         </button>
       </div>
     </div>
@@ -991,7 +991,7 @@ export function getDashboardModalsHtml() {
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
         <div class="flex items-center space-x-2">
           <i data-lucide="file-input" class="w-5 h-5 text-purple-500"></i>
-          <h3 class="font-bold text-sm">استيراد ملف JSON الأصلي مباشرة (Direct Raw JSON Ingestion)</h3>
+          <h3 class="font-bold text-sm">Direct Raw JSON Ingestion</h3>
         </div>
         <button @click="isRawJsonModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -1000,7 +1000,7 @@ export function getDashboardModalsHtml() {
 
       <div class="space-y-3 text-xs">
         <p class="text-slate-500 dark:text-slate-400">
-          الصق هنا الاستجابة الخام الكاملة المنسوخة من تبويب Network لـ (RelatedModulesResource). سيقوم المحرك فوراً باستخراج كبسولات BUBBLE_ONE_COL، وحصص RecGPT و NavBoost الحقيقية، وحفظ جميع الدبابيس في Neon DB.
+          Paste the full raw response copied from the Network tab for (RelatedModulesResource). The engine will immediately extract BUBBLE_ONE_COL capsules, genuine RecGPT and NavBoost quotas, and persist all pins to Neon Serverless.
         </p>
 
         <div>
@@ -1017,10 +1017,10 @@ export function getDashboardModalsHtml() {
       </div>
 
       <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex justify-end space-x-2">
-        <button @click="isRawJsonModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">إلغاء</button>
+        <button @click="isRawJsonModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
         <button @click="submitRawJson()" :disabled="isSubmittingRawJson || !rawJsonInput.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
           <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-          <span x-text="isSubmittingRawJson ? 'جاري الهضم والتخزين...' : 'هضم وتخزين في Neon'"></span>
+          <span x-text="isSubmittingRawJson ? 'Ingesting...' : 'Ingest & Store in Neon'"></span>
         </button>
       </div>
     </div>
@@ -1568,6 +1568,178 @@ export function getDashboardModalsHtml() {
       >
         Clear
       </button>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- CREATOR INSTANT 50-PIN VISUAL FEED MODAL (<350ms)       -->
+  <!-- ======================================================== -->
+  <div x-show="isVisualFeedModalOpen" x-cloak
+       class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+       @keydown.escape.window="isVisualFeedModalOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-5xl max-h-[90vh] shadow-2xl flex flex-col text-slate-900 dark:text-[#FAFAFA] overflow-hidden"
+         role="dialog" aria-modal="true" aria-label="Creator Instant Visual Stream"
+         @click.away="isVisualFeedModalOpen = false">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] p-4 bg-slate-50/50 dark:bg-[#18181B]/50 shrink-0">
+        <div class="flex items-center space-x-3">
+          <template x-if="visualFeedUser?.image_xlarge_url || visualFeedUser?.image_medium_url">
+            <img :src="visualFeedUser?.image_xlarge_url || visualFeedUser?.image_medium_url" class="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-[#27272A]">
+          </template>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="font-bold text-sm sm:text-base text-slate-900 dark:text-white" x-text="visualFeedUser?.full_name || ('@' + visualFeedUsername)"></h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                ⚡ Instant Feed (&lt;350ms)
+              </span>
+            </div>
+            <div class="flex items-center space-x-3 text-xs text-slate-500 font-mono tabular-nums mt-0.5">
+              <span x-text="'@' + visualFeedUsername"></span>
+              <span>•</span>
+              <span x-text="visualFeedPins.length + ' Latest Pins'"></span>
+              <template x-if="visualFeedUser?.follower_count">
+                <span>•</span>
+                <span x-text="formatNumber(visualFeedUser.follower_count) + ' Followers'"></span>
+              </template>
+            </div>
+          </div>
+        </div>
+        <button @click="isVisualFeedModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body / 50-Pin Gallery -->
+      <div class="p-4 overflow-y-auto flex-1">
+        <!-- Loading State -->
+        <div x-show="isVisualFeedLoading" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
+          <template x-for="i in 10" :key="i">
+            <div class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 aspect-[2/3] p-2 flex flex-col justify-between">
+              <div class="h-full bg-slate-200 dark:bg-slate-800 rounded-lg"></div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Empty State -->
+        <div x-show="!isVisualFeedLoading && visualFeedPins.length === 0" class="text-center py-12 text-slate-400 text-xs font-mono">
+          No recent pins returned for this creator.
+        </div>
+
+        <!-- 50-Pin Grid -->
+        <div x-show="!isVisualFeedLoading && visualFeedPins.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          <template x-for="p in visualFeedPins" :key="p.id || p.pin_id">
+            <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] flex flex-col justify-between shadow-xs hover:border-rose-500/50 transition">
+              <div class="relative aspect-[2/3] overflow-hidden bg-slate-100 dark:bg-slate-900">
+                <img :src="resolveHdImageUrl(p.image_hd_url || p.image_large_url || p.image_url)"
+                     :alt="p.title || 'Pin'"
+                     class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                     loading="lazy"
+                     @error="if ($el.src !== (p.image_url || '')) $el.src = (p.image_url || '')">
+                
+                <!-- Live Saves & Repins Overlay -->
+                <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-2 flex items-center justify-between text-[10px] font-mono tabular-nums text-white">
+                  <span class="font-bold text-rose-400 flex items-center gap-0.5">
+                    <span>📌</span>
+                    <span x-text="formatNumber(p.saves || p.save_count || 0)"></span>
+                  </span>
+                  <template x-if="p.created_at">
+                    <span class="text-slate-300 text-[9px]" x-text="formatTimeAgo(p.created_at)"></span>
+                  </template>
+                </div>
+              </div>
+
+              <div class="p-2 space-y-1">
+                <a :href="'https://www.pinterest.com/pin/' + (p.id || p.pin_id) + '/'" target="_blank"
+                   class="text-[11px] font-bold text-slate-800 dark:text-slate-200 hover:text-rose-500 line-clamp-1 block leading-snug"
+                   x-text="p.title || 'Untitled Pin'"></a>
+                <div class="flex items-center justify-between text-[9px] font-mono tabular-nums text-slate-400">
+                  <span x-text="'ID: ' + (p.id || p.pin_id)"></span>
+                  <a :href="'/pin/' + (p.id || p.pin_id)" target="_blank" class="text-sky-500 hover:underline">Dossier ↗</a>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-[#18181B]/50 flex items-center justify-between text-xs shrink-0">
+        <span class="font-mono tabular-nums text-slate-500 text-[11px]">Streamed via Pinterest Visual Pidgets + RSS Feed fusion</span>
+        <button @click="isVisualFeedModalOpen = false" class="px-4 py-1.5 rounded-xl text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition">Close</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- BOARD SECTIONS INSPECTOR MODAL                          -->
+  <!-- ======================================================== -->
+  <div x-show="isBoardSectionsModalOpen" x-cloak
+       class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+       @keydown.escape.window="isBoardSectionsModalOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-xl shadow-2xl p-5 space-y-4 text-slate-900 dark:text-[#FAFAFA]"
+         role="dialog" aria-modal="true" aria-label="Board Sections Inspector"
+         @click.away="isBoardSectionsModalOpen = false">
+      
+      <!-- Header -->
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="folder" class="w-5 h-5 text-amber-500"></i>
+          <div>
+            <h3 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-1.5">
+              <span>Board Sections:</span>
+              <span class="text-amber-600 dark:text-amber-400 font-mono" x-text="boardSectionsTitle"></span>
+            </h3>
+            <p class="text-[11px] text-slate-500 font-mono" x-text="'Board ID: ' + boardSectionsBoardId"></p>
+          </div>
+        </div>
+        <button @click="isBoardSectionsModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="space-y-3">
+        <!-- Loading -->
+        <div x-show="isLoadingBoardSections" class="py-8 text-center space-y-2">
+          <i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto text-amber-500"></i>
+          <p class="text-xs text-slate-400 font-mono">Fetching board sections via Pinterest BoardSectionsResource...</p>
+        </div>
+
+        <!-- Empty -->
+        <div x-show="!isLoadingBoardSections && boardSectionsList.length === 0" class="py-8 text-center text-slate-400 text-xs font-mono">
+          No subsections found for this board (all pins reside in main board catalog).
+        </div>
+
+        <!-- Sections List -->
+        <div x-show="!isLoadingBoardSections && boardSectionsList.length > 0" class="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-96 overflow-y-auto">
+          <template x-for="sec in boardSectionsList" :key="sec.id || sec.title">
+            <div class="py-2.5 px-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900/40 rounded-xl transition">
+              <div class="flex items-center space-x-2.5">
+                <span class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xs">📂</span>
+                <div>
+                  <div class="font-bold text-xs text-slate-900 dark:text-white" x-text="sec.title || sec.name"></div>
+                  <div class="text-[10px] text-slate-400 font-mono" x-text="'Slug: ' + (sec.slug || 'default')"></div>
+                </div>
+              </div>
+              <div class="flex items-center space-x-3 font-mono tabular-nums text-xs">
+                <span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(sec.pin_count || 0) + ' pins'"></span>
+                <a :href="safeUrl(sec.url || ('https://www.pinterest.com' + (sec.slug ? '/' + sec.slug : '')))" target="_blank" class="text-slate-400 hover:text-white">
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex justify-between items-center text-xs">
+        <span class="text-slate-500 font-mono tabular-nums text-[11px]" x-text="boardSectionsList.length + ' Total Subsections'"></span>
+        <button @click="isBoardSectionsModalOpen = false" class="px-4 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition">Close</button>
+      </div>
+
     </div>
   </div>`;
 }

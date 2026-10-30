@@ -1862,12 +1862,23 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                     currentDate: now,
                     baselineDate: baselineDateVal,
                     createdAt: p.created_at_pinterest || null,
+                    wasDeepHydrated: prevSaves >= 10,
                     maxCap: 25000
                   });
                 } else if (prevSaves <= 0 && !p.created_at_pinterest) {
                   velocity = 0;
                 } else {
-                  velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10;
+                  velocity = calculateDailyVelocity({
+                    currentSaves: freshSaves,
+                    baselineSaves: prevSaves,
+                    currentRepins: freshRepins,
+                    baselineRepins: prevRepins,
+                    currentDate: now,
+                    baselineDate: baselineDateVal || now,
+                    createdAt: p.created_at_pinterest || null,
+                    wasDeepHydrated: prevSaves >= 10,
+                    maxCap: 25000
+                  });
                 }
                 if (!Number.isFinite(velocity) || velocity < 0) {
                   velocity = 0;

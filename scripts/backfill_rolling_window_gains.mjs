@@ -211,17 +211,7 @@ async function main() {
         console.log(`  -> Processed ${shardsProcessed}/${shardMap.size} shards (${totalSnapshotsRead} snapshots retrieved)...`);
       }
     } catch (err) {
-      console.warn(`  [-] Warning querying Shard #${shardId}: ${err.message}. Setting default deltas for ${pinIds.length} pins.`);
-      for (const pinId of pinIds) {
-        computedDeltas.set(pinId, {
-          pin_id: pinId,
-          delta_repins_24h: 0,
-          gains_5d: 0,
-          gains_7d: 0,
-          gains_10d: 0,
-          gains_15d: 0
-        });
-      }
+      console.warn(`  [-] Warning querying Shard #${shardId}: ${err.message}. Skipping delta overwrite for ${pinIds.length} pins.`);
     }
   }
 
@@ -241,11 +231,11 @@ async function main() {
     await hubSql`
       UPDATE keyword_serp_current ksc
       SET
-        delta_repins_24h = u.delta_repins_24h,
-        gains_5d = u.gains_5d,
-        gains_7d = u.gains_7d,
-        gains_10d = u.gains_10d,
-        gains_15d = u.gains_15d,
+        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ksc.delta_repins_24h),
+        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ksc.gains_5d),
+        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d),
+        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ksc.gains_10d),
+        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ksc.gains_15d),
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -262,11 +252,11 @@ async function main() {
     await hubSql`
       UPDATE keyword_displaced_index kdi
       SET
-        delta_repins_24h = u.delta_repins_24h,
-        gains_5d = u.gains_5d,
-        gains_7d = u.gains_7d,
-        gains_10d = u.gains_10d,
-        gains_15d = u.gains_15d,
+        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), kdi.delta_repins_24h),
+        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), kdi.gains_5d),
+        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), kdi.gains_7d),
+        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), kdi.gains_10d),
+        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), kdi.gains_15d),
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,

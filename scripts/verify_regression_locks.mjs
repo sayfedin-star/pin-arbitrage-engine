@@ -5,9 +5,9 @@
  * 
  * Automated Architectural Regression Gate
  * Fast (< 1s), zero-dependency automated verification script that inspects the
- * codebase and exits with code 1 if ANY of the 12 permanent architectural regression locks regress.
+ * codebase and exits with code 1 if ANY of the 14 permanent architectural regression locks regress.
  * 
- * Enforces Invariants 32–41:
+ * Enforces Invariants 32–42:
  * - Lock 1: Room 1–5 Sibling DOM Hierarchy & Unclipped Workspace Header
  * - Lock 2: Pin Dossier Timeframe & SERP Badge Integrity
  * - Lock 3: Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
@@ -20,6 +20,8 @@
  * - Lock 10: Room 3 Single-Creator SERP Track Fallback
  * - Lock 11: Domain Studio -> /accounts Query Param Hydration & Crawler BigInt Parity
  * - Lock 12: Auto-Promote Pulse Breakout & Composite Shard Migration 041
+ * - Lock 13: Invariant & Memory Documentation Parity Gate
+ * - Lock 14: Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM/Entity Sanitization & LND-801..824 Shields
  */
 
 import fs from 'node:fs';
@@ -270,6 +272,148 @@ try {
 
   check('Lock 12', migration041Exists, 'scripts/migrations/041_composite_shard_indexes.sql does not exist');
 
+  // =========================================================================
+  // LOCK 13: Invariant & Memory Documentation Parity Gate
+  // =========================================================================
+  console.log('\n[Lock 13] Verifying Invariant & Memory Documentation Parity...');
+
+  // 13A. project-invariants.md must contain trigger: always_on and sections ## 32. through ## 42.
+  const invariantsContent = readFile('.agents/rules/project-invariants.md');
+  const invariantsHasAlwaysOn = /trigger:\s*always_on/.test(invariantsContent);
+  const requiredSections = [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42];
+  const missingSections = requiredSections.filter(num => !new RegExp(`^##\\s+${num}\\.`, 'm').test(invariantsContent));
+  const hasAllRequiredSections = missingSections.length === 0;
+
+  check(
+    'Lock 13',
+    invariantsHasAlwaysOn && hasAllRequiredSections,
+    `.agents/rules/project-invariants.md is missing ${!invariantsHasAlwaysOn ? 'trigger: always_on' : ''}${!invariantsHasAlwaysOn && !hasAllRequiredSections ? ' and ' : ''}${!hasAllRequiredSections ? `sections: ${missingSections.map(n => `## ${n}.`).join(', ')}` : ''}`.trim()
+  );
+
+  // 13B. beacon-autonomous-memory.md and lessons-learned-ledger.md must start with trigger: always_on
+  const beaconPath = path.join(ROOT_DIR, '.agents/rules/beacon-autonomous-memory.md');
+  const beaconExists = fs.existsSync(beaconPath);
+  const beaconContent = beaconExists ? fs.readFileSync(beaconPath, 'utf8') : '';
+  const beaconStartsAlwaysOn = /^\s*---\s*[\r\n]+[\s\S]*?trigger:\s*always_on[\s\S]*?[\r\n]+---/m.test(beaconContent) || /^\s*trigger:\s*always_on/m.test(beaconContent);
+
+  const ledgerPath = path.join(ROOT_DIR, '.agents/rules/lessons-learned-ledger.md');
+  const ledgerExists = fs.existsSync(ledgerPath);
+  const ledgerContent = ledgerExists ? fs.readFileSync(ledgerPath, 'utf8') : '';
+  const ledgerStartsAlwaysOn = /^\s*---\s*[\r\n]+[\s\S]*?trigger:\s*always_on[\s\S]*?[\r\n]+---/m.test(ledgerContent) || /^\s*trigger:\s*always_on/m.test(ledgerContent);
+
+  const memoryRulesValid = beaconExists && beaconStartsAlwaysOn && ledgerExists && ledgerStartsAlwaysOn;
+  check(
+    'Lock 13',
+    memoryRulesValid,
+    `Memory rules frontmatter invalid: ${!beaconExists ? '.agents/rules/beacon-autonomous-memory.md missing' : !beaconStartsAlwaysOn ? '.agents/rules/beacon-autonomous-memory.md does not start with trigger: always_on' : ''} ${!ledgerExists ? '.agents/rules/lessons-learned-ledger.md missing' : !ledgerStartsAlwaysOn ? '.agents/rules/lessons-learned-ledger.md does not start with trigger: always_on' : ''}`.trim()
+  );
+
+  // 13C. Verify count of locks enforced in verify_regression_locks.mjs matches documented ledger (14 locks)
+  const selfContent = readFile('scripts/verify_regression_locks.mjs');
+  const documentedLocks = [...selfContent.matchAll(/\*\s*-\s*Lock\s+(\d+):/g)].map(m => Number(m[1]));
+  const implementedLocks = [...selfContent.matchAll(/\/\/\s*LOCK\s+(\d+):/gi)].map(m => Number(m[1]));
+  const checkedLocks = [...new Set([...selfContent.matchAll(/check\(\s*['"]Lock\s+(\d+)['"]/gi)].map(m => Number(m[1])))].sort((a, b) => a - b);
+
+  const expectedLockCount = 14;
+  const lockCountMatches = (
+    documentedLocks.length === expectedLockCount &&
+    implementedLocks.length === expectedLockCount &&
+    checkedLocks.length === expectedLockCount &&
+    checkedLocks.every((num, idx) => num === idx + 1)
+  );
+
+  check(
+    'Lock 13',
+    lockCountMatches,
+    `Lock count mismatch in scripts/verify_regression_locks.mjs: documented=${documentedLocks.length}, implemented=${implementedLocks.length}, checked=${checkedLocks.length} (expected ${expectedLockCount} consecutive locks)`
+  );
+
+  // =========================================================================
+  // LOCK 14: Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM/Entity Sanitization & LND-801..824 Shields
+  // =========================================================================
+  console.log('\n[Lock 14] Verifying Hidden Endpoints Parity, 1200x Media Waterfall & LND-801..824 Shields...');
+
+  // 14A. Pinterest scraper functions, canonical User-Agent, and strict guest scraping
+  const pinterestScraperContent = readFile('scripts/lib/pinterest.mjs');
+  const hasHiddenScraperEndpoints = (
+    pinterestScraperContent.includes('export async function fetchPinsBatchFromPidgets') &&
+    pinterestScraperContent.includes('export async function fetchUrlGlobalSaves') &&
+    pinterestScraperContent.includes('export async function fetchCreatorLatestPinsPidgets') &&
+    pinterestScraperContent.includes('export async function resolvePinterestShortlink') &&
+    pinterestScraperContent.includes('export async function fetchBoardSectionsResource') &&
+    pinterestScraperContent.includes('export function canonicalizeArticleUrlForCount') &&
+    pinterestScraperContent.includes('Chrome/131.0.0.0') &&
+    pinterestScraperContent.includes('// [INVARIANT: STRICT-GUEST-SCRAPING]')
+  );
+  check(
+    'Lock 14',
+    hasHiddenScraperEndpoints,
+    'scripts/lib/pinterest.mjs is missing required hidden endpoints, canonical Chrome/131.0.0.0 User-Agent, or STRICT-GUEST-SCRAPING invariant'
+  );
+
+  // 14B. Keywords service batch Pidgets velocity calculation and deadlock-free ordering
+  const keywordsServiceContent = readFile('src/modules/keywords/service.mjs');
+  const hasKeywordServiceGuards = (
+    keywordsServiceContent.includes('calculateDailyVelocity') &&
+    keywordsServiceContent.includes('fetchPinsBatchFromPidgets') &&
+    keywordsServiceContent.includes('ORDER BY u.pin_id ASC')
+  );
+  check(
+    'Lock 14',
+    hasKeywordServiceGuards,
+    'src/modules/keywords/service.mjs is missing calculateDailyVelocity enforcement on Pidgets batch or ORDER BY u.pin_id ASC serialization'
+  );
+
+  // 14C. Defensive rolling gains coalescence in backfill_rolling_window_gains.mjs
+  const backfillGainsContent = readFile('scripts/backfill_rolling_window_gains.mjs');
+  const hasDefensiveGainsCoalescence = (
+    backfillGainsContent.includes('COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d)') &&
+    backfillGainsContent.includes('COALESCE(NULLIF(u.gains_7d, 0), kdi.gains_7d)') &&
+    !backfillGainsContent.includes('computedDeltas.set(pinId, { pin_id: pinId, delta_repins_24h: 0, gains_5d: 0, gains_7d: 0')
+  );
+  check(
+    'Lock 14',
+    hasDefensiveGainsCoalescence,
+    'scripts/backfill_rolling_window_gains.mjs is missing defensive COALESCE(NULLIF(u.gains_7d, 0), ...) or contains destructive zero-overwrite catch loop'
+  );
+
+  // 14D. Frontend domains AbortController and deep-link query hydration
+  const domainsUiContent = readFile('src/domains-ui.mjs');
+  const hasDomainsGuards = (
+    domainsUiContent.includes('_loadDomainsAbortController') &&
+    domainsUiContent.includes('window.location.search') &&
+    domainsUiContent.includes('URLSearchParams')
+  );
+  check(
+    'Lock 14',
+    hasDomainsGuards,
+    'src/domains-ui.mjs is missing AbortController or window.location.search URLSearchParams hydration'
+  );
+
+  // 14E. Dashboard UI string creator handle fallback and windowed pagination
+  const dashboardUiContent = readFile('src/dashboard-ui.mjs');
+  const hasDashboardUiGuards = (
+    dashboardUiContent.includes('assignCreatorToFolder') &&
+    dashboardUiContent.includes('cleanUsername') &&
+    dashboardUiContent.includes('paginatedCompetitors') &&
+    dashboardUiContent.includes('totalCompetitorPages')
+  );
+  check(
+    'Lock 14',
+    hasDashboardUiGuards,
+    'src/dashboard-ui.mjs is missing string creator handle resolution in assignCreatorToFolder or paginatedCompetitors'
+  );
+
+  // 14F. Zero Arabic character residue in dashboard modals
+  const dashboardModalsContent = readFile('src/ui/dashboard-modals.mjs');
+  const arabicMatches = dashboardModalsContent.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g);
+  const isZeroArabic = !arabicMatches || arabicMatches.length === 0;
+  check(
+    'Lock 14',
+    isZeroArabic,
+    `src/ui/dashboard-modals.mjs contains ${arabicMatches ? arabicMatches.length : 0} residual Arabic characters (LND-823)`
+  );
+
 } catch (e) {
   errors.push(`Unexpected Gate Script Error: ${e.message}\n${e.stack}`);
   console.error(`💥 Execution failure:`, e);
@@ -279,7 +423,7 @@ const elapsed = (performance.now() - startTime).toFixed(1);
 
 console.log('\n' + '='.repeat(80));
 if (errors.length === 0) {
-  console.log(`🎉 ALL 12 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN (Elapsed: ${elapsed}ms < 1000ms SLA)`);
+  console.log(`🎉 ALL 14 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN (Elapsed: ${elapsed}ms < 1000ms SLA)`);
   console.log('='.repeat(80));
   process.exit(0);
 } else {

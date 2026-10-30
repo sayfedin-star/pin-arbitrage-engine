@@ -44,6 +44,7 @@ export async function ensureEdgePinsMetadataTable(env) {
     await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN daily_trajectory TEXT DEFAULT '[]'`).run().catch(() => {});
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Schema Parity (metadata column)
     await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN metadata TEXT DEFAULT '{}'`).run().catch(() => {});
+    await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN last_accessed_at TEXT DEFAULT (datetime('now'))`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
 }
@@ -162,7 +163,16 @@ export async function hydratePinsFromD1(env, pinIds = []) {
       );
     }
     if (stmts.length === 0) return map;
-    const batchRes = await env.PIN_D1_DB.batch(stmts);
+    // [LND-817 FIX] Chunk statements into batches of <= 100 before calling env.PIN_D1_DB.batch()
+    const BATCH_STMT_LIMIT = 100;
+    const batchRes = [];
+    for (let b = 0; b < stmts.length; b += BATCH_STMT_LIMIT) {
+      const subBatch = stmts.slice(b, b + BATCH_STMT_LIMIT);
+      const res = await env.PIN_D1_DB.batch(subBatch);
+      if (Array.isArray(res)) {
+        batchRes.push(...res);
+      }
+    }
     for (const res of (batchRes || [])) {
       for (const r of (res?.results || [])) {
         let parsedAnnotations = [];

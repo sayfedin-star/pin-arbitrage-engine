@@ -39,6 +39,11 @@ export function detectHydrationJump(params) {
   // 1. prev.save_count === 0 && curr.save_count > 0
   if (prevSaves === 0 && curSaves > 0) return true;
 
+  // 1B. Medium pin hydration jump guard: unhydrated stub (wasDeepHydrated === false) with curSaves >= 30,
+  // or low prior saves (prevSaves < 10 && curSaves >= 100)
+  if (params.wasDeepHydrated === false && curSaves >= 30) return true;
+  if (prevSaves < 10 && curSaves >= 100) return true;
+
   // 2. prev.save_count < prev.repin_count
   if (prevSaves > 0 && prevRepins > 0 && prevSaves < prevRepins) return true;
 
@@ -72,6 +77,7 @@ export function detectHydrationJump(params) {
  * @param {Date|string|number} [params.currentDate] - Current crawl date / timestamp
  * @param {Date|string|number} [params.baselineDate] - Previous baseline snapshot date
  * @param {Date|string|number} [params.createdAt] - Creation timestamp on Pinterest
+ * @param {boolean} [params.wasDeepHydrated] - Whether the baseline record was previously deep hydrated
  * @param {number} [params.maxCap=25000] - Bot-spike sanity cap
  * @returns {number} Daily save velocity (saves/day)
  */
@@ -90,7 +96,8 @@ export function calculateDailyVelocity(params) {
     currentDate = new Date(),
     baselineDate = null,
     maxCap = 25000,
-    createdAt = null
+    createdAt = null,
+    wasDeepHydrated = undefined
   } = params;
 
   const curSavesNum = Number(currentSaves);
@@ -120,7 +127,8 @@ export function calculateDailyVelocity(params) {
     currentSaves: curSavesNum,
     baselineSaves: baseSavesNum,
     currentRepins: curRepinsNum,
-    baselineRepins: baseRepinsNum
+    baselineRepins: baseRepinsNum,
+    wasDeepHydrated: wasDeepHydrated ?? params.wasDeepHydrated
   });
 
   if (isHydrationJump) {

@@ -3376,7 +3376,7 @@ export function getDashboardHtml(folderId = '') {
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
-                <template x-for="c in filteredCompetitors" :key="c.id || ('serp_' + (c.username || 'unknown'))">
+                <template x-for="c in paginatedCompetitors" :key="c.id || ('serp_' + (c.username || 'unknown'))">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="c.is_active === false ? 'opacity-75 bg-amber-500/[0.03] dark:bg-amber-500/[0.05]' : ''">
                     <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
@@ -3469,6 +3469,10 @@ export function getDashboardHtml(folderId = '') {
                         <button @click.stop="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
                           <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         </button>
+                        <!-- ⚡ Instant 50-Pin Visual Feed (<350ms) -->
+                        <button @click.stop="openCreatorVisualFeed(c.username)" class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition cursor-pointer" title="⚡ Instant 50-Pin Visual Feed (&lt;350ms): Direct HD Visual Feed">
+                          <i data-lucide="layout-grid" class="w-3.5 h-3.5 text-emerald-500"></i>
+                        </button>
                         <!-- ⚡ Quick Pulse (~2s Edge) -->
                         <button @click.stop="quickPulseCreatorAction(c)" :disabled="pulsingCreatorId === c.id" class="px-2 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/30 transition flex items-center space-x-1 cursor-pointer disabled:opacity-50" title="⚡ Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
                           <i data-lucide="zap" class="w-3 h-3 text-amber-500" :class="pulsingCreatorId === c.id ? 'animate-spin' : ''"></i>
@@ -3522,6 +3526,36 @@ export function getDashboardHtml(folderId = '') {
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          <!-- Windowed Pagination Controls (LND-806) -->
+          <div class="px-4 py-3 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-[#18181B]/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-3">
+              <span class="text-slate-500 font-mono tabular-nums text-[11px]"
+                    x-text="'Showing ' + (filteredCompetitors.length === 0 ? 0 : ((competitorPage - 1) * competitorPageSize + 1)) + '-' + Math.min(competitorPage * competitorPageSize, filteredCompetitors.length) + ' of ' + filteredCompetitors.length + ' Creators'"></span>
+              <div class="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                <span>Show:</span>
+                <select x-model.number="competitorPageSize" @change="competitorPage = 1" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300 font-mono cursor-pointer">
+                  <option :value="25">25</option>
+                  <option :value="50">50</option>
+                  <option :value="100">100</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5" x-show="totalCompetitorPages > 1">
+              <button @click="competitorPage = Math.max(1, competitorPage - 1)"
+                      :disabled="competitorPage <= 1"
+                      class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-[#18181B] font-mono tabular-nums text-xs font-semibold transition cursor-pointer">
+                Prev
+              </button>
+              <span class="px-2 py-1 text-slate-500 font-mono tabular-nums text-xs"
+                    x-text="'Page ' + competitorPage + ' of ' + totalCompetitorPages"></span>
+              <button @click="competitorPage = Math.min(totalCompetitorPages, competitorPage + 1)"
+                      :disabled="competitorPage >= totalCompetitorPages"
+                      class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-[#18181B] font-mono tabular-nums text-xs font-semibold transition cursor-pointer">
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -5310,25 +5344,35 @@ export function getDashboardHtml(folderId = '') {
                     </div>
 
                     <!-- Action Buttons Footer -->
-                    <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center gap-2">
+                    <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center gap-1.5">
                       <button
                         type="button"
                         @click="openBoardPage(b, activeCreator)"
-                        class="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                        class="flex-1 py-1.5 px-2 rounded-xl text-xs font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
                         title="Open Dedicated Board Intelligence Page"
                       >
                         <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-                        <span>Inspect Board</span>
+                        <span>Inspect</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        @click="openBoardSectionsModal(b.id || b.board_id, b.name)"
+                        class="py-1.5 px-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                        title="Inspect Board Subsections & Internal Taxonomies"
+                      >
+                        <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-500"></i>
+                        <span>Sections</span>
                       </button>
 
                       <button
                         type="button"
                         @click="crawlSingleBoardGha(b.name)"
-                        class="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                        class="py-1.5 px-2 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
                         title="Harvest this specific board via GitHub Actions 20-Shard Crawler"
                       >
                         <i data-lucide="zap" class="w-3.5 h-3.5 text-sky-500"></i>
-                        <span>Crawl (GHA)</span>
+                        <span>Crawl</span>
                       </button>
                     </div>
 
@@ -5424,6 +5468,15 @@ export function getDashboardHtml(folderId = '') {
                             >
                               <i data-lucide="layout-grid" class="w-3 h-3 inline"></i>
                               <span>Inspect</span>
+                            </button>
+                            <button
+                              type="button"
+                              @click="openBoardSectionsModal(b.id || b.board_id, b.name)"
+                              class="px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-bold hover:bg-amber-500/20 transition cursor-pointer"
+                              title="Inspect Board Subsections"
+                            >
+                              <i data-lucide="folder" class="w-3 h-3 inline text-amber-500"></i>
+                              <span>Sections</span>
                             </button>
                             <button
                               type="button"
@@ -5910,7 +5963,25 @@ export function getDashboardHtml(folderId = '') {
         competitors: [],
         competitorFilter: 'all',
         competitorSearch: '',
+        competitorPage: 1,
+        competitorPageSize: 25,
         creatorDiscoveryFilter: 'all',
+
+        // Visual Feed & Board Sections Modals
+        isVisualFeedModalOpen: false,
+        visualFeedUser: null,
+        visualFeedUsername: '',
+        visualFeedPins: [],
+        isVisualFeedLoading: false,
+
+        isBoardSectionsModalOpen: false,
+        boardSectionsTitle: '',
+        boardSectionsBoardId: '',
+        isLoadingBoardSections: false,
+        boardSectionsList: [],
+
+        _creatorAllPinsAbortController: null,
+        _creatorAllPinsReqSeq: 0,
         bulkPulseCustomLabel: '',
         isBulkPulseTracking: false,
         folderCompetitorTotalsData: null,
@@ -6096,6 +6167,20 @@ export function getDashboardHtml(folderId = '') {
             list = list.filter(c => (c.username && c.username.toLowerCase().includes(q)) || (c.display_name && c.display_name.toLowerCase().includes(q)));
           }
           return list;
+        },
+
+        get totalCompetitorPages() {
+          const list = this.filteredCompetitors || [];
+          const size = this.competitorPageSize || 25;
+          return Math.max(1, Math.ceil(list.length / size));
+        },
+
+        get paginatedCompetitors() {
+          const list = this.filteredCompetitors || [];
+          const size = this.competitorPageSize || 25;
+          const page = Math.min(Math.max(1, this.competitorPage || 1), this.totalCompetitorPages);
+          const start = (page - 1) * size;
+          return list.slice(start, start + size);
         },
 
         get filteredCompetitorsReach() {
@@ -7460,6 +7545,10 @@ export function getDashboardHtml(folderId = '') {
               this.fetchCreatorAllPins();
             }
           });
+          this.$watch('competitorFilter', () => { this.competitorPage = 1; });
+          this.$watch('creatorDiscoveryFilter', () => { this.competitorPage = 1; });
+          this.$watch('competitorSearch', () => { this.competitorPage = 1; });
+          this.$watch('competitorPageSize', () => { this.competitorPage = 1; });
           this.loadFolders();
           if (this.scopedFolderId) {
             this.loadFolderCreators(this.scopedFolderId);
@@ -7793,25 +7882,33 @@ export function getDashboardHtml(folderId = '') {
         async assignCreatorToFolder(competitorId, folderId) {
           if (!competitorId || !folderId) return;
           const fid = String(folderId);
-          const cid = Number(competitorId);
-          const isAlreadyIn = this.isCreatorInFolder(cid, fid);
+          const rawId = String(competitorId).trim();
+          const isNumeric = /^\d+$/.test(rawId);
+          const cid = isNumeric ? Number(rawId) : rawId;
+          const cleanUsername = isNumeric ? null : rawId.replace(/^serp_/, '').replace(/^@+/, '').trim();
+          const isAlreadyIn = this.isCreatorInFolder(cid, fid) || (cleanUsername && this.isCreatorInFolder(cleanUsername, fid));
           const method = isAlreadyIn ? 'DELETE' : 'POST';
           const url = isAlreadyIn 
-            ? '/api/folders/' + encodeURIComponent(fid) + '/creators/' + cid
+            ? '/api/folders/' + encodeURIComponent(fid) + '/creators/' + encodeURIComponent(isNumeric ? cid : cleanUsername)
             : '/api/folders/' + encodeURIComponent(fid) + '/creators';
+          const requestBody = isAlreadyIn
+            ? undefined
+            : JSON.stringify(isNumeric ? { competitor_id: cid } : { username: cleanUsername });
           try {
             const res = await (window.safeApiFetch || fetch)(url, {
               method,
               headers: { 'Content-Type': 'application/json' },
-              body: isAlreadyIn ? undefined : JSON.stringify({ competitor_id: cid })
+              body: requestBody
             });
             if (res.ok) {
               if (!this.folderCreatorMap[fid]) this.folderCreatorMap[fid] = new Set();
               if (isAlreadyIn) {
                 this.folderCreatorMap[fid].delete(cid);
+                if (cleanUsername) this.folderCreatorMap[fid].delete(cleanUsername);
                 this.showToast('Creator unlinked from folder');
               } else {
                 this.folderCreatorMap[fid].add(cid);
+                if (cleanUsername) this.folderCreatorMap[fid].add(cleanUsername);
                 this.showToast('Creator linked to folder');
               }
               const folderObj = this.foldersList.find(f => String(f.id) === fid);
@@ -9397,6 +9494,12 @@ export function getDashboardHtml(folderId = '') {
 
         async fetchCreatorAllPins() {
           if (!this.activeCreator) return;
+          if (this._creatorAllPinsAbortController) {
+            try { this._creatorAllPinsAbortController.abort(); } catch (_) {}
+          }
+          this._creatorAllPinsAbortController = new AbortController();
+          this._creatorAllPinsReqSeq = (this._creatorAllPinsReqSeq || 0) + 1;
+          const reqSeq = this._creatorAllPinsReqSeq;
           this.isLoadingAllPins = true;
           try {
             const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
@@ -9417,9 +9520,13 @@ export function getDashboardHtml(folderId = '') {
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 
-            const res = await fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString()));
+            const res = await fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString()), {
+              signal: this._creatorAllPinsAbortController.signal
+            });
+            if (reqSeq !== this._creatorAllPinsReqSeq) return;
             if (res.ok) {
               const data = await res.json();
+              if (reqSeq !== this._creatorAllPinsReqSeq) return;
               this.activeCreatorAllPins = data.pins || [];
               this.activeCreatorAllPinsTotal = data.total || 0;
               this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
@@ -9431,9 +9538,75 @@ export function getDashboardHtml(folderId = '') {
               if (data.boards) this.activeCreatorAllPinsBoards = data.boards;
             }
           } catch (e) {
+            if (e.name === 'AbortError') return;
             console.error('fetchCreatorAllPins error:', e);
           } finally {
-            this.isLoadingAllPins = false;
+            if (reqSeq === this._creatorAllPinsReqSeq) {
+              this.isLoadingAllPins = false;
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }
+          }
+        },
+
+        async openCreatorVisualFeed(username) {
+          const cleanUser = String(username || '').replace(/^@+/, '').trim();
+          if (!cleanUser) return;
+          this.visualFeedUsername = cleanUser;
+          this.visualFeedUser = { username: cleanUser };
+          this.visualFeedPins = [];
+          this.isVisualFeedLoading = true;
+          this.isVisualFeedModalOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/competitors/' + encodeURIComponent(cleanUser) + '/latest-pins');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.ok) {
+                this.visualFeedPins = data.pins || [];
+                if (data.user) {
+                  this.visualFeedUser = data.user;
+                }
+              } else {
+                this.showToast('Failed to fetch visual feed: ' + (data.error || 'Unknown error'), 'error');
+              }
+            } else {
+              this.showToast('Could not load visual feed (<350ms)', 'error');
+            }
+          } catch (err) {
+            this.showToast('Network error loading visual feed: ' + err.message, 'error');
+          } finally {
+            this.isVisualFeedLoading = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async openBoardSectionsModal(boardId, boardTitle) {
+          const cleanId = String(boardId || '').trim();
+          if (!cleanId) return;
+          this.boardSectionsBoardId = cleanId;
+          this.boardSectionsTitle = boardTitle || 'Board Sections';
+          this.boardSectionsList = [];
+          this.isLoadingBoardSections = true;
+          this.isBoardSectionsModalOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/boards/' + encodeURIComponent(cleanId) + '/sections');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.ok) {
+                this.boardSectionsList = data.sections || [];
+              } else {
+                this.showToast('Failed to fetch board sections: ' + (data.error || 'Unknown error'), 'error');
+              }
+            } else {
+              this.showToast('Could not load board sections', 'error');
+            }
+          } catch (err) {
+            this.showToast('Network error loading board sections: ' + err.message, 'error');
+          } finally {
+            this.isLoadingBoardSections = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },

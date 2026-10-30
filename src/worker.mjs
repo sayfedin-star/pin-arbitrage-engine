@@ -1375,7 +1375,7 @@ export default {
     }
 
     // Security Authentication Gate for Mutating Methods & Sensitive Operations [CAP-02, CAP-03, CAP-04]
-    const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
+    const isMutatingMethod = (method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH') && pathname !== '/api/urls/batch-global-saves';
     const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname === '/api/fleet/warm' || pathname.startsWith('/api/crawl/dispatch');
     if (isMutatingMethod || isSensitiveEndpoint) {
       const auth = verifyApiAuthentication(request, env);
@@ -1566,10 +1566,19 @@ export default {
     }
 
     if (!sql) {
-      return jsonResponse({
-        error: 'DATABASE_URL secret is not set in Cloudflare Workers environment.',
-        hint: 'Add DATABASE_URL in Cloudflare Dashboard -> Workers & Pages -> pin-arbitrage-engine -> Settings -> Variables and Secrets.'
-      }, 500);
+      const isNonDbRoute =
+        pathname === '/api/pins/resolve-shortlink' ||
+        pathname === '/api/urls/global-saves' ||
+        pathname === '/api/urls/batch-global-saves' ||
+        pathname.startsWith('/api/boards') ||
+        pathname.endsWith('/latest-pins');
+
+      if (!isNonDbRoute) {
+        return jsonResponse({
+          error: 'DATABASE_URL secret is not set in Cloudflare Workers environment.',
+          hint: 'Add DATABASE_URL in Cloudflare Dashboard -> Workers & Pages -> pin-arbitrage-engine -> Settings -> Variables and Secrets.'
+        }, 500);
+      }
     }
     let targetSql = sql;
     const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
@@ -1653,8 +1662,8 @@ export default {
         if (clusterRes) return clusterRes;
       }
 
-      // 15. Creator Hub Sub-Router (/api/creators/*, /api/competitors/*, /api/pinarchive/*)
-      if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/pinarchive')) {
+      // 15. Creator Hub Sub-Router (/api/creators/*, /api/competitors/*, /api/pinarchive/*, /api/boards/*)
+      if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/pinarchive') || pathname.startsWith('/api/boards')) {
         const creatorsRes = await handleCreatorsRoutes({
           pathname,
           method,
@@ -1666,6 +1675,7 @@ export default {
           targetSql,
           reqProjectId,
           jsonResponse,
+          methodNotAllowedResponse,
           clampLimit,
           buildCanonicalCacheKey,
           getCachedOrFetch,

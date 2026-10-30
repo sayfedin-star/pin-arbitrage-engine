@@ -47,6 +47,17 @@ import {
   harvestSinglePinRelatedLive
 } from '../modules/creators/service.mjs';
 import { syncCompetitorAcrossFleet } from '../modules/fleet/service.mjs';
+import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../../scripts/lib/pinterest.mjs';
+
+/**
+ * Fast URI discriminator for Creators & Competitors routes
+ */
+export function isCreatorsRoute(pathname) {
+  return pathname.startsWith('/api/creators') ||
+    pathname.startsWith('/api/competitors') ||
+    pathname.startsWith('/api/pinarchive') ||
+    pathname.startsWith('/api/boards');
+}
 
 /**
  * Handles incoming /api/competitors/* requests.
@@ -86,6 +97,70 @@ export async function handleCreatorsRoutes(routeCtx) {
       invalidateEdgeCache('topics');
     }
   };
+
+  // 0A. GET /api/boards/:boardId/sections
+  const boardSectionsMatch = pathname.match(/^\/api\/boards\/([^/]+)\/sections\/?$/i);
+  if (boardSectionsMatch) {
+    if (method !== 'GET') {
+      return (routeCtx.methodNotAllowedResponse ? routeCtx.methodNotAllowedResponse('GET, OPTIONS') : jsonResponse({ error: 'Method Not Allowed' }, 405));
+    }
+    const boardId = decodeURIComponent(boardSectionsMatch[1]);
+    if (!boardId) {
+      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'boardId is required' }, 400);
+    }
+    const kvKey = `board:sections:${boardId}`;
+    if (env?.PIN_ENGINE_KV) {
+      try {
+        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+        if (cached && Array.isArray(cached.sections)) {
+          return jsonResponse({ ok: true, board_id: boardId, sections: cached.sections, count: cached.sections.length, cached: true }, 200, 21600);
+        }
+      } catch (_) {}
+    }
+    try {
+      const username = searchParams.get('username') || '';
+      const boardSlug = searchParams.get('slug') || searchParams.get('board') || '';
+      const res = await fetchBoardSectionsResource(boardId, username, boardSlug);
+      if (res.ok && env?.PIN_ENGINE_KV) {
+        if (typeof safeWaitUntil === 'function') {
+          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(res), { expirationTtl: 21600 }).catch(() => {}), 'kv_cache_board_sections');
+        }
+      }
+      return jsonResponse({
+        ok: res.ok,
+        board_id: boardId,
+        sections: res.sections || [],
+        count: (res.sections || []).length,
+        ...(res.error ? { error: res.error } : {})
+      }, res.ok ? 200 : 502, 21600);
+    } catch (err) {
+      return jsonResponse({ ok: false, error: err.message, board_id: boardId, sections: [] }, 500);
+    }
+  }
+
+  // 0B. GET /api/creators/:username/latest-pins (or /api/competitors/:username/latest-pins)
+  const latestPinsMatch = pathname.match(/^\/api\/competitors\/([^/]+)\/latest-pins\/?$/i);
+  if (latestPinsMatch) {
+    if (method !== 'GET') {
+      return (routeCtx.methodNotAllowedResponse ? routeCtx.methodNotAllowedResponse('GET, OPTIONS') : jsonResponse({ error: 'Method Not Allowed' }, 405));
+    }
+    const username = decodeURIComponent(latestPinsMatch[1]);
+    if (!username) {
+      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'username is required' }, 400);
+    }
+    try {
+      const res = await fetchCreatorLatestPinsPidgets(username);
+      return jsonResponse({
+        ok: res.ok,
+        user: res.user || { username },
+        pins: res.pins || [],
+        count: (res.pins || []).length,
+        ...(res.error ? { error: res.error } : {})
+      }, res.ok ? 200 : 502);
+    } catch (err) {
+      return jsonResponse({ ok: false, error: err.message, user: { username }, pins: [] }, 500);
+    }
+  }
 
   // 0. Smart Sync Endpoints (Quick Pulse & Deep Harvest)
   if (method === 'POST' && (pathname === '/api/creators/quick-pulse' || pathname === '/api/competitors/quick-pulse')) {

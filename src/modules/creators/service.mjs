@@ -311,8 +311,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     LIMIT 1;
   `;
 
-  const deltaReach24h = (prior24h && monthlyReach > 0) ? (monthlyReach - Number(prior24h.monthly_reach || 0)) : 0;
-  const deltaViews24h = (prior24h && profileViews > 0) ? (profileViews - Number(prior24h.profile_views || 0)) : 0;
+  const deltaReach24h = (prior24h && Number(prior24h.monthly_reach || 0) > 0 && monthlyReach > 0) ? (monthlyReach - Number(prior24h.monthly_reach || 0)) : 0;
+  const deltaViews24h = (prior24h && Number(prior24h.profile_views || 0) > 0 && profileViews > 0) ? (profileViews - Number(prior24h.profile_views || 0)) : 0;
   const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
   const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
@@ -340,8 +340,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     }
   }
 
-  const reachDelta7d = (baseline7d && monthlyReach > 0) ? (monthlyReach - Number(baseline7d.monthly_reach || 0)) : 0;
-  const viewsDelta7d = (baseline7d && profileViews > 0) ? (profileViews - Number(baseline7d.profile_views || 0)) : 0;
+  const reachDelta7d = (baseline7d && Number(baseline7d.monthly_reach || 0) > 0 && monthlyReach > 0) ? (monthlyReach - Number(baseline7d.monthly_reach || 0)) : 0;
+  const viewsDelta7d = (baseline7d && Number(baseline7d.profile_views || 0) > 0 && profileViews > 0) ? (profileViews - Number(baseline7d.profile_views || 0)) : 0;
   const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
   const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
@@ -2848,7 +2848,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
   const runReconcileQuery = async () => {
     return await sql`
       WITH candidate_pins AS (
-        SELECT 
+        SELECT DISTINCT ON (cp.pin_id)
           cp.pin_id,
           COALESCE(prof.username, 'unknown') AS account_username,
           COALESCE(cp.title, '') AS title,
@@ -2902,6 +2902,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
             )
           )
           AND (${articlesOnly} = FALSE OR (cp.is_product IS NULL OR cp.is_product = FALSE))
+        ORDER BY cp.pin_id ASC, cp.save_count DESC
       )
       INSERT INTO pa_pins (
         pin_id, account_username, title, description, link, domain,

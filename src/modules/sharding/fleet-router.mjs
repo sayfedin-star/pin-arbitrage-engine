@@ -643,17 +643,17 @@ export async function preloadNeonRegistry(hubSql, env = null) {
  * @param {number} options.shardId - Target Shard ID
  * @param {Function} options.queryFn - Async query function accepting shardSql
  * @param {Function} [options.fallbackFn] - Fallback function executed if shard is cold/unreachable
- * @param {number} [options.timeoutMs=2500] - Hard query timeout before tripping breaker
+ * @param {number} [options.timeoutMs=6000] - Hard query timeout before tripping breaker
  * @returns {Promise<any>} Query result or fallback result
  */
 export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQueryFn = null, maybeOpts = {}) {
-  let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null, bypassBreaker = false;
+  let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 6000, batchId = null, bypassBreaker = false;
   if (optsOrShardId && typeof optsOrShardId === 'object') {
-    ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null, bypassBreaker = false } = optsOrShardId);
+    ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 6000, batchId = null, bypassBreaker = false } = optsOrShardId);
   } else {
     shardId = optsOrShardId;
     queryFn = maybeQueryFn;
-    timeoutMs = maybeOpts?.timeoutMs ?? 2500;
+    timeoutMs = maybeOpts?.timeoutMs ?? 6000;
     fallbackFn = maybeOpts?.fallbackFn ?? null;
     batchId = maybeOpts?.batchId ?? null;
     shardSql = maybeOpts?.shardSql ?? null;
@@ -1277,79 +1277,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             WHERE pin_id = ${cleanPinId}
             LIMIT 1;
           `.catch(() => []),
-          (async () => {
-            try {
-              const rollups = await sqlClient`
-                SELECT 
-                  pin_id, snapshot_date::text AS snapshot_date, save_count, repin_count,
-                  comment_count, share_count, reaction_count, daily_save_velocity,
-                  updated_at, serp_rankings
-                FROM pins_daily_rollups_v2
-                WHERE pin_id = ${cleanPinId}
-                ORDER BY snapshot_date DESC
-                LIMIT 90;
-              `;
-              if (rollups && rollups.length > 0) {
-                const expanded = [];
-                for (const r of rollups) {
-                  const rankings = Array.isArray(r.serp_rankings) ? r.serp_rankings : [];
-                  if (rankings.length === 0) {
-                    expanded.push({
-                      pin_id: r.pin_id,
-                      snapshot_date: r.snapshot_date,
-                      save_count: Number(r.save_count) || 0,
-                      repin_count: Number(r.repin_count) || 0,
-                      comment_count: Number(r.comment_count) || 0,
-                      share_count: Number(r.share_count) || 0,
-                      reaction_count: Number(r.reaction_count) || 0,
-                      daily_save_velocity: Number(r.daily_save_velocity) || 0,
-                      keyword_id: null,
-                      rank_position: null,
-                      is_displaced: false,
-                      last_known_rank: null,
-                      catalog_rank: null,
-                      created_at: r.updated_at,
-                      crawled_at: r.updated_at,
-                      updated_at: r.updated_at
-                    });
-                  } else {
-                    for (const pos of rankings) {
-                      expanded.push({
-                        pin_id: r.pin_id,
-                        snapshot_date: r.snapshot_date,
-                        save_count: Number(r.save_count) || 0,
-                        repin_count: Number(r.repin_count) || 0,
-                        comment_count: Number(r.comment_count) || 0,
-                        share_count: Number(r.share_count) || 0,
-                        reaction_count: Number(r.reaction_count) || 0,
-                        daily_save_velocity: Number(r.daily_save_velocity) || 0,
-                        keyword_id: pos.keyword_id,
-                        rank_position: pos.rank_position,
-                        is_displaced: Boolean(pos.is_displaced),
-                        last_known_rank: pos.last_known_rank,
-                        catalog_rank: pos.catalog_rank,
-                        created_at: r.updated_at,
-                        crawled_at: r.updated_at,
-                        updated_at: r.updated_at
-                      });
-                    }
-                  }
-                }
-                return expanded;
-              }
-            } catch (_) {}
-
-            return await sqlClient`
-              SELECT 
-                id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
-                comment_count, share_count, reaction_count, daily_save_velocity,
-                keyword_id, competitor_id, created_at, created_at AS crawled_at, created_at AS updated_at
-              FROM pins_daily_snapshots
-              WHERE pin_id = ${cleanPinId}
-              ORDER BY snapshot_date DESC, created_at DESC
-              LIMIT 90;
-            `.catch(() => []);
-          })()
+          sqlClient`
+            SELECT 
+              id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
+              comment_count, share_count, reaction_count, daily_save_velocity,
+              keyword_id, competitor_id, created_at, created_at AS crawled_at, created_at AS updated_at
+            FROM pins_daily_snapshots
+            WHERE pin_id = ${cleanPinId}
+            ORDER BY snapshot_date DESC, created_at DESC
+            LIMIT 90;
+          `.catch(() => [])
         ]);
 
         const row = masterRowArr[0] || null;
@@ -2528,15 +2465,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       }
 
       // 2. Write to Cloudflare Workers KV (only if healthy and verified from shard)
+      // [INVARIANT: CANONICAL-KV-KEY-V3] (LND-816) Write exclusively to canonical key
       if (env?.PIN_ENGINE_KV && !isDegraded) {
         try {
           const kvPayload = JSON.stringify(dossierResult);
-          await Promise.all([
-            env.PIN_ENGINE_KV.put(`pin:dossier:v3?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
-            env.PIN_ENGINE_KV.put(`dossier:v3:pin:${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
-            env.PIN_ENGINE_KV.put(`pin:dossier?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 }),
-            env.PIN_ENGINE_KV.put(`dossier:pin:${cleanPinId}`, kvPayload, { expirationTtl: 43200 })
-          ]);
+          await env.PIN_ENGINE_KV.put(`pin:dossier:v3?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 });
         } catch (_) {}
       }
     })();

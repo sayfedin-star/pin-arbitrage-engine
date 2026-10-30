@@ -223,6 +223,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '038_shard_id',
     name: '038_pa_pins_competitor_pins_shard_id',
     aliases: ['038_shard_id', '038_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id']
+  },
+  '042_hot_and_schema_compaction.sql': {
+    version: '042',
+    name: '042_hot_and_schema_compaction',
+    aliases: ['042', '042_hot_and_schema_compaction', 'hot_and_schema_compaction']
   }
 };
 
