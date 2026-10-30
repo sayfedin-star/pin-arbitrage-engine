@@ -7504,6 +7504,20 @@ export function getDashboardHtml(folderId = '') {
               if (second && CREATOR_SUB_TABS[second.toLowerCase()]) {
                 this.creatorSubTab = CREATOR_SUB_TABS[second.toLowerCase()];
               }
+              const searchStr = (typeof window !== 'undefined' && window.location.search) ? window.location.search : '';
+              if (searchStr) {
+                const params = new URLSearchParams(window.location.search || '');
+                const targetCreator = (params.get('creator') || params.get('competitor') || '').replace(/^@+/, '').trim();
+                const action = (params.get('action') || '').trim().toLowerCase();
+                if (action === 'track' || action === 'new') {
+                  this.openAddCompetitorModal();
+                  if (targetCreator) {
+                    this.newCompetitorHandle = targetCreator;
+                  }
+                } else if (targetCreator) {
+                  this.openCreatorByHandle(targetCreator, 'overview', false);
+                }
+              }
             } else if (cleanFirst === 'related-pins' || cleanFirst === 'related_pins' || cleanFirst === 'seeds' || cleanFirst === 'intersections') {
               this.currentTab = 'related_pins';
               if (cleanFirst === 'seeds' || cleanFirst === 'intersections') {

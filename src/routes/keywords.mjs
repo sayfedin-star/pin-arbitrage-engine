@@ -53,7 +53,8 @@ import {
   pruneFolderPins,
   cacheFolderTrends,
   invalidateFolderCache,
-  bulkPulseTrackFolderCreators
+  bulkPulseTrackFolderCreators,
+  toggleFolderCreatorTracking
 } from '../modules/keywords/folders-service.mjs';
 
 import {
@@ -1077,29 +1078,62 @@ export async function handleKeywordsRoutes({
         return jsonResponse(result, 200);
       }
 
-      // POST /api/folders/:id/creators -> linkCreatorToFolder(sql, folderId, competitorId)
+      // POST /api/folders/:id/creators -> linkCreatorToFolder or toggleFolderCreatorTracking fallback
       if (method === 'POST' && parts.length === 2) {
         const body = await request.json().catch(() => ({}));
-        const competitorId = body.competitor_id || body.creator_id || body.id;
-        if (!competitorId) {
-          return jsonResponse({ success: false, error: 'competitor_id is required' }, 400);
+        const numericCid = Number(body.competitor_id || body.creator_id || body.id);
+        if (Number.isFinite(numericCid) && numericCid > 0) {
+          const linked = await linkCreatorToFolder(sql, folderId, numericCid);
+          invalidateFolderCache(folderId);
+          return jsonResponse({ success: true, linked, folder_id: folderId });
         }
-        const linked = await linkCreatorToFolder(sql, folderId, competitorId);
-        invalidateFolderCache(folderId);
-        return jsonResponse({ success: true, linked, folder_id: folderId });
+        const rawUser = String(body.username || body.competitor_id || body.creator_id || body.id || '');
+        const cleanUsername = rawUser.replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
+        if (cleanUsername) {
+          const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername);
+          invalidateFolderCache(folderId);
+          return jsonResponse({ success: true, linked: result.is_tracked, folder_id: folderId, ...result });
+        }
+        return jsonResponse({ success: false, error: 'Valid competitor_id or username is required' }, 400);
       }
 
-      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query) -> unlinkCreatorFromFolder(sql, folderId, competitorId)
+      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query)
       if (method === 'DELETE' && (parts.length === 2 || parts.length === 3)) {
         let competitorId = null;
+        let rawUser = '';
         if (parts.length === 3) {
-          competitorId = Number(parts[2]);
+          const segment = parts[2];
+          const num = Number(segment);
+          if (Number.isFinite(num) && num > 0) {
+            competitorId = num;
+          } else {
+            rawUser = segment;
+          }
         } else if (parts.length === 2) {
           const body = await request.json().catch(() => ({}));
-          competitorId = Number(body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid'));
+          const rawId = body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid');
+          const num = Number(rawId);
+          if (Number.isFinite(num) && num > 0) {
+            competitorId = num;
+          } else {
+            rawUser = body.username || rawId || searchParams.get('username') || '';
+          }
         }
+
+        if (!competitorId && rawUser) {
+          const cleanUsername = String(rawUser).replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
+          if (cleanUsername) {
+            const [existing] = await sql`
+              SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;
+            `;
+            if (existing?.id) {
+              competitorId = existing.id;
+            }
+          }
+        }
+
         if (!competitorId) {
-          return jsonResponse({ success: false, error: 'Valid creator ID is required' }, 400);
+          return jsonResponse({ success: false, error: 'Valid creator ID or username is required' }, 400);
         }
         const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
         invalidateFolderCache(folderId);

@@ -286,7 +286,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             <span class="text-[10px] text-slate-400">Per-pin daily momentum</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1 col-span-2 sm:col-span-1">
-            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Competitor Gains</span>
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Competitor Gains (' + selectedTimeWindow + ')'">Competitor Gains</span>
             <span class="text-base font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="'+' + formatNumber(clusterCompetitorAudienceGains)">+0</span>
             <span class="text-[10px] text-slate-400">Audience &amp; reach expansion</span>
           </div>
@@ -326,6 +326,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                     :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
             </button>
+            <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'" class="px-2.5 py-1 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🐣</span><span>Breakout Baby Domains (<2y + 7d Gains)</span></button>
+            <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'" class="px-2.5 py-1 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🎯</span><span>Linkless Vacuums</span><span x-show="crossoverData?.summary?.vacuum_pins_count" class="px-1.5 py-0.2 text-[10px] rounded-full bg-rose-500/30 text-rose-200" x-text="crossoverData?.summary?.vacuum_pins_count"></span></button>
             <template x-if="activeFolder?.items?.length">
               <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
                 <option value="all">Filter by Keyword (All)</option>
@@ -415,6 +417,20 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                             <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold"
                                   :title="'In folder: ' + sp.folder_age_days + ' days'">
                               📁 <span x-text="sp.folder_age_days + 'd in folder'"></span>
+                            </span>
+                          </template>
+                          <!-- Breakout Baby Domain Badge -->
+                          <template x-if="(Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && (Number(sp.gains_7d || (sp.daily_save_velocity ? sp.daily_save_velocity * 7 : 0)) >= 15)">
+                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
+                                  title="Breakout Baby Domain (<2y + 7d Gains >= 15)">
+                              🐣 Baby Breakout
+                            </span>
+                          </template>
+                          <!-- Linkless Vacuum Pin Badge -->
+                          <template x-if="sp.is_vacuum_pin || ((!sp.domain || sp.domain === 'Uploaded by user') && Number(sp.save_count || 0) >= 100)">
+                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold"
+                                  title="Linkless SERP Vacuum (High Saves, No Outbound Domain)">
+                              🎯 Vacuum
                             </span>
                           </template>
                         </div>
@@ -1732,7 +1748,20 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         get clusterCompetitorAudienceGains() {
           const creators = this.crossoverData?.top_creators || [];
           if (!creators.length) return 0;
-          return creators.reduce((sum, c) => sum + (Number(c.delta_monthly_reach || c.delta_audience_30d || 0)), 0);
+          const win = this.selectedTimeWindow;
+          return creators.reduce((sum, c) => {
+            const d24 = Number(c.delta_reach_24h ?? c.delta_monthly_reach ?? 0);
+            const d7 = Number(c.reach_delta_7d ?? (d24 > 0 ? d24 * 7 : 0));
+            const d30 = Number(c.delta_audience_30d ?? c.delta_monthly_reach ?? (d7 > 0 ? Math.round((d7 / 7) * 30) : 0));
+            let val = 0;
+            if (win === '24h') val = d24;
+            else if (win === '5d') val = Math.round((d7 / 7) * 5);
+            else if (win === '7d') val = d7;
+            else if (win === '10d') val = Math.round((d7 / 7) * 10);
+            else if (win === '15d') val = Math.round((d7 / 7) * 15);
+            else val = d30 || Number(c.monthly_reach || 0);
+            return sum + Math.max(0, val);
+          }, 0);
         },
 
         formatUniversalAge(days) {
@@ -1880,6 +1909,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         searchQuery: '',
         entityFilter: { type: null, value: null },
         showBlueprint: true,
+        onlyBreakoutBabyDomains: false,
+        onlyVacuumPins: false,
         _pinsCacheKey: '',
         _cachedFilteredPins: null,
         powerPairs: [],
@@ -2712,7 +2743,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         filteredPinsList() {
           const allCount = (this.crossoverData?.all_pins?.length || 0);
           const superCount = (this.crossoverData?.super_pins?.length || 0);
-          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + allCount + ':' + superCount;
+          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + allCount + ':' + superCount;
 
           if (this._pinsCacheKey === currentKey && this._cachedFilteredPins) {
             return this._cachedFilteredPins;
@@ -2755,6 +2786,20 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                 return s.toLowerCase().includes(q);
               })
             );
+          }
+
+          // 3B. Breakout Baby Domains Filter (<2y + 7d Gains >= 15)
+          if (this.onlyBreakoutBabyDomains) {
+            list = list.filter(p => {
+              const ageDays = Number(p.domain_age_days || (p.domain_age_years ? p.domain_age_years * 365 : 0));
+              const g7 = Number(p.gains_7d || (p.daily_save_velocity ? p.daily_save_velocity * 7 : 0));
+              return ageDays > 0 && ageDays <= 730 && g7 >= 15;
+            });
+          }
+
+          // 3C. Linkless Vacuums Filter (High Saves >= 100, No Domain / User Upload)
+          if (this.onlyVacuumPins) {
+            list = list.filter(p => Boolean(p.is_vacuum_pin || ((!p.domain || p.domain === 'Uploaded by user') && Number(p.save_count || 0) >= 100)));
           }
 
           // 4. Sorting

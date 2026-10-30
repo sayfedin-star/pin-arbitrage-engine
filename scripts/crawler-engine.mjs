@@ -229,7 +229,7 @@ async function bulkInsertMetrics(hubSql, metrics) {
           x.pin_id, 
           (NOW() AT TIME ZONE 'UTC')::date, 
           COALESCE(x.saves, 0)::bigint, 
-          COALESCE(x.repins, 0)::int, 
+          COALESCE(x.repins, 0)::bigint, 
           COALESCE(x.comments, 0)::int,
           COALESCE(x.share_count, 0)::int,
           COALESCE(x.reaction_count, 0)::int,
@@ -1935,8 +1935,8 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
           // Atomic monotonic batch commit to competitor_pins on Hub
           await sqlClient`
             UPDATE competitor_pins AS cp
-            SET save_count = GREATEST(cp.save_count, x.saves::int),
-                repin_count = GREATEST(cp.repin_count, x.repins::int),
+            SET save_count = GREATEST(cp.save_count, x.saves::bigint),
+                repin_count = GREATEST(cp.repin_count, x.repins::bigint),
                 comment_count = GREATEST(cp.comment_count, x.comments::int),
                 metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object('delta_saves_24h', x.delta_saves, 'delta_repins_24h', x.delta_repins),
                 updated_at = NOW()

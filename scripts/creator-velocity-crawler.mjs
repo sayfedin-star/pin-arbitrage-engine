@@ -100,6 +100,9 @@ const personalBoardsOnly = process.env.PERSONAL_BOARDS_ONLY !== 'false';
 const targetBoardsInput = (process.env.TARGET_BOARDS || '').trim();
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
+const AUTO_PROMOTE_PULSE_DELTA_24H = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_24H || 25000);
+const AUTO_PROMOTE_PULSE_DELTA_7D = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_7D || 100000);
+
 /**
  * Concurrency Limiter Semaphore
  */
@@ -824,7 +827,7 @@ async function run() {
       console.log(`----------------------------------------------------------------`);
 
       // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Lightweight Creator Pulse Fast-Path Bypass
-      const isPulseOnly = acc.tracking_mode === 'pulse_only' || acc.metadata?.profile_pulse_only === true;
+      let isPulseOnly = acc.tracking_mode === 'pulse_only' || acc.metadata?.profile_pulse_only === true;
 
       // 1. Sync Creator Profile & Reach
       try {
@@ -832,6 +835,32 @@ async function run() {
         await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: isPulseOnly });
       } catch (pErr) {
         console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
+      }
+
+      // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
+      if (isPulseOnly) {
+        const [freshAcc] = await sql`
+          SELECT delta_reach_24h, reach_delta_7d
+          FROM competitor_profiles
+          WHERE id = ${acc.id}
+          LIMIT 1;
+        `.catch(() => [null]);
+
+        const delta24h = Number(freshAcc?.delta_reach_24h || 0);
+        const delta7d = Number(freshAcc?.reach_delta_7d || 0);
+
+        if (delta24h >= AUTO_PROMOTE_PULSE_DELTA_24H || delta7d >= AUTO_PROMOTE_PULSE_DELTA_7D) {
+          console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${delta24h}, 7d: +${delta7d}). Promoting pulse_only -> full!`);
+          await sql`
+            UPDATE competitor_profiles
+            SET tracking_mode = 'full',
+                custom_label = COALESCE(NULLIF(custom_label, ''), 'Breakout Auto-Promoted'),
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('profile_pulse_only', false, 'auto_promoted_at', NOW()::text, 'auto_promote_reason', 'reach_breakout')
+            WHERE id = ${acc.id};
+          `.catch(err => console.warn(`[!] Auto-promote update failed:`, err.message));
+
+          isPulseOnly = false;
+        }
       }
 
       if (!isPulseOnly) {

@@ -886,15 +886,29 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
 
   let competitorId = Number(competitorIdOrUsername);
   if (!competitorId && typeof competitorIdOrUsername === 'string') {
-    const cleanUser = competitorIdOrUsername.trim().toLowerCase().replace(/^@/, '');
+    const cleanUser = competitorIdOrUsername.trim().toLowerCase().replace(/^serp_/, '').replace(/^@/, '');
     const [existing] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
     if (existing) {
       competitorId = existing.id;
     } else {
       const [created] = await sql`
-        INSERT INTO competitor_profiles (username, display_name, account_type, is_active, created_at, updated_at)
-        VALUES (${cleanUser}, ${cleanUser}, 'competitor', TRUE, NOW(), NOW())
-        ON CONFLICT (username) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+        INSERT INTO competitor_profiles (
+          username, display_name, account_type, is_active,
+          tracking_mode, source_folder_id,
+          metadata, created_at, updated_at
+        )
+        VALUES (
+          ${cleanUser}, ${cleanUser}, 'competitor', TRUE,
+          'pulse_only', ${fid},
+          jsonb_build_object('profile_pulse_only', true, 'discovery_source', 'serp_auto', 'discovered_from_folder_id', ${fid}),
+          NOW(), NOW()
+        )
+        ON CONFLICT (username) DO UPDATE SET
+          is_active = TRUE,
+          tracking_mode = COALESCE(competitor_profiles.tracking_mode, 'pulse_only'),
+          source_folder_id = COALESCE(competitor_profiles.source_folder_id, EXCLUDED.source_folder_id),
+          metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || jsonb_build_object('profile_pulse_only', true, 'discovery_source', 'serp_auto', 'discovered_from_folder_id', ${fid}),
+          updated_at = NOW()
         RETURNING id;
       `;
       competitorId = created?.id;
@@ -1914,6 +1928,7 @@ async function _executeFolderCrossover(sql, fid) {
         total_keywords: 0,
         total_unique_pins: 0,
         super_pins_count: 0,
+        vacuum_pins_count: 0,
         universal_tags_count: 0,
         shared_pivots_count: 0,
         monopoly_domain_count: 0
@@ -2052,7 +2067,10 @@ async function _executeFolderCrossover(sql, fid) {
         image_url: row.image_url || meta.image_url || '',
         domain: row.domain || meta.domain || '',
         destination_url: row.destination_url || meta.destination_url || '',
+        domain_age_days: null,
+        domain_age_years: null,
         save_count: safeNum(row.save_count ?? meta.raw_saves ?? 0),
+        is_vacuum_pin: (!row.domain || row.domain === 'Uploaded by user') && safeNum(row.save_count ?? meta.raw_saves ?? 0) >= 100,
         repin_count: safeNum(row.repin_count),
         comment_count: safeNum(row.comment_count),
         daily_save_velocity: vel,
@@ -2112,6 +2130,7 @@ async function _executeFolderCrossover(sql, fid) {
   }
 
   const allPins = Array.from(pinMap.values());
+  let vacuumPinsCount = 0;
   for (const p of allPins) {
     p.overlap_count = p.rankings.length;
     p.overlap_percentage = Math.round((p.overlap_count / totalKeywords) * 100);
@@ -2120,6 +2139,13 @@ async function _executeFolderCrossover(sql, fid) {
     p.avg_rank = p.rankings.length > 0 ? Number((p.rankings.reduce((sum, r) => sum + r.rank_position, 0) / p.rankings.length).toFixed(1)) : 1;
     // Sort rankings by rank position ASC
     p.rankings.sort((a, b) => a.rank_position - b.rank_position);
+
+    // [INVARIANT: VACUUM-PIN-CALCULATION]
+    const cleanDom = String(p.domain || '').trim();
+    p.is_vacuum_pin = (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
+    if (p.is_vacuum_pin) {
+      vacuumPinsCount++;
+    }
   }
 
   // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
@@ -2362,6 +2388,28 @@ async function _executeFolderCrossover(sql, fid) {
     if (b.pin_count !== a.pin_count) return b.pin_count - a.pin_count;
     return b.total_saves - a.total_saves;
   });
+
+  // Enrich domain age & monetization from domain_intelligence_rollup
+  const domainNames = Array.from(domainMap.keys()).filter(Boolean);
+  const domainRollupMap = new Map();
+  if (domainNames.length > 0) {
+    const domainRows = await sql`
+      SELECT domain, age_days, age_years, ad_network
+      FROM domain_intelligence_rollup
+      WHERE domain = ANY(${domainNames})
+    `.catch(() => []);
+    for (const dr of (domainRows || [])) {
+      if (dr.domain) domainRollupMap.set(dr.domain.toLowerCase(), dr);
+    }
+  }
+
+  for (const p of allPins) {
+    const dom = cleanExternalDomain(p.domain);
+    const dr = dom ? domainRollupMap.get(dom.toLowerCase()) : null;
+    p.domain_age_days = dr?.age_days != null ? Number(dr.age_days) : null;
+    p.domain_age_years = dr?.age_years != null ? Number(dr.age_years) : null;
+    p.ad_network = dr?.ad_network || null;
+  }
 
   const creatorUsernames = Array.from(creatorMap.keys()).filter(Boolean);
   const creatorProfilesMap = new Map();
@@ -2668,6 +2716,7 @@ async function _executeFolderCrossover(sql, fid) {
       total_keywords: totalKeywords,
       total_unique_pins: allPins.length,
       super_pins_count: superPins.length,
+      vacuum_pins_count: vacuumPinsCount,
       universal_tags_count: tagBridges.filter(t => t.is_universal).length,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: domainMonopoly.length,

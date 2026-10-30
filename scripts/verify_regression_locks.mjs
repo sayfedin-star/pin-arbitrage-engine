@@ -3,11 +3,11 @@
 /**
  * scripts/verify_regression_locks.mjs
  * 
- * Round 5 Automated Architectural Regression Gate
+ * Automated Architectural Regression Gate
  * Fast (< 1s), zero-dependency automated verification script that inspects the
- * codebase and exits with code 1 if ANY of the 7 Round 5 regression locks regress.
+ * codebase and exits with code 1 if ANY of the 12 permanent architectural regression locks regress.
  * 
- * Enforces Invariants 32–37:
+ * Enforces Invariants 32–41:
  * - Lock 1: Room 1–5 Sibling DOM Hierarchy & Unclipped Workspace Header
  * - Lock 2: Pin Dossier Timeframe & SERP Badge Integrity
  * - Lock 3: Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
@@ -15,6 +15,11 @@
  * - Lock 5: Context-Preserving Pin Navigation & Untracked Creator Shield
  * - Lock 6: Defensive D1 Coalescence & Epoch Cache Coherency
  * - Lock 7: Room 3 Creator Hub Discovery & Lightweight SERP Creator Pulse
+ * - Lock 8: Daily Rolling Gains Workflow Automation
+ * - Lock 9: Window-Aware Competitor Audience Gains
+ * - Lock 10: Room 3 Single-Creator SERP Track Fallback
+ * - Lock 11: Domain Studio -> /accounts Query Param Hydration & Crawler BigInt Parity
+ * - Lock 12: Auto-Promote Pulse Breakout & Composite Shard Migration 041
  */
 
 import fs from 'node:fs';
@@ -208,6 +213,63 @@ try {
   const checksUnifiedPostgres = /!isUnifiedPostgres\(\s*env\s*\)/.test(serviceContent);
   check('Lock 7', checksUnifiedPostgres, 'src/modules/keywords/service.mjs lacks !isUnifiedPostgres(env) guard');
 
+  // =========================================================================
+  // LOCK 8: Daily Rolling Gains Workflow Automation
+  // =========================================================================
+  console.log('\n[Lock 8] Verifying Daily Rolling Gains Workflow Automation...');
+  const workflowContent = readFile('.github/workflows/keyword-intelligence-velocity.yml');
+  const hasBackfillStep = /node\s+scripts\/backfill_rolling_window_gains\.mjs/.test(workflowContent);
+  check('Lock 8', hasBackfillStep, '.github/workflows/keyword-intelligence-velocity.yml omits node scripts/backfill_rolling_window_gains.mjs');
+
+  // =========================================================================
+  // LOCK 9: Window-Aware Competitor Audience Gains
+  // =========================================================================
+  console.log('\n[Lock 9] Verifying Window-Aware Competitor Audience Gains...');
+  const checksSelectedTimeWindow = /clusterCompetitorAudienceGains[\s\S]*?this\.selectedTimeWindow/.test(campaignFoldersContent);
+  const usesMathMaxClamping = /clusterCompetitorAudienceGains[\s\S]*?Math\.max\(\s*0\s*,/.test(campaignFoldersContent);
+  check('Lock 9', checksSelectedTimeWindow && usesMathMaxClamping, 'src/campaign-folders-ui.mjs (clusterCompetitorAudienceGains) omits this.selectedTimeWindow or Math.max(0, clamping');
+
+  // =========================================================================
+  // LOCK 10: Room 3 Single-Creator SERP Track Fallback
+  // =========================================================================
+  console.log('\n[Lock 10] Verifying Room 3 Single-Creator SERP Track Fallback...');
+  const routesKeywordsContent = readFile('src/routes/keywords.mjs');
+  const dashboardServerContent = readFile('scripts/dashboard.mjs');
+
+  const routesHasToggleFallback = /\/api\/folders\/:id\/creators[\s\S]*?toggleFolderCreatorTracking/i.test(routesKeywordsContent);
+  check('Lock 10', routesHasToggleFallback, 'src/routes/keywords.mjs lacks toggleFolderCreatorTracking fallback in POST /api/folders/:id/creators');
+
+  const dashboardHasToggleFallback = /\/api\/folders\/:id\/creators[\s\S]*?toggleFolderCreatorTracking/i.test(dashboardServerContent);
+  check('Lock 10', dashboardHasToggleFallback, 'scripts/dashboard.mjs lacks toggleFolderCreatorTracking fallback in POST /api/folders/:id/creators');
+
+  // =========================================================================
+  // LOCK 11: Domain Studio -> /accounts Hydration & Crawler BigInt Parity
+  // =========================================================================
+  console.log('\n[Lock 11] Verifying /accounts Query Param Hydration & BigInt Parity...');
+  const crawlerEngineContent = readFile('scripts/crawler-engine.mjs');
+
+  const parsesCreatorParam = /URLSearchParams\(\s*window\.location\.search[\s\S]*?['"]creator['"]/.test(dashboardContent);
+  check('Lock 11', parsesCreatorParam, "src/dashboard-ui.mjs (initDashboard) omits URLSearchParams(window.location.search parsing for 'creator'");
+
+  const hasIntCastSaves = /(?:COALESCE\s*\(\s*x\.saves|(?:x\.)?saves|save_count)[^;\n]*?::int\b/i.test(crawlerEngineContent);
+  const hasIntCastRepins = /(?:COALESCE\s*\(\s*x\.repins|(?:x\.)?repins|repin_count)[^;\n]*?::int\b/i.test(crawlerEngineContent);
+  check('Lock 11', !hasIntCastSaves && !hasIntCastRepins, 'scripts/crawler-engine.mjs contains unsafe x.saves::int or x.repins::int (must be ::bigint)');
+
+  // =========================================================================
+  // LOCK 12: Auto-Promote Pulse Breakout & Composite Shard Migration 041
+  // =========================================================================
+  console.log('\n[Lock 12] Verifying Auto-Promote Pulse Breakout & Migration 041...');
+  const migration041Exists = fs.existsSync(path.join(ROOT_DIR, 'scripts/migrations/041_composite_shard_indexes.sql'));
+
+  const hasAutoPromoteThreshold = creatorCrawlerContent.includes('AUTO_PROMOTE_PULSE_DELTA_24H');
+  check('Lock 12', hasAutoPromoteThreshold, 'scripts/creator-velocity-crawler.mjs lacks AUTO_PROMOTE_PULSE_DELTA_24H constant');
+
+  const hasBreakoutBabyFilter = campaignFoldersContent.includes('onlyBreakoutBabyDomains');
+  const hasVacuumFilter = campaignFoldersContent.includes('onlyVacuumPins');
+  check('Lock 12', hasBreakoutBabyFilter && hasVacuumFilter, 'src/campaign-folders-ui.mjs lacks onlyBreakoutBabyDomains or onlyVacuumPins filter state');
+
+  check('Lock 12', migration041Exists, 'scripts/migrations/041_composite_shard_indexes.sql does not exist');
+
 } catch (e) {
   errors.push(`Unexpected Gate Script Error: ${e.message}\n${e.stack}`);
   console.error(`💥 Execution failure:`, e);
@@ -217,7 +279,7 @@ const elapsed = (performance.now() - startTime).toFixed(1);
 
 console.log('\n' + '='.repeat(80));
 if (errors.length === 0) {
-  console.log(`🎉 ALL 7 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN (Elapsed: ${elapsed}ms < 1000ms SLA)`);
+  console.log(`🎉 ALL 12 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN (Elapsed: ${elapsed}ms < 1000ms SLA)`);
   console.log('='.repeat(80));
   process.exit(0);
 } else {

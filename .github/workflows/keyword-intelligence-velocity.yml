@@ -191,12 +191,17 @@ jobs:
           FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/keyword-fleet-consolidator.mjs
 
-      - name: 5. Recompute Domain Intelligence Rollup
+      - name: 5. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/backfill_rolling_window_gains.mjs
+
+      - name: 6. Recompute Domain Intelligence Rollup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/refresh-domain-rollup.mjs
 
-      - name: 6. Invalidate Edge Fleet Cache
+      - name: 7. Invalidate Edge Fleet Cache
         if: success()
         env:
           API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
