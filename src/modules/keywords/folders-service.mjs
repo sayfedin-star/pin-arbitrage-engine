@@ -101,15 +101,54 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       ) u
       GROUP BY folder_id
     ),
-    pin_counts AS (
-      SELECT kfi.folder_id,
-        COUNT(DISTINCT ksc.pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT ksc.pin_id)::int AS total_unique_pins,
-        COUNT(DISTINCT ksc.pin_id)::int AS pin_count
+    active_folder_pins AS (
+      SELECT kfi.folder_id, ksc.pin_id
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE ksc.is_displaced = FALSE
-      GROUP BY kfi.folder_id
+        AND ksc.rank_position IS NOT NULL
+        AND ksc.rank_position >= 1
+    ),
+    vault_folder_pins AS (
+      SELECT
+        kfi.folder_id,
+        kdi.pin_id,
+        COUNT(kdi.keyword_id) OVER (PARTITION BY kfi.folder_id, kdi.pin_id) AS kw_count,
+        kdi.daily_save_velocity,
+        kdi.save_count,
+        kdi.last_known_rank
+      FROM keyword_folder_items kfi
+      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
+      WHERE kdi.last_known_rank IS NOT NULL
+        AND kdi.last_known_rank >= 1
+    ),
+    qualifying_vault_pins AS (
+      SELECT vfp.folder_id, vfp.pin_id
+      FROM vault_folder_pins vfp
+      WHERE (vfp.pin_id IN (SELECT pin_id FROM active_folder_pins afp WHERE afp.folder_id = vfp.folder_id))
+         OR vfp.kw_count >= 2
+         OR vfp.daily_save_velocity > 0
+         OR vfp.save_count >= 50
+         OR vfp.last_known_rank <= 25
+      GROUP BY vfp.folder_id, vfp.pin_id
+    ),
+    all_cluster_unique_pins AS (
+      SELECT folder_id, pin_id, TRUE AS is_active, FALSE AS is_vault
+      FROM active_folder_pins
+      UNION
+      SELECT folder_id, pin_id, FALSE AS is_active, TRUE AS is_vault
+      FROM qualifying_vault_pins
+    ),
+    pin_counts AS (
+      SELECT
+        folder_id,
+        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT pin_id)::int AS total_unique_pins,
+        COUNT(DISTINCT pin_id)::int AS pin_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE is_active)::int AS active_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE is_vault AND pin_id NOT IN (SELECT pin_id FROM active_folder_pins afp WHERE afp.folder_id = all_cluster_unique_pins.folder_id))::int AS vault_pins_count
+      FROM all_cluster_unique_pins
+      GROUP BY folder_id
     ),
     discovered_creator_pins AS (
       SELECT
@@ -183,6 +222,8 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       COALESCE(pc.pin_count, 0) AS pin_count,
       COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
       COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
+      COALESCE(pc.active_pins_count, 0) AS active_pins_count,
+      COALESCE(pc.vault_pins_count, 0) AS vault_pins_count,
       COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count,
       COALESCE(
         (
@@ -213,6 +254,8 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     pin_count: Number(r.pin_count || r.unique_pins_count || 0),
     unique_pins_count: Number(r.unique_pins_count || r.pin_count || 0),
     total_unique_pins: Number(r.total_unique_pins || r.pin_count || 0),
+    active_pins_count: Number(r.active_pins_count || 0),
+    vault_pins_count: Number(r.vault_pins_count || 0),
     discovered_creator_count: Number(r.discovered_creator_count || 0)
   }));
 }
@@ -260,16 +303,56 @@ export async function getFolder(sql, folderId) {
       ) u
       GROUP BY folder_id
     ),
-    pin_counts AS (
-      SELECT kfi.folder_id,
-        COUNT(DISTINCT ksc.pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT ksc.pin_id)::int AS total_unique_pins,
-        COUNT(DISTINCT ksc.pin_id)::int AS pin_count
+    active_folder_pins AS (
+      SELECT kfi.folder_id, ksc.pin_id
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
         AND ksc.is_displaced = FALSE
-      GROUP BY kfi.folder_id
+        AND ksc.rank_position IS NOT NULL
+        AND ksc.rank_position >= 1
+    ),
+    vault_folder_pins AS (
+      SELECT
+        kfi.folder_id,
+        kdi.pin_id,
+        COUNT(kdi.keyword_id) OVER (PARTITION BY kdi.pin_id) AS kw_count,
+        kdi.daily_save_velocity,
+        kdi.save_count,
+        kdi.last_known_rank
+      FROM keyword_folder_items kfi
+      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND kdi.last_known_rank IS NOT NULL
+        AND kdi.last_known_rank >= 1
+    ),
+    qualifying_vault_pins AS (
+      SELECT vfp.folder_id, vfp.pin_id
+      FROM vault_folder_pins vfp
+      WHERE (vfp.pin_id IN (SELECT pin_id FROM active_folder_pins))
+         OR vfp.kw_count >= 2
+         OR vfp.daily_save_velocity > 0
+         OR vfp.save_count >= 50
+         OR vfp.last_known_rank <= 25
+      GROUP BY vfp.folder_id, vfp.pin_id
+    ),
+    all_cluster_unique_pins AS (
+      SELECT folder_id, pin_id, TRUE AS is_active, FALSE AS is_vault
+      FROM active_folder_pins
+      UNION
+      SELECT folder_id, pin_id, FALSE AS is_active, TRUE AS is_vault
+      FROM qualifying_vault_pins
+    ),
+    pin_counts AS (
+      SELECT
+        folder_id,
+        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT pin_id)::int AS total_unique_pins,
+        COUNT(DISTINCT pin_id)::int AS pin_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE is_active)::int AS active_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE is_vault AND pin_id NOT IN (SELECT pin_id FROM active_folder_pins))::int AS vault_pins_count
+      FROM all_cluster_unique_pins
+      GROUP BY folder_id
     ),
     discovered_creator_pins AS (
       SELECT
@@ -340,6 +423,8 @@ export async function getFolder(sql, folderId) {
       COALESCE(pc.pin_count, 0) AS pin_count,
       COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
       COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
+      COALESCE(pc.active_pins_count, 0) AS active_pins_count,
+      COALESCE(pc.vault_pins_count, 0) AS vault_pins_count,
       COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count
     FROM keyword_folders f
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
@@ -405,6 +490,8 @@ export async function getFolder(sql, folderId) {
     pin_count: Number(folder.pin_count || folder.unique_pins_count || 0),
     unique_pins_count: Number(folder.unique_pins_count || folder.pin_count || 0),
     total_unique_pins: Number(folder.total_unique_pins || folder.pin_count || 0),
+    active_pins_count: Number(folder.active_pins_count || 0),
+    vault_pins_count: Number(folder.vault_pins_count || 0),
     discovered_creator_count: Number(folder.discovered_creator_count || 0),
     item_count: resolvedCount,
     items
@@ -2035,7 +2122,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
 
   const computePromise = (async () => {
     try {
-      const result = await _executeFolderCrossover(sql, fid);
+      const result = await _executeFolderCrossover(sql, fid, { env });
       if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
         const oldest = crossoverCache.keys().next().value;
         if (oldest) crossoverCache.delete(oldest);
@@ -2058,7 +2145,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   return await computePromise;
 }
 
-async function _executeFolderCrossover(sql, fid) {
+async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
   // 1. Fetch Folder & Member Keywords
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;
@@ -2156,10 +2243,85 @@ async function _executeFolderCrossover(sql, fid) {
     ORDER BY c.save_count DESC, c.daily_save_velocity DESC;
   `;
 
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Fallback to empty array; Central Hub holds zero historical snapshots
   if (!pinRows) {
     pinRows = [];
   }
+
+  // 2B. High-Signal Vault Union from keyword_displaced_index
+  let displacedRows = await sql`
+    WITH active_pin_ids AS (
+      SELECT DISTINCT c.pin_id
+      FROM keyword_folder_items i
+      JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND c.is_displaced IS FALSE
+        AND c.rank_position IS NOT NULL
+        AND c.rank_position >= 1
+    ),
+    folder_kdi AS (
+      SELECT
+        kdi.keyword_id,
+        kdi.pin_id,
+        kdi.last_known_rank AS rank_position,
+        kdi.domain,
+        kdi.creator_username,
+        kdi.save_count,
+        kdi.repin_count,
+        kdi.comment_count,
+        kdi.daily_save_velocity,
+        kdi.delta_repins_24h,
+        kdi.gains_5d,
+        kdi.gains_7d,
+        kdi.gains_10d,
+        kdi.gains_15d,
+        kdi.updated_at AS snapshot_date,
+        tk.keyword AS keyword_text,
+        i.added_at AS folder_added_at,
+        TRUE AS is_displaced,
+        (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
+        COUNT(kdi.keyword_id) OVER (PARTITION BY kdi.pin_id) AS kdi_keyword_count
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND kdi.last_known_rank IS NOT NULL
+        AND kdi.last_known_rank >= 1
+    ),
+    filtered_kdi AS (
+      SELECT *
+      FROM folder_kdi
+      WHERE in_active_serp = TRUE
+         OR kdi_keyword_count >= 2
+         OR daily_save_velocity > 0
+         OR save_count >= 50
+         OR rank_position <= 25
+      ORDER BY daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
+      LIMIT 2000
+    )
+    SELECT
+      keyword_id,
+      pin_id,
+      rank_position,
+      domain,
+      creator_username,
+      save_count,
+      repin_count,
+      comment_count,
+      daily_save_velocity,
+      delta_repins_24h,
+      gains_5d,
+      gains_7d,
+      gains_10d,
+      gains_15d,
+      snapshot_date,
+      keyword_text,
+      folder_added_at,
+      is_displaced
+    FROM filtered_kdi;
+  `;
+  if (!displacedRows) displacedRows = [];
+
+  const combinedCatalogRows = [...pinRows, ...displacedRows];
 
   // 3. Query Guided Search Capsules for all folder keywords
   const capsuleRows = await sql`
@@ -2190,12 +2352,12 @@ async function _executeFolderCrossover(sql, fid) {
   const nowMs = Date.now();
   const folderCreatedMs = folder.created_at ? new Date(folder.created_at).getTime() : null;
 
-  for (const row of pinRows) {
+  for (const row of combinedCatalogRows) {
     const pid = String(row.pin_id).trim();
     if (!pid) continue;
 
     const rankNum = Number(row.rank_position);
-    if (!Number.isFinite(rankNum) || rankNum < 1 || row.is_displaced === true) {
+    if (!Number.isFinite(rankNum) || rankNum < 1) {
       continue;
     }
 
@@ -2290,13 +2452,16 @@ async function _executeFolderCrossover(sql, fid) {
       keyword: row.keyword_text,
       rank_position: rankNum,
       daily_save_velocity: safeNum(row.daily_save_velocity),
-      snapshot_date: row.snapshot_date
+      snapshot_date: row.snapshot_date,
+      is_displaced: Boolean(row.is_displaced)
     });
   }
 
   const allPins = Array.from(pinMap.values());
   let vacuumPinsCount = 0;
   for (const p of allPins) {
+    p.has_active_rank = p.rankings.some(r => !r.is_displaced);
+    p.has_vault_rank = p.rankings.some(r => r.is_displaced);
     p.overlap_count = p.rankings.length;
     p.overlap_percentage = Math.round((p.overlap_count / totalKeywords) * 100);
     p.is_super_pin = p.overlap_count >= 2 && p.rankings.every(r => Number.isFinite(r.rank_position) && r.rank_position >= 1);
@@ -2313,19 +2478,95 @@ async function _executeFolderCrossover(sql, fid) {
     }
   }
 
+  // Fast Creative Metadata Hydration (D1 / Hub Fallback) for Vault-only Pins
+  const missingMetaPins = allPins.filter(p => !p.title || !p.image_url);
+  if (missingMetaPins.length > 0) {
+    const missingPinIds = missingMetaPins.map(p => p.pin_id);
+    const enrichedMap = new Map();
+
+    // Step A: Check Cloudflare D1 edge_pins_metadata if available
+    if (env?.PIN_D1_DB && typeof env.PIN_D1_DB.prepare === 'function') {
+      try {
+        const BATCH_SIZE = 80;
+        for (let i = 0; i < missingPinIds.length; i += BATCH_SIZE) {
+          const chunk = missingPinIds.slice(i, i + BATCH_SIZE);
+          const placeholders = chunk.map(() => '?').join(',');
+          const d1Res = await env.PIN_D1_DB.prepare(
+            `SELECT pin_id, title, image_url, destination_url FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
+          ).bind(...chunk).all();
+          if (Array.isArray(d1Res?.results)) {
+            for (const r of d1Res.results) {
+              if (r.pin_id) enrichedMap.set(String(r.pin_id), r);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Step B: Central Hub Fallback (competitor_pins / pa_pins)
+    const stillMissing = missingPinIds.filter(pid => {
+      const e = enrichedMap.get(pid);
+      return !e || !e.title || !e.image_url;
+    });
+
+    if (stillMissing.length > 0) {
+      try {
+        const hubMeta = await sql`
+          SELECT pin_id, title, image_url, destination_url
+          FROM competitor_pins
+          WHERE pin_id = ANY(${stillMissing}::text[])
+            AND (title <> '' OR image_url <> '')
+          UNION
+          SELECT pin_id, title, image_url, link as destination_url
+          FROM pa_pins
+          WHERE pin_id = ANY(${stillMissing}::text[])
+            AND (title <> '' OR image_url <> '');
+        `;
+        for (const row of hubMeta) {
+          if (row.pin_id) {
+            const existing = enrichedMap.get(String(row.pin_id)) || {};
+            enrichedMap.set(String(row.pin_id), {
+              title: row.title || existing.title,
+              image_url: row.image_url || existing.image_url,
+              destination_url: row.destination_url || existing.destination_url
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Step C: Apply metadata & fall back cleanly so zero "Untitled Pin" rows exist
+    const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
+    for (const p of missingMetaPins) {
+      const meta = enrichedMap.get(p.pin_id);
+      if (meta) {
+        if (!p.title && meta.title) p.title = meta.title;
+        if (!p.image_url && meta.image_url) p.image_url = meta.image_url;
+        if (!p.destination_url && meta.destination_url) p.destination_url = meta.destination_url;
+      }
+      if (!p.title || p.title === 'Untitled Pin') {
+        p.title = derivePinTitle('', p.destination_url || p.domain, primaryKeyword);
+      }
+    }
+  }
+
   // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
+  // Sorted primarily by daily_save_velocity DESC (with overlap_count and save_count tie-breakers)
   const superPins = allPins
     .filter(p => p.overlap_count >= (totalKeywords > 1 ? 2 : 1) && p.rankings.length >= (totalKeywords > 1 ? 2 : 1) && p.rankings.every(r => r.rank_position >= 1))
     .sort((a, b) => {
+      if ((b.daily_save_velocity || 0) !== (a.daily_save_velocity || 0)) {
+        return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
+      }
       if (b.overlap_count !== a.overlap_count) {
         return b.overlap_count - a.overlap_count;
       }
-      return b.save_count - a.save_count;
+      return (b.save_count || 0) - (a.save_count || 0);
     });
 
   // Top overall pins if no super pins or total keywords is 1
   const topRankedPins = allPins
-    .sort((a, b) => b.save_count - a.save_count)
+    .sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0))
     .slice(0, 30);
 
   // =========================================================================
@@ -2880,6 +3121,8 @@ async function _executeFolderCrossover(sql, fid) {
     summary: {
       total_keywords: totalKeywords,
       total_unique_pins: allPins.length,
+      active_pins_count: allPins.filter(p => p.has_active_rank).length,
+      vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
       vacuum_pins_count: vacuumPinsCount,
       universal_tags_count: tagBridges.filter(t => t.is_universal).length,
@@ -2896,7 +3139,7 @@ async function _executeFolderCrossover(sql, fid) {
       }
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
-    all_pins: allPins.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0)),
+    all_pins: allPins.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,

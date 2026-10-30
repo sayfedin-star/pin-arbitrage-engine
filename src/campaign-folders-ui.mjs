@@ -299,11 +299,11 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         <!-- Table Title & Meta Bar -->
         <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
-            <span class="text-base" x-text="scopeFilter === 'super_only' ? '⭐' : '📌'">📌</span>
+            <span class="text-base" x-text="scopeFilter === 'super_only' ? '⭐' : (scopeFilter === 'active_only' ? '🟢' : (scopeFilter === 'vault_only' ? '🟣' : '📌'))">📌</span>
             <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight" 
-                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter)"></h3>
+                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'active_only' ? 'Active SERP Dominators (Live Ranking Pins)' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers (Organic Cluster Pins)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter)))"></h3>
             <span class="text-xs text-slate-500 dark:text-slate-400" 
-                  x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : '(Every verified pin across cluster search snapshots)'"></span>
+                  x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : (scopeFilter === 'active_only' ? '(Pins actively ranking in live SERPs)' : (scopeFilter === 'vault_only' ? '(High-signal displaced organic pins in vault)' : '(Every verified pin across cluster search snapshots)'))"></span>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
@@ -320,6 +320,16 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                     :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
+            </button>
+            <button @click="scopeFilter = 'active_only'; currentPage = 1" 
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                    :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+              <span>🟢</span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
+            </button>
+            <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                    :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+              <span>🟣</span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
             </button>
             <button @click="scopeFilter = 'super_only'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
@@ -343,9 +353,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             <div class="flex items-center gap-1.5 text-xs">
               <span class="text-slate-500 dark:text-slate-400">Sort:</span>
               <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
+                <option value="velocity_desc">Daily Velocity (Fastest)</option>
                 <option value="saves_desc">Total Saves (High → Low)</option>
                 <option value="saves_asc">Total Saves (Low → High)</option>
-                <option value="velocity_desc">Daily Velocity (Fastest)</option>
                 <option value="pin_age_asc">Pin Age (Youngest First)</option>
                 <option value="pin_age_desc">Pin Age (Oldest First)</option>
                 <option value="folder_age_desc">Days in Folder (Longest)</option>
@@ -457,13 +467,17 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <template x-for="rk in (sp.rankings || [])" :key="rk.keyword_id || rk.keyword">
                           <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
-                                :class="rk.rank_position <= 3 
+                                :class="rk.is_displaced
+                                  ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30'
+                                  : rk.rank_position <= 3 
                                   ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' 
                                   : rk.rank_position <= 10 
                                   ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
                                   : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
+                            <span x-show="rk.is_displaced" class="text-[9px]">🟣</span>
                             <span x-text="rk.keyword"></span>
                             <span class="font-bold" x-text="'#' + rk.rank_position"></span>
+                            <span x-show="rk.is_displaced" class="text-[9px] font-normal opacity-80">(Vault)</span>
                           </span>
                         </template>
                       </div>
@@ -2011,7 +2025,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         newFolderColor: '#6366f1',
         deleteModalFolderId: null,
         scopeFilter: 'all',
-        sortBy: 'saves_desc',
+        sortBy: 'velocity_desc',
         currentPage: 1,
         pageSize: 10,
         searchQuery: '',
@@ -2868,6 +2882,16 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           let list = [];
           if (this.scopeFilter === 'super_only') {
             list = this.crossoverData?.super_pins || [];
+          } else if (this.scopeFilter === 'active_only') {
+            const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+              ? this.crossoverData.all_pins
+              : (this.crossoverData?.super_pins || []);
+            list = source.filter(p => p.has_active_rank);
+          } else if (this.scopeFilter === 'vault_only') {
+            const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+              ? this.crossoverData.all_pins
+              : (this.crossoverData?.super_pins || []);
+            list = source.filter(p => !p.has_active_rank && p.has_vault_rank);
           } else {
             list = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0) 
               ? this.crossoverData.all_pins 
@@ -2875,7 +2899,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           }
 
           // 1. Scope filter by individual keyword
-          if (this.scopeFilter !== 'all' && this.scopeFilter !== 'super_only') {
+          if (this.scopeFilter !== 'all' && this.scopeFilter !== 'super_only' && this.scopeFilter !== 'active_only' && this.scopeFilter !== 'vault_only') {
             const kw = this.scopeFilter.toLowerCase().trim();
             list = list.filter(p => (p.rankings || []).some(r => (r.keyword || '').toLowerCase().trim() === kw));
           }
@@ -2918,12 +2942,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           }
 
           // 4. Sorting
-          if (this.sortBy === 'saves_desc') {
-            list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0));
+          if (this.sortBy === 'velocity_desc') {
+            list = list.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
+          } else if (this.sortBy === 'saves_desc') {
+            list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'saves_asc') {
-            list = list.slice().sort((a, b) => (a.save_count || 0) - (b.save_count || 0));
-          } else if (this.sortBy === 'velocity_desc') {
-            list = list.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
+            list = list.slice().sort((a, b) => (a.save_count || 0) - (b.save_count || 0) || (a.daily_save_velocity || 0) - (b.daily_save_velocity || 0));
           } else if (this.sortBy === 'pin_age_asc') {
             list = list.slice().sort((a, b) => (a.pin_age_days != null && isFinite(a.pin_age_days) ? Number(a.pin_age_days) : Infinity) - (b.pin_age_days != null && isFinite(b.pin_age_days) ? Number(b.pin_age_days) : Infinity));
           } else if (this.sortBy === 'pin_age_desc') {

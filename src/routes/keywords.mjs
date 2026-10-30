@@ -1732,7 +1732,7 @@ export async function handleKeywordsRoutes({
     const folderId = searchParams.get('folder_id') || searchParams.get('id');
     if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, folderId, { refresh });
+    const crossover = await calculateFolderCrossover(sql, folderId, { refresh, env });
     return jsonResponse({ success: true, crossover });
   }
 
