@@ -6,7 +6,8 @@
 -- ============================================================================
 
 -- 1. Add last_accessed_at column to edge_pins_metadata if not already present
-ALTER TABLE edge_pins_metadata ADD COLUMN last_accessed_at TEXT DEFAULT (datetime('now'));
+ALTER TABLE edge_pins_metadata ADD COLUMN last_accessed_at TEXT DEFAULT '';
+UPDATE edge_pins_metadata SET last_accessed_at = datetime('now') WHERE last_accessed_at = '' OR last_accessed_at IS NULL;
 
 -- 2. Index on last_accessed_at to enable fast LRU pruning seeks
 CREATE INDEX IF NOT EXISTS idx_edge_pins_last_accessed
