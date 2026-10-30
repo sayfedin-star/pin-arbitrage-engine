@@ -1344,13 +1344,26 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ success: false, error: 'Method not allowed on /domains' }, 405);
     }
 
+    const projectId = searchParams.get('project_id') || 'default';
+
     if (method === 'GET') {
       const isRefreshRequested = searchParams.get('refresh') === 'true';
       const isLite = searchParams.get('lite') === 'true';
-      const projectId = searchParams.get('project_id') || 'default';
 
       if (folderId && parts.length === 1) {
-        // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 10m) before hitting Neon Hub
+        let epoch = '0';
+        if (!isRefreshRequested && env?.PIN_ENGINE_KV) {
+          try {
+            epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            const detailKey = `fep:${epoch}:folder:${folderId}:detail`;
+            const cachedDetail = await env.PIN_ENGINE_KV.get(detailKey, { type: 'json' });
+            if (cachedDetail) {
+              return jsonResponse({ success: true, folder: cachedDetail, source: 'kv_edge' }, 200, 15);
+            }
+          } catch (_) {}
+        }
+
+        // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 60m) before hitting Neon Hub
         if (!isRefreshRequested && env?.PIN_D1_DB) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
@@ -1358,7 +1371,7 @@ export async function handleKeywordsRoutes({
             ).bind(String(folderId)).first();
             if (d1Folder) {
               const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
-              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
+              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 60 * 60 * 1000);
               if (isFresh) {
                 const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
                 const normalizedD1Folder = {
@@ -1389,7 +1402,26 @@ export async function handleKeywordsRoutes({
         if (syncFolderToD1) {
           safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
         }
+        if (env?.PIN_ENGINE_KV && folder) {
+          try {
+            if (!epoch || epoch === '0') {
+              epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            }
+            const detailKey = `fep:${epoch}:folder:${folderId}:detail`;
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(detailKey, JSON.stringify(folder), { expirationTtl: 3600 }), 'kv_put_folder_detail');
+          } catch (_) {}
+        }
         return jsonResponse({ success: true, folder }, 200, 15);
+      }
+
+      // [INVARIANT: KV-EDGE-FOLDERS-LIST] Check Workers KV first (< 2ms)
+      if (!isRefreshRequested && env?.PIN_ENGINE_KV) {
+        try {
+          const cachedList = await env.PIN_ENGINE_KV.get(`folders:list:v2:${projectId}`, { type: 'json' });
+          if (cachedList && Array.isArray(cachedList) && cachedList.length > 0) {
+            return jsonResponse({ success: true, folders: cachedList, source: 'kv_edge' }, 200, 10);
+          }
+        } catch (_) {}
       }
 
       // [INVARIANT: SWR-D1-EDGE-FOLDERS] Query ALL cached rows from D1 immediately (< 5ms)
@@ -1410,11 +1442,11 @@ export async function handleKeywordsRoutes({
               metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})
             }));
 
-            // Check if oldest row is older than 15 minutes for SWR background refresh
-            const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+            // Check if oldest row is older than 60 minutes for SWR background refresh
+            const sixtyMinutesAgo = Date.now() - 60 * 60 * 1000;
             const hasStaleRow = d1Folders.results.some(f => {
               const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
-              return isNaN(t) || t < fifteenMinutesAgo;
+              return isNaN(t) || t < sixtyMinutesAgo;
             });
             if (hasStaleRow && !isLite && syncFolderToD1 && sql) {
               safeWaitUntil(ctx, (async () => {
@@ -1422,11 +1454,19 @@ export async function handleKeywordsRoutes({
                   const fresh = await listFolders(sql, { projectId });
                   if (Array.isArray(fresh) && fresh.length > 0) {
                     await Promise.all(fresh.map(f => syncFolderToD1(env, f)));
+                    if (env?.PIN_ENGINE_KV) {
+                      await env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(fresh), { expirationTtl: 1800 });
+                    }
                   }
                 } catch (e) {
                   console.warn('[SWR] Background folders refresh failed:', e.message);
                 }
               })(), 'swrRefreshFoldersD1');
+            }
+
+            // Populate KV cache in background if missing
+            if (env?.PIN_ENGINE_KV) {
+              safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(normalizedList), { expirationTtl: 1800 }), 'kv_put_folders_list');
             }
 
             return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
@@ -1452,8 +1492,13 @@ export async function handleKeywordsRoutes({
           folders = [];
           foldersDegraded = true;
         }
-        if (Array.isArray(folders) && folders.length > 0 && syncFolderToD1) {
-          safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
+        if (Array.isArray(folders) && folders.length > 0) {
+          if (syncFolderToD1) {
+            safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
+          }
+          if (env?.PIN_ENGINE_KV && !isRefreshRequested) {
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(folders), { expirationTtl: 1800 }), 'kv_put_folders_list');
+          }
         }
       }
 
@@ -1472,6 +1517,14 @@ export async function handleKeywordsRoutes({
       const created = await createFolder(sql, body);
       if (syncFolderToD1) {
         safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
+      }
+      if (env?.PIN_ENGINE_KV) {
+        safeWaitUntil(ctx, (async () => {
+          try {
+            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
+            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
+          } catch (_) {}
+        })(), 'kv_del_folders_list');
       }
       return jsonResponse({ success: true, folder: created });
     }
@@ -1507,6 +1560,17 @@ export async function handleKeywordsRoutes({
       if (syncFolderToD1) {
         safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
       }
+      if (env?.PIN_ENGINE_KV) {
+        safeWaitUntil(ctx, (async () => {
+          try {
+            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
+            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
+            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
+          } catch (_) {}
+        })(), 'kv_del_folder_cache');
+      }
       return jsonResponse({ success: true, folder: updated });
     }
 
@@ -1516,6 +1580,17 @@ export async function handleKeywordsRoutes({
       const deleted = await deleteFolder(sql, folderId);
       if (deleteFolderFromD1) {
         safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
+      }
+      if (env?.PIN_ENGINE_KV) {
+        safeWaitUntil(ctx, (async () => {
+          try {
+            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
+            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
+            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
+          } catch (_) {}
+        })(), 'kv_del_folder_cache_del');
       }
       return jsonResponse({ success: true, deleted });
     }

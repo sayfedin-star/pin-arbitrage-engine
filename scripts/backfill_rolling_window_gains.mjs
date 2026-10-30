@@ -137,14 +137,43 @@ async function main() {
   console.log('================================================================================');
   console.log(`[*] Central Hub: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
 
-  // 1. Fetch all distinct active pins from keyword_serp_current
-  console.log('\n[*] Phase 1: Querying active pins from Central Hub keyword_serp_current...');
-  const activePins = await hubSql`
-    SELECT DISTINCT pin_id
-    FROM keyword_serp_current
-    WHERE pin_id IS NOT NULL AND pin_id <> ''
-  `;
-  console.log(`[+] Total distinct active pins found in keyword_serp_current: ${activePins.length}`);
+  // Environment guard to exit cleanly with 0 bytes of Hub egress when protecting monthly cap
+  if (process.env.SKIP_GLOBAL_GAINS_BACKFILL === 'true' && !process.env.FOLDER_ID && !process.env.TARGET_KEYWORD) {
+    console.log('[*] SKIP_GLOBAL_GAINS_BACKFILL=true and no folder/keyword scope specified. Exiting cleanly with 0 bytes of Hub egress.');
+    process.exit(0);
+  }
+
+  // 1. Fetch distinct active pins from keyword_serp_current (Scoped to FOLDER_ID or TARGET_KEYWORD if provided)
+  let activePins = [];
+  if (process.env.FOLDER_ID) {
+    const folderIdNum = Number(process.env.FOLDER_ID);
+    console.log(`\n[*] Phase 1: Querying active pins for Folder #${folderIdNum} from Central Hub...`);
+    activePins = await hubSql`
+      SELECT DISTINCT ksc.pin_id
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${folderIdNum}
+        AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+    `;
+  } else if (process.env.TARGET_KEYWORD) {
+    const targetKw = process.env.TARGET_KEYWORD.trim().toLowerCase();
+    console.log(`\n[*] Phase 1: Querying active pins for Keyword "${targetKw}" from Central Hub...`);
+    activePins = await hubSql`
+      SELECT DISTINCT ksc.pin_id
+      FROM tracked_keywords tk
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
+      WHERE LOWER(tk.keyword) = ${targetKw}
+        AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+    `;
+  } else {
+    console.log('\n[*] Phase 1: Querying all active pins from Central Hub keyword_serp_current...');
+    activePins = await hubSql`
+      SELECT DISTINCT pin_id
+      FROM keyword_serp_current
+      WHERE pin_id IS NOT NULL AND pin_id <> ''
+    `;
+  }
+  console.log(`[+] Total distinct active pins found: ${activePins.length}`);
 
   // Specifically check Folder #7 pins
   const folder7Pins = await hubSql`

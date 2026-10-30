@@ -194,6 +194,8 @@ jobs:
       - name: 5. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/backfill_rolling_window_gains.mjs
 
       - name: 6. Recompute Domain Intelligence Rollup

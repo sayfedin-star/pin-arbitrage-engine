@@ -1099,6 +1099,13 @@ async function flushToStorageShards(enrichedPins) {
                             AND (COALESCE(MAX(rb.save_count), 0)::numeric / prev.save_count) >= 4.0 
                             AND (COALESCE(MAX(rb.save_count), 0) - prev.save_count) >= 2500
                           )
+                          OR (
+                            prev.save_count > 0
+                            AND COALESCE(MAX(rb.repin_count), 0) > 0
+                            AND ABS(prev.save_count - COALESCE(MAX(rb.repin_count), 0)) <= GREATEST(5, ROUND(COALESCE(MAX(rb.repin_count), 0) * 0.03))
+                            AND COALESCE(MAX(rb.save_count), 0) > prev.save_count * 1.15
+                            AND (COALESCE(MAX(rb.save_count), 0) - prev.save_count) >= 50
+                          )
                         THEN 0::numeric
                         ELSE LEAST(
                           25000::numeric,

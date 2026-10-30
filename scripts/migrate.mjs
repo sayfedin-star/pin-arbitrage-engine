@@ -233,6 +233,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '043',
     name: '043_displaced_index_creator',
     aliases: ['043', '043_displaced_index_creator', 'displaced_index_creator']
+  },
+  '044_hot_index_and_velocity_sanitization.sql': {
+    version: '044',
+    name: '044_hot_index_and_velocity_sanitization',
+    aliases: ['044', '044_hot_index_and_velocity_sanitization', 'hot_index_and_velocity_sanitization']
   }
 };
 

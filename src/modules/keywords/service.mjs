@@ -1196,10 +1196,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         : String(s.baseline_day_date || '').slice(0, 10);
 
       if (snapDateStr && snapDateStr < todayIsoDate) {
-        baselineMap.set(pid, { saves: Number(s.save_count || 0), date: snapDateStr });
+        baselineMap.set(pid, { saves: Number(s.save_count || 0), repins: Number(s.repin_count || 0), date: snapDateStr });
         if (!baselineSnapshotDate) baselineSnapshotDate = new Date(snapDateStr);
       } else if (s.baseline_day_saves !== null && s.baseline_day_saves !== undefined && baseDateStr) {
-        baselineMap.set(pid, { saves: Number(s.baseline_day_saves || 0), date: baseDateStr });
+        baselineMap.set(pid, { saves: Number(s.baseline_day_saves || 0), repins: Number(s.repin_count || 0), date: baseDateStr });
         if (!baselineSnapshotDate) baselineSnapshotDate = new Date(baseDateStr);
       }
     }
@@ -1371,6 +1371,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           baselineSaves: baseSavesForPin,
           repinCount: confirmedRepins,
           currentRepins: confirmedRepins,
+          baselineRepins: (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null) ? Number(baseEntryForPin.repins) : 0,
           currentDate: todayDate,
           baselineDate: baseDateStr || baselineSnapshotDate,
           createdAt: item.created_at_pinterest || item.created_at || null,
@@ -1387,6 +1388,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             baselineSaves: immediateData.saves,
             repinCount: confirmedRepins,
             currentRepins: confirmedRepins,
+            baselineRepins: Number(immediateData.repins || 0),
             currentDate: todayDate,
             baselineDate: immediateData.snapshotDate,
             createdAt: item.created_at_pinterest || item.created_at || null,
@@ -1566,7 +1568,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                   currentSaves: p.save_count,
                   baselineSaves: baseSavesNum,
                   currentRepins: p.repin_count,
-                  baselineRepins: Number(p.metadata?.baseline_repins || 0),
+                  baselineRepins: (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0),
                   currentDate: new Date(),
                   baselineDate: baseDateRaw,
                   createdAt: p.created_at_pinterest || null,
@@ -1678,7 +1680,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 currentSaves: p.save_count,
                 baselineSaves: baseSavesNum,
                 currentRepins: p.repin_count,
-                baselineRepins: Number(p.metadata?.baseline_repins || 0),
+                baselineRepins: (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0),
                 repinCount: p.repin_count,
                 currentDate: new Date(),
                 baselineDate: baseDateRaw,

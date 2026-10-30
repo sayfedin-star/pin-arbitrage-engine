@@ -924,7 +924,18 @@ export function isMultiStageHydrationJump(prev, curr) {
   // 2. prev.save_count < prev.repin_count
   if (pSaves < pRepins) return true;
 
-  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
+  // while curSaves jumped by >= 15% (and rawDelta >= 50) above that repin baseline
+  const refRepins = pRepins > 0 ? pRepins : cRepins;
+  if (
+    pSaves > 0 &&
+    refRepins > 0 &&
+    Math.abs(pSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03)) &&
+    cSaves > pSaves * 1.15 &&
+    (cSaves - pSaves) >= 50
+  ) {
+    return true;
+  }
   if (pRepins > 0 && pSaves === pRepins && cSaves > cRepins * 1.35) return true;
 
   // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
@@ -2976,25 +2987,38 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     baselineDate = todayShardRow.snapshot_date;
   }
 
+  const targetBaselineRepins = (targetRows.length > 0 && targetRows[0].repin_count != null)
+    ? Number(targetRows[0].repin_count)
+    : ((displacedRows.length > 0 && displacedRows[0].repin_count != null) ? Number(displacedRows[0].repin_count) : Number(todayShardRow?.repin_count || 0));
+
   const jumpDetected = isMultiStageHydrationJump(
-    { save_count: baselineSaves, repin_count: 0 },
+    { save_count: baselineSaves, repin_count: targetBaselineRepins },
     { save_count: newSaves, repin_count: newRepins }
   );
   let computedVelocity = 0;
+  const refRepins = targetBaselineRepins > 0 ? targetBaselineRepins : newRepins;
+  const isRepinToSaveTransition = baselineSaves > 0 && refRepins > 0 && Math.abs(baselineSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03));
+
   if (jumpDetected) {
-    const pinCreatedAt = scrapedPin.created_at_pinterest || scrapedPin.created_at;
-    const pinCreatedDate = pinCreatedAt ? new Date(pinCreatedAt) : null;
-    if (pinCreatedDate && !isNaN(pinCreatedDate.getTime())) {
-      const ageMs = Math.max(86400000, nowDate.getTime() - pinCreatedDate.getTime());
-      const ageDays = Math.max(1, Math.round(ageMs / 86400000));
-      computedVelocity = Math.round((newSaves / ageDays) * 10) / 10;
-    } else {
+    if (isRepinToSaveTransition) {
       computedVelocity = 0;
+    } else {
+      const pinCreatedAt = scrapedPin.created_at_pinterest || scrapedPin.created_at;
+      const pinCreatedDate = pinCreatedAt ? new Date(pinCreatedAt) : null;
+      if (pinCreatedDate && !isNaN(pinCreatedDate.getTime())) {
+        const ageMs = Math.max(86400000, nowDate.getTime() - pinCreatedDate.getTime());
+        const ageDays = Math.max(1, Math.round(ageMs / 86400000));
+        computedVelocity = Math.round((newSaves / ageDays) * 10) / 10;
+      } else {
+        computedVelocity = 0;
+      }
     }
   } else {
     computedVelocity = calculateDailyVelocity({
       currentSaves: newSaves,
       baselineSaves,
+      currentRepins: newRepins,
+      baselineRepins: targetBaselineRepins,
       currentDate: nowDate,
       baselineDate
     });

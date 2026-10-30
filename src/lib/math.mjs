@@ -60,7 +60,18 @@ export function detectHydrationJump(params) {
     }
   }
 
-  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
+  // while curSaves jumped by >= 15% (and rawDelta >= 50) above that repin baseline
+  const refRepins = prevRepins > 0 ? prevRepins : curRepins;
+  if (
+    prevSaves > 0 &&
+    refRepins > 0 &&
+    Math.abs(prevSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03)) &&
+    curSaves > prevSaves * 1.15 &&
+    (curSaves - prevSaves) >= 50
+  ) {
+    return true;
+  }
   if (prevRepins > 0 && prevSaves === prevRepins && curSaves > prevRepins * 1.35) return true;
 
   // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curSaves >= prevSaves * 2.5
@@ -138,8 +149,18 @@ export function calculateDailyVelocity(params) {
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
   // Repin-Baseline Fingerprint Guard:
-  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100:
+  // If baselineSaves matches repinCount (or within ±3% / ±5 saves of repinCount) AND currentSaves jumped by >= 15% (and >= 50 saves):
   // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
+  const refRepinsNum = baseRepinsNum > 0 ? baseRepinsNum : (curRepinsNum > 0 ? curRepinsNum : repinCountNum);
+  if (
+    baseSavesNum > 0 &&
+    refRepinsNum > 0 &&
+    Math.abs(baseSavesNum - refRepinsNum) <= Math.max(5, Math.round(refRepinsNum * 0.03)) &&
+    curSavesNum > baseSavesNum * 1.15 &&
+    (curSavesNum - baseSavesNum) >= 50
+  ) {
+    return 0;
+  }
   if (repinCountNum > 0 && baseSavesNum > 0 && curSavesNum > baseSavesNum) {
     const repinDiff = Math.abs(baseSavesNum - repinCountNum);
     const repinTolerance = Math.max(50, repinCountNum * 0.03);
@@ -159,6 +180,14 @@ export function calculateDailyVelocity(params) {
   });
 
   if (isHydrationJump) {
+    // If jump was specifically caused by a Repin-to-Save hydration transition, return 0 (no organic delta)
+    if (
+      baseSavesNum > 0 &&
+      refRepinsNum > 0 &&
+      Math.abs(baseSavesNum - refRepinsNum) <= Math.max(5, Math.round(refRepinsNum * 0.03))
+    ) {
+      return 0;
+    }
     if (createdAt) {
       const createdD = createdAt instanceof Date ? createdAt : new Date(createdAt);
       if (!isNaN(createdD.getTime())) {

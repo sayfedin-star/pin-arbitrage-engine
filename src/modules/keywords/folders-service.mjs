@@ -2009,7 +2009,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
     if (env?.PIN_ENGINE_KV) {
       try {
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover`;
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v2`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         if (kvData) {
           crossoverCache.set(fid, { timestamp: now, data: kvData });
@@ -2035,7 +2035,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       if (env?.PIN_ENGINE_KV) {
         try {
           const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-          const kvKey = `fep:${epoch}:folder:${fid}:crossover`;
+          const kvKey = `fep:${epoch}:folder:${fid}:crossover:v2`;
           await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: 86400 });
         } catch (_) {}
       }
@@ -3085,7 +3085,7 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
       }
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
-    all_pins: allPins.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)),
+    all_pins: allPins.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)).slice(0, 1500),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,
