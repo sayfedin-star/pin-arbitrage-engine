@@ -2345,6 +2345,7 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
   // =========================================================================
   const pinMap = new Map(); // pin_id -> { pin data, keywords: [] }
   const safeNum = (v, fallback = 0) => {
+    if (v === null || v === undefined) return fallback;
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
@@ -2376,7 +2377,31 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
       ? Math.max(0, Math.floor((nowMs - folderAddedMs) / 86400000))
       : 0;
 
-    const vel = safeNum(row.daily_save_velocity);
+    // Sanitize velocity: detect unhealed repin-to-save hydration gap
+    let vel = safeNum(row.daily_save_velocity);
+    const rowSaves = safeNum(row.save_count ?? meta.raw_saves ?? 0);
+    const rowRepins = safeNum(row.repin_count);
+    if (rowSaves > 0 && rowRepins > 0 && Math.abs((rowSaves - rowRepins) - vel) <= Math.max(50, rowRepins * 0.03) && vel >= 100) {
+      vel = 0;
+    }
+
+    const rowGains5d = safeNum(row.gains_5d, null);
+    const rowGains7d = safeNum(row.gains_7d, null);
+    const rowGains10d = safeNum(row.gains_10d, null);
+    const rowGains15d = safeNum(row.gains_15d, null);
+    const rowGains24h = (row.gains_24h != null && Number.isFinite(Number(row.gains_24h))) ? Number(row.gains_24h) : null;
+
+    // Consistency check between 24h delta and 7d gains:
+    // If verified shard rolling gains exist (gains_7d > 0) and 24h delta exceeds gains_7d, clamp or use authentic gains_24h
+    let delta24h = (rowGains24h != null) ? Math.min(vel, rowGains24h) : vel;
+    if (rowGains7d !== null && rowGains7d > 0 && delta24h > rowGains7d) {
+      if (rowSaves > 0 && rowRepins > 0 && Math.abs((rowSaves - rowRepins) - delta24h) <= Math.max(50, rowRepins * 0.03)) {
+        delta24h = 0;
+        vel = 0;
+      } else {
+        delta24h = Math.min(delta24h, rowGains7d);
+      }
+    }
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
@@ -2396,9 +2421,9 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
         destination_url: row.destination_url || meta.destination_url || '',
         domain_age_days: null,
         domain_age_years: null,
-        save_count: safeNum(row.save_count ?? meta.raw_saves ?? 0),
-        is_vacuum_pin: (!row.domain || row.domain === 'Uploaded by user') && safeNum(row.save_count ?? meta.raw_saves ?? 0) >= 100,
-        repin_count: safeNum(row.repin_count),
+        save_count: rowSaves,
+        is_vacuum_pin: (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
+        repin_count: rowRepins,
         comment_count: safeNum(row.comment_count),
         daily_save_velocity: vel,
         creator_username: row.creator_username || pinner.username || '',
@@ -2410,7 +2435,7 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
         crawled_at: row.crawled_at,
         pin_age_days: pinAgeDays,
         folder_age_days: folderAgeDays,
-        delta_saves_24h: vel,
+        delta_saves_24h: delta24h,
         delta_repins_24h: safeNum(row.delta_repins_24h, Math.round(vel * 0.1)),
         gains_5d: safeNum(row.gains_5d, Math.round(vel * 5)),
         // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Authentic Multi-Window Gains
@@ -2421,16 +2446,33 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
       });
     } else {
       const existingPin = pinMap.get(pid);
-      existingPin.save_count = Math.max(existingPin.save_count, safeNum(row.save_count));
-      existingPin.repin_count = Math.max(existingPin.repin_count, safeNum(row.repin_count));
+      existingPin.save_count = Math.max(existingPin.save_count, rowSaves);
+      existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
-      existingPin.daily_save_velocity = Math.max(existingPin.daily_save_velocity, vel);
-      existingPin.delta_saves_24h = existingPin.daily_save_velocity;
-      existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, Math.round(existingPin.daily_save_velocity * 0.1)));
-      existingPin.gains_5d = Math.max(existingPin.gains_5d || 0, safeNum(row.gains_5d, Math.round(existingPin.daily_save_velocity * 5)));
-      existingPin.gains_7d = Math.max(existingPin.gains_7d || 0, safeNum(row.gains_7d, Math.round(existingPin.daily_save_velocity * 7)));
-      existingPin.gains_10d = Math.max(existingPin.gains_10d || 0, safeNum(row.gains_10d, Math.round(existingPin.daily_save_velocity * 10)));
-      existingPin.gains_15d = Math.max(existingPin.gains_15d || 0, safeNum(row.gains_15d, Math.round(existingPin.daily_save_velocity * 15)));
+
+      // Latest-Crawl Authority: prefer the velocity and 24h delta from the most recently crawled row
+      const existingCrawlMs = existingPin.crawled_at ? new Date(existingPin.crawled_at).getTime() : 0;
+      const rowCrawlMs = row.crawled_at ? new Date(row.crawled_at).getTime() : 0;
+      const isNewerCrawl = rowCrawlMs > existingCrawlMs;
+      const isExistingCorrupted = existingPin.save_count > 0 && existingPin.repin_count > 0 &&
+        Math.abs((existingPin.save_count - existingPin.repin_count) - existingPin.daily_save_velocity) <= Math.max(50, existingPin.repin_count * 0.03) &&
+        existingPin.daily_save_velocity >= 100;
+
+      if (isNewerCrawl || isExistingCorrupted || (!existingPin.daily_save_velocity && vel > 0)) {
+        existingPin.daily_save_velocity = vel;
+        existingPin.delta_saves_24h = delta24h;
+        if (row.crawled_at) existingPin.crawled_at = row.crawled_at;
+      }
+
+      existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
+
+      // Preserve authentic database rolling gains without blowing up by multiplying corrupted velocity
+      if (rowGains5d != null && (existingPin.gains_5d == null || rowGains5d > existingPin.gains_5d)) existingPin.gains_5d = rowGains5d;
+      // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Authentic Multi-Window Gains
+      if (rowGains7d != null && (existingPin.gains_7d == null || rowGains7d > existingPin.gains_7d)) existingPin.gains_7d = rowGains7d;
+      if (rowGains10d != null && (existingPin.gains_10d == null || rowGains10d > existingPin.gains_10d)) existingPin.gains_10d = rowGains10d;
+      if (rowGains15d != null && (existingPin.gains_15d == null || rowGains15d > existingPin.gains_15d)) existingPin.gains_15d = rowGains15d;
+
       if (!existingPin.created_at_pinterest && row.created_at_pinterest) {
         existingPin.created_at_pinterest = row.created_at_pinterest;
         existingPin.pin_age_days = pinAgeDays;
@@ -2451,7 +2493,7 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
       keyword_id: row.keyword_id,
       keyword: row.keyword_text,
       rank_position: rankNum,
-      daily_save_velocity: safeNum(row.daily_save_velocity),
+      daily_save_velocity: vel,
       snapshot_date: row.snapshot_date,
       is_displaced: Boolean(row.is_displaced)
     });

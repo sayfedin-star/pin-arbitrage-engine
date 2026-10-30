@@ -28,8 +28,9 @@ export function detectHydrationJump(params) {
   if (!params || typeof params !== 'object') return false;
   const curSaves = Number(params.currentSaves ?? 0);
   const prevSaves = Number(params.baselineSaves ?? 0);
-  const curRepins = Number(params.currentRepins ?? 0);
-  const prevRepins = Number(params.baselineRepins ?? 0);
+  const curRepins = Number(params.currentRepins ?? params.repinCount ?? 0);
+  const prevRepins = Number(params.baselineRepins ?? params.repinCount ?? 0);
+  const repinCount = Number(params.repinCount ?? curRepins ?? prevRepins ?? 0);
 
   if (!Number.isFinite(curSaves) || !Number.isFinite(prevSaves)) return false;
 
@@ -46,6 +47,18 @@ export function detectHydrationJump(params) {
 
   // 2. prev.save_count < prev.repin_count
   if (prevSaves > 0 && prevRepins > 0 && prevSaves < prevRepins) return true;
+
+  // 2B. Repin-Baseline Fingerprint Guard:
+  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100:
+  // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
+  const targetRepins = repinCount > 0 ? repinCount : (curRepins > 0 ? curRepins : prevRepins);
+  if (targetRepins > 0 && prevSaves > 0 && curSaves > prevSaves) {
+    const repinDiff = Math.abs(prevSaves - targetRepins);
+    const repinTolerance = Math.max(50, targetRepins * 0.03);
+    if (repinDiff <= repinTolerance && (curSaves - prevSaves) >= 100) {
+      return true;
+    }
+  }
 
   // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
   if (prevRepins > 0 && prevSaves === prevRepins && curSaves > prevRepins * 1.35) return true;
@@ -93,6 +106,7 @@ export function calculateDailyVelocity(params) {
     baselineSaves = 0,
     currentRepins = 0,
     baselineRepins = 0,
+    repinCount = 0,
     currentDate = new Date(),
     baselineDate = null,
     maxCap = 25000,
@@ -104,6 +118,7 @@ export function calculateDailyVelocity(params) {
   const baseSavesNum = Number(baselineSaves);
   const curRepinsNum = Number(currentRepins);
   const baseRepinsNum = Number(baselineRepins);
+  const repinCountNum = Number(repinCount || currentRepins || baselineRepins || 0);
   const capNum = Number.isFinite(Number(maxCap)) && Number(maxCap) > 0 ? Number(maxCap) : 25000;
 
   // Anti-NaN guard
@@ -122,12 +137,24 @@ export function calculateDailyVelocity(params) {
   }
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
+  // Repin-Baseline Fingerprint Guard:
+  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100:
+  // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
+  if (repinCountNum > 0 && baseSavesNum > 0 && curSavesNum > baseSavesNum) {
+    const repinDiff = Math.abs(baseSavesNum - repinCountNum);
+    const repinTolerance = Math.max(50, repinCountNum * 0.03);
+    if (repinDiff <= repinTolerance && (curSavesNum - baseSavesNum) >= 100) {
+      return 0;
+    }
+  }
+
   // Eliminate unhydrated 0-baseline jumps & multi-stage hydration artifacts:
   const isHydrationJump = detectHydrationJump({
     currentSaves: curSavesNum,
     baselineSaves: baseSavesNum,
     currentRepins: curRepinsNum,
     baselineRepins: baseRepinsNum,
+    repinCount: repinCountNum,
     wasDeepHydrated: wasDeepHydrated ?? params.wasDeepHydrated
   });
 

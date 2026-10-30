@@ -1369,6 +1369,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         velocity = calculateDailyVelocity({
           currentSaves: confirmedSaves,
           baselineSaves: baseSavesForPin,
+          repinCount: confirmedRepins,
+          currentRepins: confirmedRepins,
           currentDate: todayDate,
           baselineDate: baseDateStr || baselineSnapshotDate,
           createdAt: item.created_at_pinterest || item.created_at || null,
@@ -1383,6 +1385,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           velocity = calculateDailyVelocity({
             currentSaves: confirmedSaves,
             baselineSaves: immediateData.saves,
+            repinCount: confirmedRepins,
+            currentRepins: confirmedRepins,
             currentDate: todayDate,
             baselineDate: immediateData.snapshotDate,
             createdAt: item.created_at_pinterest || item.created_at || null,
@@ -1675,6 +1679,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 baselineSaves: baseSavesNum,
                 currentRepins: p.repin_count,
                 baselineRepins: Number(p.metadata?.baseline_repins || 0),
+                repinCount: p.repin_count,
                 currentDate: new Date(),
                 baselineDate: baseDateRaw,
                 createdAt: p.created_at_pinterest || null,
@@ -1686,7 +1691,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 pinVelocities[pIdxInPrepared] = newVel;
               }
               if (p.metadata) {
-                p.metadata.prev_save_count = baseSavesNum;
+                p.metadata.prev_save_count = (newVel === 0 && (baseSavesNum === 0 || Math.abs(baseSavesNum - Number(p.repin_count || 0)) <= Math.max(50, Number(p.repin_count || 0) * 0.03)))
+                  ? p.save_count
+                  : baseSavesNum;
                 if (newVel >= 50) p.metadata.velocity_tier = 'explosive';
                 else if (newVel >= 10) p.metadata.velocity_tier = 'trending';
                 else if (newVel > 0) p.metadata.velocity_tier = 'steady';
@@ -1820,7 +1827,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       pin_id: p.pin_id,
       rank_position: p.rank_position,
       prev_rank_position: p.metadata?.prev_rank ?? p.rank_position,
-      baseline_day_saves: p.metadata?.prev_save_count ?? p.save_count,
+      baseline_day_saves: (p.daily_save_velocity === 0 && p.metadata?.prev_save_count && Math.abs(Number(p.metadata.prev_save_count) - Number(p.repin_count || 0)) <= Math.max(50, Number(p.repin_count || 0) * 0.03))
+        ? p.save_count
+        : (p.metadata?.prev_save_count ?? p.save_count),
       baseline_day_date: p.metadata?.baseline_date || todayIso,
       title: p.title,
       domain: p.domain,
@@ -1947,6 +1956,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           rank_position = EXCLUDED.rank_position,
           last_known_rank = EXCLUDED.rank_position,
           baseline_day_saves = CASE
+            -- If prior baseline_day_saves was a repin_count artifact and real saves are now available, reset to save_count
+            WHEN keyword_serp_current.repin_count > 0 
+             AND ABS(keyword_serp_current.baseline_day_saves - keyword_serp_current.repin_count) <= GREATEST(50, keyword_serp_current.repin_count * 0.03)
+             AND EXCLUDED.save_count > keyword_serp_current.repin_count
+            THEN EXCLUDED.save_count
             WHEN COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date
             THEN keyword_serp_current.save_count
             ELSE COALESCE(NULLIF(keyword_serp_current.baseline_day_saves, 0), EXCLUDED.baseline_day_saves)
@@ -1968,6 +1982,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count = GREATEST(COALESCE(keyword_serp_current.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
           comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           daily_save_velocity = CASE 
+            -- Accept EXCLUDED velocity if current row holds a repin-to-save artifact or if EXCLUDED has fresh computation
+            WHEN keyword_serp_current.repin_count > 0 
+             AND ABS((keyword_serp_current.save_count - keyword_serp_current.repin_count) - keyword_serp_current.daily_save_velocity) <= GREATEST(50, keyword_serp_current.repin_count * 0.03)
+             AND keyword_serp_current.daily_save_velocity >= 100
+            THEN COALESCE(EXCLUDED.daily_save_velocity, 0)
             WHEN EXCLUDED.daily_save_velocity IS NOT NULL 
              AND (EXCLUDED.daily_save_velocity > 0 OR COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
             THEN EXCLUDED.daily_save_velocity 
