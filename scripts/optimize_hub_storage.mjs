@@ -330,13 +330,14 @@ export async function optimizeHubStorage(sql) {
       if (confirmedPinIds.length > 0) {
         await sql`
           INSERT INTO keyword_displaced_index (
-            keyword_id, pin_id, last_known_rank, vacuum_opportunity_score,
+            keyword_id, pin_id, creator_username, last_known_rank, vacuum_opportunity_score,
             displaced_date, save_count, repin_count, comment_count, share_count,
             daily_save_velocity, domain, updated_at
           )
           SELECT
             keyword_id,
             pin_id,
+            NULLIF(LOWER(TRIM(creator_username)), ''),
             LEAST(32767, GREATEST(1, COALESCE(last_known_rank, rank_position, 100)))::smallint,
             LEAST(100, GREATEST(0, COALESCE(vacuum_opportunity_score, 60)))::smallint,
             COALESCE(displaced_date, CURRENT_DATE),
@@ -350,6 +351,7 @@ export async function optimizeHubStorage(sql) {
           FROM keyword_serp_current
           WHERE is_displaced = TRUE AND pin_id = ANY(${confirmedPinIds})
           ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_displaced_index.creator_username),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(COALESCE(keyword_displaced_index.vacuum_opportunity_score, 0), COALESCE(EXCLUDED.vacuum_opportunity_score, 0)),
             save_count = GREATEST(COALESCE(keyword_displaced_index.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),

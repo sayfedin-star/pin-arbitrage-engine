@@ -2468,19 +2468,21 @@ const server = http.createServer(async (req, res) => {
         // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
         if (method === 'GET' && parts.length === 2) {
           const withDiscovery = searchParams.get('discovery') !== 'false';
+          const vaultScope = searchParams.get('vault_scope') || 'high_signal';
           if (withDiscovery) {
-            const discoveryData = await listFolderCreatorsWithDiscovery(targetSql, folderId);
+            const discoveryData = await listFolderCreatorsWithDiscovery(targetSql, folderId, { vaultScope });
             return sendJson(res, 200, {
               success: true,
               folder_id: folderId,
               creators: discoveryData.all_creators,
               linked_creators: discoveryData.linked_creators,
               discovered_creators: discoveryData.discovered_creators,
+              vault_scope: vaultScope,
               totals: discoveryData.totals
             });
           }
           const creators = await listFolderCreators(targetSql, folderId);
-          return sendJson(res, 200, { success: true, creators, folder_id: folderId });
+          return sendJson(res, 200, { success: true, creators, folder_id: folderId, vault_scope: vaultScope });
         }
 
         // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body)

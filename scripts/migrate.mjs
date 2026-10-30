@@ -228,6 +228,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '042',
     name: '042_hot_and_schema_compaction',
     aliases: ['042', '042_hot_and_schema_compaction', 'hot_and_schema_compaction']
+  },
+  '043_displaced_index_creator.sql': {
+    version: '043',
+    name: '043_displaced_index_creator',
+    aliases: ['043', '043_displaced_index_creator', 'displaced_index_creator']
   }
 };
 

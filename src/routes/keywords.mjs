@@ -1193,12 +1193,13 @@ export async function handleKeywordsRoutes({
       if (method === 'GET' && parts.length === 2) {
         const withDiscovery = searchParams.get('discovery') !== 'false';
         const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+        const vaultScope = searchParams.get('vault_scope') || 'high_signal';
 
         let epoch = '0';
         if (!refresh && env?.PIN_ENGINE_KV) {
           try {
             epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}`;
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
             const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
             if (kvCached) {
               return jsonResponse({ ...kvCached, source: 'kv_edge' }, 200, 30);
@@ -1208,18 +1209,19 @@ export async function handleKeywordsRoutes({
 
         let payload;
         if (withDiscovery) {
-          const discoveryData = await listFolderCreatorsWithDiscovery(sql, folderId);
+          const discoveryData = await listFolderCreatorsWithDiscovery(sql, folderId, { vaultScope });
           payload = {
             success: true,
             folder_id: folderId,
             creators: discoveryData.all_creators,
             linked_creators: discoveryData.linked_creators,
             discovered_creators: discoveryData.discovered_creators,
+            vault_scope: vaultScope,
             totals: discoveryData.totals
           };
         } else {
           const creators = await listFolderCreators(sql, folderId);
-          payload = { success: true, creators, folder_id: folderId };
+          payload = { success: true, creators, folder_id: folderId, vault_scope: vaultScope };
         }
 
         if (env?.PIN_ENGINE_KV && payload) {
@@ -1227,7 +1229,7 @@ export async function handleKeywordsRoutes({
             if (!epoch || epoch === '0') {
               epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             }
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}`;
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
             safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(payload), { expirationTtl: 86400 }), 'kv_put_folder_creators');
           } catch (_) {}
         }

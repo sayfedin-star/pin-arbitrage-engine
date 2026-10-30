@@ -17,7 +17,7 @@ trigger: always_on
 | **Pin Daily Metrics (`pins_daily_metrics`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
 | **Pin SERP History (`pin_serp_positions`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
 | **Active SERP (`keyword_serp_current`)** | `keyword_id` direct index | `src/modules/keywords/service.mjs` | Central Neon Hub |
-| **Displaced Index (`keyword_displaced_index`)** | `(keyword_id, pin_id)` composite index | `src/modules/keywords/service.mjs` | Central Neon Hub (Numeric + Domain only) |
+| **Displaced Index (`keyword_displaced_index`)** | `(keyword_id, pin_id)` composite index | `src/modules/keywords/service.mjs` | Central Neon Hub (Numeric + Domain + Creator only) |
 | **Tracked Creators (`competitor_profiles`)** | `id` or `username` natural key | `src/modules/creators/service.mjs` | Central Neon Hub |
 | **Creator Qualified Winners (`pa_pins`)** | `pin_id` natural key | `src/modules/creators/service.mjs` | Central Neon Hub (Physical table, Qualified Pins only) |
 

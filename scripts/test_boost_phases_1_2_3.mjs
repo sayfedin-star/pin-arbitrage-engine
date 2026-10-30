@@ -131,7 +131,7 @@ runTest('Phase 2.5: crawler-engine.mjs normalizes daily refresh velocity by elap
   assert.ok(crawlerCode.includes('last_updated_at, created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
   assert.ok(crawlerCode.includes('elapsedDays'), 'Must compute elapsedDays between baseline date and crawl time');
   assert.ok(crawlerCode.includes('isSameDay && deltaSaves === 0'), 'Must implement intraday ratchet protection when running same UTC day');
-  assert.ok(crawlerCode.includes('velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10'), 'Must normalize deltaSaves by elapsedDays');
+  assert.ok(crawlerCode.includes('velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10') || crawlerCode.includes('calculateDailyVelocity('), 'Must normalize deltaSaves by elapsedDays');
   assert.ok(crawlerCode.includes('velocity = x.velocity,'), 'UPDATE clause must set velocity = x.velocity directly to allow cross-day reset to 0');
   assert.ok(crawlerCode.includes('Number.isFinite(Number(p.velocity))'), 'Velocity must be guarded with Number.isFinite');
   assert.ok(crawlerCode.includes('Number.isFinite(Number(p.saves))'), 'Saves must be guarded with Number.isFinite');

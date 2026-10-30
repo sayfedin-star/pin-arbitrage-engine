@@ -3292,11 +3292,17 @@ export function getDashboardHtml(folderId = '') {
               <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
               <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
               <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
-              <template x-if="scopedFolderId">
+              <template x-if="scopedFolderId || folderFilter">
                 <div class="flex items-center space-x-1 pl-1 border-l border-slate-200 dark:border-[#27272A]">
                   <button @click="creatorDiscoveryFilter = 'all'" :class="creatorDiscoveryFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">All</button>
                   <button @click="creatorDiscoveryFilter = 'tracked'" :class="creatorDiscoveryFilter === 'tracked' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">Tracked</button>
                   <button @click="creatorDiscoveryFilter = 'auto_discovered'" :class="creatorDiscoveryFilter === 'auto_discovered' ? 'bg-white dark:bg-[#121215] text-indigo-600 dark:text-indigo-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">Auto-Discovered</button>
+                </div>
+              </template>
+              <template x-if="scopedFolderId || folderFilter">
+                <div class="flex items-center space-x-1 pl-1 border-l border-slate-200 dark:border-[#27272A]">
+                  <button @click="setVaultScope('high_signal')" :class="vaultScope === 'high_signal' ? 'bg-white dark:bg-[#121215] text-rose-600 dark:text-rose-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]" title="High-Signal Vault: Pins with &gt;=5 saves, rank &lt;=50, or creators with &gt;=2 pins">🎯 High-Signal</button>
+                  <button @click="setVaultScope('all')" :class="vaultScope === 'all' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]" title="All Vault Pins: 100% of discovered creators including long-tail vault">🌐 All Vault</button>
                 </div>
               </template>
             </div>
@@ -3394,6 +3400,15 @@ export function getDashboardHtml(folderId = '') {
                             </template>
                             <template x-if="c.custom_label">
                               <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 whitespace-nowrap" x-text="c.custom_label"></span>
+                            </template>
+                            <template x-if="c.has_active_pins && c.has_vault_pins">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 whitespace-nowrap" :title="'Active SERP (' + (c.active_pin_count || 0) + ') + Vault (' + (c.vault_pin_count || 0) + ')'">🔵 Dual</span>
+                            </template>
+                            <template x-if="c.has_active_pins && !c.has_vault_pins">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap" :title="'Active SERP (' + (c.active_pin_count || 0) + ' pins)'">🟢 Active</span>
+                            </template>
+                            <template x-if="!c.has_active_pins && c.has_vault_pins">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 whitespace-nowrap" :title="'Displaced Vault (' + (c.vault_pin_count || 0) + ' pins)'">🟣 Vault</span>
                             </template>
                             <template x-if="c._shard_name && selectedProject === 'all'">
                               <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
@@ -5702,6 +5717,7 @@ export function getDashboardHtml(folderId = '') {
         activeFolder: null,
         crossoverData: null,
         folderFilter: '${safeFolderId}',
+        vaultScope: 'high_signal',
         foldersList: [],
         folderCreatorMap: {},
         scopedFolderCreatorIds: null,
@@ -7934,7 +7950,8 @@ export function getDashboardHtml(folderId = '') {
           if (!folderId) return;
           const fid = String(folderId);
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true');
+            const scopeParam = this.vaultScope ? ('&vault_scope=' + encodeURIComponent(this.vaultScope)) : '';
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam);
             if (res.ok) {
               const data = await res.json();
               const linkedList = Array.isArray(data.linked_creators) ? data.linked_creators : [];
@@ -7944,13 +7961,26 @@ export function getDashboardHtml(folderId = '') {
               const linkedIds = new Set(linkedList.map(c => Number(c.competitor_id || c.id)).filter(Boolean));
               this.folderCreatorMap[fid] = linkedIds;
 
-              if (this.scopedFolderId && String(this.scopedFolderId) === fid) {
+              if ((this.scopedFolderId && String(this.scopedFolderId) === fid) || (this.folderFilter && String(this.folderFilter) === fid)) {
                 this.scopedFolderCreatorIds = linkedIds;
                 this.folderCompetitorTotalsData = data.totals || null;
                 this.competitors = allList;
+                if (this.activeFolder) {
+                  this.activeFolder.discovered_creator_count = allList.length;
+                  this.activeFolder.creator_count = allList.length;
+                }
               }
             }
           } catch (_) {}
+        },
+
+        async setVaultScope(scope) {
+          if (this.vaultScope === scope) return;
+          this.vaultScope = scope;
+          const fid = this.scopedFolderId || this.folderFilter;
+          if (fid) {
+            await this.loadFolderCreators(fid);
+          }
         },
 
         async bulkPulseTrackSerpCreators() {

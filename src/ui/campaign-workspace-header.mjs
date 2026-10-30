@@ -169,7 +169,7 @@ export function renderCampaignWorkspaceHeader({
           <i data-lucide="users" class="w-4 h-4 ${isCreators ? iconActive : iconInactive}"></i>
           <span>Creator Hub</span>
           <span class="${isCreators ? badgeActive : badgeInactive}"
-                x-text="(typeof activeFolder !== 'undefined' && activeFolder?.creator_count != null) ? activeFolder.creator_count : '0'"></span>
+                x-text="(typeof activeFolder !== 'undefined' && activeFolder && (activeFolder.discovered_creator_count != null || activeFolder.creator_count != null)) ? (activeFolder.discovered_creator_count || activeFolder.creator_count || '0') : '0'"></span>
         </a>
 
         <!-- Room 4: Domain Studio -->

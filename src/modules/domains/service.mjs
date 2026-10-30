@@ -2596,11 +2596,20 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
           creator_username AS username,
           domain AS cross_domain,
           COUNT(DISTINCT pin_id)::int AS pins_count
-        FROM keyword_serp_current
-        WHERE creator_username = ANY(${cleanUsernames})
-          AND domain IS NOT NULL AND domain <> ''
-          AND domain <> ${cleanDomain}
-          AND (${fId}::int IS NULL OR keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        FROM (
+          SELECT creator_username, domain, pin_id, keyword_id
+          FROM keyword_serp_current
+          WHERE creator_username = ANY(${cleanUsernames})
+            AND domain IS NOT NULL AND domain <> ''
+            AND domain <> ${cleanDomain}
+          UNION ALL
+          SELECT creator_username, domain, pin_id, keyword_id
+          FROM keyword_displaced_index
+          WHERE creator_username = ANY(${cleanUsernames})
+            AND domain IS NOT NULL AND domain <> ''
+            AND domain <> ${cleanDomain}
+        ) u
+        WHERE (${fId}::int IS NULL OR u.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         GROUP BY 1, 2
         ORDER BY 3 DESC
         LIMIT 60;

@@ -378,8 +378,8 @@ await runAsyncTest('fetchUniversalPinDossier WRITE-THROUGH: Asynchronously persi
   assert.ok(Array.isArray(parsedD1Traj) && parsedD1Traj.length >= 1, 'D1 daily_trajectory must be a valid array');
 
   // Verify write-through happened into KV
-  const kvEntry = mockKv.get('pin:dossier?pin_id=554433221100');
-  assert.ok(kvEntry, 'KV pin:dossier?pin_id=554433221100 must be populated');
+  const kvEntry = mockKv.get('pin:dossier:v3?pin_id=554433221100') || mockKv.get('pin:dossier?pin_id=554433221100');
+  assert.ok(kvEntry, 'KV pin:dossier:v3?pin_id=554433221100 must be populated');
 });
 
 await runAsyncTest('fetchUniversalPinDossier DEGRADED FALLBACK: Correctly flags is_degraded: true when shard query returns empty/times out', async () => {

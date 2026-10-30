@@ -2038,7 +2038,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         // Archive displaced pins into slim keyword_displaced_index (56 bytes/row on Hub)
         txBatch.push((db) => db`
           INSERT INTO keyword_displaced_index (
-            keyword_id, pin_id, domain, last_known_rank, vacuum_opportunity_score,
+            keyword_id, pin_id, domain, creator_username, last_known_rank, vacuum_opportunity_score,
             displaced_date, save_count, repin_count, comment_count, share_count,
             daily_save_velocity, updated_at
           )
@@ -2046,6 +2046,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             keyword_id,
             pin_id,
             domain,
+            NULLIF(LOWER(TRIM(creator_username)), ''),
             LEAST(32767, GREATEST(1, COALESCE(rank_position, last_known_rank, 100)))::smallint,
             CASE 
               WHEN COALESCE(rank_position, last_known_rank, 100) <= 5 THEN 85
@@ -2069,6 +2070,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             )
           ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
             domain = COALESCE(NULLIF(EXCLUDED.domain, ''), keyword_displaced_index.domain),
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_displaced_index.creator_username),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
             save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),

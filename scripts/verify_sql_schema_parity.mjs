@@ -68,6 +68,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'daily_save_velocity',
     'updated_at',
     'domain',
+    'creator_username',
     'shard_id',
     'delta_repins_24h',
     'gains_5d',
