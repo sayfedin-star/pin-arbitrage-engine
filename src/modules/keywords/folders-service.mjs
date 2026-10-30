@@ -64,6 +64,42 @@ export function invalidateFolderCache(folderId) {
 }
 
 /**
+ * Lightweight folder listing for fast header dropdown / switcher (< 5ms)
+ * Queries only keyword_folders and keyword_folder_items count.
+ */
+export async function listFoldersLite(sql, { projectId = 'default' } = {}) {
+  const rows = await sql`
+    WITH kw_counts AS (
+      SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+      FROM keyword_folder_items
+      GROUP BY folder_id
+    )
+    SELECT
+      f.id,
+      f.name,
+      f.description,
+      f.color,
+      f.icon,
+      f.project_id,
+      f.metadata,
+      f.created_at,
+      f.updated_at,
+      COALESCE(kw.keyword_count, 0) AS keyword_count,
+      COALESCE(kw.keyword_count, 0) AS item_count
+    FROM keyword_folders f
+    LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+    WHERE f.project_id = ${projectId}
+    ORDER BY f.updated_at DESC, f.created_at DESC;
+  `;
+  return rows.map(r => ({
+    ...r,
+    metadata: normalizeFolderMetadata(r.metadata),
+    keyword_count: Number(r.keyword_count || 0),
+    item_count: Number(r.item_count || r.keyword_count || 0)
+  }));
+}
+
+/**
  * List all folders with item counts and keyword previews
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
@@ -81,28 +117,13 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       SELECT folder_id, COUNT(id)::int AS pinned_domain_count
       FROM folder_pinned_domains GROUP BY folder_id
     ),
-    domain_counts AS (
-      SELECT folder_id, COUNT(DISTINCT clean_domain)::int AS domain_count
-      FROM (
-        SELECT kfi.folder_id, LOWER(TRIM(ksc.domain)) AS clean_domain
-        FROM keyword_folder_items kfi
-        JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-        WHERE ksc.is_displaced = FALSE
-          AND ksc.domain IS NOT NULL AND ksc.domain <> ''
-          AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-          AND ksc.domain LIKE '%.%'
-        UNION
-        SELECT kfi.folder_id, LOWER(TRIM(kdi.domain)) AS clean_domain
-        FROM keyword_folder_items kfi
-        JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-        WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
-          AND kdi.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-          AND kdi.domain LIKE '%.%'
-      ) u
-      GROUP BY folder_id
-    ),
     active_folder_pins AS (
-      SELECT kfi.folder_id, ksc.pin_id
+      SELECT
+        kfi.folder_id,
+        ksc.pin_id,
+        ksc.is_displaced,
+        LOWER(TRIM(ksc.domain)) AS clean_domain,
+        LOWER(TRIM(ksc.creator_username)) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE ksc.is_displaced = FALSE
@@ -113,96 +134,50 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       SELECT
         kfi.folder_id,
         kdi.pin_id,
-        COUNT(kdi.keyword_id) OVER (PARTITION BY kfi.folder_id, kdi.pin_id) AS kw_count,
-        kdi.daily_save_velocity,
-        kdi.save_count,
-        kdi.last_known_rank
+        LOWER(TRIM(kdi.domain)) AS clean_domain,
+        LOWER(TRIM(kdi.creator_username)) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
       WHERE kdi.last_known_rank IS NOT NULL
         AND kdi.last_known_rank >= 1
     ),
-    qualifying_vault_pins AS (
-      SELECT vfp.folder_id, vfp.pin_id
-      FROM vault_folder_pins vfp
-      WHERE (vfp.pin_id IN (SELECT pin_id FROM active_folder_pins afp WHERE afp.folder_id = vfp.folder_id))
-         OR vfp.kw_count >= 2
-         OR vfp.daily_save_velocity > 0
-         OR vfp.save_count >= 50
-         OR vfp.last_known_rank <= 25
-      GROUP BY vfp.folder_id, vfp.pin_id
-    ),
-    all_cluster_unique_pins AS (
-      SELECT folder_id, pin_id, TRUE AS is_active, FALSE AS is_vault
-      FROM active_folder_pins
-      UNION
-      SELECT folder_id, pin_id, FALSE AS is_active, TRUE AS is_vault
-      FROM qualifying_vault_pins
-    ),
-    pin_counts AS (
-      SELECT
-        folder_id,
-        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT pin_id)::int AS total_unique_pins,
-        COUNT(DISTINCT pin_id)::int AS pin_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE is_active)::int AS active_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE is_vault AND pin_id NOT IN (SELECT pin_id FROM active_folder_pins afp WHERE afp.folder_id = all_cluster_unique_pins.folder_id))::int AS vault_pins_count
-      FROM all_cluster_unique_pins
-      GROUP BY folder_id
-    ),
-    discovered_creator_pins AS (
+    active_unique_pins AS (
       SELECT
         kfi.folder_id,
-        ksc.pin_id,
-        LOWER(TRIM(ksc.creator_username)) AS clean_username,
-        ksc.save_count,
-        ksc.rank_position AS current_rank,
-        FALSE AS is_displaced
+        COUNT(DISTINCT ksc.pin_id)::int AS active_pins_count
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE ksc.is_displaced = FALSE
-        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
-        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
-      UNION ALL
-      SELECT
-        kfi.folder_id,
-        kdi.pin_id,
-        LOWER(TRIM(kdi.creator_username)) AS clean_username,
-        kdi.save_count,
-        kdi.last_known_rank AS current_rank,
-        TRUE AS is_displaced
-      FROM keyword_folder_items kfi
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-      WHERE kdi.creator_username IS NOT NULL AND kdi.creator_username <> ''
-        AND LOWER(TRIM(kdi.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ksc.rank_position IS NOT NULL
+        AND ksc.rank_position >= 1
+      GROUP BY kfi.folder_id
     ),
-    discovered_creators_grouped AS (
+    combined_summary AS (
       SELECT
         folder_id,
-        clean_username,
-        COUNT(DISTINCT pin_id)::int AS pin_count,
-        MAX(save_count)::bigint AS top_pin_saves,
-        MIN(current_rank)::int AS min_rank,
-        BOOL_OR(NOT is_displaced) AS has_active_pins
-      FROM discovered_creator_pins
-      GROUP BY folder_id, clean_username
-      HAVING (
-        BOOL_OR(NOT is_displaced) = TRUE
-        OR COUNT(DISTINCT pin_id) >= 2
-        OR MAX(save_count) >= 5
-        OR MIN(current_rank) <= 50
-      )
-    ),
-    discovered_creator_counts AS (
-      SELECT folder_id, COUNT(DISTINCT clean_username)::int AS discovered_creator_count
+        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+        COUNT(DISTINCT clean_domain) FILTER (
+          WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+            AND clean_domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
+            AND clean_domain LIKE '%.%'
+        )::int AS domain_count,
+        COUNT(DISTINCT clean_username) FILTER (
+          WHERE clean_username IS NOT NULL AND clean_username <> ''
+            AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        )::int AS discovered_creator_count
       FROM (
-        SELECT folder_id, clean_username FROM discovered_creators_grouped
-        UNION
-        SELECT fci.folder_id, LOWER(TRIM(cp.username)) AS clean_username
+        SELECT folder_id, pin_id, clean_domain, clean_username, 'active' AS item_source, is_displaced FROM active_folder_pins
+        UNION ALL
+        SELECT folder_id, pin_id, clean_domain, clean_username, 'vault' AS item_source, TRUE AS is_displaced FROM vault_folder_pins
+        UNION ALL
+        SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
         FROM folder_competitor_items fci
         JOIN competitor_profiles cp ON cp.id = fci.competitor_id
         WHERE cp.username IS NOT NULL AND cp.username <> ''
-      ) combined_creators
+      ) comb
+      WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
       GROUP BY folder_id
     )
     SELECT 
@@ -218,13 +193,13 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       COALESCE(kw.keyword_count, 0) AS keyword_count,
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(dc.domain_count, 0) AS domain_count,
-      COALESCE(pc.pin_count, 0) AS pin_count,
-      COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
-      COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
-      COALESCE(pc.active_pins_count, 0) AS active_pins_count,
-      COALESCE(pc.vault_pins_count, 0) AS vault_pins_count,
-      COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count,
+      COALESCE(cs.domain_count, 0) AS domain_count,
+      COALESCE(cs.unique_pins_count, 0) AS pin_count,
+      COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
+      COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
+      COALESCE(cs.active_pins_count, 0) AS active_pins_count,
+      COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
+      COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count,
       COALESCE(
         (
           SELECT json_agg(json_build_object('id', tk.id, 'keyword', tk.keyword))
@@ -238,9 +213,7 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
-    LEFT JOIN domain_counts dc ON dc.folder_id = f.id
-    LEFT JOIN pin_counts pc ON pc.folder_id = f.id
-    LEFT JOIN discovered_creator_counts dcr ON dcr.folder_id = f.id
+    LEFT JOIN combined_summary cs ON cs.folder_id = f.id
     WHERE f.project_id = ${projectId}
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
@@ -281,30 +254,13 @@ export async function getFolder(sql, folderId) {
       SELECT folder_id, COUNT(id)::int AS pinned_domain_count
       FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
     ),
-    domain_counts AS (
-      SELECT folder_id, COUNT(DISTINCT clean_domain)::int AS domain_count
-      FROM (
-        SELECT kfi.folder_id, LOWER(TRIM(ksc.domain)) AS clean_domain
-        FROM keyword_folder_items kfi
-        JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-        WHERE kfi.folder_id = ${fid}
-          AND ksc.is_displaced = FALSE
-          AND ksc.domain IS NOT NULL AND ksc.domain <> ''
-          AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-          AND ksc.domain LIKE '%.%'
-        UNION
-        SELECT kfi.folder_id, LOWER(TRIM(kdi.domain)) AS clean_domain
-        FROM keyword_folder_items kfi
-        JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-        WHERE kfi.folder_id = ${fid}
-          AND kdi.domain IS NOT NULL AND kdi.domain <> ''
-          AND kdi.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-          AND kdi.domain LIKE '%.%'
-      ) u
-      GROUP BY folder_id
-    ),
     active_folder_pins AS (
-      SELECT kfi.folder_id, ksc.pin_id
+      SELECT
+        kfi.folder_id,
+        ksc.pin_id,
+        ksc.is_displaced,
+        LOWER(TRIM(ksc.domain)) AS clean_domain,
+        LOWER(TRIM(ksc.creator_username)) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
@@ -316,102 +272,52 @@ export async function getFolder(sql, folderId) {
       SELECT
         kfi.folder_id,
         kdi.pin_id,
-        COUNT(kdi.keyword_id) OVER (PARTITION BY kdi.pin_id) AS kw_count,
-        kdi.daily_save_velocity,
-        kdi.save_count,
-        kdi.last_known_rank
+        LOWER(TRIM(kdi.domain)) AS clean_domain,
+        LOWER(TRIM(kdi.creator_username)) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
         AND kdi.last_known_rank IS NOT NULL
         AND kdi.last_known_rank >= 1
     ),
-    qualifying_vault_pins AS (
-      SELECT vfp.folder_id, vfp.pin_id
-      FROM vault_folder_pins vfp
-      WHERE (vfp.pin_id IN (SELECT pin_id FROM active_folder_pins))
-         OR vfp.kw_count >= 2
-         OR vfp.daily_save_velocity > 0
-         OR vfp.save_count >= 50
-         OR vfp.last_known_rank <= 25
-      GROUP BY vfp.folder_id, vfp.pin_id
-    ),
-    all_cluster_unique_pins AS (
-      SELECT folder_id, pin_id, TRUE AS is_active, FALSE AS is_vault
-      FROM active_folder_pins
-      UNION
-      SELECT folder_id, pin_id, FALSE AS is_active, TRUE AS is_vault
-      FROM qualifying_vault_pins
-    ),
-    pin_counts AS (
-      SELECT
-        folder_id,
-        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT pin_id)::int AS total_unique_pins,
-        COUNT(DISTINCT pin_id)::int AS pin_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE is_active)::int AS active_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE is_vault AND pin_id NOT IN (SELECT pin_id FROM active_folder_pins))::int AS vault_pins_count
-      FROM all_cluster_unique_pins
-      GROUP BY folder_id
-    ),
-    discovered_creator_pins AS (
+    active_unique_pins AS (
       SELECT
         kfi.folder_id,
-        ksc.pin_id,
-        LOWER(TRIM(ksc.creator_username)) AS clean_username,
-        ksc.save_count,
-        ksc.rank_position AS current_rank,
-        FALSE AS is_displaced
+        COUNT(DISTINCT ksc.pin_id)::int AS active_pins_count
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
         AND ksc.is_displaced = FALSE
-        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
-        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
-      UNION ALL
-      SELECT
-        kfi.folder_id,
-        kdi.pin_id,
-        LOWER(TRIM(kdi.creator_username)) AS clean_username,
-        kdi.save_count,
-        kdi.last_known_rank AS current_rank,
-        TRUE AS is_displaced
-      FROM keyword_folder_items kfi
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-      WHERE kfi.folder_id = ${fid}
-        AND kdi.creator_username IS NOT NULL AND kdi.creator_username <> ''
-        AND LOWER(TRIM(kdi.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ksc.rank_position IS NOT NULL
+        AND ksc.rank_position >= 1
+      GROUP BY kfi.folder_id
     ),
-    discovered_creators_grouped AS (
+    combined_summary AS (
       SELECT
         folder_id,
-        clean_username,
-        COUNT(DISTINCT pin_id)::int AS pin_count,
-        MAX(save_count)::bigint AS top_pin_saves,
-        MIN(current_rank)::int AS min_rank,
-        BOOL_OR(NOT is_displaced) AS has_active_pins
-      FROM discovered_creator_pins
-      WHERE folder_id = ${fid}
-      GROUP BY folder_id, clean_username
-      HAVING (
-        BOOL_OR(NOT is_displaced) = TRUE
-        OR COUNT(DISTINCT pin_id) >= 2
-        OR MAX(save_count) >= 5
-        OR MIN(current_rank) <= 50
-      )
-    ),
-    discovered_creator_counts AS (
-      SELECT folder_id, COUNT(DISTINCT clean_username)::int AS discovered_creator_count
+        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+        COUNT(DISTINCT clean_domain) FILTER (
+          WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+            AND clean_domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
+            AND clean_domain LIKE '%.%'
+        )::int AS domain_count,
+        COUNT(DISTINCT clean_username) FILTER (
+          WHERE clean_username IS NOT NULL AND clean_username <> ''
+            AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        )::int AS discovered_creator_count
       FROM (
-        SELECT folder_id, clean_username FROM discovered_creators_grouped
-        WHERE folder_id = ${fid}
-        UNION
-        SELECT fci.folder_id, LOWER(TRIM(cp.username)) AS clean_username
+        SELECT folder_id, pin_id, clean_domain, clean_username, 'active' AS item_source, is_displaced FROM active_folder_pins
+        UNION ALL
+        SELECT folder_id, pin_id, clean_domain, clean_username, 'vault' AS item_source, TRUE AS is_displaced FROM vault_folder_pins
+        UNION ALL
+        SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
         FROM folder_competitor_items fci
         JOIN competitor_profiles cp ON cp.id = fci.competitor_id
-        WHERE fci.folder_id = ${fid}
-          AND cp.username IS NOT NULL AND cp.username <> ''
-      ) combined_creators
+        WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
+      ) comb
+      WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
       GROUP BY folder_id
     )
     SELECT 
@@ -419,20 +325,18 @@ export async function getFolder(sql, folderId) {
       COALESCE(kw.keyword_count, 0) AS keyword_count,
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(dc.domain_count, 0) AS domain_count,
-      COALESCE(pc.pin_count, 0) AS pin_count,
-      COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
-      COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
-      COALESCE(pc.active_pins_count, 0) AS active_pins_count,
-      COALESCE(pc.vault_pins_count, 0) AS vault_pins_count,
-      COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count
+      COALESCE(cs.domain_count, 0) AS domain_count,
+      COALESCE(cs.unique_pins_count, 0) AS pin_count,
+      COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
+      COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
+      COALESCE(cs.active_pins_count, 0) AS active_pins_count,
+      COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
+      COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count
     FROM keyword_folders f
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
-    LEFT JOIN domain_counts dc ON dc.folder_id = f.id
-    LEFT JOIN pin_counts pc ON pc.folder_id = f.id
-    LEFT JOIN discovered_creator_counts dcr ON dcr.folder_id = f.id
+    LEFT JOIN combined_summary cs ON cs.folder_id = f.id
     WHERE f.id = ${fid}
     LIMIT 1;
   `;

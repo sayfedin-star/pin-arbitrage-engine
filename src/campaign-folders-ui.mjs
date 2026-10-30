@@ -2262,8 +2262,11 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
           if (this.activeFolderId) {
             await this.loadActiveFolder();
+            // Non-blocking background fetch for switcher dropdown when active folder is loaded
+            this.loadFolders().catch(() => {});
+          } else {
+            await this.loadFolders();
           }
-          await this.loadFolders();
 
           this.$watch('searchQuery', async (val) => {
             this.currentPage = 1;
@@ -2313,7 +2316,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         async loadFolders() {
           this.foldersLoading = true;
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/folders');
+            let res;
+            if (this.activeFolderId) {
+              res = await (window.safeApiFetch || fetch)('/api/folders?lite=true');
+            } else {
+              res = await (window.safeApiFetch || fetch)('/api/folders');
+            }
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
               this.foldersList = data.folders || [];
@@ -2324,12 +2332,19 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                 }
               }
             } else {
-              this.showToast('Failed to load campaign folders', 'error');
+              if (!this.activeFolder) {
+                this.showToast('Failed to load campaign folders', 'error');
+              }
             }
           } catch (e) {
             console.error('Error loading folders:', e);
-            this.showToast('Network error loading folders', 'error');
+            if (!this.activeFolder) {
+              this.showToast('Network error loading folders', 'error');
+            }
           } finally {
+            if (!this.foldersList.length && this.activeFolder) {
+              this.foldersList = [this.activeFolder];
+            }
             this.foldersLoading = false;
           }
         },

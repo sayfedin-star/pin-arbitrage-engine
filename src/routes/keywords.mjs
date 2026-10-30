@@ -32,6 +32,7 @@ import {
 
 import {
   listFolders,
+  listFoldersLite,
   getFolder,
   createFolder,
   updateFolder,
@@ -1345,6 +1346,9 @@ export async function handleKeywordsRoutes({
 
     if (method === 'GET') {
       const isRefreshRequested = searchParams.get('refresh') === 'true';
+      const isLite = searchParams.get('lite') === 'true';
+      const projectId = searchParams.get('project_id') || 'default';
+
       if (folderId && parts.length === 1) {
         // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 10m) before hitting Neon Hub
         if (!isRefreshRequested && env?.PIN_D1_DB) {
@@ -1387,47 +1391,72 @@ export async function handleKeywordsRoutes({
         }
         return jsonResponse({ success: true, folder }, 200, 15);
       }
+
+      // [INVARIANT: SWR-D1-EDGE-FOLDERS] Query ALL cached rows from D1 immediately (< 5ms)
       if (!isRefreshRequested && env?.PIN_D1_DB) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, status, metadata, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
+            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, status, metadata, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
           ).all();
           if (d1Folders?.results?.length > 0) {
-            const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-            const allFresh = d1Folders.results.every(f => {
+            const normalizedList = d1Folders.results.map(f => ({
+              ...f,
+              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0),
+              item_count: Number(f.keyword_count ?? f.item_count ?? 0),
+              unique_pins_count: Number(f.unique_pins_count || 0),
+              creator_count: Number(f.creator_count || 0),
+              domain_count: Number(f.domain_count || 0),
+              pinned_domain_count: Number(f.pinned_domain_count || 0),
+              metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})
+            }));
+
+            // Check if oldest row is older than 15 minutes for SWR background refresh
+            const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+            const hasStaleRow = d1Folders.results.some(f => {
               const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
-              return !isNaN(t) && t >= tenMinutesAgo;
+              return isNaN(t) || t < fifteenMinutesAgo;
             });
-            // [INVARIANT: D1-EDGE-CACHE-PRESERVE-EMPTY-FOLDERS]
-            // Allow empty folders in D1 cache (d1Folders.results.length > 0) without forcing Neon Hub wakeups
-            if (allFresh && d1Folders.results.length > 0) {
-              const normalizedList = d1Folders.results.map(f => ({
-                ...f,
-                keyword_count: Number(f.keyword_count ?? f.item_count ?? 0),
-                creator_count: Number(f.creator_count || 0),
-                domain_count: Number(f.domain_count || 0),
-                pinned_domain_count: Number(f.pinned_domain_count || 0),
-                metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})
-              }));
-              return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
+            if (hasStaleRow && !isLite && syncFolderToD1 && sql) {
+              safeWaitUntil(ctx, (async () => {
+                try {
+                  const fresh = await listFolders(sql, { projectId });
+                  if (Array.isArray(fresh) && fresh.length > 0) {
+                    await Promise.all(fresh.map(f => syncFolderToD1(env, f)));
+                  }
+                } catch (e) {
+                  console.warn('[SWR] Background folders refresh failed:', e.message);
+                }
+              })(), 'swrRefreshFoldersD1');
             }
+
+            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
           }
         } catch (_) {}
       }
+
       let folders = [];
       let foldersDegraded = false;
-      try {
-        folders = await listFolders(sql, {
-          projectId: searchParams.get('project_id') || 'default'
-        });
-      } catch (err) {
-        console.warn('[Folders Fallback] listFolders failed:', err.message);
-        folders = [];
-        foldersDegraded = true;
+      if (isLite) {
+        try {
+          folders = await listFoldersLite(sql, { projectId });
+        } catch (err) {
+          console.warn('[Folders Fallback] listFoldersLite failed:', err.message);
+          folders = [];
+          foldersDegraded = true;
+        }
+      } else {
+        try {
+          folders = await listFolders(sql, { projectId });
+        } catch (err) {
+          console.warn('[Folders Fallback] listFolders failed:', err.message);
+          folders = [];
+          foldersDegraded = true;
+        }
+        if (Array.isArray(folders) && folders.length > 0 && syncFolderToD1) {
+          safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
+        }
       }
-      if (Array.isArray(folders) && folders.length > 0 && syncFolderToD1) {
-        safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
-      }
+
       return jsonResponse({
         success: true,
         folders: Array.isArray(folders) ? folders : [],
@@ -1597,7 +1626,7 @@ export async function handleKeywordsRoutes({
     if (!isRefreshRequested && env?.PIN_D1_DB) {
       try {
         const d1Folders = await env.PIN_D1_DB.prepare(
-          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
+          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
         ).all();
         if (d1Folders?.results?.length > 0) {
           const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
