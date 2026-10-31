@@ -328,6 +328,7 @@ export async function syncFolderToD1(env, folder) {
       : (typeof folder.metadata === 'string' ? folder.metadata : '{}');
     const updatedAt = new Date().toISOString();
 
+    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Non-Zeroing Defensive Coalescence
     await env.PIN_D1_DB.prepare(`
       INSERT INTO edge_campaign_folders (
         id, name, color, description, item_count, keyword_count,
@@ -335,7 +336,6 @@ export async function syncFolderToD1(env, folder) {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Non-Zeroing Defensive Coalescence
         name = COALESCE(excluded.name, edge_campaign_folders.name),
         color = COALESCE(excluded.color, edge_campaign_folders.color),
         description = COALESCE(excluded.description, edge_campaign_folders.description),

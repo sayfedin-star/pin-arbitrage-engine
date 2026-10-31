@@ -1367,7 +1367,7 @@ export async function handleKeywordsRoutes({
         if (!isRefreshRequested && env?.PIN_D1_DB) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
-              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
+              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
             ).bind(String(folderId)).first();
             if (d1Folder) {
               const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
@@ -1380,6 +1380,7 @@ export async function handleKeywordsRoutes({
                   item_count: count,
                   unique_pins_count: Number(d1Folder.unique_pins_count || 0),
                   creator_count: Number(d1Folder.creator_count || 0),
+                  discovered_creator_count: Number(d1Folder.discovered_creator_count || d1Folder.creator_count || 0),
                   domain_count: Number(d1Folder.domain_count || 0),
                   pinned_domain_count: Number(d1Folder.pinned_domain_count || 0),
                   metadata: typeof d1Folder.metadata === 'string' ? JSON.parse(d1Folder.metadata || '{}') : (d1Folder.metadata || {}),
@@ -1428,7 +1429,7 @@ export async function handleKeywordsRoutes({
       if (!isRefreshRequested && env?.PIN_D1_DB) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, status, metadata, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
           ).all();
           if (d1Folders?.results?.length > 0) {
             const normalizedList = d1Folders.results.map(f => ({
@@ -1437,6 +1438,7 @@ export async function handleKeywordsRoutes({
               item_count: Number(f.keyword_count ?? f.item_count ?? 0),
               unique_pins_count: Number(f.unique_pins_count || 0),
               creator_count: Number(f.creator_count || 0),
+              discovered_creator_count: Number(f.discovered_creator_count || f.creator_count || 0),
               domain_count: Number(f.domain_count || 0),
               pinned_domain_count: Number(f.pinned_domain_count || 0),
               metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})

@@ -739,7 +739,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const shardKey = reqProjectId || 'hub';
     const account_type = searchParams.get('account_type') || 'all';
     const search = searchParams.get('search') || '';
-    const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+    const limit = clampLimit(searchParams.get('limit'), 5000, 5000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
     const cacheKey = buildCanonicalCacheKey(`competitors:${shardKey}`, {

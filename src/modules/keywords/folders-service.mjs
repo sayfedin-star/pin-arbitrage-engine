@@ -931,7 +931,6 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       COALESCE(cp.total_boards, 0)::int AS total_boards,
       cp.follower_count,
       cp.activity_status,
-      cp.metadata,
       COALESCE(cp.tracking_mode, 'pulse_only') AS tracking_mode,
       COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
       COALESCE(fci.source, 'discovered') AS discovery_source,
@@ -974,7 +973,6 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       COALESCE(cp.total_boards, 0)::int AS total_boards,
       cp.follower_count,
       cp.activity_status,
-      cp.metadata,
       COALESCE(cp.tracking_mode, 'full') AS tracking_mode,
       COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
       COALESCE(fci.source, 'manual') AS discovery_source,
@@ -1009,7 +1007,19 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     active_pin_count: Number(r.active_pin_count || 0),
     vault_pin_count: Number(r.vault_pin_count || 0),
     has_active_pins: Boolean(r.has_active_pins),
-    has_vault_pins: Boolean(r.has_vault_pins)
+    has_vault_pins: Boolean(r.has_vault_pins),
+    monthly_reach: Number(r.monthly_reach || 0),
+    profile_views: Number(r.profile_views || 0),
+    total_pins: Number(r.total_pins || 0),
+    total_boards: Number(r.total_boards || 0),
+    delta_reach_24h: Number(r.delta_reach_24h || 0),
+    reach_delta_7d: Number(r.reach_delta_7d || 0),
+    delta_views_24h: Number(r.delta_views_24h || 0),
+    views_delta_7d: Number(r.views_delta_7d || 0),
+    delta_pins_24h: Number(r.delta_pins_24h || 0),
+    pins_delta_7d: Number(r.pins_delta_7d || 0),
+    delta_boards_24h: Number(r.delta_boards_24h || 0),
+    boards_delta_7d: Number(r.boards_delta_7d || 0),
   }));
   const linked = allRows.filter(r => r.is_linked);
   const discovered = allRows.filter(r => !r.is_linked);

@@ -147,10 +147,10 @@ export async function getCompetitorsOverview(sql) {
 /**
  * List tracked profiles with reach/view deltas and board stats
  */
-export async function listCompetitors(sql, { account_type = 'all', search = '', limit = 50, offset = 0 } = {}) {
+export async function listCompetitors(sql, { account_type = 'all', search = '', limit = 1000, offset = 0 } = {}) {
   try {
     let query;
-    const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+    const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 1000 : Number(limit), 5000));
     const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
     const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().replace('@', '').trim()) : null;
     const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
@@ -158,7 +158,14 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
     if (account_type && account_type !== 'all') {
       if (searchPattern) {
         query = await sql`
-          SELECT *
+          SELECT
+            id, username, display_name, avatar_url, website_url,
+            account_type, is_active, tracking_mode, source_folder_id, custom_label,
+            monthly_reach, delta_reach_24h, reach_delta_7d,
+            profile_views, delta_views_24h, views_delta_7d,
+            total_pins, delta_pins_24h, pins_delta_7d,
+            total_boards, delta_boards_24h, boards_delta_7d,
+            follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
           WHERE account_type = ${account_type}
             AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
@@ -167,7 +174,14 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
         `;
       } else {
         query = await sql`
-          SELECT *
+          SELECT
+            id, username, display_name, avatar_url, website_url,
+            account_type, is_active, tracking_mode, source_folder_id, custom_label,
+            monthly_reach, delta_reach_24h, reach_delta_7d,
+            profile_views, delta_views_24h, views_delta_7d,
+            total_pins, delta_pins_24h, pins_delta_7d,
+            total_boards, delta_boards_24h, boards_delta_7d,
+            follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
           WHERE account_type = ${account_type}
           ORDER BY monthly_reach DESC
@@ -177,7 +191,14 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
     } else {
       if (searchPattern) {
         query = await sql`
-          SELECT *
+          SELECT
+            id, username, display_name, avatar_url, website_url,
+            account_type, is_active, tracking_mode, source_folder_id, custom_label,
+            monthly_reach, delta_reach_24h, reach_delta_7d,
+            profile_views, delta_views_24h, views_delta_7d,
+            total_pins, delta_pins_24h, pins_delta_7d,
+            total_boards, delta_boards_24h, boards_delta_7d,
+            follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
           WHERE (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
           ORDER BY monthly_reach DESC
@@ -185,7 +206,14 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
         `;
       } else {
         query = await sql`
-          SELECT *
+          SELECT
+            id, username, display_name, avatar_url, website_url,
+            account_type, is_active, tracking_mode, source_folder_id, custom_label,
+            monthly_reach, delta_reach_24h, reach_delta_7d,
+            profile_views, delta_views_24h, views_delta_7d,
+            total_pins, delta_pins_24h, pins_delta_7d,
+            total_boards, delta_boards_24h, boards_delta_7d,
+            follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
@@ -199,11 +227,17 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
       ...p,
       handle: `@${p.username}`,
       monthly_reach: Number(p.monthly_reach || 0),
+      delta_reach_24h: Number(p.delta_reach_24h || 0),
       reach_delta_7d: Number(p.reach_delta_7d || 0),
       profile_views: Number(p.profile_views || 0),
+      delta_views_24h: Number(p.delta_views_24h || 0),
       views_delta_7d: Number(p.views_delta_7d || 0),
       total_pins: Number(p.total_pins || 0),
+      delta_pins_24h: Number(p.delta_pins_24h || 0),
+      pins_delta_7d: Number(p.pins_delta_7d || 0),
       total_boards: Number(p.total_boards || 0),
+      delta_boards_24h: Number(p.delta_boards_24h || 0),
+      boards_delta_7d: Number(p.boards_delta_7d || 0),
       follower_count: Number(p.follower_count || 0)
     }));
   } catch (err) {
@@ -266,7 +300,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [existingProfile] = await sql`
-    SELECT id, tracking_mode, custom_label, source_folder_id, metadata
+    SELECT id, tracking_mode, custom_label, source_folder_id, monthly_reach, profile_views, metadata
     FROM competitor_profiles
     WHERE username = ${cleanUsername}
     LIMIT 1;
@@ -292,13 +326,21 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     throw new Error(`Pinterest API returned error for @${cleanUsername}: ${res.error || res.status}`);
   }
 
-  const monthlyReach = Number(res.monthly_reach || 0);
-  const profileViews = Number(res.profile_views || 0);
+  const rawReach = Number(res.monthly_reach || 0);
+  const rawViews = Number(res.profile_views || 0);
   const totalPins = Number(res.total_pins || 0);
   const totalBoards = Number(res.total_boards || 0);
   const followers = Number(res.follower_count || 0);
   const avatarUrl = res.avatar_url || null;
   const displayName = res.display_name || cleanUsername;
+
+  // [INVARIANT: PINTEREST-10M-CEILING-GUARD]
+  // Pinterest unauthenticated profile scraping caps reach/views at 10,000,001 (representing 10M+).
+  // Retain higher authentic historical values and prevent bogus -10.1M delta spikes.
+  const prevExistingReach = Number(existingProfile?.monthly_reach || 0);
+  const prevExistingViews = Number(existingProfile?.profile_views || 0);
+  let monthlyReach = (rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach;
+  let profileViews = (rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews;
 
   // [INVARIANT: LIGHTWEIGHT-CREATOR-PULSE]
   // 1. Query latest prior snapshot (recorded_date < CURRENT_DATE) for true 24h deltas
@@ -311,8 +353,19 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     LIMIT 1;
   `;
 
-  const deltaReach24h = (prior24h && Number(prior24h.monthly_reach || 0) > 0 && monthlyReach > 0) ? (monthlyReach - Number(prior24h.monthly_reach || 0)) : 0;
-  const deltaViews24h = (prior24h && Number(prior24h.profile_views || 0) > 0 && profileViews > 0) ? (profileViews - Number(prior24h.profile_views || 0)) : 0;
+  const priorReach = Number(prior24h?.monthly_reach || 0);
+  if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) {
+    monthlyReach = priorReach;
+  }
+  const priorViews = Number(prior24h?.profile_views || 0);
+  if (rawViews === 10000001 && priorViews > 10000001 && profileViews <= 10000001) {
+    profileViews = priorViews;
+  }
+
+  let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
+  let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
+  if (rawReach === 10000001 && deltaReach24h < 0) deltaReach24h = 0;
+  if (rawViews === 10000001 && deltaViews24h < 0) deltaViews24h = 0;
   const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
   const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
@@ -340,8 +393,19 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     }
   }
 
-  const reachDelta7d = (baseline7d && Number(baseline7d.monthly_reach || 0) > 0 && monthlyReach > 0) ? (monthlyReach - Number(baseline7d.monthly_reach || 0)) : 0;
-  const viewsDelta7d = (baseline7d && Number(baseline7d.profile_views || 0) > 0 && profileViews > 0) ? (profileViews - Number(baseline7d.profile_views || 0)) : 0;
+  const baselineReach = Number(baseline7d?.monthly_reach || 0);
+  if (rawReach === 10000001 && baselineReach > 10000001 && monthlyReach <= 10000001) {
+    monthlyReach = baselineReach;
+  }
+  const baselineViews = Number(baseline7d?.profile_views || 0);
+  if (rawViews === 10000001 && baselineViews > 10000001 && profileViews <= 10000001) {
+    profileViews = baselineViews;
+  }
+
+  let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
+  let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
+  if (rawReach === 10000001 && reachDelta7d < 0) reachDelta7d = 0;
+  if (rawViews === 10000001 && viewsDelta7d < 0) viewsDelta7d = 0;
   const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
   const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
@@ -437,10 +501,18 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     ON CONFLICT (username) DO UPDATE SET
       display_name = EXCLUDED.display_name,
       avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
-      monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
+      monthly_reach = CASE 
+        WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_profiles.monthly_reach > 10000001 THEN competitor_profiles.monthly_reach
+        WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach 
+        ELSE competitor_profiles.monthly_reach 
+      END,
       delta_reach_24h = EXCLUDED.delta_reach_24h,
       reach_delta_7d = EXCLUDED.reach_delta_7d,
-      profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
+      profile_views = CASE 
+        WHEN EXCLUDED.profile_views = 10000001 AND competitor_profiles.profile_views > 10000001 THEN competitor_profiles.profile_views
+        WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views 
+        ELSE competitor_profiles.profile_views 
+      END,
       delta_views_24h = EXCLUDED.delta_views_24h,
       views_delta_7d = EXCLUDED.views_delta_7d,
       total_pins = GREATEST(competitor_profiles.total_pins, EXCLUDED.total_pins),

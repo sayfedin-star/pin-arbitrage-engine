@@ -3313,8 +3313,22 @@ export function getDashboardHtml(folderId = '') {
               <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
                 <option value="">All Folders</option>
                 <template x-for="f in foldersList" :key="f.id">
-                  <option :value="String(f.id)" x-text="f.name + ' (' + (f.creator_count || 0) + ')'"></option>
+                  <option :value="String(f.id)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
                 </template>
+              </select>
+            </div>
+
+            <!-- Sort Selector -->
+            <div class="flex items-center gap-1.5 text-xs">
+              <span class="text-slate-500 dark:text-slate-400 font-mono tabular-nums">⬍ Sort:</span>
+              <select x-model="competitorSort" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
+                <option value="audience_desc">Total Audience (High → Low)</option>
+                <option value="gain_24h_desc">🔥 Top Audience Gain (24h)</option>
+                <option value="gain_7d_desc">🚀 Top Audience Gain (7d)</option>
+                <option value="impressions_desc">Impressions (High → Low)</option>
+                <option value="impressions_24h_desc">Top Impressions Gain (24h)</option>
+                <option value="impressions_7d_desc">Top Impressions Gain (7d)</option>
+                <option value="pins_desc">Total Pins (High → Low)</option>
               </select>
             </div>
 
@@ -3322,7 +3336,7 @@ export function getDashboardHtml(folderId = '') {
             <div class="flex items-center space-x-2 w-full sm:w-auto">
               <div class="relative w-full sm:w-64">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                <input type="text" x-model="competitorSearch" placeholder="Search handle, name, tag..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                <input type="text" x-model.debounce.150ms="competitorSearch" placeholder="Search handle, name, tag..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
               </div>
               <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 whitespace-nowrap" x-text="filteredCompetitors.length + ' Profiles'"></span>
             </div>
@@ -5980,7 +5994,10 @@ export function getDashboardHtml(folderId = '') {
         competitorFilter: 'all',
         competitorSearch: '',
         competitorPage: 1,
-        competitorPageSize: 25,
+        competitorPageSize: 50,
+        competitorSort: 'audience_desc',
+        _competitorsCacheKey: '',
+        _cachedFilteredCompetitors: null,
         creatorDiscoveryFilter: 'all',
 
         // Visual Feed & Board Sections Modals
@@ -6153,7 +6170,18 @@ export function getDashboardHtml(folderId = '') {
         },
 
         get filteredCompetitors() {
-          let list = this.competitors || [];
+          const rawList = this.competitors || [];
+          const fid = String(this.scopedFolderId || this.folderFilter || '').trim();
+          const linkedSize = fid ? ((this.scopedFolderId ? this.scopedFolderCreatorIds?.size : this.folderCreatorMap[fid]?.size) || 0) : 0;
+          const firstId = rawList.length > 0 ? (rawList[0].id || rawList[0].username || '') : '';
+          const firstReach = rawList.length > 0 ? (rawList[0].monthly_reach || 0) : 0;
+          const lastId = rawList.length > 1 ? (rawList[rawList.length - 1].id || rawList[rawList.length - 1].username || '') : '';
+          const cacheKey = [rawList.length, firstId, firstReach, lastId, this.competitorFilter, fid, linkedSize, this.creatorDiscoveryFilter, this.vaultScope, (this.competitorSearch || '').trim().toLowerCase(), this.competitorSort].join(':');
+          if (this._competitorsCacheKey === cacheKey && Array.isArray(this._cachedFilteredCompetitors)) {
+            return this._cachedFilteredCompetitors;
+          }
+
+          let list = rawList;
           if (this.competitorFilter && this.competitorFilter !== 'all') {
             if (this.competitorFilter === 'paused') {
               list = list.filter(c => c.is_active === false);
@@ -6163,25 +6191,59 @@ export function getDashboardHtml(folderId = '') {
               list = list.filter(c => c.account_type === this.competitorFilter);
             }
           }
-          if (this.scopedFolderId) {
-            const linkedSet = this.scopedFolderCreatorIds || new Set();
+          if (this.scopedFolderId || this.folderFilter) {
+            const linkedSet = (this.scopedFolderId ? this.scopedFolderCreatorIds : this.folderCreatorMap[fid]) || new Set();
             // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Room 3 Creator Hub Discovery Filter
             if (this.creatorDiscoveryFilter === 'tracked') {
               list = list.filter(c => c.is_linked || c.is_tracked || linkedSet.has(Number(c.id || c.competitor_id)));
             } else if (this.creatorDiscoveryFilter === 'discovered' || this.creatorDiscoveryFilter === 'auto_discovered') {
               list = list.filter(c => !c.is_linked && !c.is_tracked && !linkedSet.has(Number(c.id || c.competitor_id)));
             }
-          } else if (this.folderFilter) {
-            const fid = String(this.folderFilter).trim();
-            const creatorIds = this.folderCreatorMap[fid];
-            if (creatorIds && creatorIds instanceof Set) {
-              list = list.filter(c => creatorIds.has(Number(c.id)) || creatorIds.has(String(c.id)));
-            }
           }
           if (this.competitorSearch) {
-            const q = this.competitorSearch.toLowerCase().replace('@', '');
-            list = list.filter(c => (c.username && c.username.toLowerCase().includes(q)) || (c.display_name && c.display_name.toLowerCase().includes(q)));
+            const q = this.competitorSearch.toLowerCase().replace('@', '').trim();
+            if (q) {
+              list = list.filter(c => (c.username && c.username.toLowerCase().includes(q)) || (c.display_name && c.display_name.toLowerCase().includes(q)) || (c.custom_label && c.custom_label.toLowerCase().includes(q)));
+            }
           }
+
+          const sortMode = this.competitorSort || 'audience_desc';
+          list = [...list].sort((a, b) => {
+            if (sortMode === 'gain_24h_desc') {
+              const dA = Number(a.delta_reach_24h ?? a.delta_24h ?? 0);
+              const dB = Number(b.delta_reach_24h ?? b.delta_24h ?? 0);
+              if (dB !== dA) return dB - dA;
+              return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+            }
+            if (sortMode === 'gain_7d_desc') {
+              const dA = Number(a.reach_delta_7d ?? 0);
+              const dB = Number(b.reach_delta_7d ?? 0);
+              if (dB !== dA) return dB - dA;
+              return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+            }
+            if (sortMode === 'impressions_desc') {
+              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+            }
+            if (sortMode === 'impressions_24h_desc') {
+              const vA = Number(a.delta_views_24h ?? 0);
+              const vB = Number(b.delta_views_24h ?? 0);
+              if (vB !== vA) return vB - vA;
+              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+            }
+            if (sortMode === 'impressions_7d_desc') {
+              const vA = Number(a.views_delta_7d ?? 0);
+              const vB = Number(b.views_delta_7d ?? 0);
+              if (vB !== vA) return vB - vA;
+              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+            }
+            if (sortMode === 'pins_desc') {
+              return (Number(b.total_pins) || 0) - (Number(a.total_pins) || 0);
+            }
+            return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+          });
+
+          this._competitorsCacheKey = cacheKey;
+          this._cachedFilteredCompetitors = list;
           return list;
         },
 
@@ -7565,6 +7627,10 @@ export function getDashboardHtml(folderId = '') {
           this.$watch('creatorDiscoveryFilter', () => { this.competitorPage = 1; });
           this.$watch('competitorSearch', () => { this.competitorPage = 1; });
           this.$watch('competitorPageSize', () => { this.competitorPage = 1; });
+          this.$watch('competitorSort', () => {
+            this.competitorPage = 1;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          });
           this.loadFolders();
           if (this.scopedFolderId) {
             this.loadFolderCreators(this.scopedFolderId);
@@ -7758,7 +7824,7 @@ export function getDashboardHtml(folderId = '') {
               this.fetchSeeds(),
               this.fetchIntersections(),
               this.fetchCookieStatus(),
-              this.fetchCompetitors(),
+              (this.scopedFolderId || this.folderFilter) ? this.loadFolderCreators(this.scopedFolderId || this.folderFilter) : this.fetchCompetitors(),
               this.fetchKeywords(),
               this.fetchFleetProjects()
             ]);
@@ -7782,13 +7848,17 @@ export function getDashboardHtml(folderId = '') {
         },
 
         async fetchCompetitors(bypassCache = false) {
+          if (this.scopedFolderId || this.folderFilter) {
+            return this.loadFolderCreators(this.scopedFolderId || this.folderFilter);
+          }
           try {
-            const baseEndpoint = '/api/competitors' + (bypassCache ? ('?_t=' + Date.now() + '&refresh=true') : '');
+            const baseEndpoint = '/api/competitors?limit=5000' + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
             if (res.ok) {
               const data = await res.json();
               this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = data.competitors || [];
+              this._competitorsCacheKey = '';
               if (this.activeCreator) {
                 const matched = this.competitors.find(c => (c.username || '').toLowerCase() === (this.activeCreator.username || '').toLowerCase());
                 if (matched) {
@@ -7798,10 +7868,12 @@ export function getDashboardHtml(folderId = '') {
             } else {
               this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = [];
+              this._competitorsCacheKey = '';
             }
           } catch (e) {
             this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
             this.competitors = [];
+            this._competitorsCacheKey = '';
           } finally {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
@@ -7965,13 +8037,21 @@ export function getDashboardHtml(folderId = '') {
                 this.scopedFolderCreatorIds = linkedIds;
                 this.folderCompetitorTotalsData = data.totals || null;
                 this.competitors = allList;
+                this._competitorsCacheKey = '';
                 if (this.activeFolder) {
-                  this.activeFolder.discovered_creator_count = allList.length;
-                  this.activeFolder.creator_count = allList.length;
+                  if (this.vaultScope === 'all') {
+                    this.activeFolder.discovered_creator_count = allList.length;
+                  } else {
+                    this.activeFolder.discovered_creator_count = Math.max(Number(this.activeFolder.discovered_creator_count || 0), allList.length);
+                  }
+                  this.activeFolder.creator_count = this.activeFolder.creator_count || linkedList.length;
                 }
               }
             }
           } catch (_) {}
+          finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
         },
 
         async setVaultScope(scope) {
@@ -8027,8 +8107,14 @@ export function getDashboardHtml(folderId = '') {
         },
 
         async onFolderFilterChange() {
+          this.competitorPage = 1;
+          this.selectedCompetitorIds = [];
+          this._competitorsCacheKey = '';
           if (this.folderFilter) {
             await this.loadFolderCreators(this.folderFilter);
+          } else {
+            this.folderCompetitorTotalsData = null;
+            await this.fetchCompetitors(true);
           }
         },
 
@@ -8070,9 +8156,9 @@ export function getDashboardHtml(folderId = '') {
         },
 
         get isAllCompetitorsSelected() {
-          if (!this.filteredCompetitors || this.filteredCompetitors.length === 0) return false;
-          const filteredIds = this.filteredCompetitors.map(c => Number(c.id));
-          return filteredIds.length > 0 && filteredIds.every(id => this.selectedCompetitorIds.includes(id));
+          if (!this.filteredCompetitors || this.filteredCompetitors.length === 0 || this.selectedCompetitorIds.length === 0) return false;
+          const selectedSet = new Set(this.selectedCompetitorIds);
+          return this.filteredCompetitors.every(c => selectedSet.has(Number(c.id)));
         },
 
         toggleSelectAllCompetitors() {
