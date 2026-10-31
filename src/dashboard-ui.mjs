@@ -3520,20 +3520,22 @@ export function getDashboardHtml(folderId = '') {
                           <button @click.stop="openFolderMenu = !openFolderMenu" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer" title="Assign to Campaign Folder">
                             <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
                           </button>
-                          <div x-show="openFolderMenu" @click.away="openFolderMenu = false" class="absolute right-0 z-50 mt-1 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] shadow-xl py-1 text-xs text-left" x-cloak>
-                            <div class="px-3 py-1.5 text-[10px] font-mono tabular-nums uppercase text-slate-400 border-b border-slate-100 dark:border-[#27272A]">
-                              Assign to Folder
+                          <template x-if="openFolderMenu">
+                            <div @click.away="openFolderMenu = false" class="absolute right-0 z-50 mt-1 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] shadow-xl py-1 text-xs text-left">
+                              <div class="px-3 py-1.5 text-[10px] font-mono tabular-nums uppercase text-slate-400 border-b border-slate-100 dark:border-[#27272A]">
+                                Assign to Folder
+                              </div>
+                              <template x-for="f in foldersList" :key="f.id">
+                                <button @click.stop="assignCreatorToFolder(c.id, f.id); openFolderMenu = false" class="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-between transition-colors cursor-pointer">
+                                  <span class="truncate" x-text="f.name"></span>
+                                  <span class="text-[10px] text-indigo-500 font-mono tabular-nums" x-show="isCreatorInFolder(c.id, f.id)">✓</span>
+                                </button>
+                              </template>
+                              <div x-show="!foldersList.length" class="px-3 py-2 text-slate-400 text-[11px]">
+                                No folders available
+                              </div>
                             </div>
-                            <template x-for="f in foldersList" :key="f.id">
-                              <button @click.stop="assignCreatorToFolder(c.id, f.id); openFolderMenu = false" class="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-between transition-colors cursor-pointer">
-                                <span class="truncate" x-text="f.name"></span>
-                                <span class="text-[10px] text-indigo-500 font-mono tabular-nums" x-show="isCreatorInFolder(c.id, f.id)">✓</span>
-                              </button>
-                            </template>
-                            <div x-show="!foldersList.length" class="px-3 py-2 text-slate-400 text-[11px]">
-                              No folders available
-                            </div>
-                          </div>
+                          </template>
                         </div>
                         <!-- Delete Competitor -->
                         <button @click.stop="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
@@ -5593,37 +5595,41 @@ export function getDashboardHtml(folderId = '') {
 
       <!-- Creators List -->
       <div class="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
-        <template x-for="c in (competitors || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase())))" :key="c.id">
-          <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <template x-if="c.image_url">
-                <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-[#27272A]">
-              </template>
-              <template x-if="!c.image_url">
-                <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
-                  <span x-text="(c.username || '?')[0].toUpperCase()"></span>
+        <template x-if="isAssignExistingCreatorModalOpen">
+          <div class="space-y-2">
+            <template x-for="c in (competitors || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase()))).slice(0, 100)" :key="c.id || c.username">
+              <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <template x-if="c.image_url">
+                    <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-[#27272A]">
+                  </template>
+                  <template x-if="!c.image_url">
+                    <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
+                      <span x-text="(c.username || '?')[0].toUpperCase()"></span>
+                    </div>
+                  </template>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-1.5 truncate">
+                      <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="c.display_name || c.username"></span>
+                      <span class="text-[11px] font-mono tabular-nums text-slate-400 truncate" x-text="'@' + (c.username || '')"></span>
+                    </div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                      <span x-text="(c.monthly_reach || 0).toLocaleString() + ' audience'"></span> • 
+                      <span x-text="(c.total_pins || 0).toLocaleString() + ' pins'"></span>
+                    </div>
+                  </div>
                 </div>
-              </template>
-              <div class="min-w-0">
-                <div class="flex items-center gap-1.5 truncate">
-                  <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="c.display_name || c.username"></span>
-                  <span class="text-[11px] font-mono tabular-nums text-slate-400 truncate" x-text="'@' + (c.username || '')"></span>
-                </div>
-                <div class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                  <span x-text="(c.monthly_reach || 0).toLocaleString() + ' audience'"></span> • 
-                  <span x-text="(c.total_pins || 0).toLocaleString() + ' pins'"></span>
-                </div>
-              </div>
-            </div>
 
-            <button type="button"
-                    @click="assignCreatorToFolder(c.id, scopedFolderId)"
-                    class="px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer flex items-center gap-1"
-                    :class="isCreatorInFolder(c.id, scopedFolderId)
-                      ? 'bg-purple-600 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'">
-              <span x-text="isCreatorInFolder(c.id, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
-            </button>
+                <button type="button"
+                        @click="assignCreatorToFolder(c.id, scopedFolderId)"
+                        class="px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer flex items-center gap-1"
+                        :class="isCreatorInFolder(c.id, scopedFolderId)
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'">
+                  <span x-text="isCreatorInFolder(c.id, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
+                </button>
+              </div>
+            </template>
           </div>
         </template>
       </div>
@@ -5998,6 +6004,8 @@ export function getDashboardHtml(folderId = '') {
         competitorSort: 'audience_desc',
         _competitorsCacheKey: '',
         _cachedFilteredCompetitors: null,
+        _loadingFolderCreatorsKey: null,
+        _loadingFolderCreatorsPromise: null,
         creatorDiscoveryFilter: 'all',
 
         // Visual Feed & Board Sections Modals
@@ -7632,9 +7640,6 @@ export function getDashboardHtml(folderId = '') {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           });
           this.loadFolders();
-          if (this.scopedFolderId) {
-            this.loadFolderCreators(this.scopedFolderId);
-          }
           // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins)
           if (typeof window !== 'undefined') {
             const RESERVED_SYSTEM_SLUGS = new Set([
@@ -7819,15 +7824,23 @@ export function getDashboardHtml(folderId = '') {
         async refreshAll() {
           this.isLoading = true;
           try {
-            await Promise.all([
-              this.fetchOverview(),
-              this.fetchSeeds(),
-              this.fetchIntersections(),
-              this.fetchCookieStatus(),
-              (this.scopedFolderId || this.folderFilter) ? this.loadFolderCreators(this.scopedFolderId || this.folderFilter) : this.fetchCompetitors(),
-              this.fetchKeywords(),
-              this.fetchFleetProjects()
-            ]);
+            if (this.scopedFolderId) {
+              await Promise.all([
+                this.fetchCookieStatus(),
+                this.loadFolderCreators(this.scopedFolderId),
+                this.fetchFleetProjects()
+              ]);
+            } else {
+              await Promise.all([
+                this.fetchOverview(),
+                this.fetchSeeds(),
+                this.fetchIntersections(),
+                this.fetchCookieStatus(),
+                (this.scopedFolderId || this.folderFilter) ? this.loadFolderCreators(this.scopedFolderId || this.folderFilter) : this.fetchCompetitors(),
+                this.fetchKeywords(),
+                this.fetchFleetProjects()
+              ]);
+            }
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
             }
@@ -8021,37 +8034,55 @@ export function getDashboardHtml(folderId = '') {
         async loadFolderCreators(folderId) {
           if (!folderId) return;
           const fid = String(folderId);
-          try {
-            const scopeParam = this.vaultScope ? ('&vault_scope=' + encodeURIComponent(this.vaultScope)) : '';
-            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam);
-            if (res.ok) {
-              const data = await res.json();
-              const linkedList = Array.isArray(data.linked_creators) ? data.linked_creators : [];
-              const discoveredList = Array.isArray(data.discovered_creators) ? data.discovered_creators : [];
-              const allList = Array.isArray(data.creators) ? data.creators : [...linkedList, ...discoveredList];
+          const inflightKey = fid + ':' + (this.vaultScope || 'high_signal');
+          if (this._loadingFolderCreatorsKey === inflightKey && this._loadingFolderCreatorsPromise) {
+            return this._loadingFolderCreatorsPromise;
+          }
+          this._loadingFolderCreatorsKey = inflightKey;
+          this._loadingFolderCreatorsPromise = (async () => {
+            try {
+              const scopeParam = this.vaultScope ? ('&vault_scope=' + encodeURIComponent(this.vaultScope)) : '';
+              const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam);
+              if (res.ok) {
+                const data = await res.json();
+                const linkedList = Array.isArray(data.linked_creators) ? data.linked_creators : [];
+                const discoveredList = Array.isArray(data.discovered_creators) ? data.discovered_creators : [];
+                const allList = Array.isArray(data.creators) ? data.creators : [...linkedList, ...discoveredList];
 
-              const linkedIds = new Set(linkedList.map(c => Number(c.competitor_id || c.id)).filter(Boolean));
-              this.folderCreatorMap[fid] = linkedIds;
+                const linkedIds = new Set(
+                  (linkedList.length > 0 ? linkedList : allList.filter(c => c.is_linked))
+                    .map(c => Number(c.competitor_id || c.id))
+                    .filter(Boolean)
+                );
+                this.folderCreatorMap[fid] = linkedIds;
 
-              if ((this.scopedFolderId && String(this.scopedFolderId) === fid) || (this.folderFilter && String(this.folderFilter) === fid)) {
-                this.scopedFolderCreatorIds = linkedIds;
-                this.folderCompetitorTotalsData = data.totals || null;
-                this.competitors = allList;
-                this._competitorsCacheKey = '';
-                if (this.activeFolder) {
-                  if (this.vaultScope === 'all') {
+                if ((this.scopedFolderId && String(this.scopedFolderId) === fid) || (this.folderFilter && String(this.folderFilter) === fid)) {
+                  this.scopedFolderCreatorIds = linkedIds;
+                  this.folderCompetitorTotalsData = data.totals || null;
+                  this.competitors = allList;
+                  this._competitorsCacheKey = '';
+                  this._cachedFilteredCompetitors = null;
+                  if (this.activeFolder) {
                     this.activeFolder.discovered_creator_count = allList.length;
-                  } else {
-                    this.activeFolder.discovered_creator_count = Math.max(Number(this.activeFolder.discovered_creator_count || 0), allList.length);
+                    this.activeFolder.creator_count = allList.length;
                   }
-                  this.activeFolder.creator_count = this.activeFolder.creator_count || linkedList.length;
+                  const folderInList = (this.foldersList || []).find(f => String(f.id) === fid);
+                  if (folderInList) {
+                    folderInList.discovered_creator_count = allList.length;
+                    folderInList.creator_count = allList.length;
+                  }
                 }
               }
+            } catch (_) {
+            } finally {
+              if (this._loadingFolderCreatorsKey === inflightKey) {
+                this._loadingFolderCreatorsKey = null;
+                this._loadingFolderCreatorsPromise = null;
+              }
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             }
-          } catch (_) {}
-          finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
+          })();
+          return this._loadingFolderCreatorsPromise;
         },
 
         async setVaultScope(scope) {
@@ -8100,7 +8131,17 @@ export function getDashboardHtml(folderId = '') {
               this.foldersList = data.folders || [];
               if (this.scopedFolderId) {
                 const matched = this.foldersList.find(f => String(f.id) === String(this.scopedFolderId)) || null;
-                if (matched) this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
+                if (matched) {
+                  this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : { ...matched };
+                  if (Array.isArray(this.competitors) && this.competitors.length > 0) {
+                    this.activeFolder.discovered_creator_count = this.competitors.length;
+                    this.activeFolder.creator_count = this.competitors.length;
+                    matched.discovered_creator_count = this.competitors.length;
+                  }
+                }
+                this.$nextTick(() => {
+                  this.folderFilter = String(this.scopedFolderId);
+                });
               }
             }
           } catch (_) {}

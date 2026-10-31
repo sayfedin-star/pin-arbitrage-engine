@@ -1605,6 +1605,30 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     aggregatesPromise
   ]);
 
+  // Monotonic 10M+ ceiling guard for snapshots so unauthenticated 10,000,001 dips never corrupt trajectory charts or deltas
+  let runningMaxReach = 0;
+  let runningMaxViews = 0;
+  for (const snap of (snapshots || [])) {
+    const r = Number(snap.monthly_reach || 0);
+    const v = Number(snap.profile_views || 0);
+    if (r === 10000001 && runningMaxReach > 10000001) {
+      snap.monthly_reach = runningMaxReach;
+    } else if (r > runningMaxReach) {
+      runningMaxReach = r;
+    }
+    if (v === 10000001 && runningMaxViews > 10000001) {
+      snap.profile_views = runningMaxViews;
+    } else if (v > runningMaxViews) {
+      runningMaxViews = v;
+    }
+  }
+  if (Number(profile.monthly_reach || 0) === 10000001 && runningMaxReach > 10000001) {
+    profile.monthly_reach = runningMaxReach;
+  }
+  if (Number(profile.profile_views || 0) === 10000001 && runningMaxViews > 10000001) {
+    profile.profile_views = runningMaxViews;
+  }
+
   // Map and deduplicate boards
   const uniqueDetailBoardMap = new Map();
   for (const b of (rawBoards || [])) {

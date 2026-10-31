@@ -1200,7 +1200,7 @@ export async function handleKeywordsRoutes({
         if (!refresh && env?.PIN_ENGINE_KV) {
           try {
             epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:v2:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
             const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
             if (kvCached) {
               return jsonResponse({ ...kvCached, source: 'kv_edge' }, 200, 30);
@@ -1216,7 +1216,6 @@ export async function handleKeywordsRoutes({
             folder_id: folderId,
             creators: discoveryData.all_creators,
             linked_creators: discoveryData.linked_creators,
-            discovered_creators: discoveryData.discovered_creators,
             vault_scope: vaultScope,
             totals: discoveryData.totals
           };
@@ -1230,7 +1229,7 @@ export async function handleKeywordsRoutes({
             if (!epoch || epoch === '0') {
               epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             }
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
+            const kvKey = `fep:${epoch}:folder:${folderId}:creators:v2:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
             safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(payload), { expirationTtl: 86400 }), 'kv_put_folder_creators');
           } catch (_) {}
         }

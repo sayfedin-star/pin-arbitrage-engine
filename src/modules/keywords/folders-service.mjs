@@ -892,14 +892,12 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
         COUNT(DISTINCT afp.pin_id)::int AS pin_count,
         COUNT(DISTINCT afp.pin_id) FILTER (WHERE NOT afp.is_displaced)::int AS active_pin_count,
         COUNT(DISTINCT afp.pin_id) FILTER (WHERE afp.is_displaced)::int AS vault_pin_count,
-        ARRAY_AGG(DISTINCT tk.keyword) AS keywords_ranked,
         MAX(afp.save_count)::bigint AS top_pin_saves,
         MAX(COALESCE(afp.daily_save_velocity, 0))::numeric AS max_velocity,
         MIN(afp.current_rank)::int AS min_rank,
         BOOL_OR(NOT afp.is_displaced) AS has_active_pins,
         BOOL_OR(afp.is_displaced) AS has_vault_pins
       FROM all_folder_pins afp
-      JOIN tracked_keywords tk ON tk.id = afp.keyword_id
       GROUP BY afp.clean_username
     ),
     folder_creators_serp AS (
@@ -920,7 +918,6 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       fcs.vault_pin_count,
       fcs.has_active_pins,
       fcs.has_vault_pins,
-      fcs.keywords_ranked,
       fcs.top_pin_saves,
       fcs.max_velocity,
       cp.display_name,
@@ -962,7 +959,6 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       0::int AS vault_pin_count,
       FALSE AS has_active_pins,
       FALSE AS has_vault_pins,
-      ARRAY[]::text[] AS keywords_ranked,
       0::bigint AS top_pin_saves,
       0::numeric AS max_velocity,
       cp.display_name,
