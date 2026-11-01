@@ -20,6 +20,7 @@ trigger: always_on
 | **Round 5 (Milestone 5)** | Shard-Affine Egress Shield, Authentic Rolling Gains & 7-Lock Anti-Regression Gate | Migrations 038–040, Invariants 32–37, Locks 1–7 | **SEALED** |
 | **Round 6 (Milestone 6)** | Residual Defect Closure, Arbitrage Alpha Engines & 12-Lock Anti-Regression Shield | Migration 041, Invariants 38–41, Locks 8–12 | **SEALED** |
 | **Round 9 & 10 (Master Execution)** | Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM Sanitization & LND-801..824 Defusal | Migration 042, Invariant 42, Locks 13–14 | **SEALED** |
+| **Rounds 14–16 (Crawler Egress & Micro-Traps Defusal)** | Creator Fleet Egress Defense, Shard-Affine Partitioning Parity, CTE History Consolidation & 10M Ceiling Guard | Lock 3, Lock 7, Invariants 32–37 | **SEALED** |
 
 ---
 
@@ -184,3 +185,28 @@ trigger: always_on
   - Supported string creator handles in `assignCreatorToFolder` (`LND-813`), parsed `window.location.search` in Domain Studio `init()` (`LND-814`), and translated 100% of modal strings to clean English SaaS copy (`LND-823`).
   - Expanded `scripts/verify_regression_locks.mjs` to 14 permanent locks (`14/14 PASS`).
 - **Verification Method:** `npm run check`, `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `node scripts/test_p2_verification.mjs`, `node scripts/verify_dom_nesting.mjs`, `node scripts/validate_inline_scripts.mjs`, and `node scripts/verify_round10_live_e2e.mjs`.
+
+---
+
+## Rounds 14–16: Creator Fleet Egress Defense, CTE History Consolidation & 10M Ceiling Guard
+
+- **Thematic Focus:** Multi-Worker GHA Creator Swarm Egress Optimization, CTE Single-Roundtrip History Seeking, Lock 3 Partitioning Parity & Pinterest 10M Ceiling Safeguard.
+- **Trap / Failure Mode:**
+  1. *Dispatcher GITHUB_OUTPUT Bloat*: Passing 2,938 comma-separated integer IDs across all 20 matrix rows inflated GITHUB_OUTPUT by >300 KB, causing slow action setups.
+  2. *Mode A 58,760-Row Neon Blast*: Emptying `all_account_ids` caused 20 workers to fall back to `SELECT id FROM competitor_profiles WHERE is_active = TRUE`, pulling 58,760 rows across the wire just to print an account count.
+  3. *Unpartitioned Creator pa_pins Egress*: Crawling `pa_pins` without projecting explicit columns pulled heavy text blobs (`description`, `alt_text`, `annotations`, `metadata`) into worker memory.
+  4. *Triple History Roundtrip Overhead*: `syncCompetitorProfile` ran 3 sequential queries (`prior24h`, `baseline7d`, `earliest`) using subqueries on `cleanUsername`, multiplying database roundtrips to ~6,000 queries per fleet sweep.
+  5. *10M Ceiling Snapshot Overwrites*: Pinterest profile scraping caps reach/views at `10000001` (representing 10M+). If an account previously had an authentic count (e.g. 10.4M), snapshot updates on conflict unconditionally overwrote the value with `10000001`, injecting bogus -400k negative delta drops.
+  6. *Barrier Peer Heartbeat Drift*: Workers processing 147 accounts in Phase 1 without intermediate heartbeats caused their registered heartbeats to age past the 3-minute threshold, causing peer workers at the barrier to falsely mark them as dead and exit prematurely.
+- **Root Cause & Technical Mechanism:**
+  - Redundant parameter serialization in CI matrices and full table fallbacks when assigned slices are already present.
+  - Subquery-based history querying without reusing the known profile ID.
+  - Lack of 10M ceiling preservation in `competitor_history_snapshots` `ON CONFLICT DO UPDATE`.
+- **Verified Solution & Invariant Rules:**
+  - Pruned `all_account_ids` in `scripts/creator-fleet-dispatcher.mjs` while keeping `allFleetAccountIds` fallback guarded by `accountIdsInput.length === 0`.
+  - Preserved Lock 3 `WHERE p.shard_id = ANY(assignedWinningArray)` pushdown while selecting only necessary lightweight telemetry columns from `pa_pins`.
+  - Consolidated `prior24h`, `baseline7d`, and `earliest` into a single CTE roundtrip in `src/modules/creators/service.mjs` using direct indexed `competitor_id = ${existingProfile.id}`.
+  - Added 10,000,001 ceiling protection in `competitor_history_snapshots` `ON CONFLICT DO UPDATE` mirroring `competitor_profiles`.
+  - Added 25-account periodic heartbeat refresh in `scripts/creator-velocity-crawler.mjs`, increased barrier timeout to 4 minutes, and added 250-500ms pulse jitter.
+  - Pruned `SELECT *` in `scripts/keyword-velocity-crawler.mjs` and `scripts/keyword-fleet-consolidator.mjs` to target lightweight columns only.
+- **Verification Method:** `node scripts/test_creator_intelligence_fleet.mjs` (13/13 PASS), `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `npm run check`, and `npm test` (all 21 suites PASS).

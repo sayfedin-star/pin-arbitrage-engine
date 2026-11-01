@@ -300,7 +300,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [existingProfile] = await sql`
-    SELECT id, tracking_mode, custom_label, source_folder_id, monthly_reach, profile_views, metadata
+    SELECT id, tracking_mode, custom_label, source_folder_id, monthly_reach, profile_views,
+           (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
     FROM competitor_profiles
     WHERE username = ${cleanUsername}
     LIMIT 1;
@@ -310,6 +311,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     options.pulseOnly ||
     options.tracking_mode === 'pulse_only' ||
     existingProfile?.tracking_mode === 'pulse_only' ||
+    existingProfile?.profile_pulse_only === true ||
     existingProfile?.metadata?.profile_pulse_only === true
   );
 
@@ -343,15 +345,42 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   let profileViews = (rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews;
 
   // [INVARIANT: LIGHTWEIGHT-CREATOR-PULSE]
-  // 1. Query latest prior snapshot (recorded_date < CURRENT_DATE) for true 24h deltas
-  const [prior24h] = await sql`
-    SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
-    FROM competitor_history_snapshots
-    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
-      AND recorded_date < CURRENT_DATE
-    ORDER BY recorded_date DESC
-    LIMIT 1;
-  `;
+  // 1. Query prior 24h snapshot and 7d baseline in 1 single roundtrip via CTE
+  let prior24h = null;
+  let baseline7d = null;
+  if (existingProfile?.id) {
+    const [historyRow] = await sql`
+      WITH p24 AS (
+        SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
+        FROM competitor_history_snapshots
+        WHERE competitor_id = ${existingProfile.id}
+          AND recorded_date < CURRENT_DATE
+        ORDER BY recorded_date DESC
+        LIMIT 1
+      ),
+      b7d AS (
+        SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
+        FROM competitor_history_snapshots
+        WHERE competitor_id = ${existingProfile.id}
+          AND recorded_date <= CURRENT_DATE - INTERVAL '6 days'
+        ORDER BY recorded_date DESC
+        LIMIT 1
+      ),
+      earliest AS (
+        SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
+        FROM competitor_history_snapshots
+        WHERE competitor_id = ${existingProfile.id}
+          AND recorded_date < CURRENT_DATE
+        ORDER BY recorded_date ASC
+        LIMIT 1
+      )
+      SELECT
+        (SELECT row_to_json(p24) FROM p24) AS prior_24h,
+        COALESCE((SELECT row_to_json(b7d) FROM b7d), (SELECT row_to_json(earliest) FROM earliest)) AS baseline_7d;
+    `;
+    prior24h = historyRow?.prior_24h || null;
+    baseline7d = historyRow?.baseline_7d || null;
+  }
 
   const priorReach = Number(prior24h?.monthly_reach || 0);
   if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) {
@@ -368,30 +397,6 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   if (rawViews === 10000001 && deltaViews24h < 0) deltaViews24h = 0;
   const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
   const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
-
-  // 2. Query 7-day baseline snapshot (recorded_date <= CURRENT_DATE - INTERVAL '6 days', fallback to earliest if < 7 days old)
-  let [baseline7d] = await sql`
-    SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
-    FROM competitor_history_snapshots
-    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
-      AND recorded_date <= CURRENT_DATE - INTERVAL '6 days'
-    ORDER BY recorded_date DESC
-    LIMIT 1;
-  `;
-
-  if (!baseline7d) {
-    const [earliest] = await sql`
-      SELECT monthly_reach, profile_views, total_pins, total_boards, recorded_date
-      FROM competitor_history_snapshots
-      WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername} LIMIT 1)
-        AND recorded_date < CURRENT_DATE
-      ORDER BY recorded_date ASC
-      LIMIT 1;
-    `;
-    if (earliest) {
-      baseline7d = earliest;
-    }
-  }
 
   const baselineReach = Number(baseline7d?.monthly_reach || 0);
   if (rawReach === 10000001 && baselineReach > 10000001 && monthlyReach <= 10000001) {
@@ -591,8 +596,16 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         ${JSON.stringify(pinAgg)}::jsonb
       )
       ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
-        monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_history_snapshots.monthly_reach END,
-        profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_history_snapshots.profile_views END,
+        monthly_reach = CASE 
+          WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_history_snapshots.monthly_reach > 10000001 THEN competitor_history_snapshots.monthly_reach
+          WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach 
+          ELSE competitor_history_snapshots.monthly_reach 
+        END,
+        profile_views = CASE 
+          WHEN EXCLUDED.profile_views = 10000001 AND competitor_history_snapshots.profile_views > 10000001 THEN competitor_history_snapshots.profile_views
+          WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views 
+          ELSE competitor_history_snapshots.profile_views 
+        END,
         follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
         total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
         total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),

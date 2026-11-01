@@ -170,7 +170,10 @@ async function main() {
     // CONSOLIDATION: SINGLE-KEYWORD FULL 201-PIN CATALOG
     // =========================================================================
     const [kw] = await sql`
-      SELECT * FROM tracked_keywords WHERE LOWER(keyword) = ${targetKeyword} LIMIT 1;
+      SELECT id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, avg_daily_velocity, is_active, last_crawled_at, updated_at
+      FROM tracked_keywords
+      WHERE LOWER(keyword) = ${targetKeyword}
+      LIMIT 1;
     `;
 
     if (!kw) {

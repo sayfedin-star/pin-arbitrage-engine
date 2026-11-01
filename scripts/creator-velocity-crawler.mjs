@@ -905,6 +905,7 @@ async function run() {
         }
       } else {
         console.log(`[*] Account @${cleanUser} is in pulse_only mode. Skipping boards, pins, and catalog reconciliation.`);
+        await sleep(randomJitterMs(250, 500));
       }
 
       if (!isPulseOnly) {
@@ -917,6 +918,15 @@ async function run() {
       }
 
       accountsProcessed++;
+
+      // Periodically refresh heartbeat during long sweeps (every 25 accounts)
+      if (accountsProcessed > 0 && accountsProcessed % 25 === 0) {
+        await sql`
+          UPDATE crawler_shard_heartbeats
+          SET updated_at = NOW()
+          WHERE competitor_id = 0 AND shard_number = ${workerIndex};
+        `.catch(() => {});
+      }
     }
 
     // Mark Phase 1 complete in heartbeats table
@@ -933,7 +943,7 @@ async function run() {
     if (workerTotal > 1) {
       console.log(`\n[*] Barrier Sync: Waiting for peer workers to complete discovery across ${allFleetAccountIds.length} accounts...`);
       const barrierStart = Date.now();
-      const BARRIER_TIMEOUT_MS = 120000; // 2 min max wait
+      const BARRIER_TIMEOUT_MS = 240000; // 4 min max wait
 
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
         const [pendingRow] = await sql`
@@ -942,7 +952,7 @@ async function run() {
           WHERE competitor_id = 0
             AND shard_number <> ${workerIndex}
             AND status = 'crawling_phase1'
-            AND updated_at > NOW() - INTERVAL '3 minutes';
+            AND updated_at > NOW() - INTERVAL '5 minutes';
         `.catch(() => [{ pending: 0 }]);
 
         const pendingCount = Number(pendingRow?.pending || 0);

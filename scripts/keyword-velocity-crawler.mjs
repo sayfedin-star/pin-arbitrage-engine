@@ -1691,10 +1691,18 @@ async function run() {
     // =========================================================================
     let kwRow = null;
     if (keywordIdInput) {
-      [kwRow] = await sql`SELECT * FROM tracked_keywords WHERE id = ${keywordIdInput};`;
+      [kwRow] = await sql`
+        SELECT id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, avg_daily_velocity, is_active, last_crawled_at, updated_at
+        FROM tracked_keywords
+        WHERE id = ${keywordIdInput};
+      `;
     }
     if (!kwRow && targetKeyword) {
-      [kwRow] = await sql`SELECT * FROM tracked_keywords WHERE LOWER(keyword) = ${targetKeyword};`;
+      [kwRow] = await sql`
+        SELECT id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, avg_daily_velocity, is_active, last_crawled_at, updated_at
+        FROM tracked_keywords
+        WHERE LOWER(keyword) = ${targetKeyword};
+      `;
     }
     if (!kwRow) {
       console.error(`[-] FATAL: Keyword "${targetKeyword}" not found for pin_partition.`);
