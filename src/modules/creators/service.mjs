@@ -529,7 +529,16 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb,
       last_synced_at = NOW(),
       updated_at = NOW()
-    RETURNING *;
+    RETURNING
+      id, username, display_name, avatar_url, website_url,
+      monthly_reach, reach_delta_7d, delta_reach_24h,
+      profile_views, views_delta_7d, delta_views_24h,
+      follower_count,
+      total_pins, pins_delta_7d, delta_pins_24h,
+      total_boards, boards_delta_7d, delta_boards_24h,
+      activity_status, account_type, tracking_mode, custom_label, source_folder_id, is_active,
+      last_synced_at, created_at, updated_at,
+      (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only;
   `;
 
   // Record daily history snapshot

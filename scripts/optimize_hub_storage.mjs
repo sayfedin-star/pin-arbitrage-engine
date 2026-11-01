@@ -611,6 +611,8 @@ export async function optimizeHubStorage(sql) {
     ['keyword_serp_current', () => sql`VACUUM (ANALYZE) keyword_serp_current;`],
     ['keyword_displaced_index', () => sql`VACUUM (ANALYZE) keyword_displaced_index;`],
     ['keyword_pins_snapshots', () => sql`VACUUM (ANALYZE) keyword_pins_snapshots;`],
+    ['competitor_profiles', () => sql`VACUUM (ANALYZE) competitor_profiles;`],
+    ['competitor_history_snapshots', () => sql`VACUUM (ANALYZE) competitor_history_snapshots;`],
     ['competitor_pins', () => sql`VACUUM (ANALYZE) competitor_pins;`],
     ['pa_pins', () => sql`VACUUM (ANALYZE) pa_pins;`]
   ];

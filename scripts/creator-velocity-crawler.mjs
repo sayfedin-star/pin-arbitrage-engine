@@ -593,7 +593,8 @@ async function run() {
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
     const catalogPins = await sql`
       SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
-             enrichment_status, created_at_pinterest, title, destination_url, image_url,
+             enrichment_status, created_at_pinterest, updated_at AS last_updated_at,
+             title, destination_url, image_url,
              COALESCE((metadata->>'daily_save_velocity')::numeric, (metadata->>'velocity')::numeric, 0) AS prev_velocity
       FROM competitor_pins
       WHERE competitor_id = ${targetId}
@@ -774,21 +775,23 @@ async function run() {
     // Barrier Sync: Peer synchronization
     // Phase 2: Global winning pins slice refresh (crc32(pin_id) % 20 === worker_index)
     // =========================================================================
-    let allFleetAccountIds = allAccountIdsInput.length > 0 ? allAccountIdsInput : [];
-    if (allFleetAccountIds.length === 0) {
+    let allFleetAccountIds = allAccountIdsInput.length > 0
+      ? allAccountIdsInput
+      : (accountIdsInput.length > 0 ? accountIdsInput : []);
+    if (allFleetAccountIds.length === 0 && accountIdsInput.length === 0) {
       const rows = await sql`
         SELECT id FROM competitor_profiles WHERE is_active = TRUE ORDER BY last_synced_at ASC NULLS FIRST, id ASC;
       `;
       allFleetAccountIds = rows.map(r => Number(r.id));
     }
 
-    if (allFleetAccountIds.length === 0) {
+    if (allFleetAccountIds.length === 0 && accountIdsInput.length === 0) {
       console.log('[!] No active creators to sweep. Exiting cleanly.');
       process.exit(0);
     }
 
     // Determine which accounts belong to this worker for Phase 1
-    const myAccountIds = process.env.ACCOUNT_IDS !== undefined
+    const myAccountIds = process.env.ACCOUNT_IDS !== undefined && accountIdsInput.length > 0
       ? accountIdsInput
       : allFleetAccountIds.filter((_, idx) => idx % workerTotal === workerIndex);
 
@@ -801,7 +804,11 @@ async function run() {
                (metadata->'qualification_rules') AS qualification_rules,
                (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
         FROM competitor_profiles
-        WHERE id = ANY(${myAccountIds});
+        WHERE id = ANY(${myAccountIds})
+        ORDER BY 
+          CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END ASC,
+          last_synced_at ASC NULLS FIRST,
+          id ASC;
       `;
     }
 
@@ -900,12 +907,14 @@ async function run() {
         console.log(`[*] Account @${cleanUser} is in pulse_only mode. Skipping boards, pins, and catalog reconciliation.`);
       }
 
-      // Stamp updated_at so accounts reflect active sync
-      await sql`
-        UPDATE competitor_profiles
-        SET updated_at = NOW()
-        WHERE id = ${acc.id};
-      `.catch(() => {});
+      if (!isPulseOnly) {
+        // Stamp updated_at so full crawl accounts reflect active sync (pulse_only accounts already updated in syncCompetitorProfile)
+        await sql`
+          UPDATE competitor_profiles
+          SET updated_at = NOW()
+          WHERE id = ${acc.id};
+        `.catch(() => {});
+      }
 
       accountsProcessed++;
     }
