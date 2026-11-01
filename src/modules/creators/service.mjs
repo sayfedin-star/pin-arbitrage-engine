@@ -2753,12 +2753,13 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
   const { rules, username } = await getCompetitorRules(sql, numericId);
 
   const minSaves = parseRuleNumber(rules.tier1_min_saves, 100, 0);
-  const minRepins = parseRuleNumber(rules.tier2_min_repins, 100, 0);
+  const minRepins = parseRuleNumber(rules.tier2_min_repins, Math.max(100, minSaves), 0);
   const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
   const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
   const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.tier3_max_age_days, 14, 1);
-  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves, 25, 0);
+  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves, Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))), 0);
   const articlesOnly = rules.articles_only ?? true;
+  const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
 
   // Fetch all pins from competitor_pins meeting the 3-tier rules
   const qualifiedPins = await sql`
@@ -2807,7 +2808,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
           cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
           AND (
             (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
-            OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+            OR (${allowVelocityFallback} = TRUE AND cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
           )
         )
       )
@@ -2956,12 +2957,13 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
   }
 
   const minSaves = parseRuleNumber(rules.tier1_min_saves ?? rules.min_saves, 100, 0);
-  const minRepins = parseRuleNumber(rules.tier2_min_repins ?? rules.min_repins, 100, 0);
+  const minRepins = parseRuleNumber(rules.tier2_min_repins ?? rules.min_repins, Math.max(100, minSaves), 0);
   const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
   const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
   const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.fresh_days ?? rules.tier3_max_age_days, 14, 1);
-  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves ?? rules.fresh_min_saves, 25, 0);
+  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves ?? rules.fresh_min_saves, Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))), 0);
   const articlesOnly = rules.articles_only ?? true;
+  const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
 
   const runReconcileQuery = async () => {
     return await sql`
@@ -3015,7 +3017,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
               cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
               AND (
                 (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
-                OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+                OR (${allowVelocityFallback} = TRUE AND cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
               )
             )
           )
@@ -3967,18 +3969,23 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
     }
   }
 
+  const minSaves = Number(rules.tier1_min_saves ?? rules.min_saves ?? 100);
+
   // Tier 1: Star Performers (Cumulative Saves)
-  if (saves >= Number(rules.tier1_min_saves ?? 100)) {
+  if (saves >= minSaves) {
     return { qualified: true, matchedTier: 'tier1' };
   }
 
   // Tier 2: Sustained Virality & Velocity Breakout (Age <= 60d AND saves/age >= min_velocity, OR repins >= min_repins)
   const minVelocity = Number(rules.tier2_min_velocity ?? 3.5);
   const maxVelocityAge = Number(rules.tier2_max_age_days ?? 60);
+  const minRepins = Number(rules.tier2_min_repins ?? rules.min_repins ?? Math.max(100, minSaves));
   const pinVelocity = Number(pin.velocity || (!isNaN(ageDays) && ageDays > 0 ? (saves / ageDays) : 0));
+  const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
+  const matchesVelocity = pinVelocity >= minVelocity || (allowVelocityFallback && saves >= 50 && pinVelocity >= 2.0);
   if (
-    repins >= Number(rules.tier2_min_repins ?? 100) ||
-    (!isNaN(ageDays) && ageDays > 0 && ageDays <= maxVelocityAge && (pinVelocity >= minVelocity || (saves >= 50 && pinVelocity >= 2.0)))
+    repins >= minRepins ||
+    (!isNaN(ageDays) && ageDays > 0 && ageDays <= maxVelocityAge && matchesVelocity)
   ) {
     return { qualified: true, matchedTier: 'tier2' };
   }
@@ -3986,7 +3993,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   // Tier 3: Fresh High-Velocity Breakouts (Age & Saves)
   // Pin MUST have a verified non-negative age <= tier3_max_age_days
   const maxFreshDays = Number(rules.tier3_fresh_days ?? rules.tier3_max_age_days ?? 14);
-  if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= maxFreshDays && saves >= Number(rules.tier3_min_saves ?? 25)) {
+  const freshMinSaves = Number(rules.tier3_min_saves ?? rules.fresh_min_saves ?? Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))));
+  if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= maxFreshDays && saves >= freshMinSaves) {
     return { qualified: true, matchedTier: 'tier3' };
   }
 
@@ -4926,3 +4934,11 @@ export async function deletePinMetricSnapshot(sql, snapshotId, pinId) {
   // pa_pin_metrics is eradicated on Central Hub. Daily snapshots live on Shards.
   return { success: true };
 }
+
+// Modular Creator Hub Settings & Configuration
+export {
+  getCreatorHubSettings,
+  updateCreatorHubSettings,
+  DEFAULT_CREATOR_HUB_SETTINGS
+} from './settings.mjs';
+

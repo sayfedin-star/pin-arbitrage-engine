@@ -44,7 +44,9 @@ import {
   auditSweepCompetitor,
   quickPulseCreator,
   deepHarvestCreator,
-  harvestSinglePinRelatedLive
+  harvestSinglePinRelatedLive,
+  getCreatorHubSettings,
+  updateCreatorHubSettings
 } from '../modules/creators/service.mjs';
 import { syncCompetitorAcrossFleet } from '../modules/fleet/service.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../../scripts/lib/pinterest.mjs';
@@ -95,8 +97,28 @@ export async function handleCreatorsRoutes(routeCtx) {
       invalidateEdgeCache('competitors');
       invalidateEdgeCache('pinarchive');
       invalidateEdgeCache('topics');
+      invalidateEdgeCache('settings');
     }
   };
+
+  // 0. GET & POST /api/competitors/settings (or /api/creators/settings)
+  // [INVARIANT: LITERAL-MATCHES-FIRST] Handled strictly before root /api/competitors
+  if (pathname === '/api/competitors/settings' || pathname === '/api/creators/settings' || originalPathname === '/api/creators/settings') {
+    const hubSql = sql || targetSql;
+    if (method === 'GET') {
+      const settings = await getCreatorHubSettings(hubSql);
+      return jsonResponse({ success: true, settings }, 200, 30);
+    }
+    if (method === 'POST') {
+      invalidateCreatorsCache();
+      const body = await request.json().catch(() => ({}));
+      const updated = await updateCreatorHubSettings(hubSql, body);
+      return jsonResponse({ success: true, settings: updated }, 200);
+    }
+    return (typeof routeCtx.methodNotAllowedResponse === 'function'
+      ? routeCtx.methodNotAllowedResponse('GET, POST')
+      : jsonResponse({ ok: false, error: 'METHOD_NOT_ALLOWED', message: 'Allowed methods: GET, POST' }, 405));
+  }
 
   // 0A. GET /api/boards/:boardId/sections
   const boardSectionsMatch = pathname.match(/^\/api\/boards\/([^/]+)\/sections\/?$/i);

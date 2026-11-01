@@ -1741,5 +1741,137 @@ export function getDashboardModalsHtml() {
       </div>
 
     </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- CREATOR HUB: AUTO-PROMOTE & BREAKOUT RULES MODAL         -->
+  <!-- ======================================================== -->
+  <div x-show="isAutoPromoteModalOpen" x-cloak
+       class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+       @keydown.escape.window="isAutoPromoteModalOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-5 text-slate-900 dark:text-[#FAFAFA]"
+         role="dialog" aria-modal="true" aria-labelledby="auto-promote-modal-title"
+         @click.away="isAutoPromoteModalOpen = false">
+
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3.5">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center justify-center font-bold">
+            <i data-lucide="sliders" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 id="auto-promote-modal-title" class="font-bold text-sm tracking-tight text-slate-900 dark:text-[#FAFAFA]">Auto-Promote & Breakout Rules</h3>
+            <p class="text-[11px] text-slate-500 dark:text-[#71717A]">Configure viral thresholds to auto-graduate pulse_only creators into full catalog tracking.</p>
+          </div>
+        </div>
+        <button @click="isAutoPromoteModalOpen = false" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Section 1: Master Enable Toggle -->
+      <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] flex items-center justify-between">
+        <div class="space-y-0.5 pr-4">
+          <div class="text-xs font-bold text-slate-900 dark:text-[#FAFAFA]">Enable Automatic Breakout Promotion</div>
+          <div class="text-[11px] text-slate-500 dark:text-[#71717A]">When active, daily crawlers graduate surging creators from pulse_only to full tracking.</div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+          <input type="checkbox" x-model="autoPromoteForm.auto_promote_enabled" class="sr-only peer">
+          <div class="w-9 h-5 bg-slate-300 dark:bg-[#27272A] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-rose-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+        </label>
+      </div>
+
+      <!-- Section 2: Surge Growth Thresholds -->
+      <div class="space-y-3">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#71717A] flex items-center space-x-1.5">
+          <i data-lucide="trending-up" class="w-3.5 h-3.5 text-rose-500"></i>
+          <span>Surge Growth Triggers (Total Audience)</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="p-3 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-1.5">
+            <label class="block text-[11px] font-semibold text-slate-700 dark:text-[#A1A1AA]">24h Audience Gain Threshold</label>
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">+</span>
+              <input type="number" min="1000" step="1000" x-model.number="autoPromoteForm.auto_promote_delta_24h"
+                     class="w-full pl-6 pr-3 py-1.5 text-xs font-mono tabular-nums rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500">
+            </div>
+            <p class="text-[10px] text-slate-400 font-mono">Default: 25,000 reach gain</p>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-1.5">
+            <label class="block text-[11px] font-semibold text-slate-700 dark:text-[#A1A1AA]">7d Audience Gain Threshold</label>
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">+</span>
+              <input type="number" min="5000" step="5000" x-model.number="autoPromoteForm.auto_promote_delta_7d"
+                     class="w-full pl-6 pr-3 py-1.5 text-xs font-mono tabular-nums rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500">
+            </div>
+            <p class="text-[10px] text-slate-400 font-mono">Default: 100,000 reach gain</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Deep Harvest Automation & Pin Limits -->
+      <div class="space-y-3">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#71717A] flex items-center space-x-1.5">
+          <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-500"></i>
+          <span>Post-Promotion Pin Harvesting</span>
+        </div>
+        <div class="p-3.5 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-3">
+          <label class="flex items-center space-x-2.5 cursor-pointer">
+            <input type="checkbox" x-model="autoPromoteForm.auto_harvest_pins" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+            <span class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA]">Immediately crawl top catalog pins upon promotion</span>
+          </label>
+          <div x-show="autoPromoteForm.auto_harvest_pins" class="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-[#27272A]/60">
+            <div class="text-[11px] text-slate-600 dark:text-[#A1A1AA]">Max Pins Harvest Limit:</div>
+            <div class="flex items-center space-x-2">
+              <input type="number" min="10" max="250" step="10" x-model.number="autoPromoteForm.max_pins_harvest"
+                     class="w-20 px-2 py-1 text-xs font-mono tabular-nums text-right rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500">
+              <span class="text-[11px] text-slate-400">pins</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 4: Winning Pin Qualification Criteria (pa_pins) -->
+      <div class="space-y-3">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#71717A] flex items-center space-x-1.5">
+          <i data-lucide="award" class="w-3.5 h-3.5 text-emerald-500"></i>
+          <span>Inherited Qualification Rules (pa_pins)</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="p-3 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-1.5">
+            <label class="block text-[11px] font-semibold text-slate-700 dark:text-[#A1A1AA]">Min Saves to Qualify</label>
+            <input type="number" min="0" step="50" x-model.number="autoPromoteForm.qualification_rules.min_saves"
+                   class="w-full px-3 py-1.5 text-xs font-mono tabular-nums rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500">
+            <p class="text-[10px] text-slate-400 font-mono">Default: 500 saves</p>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-1.5">
+            <label class="block text-[11px] font-semibold text-slate-700 dark:text-[#A1A1AA]">Min Daily Save Velocity</label>
+            <input type="number" min="0" step="0.5" x-model.number="autoPromoteForm.qualification_rules.min_velocity"
+                   class="w-full px-3 py-1.5 text-xs font-mono tabular-nums rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500">
+            <p class="text-[10px] text-slate-400 font-mono">Default: 10.0 saves / day</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-4 border-t border-slate-200 dark:border-[#27272A] flex items-center justify-between">
+        <button @click="resetAutoPromoteFormDefaults()" type="button" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-[#FAFAFA] underline cursor-pointer">
+          Restore Defaults
+        </button>
+        <div class="flex items-center space-x-2">
+          <button @click="isAutoPromoteModalOpen = false" type="button" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#A1A1AA] transition">
+            Cancel
+          </button>
+          <button @click="saveAutoPromoteSettings()" :disabled="isSavingAutoPromote" type="button"
+                  class="px-4 py-1.5 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer">
+            <i data-lucide="check" class="w-3.5 h-3.5" :class="{'animate-spin': isSavingAutoPromote}"></i>
+            <span x-text="isSavingAutoPromote ? 'Saving...' : 'Save Rules'"></span>
+          </button>
+        </div>
+      </div>
+
+    </div>
   </div>`;
 }

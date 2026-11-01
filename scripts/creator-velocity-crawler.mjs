@@ -33,7 +33,8 @@ import {
   syncCompetitorBoardPins,
   syncCompetitorPins,
   reconcileQualifiedCatalogPins,
-  normalizePinterestUsername
+  normalizePinterestUsername,
+  getCreatorHubSettings
 } from '../src/modules/creators/service.mjs';
 import {
   fetchPinFromPinResource,
@@ -815,6 +816,15 @@ async function run() {
     // -------------------------------------------------------------------------
     // PHASE 1: Creator Pulse & Discovery (Assigned Accounts)
     // -------------------------------------------------------------------------
+    // Fetch Creator Hub dynamic auto-promote and qualification settings (once before Phase 1 loop)
+    let creatorHubSettings = null;
+    try {
+      creatorHubSettings = await getCreatorHubSettings(sql);
+      console.log(`[*] Loaded Creator Hub dynamic settings: auto_promote=${creatorHubSettings.auto_promote_enabled}, 24h_thresh=+${creatorHubSettings.auto_promote_delta_24h}, 7d_thresh=+${creatorHubSettings.auto_promote_delta_7d}`);
+    } catch (setErr) {
+      console.warn(`[!] Failed to load dynamic creator hub settings (using fallback defaults):`, setErr.message);
+    }
+
     // Register Phase 1 heartbeat
     await sql`
       INSERT INTO crawler_shard_heartbeats (
@@ -848,7 +858,12 @@ async function run() {
       }
 
       // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
+      let wasAutoPromotedInThisRun = false;
       if (isPulseOnly) {
+        const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? true;
+        const dynamicDelta24h = Number(creatorHubSettings?.auto_promote_delta_24h ?? AUTO_PROMOTE_PULSE_DELTA_24H);
+        const dynamicDelta7d = Number(creatorHubSettings?.auto_promote_delta_7d ?? AUTO_PROMOTE_PULSE_DELTA_7D);
+
         const [freshAcc] = await sql`
           SELECT delta_reach_24h, reach_delta_7d
           FROM competitor_profiles
@@ -859,49 +874,74 @@ async function run() {
         const delta24h = Number(freshAcc?.delta_reach_24h || 0);
         const delta7d = Number(freshAcc?.reach_delta_7d || 0);
 
-        if (delta24h >= AUTO_PROMOTE_PULSE_DELTA_24H || delta7d >= AUTO_PROMOTE_PULSE_DELTA_7D) {
-          console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${delta24h}, 7d: +${delta7d}). Promoting pulse_only -> full!`);
+        if (isAutoPromoteEnabled && (delta24h >= dynamicDelta24h || delta7d >= dynamicDelta7d)) {
+          console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${delta24h} vs ${dynamicDelta24h}, 7d: +${delta7d} vs ${dynamicDelta7d}). Promoting pulse_only -> full!`);
+          
+          const configuredQualRules = creatorHubSettings?.qualification_rules || {};
+          const minSaves = Number.isFinite(Number(configuredQualRules.min_saves)) ? Math.max(0, Number(configuredQualRules.min_saves)) : 500;
+          const minVelocity = Number.isFinite(Number(configuredQualRules.min_velocity)) ? Math.max(0, Number(configuredQualRules.min_velocity)) : 10.0;
+          const qualRulesToPersist = {
+            tier1_min_saves: minSaves,
+            tier2_min_repins: minSaves,
+            tier2_min_velocity: minVelocity,
+            tier3_min_saves: Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))),
+            auto_promote_inherited: true
+          };
+
           await sql`
             UPDATE competitor_profiles
             SET tracking_mode = 'full',
                 custom_label = COALESCE(NULLIF(custom_label, ''), 'Breakout Auto-Promoted'),
-                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('profile_pulse_only', false, 'auto_promoted_at', NOW()::text, 'auto_promote_reason', 'reach_breakout')
+                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                  'profile_pulse_only', false,
+                  'auto_promoted_at', NOW()::text,
+                  'auto_promote_reason', 'reach_breakout',
+                  'qualification_rules', ${JSON.stringify(qualRulesToPersist)}::jsonb
+                )
             WHERE id = ${acc.id};
           `.catch(err => console.warn(`[!] Auto-promote update failed:`, err.message));
 
           isPulseOnly = false;
+          wasAutoPromotedInThisRun = true;
+          acc.qualification_rules = qualRulesToPersist;
         }
       }
 
       if (!isPulseOnly) {
-        // 2. Discover Boards
-        try {
-          await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
-        } catch (_) {}
+        const shouldHarvest = !wasAutoPromotedInThisRun || (creatorHubSettings?.auto_harvest_pins !== false);
+        if (shouldHarvest) {
+          // 2. Discover Boards
+          try {
+            await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
+          } catch (_) {}
 
-        // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages)
-        try {
-          const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
-          const earlyStop = Number(accRules.early_stop_pages) || 3;
-          const targetPages = crawlMode === 'deep' || crawlMode === 'all'
-            ? (Number(accRules.max_pages) || maxPages || 500)
-            : earlyStop;
-          console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
-          await syncCompetitorPins(sql, acc.id, cleanUser, {
-            mode: 'refresh',
-            maxPages: targetPages,
-            cookie: cookie
-          });
-        } catch (_) {}
+          // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages or configured harvest pages)
+          try {
+            const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
+            const earlyStop = Number(accRules.early_stop_pages) || 3;
+            const harvestPages = Math.max(1, Math.ceil((Number(creatorHubSettings?.max_pins_harvest) || 150) / 50));
+            const targetPages = crawlMode === 'deep' || crawlMode === 'all'
+              ? (Number(accRules.max_pages) || maxPages || 500)
+              : (wasAutoPromotedInThisRun ? harvestPages : earlyStop);
+            console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
+            await syncCompetitorPins(sql, acc.id, cleanUser, {
+              mode: 'refresh',
+              maxPages: targetPages,
+              cookie: cookie
+            });
+          } catch (_) {}
 
-        // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
-        try {
-          const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
-          if (recon?.promoted_or_updated > 0) {
-            console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+          // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
+          try {
+            const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
+            if (recon?.promoted_or_updated > 0) {
+              console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+            }
+          } catch (rErr) {
+            console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
           }
-        } catch (rErr) {
-          console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
+        } else {
+          console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);
         }
       } else {
         console.log(`[*] Account @${cleanUser} is in pulse_only mode. Skipping boards, pins, and catalog reconciliation.`);

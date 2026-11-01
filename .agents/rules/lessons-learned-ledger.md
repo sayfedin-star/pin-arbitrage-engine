@@ -210,3 +210,48 @@ trigger: always_on
   - Added 25-account periodic heartbeat refresh in `scripts/creator-velocity-crawler.mjs`, increased barrier timeout to 4 minutes, and added 250-500ms pulse jitter.
   - Pruned `SELECT *` in `scripts/keyword-velocity-crawler.mjs` and `scripts/keyword-fleet-consolidator.mjs` to target lightweight columns only.
 - **Verification Method:** `node scripts/test_creator_intelligence_fleet.mjs` (13/13 PASS), `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `npm run check`, and `npm test` (all 21 suites PASS).
+
+---
+
+## Round 17: Creator Auto-Promote & Breakout Rules Engine (Dynamic Settings & Lock 12 Parity)
+
+- **Thematic Focus:** Dynamic Breakout Promotion Settings, Sub-Router Path Normalization Defense, Winning Pin Qualification Rule Inheritance & Dual-Placement UI Configuration.
+- **Trap / Failure Mode:**
+  1. *Sub-Router Path Normalization 404*: `handleCreatorsRoutes` in `src/routes/creators.mjs` immediately rewrites `/api/creators/*` into `/api/competitors/*`. Any subsequent check strictly matching `/api/creators/settings` fails with 404 Not Found.
+  2. *Disconnected Qualification Rules*: Creating UI fields for `min_saves` and `min_velocity` without persisting them into `competitor_profiles.metadata->'qualification_rules'` causes `reconcileQualifiedCatalogPins` to fall back to hardcoded defaults (100 saves / 3.5 velocity), rendering the user's settings ineffective.
+  3. *In-Loop Settings Query Overhead*: Fetching `getCreatorHubSettings(sql)` inside the account iteration loop forces 147+ redundant roundtrips per worker to Central Hub `app_settings`.
+  4. *Lock 12 Regressions*: Renaming or removing `AUTO_PROMOTE_PULSE_DELTA_24H` breaks Lock 12 in `scripts/verify_regression_locks.mjs`.
+- **Root Cause & Technical Mechanism:**
+  - Prefix rewrite in router discriminator.
+  - Decoupling between global app settings and per-creator metadata consumed by catalog reconciliation.
+- **Verified Solution & Invariant Rules:**
+  - Placed `(pathname === '/api/competitors/settings' || pathname === '/api/creators/settings' || originalPathname === '/api/creators/settings')` in the top literal section using Central Hub `sql || targetSql`.
+  - Implemented `src/modules/creators/settings.mjs` storing `creator_hub_settings` in `app_settings`.
+  - Fetched settings once before Phase 1 account loop in `scripts/creator-velocity-crawler.mjs`, while preserving `AUTO_PROMOTE_PULSE_DELTA_24H` and `AUTO_PROMOTE_PULSE_DELTA_7D` as fallback anchors.
+  - Persisted user-configured `min_saves` and `min_velocity` into `metadata.qualification_rules` on promoted profiles so `reconcileQualifiedCatalogPins` genuinely enforces them.
+  - Added dual button placements in `src/dashboard-ui.mjs` (main header `/accounts` and campaign folder creator view) paired with the Swiss-grid modal in `src/ui/dashboard-modals.mjs`.
+- **Verification Method:** `node scripts/test_auto_promote_settings.mjs` (all PASS), `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `npm run check`, and `npm test` (all 21 suites PASS).
+
+---
+
+## Round 18: Eradication of 5 Hidden Qualification & Auto-Promote Landmines
+
+- **Thematic Focus:** 3-Tier OR Bypass Immunity, Pinterest `page_size: 50` Formula Parity, Double-Harvest Prevention, Anti-NaN Type Hygiene, and Lucide Icon Lifecycle.
+- **Trap / Failure Mode:**
+  1. *3-Tier OR Bypass in Pin Qualification*: Pinterest `repin_count` roughly mirrors `save_count`. In `reconcileQualifiedCatalogPins`, `reEvaluateCompetitorPins`, and `qualifyPin`, `tier2_min_repins` defaulting to 100 or hardcoded `(save_count >= 50 AND velocity >= 2.0)` allowed 100-save pins to bypass user-configured high thresholds (e.g. `min_saves = 500`, `min_velocity = 10.0`).
+  2. *Double-Harvest & Execution Race*: Newly auto-promoted creators had 0 pins in `competitor_pins`; executing reconciliation before fresh pin sync or executing boards/pins twice in the same crawl pass caused missed promotions or duplicate network overhead.
+  3. *`harvestPages` Formula Mismatch*: `fetchUserActivityPinsResource` uses `page_size: 50`. Dividing `max_pins_harvest` by 25 doubled requested pages unnecessarily (200 pins fetched when 100 requested).
+  4. *NaN Poisoning & Missing 405 Method Guard*: Non-numeric inputs to `updateCreatorHubSettings` risked writing `NaN` to JSONB in PostgreSQL. Non-GET/POST calls to `/api/competitors/settings` lacked explicit 405 Method Not Allowed handling.
+  5. *Modal Open Lucide Icon Blanking*: Awaiting API fetch before calling `window.lucide.createIcons()` left icons blank during network latency.
+- **Root Cause & Technical Mechanism:**
+  - Unbounded fallback OR-branches in SQL queries and rule inheritance that did not scale with custom thresholds.
+  - Mismatch between crawler pagination math and Pinterest API parameters.
+- **Verified Solution & Invariant Rules:**
+  - In `scripts/creator-velocity-crawler.mjs`, dynamically persist `tier1_min_saves`, `tier2_min_repins: minSaves`, `tier2_min_velocity: minVelocity`, and `tier3_min_saves: Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2)))` with `auto_promote_inherited: true`.
+  - In `src/modules/creators/service.mjs` (`reconcileQualifiedCatalogPins`, `reEvaluateCompetitorPins`, and `qualifyPin`), guard the 50-save / 2.0-velocity fallback with `allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5)`, completely disabling the fallback when stricter user rules are active.
+  - In `scripts/creator-velocity-crawler.mjs`, enforce single-pass execution order: profile update -> auto-promote evaluation -> board sync -> fresh pin sync (`harvestPages = Math.ceil(maxPins / 50)`) -> catalog pin reconciliation into `pa_pins`.
+  - In `src/modules/creators/settings.mjs`, implement `cleanNum(val, fallback, min, max)` enforcing `Number.isFinite` and clamping.
+  - In `src/routes/creators.mjs`, return strict 405 Method Not Allowed on non-GET/POST requests.
+  - In `src/dashboard-ui.mjs`, invoke `this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });` immediately upon opening the modal.
+- **Verification Method:** `node scripts/test_auto_promote_settings.mjs` (all 6 suites PASS), `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `npm run check`, and `npm test` (all 21 suites PASS).
+
