@@ -117,10 +117,10 @@ async function main() {
 
     console.log('[*] Querying all active creator profiles from Central Hub...');
     const activeProfiles = await sql`
-      SELECT id, username, display_name, monthly_reach, profile_views, total_pins, total_boards, is_active, last_synced_at
+      SELECT id, username, tracking_mode, last_synced_at
       FROM competitor_profiles
       WHERE is_active = TRUE
-      ORDER BY last_synced_at ASC NULLS FIRST, id ASC;
+      ORDER BY (CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, last_synced_at ASC NULLS FIRST, id ASC;
     `;
 
     console.log(`[*] Resolved ${activeProfiles.length} active creator profile(s) in Central Hub.`);
@@ -151,7 +151,7 @@ async function main() {
           account_id: chunk[0]?.id || activeProfiles[0].id,
           account_ids: chunk.map(p => p.id).join(','),
           account_usernames: chunk.map(p => p.username).join(','),
-          all_account_ids: allAccountIdsCsv,
+          all_account_ids: '',
           accounts_count: chunk.length,
           worker_index: w,
           worker_slot: w + 1,

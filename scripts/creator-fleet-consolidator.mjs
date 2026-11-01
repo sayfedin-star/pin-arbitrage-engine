@@ -68,10 +68,21 @@ async function main() {
   // 1. Fetch Active Competitor Profiles Matrix
   console.log('[*] Compiling Creator Hub performance matrix...');
   const activeProfiles = await sql`
+    WITH winners_agg AS (
+      SELECT account_username, COUNT(*)::int AS qualified_winners
+      FROM pa_pins
+      GROUP BY account_username
+    ),
+    catalog_agg AS (
+      SELECT competitor_id, COUNT(*)::int AS catalog_pins
+      FROM competitor_pins
+      GROUP BY competitor_id
+    )
     SELECT 
       cp.id,
       cp.username,
       cp.display_name,
+      cp.tracking_mode,
       COALESCE(cp.profile_views, 0)::bigint AS impressions,
       COALESCE(cp.views_delta_7d, 0)::bigint AS views_delta_7d,
       COALESCE(cp.monthly_reach, 0)::bigint AS total_audience,
@@ -80,17 +91,11 @@ async function main() {
       COALESCE(cp.total_boards, 0)::int AS total_boards,
       COALESCE(cp.follower_count, 0)::int AS follower_count,
       cp.last_synced_at,
-      (
-        SELECT COUNT(*)::int
-        FROM pa_pins pap
-        WHERE pap.account_username = cp.username
-      ) AS qualified_winners,
-      (
-        SELECT COUNT(*)::int
-        FROM competitor_pins cpin
-        WHERE cpin.competitor_id = cp.id
-      ) AS catalog_pins
+      COALESCE(wa.qualified_winners, 0) AS qualified_winners,
+      COALESCE(ca.catalog_pins, 0) AS catalog_pins
     FROM competitor_profiles cp
+    LEFT JOIN winners_agg wa ON wa.account_username = cp.username
+    LEFT JOIN catalog_agg ca ON ca.competitor_id = cp.id
     WHERE (${targetAccount} = '' OR cp.username = ${targetAccount})
       AND cp.is_active = TRUE
     ORDER BY cp.monthly_reach DESC NULLS LAST, cp.id ASC;
@@ -140,9 +145,13 @@ async function main() {
   mdReport += `| Creator | Impressions (7d Delta) | Total audience (7d Delta) | Followers | Catalog Pins | Qualified Winners | Last Synced |\n`;
   mdReport += `| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n`;
 
-  for (const prof of activeProfiles) {
+  const displayProfiles = activeProfiles.slice(0, 100);
+  for (const prof of displayProfiles) {
     const syncTime = prof.last_synced_at ? new Date(prof.last_synced_at).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : 'Pending';
     mdReport += `| **[@${prof.username}](https://www.pinterest.com/${prof.username}/)** | ${formatNumber(prof.impressions)} (${formatDelta(prof.views_delta_7d)}) | ${formatNumber(prof.total_audience)} (${formatDelta(prof.reach_delta_7d)}) | ${formatNumber(prof.follower_count)} | ${formatNumber(prof.catalog_pins)} | **${formatNumber(prof.qualified_winners)}** | \`${syncTime}\` |\n`;
+  }
+  if (activeProfiles.length > 100) {
+    mdReport += `\n*Showing top 100 of ${formatNumber(activeProfiles.length)} active creators sorted by Total audience. Full catalog tracked across fleet shards.*\n`;
   }
   mdReport += `\n`;
 

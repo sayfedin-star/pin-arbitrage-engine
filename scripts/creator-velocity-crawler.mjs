@@ -593,7 +593,8 @@ async function run() {
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
     const catalogPins = await sql`
       SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
-             enrichment_status, created_at_pinterest, title, description, destination_url, image_url, metadata
+             enrichment_status, created_at_pinterest, title, destination_url, image_url,
+             COALESCE((metadata->>'daily_save_velocity')::numeric, (metadata->>'velocity')::numeric, 0) AS prev_velocity
       FROM competitor_pins
       WHERE competitor_id = ${targetId}
         AND pin_id IS NOT NULL AND pin_id <> ''
@@ -617,7 +618,7 @@ async function run() {
         const prevSaves = Math.max(0, Number(p.save_count || 0));
         const prevRepins = Math.max(0, Number(p.repin_count || 0));
         const prevComments = Math.max(0, Number(p.comment_count || 0));
-        const prevVelocity = Number(p.metadata?.daily_save_velocity || p.metadata?.velocity || 0);
+        const prevVelocity = Number(p.prev_velocity ?? p.metadata?.daily_save_velocity ?? p.metadata?.velocity ?? 0);
 
         let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
         const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
@@ -796,7 +797,9 @@ async function run() {
     let myAccounts = [];
     if (myAccountIds.length > 0) {
       myAccounts = await sql`
-        SELECT id, username, display_name, metadata, tracking_mode
+        SELECT id, username, display_name, tracking_mode,
+               (metadata->'qualification_rules') AS qualification_rules,
+               (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
         FROM competitor_profiles
         WHERE id = ANY(${myAccountIds});
       `;
@@ -827,7 +830,7 @@ async function run() {
       console.log(`----------------------------------------------------------------`);
 
       // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Lightweight Creator Pulse Fast-Path Bypass
-      let isPulseOnly = acc.tracking_mode === 'pulse_only' || acc.metadata?.profile_pulse_only === true;
+      let isPulseOnly = acc.tracking_mode === 'pulse_only' || (acc.profile_pulse_only ?? acc.metadata?.profile_pulse_only) === true;
 
       // 1. Sync Creator Profile & Reach
       try {
@@ -871,7 +874,7 @@ async function run() {
 
         // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages)
         try {
-          const accRules = acc.metadata?.qualification_rules || {};
+          const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
           const earlyStop = Number(accRules.early_stop_pages) || 3;
           const targetPages = crawlMode === 'deep' || crawlMode === 'all'
             ? (Number(accRules.max_pages) || maxPages || 500)
@@ -964,8 +967,8 @@ async function run() {
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (pa_pins)
     const myWinningSlice = await sql`
       SELECT 
-        p.pin_id, p.title, p.description, p.link, p.domain, p.board_name, p.image_url, p.dominant_color,
-        p.annotations, p.is_video, p.is_product, p.alt_text, p.saves, p.repins, p.comments, p.share_count,
+        p.pin_id, p.title, p.link, p.domain, p.board_name, p.image_url, p.dominant_color,
+        p.is_video, p.is_product, p.saves, p.repins, p.comments, p.share_count,
         p.velocity, p.last_updated_at, p.created_at_pinterest, p.account_username
       FROM pa_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
