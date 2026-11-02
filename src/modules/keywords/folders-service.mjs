@@ -16,7 +16,16 @@
 
 import { fetchPinterestTrends } from './trends-service.mjs';
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
-import { safeWaitUntil } from '../sharding/fleet-router.mjs';
+import {
+  safeWaitUntil,
+  batchGroupByShard,
+  coalesceShardGroupsByPhysical,
+  resolveShardConnection,
+  executeShardQueryWithCircuitBreaker,
+  preloadNeonRegistry,
+  isUnifiedPostgres
+} from '../sharding/fleet-router.mjs';
+import { hydratePinsFromD1, syncPinsBatchToD1 } from './d1-metadata.mjs';
 
 export const folderTrendsCache = new Map();
 
@@ -1671,6 +1680,18 @@ export async function getFoldersForKeyword(sql, keywordId) {
 }
 
 /**
+ * Detects whether a pin title is empty, generic, or a synthesized "<Keyword> Inspiration" fallback
+ */
+export function isSyntheticPinTitle(title) {
+  if (!title || typeof title !== 'string') return true;
+  const t = title.trim();
+  if (!t || /^untitled(\s+pin)?$/i.test(t)) return true;
+  if (/^pin(\s*#?\s*\w+)?$/i.test(t)) return true;
+  if (/(^|\s+)Inspiration$/i.test(t) || t === 'Pinterest Visual Guide') return true;
+  return false;
+}
+
+/**
  * Intelligent Pin Title Fallback Derivation
  * Eradicates "Untitled Pin" and empty titles by extracting clean human-readable titles from
  * destination link slugs, board names, visual annotations, or keyword context.
@@ -2002,20 +2023,21 @@ function synthesizeSpokeTitle(modifier, targetKw) {
  * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
  * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
  */
-export async function calculateFolderCrossover(sql, folderId, { refresh = false, env = null } = {}) {
+export async function calculateFolderCrossover(sql, folderId, { refresh = false, env = null, ctx = null } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
   const now = Date.now();
   if (!refresh) {
     const cached = crossoverCache.get(fid);
-    if (cached && (now - cached.timestamp < CROSSOVER_TTL_MS)) {
+    const ttl = cached?.ttlMs || CROSSOVER_TTL_MS;
+    if (cached && (now - cached.timestamp < ttl)) {
       return cached.data;
     }
     if (env?.PIN_ENGINE_KV) {
       try {
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v2`;
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v3`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         if (kvData) {
           crossoverCache.set(fid, { timestamp: now, data: kvData });
@@ -2032,17 +2054,21 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
 
   const computePromise = (async () => {
     try {
-      const result = await _executeFolderCrossover(sql, fid, { env });
+      const result = await _executeFolderCrossover(sql, fid, { env, ctx });
       if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
         const oldest = crossoverCache.keys().next().value;
         if (oldest) crossoverCache.delete(oldest);
       }
-      crossoverCache.set(fid, { timestamp: Date.now(), data: result });
+      const hasUnhydrated = Boolean(result?._has_unhydrated_priority_pins);
+      const memTtlMs = hasUnhydrated ? (15 * 1000) : CROSSOVER_TTL_MS;
+      const kvTtlSec = hasUnhydrated ? 60 : 86400;
+
+      crossoverCache.set(fid, { timestamp: Date.now(), data: result, ttlMs: memTtlMs });
       if (env?.PIN_ENGINE_KV) {
         try {
           const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-          const kvKey = `fep:${epoch}:folder:${fid}:crossover:v2`;
-          await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: 86400 });
+          const kvKey = `fep:${epoch}:folder:${fid}:crossover:v3`;
+          await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: kvTtlSec });
         } catch (_) {}
       }
       return result;
@@ -2055,7 +2081,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   return await computePromise;
 }
 
-async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
+async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}) {
   // 1. Fetch Folder & Member Keywords
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;
@@ -2315,17 +2341,14 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
-      const cleanTitle = derivePinTitle(
-        row.title || meta.title,
-        row.destination_url || meta.destination_url || '',
-        row.keyword_text || '',
-        row.board_name || meta.board_name || '',
-        rowVisualAnnotations
-      );
+      const candidateRawTitle = (row.title || meta.title || '').trim();
+      const hasAuthenticTitle = candidateRawTitle && !isSyntheticPinTitle(candidateRawTitle);
+      const initialTitle = hasAuthenticTitle ? candidateRawTitle : '';
 
       pinMap.set(pid, {
         pin_id: pid,
-        title: cleanTitle,
+        raw_title: candidateRawTitle,
+        title: initialTitle,
         image_url: row.image_url || meta.image_url || '',
         domain: row.domain || meta.domain || '',
         destination_url: row.destination_url || meta.destination_url || '',
@@ -2333,15 +2356,20 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
         domain_age_years: null,
         save_count: rowSaves,
         is_vacuum_pin: (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
+        board_name: row.board_name || meta.board_name || '',
+        visual_annotations: rowVisualAnnotations,
+        dominant_color: row.dominant_color || meta.dominant_color || '#1e1e24',
+        created_at_pinterest: row.created_at_pinterest || meta.created_at_pinterest || null,
+        alt_text: row.alt_text || meta.alt_text || '',
+        description: row.description || meta.description || '',
+        aspect_ratio: row.aspect_ratio || meta.aspect_ratio || null,
+        creation_method: row.creation_method || meta.creation_method || null,
         repin_count: rowRepins,
         comment_count: safeNum(row.comment_count),
         daily_save_velocity: vel,
         creator_username: row.creator_username || pinner.username || '',
         creator_name: pinner.full_name || row.creator_username || '',
-        aspect_ratio: row.aspect_ratio || meta.aspect_ratio || '2:3',
         format: row.format || meta.format || (row.creation_method ? String(row.creation_method).toUpperCase() : 'ORGANIC PIN'),
-        visual_annotations: rowVisualAnnotations,
-        created_at_pinterest: row.created_at_pinterest,
         crawled_at: row.crawled_at,
         pin_age_days: pinAgeDays,
         folder_age_days: folderAgeDays,
@@ -2430,74 +2458,203 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
     }
   }
 
-  // Fast Creative Metadata Hydration (D1 / Hub Fallback) for Vault-only Pins
-  const missingMetaPins = allPins.filter(p => !p.title || !p.image_url);
+  // 4-Tier Distributed Hydration Pipeline for Displaced Vault Pins [INVARIANT: 4-TIER-CREATIVE-HYDRATION]
+  const missingMetaPins = allPins.filter(p => !p.title || !p.image_url || isSyntheticPinTitle(p.title));
   if (missingMetaPins.length > 0) {
     const missingPinIds = missingMetaPins.map(p => p.pin_id);
     const enrichedMap = new Map();
 
-    // Step A: Check Cloudflare D1 edge_pins_metadata if available
-    if (env?.PIN_D1_DB && typeof env.PIN_D1_DB.prepare === 'function') {
+    // Tier 1: Cloudflare D1 Edge Cache Hydration
+    if (env?.PIN_D1_DB) {
       try {
-        const BATCH_SIZE = 80;
-        for (let i = 0; i < missingPinIds.length; i += BATCH_SIZE) {
-          const chunk = missingPinIds.slice(i, i + BATCH_SIZE);
-          const placeholders = chunk.map(() => '?').join(',');
-          const d1Res = await env.PIN_D1_DB.prepare(
-            `SELECT pin_id, title, image_url, destination_url FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
-          ).bind(...chunk).all();
-          if (Array.isArray(d1Res?.results)) {
-            for (const r of d1Res.results) {
-              if (r.pin_id) enrichedMap.set(String(r.pin_id), r);
+        const d1Map = await hydratePinsFromD1(env, missingPinIds);
+        if (d1Map && typeof d1Map.get === 'function') {
+          for (const pid of missingPinIds) {
+            const d1Pin = d1Map.get(String(pid));
+            if (d1Pin && (d1Pin.title || d1Pin.image_url)) {
+              enrichedMap.set(String(pid), d1Pin);
             }
           }
         }
       } catch (_) {}
     }
 
-    // Step B: Central Hub Fallback (competitor_pins / pa_pins)
-    const stillMissing = missingPinIds.filter(pid => {
-      const e = enrichedMap.get(pid);
-      return !e || !e.title || !e.image_url;
+    // Tier 2: Central Hub Fallback with 100% Alias-Qualified Schema Parity
+    const missingAfterD1 = missingPinIds.filter(pid => {
+      const e = enrichedMap.get(String(pid));
+      return !e || !e.title || !e.image_url || isSyntheticPinTitle(e.title);
     });
 
-    if (stillMissing.length > 0) {
+    if (sql && missingAfterD1.length > 0) {
       try {
-        const hubMeta = await sql`
-          SELECT pin_id, title, image_url, destination_url
-          FROM competitor_pins
-          WHERE pin_id = ANY(${stillMissing}::text[])
-            AND (title <> '' OR image_url <> '')
-          UNION
-          SELECT pin_id, title, image_url, link as destination_url
-          FROM pa_pins
-          WHERE pin_id = ANY(${stillMissing}::text[])
-            AND (title <> '' OR image_url <> '');
-        `;
-        for (const row of hubMeta) {
-          if (row.pin_id) {
+        const hubRows = await sql`
+          SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
+                 ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations,
+                 ksc.created_at_pinterest
+          FROM keyword_serp_current ksc
+          WHERE ksc.pin_id = ANY(${missingAfterD1}::text[]) AND (ksc.title <> '' OR ksc.image_url <> '')
+          UNION ALL
+          SELECT cp.pin_id, cp.title, cp.link_domain AS domain, cp.destination_url, cp.image_url,
+                 '' AS creator_username, cp.board_name, '#888888' AS dominant_color,
+                 COALESCE(cp.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+                 cp.created_at_pinterest
+          FROM competitor_pins cp
+          WHERE cp.pin_id = ANY(${missingAfterD1}::text[]) AND (cp.title <> '' OR cp.image_url <> '')
+          UNION ALL
+          SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url,
+                 pa.account_username AS creator_username, pa.board_name, pa.dominant_color,
+                 COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations,
+                 pa.created_at_pinterest
+          FROM pa_pins pa
+          WHERE pa.pin_id = ANY(${missingAfterD1}::text[]) AND (pa.title <> '' OR pa.image_url <> '')
+          LIMIT 100;
+        `.catch(() => []);
+
+        for (const row of (hubRows || [])) {
+          if (row?.pin_id) {
             const existing = enrichedMap.get(String(row.pin_id)) || {};
             enrichedMap.set(String(row.pin_id), {
+              ...existing,
               title: row.title || existing.title,
               image_url: row.image_url || existing.image_url,
-              destination_url: row.destination_url || existing.destination_url
+              destination_url: row.destination_url || existing.destination_url,
+              domain: row.domain || existing.domain,
+              creator_username: row.creator_username || existing.creator_username,
+              board_name: row.board_name || existing.board_name,
+              dominant_color: row.dominant_color || existing.dominant_color,
+              visual_annotations: row.visual_annotations || existing.visual_annotations,
+              created_at_pinterest: row.created_at_pinterest || existing.created_at_pinterest
             });
           }
         }
       } catch (_) {}
     }
 
-    // Step C: Apply metadata & fall back cleanly so zero "Untitled Pin" rows exist
+    // Tier 3: 20-Physical-Shard Scatter-Gather Hydration with Concurrency Limit = 4 & Egress Protection
+    const stillMissingForShards = missingPinIds.filter(pid => {
+      const e = enrichedMap.get(String(pid));
+      return !e || !e.title || !e.image_url || isSyntheticPinTitle(e.title);
+    });
+
+    const priorityShardPins = stillMissingForShards.slice(0, 350);
+    const tailShardPins = stillMissingForShards.slice(350);
+
+    if (sql && priorityShardPins.length > 0) {
+      try {
+        await preloadNeonRegistry(sql, env);
+        const virtualGroups = batchGroupByShard(priorityShardPins, 99);
+        const physicalGroups = coalesceShardGroupsByPhysical(virtualGroups);
+        const physicalEntries = Array.from(physicalGroups.entries());
+
+        const CONCURRENCY_LIMIT = 4;
+        const SCATTER_GATHER_DEADLINE_MS = 4500;
+
+        const executePhysicalHydration = async () => {
+          for (let i = 0; i < physicalEntries.length; i += CONCURRENCY_LIMIT) {
+            const chunk = physicalEntries.slice(i, i + CONCURRENCY_LIMIT);
+            await Promise.all(chunk.map(async ([pShardId, pPins]) => {
+              try {
+                const shardSql = await resolveShardConnection(pShardId, env);
+                if (!shardSql) return;
+                const pPinIds = pPins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
+                const rows = await executeShardQueryWithCircuitBreaker({
+                  shardId: pShardId,
+                  shardSql,
+                  timeoutMs: 3000,
+                  queryFn: (db) => db`
+                    SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
+                           ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
+                           ump.alt_text, ump.description, ump.created_at_pinterest
+                    FROM universal_master_pins ump
+                    WHERE ump.pin_id = ANY(${pPinIds}::text[])
+                  `
+                });
+                for (const r of (rows || [])) {
+                  if (r?.pin_id) {
+                    enrichedMap.set(String(r.pin_id), r);
+                  }
+                }
+              } catch (_) {}
+            }));
+          }
+        };
+
+        await Promise.race([
+          executePhysicalHydration(),
+          new Promise(resolve => setTimeout(resolve, SCATTER_GATHER_DEADLINE_MS))
+        ]);
+      } catch (_) {}
+    }
+
+    // Tier 4: Self-Healing Write-Back to D1 & Background Tail Warming
+    const pinsToWriteToD1 = [];
+    for (const pid of priorityShardPins) {
+      const e = enrichedMap.get(String(pid));
+      if (e && (e.title || e.image_url)) {
+        pinsToWriteToD1.push(e);
+      }
+    }
+
+    if (pinsToWriteToD1.length > 0 && env?.PIN_D1_DB) {
+      safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'd1_vault_writeback');
+    }
+
+    if (tailShardPins.length > 0 && sql) {
+      safeWaitUntil(ctx, (async () => {
+        try {
+          const vGroups = batchGroupByShard(tailShardPins, 99);
+          const pGroups = coalesceShardGroupsByPhysical(vGroups);
+          for (const [pShardId, pPins] of pGroups.entries()) {
+            const shardSql = await resolveShardConnection(pShardId, env);
+            if (!shardSql) continue;
+            const pIds = pPins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
+            const rows = await executeShardQueryWithCircuitBreaker({
+              shardId: pShardId,
+              shardSql,
+              timeoutMs: 3000,
+              queryFn: (db) => db`
+                SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
+                       ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
+                       ump.alt_text, ump.description, ump.created_at_pinterest
+                FROM universal_master_pins ump
+                WHERE ump.pin_id = ANY(${pIds}::text[])
+              `
+            });
+            if (rows?.length > 0 && env?.PIN_D1_DB) {
+              await syncPinsBatchToD1(env, rows);
+            }
+          }
+        } catch (_) {}
+      })(), 'tail_vault_warming');
+    }
+
+    // Apply Enriched Metadata & Final Deferred Title Synthesis
     const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
     for (const p of missingMetaPins) {
-      const meta = enrichedMap.get(p.pin_id);
+      const meta = enrichedMap.get(String(p.pin_id));
       if (meta) {
-        if (!p.title && meta.title) p.title = meta.title;
+        if ((!p.title || isSyntheticPinTitle(p.title)) && meta.title && !isSyntheticPinTitle(meta.title)) {
+          p.title = meta.title;
+        }
         if (!p.image_url && meta.image_url) p.image_url = meta.image_url;
         if (!p.destination_url && meta.destination_url) p.destination_url = meta.destination_url;
+        if (!p.domain && meta.domain) p.domain = meta.domain;
+        if (!p.creator_username && meta.creator_username) p.creator_username = meta.creator_username;
+        if (!p.board_name && meta.board_name) p.board_name = meta.board_name;
+        if ((!p.dominant_color || p.dominant_color === '#1e1e24') && meta.dominant_color) p.dominant_color = meta.dominant_color;
+        if ((!p.visual_annotations || p.visual_annotations.length === 0) && meta.visual_annotations) p.visual_annotations = meta.visual_annotations;
+        if (!p.created_at_pinterest && meta.created_at_pinterest) p.created_at_pinterest = meta.created_at_pinterest;
       }
-      if (!p.title || p.title === 'Untitled Pin') {
-        p.title = derivePinTitle('', p.destination_url || p.domain, primaryKeyword);
+
+      // Final Pass: Only synthesize if title is still empty or synthetic after all 4 tiers
+      if (!p.title || isSyntheticPinTitle(p.title)) {
+        p.title = derivePinTitle(
+          p.title || '',
+          p.destination_url || p.domain || '',
+          primaryKeyword,
+          p.board_name || '',
+          p.visual_annotations || []
+        );
       }
     }
   }
@@ -3107,6 +3264,8 @@ async function _executeFolderCrossover(sql, fid, { env = null } = {}) {
       recommended_launch_window: recommendedLaunchWindow,
       trends_loaded_count: trendsLoaded
     },
-    topic_cluster_blueprint: topicClusterBlueprint
+    topic_cluster_blueprint: topicClusterBlueprint,
+    has_unhydrated_priority_pins: allPins.slice(0, 100).some(p => !p.image_url || isSyntheticPinTitle(p.title)),
+    _has_unhydrated_priority_pins: allPins.slice(0, 100).some(p => !p.image_url || isSyntheticPinTitle(p.title))
   };
 }

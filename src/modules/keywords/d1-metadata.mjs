@@ -91,6 +91,9 @@ export async function syncPinsBatchToD1(env, pins = []) {
           metaObj.creation_method = mVal;
           metaObj.method = mVal;
         }
+        if (p.aspect_ratio && !metaObj.aspect_ratio) {
+          metaObj.aspect_ratio = p.aspect_ratio;
+        }
         const trajectoryArr = Array.isArray(p.daily_trajectory) ? p.daily_trajectory : [];
         return env.PIN_D1_DB.prepare(`
           INSERT INTO edge_pins_metadata (
@@ -199,7 +202,8 @@ export async function hydratePinsFromD1(env, pinIds = []) {
           visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
           daily_trajectory: parsedTrajectory,
           alt_text: r.seo_alt_text || '',
-          creation_method: parsedMeta.creation_method || parsedMeta.method || null
+          creation_method: parsedMeta.creation_method || parsedMeta.method || null,
+          aspect_ratio: r.aspect_ratio || parsedMeta.aspect_ratio || null
         });
       }
     }

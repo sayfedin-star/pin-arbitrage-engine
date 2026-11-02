@@ -678,10 +678,19 @@ export async function preloadNeonRegistry(hubSql, env = null) {
  * @param {number} [options.timeoutMs=6000] - Hard query timeout before tripping breaker
  * @returns {Promise<any>} Query result or fallback result
  */
-export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQueryFn = null, maybeOpts = {}) {
+export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQueryFn = null, maybeOpts = {}, maybeTimeout = null) {
   let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 6000, batchId = null, bypassBreaker = false;
   if (optsOrShardId && typeof optsOrShardId === 'object') {
     ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 6000, batchId = null, bypassBreaker = false } = optsOrShardId);
+  } else if (typeof optsOrShardId === 'function' && (typeof maybeQueryFn === 'number' || typeof maybeQueryFn === 'string')) {
+    // [INVARIANT: SHARD-QUERY-POLYMORPHIC-DISPATCH] Support positional (shardSql, shardId, queryFn, timeoutMs/opts)
+    shardSql = optsOrShardId;
+    shardId = Number(maybeQueryFn);
+    queryFn = typeof maybeOpts === 'function' ? maybeOpts : (maybeOpts?.queryFn ?? null);
+    timeoutMs = typeof maybeTimeout === 'number' ? maybeTimeout : (maybeOpts?.timeoutMs ?? (typeof maybeOpts === 'number' ? maybeOpts : 6000));
+    fallbackFn = maybeOpts?.fallbackFn ?? null;
+    batchId = maybeOpts?.batchId ?? null;
+    bypassBreaker = Boolean(maybeOpts?.bypassBreaker);
   } else {
     shardId = optsOrShardId;
     queryFn = maybeQueryFn;

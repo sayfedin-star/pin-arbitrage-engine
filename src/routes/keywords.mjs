@@ -1111,7 +1111,7 @@ export async function handleKeywordsRoutes({
       }, 400);
     }
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env });
+    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx });
     return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
   }
 
@@ -1626,6 +1626,7 @@ export async function handleKeywordsRoutes({
             const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
           } catch (_) {}
         })(), 'kv_del_folder_cache');
       }
@@ -1652,6 +1653,7 @@ export async function handleKeywordsRoutes({
             const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
           } catch (_) {}
         })(), 'kv_del_folder_cache_del');
       }
@@ -1951,7 +1953,7 @@ export async function handleKeywordsRoutes({
     const folderId = searchParams.get('folder_id') || searchParams.get('id');
     if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, folderId, { refresh, env });
+    const crossover = await calculateFolderCrossover(sql, folderId, { refresh, env, ctx });
     return jsonResponse({ success: true, crossover });
   }
 

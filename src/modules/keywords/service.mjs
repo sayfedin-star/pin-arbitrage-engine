@@ -318,17 +318,17 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       const missingIds = missingAfterD1.map(r => String(r.pin_id));
       try {
         const hubRows = await hubSql`
-          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, '' as board_name, dominant_color, visual_annotations, created_at_pinterest
-          FROM keyword_serp_current
-          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url, ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest
+          FROM keyword_serp_current ksc
+          WHERE ksc.pin_id = ANY(${missingIds}) AND (ksc.title <> '' OR ksc.image_url <> '')
           UNION ALL
-          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, board_name, dominant_color, visual_annotations, created_at_pinterest
-          FROM competitor_pins
-          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          SELECT cp.pin_id, cp.title, cp.link_domain AS domain, cp.destination_url, cp.image_url, '' AS creator_username, cp.board_name, '#888888' AS dominant_color, COALESCE(cp.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations, cp.created_at_pinterest
+          FROM competitor_pins cp
+          WHERE cp.pin_id = ANY(${missingIds}) AND (cp.title <> '' OR cp.image_url <> '')
           UNION ALL
-          SELECT pin_id, title, domain, destination_url, image_url, '' as creator_username, board_name, dominant_color, visual_annotations, created_at_pinterest
-          FROM pa_pins
-          WHERE pin_id = ANY(${missingIds}) AND (title <> '' OR image_url <> '')
+          SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url, pa.account_username AS creator_username, pa.board_name, pa.dominant_color, COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations, pa.created_at_pinterest
+          FROM pa_pins pa
+          WHERE pa.pin_id = ANY(${missingIds}) AND (pa.title <> '' OR pa.image_url <> '')
           LIMIT 100;
         `.catch(() => []);
         for (const hr of (hubRows || [])) {

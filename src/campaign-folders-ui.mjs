@@ -406,9 +406,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   <td class="p-3.5">
                     <div class="flex items-center gap-3">
                       <div class="w-10 h-14 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0">
-                        <img :src="sp.image_url || 'https://via.placeholder.com/60x90'" 
+                        <img :src="sp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
                              class="w-full h-full object-cover"
-                             onerror="this.src='https://via.placeholder.com/60x90?text=Pin'">
+                             loading="lazy"
+                             onerror="if (this.src.includes('/originals/')) { this.src = this.src.replace('/originals/', '/1200x/'); } else if (this.src.includes('/1200x/')) { this.src = this.src.replace('/1200x/', '/736x/'); } else { this.onerror = null; this.src = 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'; }">
                       </div>
                       <div class="flex flex-col gap-1 max-w-xs">
                         <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->

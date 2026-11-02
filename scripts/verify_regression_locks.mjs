@@ -230,6 +230,15 @@ try {
   const returnsTopCreators = /top_creators:\s*creatorMonopoly/i.test(foldersServiceContent);
   check('Lock 4', returnsTopCreators, 'src/modules/keywords/folders-service.mjs omits top_creators from _executeFolderCrossover return');
 
+  // 4D. folders-service.mjs must hydrate displaced Vault pins from 20 physical shards via coalesceShardGroupsByPhysical & isSyntheticPinTitle
+  const foldersHydratesShards = (
+    foldersServiceContent.includes('coalesceShardGroupsByPhysical') &&
+    foldersServiceContent.includes('FROM universal_master_pins') &&
+    foldersServiceContent.includes('isSyntheticPinTitle') &&
+    foldersServiceContent.includes(':crossover:v3')
+  );
+  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing 20-shard universal_master_pins hydration, isSyntheticPinTitle guard, or :crossover:v3 cache key');
+
   // =========================================================================
   // LOCK 5: Breadcrumb & Untracked Creator Shield
   // =========================================================================
@@ -253,6 +262,10 @@ try {
   // 5D. dashboard-ui.mjs must guard openCreatorByHandle(...).then(...) with activeCreator
   const hasActiveCreatorGuard = /this\.openCreatorByHandle\(first,\s*['"]overview['"],\s*false\)\.then\(\(\)\s*=>\s*\{[\s\S]*?if\s*\(!this\.activeCreator\)\s*return;/.test(dashboardContent);
   check('Lock 5', hasActiveCreatorGuard, 'src/dashboard-ui.mjs lacks if (!this.activeCreator) return; guard inside openCreatorByHandle(.then)');
+
+  // 5E. campaign-folders-ui.mjs must contain zero dead via.placeholder.com URLs
+  const hasDeadPlaceholder = campaignFoldersContent.includes('via.placeholder.com');
+  check('Lock 5', !hasDeadPlaceholder, 'src/campaign-folders-ui.mjs contains dead via.placeholder.com URL');
 
   // =========================================================================
   // LOCK 6: D1 Non-Zeroing & Schema Parity
