@@ -406,23 +406,19 @@ export async function preparePhysicalShardSchema(destSql) {
     END $$;
   `;
 
-  await destSql`
-    DROP INDEX IF EXISTS idx_ump_metadata_gin;
-    DROP INDEX IF EXISTS idx_ump_domain;
-    DROP INDEX IF EXISTS idx_ump_creator;
-    DROP INDEX IF EXISTS idx_ump_updated;
-  `;
+  await destSql`DROP INDEX IF EXISTS idx_ump_metadata_gin;`;
+  await destSql`DROP INDEX IF EXISTS idx_ump_domain;`;
+  await destSql`DROP INDEX IF EXISTS idx_ump_creator;`;
+  await destSql`DROP INDEX IF EXISTS idx_ump_updated;`;
 
-  await destSql`
-    DROP TABLE IF EXISTS competitor_pins CASCADE;
-    DROP TABLE IF EXISTS pa_pins CASCADE;
-    DROP TABLE IF EXISTS pa_pin_metrics CASCADE;
-    DROP TABLE IF EXISTS competitor_boards CASCADE;
-    DROP TABLE IF EXISTS competitor_profiles CASCADE;
-    DROP TABLE IF EXISTS competitor_history_snapshots CASCADE;
-    DROP TABLE IF EXISTS keyword_serp_current CASCADE;
-    DROP TABLE IF EXISTS keyword_displaced_index CASCADE;
-  `;
+  await destSql`DROP TABLE IF EXISTS competitor_pins CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS pa_pins CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS pa_pin_metrics CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS competitor_boards CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS competitor_profiles CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS competitor_history_snapshots CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS keyword_serp_current CASCADE;`;
+  await destSql`DROP TABLE IF EXISTS keyword_displaced_index CASCADE;`;
 
   await destSql`
     CREATE INDEX IF NOT EXISTS idx_psp_kw_date 
@@ -432,7 +428,9 @@ export async function preparePhysicalShardSchema(destSql) {
   await destSql`
     CREATE OR REPLACE VIEW keyword_master_pins AS 
       SELECT * FROM universal_master_pins;
+  `;
 
+  await destSql`
     CREATE OR REPLACE VIEW pins_daily_snapshots AS
     SELECT 
       (('x' || SUBSTR(MD5(m.pin_id || '_' || m.snapshot_date::text || '_' || COALESCE(p.keyword_id::text, '0')), 1, 15))::bit(60)::bigint) AS id,
