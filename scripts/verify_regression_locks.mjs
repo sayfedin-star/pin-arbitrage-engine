@@ -230,14 +230,18 @@ try {
   const returnsTopCreators = /top_creators:\s*creatorMonopoly/i.test(foldersServiceContent);
   check('Lock 4', returnsTopCreators, 'src/modules/keywords/folders-service.mjs omits top_creators from _executeFolderCrossover return');
 
-  // 4D. folders-service.mjs must hydrate displaced Vault pins from 20 physical shards via coalesceShardGroupsByPhysical & isSyntheticPinTitle
+  // 4D. folders-service.mjs must hydrate displaced Vault pins from 20 physical shards with missing-image priority sorting, hubSql routing, aspect_ratio projection, and pin_age_days recomputation
   const foldersHydratesShards = (
     foldersServiceContent.includes('coalesceShardGroupsByPhysical') &&
     foldersServiceContent.includes('FROM universal_master_pins') &&
     foldersServiceContent.includes('isSyntheticPinTitle') &&
-    foldersServiceContent.includes(':crossover:v3')
+    foldersServiceContent.includes(':crossover:v3') &&
+    foldersServiceContent.includes('resolveShardConnection({ hubSql: sql, shardId, env })') &&
+    foldersServiceContent.includes('aMissingImg !== bMissingImg') &&
+    foldersServiceContent.includes("(ump.metadata->>'aspect_ratio') AS aspect_ratio") &&
+    /if\s*\(\s*!p\.created_at_pinterest\s*&&\s*meta\.created_at_pinterest\s*\)\s*\{[\s\S]*?p\.pin_age_days\s*=\s*Math\.max/.test(foldersServiceContent)
   );
-  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing 20-shard universal_master_pins hydration, isSyntheticPinTitle guard, or :crossover:v3 cache key');
+  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing 20-shard hydration, missing-image priority sort, hubSql routing, aspect_ratio projection, or pin_age_days recomputation');
 
   // =========================================================================
   // LOCK 5: Breadcrumb & Untracked Creator Shield

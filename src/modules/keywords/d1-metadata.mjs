@@ -102,7 +102,14 @@ export async function syncPinsBatchToD1(env, pins = []) {
             seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(pin_id) DO UPDATE SET
-            title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
+            title = CASE
+              WHEN excluded.title <> ''
+               AND LOWER(TRIM(excluded.title)) NOT LIKE '% inspiration'
+               AND LOWER(TRIM(excluded.title)) NOT LIKE '% idea'
+               AND LOWER(TRIM(excluded.title)) NOT IN ('untitled', 'untitled pin', 'pin', 'pinterest visual guide', 'pinterest pin idea')
+              THEN excluded.title
+              ELSE COALESCE(NULLIF(edge_pins_metadata.title, ''), excluded.title)
+            END,
             domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
             destination_url = CASE WHEN excluded.destination_url <> '' THEN excluded.destination_url ELSE edge_pins_metadata.destination_url END,
             image_url = CASE WHEN excluded.image_url <> '' THEN excluded.image_url ELSE edge_pins_metadata.image_url END,

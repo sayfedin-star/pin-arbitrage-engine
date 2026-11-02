@@ -25,7 +25,7 @@ import {
   fetchPinFromPinterest,
   fetchPinsBatchFromPidgets
 } from '../../../scripts/lib/pinterest.mjs';
-import { derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
+import { isSyntheticPinTitle, derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import {
   getPinShardId,
@@ -188,7 +188,13 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
           ON CONFLICT (pin_id) DO UPDATE SET
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
             board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            title = CASE
+              WHEN EXCLUDED.title <> ''
+               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+              THEN EXCLUDED.title
+              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+            END,
             domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
             destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
             image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
@@ -296,7 +302,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
  */
 export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false, ctx = null) {
   if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
-  const needsHydration = indexRows.filter(r => !r.title && !r.image_url);
+  const needsHydration = indexRows.filter(r => !r.title || !r.image_url || isSyntheticPinTitle(r.title));
   if (needsHydration.length === 0) return indexRows;
 
   try {
@@ -313,7 +319,10 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
     }
 
     // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
-    const missingAfterD1 = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
+    const missingAfterD1 = needsHydration.filter(r => {
+      const m = masterMap.get(String(r.pin_id));
+      return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
+    });
     if (hubSql && missingAfterD1.length > 0) {
       const missingIds = missingAfterD1.map(r => String(r.pin_id));
       try {
@@ -332,15 +341,24 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
           LIMIT 100;
         `.catch(() => []);
         for (const hr of (hubRows || [])) {
-          if ((hr.title || hr.image_url) && !masterMap.has(String(hr.pin_id))) {
-            masterMap.set(String(hr.pin_id), hr);
+          if (hr && (hr.title || hr.image_url)) {
+            const existing = masterMap.get(String(hr.pin_id)) || {};
+            masterMap.set(String(hr.pin_id), {
+              ...existing,
+              ...hr,
+              title: (!isSyntheticPinTitle(existing.title) ? existing.title : (!isSyntheticPinTitle(hr.title) ? hr.title : (existing.title || hr.title || ''))),
+              image_url: existing.image_url || hr.image_url || ''
+            });
           }
         }
       } catch (_) {}
     }
 
     // 2. Only query Neon Shards for pins that were not found in Cloudflare D1 or Hub
-    const stillMissing = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
+    const stillMissing = needsHydration.filter(r => {
+      const m = masterMap.get(String(r.pin_id));
+      return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
+    });
     if (!skipShardHydration && stillMissing.length > 0) {
       await preloadNeonRegistry(hubSql, env);
       // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING]
@@ -1482,7 +1500,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const altText = (item.closeup_unified_description || item.description || '').slice(0, 500);
       const boardName = item.board?.name || null;
 
-      const finalTitle = derivePinTitle(title, destinationUrl, keywordRow.keyword, boardName, visualAnnotations);
+      const finalTitle = derivePinTitle(title, destinationUrl, keywordRow.keyword, boardName, visualAnnotations, description, altText, item.seo_title || '');
 
       preparedPins.push({
         pin_id: pinId,
@@ -1558,7 +1576,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (pidgetRepins > 0) {
                 p.repin_count = Math.max(p.repin_count, pidgetRepins);
               }
-              if (pData.title && (!p.title || p.title === '')) {
+              if (pData.title && !isSyntheticPinTitle(pData.title) && (!p.title || isSyntheticPinTitle(p.title))) {
                 p.title = pData.title;
               }
               if (pData.image_hd_url) {
@@ -1622,6 +1640,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             p.save_count = enrichedSaves >= 0 ? Math.max(p.save_count, enrichedSaves) : p.save_count;
             p.repin_count = Math.max(p.repin_count, enrichedRepins);
             p.comment_count = Math.max(p.comment_count, enrichedComments);
+            const scrapedCandidateTitle = String(scraped.title || scraped.seo_title || '').trim();
+            if (scrapedCandidateTitle && !isSyntheticPinTitle(scrapedCandidateTitle) && (!p.title || isSyntheticPinTitle(p.title))) {
+              p.title = scrapedCandidateTitle;
+            }
             if (scraped.created_at_pinterest || scraped.created_at) {
               const enrichedCreated = scraped.created_at_pinterest || scraped.created_at;
               p.created_at_pinterest = enrichedCreated;

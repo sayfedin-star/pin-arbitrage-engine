@@ -1687,43 +1687,49 @@ export function isSyntheticPinTitle(title) {
   const t = title.trim();
   if (!t || /^untitled(\s+pin)?$/i.test(t)) return true;
   if (/^pin(\s*#?\s*\w+)?$/i.test(t)) return true;
-  if (/(^|\s+)Inspiration$/i.test(t) || t === 'Pinterest Visual Guide') return true;
+  if (/(^|\s+)(Inspiration|Idea)$/i.test(t) || t === 'Pinterest Visual Guide' || t === 'Pinterest Pin Idea') return true;
   return false;
 }
 
 /**
  * Intelligent Pin Title Fallback Derivation
- * Eradicates "Untitled Pin" and empty titles by extracting clean human-readable titles from
- * destination link slugs, board names, visual annotations, or keyword context.
+ * Eradicates "Untitled Pin" and synthetic "<Keyword> Inspiration" titles by extracting clean human-readable
+ * titles from SEO titles, destination link slugs (including 10-25 char hyphenated recipe slugs),
+ * board names, visual annotations, alt text / descriptions, or keyword context.
  */
-export function derivePinTitle(title, destinationUrl = '', keyword = '', boardName = '', visualAnnotations = []) {
+export function derivePinTitle(title, destinationUrl = '', keyword = '', boardName = '', visualAnnotations = [], description = '', altText = '', seoTitle = '') {
   const rawTitle = String(title || '').trim();
-  const isGeneric = !rawTitle || 
-    /^untitled(\s+pin)?$/i.test(rawTitle) || 
-    /^pin\s*#?\s*\w+$/i.test(rawTitle) || 
-    rawTitle.toLowerCase() === 'recipe' || 
+  const isGeneric = !rawTitle ||
+    isSyntheticPinTitle(rawTitle) ||
+    rawTitle.toLowerCase() === 'recipe' ||
     rawTitle.toLowerCase() === 'pin';
 
   if (!isGeneric) {
     return rawTitle;
   }
 
-  // 1. Try URL slug
+  // 0. Try explicit SEO title if authentic
+  const cleanSeo = String(seoTitle || '').trim();
+  if (cleanSeo && !isSyntheticPinTitle(cleanSeo) && cleanSeo.toLowerCase() !== 'recipe') {
+    return cleanSeo.slice(0, 140);
+  }
+
+  // 1. Try URL slug (preserving hyphenated human-readable slugs of any length while rejecting opaque ID tokens)
   if (destinationUrl) {
     try {
       const u = new URL(destinationUrl);
-      const isOpaqueHost = u.hostname.includes('youtube.com') || 
-                           u.hostname.includes('instagram.com') || 
+      const isOpaqueHost = u.hostname.includes('youtube.com') ||
+                           u.hostname.includes('instagram.com') ||
                            u.hostname.includes('tiktok.com') ||
                            u.hostname.includes('pinterest.com');
       if (!isOpaqueHost) {
         const pathname = u.pathname.replace(/\/+$/, '');
         const segments = pathname.split('/').filter(Boolean);
-        const meaningful = segments.reverse().find(s => 
-          s.length > 3 && 
-          !/^\d+$/.test(s) && 
+        const meaningful = segments.reverse().find(s =>
+          s.length > 3 &&
+          !/^\d+$/.test(s) &&
           !/^(recipes?|blog|posts?|food|index|html|amp|p)$/i.test(s) &&
-          !/^[a-zA-Z0-9_-]{10,25}$/.test(s)
+          (/[a-zA-Z]{2,}[-_][a-zA-Z]{2,}/.test(s) || !/^[a-zA-Z0-9_-]{10,25}$/.test(s))
         );
         if (meaningful) {
           const cleanSlug = decodeURIComponent(meaningful)
@@ -1747,21 +1753,33 @@ export function derivePinTitle(title, destinationUrl = '', keyword = '', boardNa
     return boardName.trim();
   }
 
-  // 3. Try Visual Annotations
+  // 3. Try Visual Annotations (supports string and { name } object formats)
   if (Array.isArray(visualAnnotations) && visualAnnotations.length > 0) {
-    const topVa = visualAnnotations.find(v => typeof v === 'string' && v.trim().length >= 4);
-    if (topVa) {
-      const formatted = topVa.trim().charAt(0).toUpperCase() + topVa.trim().slice(1);
+    const topVaRaw = visualAnnotations
+      .map(v => (typeof v === 'object' && v !== null) ? String(v.name || v.tag || v.label || '').trim() : String(v || '').trim())
+      .find(v => v.length >= 4 && v !== '[object Object]');
+    if (topVaRaw) {
+      const formatted = topVaRaw.charAt(0).toUpperCase() + topVaRaw.slice(1);
       return keyword ? `${formatted} - ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}` : formatted;
     }
   }
 
-  // 4. Fallback to Keyword
+  // 4. Try Alt Text or Description first sentence (critical for linkless Uploaded-by-user Vacuum pins)
+  for (const cand of [altText, description]) {
+    const rawCand = String(cand || '').trim();
+    if (!rawCand || isSyntheticPinTitle(rawCand)) continue;
+    const firstSentence = rawCand.split(/[\n.!?|]/)[0].replace(/\s+/g, ' ').trim();
+    if (firstSentence.length >= 5 && !isSyntheticPinTitle(firstSentence)) {
+      return firstSentence.length > 95 ? firstSentence.slice(0, 92).trim() + '...' : firstSentence;
+    }
+  }
+
+  // 5. Fallback to Keyword
   if (keyword) {
     return keyword.charAt(0).toUpperCase() + keyword.slice(1) + ' Inspiration';
   }
 
-  return rawTitle || 'Pinterest Visual Guide';
+  return (!isSyntheticPinTitle(rawTitle) && rawTitle) ? rawTitle : 'Pinterest Visual Guide';
 }
 
 /**
@@ -2039,8 +2057,12 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
         const kvKey = `fep:${epoch}:folder:${fid}:crossover:v3`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
-        if (kvData) {
-          crossoverCache.set(fid, { timestamp: now, data: kvData });
+        const isKvPoisoned = Boolean(
+          kvData?._has_unhydrated_priority_pins ||
+          (Array.isArray(kvData?.super_pins) && kvData.super_pins.slice(0, 25).some(p => !p.image_url || p.pin_age_days == null))
+        );
+        if (kvData && !isKvPoisoned) {
+          crossoverCache.set(fid, { timestamp: now, ttlMs: CROSSOVER_TTL_MS, data: kvData });
           return kvData;
         }
       } catch (_) {}
@@ -2167,6 +2189,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       c.updated_at as snapshot_date,
       (c.metadata->>'aspect_ratio') as aspect_ratio,
       (c.metadata->>'format') as format,
+      (c.metadata->>'seo_title') as seo_title,
+      (c.metadata->>'alt_text') as alt_text,
+      (c.metadata->>'description') as description,
       tk.keyword as keyword_text,
       i.added_at as folder_added_at
     FROM keyword_folder_items i
@@ -2341,14 +2366,14 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
-      const candidateRawTitle = (row.title || meta.title || '').trim();
-      const hasAuthenticTitle = candidateRawTitle && !isSyntheticPinTitle(candidateRawTitle);
-      const initialTitle = hasAuthenticTitle ? candidateRawTitle : '';
+      const candidateRawTitle = String(row.title || meta.title || '').trim();
+      const authenticTitle = !isSyntheticPinTitle(candidateRawTitle) ? candidateRawTitle : '';
 
       pinMap.set(pid, {
         pin_id: pid,
-        raw_title: candidateRawTitle,
-        title: initialTitle,
+        raw_title: authenticTitle,
+        title: authenticTitle,
+        seo_title: row.seo_title || meta.seo_title || '',
         image_url: row.image_url || meta.image_url || '',
         domain: row.domain || meta.domain || '',
         destination_url: row.destination_url || meta.destination_url || '',
@@ -2362,7 +2387,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         created_at_pinterest: row.created_at_pinterest || meta.created_at_pinterest || null,
         alt_text: row.alt_text || meta.alt_text || '',
         description: row.description || meta.description || '',
-        aspect_ratio: row.aspect_ratio || meta.aspect_ratio || null,
+        aspect_ratio: row.aspect_ratio || meta.aspect_ratio || '2:3',
         creation_method: row.creation_method || meta.creation_method || null,
         repin_count: rowRepins,
         comment_count: safeNum(row.comment_count),
@@ -2384,6 +2409,29 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       });
     } else {
       const existingPin = pinMap.get(pid);
+      const incomingTitle = String(row.title || meta.title || '').trim();
+      if (!existingPin.raw_title && !isSyntheticPinTitle(incomingTitle)) {
+        existingPin.raw_title = incomingTitle;
+        existingPin.title = incomingTitle;
+      }
+      if (!existingPin.seo_title && (row.seo_title || meta.seo_title)) {
+        existingPin.seo_title = row.seo_title || meta.seo_title;
+      }
+      if (!existingPin.image_url && (row.image_url || meta.image_url)) {
+        existingPin.image_url = row.image_url || meta.image_url;
+      }
+      if (!existingPin.destination_url && (row.destination_url || meta.destination_url)) {
+        existingPin.destination_url = row.destination_url || meta.destination_url;
+      }
+      if (!existingPin.board_name && (row.board_name || meta.board_name)) {
+        existingPin.board_name = row.board_name || meta.board_name;
+      }
+      if (!existingPin.alt_text && (row.alt_text || meta.alt_text)) {
+        existingPin.alt_text = row.alt_text || meta.alt_text;
+      }
+      if (!existingPin.description && (row.description || meta.description)) {
+        existingPin.description = row.description || meta.description;
+      }
       existingPin.save_count = Math.max(existingPin.save_count, rowSaves);
       existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
@@ -2458,206 +2506,345 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
   }
 
-  // 4-Tier Distributed Hydration Pipeline for Displaced Vault Pins [INVARIANT: 4-TIER-CREATIVE-HYDRATION]
-  const missingMetaPins = allPins.filter(p => !p.title || !p.image_url || isSyntheticPinTitle(p.title));
+  // =========================================================================
+  // 4-TIER DISTRIBUTED CREATIVE METADATA HYDRATION (D1 -> Hub -> 20 Shards -> D1 Write-Back)
+  // // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  // // [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING]
+  // // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+  // =========================================================================
+  const missingMetaPins = allPins.filter(
+    p => !p.raw_title || isSyntheticPinTitle(p.title) || !p.image_url || !p.created_at_pinterest
+  );
+  let hasUnhydratedPriorityPins = false;
+
   if (missingMetaPins.length > 0) {
     const missingPinIds = missingMetaPins.map(p => p.pin_id);
     const enrichedMap = new Map();
 
-    // Tier 1: Cloudflare D1 Edge Cache Hydration
+    const mergeEnrichedRow = (r) => {
+      if (!r || !r.pin_id) return;
+      const pid = String(r.pin_id);
+      const existing = enrichedMap.get(pid) || {};
+      const cleanIncomingTitle = (r.title && !isSyntheticPinTitle(r.title)) ? String(r.title).trim() : '';
+      const cleanExistingTitle = (existing.title && !isSyntheticPinTitle(existing.title)) ? existing.title : '';
+
+      let parsedAnnotations = Array.isArray(existing.visual_annotations) && existing.visual_annotations.length > 0
+        ? existing.visual_annotations
+        : [];
+      if (parsedAnnotations.length === 0 && r.visual_annotations) {
+        if (Array.isArray(r.visual_annotations)) {
+          parsedAnnotations = r.visual_annotations;
+        } else if (typeof r.visual_annotations === 'string' && r.visual_annotations.trim()) {
+          try { parsedAnnotations = JSON.parse(r.visual_annotations); } catch (_) {}
+        }
+      }
+
+      enrichedMap.set(pid, {
+        pin_id: pid,
+        title: cleanExistingTitle || cleanIncomingTitle || '',
+        seo_title: existing.seo_title || r.seo_title || '',
+        image_url: existing.image_url || r.image_url || '',
+        destination_url: existing.destination_url || r.destination_url || '',
+        domain: existing.domain || r.domain || '',
+        creator_username: existing.creator_username || r.creator_username || '',
+        board_name: existing.board_name || r.board_name || '',
+        dominant_color: existing.dominant_color || r.dominant_color || '#888888',
+        visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
+        alt_text: existing.alt_text || r.alt_text || '',
+        description: existing.description || r.description || '',
+        created_at_pinterest: existing.created_at_pinterest || r.created_at_pinterest || null,
+        aspect_ratio: existing.aspect_ratio || r.aspect_ratio || null,
+        creation_method: existing.creation_method || r.creation_method || null
+      });
+    };
+
+    // Tier 1: Ultra-Fast Edge Hydration from Cloudflare D1 (edge_pins_metadata in < 3ms, 0 Bytes Neon Egress)
     if (env?.PIN_D1_DB) {
       try {
         const d1Map = await hydratePinsFromD1(env, missingPinIds);
         if (d1Map && typeof d1Map.get === 'function') {
           for (const pid of missingPinIds) {
-            const d1Pin = d1Map.get(String(pid));
-            if (d1Pin && (d1Pin.title || d1Pin.image_url)) {
-              enrichedMap.set(String(pid), d1Pin);
-            }
+            const d1Row = d1Map.get(String(pid));
+            if (d1Row) mergeEnrichedRow(d1Row);
           }
         }
       } catch (_) {}
     }
 
-    // Tier 2: Central Hub Fallback with 100% Alias-Qualified Schema Parity
-    const missingAfterD1 = missingPinIds.filter(pid => {
-      const e = enrichedMap.get(String(pid));
-      return !e || !e.title || !e.image_url || isSyntheticPinTitle(e.title);
+    // Tier 2: Central Hub Fallback (100% Alias-Qualified Schema Parity across keyword_serp_current, competitor_pins, pa_pins)
+    const stillMissingAfterD1 = missingMetaPins.filter(p => {
+      const e = enrichedMap.get(p.pin_id);
+      const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
+      const hasImg = Boolean(p.image_url || (e && e.image_url));
+      return !hasTitle || !hasImg;
     });
 
-    if (sql && missingAfterD1.length > 0) {
+    if (sql && stillMissingAfterD1.length > 0) {
+      const hubLookupIds = stillMissingAfterD1.map(p => p.pin_id);
       try {
-        const hubRows = await sql`
+        const hubMeta = await sql`
           SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
                  ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations,
-                 ksc.created_at_pinterest
+                 (ksc.metadata->>'alt_text') AS alt_text,
+                 (ksc.metadata->>'description') AS description,
+                 (ksc.metadata->>'seo_title') AS seo_title,
+                 ksc.created_at_pinterest,
+                 (ksc.metadata->>'aspect_ratio') AS aspect_ratio,
+                 COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), NULLIF(ksc.metadata->>'method', '')) AS creation_method
           FROM keyword_serp_current ksc
-          WHERE ksc.pin_id = ANY(${missingAfterD1}::text[]) AND (ksc.title <> '' OR ksc.image_url <> '')
+          WHERE ksc.pin_id = ANY(${hubLookupIds}::text[])
+            AND (ksc.title <> '' OR ksc.image_url <> '')
           UNION ALL
           SELECT cp.pin_id, cp.title, cp.link_domain AS domain, cp.destination_url, cp.image_url,
                  '' AS creator_username, cp.board_name, '#888888' AS dominant_color,
                  COALESCE(cp.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
-                 cp.created_at_pinterest
+                 cp.alt_text,
+                 cp.description,
+                 (cp.metadata->>'seo_title') AS seo_title,
+                 cp.created_at_pinterest,
+                 (cp.metadata->>'aspect_ratio') AS aspect_ratio,
+                 COALESCE(NULLIF(cp.metadata->>'creation_method', ''), NULLIF(cp.metadata->>'method', '')) AS creation_method
           FROM competitor_pins cp
-          WHERE cp.pin_id = ANY(${missingAfterD1}::text[]) AND (cp.title <> '' OR cp.image_url <> '')
+          WHERE cp.pin_id = ANY(${hubLookupIds}::text[])
+            AND (cp.title <> '' OR cp.image_url <> '')
           UNION ALL
           SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url,
                  pa.account_username AS creator_username, pa.board_name, pa.dominant_color,
                  COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations,
-                 pa.created_at_pinterest
+                 pa.alt_text,
+                 pa.description,
+                 NULL AS seo_title,
+                 pa.created_at_pinterest,
+                 NULL AS aspect_ratio,
+                 NULL AS creation_method
           FROM pa_pins pa
-          WHERE pa.pin_id = ANY(${missingAfterD1}::text[]) AND (pa.title <> '' OR pa.image_url <> '')
-          LIMIT 100;
+          WHERE pa.pin_id = ANY(${hubLookupIds}::text[])
+            AND (pa.title <> '' OR pa.image_url <> '');
         `.catch(() => []);
 
-        for (const row of (hubRows || [])) {
-          if (row?.pin_id) {
-            const existing = enrichedMap.get(String(row.pin_id)) || {};
-            enrichedMap.set(String(row.pin_id), {
-              ...existing,
-              title: row.title || existing.title,
-              image_url: row.image_url || existing.image_url,
-              destination_url: row.destination_url || existing.destination_url,
-              domain: row.domain || existing.domain,
-              creator_username: row.creator_username || existing.creator_username,
-              board_name: row.board_name || existing.board_name,
-              dominant_color: row.dominant_color || existing.dominant_color,
-              visual_annotations: row.visual_annotations || existing.visual_annotations,
-              created_at_pinterest: row.created_at_pinterest || existing.created_at_pinterest
-            });
-          }
+        for (const row of (hubMeta || [])) {
+          mergeEnrichedRow(row);
         }
       } catch (_) {}
     }
 
-    // Tier 3: 20-Physical-Shard Scatter-Gather Hydration with Concurrency Limit = 4 & Egress Protection
-    const stillMissingForShards = missingPinIds.filter(pid => {
-      const e = enrichedMap.get(String(pid));
-      return !e || !e.title || !e.image_url || isSyntheticPinTitle(e.title);
-    });
+    // Tier 3: Distributed 20-Physical-Shard Hydration (universal_master_pins)
+    // Strictly prioritize pins missing image_url (Vault pins) FIRST, then Super-Pins & high-velocity pins,
+    // so active pins with synthetic titles never starve displaced Vault Super-Pins out of the 350 sync budget!
+    const stillMissingAfterHub = missingMetaPins
+      .filter(p => {
+        const e = enrichedMap.get(p.pin_id);
+        const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
+        const hasImg = Boolean(p.image_url || (e && e.image_url));
+        return !hasTitle || !hasImg;
+      })
+      .sort((a, b) => {
+        const aMissingImg = !(a.image_url || enrichedMap.get(a.pin_id)?.image_url);
+        const bMissingImg = !(b.image_url || enrichedMap.get(b.pin_id)?.image_url);
+        if (aMissingImg !== bMissingImg) return bMissingImg ? 1 : -1;
+        if (Boolean(b.is_super_pin) !== Boolean(a.is_super_pin)) return b.is_super_pin ? 1 : -1;
+        if ((b.daily_save_velocity || 0) !== (a.daily_save_velocity || 0)) return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
+        if ((b.overlap_count || 0) !== (a.overlap_count || 0)) return (b.overlap_count || 0) - (a.overlap_count || 0);
+        return (b.save_count || 0) - (a.save_count || 0);
+      });
 
-    const priorityShardPins = stillMissingForShards.slice(0, 350);
-    const tailShardPins = stillMissingForShards.slice(350);
+    if (sql && stillMissingAfterHub.length > 0) {
+      const SYNC_SHARD_HYDRATION_CAP = 350;
+      const priorityShardPins = stillMissingAfterHub.slice(0, SYNC_SHARD_HYDRATION_CAP);
+      const tailShardPins = stillMissingAfterHub.slice(SYNC_SHARD_HYDRATION_CAP);
 
-    if (sql && priorityShardPins.length > 0) {
       try {
         await preloadNeonRegistry(sql, env);
-        const virtualGroups = batchGroupByShard(priorityShardPins, 99);
-        const physicalGroups = coalesceShardGroupsByPhysical(virtualGroups);
-        const physicalEntries = Array.from(physicalGroups.entries());
+        // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] Coalesce 99 virtual shards -> <= 20 physical Neon databases
+        const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(priorityShardPins, 99));
+        const shardEntries = Array.from(shardGroups.entries());
+        const newlyHydratedFromShards = [];
 
+        // [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Execute in waves of 4 concurrent shard queries
         const CONCURRENCY_LIMIT = 4;
         const SCATTER_GATHER_DEADLINE_MS = 4500;
 
-        const executePhysicalHydration = async () => {
-          for (let i = 0; i < physicalEntries.length; i += CONCURRENCY_LIMIT) {
-            const chunk = physicalEntries.slice(i, i + CONCURRENCY_LIMIT);
-            await Promise.all(chunk.map(async ([pShardId, pPins]) => {
-              try {
-                const shardSql = await resolveShardConnection(pShardId, env);
-                if (!shardSql) return;
-                const pPinIds = pPins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
+        const hydrateShardBatch = async (entries, perShardTimeoutMs = 2500) => {
+          const hydratedBatch = [];
+          for (let i = 0; i < entries.length; i += CONCURRENCY_LIMIT) {
+            const chunk = entries.slice(i, i + CONCURRENCY_LIMIT);
+            await Promise.allSettled(
+              chunk.map(async ([shardId, pins]) => {
+                const pids = pins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
+                const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env });
+                if (!shardSql || (shardSql === sql && !isUnifiedPostgres(env))) return;
+
                 const rows = await executeShardQueryWithCircuitBreaker({
-                  shardId: pShardId,
+                  shardId,
                   shardSql,
-                  timeoutMs: 3000,
-                  queryFn: (db) => db`
-                    SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
-                           ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
-                           ump.alt_text, ump.description, ump.created_at_pinterest
-                    FROM universal_master_pins ump
-                    WHERE ump.pin_id = ANY(${pPinIds}::text[])
-                  `
+                  timeoutMs: perShardTimeoutMs,
+                  queryFn: async (client) => {
+                    // [INVARIANT: TARGETED-JSONB-PROJECTION] Project scalar fields only to protect Shard Egress
+                    return await client`
+                      SELECT
+                        ump.pin_id,
+                        ump.title,
+                        ump.domain,
+                        ump.destination_url,
+                        ump.image_url,
+                        ump.creator_username,
+                        ump.board_name,
+                        ump.dominant_color,
+                        ump.visual_annotations,
+                        ump.alt_text,
+                        ump.description,
+                        (ump.metadata->>'seo_title') AS seo_title,
+                        ump.created_at_pinterest,
+                        (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+                        COALESCE(NULLIF(ump.metadata->>'creation_method', ''), NULLIF(ump.metadata->>'method', '')) AS creation_method
+                      FROM universal_master_pins ump
+                      WHERE ump.pin_id = ANY(${pids}::text[]);
+                    `;
+                  },
+                  fallbackFn: async () => []
                 });
+
                 for (const r of (rows || [])) {
-                  if (r?.pin_id) {
-                    enrichedMap.set(String(r.pin_id), r);
+                  if (r && r.pin_id) {
+                    hydratedBatch.push(r);
                   }
                 }
-              } catch (_) {}
-            }));
+              })
+            );
           }
+          return hydratedBatch;
         };
 
-        await Promise.race([
-          executePhysicalHydration(),
-          new Promise(resolve => setTimeout(resolve, SCATTER_GATHER_DEADLINE_MS))
-        ]);
+        let deadlineTimerId;
+        const deadlinePromise = new Promise(resolve => {
+          deadlineTimerId = setTimeout(() => resolve(null), SCATTER_GATHER_DEADLINE_MS);
+        });
+
+        const raceResult = await Promise.race([
+          hydrateShardBatch(shardEntries, 2500),
+          deadlinePromise
+        ]).finally(() => {
+          if (deadlineTimerId) clearTimeout(deadlineTimerId);
+        });
+
+        if (Array.isArray(raceResult)) {
+          newlyHydratedFromShards.push(...raceResult);
+        }
+
+        for (const r of newlyHydratedFromShards) {
+          mergeEnrichedRow(r);
+        }
+
+        // Tier 4A: Self-Healing Write-Back to Cloudflare D1 (edge_pins_metadata)
+        const pinsToWriteToD1 = [];
+        for (const r of newlyHydratedFromShards) {
+          const e = enrichedMap.get(String(r.pin_id));
+          if (e && (e.title || e.image_url)) {
+            pinsToWriteToD1.push(e);
+          }
+        }
+        if (env?.PIN_D1_DB && pinsToWriteToD1.length > 0) {
+          safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'crossover_sync_priority_d1');
+        }
+
+        // Tier 4B: Background Tail Warming in waves of 4 for folders with > 350 displaced pins
+        if (env?.PIN_D1_DB && tailShardPins.length > 0) {
+          const tailGroups = coalesceShardGroupsByPhysical(batchGroupByShard(tailShardPins, 99));
+          const tailEntries = Array.from(tailGroups.entries());
+          safeWaitUntil(
+            ctx,
+            (async () => {
+              const tailHydrated = await hydrateShardBatch(tailEntries, 3000);
+              if (tailHydrated.length > 0) {
+                await syncPinsBatchToD1(env, tailHydrated);
+              }
+            })(),
+            'crossover_warm_tail_shards_to_d1'
+          );
+        }
       } catch (_) {}
     }
 
-    // Tier 4: Self-Healing Write-Back to D1 & Background Tail Warming
-    const pinsToWriteToD1 = [];
-    for (const pid of priorityShardPins) {
-      const e = enrichedMap.get(String(pid));
-      if (e && (e.title || e.image_url)) {
-        pinsToWriteToD1.push(e);
-      }
-    }
-
-    if (pinsToWriteToD1.length > 0 && env?.PIN_D1_DB) {
-      safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'd1_vault_writeback');
-    }
-
-    if (tailShardPins.length > 0 && sql) {
-      safeWaitUntil(ctx, (async () => {
-        try {
-          const vGroups = batchGroupByShard(tailShardPins, 99);
-          const pGroups = coalesceShardGroupsByPhysical(vGroups);
-          for (const [pShardId, pPins] of pGroups.entries()) {
-            const shardSql = await resolveShardConnection(pShardId, env);
-            if (!shardSql) continue;
-            const pIds = pPins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
-            const rows = await executeShardQueryWithCircuitBreaker({
-              shardId: pShardId,
-              shardSql,
-              timeoutMs: 3000,
-              queryFn: (db) => db`
-                SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
-                       ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
-                       ump.alt_text, ump.description, ump.created_at_pinterest
-                FROM universal_master_pins ump
-                WHERE ump.pin_id = ANY(${pIds}::text[])
-              `
-            });
-            if (rows?.length > 0 && env?.PIN_D1_DB) {
-              await syncPinsBatchToD1(env, rows);
-            }
-          }
-        } catch (_) {}
-      })(), 'tail_vault_warming');
-    }
-
-    // Apply Enriched Metadata & Final Deferred Title Synthesis
-    const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
+    // Apply hydrated creative metadata back to allPins BEFORE Dimension B (Tag Bridges) & Dimension D
     for (const p of missingMetaPins) {
       const meta = enrichedMap.get(String(p.pin_id));
       if (meta) {
-        if ((!p.title || isSyntheticPinTitle(p.title)) && meta.title && !isSyntheticPinTitle(meta.title)) {
-          p.title = meta.title;
+        if ((!p.raw_title || isSyntheticPinTitle(p.title)) && meta.title && !isSyntheticPinTitle(meta.title)) {
+          p.raw_title = String(meta.title).trim();
+          p.title = p.raw_title;
         }
+        if (!p.seo_title && meta.seo_title) p.seo_title = meta.seo_title;
         if (!p.image_url && meta.image_url) p.image_url = meta.image_url;
         if (!p.destination_url && meta.destination_url) p.destination_url = meta.destination_url;
         if (!p.domain && meta.domain) p.domain = meta.domain;
-        if (!p.creator_username && meta.creator_username) p.creator_username = meta.creator_username;
+        if (!p.creator_username && meta.creator_username) {
+          p.creator_username = meta.creator_username;
+          if (!p.creator_name) p.creator_name = meta.creator_username;
+        }
         if (!p.board_name && meta.board_name) p.board_name = meta.board_name;
-        if ((!p.dominant_color || p.dominant_color === '#1e1e24') && meta.dominant_color) p.dominant_color = meta.dominant_color;
-        if ((!p.visual_annotations || p.visual_annotations.length === 0) && meta.visual_annotations) p.visual_annotations = meta.visual_annotations;
-        if (!p.created_at_pinterest && meta.created_at_pinterest) p.created_at_pinterest = meta.created_at_pinterest;
-      }
-
-      // Final Pass: Only synthesize if title is still empty or synthetic after all 4 tiers
-      if (!p.title || isSyntheticPinTitle(p.title)) {
-        p.title = derivePinTitle(
-          p.title || '',
-          p.destination_url || p.domain || '',
-          primaryKeyword,
-          p.board_name || '',
-          p.visual_annotations || []
-        );
+        if ((!p.dominant_color || p.dominant_color === '#1e1e24') && meta.dominant_color) {
+          p.dominant_color = meta.dominant_color;
+        }
+        if ((!p.visual_annotations || p.visual_annotations.length === 0) && Array.isArray(meta.visual_annotations) && meta.visual_annotations.length > 0) {
+          p.visual_annotations = meta.visual_annotations;
+        }
+        if (!p.alt_text && meta.alt_text) p.alt_text = meta.alt_text;
+        if (!p.description && meta.description) p.description = meta.description;
+        if (!p.created_at_pinterest && meta.created_at_pinterest) {
+          p.created_at_pinterest = meta.created_at_pinterest;
+          const pinCreatedMs = new Date(meta.created_at_pinterest).getTime();
+          if (!isNaN(pinCreatedMs)) {
+            p.pin_age_days = Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000));
+          }
+        }
+        if ((!p.aspect_ratio || p.aspect_ratio === '2:3') && meta.aspect_ratio) {
+          p.aspect_ratio = meta.aspect_ratio;
+        }
+        if ((!p.format || p.format === 'ORGANIC PIN') && meta.creation_method) {
+          p.format = String(meta.creation_method).toUpperCase();
+        }
       }
     }
   }
+
+  // Final Pass: Synthesize fallback title via derivePinTitle across ALL pins ONLY if authentic title is STILL missing,
+  // and recompute vacuumPinsCount + pin_age_days cleanly.
+  const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
+  vacuumPinsCount = 0;
+  for (const p of allPins) {
+    if (p.pin_age_days == null && p.created_at_pinterest) {
+      const pinCreatedMs = new Date(p.created_at_pinterest).getTime();
+      if (!isNaN(pinCreatedMs)) {
+        p.pin_age_days = Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000));
+      }
+    }
+    if (!p.aspect_ratio) p.aspect_ratio = '2:3';
+    if (!p.title || isSyntheticPinTitle(p.title)) {
+      const pinKw = p.rankings[0]?.keyword || primaryKeyword;
+      p.title = derivePinTitle(
+        p.raw_title || '',
+        p.destination_url || p.domain || '',
+        pinKw,
+        p.board_name || '',
+        p.visual_annotations || [],
+        p.description || '',
+        p.alt_text || '',
+        p.seo_title || ''
+      );
+    }
+    const cleanDom = String(p.domain || '').trim();
+    p.is_vacuum_pin = (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
+    if (p.is_vacuum_pin) {
+      vacuumPinsCount++;
+    }
+  }
+
+  // Check if any top-50 priority pin still lacks image_url (due to cold shard timeout)
+  const top50PriorityCheck = allPins
+    .slice()
+    .sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0))
+    .slice(0, 50);
+  hasUnhydratedPriorityPins = top50PriorityCheck.some(p => !p.image_url);
 
   // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
   // Sorted primarily by daily_save_velocity DESC (with overlap_count and save_count tie-breakers)
@@ -3265,7 +3452,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       trends_loaded_count: trendsLoaded
     },
     topic_cluster_blueprint: topicClusterBlueprint,
-    has_unhydrated_priority_pins: allPins.slice(0, 100).some(p => !p.image_url || isSyntheticPinTitle(p.title)),
-    _has_unhydrated_priority_pins: allPins.slice(0, 100).some(p => !p.image_url || isSyntheticPinTitle(p.title))
+    has_unhydrated_priority_pins: hasUnhydratedPriorityPins,
+    _has_unhydrated_priority_pins: hasUnhydratedPriorityPins
   };
 }
