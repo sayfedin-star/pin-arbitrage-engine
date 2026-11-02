@@ -143,47 +143,48 @@ async function main() {
     process.exit(0);
   }
 
-  // 1. Fetch distinct active pins from keyword_serp_current (Scoped to FOLDER_ID or TARGET_KEYWORD if provided)
+  // 1. Fetch distinct unpopulated or stale pins from keyword_serp_current (Scoped to FOLDER_ID or TARGET_KEYWORD if provided)
   let activePins = [];
   if (process.env.FOLDER_ID) {
     const folderIdNum = Number(process.env.FOLDER_ID);
-    console.log(`\n[*] Phase 1: Querying active pins for Folder #${folderIdNum} from Central Hub...`);
+    console.log(`\n[*] Phase 1: Querying unpopulated/stale pins for Folder #${folderIdNum} from Central Hub...`);
     activePins = await hubSql`
       SELECT DISTINCT ksc.pin_id
       FROM keyword_folder_items kfi
       JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${folderIdNum}
         AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+        AND (ksc.gains_7d IS NULL OR ksc.updated_at < NOW() - INTERVAL '24 hours')
+      LIMIT 500;
     `;
   } else if (process.env.TARGET_KEYWORD) {
     const targetKw = process.env.TARGET_KEYWORD.trim().toLowerCase();
-    console.log(`\n[*] Phase 1: Querying active pins for Keyword "${targetKw}" from Central Hub...`);
+    console.log(`\n[*] Phase 1: Querying unpopulated/stale pins for Keyword "${targetKw}" from Central Hub...`);
     activePins = await hubSql`
       SELECT DISTINCT ksc.pin_id
       FROM tracked_keywords tk
       JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
       WHERE LOWER(tk.keyword) = ${targetKw}
         AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+        AND (ksc.gains_7d IS NULL OR ksc.updated_at < NOW() - INTERVAL '24 hours')
+      LIMIT 500;
     `;
   } else {
-    console.log('\n[*] Phase 1: Querying all active pins from Central Hub keyword_serp_current...');
+    console.log('\n[*] Phase 1: Querying unpopulated/stale pins from Central Hub keyword_serp_current...');
     activePins = await hubSql`
       SELECT DISTINCT pin_id
       FROM keyword_serp_current
       WHERE pin_id IS NOT NULL AND pin_id <> ''
+        AND (gains_7d IS NULL OR updated_at < NOW() - INTERVAL '24 hours')
+      LIMIT 500;
     `;
   }
-  console.log(`[+] Total distinct active pins found: ${activePins.length}`);
+  console.log(`[+] Total distinct active pins needing backfill: ${activePins.length}`);
 
-  // Specifically check Folder #7 pins
-  const folder7Pins = await hubSql`
-    SELECT DISTINCT ksc.pin_id
-    FROM keyword_folder_items kfi
-    JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-    WHERE kfi.folder_id = 7
-  `;
-  const folder7Set = new Set(folder7Pins.map(p => p.pin_id));
-  console.log(`[+] Folder #7 (crockpot meals) distinct pins: ${folder7Set.size}`);
+  if (activePins.length === 0) {
+    console.log('[+] All active pins have fresh rolling window gains (< 24h old). Fallback complete with 0 bytes shard egress.');
+    return;
+  }
 
   // 2. Group pins by deterministic shard ID
   console.log('\n[*] Phase 2: Partitioning pins into 99 Storage Shards via deterministic CRC32...');

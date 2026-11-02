@@ -748,8 +748,6 @@ export function verifyApiAuthentication(request, env = {}) {
     }
   } catch (_) {}
 
-  const secretKey = (env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET)) ||
-                    (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '') || '';
   const isTestOrLocalDev = (
     env?.ENVIRONMENT === 'test' ||
     env?.NODE_ENV === 'test' ||
@@ -757,6 +755,9 @@ export function verifyApiAuthentication(request, env = {}) {
     (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
     (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
   );
+  const envSecretKey = env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET);
+  const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
+  const secretKey = envSecretKey || (isTestOrLocalDev && !envSecretKey ? '' : processSecretKey) || '';
 
   // If secret key is missing, allow test/local dev; in production, fail-closed unconditionally
   if (!secretKey) {

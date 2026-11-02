@@ -65,6 +65,11 @@ import {
 
 import { escapeSqlWildcards } from '../utils.mjs';
 import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../../scripts/lib/pinterest.mjs';
+import {
+  readKeywordsFromD1 as d1ReadKeywords,
+  evictKeywordsCatalogFromD1 as d1EvictKeywordsCatalog
+} from '../modules/keywords/d1-metadata.mjs';
+
 
 /**
  * Fast URI discriminator for Keywords & Folders routes
@@ -283,10 +288,11 @@ export async function handleKeywordsRoutes({
     const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
 
     // Check D1 Edge Keywords Catalog first (Sub-5ms Edge Reads)
-    // When folderId is provided, bypass generic D1 full-catalog read so authoritative folder-scoped keywords are returned
-    if (!folderId && !forceRefresh && env?.PIN_D1_DB && readKeywordsFromD1) {
+    // [INVARIANT: D1-FOLDER-SCOPED-READ] Supports folder-scoped filtering via D1 edge_keywords_catalog.folders JSON
+    const effectiveReadKeywordsFromD1 = readKeywordsFromD1 || d1ReadKeywords;
+    if (!forceRefresh && env?.PIN_D1_DB && effectiveReadKeywordsFromD1) {
       try {
-        const d1Keywords = await readKeywordsFromD1(env, { search, limit, offset });
+        const d1Keywords = await effectiveReadKeywordsFromD1(env, { search, limit, offset, folderId });
         if (Array.isArray(d1Keywords) && d1Keywords.length > 0) {
           return jsonResponse({
             success: true,
@@ -299,7 +305,8 @@ export async function handleKeywordsRoutes({
       }
     }
 
-    const cacheKey = buildCanonicalCacheKey('keywords:hub', {
+    const epoch = env?.PIN_ENGINE_KV ? ((await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0') : '0';
+    const cacheKey = buildCanonicalCacheKey(`keywords:hub:ep:${epoch}`, {
       search,
       limit,
       offset,
@@ -313,6 +320,11 @@ export async function handleKeywordsRoutes({
       await invalidateEdgeCache(cacheKey);
     }
 
+    // [INVARIANT: 6H-EPOCH-BACKED-EDGE-TTL]
+    // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms) backed by fleet:cache_epoch
+    const SIX_HOURS_MS = 21600000;
+    const ONE_HOUR_MS = 3600000;
+
     try {
       const keywords = await getCachedOrFetch(cacheKey, async () => {
         return await listKeywords(sql, {
@@ -321,7 +333,7 @@ export async function handleKeywordsRoutes({
           offset,
           folderId
         });
-      }, 30000, 120000, { forceRefresh });
+      }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh, epoch });
 
       if (!folderId && Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
         if (!search && limit >= 1000) {
@@ -1735,10 +1747,15 @@ export async function handleKeywordsRoutes({
 
   // 30. POST /api/keywords/folders
   if (method === 'POST' && pathname === '/api/keywords/folders') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
     const body = await request.json().catch(() => ({}));
     const created = await createFolder(sql, body);
+    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+      await evictKeywordsCatalogFromD1(env);
+    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+      await d1EvictKeywordsCatalog(env);
+    }
     if (syncFolderToD1) {
       safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
     }
@@ -1747,12 +1764,17 @@ export async function handleKeywordsRoutes({
 
   // 31. PUT / PATCH /api/keywords/folders
   if ((method === 'PUT' || method === 'PATCH') && pathname === '/api/keywords/folders') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
     const body = await request.json().catch(() => ({}));
     const folderId = body.id || searchParams.get('id');
     if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
     const updated = await updateFolder(sql, folderId, body);
+    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+      await evictKeywordsCatalogFromD1(env);
+    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+      await d1EvictKeywordsCatalog(env);
+    }
     if (syncFolderToD1) {
       safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
     }
@@ -1761,8 +1783,8 @@ export async function handleKeywordsRoutes({
 
   // 32. DELETE /api/keywords/folders
   if (method === 'DELETE' && pathname === '/api/keywords/folders') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
     let folderId = searchParams.get('id') || searchParams.get('folder_id');
     if (!folderId) {
       try {
@@ -1772,6 +1794,11 @@ export async function handleKeywordsRoutes({
     }
     if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
     const deleted = await deleteFolder(sql, folderId);
+    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+      await evictKeywordsCatalogFromD1(env);
+    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+      await d1EvictKeywordsCatalog(env);
+    }
     if (deleteFolderFromD1) {
       safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
     }
@@ -1780,14 +1807,19 @@ export async function handleKeywordsRoutes({
 
   // 33. POST /api/keywords/folders/items
   if (method === 'POST' && pathname === '/api/keywords/folders/items') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
     const body = await request.json().catch(() => ({}));
     const folderId = body.folder_id || searchParams.get('folder_id');
     if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
     
     if (Array.isArray(body.keyword_ids)) {
       const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
+      if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+        await evictKeywordsCatalogFromD1(env);
+      } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+        await d1EvictKeywordsCatalog(env);
+      }
       if (syncFolderToD1) {
         safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
       }
@@ -1797,6 +1829,11 @@ export async function handleKeywordsRoutes({
     const keywordId = body.keyword_id || searchParams.get('keyword_id');
     if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
     const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
+    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+      await evictKeywordsCatalogFromD1(env);
+    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+      await d1EvictKeywordsCatalog(env);
+    }
     if (syncFolderToD1) {
       safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
     }
@@ -1805,8 +1842,8 @@ export async function handleKeywordsRoutes({
 
   // 34. DELETE /api/keywords/folders/items
   if (method === 'DELETE' && pathname === '/api/keywords/folders/items') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
     let folderId = searchParams.get('folder_id');
     let keywordId = searchParams.get('keyword_id');
     if (!folderId || !keywordId) {
@@ -1818,6 +1855,11 @@ export async function handleKeywordsRoutes({
     }
     if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
     const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
+    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
+      await evictKeywordsCatalogFromD1(env);
+    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
+      await d1EvictKeywordsCatalog(env);
+    }
     if (syncFolderToD1) {
       safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
     }

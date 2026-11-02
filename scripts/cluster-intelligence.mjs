@@ -1544,6 +1544,36 @@ async function main() {
 
   let seedsToProcess = [];
 
+  // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 20 Shards)
+  const shardNumberRaw = process.env.SHARD_NUMBER;
+  const shardIndexRaw = process.env.SHARD_INDEX;
+  const shardTotalRaw = process.env.SHARD_TOTAL;
+  let shardIdx = null;
+  let shardTot = null;
+
+  if (shardNumberRaw !== undefined && shardNumberRaw !== '') {
+    const parsedNum = parseInt(shardNumberRaw, 10);
+    if (!isNaN(parsedNum) && parsedNum > 0) {
+      shardIdx = parsedNum - 1; // Convert 1-indexed to 0-indexed
+    }
+  } else if (shardIndexRaw !== undefined && shardIndexRaw !== '') {
+    const parsedIdx = parseInt(shardIndexRaw, 10);
+    if (!isNaN(parsedIdx) && parsedIdx >= 0) {
+      shardIdx = parsedIdx;
+    }
+  } else if (process.env.WORKER_INDEX !== undefined && process.env.WORKER_INDEX !== '') {
+    const parsedWorker = parseInt(process.env.WORKER_INDEX, 10);
+    if (!isNaN(parsedWorker) && parsedWorker >= 0) {
+      shardIdx = parsedWorker;
+    }
+  }
+
+  if (shardTotalRaw !== undefined && shardTotalRaw !== '') {
+    shardTot = parseInt(shardTotalRaw, 10);
+  } else if (process.env.WORKER_TOTAL !== undefined && process.env.WORKER_TOTAL !== '') {
+    shardTot = parseInt(process.env.WORKER_TOTAL, 10);
+  }
+
   const rawIds = (targetPinArg && targetPinArg !== 'undefined')
     ? [...new Set(
         String(targetPinArg)
@@ -1596,48 +1626,39 @@ async function main() {
       FROM cluster_seeds
       WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
         AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+        AND (${shardIdx}::int IS NULL OR mod(pae_crc32_shard_id(pin_id::text, 99) - 1, 20) = ${shardIdx}::int)
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);
-  }
 
-  // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 20 Shards)
-  const shardNumberRaw = process.env.SHARD_NUMBER;
-  const shardIndexRaw = process.env.SHARD_INDEX;
-  const shardTotalRaw = process.env.SHARD_TOTAL;
-  let shardIdx = null;
-  let shardTot = null;
+    if (shardIdx !== null && (!shardTot || shardTot === 20)) {
+      console.log(`\n===============================================================`);
+      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot || 20}`);
+      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (retrieved via SQL shard pushdown)`);
+      if (seedsToProcess.length > 0) {
+        console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
+      }
+      console.log(`===============================================================\n`);
 
-  if (shardNumberRaw !== undefined && shardNumberRaw !== '') {
-    const parsedNum = parseInt(shardNumberRaw, 10);
-    if (!isNaN(parsedNum) && parsedNum > 0) {
-      shardIdx = parsedNum - 1; // Convert 1-indexed to 0-indexed
-    }
-  } else if (shardIndexRaw !== undefined && shardIndexRaw !== '') {
-    const parsedIdx = parseInt(shardIndexRaw, 10);
-    if (!isNaN(parsedIdx) && parsedIdx >= 0) {
-      shardIdx = parsedIdx;
-    }
-  }
+      if (seedsToProcess.length === 0) {
+        console.log(`[+] Shard ${shardIdx + 1}/${shardTot || 20}: No seeds assigned to this shard index. Exiting cleanly.`);
+        return;
+      }
+    } else if (shardIdx !== null && shardTot !== null && !isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
+      const totalAvailable = seedsToProcess.length;
+      seedsToProcess = seedsToProcess.filter((s) => (crc32(String(s.pin_id)) % shardTot) === shardIdx);
+      console.log(`\n===============================================================`);
+      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot}`);
+      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (out of ${totalAvailable} total cluster seeds)`);
+      if (seedsToProcess.length > 0) {
+        console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
+      }
+      console.log(`===============================================================\n`);
 
-  if (shardTotalRaw !== undefined && shardTotalRaw !== '') {
-    shardTot = parseInt(shardTotalRaw, 10);
-  }
-
-  if (shardIdx !== null && shardTot !== null && !isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
-    const totalAvailable = seedsToProcess.length;
-    seedsToProcess = seedsToProcess.filter((s) => (crc32(String(s.pin_id)) % shardTot) === shardIdx);
-    console.log(`\n===============================================================`);
-    console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot}`);
-    console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (out of ${totalAvailable} total cluster seeds)`);
-    if (seedsToProcess.length > 0) {
-      console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
-    }
-    console.log(`===============================================================\n`);
-
-    if (seedsToProcess.length === 0) {
-      console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No seeds assigned to this shard index. Exiting cleanly.`);
-      return;
+      if (seedsToProcess.length === 0) {
+        console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No seeds assigned to this shard index. Exiting cleanly.`);
+        return;
+      }
     }
   }
 

@@ -56,7 +56,7 @@ export async function handleDomainsRoutes(routeCtx) {
       return jsonResponse({ success: false, error: 'UNAUTHORIZED', message: auth.reason || 'Authentication required' }, auth.status || 401);
     }
     try {
-      invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('domains:leaderboard');
       const refreshResult = await refreshDomainIntelligenceRollup(sql);
       return jsonResponse({ success: true, refreshed: true, ...refreshResult }, 200, 0);
     } catch (err) {
@@ -69,7 +69,7 @@ export async function handleDomainsRoutes(routeCtx) {
     try {
       const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
       if (isForceRefresh) {
-        invalidateEdgeCache('domains:leaderboard');
+        await invalidateEdgeCache('domains:leaderboard');
         // [INVARIANT: READ-ONLY-GET-SAFE] Ban full-table rollup mutation on unauthenticated GET.
         // Dedicated rollup execution is strictly isolated to POST /api/domains/refresh-rollup.
       }
@@ -91,12 +91,17 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
-      const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
+      const epoch = env?.PIN_ENGINE_KV ? ((await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0') : '0';
+      const cacheKey = buildCanonicalCacheKey(`domains:leaderboard:ep:${epoch}`, cacheParams);
+      // [INVARIANT: 6H-EPOCH-BACKED-EDGE-TTL]
+      // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms) backed by fleet:cache_epoch
+      const SIX_HOURS_MS = 21600000;
+      const ONE_HOUR_MS = 3600000;
       const data = isForceRefresh
         ? await listDomainsIntelligenceFast(sql, cacheParams)
         : await getCachedOrFetch(cacheKey, async () => {
             return await listDomainsIntelligenceFast(sql, cacheParams);
-          }, 15000, 60000);
+          }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh, epoch });
 
       // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page
       if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
@@ -142,8 +147,8 @@ export async function handleDomainsRoutes(routeCtx) {
 
       if (isForceRefresh) {
         if (typeof invalidateEdgeCache === 'function') {
-          invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
-          invalidateEdgeCache('domains:leaderboard');
+          await invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
+          await invalidateEdgeCache('domains:leaderboard');
         }
         if (env?.PIN_ENGINE_KV) {
           safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(kvKey).catch(() => {}), 'kv_evict_domain_dossier');

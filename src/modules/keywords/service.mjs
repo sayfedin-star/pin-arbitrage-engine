@@ -1156,12 +1156,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // A) Immediate prior active SERP state (with fallback to keyword_pins_snapshots if cache is empty)
     let immediateSnapshots = await sql`
       SELECT
-        NULL::int AS snapshot_id, pin_id, rank_position, prev_rank_position,
+        pin_id, rank_position, prev_rank_position,
         save_count, baseline_day_saves, baseline_day_date,
-        repin_count, comment_count, title, image_url, domain, destination_url,
-        board_name, dominant_color, visual_annotations,
-        metadata, COALESCE(crawled_at::date, CURRENT_DATE) AS snapshot_date,
-        crawled_at AS created_at, created_at_pinterest, creation_method
+        repin_count, comment_count, crawled_at,
+        created_at_pinterest, creation_method,
+        (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+        shard_id
       FROM keyword_serp_current
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE;
@@ -1175,22 +1175,26 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     for (const s of (immediateSnapshots || [])) {
       const pid = String(s.pin_id);
       immediateMap.set(pid, {
-        snapshotId: s.snapshot_id != null ? Number(s.snapshot_id) : null,
+        snapshotId: null,
         rank: Number(s.rank_position || 0),
         saves: Number(s.save_count || 0),
         repins: Number(s.repin_count || 0),
         comments: Number(s.comment_count || 0),
-        title: s.title || '',
-        imageUrl: s.image_url || null,
-        domain: s.domain || '',
-        destinationUrl: s.destination_url || '',
-        snapshotDate: s.snapshot_date,
-        createdAt: s.created_at
+        title: '',
+        imageUrl: null,
+        domain: '',
+        destinationUrl: '',
+        snapshotDate: s.crawled_at,
+        createdAt: s.crawled_at,
+        created_at_pinterest: s.created_at_pinterest,
+        creation_method: s.creation_method,
+        is_deep_hydrated: Boolean(s.is_deep_hydrated),
+        shard_id: s.shard_id
       });
 
-      const snapDateStr = s.snapshot_date instanceof Date
-        ? s.snapshot_date.toISOString().slice(0, 10)
-        : String(s.snapshot_date || '').slice(0, 10);
+      const snapDateStr = s.crawled_at instanceof Date
+        ? s.crawled_at.toISOString().slice(0, 10)
+        : (s.crawled_at ? String(s.crawled_at).slice(0, 10) : todayIsoDate);
       const baseDateStr = s.baseline_day_date instanceof Date
         ? s.baseline_day_date.toISOString().slice(0, 10)
         : String(s.baseline_day_date || '').slice(0, 10);

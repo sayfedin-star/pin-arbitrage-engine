@@ -102,6 +102,22 @@ export function getPinShardId(pinId, totalShards = 99) {
 }
 
 /**
+ * Resolves the physical shard ID (1 to 20) for a given virtual shard ID (1 to 99).
+ * Deterministic mapping: ((virtualShardId - 1) % 20) + 1.
+ *
+ * // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION]
+ * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ *
+ * @param {number|string} virtualShardId - Virtual Shard ID (1-99)
+ * @returns {number} Physical Shard ID (1-20)
+ */
+export function getPhysicalShardId(virtualShardId) {
+  const v = Number(virtualShardId);
+  if (!Number.isFinite(v) || v < 1) return 1;
+  return (Math.floor(v - 1) % 20) + 1;
+}
+
+/**
  * Returns canonical project name for a shard ID
  * e.g., 'pin-arbitrage-shard-01' to 'pin-arbitrage-shard-99'
  *
@@ -336,6 +352,9 @@ export function _setCircuitBreakerState(shardId, stateObj) {
 export function isValidShardDsn(dsn) {
   if (!dsn || typeof dsn !== 'string') return false;
   const trimmed = dsn.trim();
+  // [INVARIANT: BYTESTRING-HEADER-SAFETY]
+  // Strictly printable ASCII (0x20 - 0x7E) to prevent @neondatabase/serverless ByteString header crash
+  if (/[\x80-\uFFFF]/.test(trimmed)) return false;
   return (
     trimmed.startsWith('postgres://') ||
     trimmed.startsWith('postgresql://')
@@ -429,6 +448,8 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     env = envFallback;
   }
   const cleanId = Math.max(1, Math.min(99, Number(shardId) || 1));
+  const physicalShardId = getPhysicalShardId(cleanId);
+  const physicalShardName = getShardProjectName(physicalShardId, prefix);
   const shardName = getShardProjectName(cleanId, prefix);
 
   // 0. Cloud VPS Unified-Postgres Topology Adapter
@@ -444,11 +465,11 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   // 1. Template-based Resolution (Zero database roundtrip)
   const template = dsnTemplate || (typeof process !== 'undefined' ? process.env.NEON_SHARD_DSN_TEMPLATE : null);
   if (template) {
-    const padded = String(cleanId).padStart(2, '0');
+    const physicalPadded = String(physicalShardId).padStart(2, '0');
     const computedDsn = template
-      .replace(/{SHARD_NUM}/g, padded)
-      .replace(/{SHARD_ID}/g, String(cleanId))
-      .replace(/{SHARD_NAME}/g, shardName);
+      .replace(/{SHARD_NUM}/g, physicalPadded)
+      .replace(/{SHARD_ID}/g, String(physicalShardId))
+      .replace(/{SHARD_NAME}/g, physicalShardName);
     
     if (isValidShardDsn(computedDsn)) {
       const pooledDsn = enforceNeonPoolerUrl(computedDsn);
@@ -458,8 +479,8 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
 
   // 2. Ultra-Fast In-Memory Lookup (0ms execution time from globalShardMap)
   const now = Date.now();
-  if (globalShardMap.has(cleanId)) {
-    const cachedEntry = globalShardMap.get(cleanId);
+  if (globalShardMap.has(cleanId) || globalShardMap.has(physicalShardId)) {
+    const cachedEntry = globalShardMap.get(cleanId) || globalShardMap.get(physicalShardId);
     if (isValidShardDsn(cachedEntry?.database_url) && (now - (cachedEntry.cachedAt || 0) < SHARD_MAP_TTL_MS)) {
       const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
       return getOrCreateShardSqlClient(pooledDsn);
@@ -469,8 +490,8 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   // 3. Lazy Singleflight Warmup from KV / Hub
   if (globalShardMap.size === 0 || (now - globalShardMapLastFetched >= SHARD_MAP_TTL_MS)) {
     await warmGlobalShardMap(hubSql, env);
-    if (globalShardMap.has(cleanId)) {
-      const cachedEntry = globalShardMap.get(cleanId);
+    if (globalShardMap.has(cleanId) || globalShardMap.has(physicalShardId)) {
+      const cachedEntry = globalShardMap.get(cleanId) || globalShardMap.get(physicalShardId);
       if (isValidShardDsn(cachedEntry?.database_url)) {
         const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
         return getOrCreateShardSqlClient(pooledDsn);
@@ -483,11 +504,14 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     const kvRows = await getFleetShardsMap(env, hubSql);
     if (Array.isArray(kvRows)) {
       const match = kvRows.find(r => 
+        (r.project_name === physicalShardName) ||
         (r.project_name === shardName) ||
-        normalizeAssignedShards(r.assigned_shards).includes(cleanId)
+        normalizeAssignedShards(r.assigned_shards).includes(cleanId) ||
+        normalizeAssignedShards(r.assigned_shards).includes(physicalShardId)
       );
       if (isValidShardDsn(match?.database_url)) {
         globalShardMap.set(cleanId, { ...match, cachedAt: now });
+        globalShardMap.set(physicalShardId, { ...match, cachedAt: now });
         globalShardMapLastFetched = now;
         const pooledDsn = enforceNeonPoolerUrl(match.database_url);
         return getOrCreateShardSqlClient(pooledDsn);
@@ -503,16 +527,17 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   const [row] = await hubSql`
     SELECT id, project_id, project_name, database_url, status, assigned_shards
     FROM neon_projects_registry
-    WHERE (project_name = ${shardName} OR assigned_shards @> ARRAY[${cleanId}]::int[])
+    WHERE (project_name = ${physicalShardName} OR project_name = ${shardName} OR assigned_shards @> ARRAY[${cleanId}]::int[])
       AND status = 'active'
     LIMIT 1;
   `;
 
   if (!row || !isValidShardDsn(row.database_url)) {
-    throw new Error(`Shard database '${shardName}' (ID: ${cleanId}) is not active or has invalid DSN in neon_projects_registry.`);
+    throw new Error(`Shard database '${physicalShardName}' (ID: ${cleanId} -> physical: ${physicalShardId}) is not active or has invalid DSN in neon_projects_registry.`);
   }
 
   globalShardMap.set(cleanId, { ...row, cachedAt: now });
+  globalShardMap.set(physicalShardId, { ...row, cachedAt: now });
   globalShardMapLastFetched = now;
 
   const pooledDsn = enforceNeonPoolerUrl(row.database_url);
@@ -619,6 +644,13 @@ export async function preloadNeonRegistry(hubSql, env = null) {
           const num = parseInt(match[1], 10);
           if (!isNaN(num)) {
             globalShardMap.set(num, { ...row, cachedAt: now });
+            // Fail-safe: If assigned_shards is empty and num is in [1, 20], auto-populate virtual mappings
+            if (shardsList.length === 0 && num >= 1 && num <= 20) {
+              for (let v = num; v <= 99; v += 20) {
+                globalShardMap.set(v, { ...row, cachedAt: now });
+                loaded++;
+              }
+            }
           }
         }
       }
@@ -777,6 +809,47 @@ export function batchGroupByShard(pinRecords = [], totalShards = 99) {
     groups.get(shardId).push(record);
   }
   return groups;
+}
+
+/**
+ * Coalesces virtual shard groups (1-99) by their target physical shard ID (1-20).
+ * Accepts a Map, Object, or Array of entries { [virtualShardId]: records[] },
+ * groups records by physical shard ID (getPhysicalShardId(v)), and merges record arrays
+ * so only 1 database connection/transaction is executed per physical database.
+ *
+ * // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+ * // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION]
+ *
+ * @param {Map<number|string, Array<object>>|Object|Array<[number|string, Array<object>]>} batches
+ * @returns {Map<number, Array<object>>} Map of physicalShardId -> combinedItems[]
+ */
+export function coalesceShardGroupsByPhysical(batches) {
+  const physicalGroups = new Map();
+  if (!batches) return physicalGroups;
+
+  let entries = [];
+  if (batches instanceof Map) {
+    entries = Array.from(batches.entries());
+  } else if (Array.isArray(batches)) {
+    entries = batches;
+  } else if (typeof batches === 'object') {
+    entries = Object.entries(batches);
+  }
+
+  for (const [vShardId, items] of entries) {
+    if (!items) continue;
+    const itemList = Array.isArray(items) ? items : [items];
+    if (itemList.length === 0) continue;
+    const pShardId = getPhysicalShardId(vShardId);
+    if (!physicalGroups.has(pShardId)) {
+      physicalGroups.set(pShardId, []);
+    }
+    const group = physicalGroups.get(pShardId);
+    for (const item of itemList) {
+      group.push(item);
+    }
+  }
+  return physicalGroups;
 }
 
 /**
@@ -3331,10 +3404,11 @@ export async function writeBatchToDeterministicShards(params = {}) {
   }
 
   const totalShards = options.totalShards || 99;
-  const shardGroups = batchGroupByShard(pins, totalShards);
+  const virtualShardGroups = batchGroupByShard(pins, totalShards);
+  const physicalShardGroups = coalesceShardGroupsByPhysical(virtualShardGroups);
   const concurrency = Math.max(1, Math.min(8, options.concurrency || 4));
 
-  const entries = Array.from(shardGroups.entries());
+  const entries = Array.from(physicalShardGroups.entries());
   if (hubSql) {
     try {
       await preloadNeonRegistry(hubSql, env);

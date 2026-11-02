@@ -53,7 +53,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'gains_5d',
     'gains_7d',
     'gains_10d',
-    'gains_15d'
+    'gains_15d',
+    'url_global_saves'
   ]),
   keyword_displaced_index: new Set([
     'keyword_id',
@@ -132,7 +133,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'first_discovered_pillar',
     'first_discovered_at',
     'updated_at',
-    'metadata'
+    'metadata',
+    'url_global_saves'
   ]),
   tracked_keywords: new Set([
     'id',

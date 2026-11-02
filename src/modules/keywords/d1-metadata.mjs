@@ -206,3 +206,189 @@ export async function hydratePinsFromD1(env, pinIds = []) {
   } catch (_) {}
   return map;
 }
+
+export let isEdgeKeywordsTableReady = false;
+
+/**
+ * Ensures `edge_keywords_catalog` and `edge_keywords_meta` tables exist on Cloudflare D1
+ */
+export async function ensureEdgeKeywordsCatalogTable(env) {
+  if (isEdgeKeywordsTableReady || !env?.PIN_D1_DB) return;
+  try {
+    await env.PIN_D1_DB.batch([
+      env.PIN_D1_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS edge_keywords_catalog (
+          id INTEGER PRIMARY KEY,
+          keyword TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          target_pin_count INTEGER DEFAULT 50,
+          refresh_interval_hours INTEGER DEFAULT 24,
+          last_crawled_at TEXT,
+          top_pin_id TEXT,
+          top_pin_title TEXT,
+          top_pin_image TEXT,
+          avg_daily_velocity REAL DEFAULT 0,
+          is_active INTEGER DEFAULT 1,
+          tags TEXT DEFAULT '{}',
+          metadata TEXT DEFAULT '{}',
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          crawl_pages_limit INTEGER DEFAULT 2,
+          inspection_mode TEXT DEFAULT 'full_catalog',
+          canonical_keyword TEXT,
+          snapshots_count INTEGER DEFAULT 0,
+          total_pins_count INTEGER DEFAULT 0,
+          folders TEXT DEFAULT '[]'
+        )
+      `),
+      env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword)`),
+      env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC)`),
+      env.PIN_D1_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS edge_keywords_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+    ]).catch(() => {});
+    isEdgeKeywordsTableReady = true;
+  } catch (err) {
+    console.warn('[ensureEdgeKeywordsCatalogTable] Non-fatal init error:', err?.message || err);
+  }
+}
+
+/**
+ * Reads keywords from Cloudflare D1 (`edge_keywords_catalog`) in < 5ms.
+ * Supports keyword search and folder-scoped filtering via SQLite json_each(folders).
+ *
+ * // [INVARIANT: D1-FOLDER-SCOPED-READ]
+ */
+export async function readKeywordsFromD1(env, { search = '', limit = 1000, offset = 0, folderId = null } = {}) {
+  if (!env?.PIN_D1_DB) return null;
+  await ensureEdgeKeywordsCatalogTable(env);
+  try {
+    // 1. Verify that D1 edge catalog has been fully warmed and seeded
+    let meta = null;
+    try {
+      const metaRow = await env.PIN_D1_DB.prepare(
+        "SELECT value FROM edge_keywords_meta WHERE key = ? LIMIT 1"
+      ).bind('catalog_status').first();
+      if (metaRow?.value) {
+        meta = JSON.parse(metaRow.value);
+      }
+    } catch (_) {}
+
+    // If edge catalog hasn't completed a full warm, treat as cold to allow Neon Hub to seed it
+    if (!meta || !meta.is_warmed) {
+      return null;
+    }
+
+    const lim = Math.max(1, Math.min(parseInt(limit, 10) || 1000, 1000));
+    const off = Math.max(0, parseInt(offset, 10) || 0);
+    const fId = folderId ? Number(folderId) : null;
+
+    const whereClauses = [];
+    const bindParams = [];
+
+    if (search && search.trim()) {
+      whereClauses.push('LOWER(keyword) LIKE ?');
+      bindParams.push(`%${search.trim().toLowerCase()}%`);
+    }
+
+    // [INVARIANT: D1-FOLDER-SCOPED-READ]
+    // Evaluates folders JSON array in D1 SQLite using json_each:
+    // AND EXISTS (SELECT 1 FROM json_each(folders) WHERE json_extract(value, '$.id') = ? OR value = ?)
+    if (fId && Number.isFinite(fId) && fId > 0) {
+      whereClauses.push(`EXISTS (
+        SELECT 1 FROM json_each(folders) 
+        WHERE json_extract(value, '$.id') = ? OR value = ?
+      )`);
+      bindParams.push(fId, fId);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const sqlStatement = `
+      SELECT * FROM edge_keywords_catalog 
+      ${whereSql}
+      ORDER BY created_at DESC 
+      LIMIT ? OFFSET ?
+    `;
+    bindParams.push(lim, off);
+
+    const queryRes = await env.PIN_D1_DB.prepare(sqlStatement).bind(...bindParams).all();
+
+    if (!queryRes || !Array.isArray(queryRes.results)) return null;
+    if (queryRes.results.length === 0) {
+      if (!search && !fId && off === 0) return null;
+      return [];
+    }
+
+    // If requesting full catalog without search/folder filter and results are fewer than expected, re-warm
+    if (!search && !fId && off === 0 && lim >= meta.count && queryRes.results.length < meta.count) {
+      return null;
+    }
+
+    return queryRes.results.map(row => {
+      let m = {};
+      if (typeof row.metadata === 'string') {
+        try { m = JSON.parse(row.metadata); } catch (_) { m = {}; }
+      } else if (row.metadata && typeof row.metadata === 'object') {
+        m = row.metadata;
+      }
+
+      let fldrs = [];
+      if (typeof row.folders === 'string') {
+        try { fldrs = JSON.parse(row.folders); } catch (_) { fldrs = []; }
+      } else if (Array.isArray(row.folders)) {
+        fldrs = row.folders;
+      }
+
+      return {
+        ...row,
+        id: Number(row.id),
+        target_pin_count: Number(row.target_pin_count || 50),
+        refresh_interval_hours: Number(row.refresh_interval_hours || 24),
+        avg_daily_velocity: String(row.avg_daily_velocity || '0.00'),
+        is_active: Boolean(row.is_active),
+        crawl_pages_limit: Number(row.crawl_pages_limit || 2),
+        snapshots_count: Number(row.snapshots_count || 0),
+        active_pins_count: Number(row.active_pins_count ?? row.snapshots_count ?? 0),
+        displaced_pins_count: Number(row.displaced_pins_count ?? Math.max(0, (row.total_pins_count || 0) - (row.snapshots_count || 0))),
+        total_pins_count: Number(row.total_pins_count || 0),
+        metadata: m,
+        folders: fldrs
+      };
+    });
+  } catch (err) {
+    console.warn('[readKeywordsFromD1] Read error (falling back to Neon):', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Evicts D1 edge keywords catalog by invalidating catalog_status in edge_keywords_meta,
+ * or deletes a specific keyword from edge_keywords_catalog.
+ *
+ * // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
+ */
+export async function evictKeywordsCatalogFromD1(env, keywordId = null) {
+  if (!env?.PIN_D1_DB) return;
+  await ensureEdgeKeywordsCatalogTable(env);
+  try {
+    if (keywordId) {
+      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(keywordId)).run();
+    } else {
+      // Mark catalog status as stale instead of wiping entire table
+      await env.PIN_D1_DB.prepare(`
+        INSERT INTO edge_keywords_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).bind('catalog_status', JSON.stringify({ is_warmed: false, stale: true, invalidated_at: new Date().toISOString() })).run().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[evictKeywordsCatalogFromD1] Non-fatal D1 eviction error:', err?.message || err);
+  }
+}
+

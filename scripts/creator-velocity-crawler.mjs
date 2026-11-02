@@ -595,7 +595,6 @@ async function run() {
     const catalogPins = await sql`
       SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
              enrichment_status, created_at_pinterest, updated_at AS last_updated_at,
-             title, destination_url, image_url,
              COALESCE((metadata->>'daily_save_velocity')::numeric, (metadata->>'velocity')::numeric, 0) AS prev_velocity
       FROM competitor_pins
       WHERE competitor_id = ${targetId}
@@ -1026,9 +1025,9 @@ async function run() {
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (pa_pins)
     const myWinningSlice = await sql`
       SELECT 
-        p.pin_id, p.title, p.link, p.domain, p.board_name, p.image_url, p.dominant_color,
-        p.is_video, p.is_product, p.saves, p.repins, p.comments, p.share_count,
-        p.velocity, p.last_updated_at, p.created_at_pinterest, p.account_username
+        p.pin_id, p.account_username, p.board_name,
+        p.saves, p.repins, p.comments, p.share_count,
+        p.velocity, p.last_updated_at, p.created_at_pinterest
       FROM pa_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
       WHERE p.shard_id = ANY(${assignedWinningArray}::smallint[])

@@ -131,6 +131,42 @@ try {
   const usesCrc32 = /pae_crc32_shard_id\s*\(/i.test(keywordCrawlerContent);
   check('Lock 3', usesCrc32, 'scripts/keyword-velocity-crawler.mjs lacks pae_crc32_shard_id deterministic sharding function');
 
+  // 3E. fleet-router.mjs exports getPhysicalShardId and coalesceShardGroupsByPhysical
+  const hasPhysicalShardHelpers = (
+    fleetRouterContent.includes('export function getPhysicalShardId') &&
+    fleetRouterContent.includes('export function coalesceShardGroupsByPhysical')
+  );
+  check('Lock 3', hasPhysicalShardHelpers, 'src/modules/sharding/fleet-router.mjs lacks getPhysicalShardId or coalesceShardGroupsByPhysical exports');
+
+  // 3F. getPhysicalShardId mathematical range [1, 20] and mapping parity: for all v in [1, 99], output is in [1, 20] and ((v - 1) % 20) + 1
+  let physicalMappingClean = true;
+  const matchPhysicalFn = fleetRouterContent.match(/export function getPhysicalShardId\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+  if (matchPhysicalFn) {
+    try {
+      const getPhysicalShardIdFn = new Function('virtualShardId', matchPhysicalFn[1]);
+      for (let v = 1; v <= 99; v++) {
+        const out = getPhysicalShardIdFn(v);
+        const expectedP = ((v - 1) % 20) + 1;
+        if (out !== expectedP || out < 1 || out > 20) {
+          physicalMappingClean = false;
+          break;
+        }
+      }
+    } catch (_) {
+      physicalMappingClean = false;
+    }
+  } else {
+    physicalMappingClean = false;
+  }
+  check('Lock 3', physicalMappingClean, 'getPhysicalShardId mapping fails range [1, 20] mathematical contract');
+
+  // 3G. writeBatchToDeterministicShards coalesces virtual shards before transaction
+  const writeBatchCallsCoalesce = (
+    fleetRouterContent.includes('coalesceShardGroupsByPhysical') &&
+    /writeBatchToDeterministicShards[\s\S]*?coalesceShardGroupsByPhysical/.test(fleetRouterContent)
+  );
+  check('Lock 3', writeBatchCallsCoalesce, 'src/modules/sharding/fleet-router.mjs fails to call coalesceShardGroupsByPhysical in writeBatchToDeterministicShards');
+
   // =========================================================================
   // LOCK 4: Authentic Multi-Window Gains vs Fake Multiplier
   // =========================================================================

@@ -12,7 +12,7 @@ import {
   pingFleetProject,
   getFleetProjectUrl
 } from '../modules/fleet/service.mjs';
-import { resolveShardConnection, getPinShardId, isValidShardDsn } from '../modules/sharding/fleet-router.mjs';
+import { resolveShardConnection, getPinShardId, isValidShardDsn, getPhysicalShardId } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
 import { verifyApiAuthentication } from '../worker.mjs';
 import { invalidateFolderCache } from '../modules/keywords/folders-service.mjs';
@@ -48,7 +48,7 @@ export async function handleFleetRoutes(routeCtx) {
     let rawShards = null;
     if (env?.PIN_ENGINE_KV) {
       try {
-        rawShards = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+        rawShards = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
         // Anti-Poisoning Check: Ensure cached KV data does not contain masked bullet URLs
         if (Array.isArray(rawShards) && rawShards.some(r => !isValidShardDsn(r?.database_url))) {
           rawShards = null; // Discard poisoned data
@@ -128,12 +128,25 @@ export async function handleFleetRoutes(routeCtx) {
     const newEpoch = String(Date.now());
     if (env?.PIN_ENGINE_KV) {
       await env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch);
+      // [INVARIANT: FLEET-SHARDS-MAP-PURGE] Purge cached shard connection strings on invalidation
+      await env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
+    }
+    if (env?.PIN_D1_DB) {
+      await env.PIN_D1_DB.prepare(`
+        INSERT INTO edge_keywords_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).bind('catalog_status', JSON.stringify({ is_warmed: false, stale: true, invalidated_at: new Date().toISOString() })).run().catch(() => {});
     }
     invalidateFolderCache();
-    invalidateEdgeCache('fleet_projects');
+    await invalidateEdgeCache('fleet_projects');
+    await invalidateEdgeCache('domains:leaderboard');
+    await invalidateEdgeCache('keywords');
     return jsonResponse({
       success: true,
-      message: 'Global cache epoch invalidated successfully',
+      message: 'Global cache epoch and fleet shards map invalidated successfully',
       epoch: newEpoch,
       scope: body?.scope || 'all_folders',
       event: body?.event || 'manual'
@@ -174,8 +187,9 @@ export async function handleFleetRoutes(routeCtx) {
     }, 200, 0);
   }
 
-  // 6b. Authenticated Shard Pre-Warming Ping API POST /api/fleet/wake (or POST /api/fleet/keep-alive)
-  if (method === 'POST' && (pathname === '/api/fleet/wake' || pathname === '/api/fleet/keep-alive')) {
+  // 6b. Authenticated Shard Pre-Warming Ping API POST /api/fleet/wake, /api/fleet/shards/wake (or POST /api/fleet/keep-alive)
+  // [INVARIANT: PHYSICAL-SHARD-WAKE-NORMALIZATION]
+  if (method === 'POST' && (pathname === '/api/fleet/wake' || pathname === '/api/fleet/shards/wake' || pathname === '/api/fleet/keep-alive')) {
     let shardIdsToPing = [];
     const body = await request.json().catch(() => ({}));
     if (Array.isArray(body.shards)) {
@@ -186,26 +200,37 @@ export async function handleFleetRoutes(routeCtx) {
       shardIdsToPing.push(Number(qShard));
     }
 
-    let uniqueShards = [];
-    if (shardIdsToPing.length > 0) {
-      uniqueShards = Array.from(new Set(shardIdsToPing)).slice(0, 10);
-      safeWaitUntil(ctx, Promise.allSettled(uniqueShards.map(async (sid) => {
-        try {
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId: sid });
-          await shardSql`SELECT 1;`;
-        } catch (_) {}
-      })), 'fleet_wake_shards');
+    // Default to waking all 20 physical shards if "all" is requested or no shards specified
+    if (body.all === true || searchParams.get('all') === 'true' || shardIdsToPing.length === 0) {
+      shardIdsToPing = Array.from({ length: 20 }, (_, i) => i + 1);
     }
+
+    // Coalesce virtual IDs (1..99) to physical shard IDs (1..20)
+    // Formula: getPhysicalShardId(v) = ((v - 1) % 20) + 1
+    const physicalShardIds = Array.from(new Set(
+      shardIdsToPing.map(s => getPhysicalShardId(s))
+    )).filter(s => s >= 1 && s <= 20).slice(0, 20);
+
+    safeWaitUntil(ctx, Promise.allSettled(physicalShardIds.map(async (physId) => {
+      try {
+        const shardSql = await resolveShardConnection({ hubSql: sql, shardId: physId, env });
+        if (shardSql) {
+          await shardSql`SELECT 1;`;
+        }
+      } catch (_) {}
+    })), 'fleet_wake_physical_shards');
 
     return jsonResponse({
       success: true,
       warmed: true,
       timestamp: Date.now(),
-      shards_pinged: uniqueShards.length
+      physical_shards_pinged: physicalShardIds.length,
+      shards: physicalShardIds,
+      shards_pinged: physicalShardIds.length
     }, 200, 0);
   }
 
-  if (pathname === '/api/fleet/wake') {
+  if (pathname === '/api/fleet/wake' || pathname === '/api/fleet/shards/wake') {
     return methodNotAllowedResponse('POST, OPTIONS');
   }
 
