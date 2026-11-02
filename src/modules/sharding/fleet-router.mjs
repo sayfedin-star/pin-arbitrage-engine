@@ -870,7 +870,8 @@ export async function prewarmFleetShards({
   concurrency = 15,
   timeoutMs = 3500
 }) {
-  const uniqueIds = [...new Set(shardIds)].filter(id => id >= 1 && id <= 99);
+  // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION] Coalesce virtual IDs to physical shards 1..20
+  const uniqueIds = [...new Set(shardIds.map(id => getPhysicalShardId(id)))].filter(id => id >= 1 && id <= 20);
   let warmed = 0;
   let failed = 0;
   const details = {};

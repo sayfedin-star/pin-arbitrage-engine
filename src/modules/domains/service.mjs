@@ -2107,7 +2107,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         '' AS title,
         '' AS destination_url,
         '' AS image_url,
-        '' AS creator_username,
+        COALESCE(kdi.creator_username, '') AS creator_username,
         '' AS board_name,
         COALESCE(kdi.save_count, 0)::bigint AS saves,
         COALESCE(kdi.repin_count, 0)::bigint AS repins,

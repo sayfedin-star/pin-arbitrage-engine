@@ -60,6 +60,10 @@ END $$;
 -- Enforce fillfactor = 80 on physical shard snapshot and metric tables for same-day HOT update headroom
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'universal_master_pins') THEN
+    ALTER TABLE universal_master_pins SET (fillfactor = 80);
+  END IF;
+
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pins_daily_metrics') THEN
     ALTER TABLE pins_daily_metrics SET (fillfactor = 80);
   END IF;
@@ -68,8 +72,22 @@ BEGIN
     ALTER TABLE pin_serp_positions SET (fillfactor = 80);
   END IF;
 
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'universal_master_pins') THEN
-    ALTER TABLE universal_master_pins SET (fillfactor = 80);
+  -- Drop unused secondary indexes that block PostgreSQL Heap-Only Tuple (HOT) updates
+  DROP INDEX IF EXISTS idx_ump_metadata_gin;
+  DROP INDEX IF EXISTS idx_ump_domain;
+  DROP INDEX IF EXISTS idx_ump_creator;
+  DROP INDEX IF EXISTS idx_ump_updated;
+
+  -- Drop obsolete tables that belong exclusively on Central Hub (executed only on storage shards)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neon_projects_registry') THEN
+    DROP TABLE IF EXISTS competitor_pins CASCADE;
+    DROP TABLE IF EXISTS pa_pins CASCADE;
+    DROP TABLE IF EXISTS pa_pin_metrics CASCADE;
+    DROP TABLE IF EXISTS competitor_boards CASCADE;
+    DROP TABLE IF EXISTS competitor_profiles CASCADE;
+    DROP TABLE IF EXISTS competitor_history_snapshots CASCADE;
+    DROP TABLE IF EXISTS keyword_serp_current CASCADE;
+    DROP TABLE IF EXISTS keyword_displaced_index CASCADE;
   END IF;
 END $$;
 

@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   batchGroupByShard,
+  coalesceShardGroupsByPhysical,
   resolveShardConnection,
   preloadNeonRegistry
 } from '../src/modules/sharding/fleet-router.mjs';
@@ -115,7 +116,8 @@ export async function optimizeHubStorage(sql) {
         break;
       }
 
-      const shardGroups = batchGroupByShard(displacedRows, 99);
+      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+      const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(displacedRows, 99));
       const shardEntries = Array.from(shardGroups.entries());
       const confirmedPinIdsSet = new Set();
 
@@ -415,7 +417,8 @@ export async function optimizeHubStorage(sql) {
         break;
       }
 
-      const snapShardGroups = batchGroupByShard(snapshotRows, 99);
+      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+      const snapShardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(snapshotRows, 99));
       const snapShardEntries = Array.from(snapShardGroups.entries());
       const confirmedSnapshotIds = [];
 

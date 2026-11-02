@@ -32,6 +32,7 @@ import {
   resolveShardConnection,
   executeShardQueryWithCircuitBreaker,
   batchGroupByShard,
+  coalesceShardGroupsByPhysical,
   preloadNeonRegistry,
   syncPinAcrossAllFourPillars,
   fetchUniversalPinDossier,
@@ -141,7 +142,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
     syncPinsBatchToD1(env, combined).catch(() => {});
   }
 
-  const shardGroups = batchGroupByShard(combined, 99);
+  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(combined, 99));
   const shardEntries = Array.from(shardGroups.entries());
   let shardsSynced = 0;
   // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
@@ -341,7 +343,8 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
     const stillMissing = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
     if (!skipShardHydration && stillMissing.length > 0) {
       await preloadNeonRegistry(hubSql, env);
-      const shardGroups = batchGroupByShard(stillMissing, 99);
+      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING]
+      const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(stillMissing, 99));
       const newlyHydratedFromShards = [];
 
       // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4

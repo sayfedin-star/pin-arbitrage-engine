@@ -45,6 +45,7 @@ import {
 } from './lib/pinterest.mjs';
 import {
   batchGroupByShard,
+  coalesceShardGroupsByPhysical,
   resolveShardConnection,
   preloadNeonRegistry,
   getPinShardId,
@@ -156,7 +157,8 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
   if (sortedMetrics.length === 0) return 0;
 
   await preloadNeonRegistry(hubSql);
-  const shardGroups = batchGroupByShard(sortedMetrics, 99);
+  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(sortedMetrics, 99));
   let totalCommitted = 0;
 
   const shardEntries = Array.from(shardGroups.entries());
@@ -219,7 +221,8 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
 async function syncPinsToMasterShards(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
   await preloadNeonRegistry(hubSql);
-  const shardGroups = batchGroupByShard(enrichedPins, 99);
+  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(enrichedPins, 99));
   let totalSynced = 0;
 
   const shardEntries = Array.from(shardGroups.entries());

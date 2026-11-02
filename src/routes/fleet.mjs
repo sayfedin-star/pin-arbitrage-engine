@@ -284,6 +284,8 @@ export async function handleFleetRoutes(routeCtx) {
       }, 400);
     }
 
+    targetShardId = getPhysicalShardId(targetShardId);
+
     const now = Date.now();
     const lastWarmed = recentWarmedShards.get(targetShardId) || 0;
 

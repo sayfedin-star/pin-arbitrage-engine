@@ -332,10 +332,13 @@ export async function migratePinSerpPositions(sourceSql, destSql, sourceShardId,
           )
           ORDER BY u.pin_id ASC, u.snapshot_date ASC, u.keyword_id ASC
           ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-            rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
-            is_displaced = COALESCE(EXCLUDED.is_displaced, pin_serp_positions.is_displaced),
-            last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
-            catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
+            rank_position = CASE
+              WHEN EXCLUDED.is_displaced = TRUE AND pin_serp_positions.is_displaced = TRUE THEN NULL
+              ELSE LEAST(pin_serp_positions.rank_position, EXCLUDED.rank_position)
+            END,
+            is_displaced = (COALESCE(pin_serp_positions.is_displaced, FALSE) AND COALESCE(EXCLUDED.is_displaced, FALSE)),
+            last_known_rank = LEAST(pin_serp_positions.last_known_rank, EXCLUDED.last_known_rank),
+            catalog_rank = LEAST(pin_serp_positions.catalog_rank, EXCLUDED.catalog_rank),
             updated_at = NOW();
         `;
       }
@@ -381,6 +384,123 @@ export async function runOutOfTransactionVacuum(destSql) {
   await destSql`VACUUM ANALYZE universal_master_pins;`;
   await destSql`VACUUM ANALYZE pins_daily_metrics;`;
   await destSql`VACUUM ANALYZE pin_serp_positions;`;
+}
+
+/**
+ * Prepare physical shard DDL, enforce fillfactor = 80, and clean legacy dead tables/indexes
+ */
+export async function preparePhysicalShardSchema(destSql) {
+  // [INVARIANT: 100-PERCENT-HOT-UPDATES]
+  await destSql`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'universal_master_pins') THEN
+        ALTER TABLE universal_master_pins SET (fillfactor = 80);
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pins_daily_metrics') THEN
+        ALTER TABLE pins_daily_metrics SET (fillfactor = 80);
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pin_serp_positions') THEN
+        ALTER TABLE pin_serp_positions SET (fillfactor = 80);
+      END IF;
+    END $$;
+  `;
+
+  await destSql`
+    DROP INDEX IF EXISTS idx_ump_metadata_gin;
+    DROP INDEX IF EXISTS idx_ump_domain;
+    DROP INDEX IF EXISTS idx_ump_creator;
+    DROP INDEX IF EXISTS idx_ump_updated;
+  `;
+
+  await destSql`
+    DROP TABLE IF EXISTS competitor_pins CASCADE;
+    DROP TABLE IF EXISTS pa_pins CASCADE;
+    DROP TABLE IF EXISTS pa_pin_metrics CASCADE;
+    DROP TABLE IF EXISTS competitor_boards CASCADE;
+    DROP TABLE IF EXISTS competitor_profiles CASCADE;
+    DROP TABLE IF EXISTS competitor_history_snapshots CASCADE;
+    DROP TABLE IF EXISTS keyword_serp_current CASCADE;
+    DROP TABLE IF EXISTS keyword_displaced_index CASCADE;
+  `;
+
+  await destSql`
+    CREATE INDEX IF NOT EXISTS idx_psp_kw_date 
+      ON pin_serp_positions (keyword_id, snapshot_date DESC);
+  `;
+
+  await destSql`
+    CREATE OR REPLACE VIEW keyword_master_pins AS 
+      SELECT * FROM universal_master_pins;
+
+    CREATE OR REPLACE VIEW pins_daily_snapshots AS
+    SELECT 
+      (('x' || SUBSTR(MD5(m.pin_id || '_' || m.snapshot_date::text || '_' || COALESCE(p.keyword_id::text, '0')), 1, 15))::bit(60)::bigint) AS id,
+      m.pin_id,
+      p.keyword_id,
+      NULL::int AS competitor_id,
+      p.rank_position,
+      COALESCE(p.is_displaced, FALSE) AS is_displaced,
+      p.last_known_rank,
+      m.save_count,
+      m.repin_count,
+      m.comment_count,
+      m.share_count,
+      COALESCE(m.reaction_count, 0) AS reaction_count,
+      m.daily_save_velocity,
+      m.snapshot_date,
+      m.updated_at AS created_at
+    FROM pins_daily_metrics m
+    LEFT JOIN pin_serp_positions p 
+      ON p.pin_id = m.pin_id AND p.snapshot_date = m.snapshot_date;
+  `;
+}
+
+/**
+ * Atomically update Hub registry after consolidation completes
+ */
+export async function updateHubRegistryAfterConsolidation(hubSql) {
+  if (!hubSql) return false;
+  console.log('[consolidate] Updating neon_projects_registry on Central Hub to active 20-shard topology...');
+  await hubSql`
+    DO $$
+    DECLARE
+      p INT;
+      assigned INT[];
+      v INT;
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neon_projects_registry') THEN
+        FOR p IN 1..20 LOOP
+          assigned := ARRAY[]::INT[];
+          v := p;
+          WHILE v <= 99 LOOP
+            assigned := array_append(assigned, v);
+            v := v + 20;
+          END LOOP;
+
+          UPDATE neon_projects_registry
+          SET
+            assigned_shards = assigned,
+            status = 'active',
+            updated_at = NOW()
+          WHERE project_name = 'pin-arbitrage-shard-' || LPAD(p::text, 2, '0');
+        END LOOP;
+
+        UPDATE neon_projects_registry
+        SET
+          status = 'retired',
+          assigned_shards = '{}'::INT[],
+          updated_at = NOW()
+        WHERE project_name ~ '^pin-arbitrage-shard-(2[1-9]|[3-9][0-9])$';
+
+        UPDATE neon_projects_registry
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"consolidated_to_20": true, "virtual_shards": 99, "consolidated_at": "2026-11-02"}'::jsonb
+        WHERE is_hub = TRUE;
+      END IF;
+    END $$;
+  `;
+  console.log('  ✅ Central Hub registry updated: Shards 1..20 assigned virtual rooms, shards 21..99 retired.');
+  return true;
 }
 
 /**
@@ -451,61 +571,90 @@ export async function runConsolidation(options = {}) {
   let totalMigratedPositions = 0;
   let pairsProcessed = 0;
 
-  for (let virtualId = 21; virtualId <= 99; virtualId++) {
-    if (sourceShardFilter && virtualId !== sourceShardFilter) continue;
-
-    const physicalId = getPhysicalShardId(virtualId);
+  // Group execution by physical shard 1..20 to allow:
+  // (1) Preparing schema & fillfactor once per physical shard
+  // (2) Keyset copying of all virtual rooms belonging to this physical shard
+  // (3) Executing out-of-transaction VACUUM ANALYZE strictly ONCE per physical shard
+  for (let physicalId = 1; physicalId <= 20; physicalId++) {
     if (targetShardFilter && physicalId !== targetShardFilter) continue;
 
-    const sourceDsn = resolveDsnForShard(virtualId);
+    // Find virtual rooms mapped to this physical shard: [physicalId+20, physicalId+40, ...] <= 99
+    const virtualRooms = [];
+    for (let v = physicalId + 20; v <= 99; v += 20) {
+      if (!sourceShardFilter || v === sourceShardFilter) {
+        virtualRooms.push(v);
+      }
+    }
+
+    if (virtualRooms.length === 0) continue;
+
     const targetDsn = resolveDsnForShard(physicalId);
+    if (!targetDsn) continue;
 
-    if (!sourceDsn || !targetDsn) {
-      // Legacy physical database does not exist or target not configured
-      continue;
-    }
-
-    if (sourceDsn === targetDsn) {
-      // Source and destination point to same database; no copy needed
-      console.log(`[consolidate] Virtual #${virtualId} maps to Physical #${physicalId} (Same DSN — already consolidated).`);
-      continue;
-    }
-
-    console.log(`[consolidate] Migrating Virtual #${virtualId} -> Physical #${physicalId}...`);
-    pairsProcessed++;
-
-    const sourceSql = neon(enforceNeonPoolerUrl(sourceDsn));
     const destSql = neon(enforceNeonPoolerUrl(targetDsn));
 
-    try {
-      const sourcePinsBefore = await getTableRowCount(sourceSql, 'universal_master_pins');
-      const destPinsBefore = await getTableRowCount(destSql, 'universal_master_pins');
+    // (b) Prepare physical shard schema on physical shard (1..20) before copying
+    if (!options.dryRun) {
+      console.log(`[consolidate] Preparing schema on Physical Shard #${physicalId}...`);
+      await preparePhysicalShardSchema(destSql);
+    }
 
-      const migratedPins = await migrateUniversalMasterPins(sourceSql, destSql, virtualId, physicalId, options);
-      const migratedMetrics = await migratePinsDailyMetrics(sourceSql, destSql, virtualId, physicalId, options);
-      const migratedPositions = await migratePinSerpPositions(sourceSql, destSql, virtualId, physicalId, options);
+    let shardReceivedData = false;
 
-      totalMigratedPins += migratedPins;
-      totalMigratedMetrics += migratedMetrics;
-      totalMigratedPositions += migratedPositions;
+    // (c) Keyset migration 21..99 into 1..20 with checksum gates
+    for (const virtualId of virtualRooms) {
+      const sourceDsn = resolveDsnForShard(virtualId);
+      if (!sourceDsn) continue;
 
-      // Row-count checksum verification gate
-      const destPinsAfter = await getTableRowCount(destSql, 'universal_master_pins');
-      if (!options.dryRun && sourcePinsBefore > 0 && destPinsAfter < destPinsBefore) {
-        throw new Error(`[CHECKSUM GATE FAILED] Target pins count decreased on shard #${physicalId}!`);
+      if (sourceDsn === targetDsn) {
+        // Source and destination point to same database; no copy needed
+        console.log(`[consolidate] Virtual #${virtualId} maps to Physical #${physicalId} (Same DSN — already consolidated).`);
+        continue;
       }
 
-      console.log(`  ✅ Virtual #${virtualId} -> Physical #${physicalId}: ${migratedPins} pins, ${migratedMetrics} metrics, ${migratedPositions} positions.`);
+      console.log(`[consolidate] Migrating Virtual #${virtualId} -> Physical #${physicalId}...`);
+      pairsProcessed++;
 
-      if (!options.dryRun) {
-        await runOutOfTransactionVacuum(destSql);
-      }
-    } catch (migErr) {
-      console.error(`  ❌ Error consolidating virtual shard #${virtualId} -> physical #${physicalId}:`, migErr.message);
-      if (!options.continueOnError) {
-        throw migErr;
+      const sourceSql = neon(enforceNeonPoolerUrl(sourceDsn));
+
+      try {
+        const sourcePinsBefore = await getTableRowCount(sourceSql, 'universal_master_pins');
+        const destPinsBefore = await getTableRowCount(destSql, 'universal_master_pins');
+
+        const migratedPins = await migrateUniversalMasterPins(sourceSql, destSql, virtualId, physicalId, options);
+        const migratedMetrics = await migratePinsDailyMetrics(sourceSql, destSql, virtualId, physicalId, options);
+        const migratedPositions = await migratePinSerpPositions(sourceSql, destSql, virtualId, physicalId, options);
+
+        totalMigratedPins += migratedPins;
+        totalMigratedMetrics += migratedMetrics;
+        totalMigratedPositions += migratedPositions;
+
+        // Row-count checksum verification gate
+        const destPinsAfter = await getTableRowCount(destSql, 'universal_master_pins');
+        if (!options.dryRun && sourcePinsBefore > 0 && destPinsAfter < destPinsBefore) {
+          throw new Error(`[CHECKSUM GATE FAILED] Target pins count decreased on shard #${physicalId}!`);
+        }
+
+        console.log(`  ✅ Virtual #${virtualId} -> Physical #${physicalId}: ${migratedPins} pins, ${migratedMetrics} metrics, ${migratedPositions} positions.`);
+        shardReceivedData = true;
+      } catch (migErr) {
+        console.error(`  ❌ Error consolidating virtual shard #${virtualId} -> physical #${physicalId}:`, migErr.message);
+        if (!options.continueOnError) {
+          throw migErr;
+        }
       }
     }
+
+    // (d) VACUUM ANALYZE strictly ONCE per physical shard (1..20) after copying and verifying all virtual rooms
+    if (!options.dryRun && (shardReceivedData || options.vacuumAll)) {
+      console.log(`[consolidate] Running out-of-transaction VACUUM ANALYZE on physical shard #${physicalId}...`);
+      await runOutOfTransactionVacuum(destSql);
+    }
+  }
+
+  // (e) Update Hub neon_projects_registry to assign virtual rooms and retire 21..99
+  if (hubSql && !options.dryRun && !options.sourceShard && !options.targetShard) {
+    await updateHubRegistryAfterConsolidation(hubSql);
   }
 
   console.log('='.repeat(80));
@@ -528,12 +677,13 @@ if (isDirectCli) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const continueOnError = args.includes('--continue-on-error');
+  const vacuumAll = args.includes('--vacuum-all');
   const sourceShardArg = args.find(a => a.startsWith('--source-shard='));
   const targetShardArg = args.find(a => a.startsWith('--target-shard='));
   const sourceShard = sourceShardArg ? parseInt(sourceShardArg.split('=')[1], 10) : null;
   const targetShard = targetShardArg ? parseInt(targetShardArg.split('=')[1], 10) : null;
 
-  runConsolidation({ dryRun, continueOnError, sourceShard, targetShard })
+  runConsolidation({ dryRun, continueOnError, sourceShard, targetShard, vacuumAll })
     .then(() => process.exit(0))
     .catch(err => {
       console.error('Fatal consolidation failure:', err);

@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   getPinShardId,
+  getPhysicalShardId,
   resolveShardConnection,
   isMultiStageHydrationJump,
   enforceNeonPoolerUrl
@@ -49,12 +50,7 @@ if (fs.existsSync(envPath)) {
   } catch (_) {}
 }
 
-if (!process.env.DATABASE_URL) {
-  console.error('[-] Error: DATABASE_URL environment variable is required.');
-  process.exit(1);
-}
-
-const hubSql = neon(enforceNeonPoolerUrl(process.env.DATABASE_URL));
+const hubSql = process.env.DATABASE_URL ? neon(enforceNeonPoolerUrl(process.env.DATABASE_URL)) : null;
 
 /**
  * Computes authentic rolling deltas across multi-day windows from raw snapshot history.
@@ -135,6 +131,12 @@ async function main() {
   console.log('================================================================================');
   console.log('🚀 PAE: LIVE SHARD ROLLING WINDOW GAINS BACKFILL RUNNER');
   console.log('================================================================================');
+
+  if (!process.env.DATABASE_URL || !hubSql) {
+    console.error('[-] Error: DATABASE_URL environment variable is required.');
+    process.exit(1);
+  }
+
   console.log(`[*] Central Hub: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
 
   // Environment guard to exit cleanly with 0 bytes of Hub egress when protecting monthly cap
@@ -143,40 +145,86 @@ async function main() {
     process.exit(0);
   }
 
-  // 1. Fetch distinct unpopulated or stale pins from keyword_serp_current (Scoped to FOLDER_ID or TARGET_KEYWORD if provided)
+  // 1. Fetch distinct unpopulated or stale pins from keyword_serp_current & keyword_displaced_index
   let activePins = [];
   if (process.env.FOLDER_ID) {
     const folderIdNum = Number(process.env.FOLDER_ID);
     console.log(`\n[*] Phase 1: Querying unpopulated/stale pins for Folder #${folderIdNum} from Central Hub...`);
     activePins = await hubSql`
-      SELECT DISTINCT ksc.pin_id
-      FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-      WHERE kfi.folder_id = ${folderIdNum}
-        AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-        AND (ksc.gains_7d IS NULL OR ksc.updated_at < NOW() - INTERVAL '24 hours')
-      LIMIT 500;
+      SELECT DISTINCT pin_id FROM (
+        SELECT ksc.pin_id
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+        WHERE kfi.folder_id = ${folderIdNum}
+          AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+          AND (
+            (COALESCE(ksc.gains_7d, 0) = 0 AND ksc.save_count > 0)
+            OR (ksc.baseline_day_saves IS NOT NULL AND ksc.save_count <> ksc.baseline_day_saves)
+            OR ksc.updated_at < NOW() - INTERVAL '24 hours'
+          )
+        UNION
+        SELECT kdi.pin_id
+        FROM keyword_folder_items kfi
+        JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
+        WHERE kfi.folder_id = ${folderIdNum}
+          AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
+          AND (
+            (COALESCE(kdi.gains_7d, 0) = 0 AND kdi.save_count > 0)
+            OR kdi.updated_at < NOW() - INTERVAL '24 hours'
+          )
+      ) sub
+      LIMIT 5000;
     `;
   } else if (process.env.TARGET_KEYWORD) {
     const targetKw = process.env.TARGET_KEYWORD.trim().toLowerCase();
     console.log(`\n[*] Phase 1: Querying unpopulated/stale pins for Keyword "${targetKw}" from Central Hub...`);
     activePins = await hubSql`
-      SELECT DISTINCT ksc.pin_id
-      FROM tracked_keywords tk
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
-      WHERE LOWER(tk.keyword) = ${targetKw}
-        AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-        AND (ksc.gains_7d IS NULL OR ksc.updated_at < NOW() - INTERVAL '24 hours')
-      LIMIT 500;
+      SELECT DISTINCT pin_id FROM (
+        SELECT ksc.pin_id
+        FROM tracked_keywords tk
+        JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
+        WHERE LOWER(tk.keyword) = ${targetKw}
+          AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+          AND (
+            (COALESCE(ksc.gains_7d, 0) = 0 AND ksc.save_count > 0)
+            OR (ksc.baseline_day_saves IS NOT NULL AND ksc.save_count <> ksc.baseline_day_saves)
+            OR ksc.updated_at < NOW() - INTERVAL '24 hours'
+          )
+        UNION
+        SELECT kdi.pin_id
+        FROM tracked_keywords tk
+        JOIN keyword_displaced_index kdi ON kdi.keyword_id = tk.id
+        WHERE LOWER(tk.keyword) = ${targetKw}
+          AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
+          AND (
+            (COALESCE(kdi.gains_7d, 0) = 0 AND kdi.save_count > 0)
+            OR kdi.updated_at < NOW() - INTERVAL '24 hours'
+          )
+      ) sub
+      LIMIT 5000;
     `;
   } else {
-    console.log('\n[*] Phase 1: Querying unpopulated/stale pins from Central Hub keyword_serp_current...');
+    console.log('\n[*] Phase 1: Querying unpopulated/stale pins from Central Hub keyword_serp_current & keyword_displaced_index...');
     activePins = await hubSql`
-      SELECT DISTINCT pin_id
-      FROM keyword_serp_current
-      WHERE pin_id IS NOT NULL AND pin_id <> ''
-        AND (gains_7d IS NULL OR updated_at < NOW() - INTERVAL '24 hours')
-      LIMIT 500;
+      SELECT DISTINCT pin_id FROM (
+        SELECT pin_id
+        FROM keyword_serp_current
+        WHERE pin_id IS NOT NULL AND pin_id <> ''
+          AND (
+            gains_7d IS NULL OR updated_at < NOW() - INTERVAL '24 hours'
+            OR (COALESCE(gains_7d, 0) = 0 AND save_count > 0)
+            OR (baseline_day_saves IS NOT NULL AND save_count <> baseline_day_saves)
+          )
+        UNION
+        SELECT pin_id
+        FROM keyword_displaced_index
+        WHERE pin_id IS NOT NULL AND pin_id <> ''
+          AND (
+            (COALESCE(gains_7d, 0) = 0 AND save_count > 0)
+            OR updated_at < NOW() - INTERVAL '24 hours'
+          )
+      ) sub
+      LIMIT 5000;
     `;
   }
   console.log(`[+] Total distinct active pins needing backfill: ${activePins.length}`);
@@ -186,17 +234,18 @@ async function main() {
     return;
   }
 
-  // 2. Group pins by deterministic shard ID
-  console.log('\n[*] Phase 2: Partitioning pins into 99 Storage Shards via deterministic CRC32...');
-  const shardMap = new Map(); // shardId -> pin_ids[]
+  // 2. Group pins by physical shard ID (20 physical databases instead of 99 virtual groups)
+  console.log('\n[*] Phase 2: Partitioning pins into 20 Physical Storage Shards via deterministic CRC32...');
+  const shardMap = new Map(); // physicalShardId (1..20) -> pin_ids[]
   for (const { pin_id } of activePins) {
-    const shardId = getPinShardId(pin_id, 99);
-    if (!shardMap.has(shardId)) {
-      shardMap.set(shardId, []);
+    const virtShardId = getPinShardId(pin_id, 99);
+    const physicalShardId = getPhysicalShardId(virtShardId);
+    if (!shardMap.has(physicalShardId)) {
+      shardMap.set(physicalShardId, []);
     }
-    shardMap.get(shardId).push(pin_id);
+    shardMap.get(physicalShardId).push(pin_id);
   }
-  console.log(`[+] Distributed ${activePins.length} pins across ${shardMap.size} active shards.`);
+  console.log(`[+] Distributed ${activePins.length} pins across ${shardMap.size} active physical shards.`);
 
   // 3. Query historical snapshots from each shard and compute authentic deltas
   console.log('\n[*] Phase 3: Fetching snapshot history from Storage Shards & computing deltas...');
@@ -208,12 +257,12 @@ async function main() {
     shardsProcessed++;
     try {
       const shardSql = await resolveShardConnection({ hubSql, shardId });
-      // Batch query historical snapshots for all pins on this shard (up to last 30 days)
+      // Batch query historical snapshots for all pins on this shard (up to last 16 days)
       const snapshots = await shardSql`
         SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
         FROM pins_daily_metrics
         WHERE pin_id = ANY(${pinIds}::text[])
-          AND snapshot_date >= CURRENT_DATE - INTERVAL '30 days'
+          AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
         ORDER BY snapshot_date DESC;
       `;
 

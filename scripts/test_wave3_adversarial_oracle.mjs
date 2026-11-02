@@ -461,6 +461,56 @@ async function runAdversarialOracle() {
     assert('After evictKeywordsCatalogFromD1(env, 4), keyword 4 is deleted from D1',
       Array.isArray(resAfterDeleteKw) && resAfterDeleteKw.length === 0
     );
+
+    // 2.14 Test authentic HTTP worker.fetch folder-scoped filtering
+    // [INVARIANT: D1-FOLDER-SCOPED-HTTP-VERIFICATION]
+    {
+      const d1Http = createRealSQLiteD1();
+      await ensureEdgeKeywordsCatalogTable({ PIN_D1_DB: d1Http });
+
+      // Seed catalog status as warmed in D1
+      await d1Http.prepare("INSERT INTO edge_keywords_meta (key, value) VALUES (?, ?)").bind(
+        'catalog_status',
+        JSON.stringify({ is_warmed: true, count: 2, warmed_at: new Date().toISOString() })
+      ).run();
+
+      // Seed Keyword 101 (assigned to folder [10]) and Keyword 202 (assigned to folder [20])
+      await d1Http.prepare(`
+        INSERT INTO edge_keywords_catalog (
+          id, keyword, category, target_pin_count, refresh_interval_hours,
+          avg_daily_velocity, is_active, tags, metadata,
+          created_at, updated_at, crawl_pages_limit, inspection_mode,
+          snapshots_count, total_pins_count, folders
+        ) VALUES 
+        (101, 'sourdough starter guide', 'Food', 50, 24, 12.5, 1, '{}', '{}', datetime('now'), datetime('now'), 2, 'full_catalog', 10, 50, ?),
+        (202, 'minimalist living room', 'Home', 50, 24, 5.0, 1, '{}', '{}', datetime('now'), datetime('now'), 2, 'full_catalog', 10, 50, ?)
+      `).bind(JSON.stringify([10]), JSON.stringify([20])).run();
+
+      const httpEnv = {
+        PIN_D1_DB: d1Http,
+        PIN_ENGINE_KV: createMockKV({ 'fleet:cache_epoch': '1' }),
+        API_SECRET_KEY: 'test-secret-key',
+        DATABASE_URL: 'postgres://dummy@neon.tech/db',
+        SQL_CLIENT: createMockSql()
+      };
+
+      const req = new Request('https://worker.test/api/keywords?folder_id=10', {
+        method: 'GET',
+        headers: {
+          'x-api-key': 'test-secret-key'
+        }
+      });
+
+      const res = await worker.fetch(req, httpEnv);
+      assert('GET /api/keywords?folder_id=10 returns HTTP 200 via worker.fetch', res.status === 200);
+
+      const body = await res.json();
+      assert('GET /api/keywords?folder_id=10 serves from d1_edge', body.source === 'd1_edge');
+      assert('GET /api/keywords?folder_id=10 returns exactly 1 keyword', Array.isArray(body.keywords) && body.keywords.length === 1);
+      assert('GET /api/keywords?folder_id=10 returns only keyword with folder [10]', body.keywords?.[0]?.id === 101);
+      assert('GET /api/keywords?folder_id=10 excludes keyword with folder [20]', !body.keywords?.some(k => k.id === 202));
+      assert('GET /api/keywords?folder_id=10 does not return global catalog', !body.keywords?.some(k => k.id !== 101));
+    }
   }
 
   // =========================================================================

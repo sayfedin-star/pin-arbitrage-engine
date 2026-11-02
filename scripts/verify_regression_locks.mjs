@@ -160,12 +160,57 @@ try {
   }
   check('Lock 3', physicalMappingClean, 'getPhysicalShardId mapping fails range [1, 20] mathematical contract');
 
-  // 3G. writeBatchToDeterministicShards coalesces virtual shards before transaction
-  const writeBatchCallsCoalesce = (
-    fleetRouterContent.includes('coalesceShardGroupsByPhysical') &&
+  // 3G. coalesceShardGroupsByPhysical must be imported and called across all 6 core services and crawlers
+  const crawlerEngineCode = readFile('scripts/crawler-engine.mjs');
+  const optimizeHubStorageContent = readFile('scripts/optimize_hub_storage.mjs');
+  const serviceKeywordsContent = readFile('src/modules/keywords/service.mjs');
+
+  const fleetRouterCoalesces = (
+    fleetRouterContent.includes('export function coalesceShardGroupsByPhysical') &&
     /writeBatchToDeterministicShards[\s\S]*?coalesceShardGroupsByPhysical/.test(fleetRouterContent)
   );
-  check('Lock 3', writeBatchCallsCoalesce, 'src/modules/sharding/fleet-router.mjs fails to call coalesceShardGroupsByPhysical in writeBatchToDeterministicShards');
+  const keywordCrawlerCoalesces = (
+    keywordCrawlerContent.includes('coalesceShardGroupsByPhysical') &&
+    /coalesceShardGroupsByPhysical\s*\(/.test(keywordCrawlerContent)
+  );
+  const creatorCrawlerCoalesces = (
+    creatorCrawlerContent.includes('coalesceShardGroupsByPhysical') &&
+    /coalesceShardGroupsByPhysical\s*\(/.test(creatorCrawlerContent)
+  );
+  const crawlerEngineCoalesces = (
+    crawlerEngineCode.includes('coalesceShardGroupsByPhysical') &&
+    /coalesceShardGroupsByPhysical\s*\(/.test(crawlerEngineCode)
+  );
+  const optimizeHubCoalesces = (
+    optimizeHubStorageContent.includes('coalesceShardGroupsByPhysical') &&
+    /coalesceShardGroupsByPhysical\s*\(/.test(optimizeHubStorageContent)
+  );
+  const serviceKeywordsCoalesces = (
+    serviceKeywordsContent.includes('coalesceShardGroupsByPhysical') &&
+    /coalesceShardGroupsByPhysical\s*\(/.test(serviceKeywordsContent)
+  );
+
+  const allCoalesced = (
+    fleetRouterCoalesces &&
+    keywordCrawlerCoalesces &&
+    creatorCrawlerCoalesces &&
+    crawlerEngineCoalesces &&
+    optimizeHubCoalesces &&
+    serviceKeywordsCoalesces
+  );
+
+  check(
+    'Lock 3',
+    allCoalesced,
+    `coalesceShardGroupsByPhysical missing or not called in: ${[
+      !fleetRouterCoalesces && 'src/modules/sharding/fleet-router.mjs',
+      !keywordCrawlerCoalesces && 'scripts/keyword-velocity-crawler.mjs',
+      !creatorCrawlerCoalesces && 'scripts/creator-velocity-crawler.mjs',
+      !crawlerEngineCoalesces && 'scripts/crawler-engine.mjs',
+      !optimizeHubCoalesces && 'scripts/optimize_hub_storage.mjs',
+      !serviceKeywordsCoalesces && 'src/modules/keywords/service.mjs'
+    ].filter(Boolean).join(', ')}`
+  );
 
   // =========================================================================
   // LOCK 4: Authentic Multi-Window Gains vs Fake Multiplier

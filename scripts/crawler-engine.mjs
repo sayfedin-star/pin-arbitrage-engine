@@ -38,7 +38,7 @@ import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/creators/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
-import { enforceNeonPoolerUrl, batchGroupByShard, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, batchGroupByShard, coalesceShardGroupsByPhysical, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
 let undiciAgent = null;
@@ -210,7 +210,8 @@ async function bulkInsertMetrics(hubSql, metrics) {
   const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   if (sortedMetrics.length === 0) return 0;
 
-  const shardGroups = batchGroupByShard(sortedMetrics, 99);
+  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(sortedMetrics, 99));
   let totalInserted = 0;
 
   for (const [shardId, shardMetrics] of shardGroups.entries()) {
@@ -268,7 +269,8 @@ async function bulkInsertMetrics(hubSql, metrics) {
  */
 export async function bulkSyncPinsToDeterministicShards(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
-  const shardGroups = batchGroupByShard(enrichedPins, 99);
+  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
+  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(enrichedPins, 99));
   let totalSynced = 0;
 
   for (const [shardId, shardPins] of shardGroups.entries()) {

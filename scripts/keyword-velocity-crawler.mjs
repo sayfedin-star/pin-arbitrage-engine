@@ -26,8 +26,17 @@ import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
 import { fetchPinFromPinterest, fetchPinHybrid, setDefaultDispatcher } from './lib/pinterest.mjs';
-import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId, crc32 } from '../src/modules/sharding/fleet-router.mjs';
+import {
+  batchGroupByShard,
+  coalesceShardGroupsByPhysical,
+  resolveShardConnection,
+  preloadNeonRegistry,
+  getPinShardId,
+  getPhysicalShardId,
+  crc32
+} from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
+import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -37,7 +46,7 @@ function registerTargetShards(pins) {
   for (const p of pins) {
     if (p && p.pin_id) {
       try {
-        const sid = getPinShardId(p.pin_id, 99);
+        const sid = getPhysicalShardId(getPinShardId(p.pin_id, 99));
         activeTargetShards.add(sid);
       } catch (_) {}
     }
@@ -601,6 +610,11 @@ async function flushBatchToHub(pinsChunk, kw) {
       authentic_comments: Number(p.comment_count || 0),
       authentic_shares: Number(p.share_count || 0),
       daily_save_velocity: Number(p.daily_save_velocity || 0),
+      delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
+      gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
+      gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
+      gains_10d: p.gains_10d != null ? Number(p.gains_10d) : null,
+      gains_15d: p.gains_15d != null ? Number(p.gains_15d) : null,
       from_hydration_cache: Boolean(p.from_hydration_cache),
       creator: String(p.creator_username || ''),
       board: String(p.board_name || ''),
@@ -634,6 +648,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE ksc.gains_15d END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
@@ -679,6 +698,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean,
         creator text,
         board text,
@@ -706,6 +730,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE kdi.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE kdi.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE kdi.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE kdi.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE kdi.gains_15d END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -714,6 +743,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean
       )
       WHERE kdi.pin_id = u.pin_id
@@ -740,6 +774,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE ksc.gains_15d END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
@@ -785,6 +824,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean,
         creator text,
         board text,
@@ -814,6 +858,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE kdi.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE kdi.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE kdi.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE kdi.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE kdi.gains_15d END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -822,6 +871,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean
       )
       WHERE kdi.pin_id = u.pin_id
@@ -850,6 +904,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE ksc.gains_15d END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
@@ -895,6 +954,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean,
         creator text,
         board text,
@@ -921,6 +985,11 @@ async function flushBatchToHub(pinsChunk, kw) {
           WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
+        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE kdi.delta_repins_24h END,
+        gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE kdi.gains_5d END,
+        gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE kdi.gains_7d END,
+        gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE kdi.gains_10d END,
+        gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE kdi.gains_15d END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -929,6 +998,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_comments int,
         authentic_shares int,
         daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int,
         from_hydration_cache boolean
       )
       WHERE kdi.pin_id = u.pin_id AND kdi.keyword_id = ${kw.id};
@@ -942,10 +1016,11 @@ async function flushBatchToHub(pinsChunk, kw) {
  * Flush enriched pin records across the 99 Neon Storage Shards
  * Includes LATERAL historical baseline lookup on pins_daily_metrics to guarantee authentic Vault velocity.
  */
-async function flushToStorageShards(enrichedPins) {
+async function flushToStorageShards(enrichedPins, kw = null) {
   if (!enrichedPins || enrichedPins.length === 0) return 0;
   await preloadNeonRegistry(sql);
-  const shardGroups = batchGroupByShard(enrichedPins, 99);
+  const virtualGroups = batchGroupByShard(enrichedPins, 99);
+  const shardGroups = coalesceShardGroupsByPhysical(virtualGroups);
   let shardsSynchronized = 0;
 
   const shardEntries = Array.from(shardGroups.entries());
@@ -959,6 +1034,47 @@ async function flushToStorageShards(enrichedPins) {
           const syncTask = (async () => {
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
             const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+
+            // 1. Fetch 16-day historical snapshots for rolling gains computation (satisfies up to 15-day window)
+            const pinIds = sortedPins.map(sp => String(sp.pin_id));
+            let snapshots = [];
+            try {
+              snapshots = await shardSql`
+                SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+                FROM pins_daily_metrics
+                WHERE pin_id = ANY(${pinIds}::text[])
+                  AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
+                ORDER BY snapshot_date DESC;
+              `;
+            } catch (snapErr) {
+              console.warn(`    [Shard ${shardId}] Snapshots query warning: ${snapErr.message}`);
+            }
+
+            const pinSnapshotsMap = new Map();
+            for (const snap of (snapshots || [])) {
+              if (!snap || !snap.pin_id) continue;
+              if (!pinSnapshotsMap.has(snap.pin_id)) {
+                pinSnapshotsMap.set(snap.pin_id, []);
+              }
+              pinSnapshotsMap.get(snap.pin_id).push(snap);
+            }
+
+            // 2. Compute authentic rolling deltas in-memory and attach to pin objects
+            for (const sp of sortedPins) {
+              const priorSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
+              const currentSnap = {
+                snapshot_date: new Date(),
+                save_count: sp.save_count != null ? Number(sp.save_count) : 0,
+                repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
+              };
+              const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorSnaps]);
+              sp.delta_repins_24h = gains.delta_repins_24h;
+              sp.gains_5d = gains.gains_5d;
+              sp.gains_7d = gains.gains_7d;
+              sp.gains_10d = gains.gains_10d;
+              sp.gains_15d = gains.gains_15d;
+            }
+
             const sanitizeShardMeta = (raw) => {
               if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
               const clean = {};
@@ -1126,6 +1242,7 @@ async function flushToStorageShards(enrichedPins) {
                   FROM pins_daily_metrics pm
                   WHERE pm.pin_id = rb.pin_id
                     AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+                    AND pm.snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
                   ORDER BY pm.snapshot_date DESC
                   LIMIT 1
                 ) prev ON TRUE
@@ -1205,6 +1322,14 @@ async function flushToStorageShards(enrichedPins) {
             } else {
               await buildQ1(shardSql);
               await buildQ2(shardSql);
+            }
+
+            if (kw) {
+              try {
+                await flushBatchToHub(sortedPins, kw);
+              } catch (hubErr) {
+                console.warn(`    [Hub Rolling Gains Flush Warning]: ${hubErr.message}`);
+              }
             }
           })();
 
@@ -1344,7 +1469,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
         for (const targetPin of pins) {
           if (targetPin && targetPin.pin_id && /^(?:\d+|e1_[A-Za-z0-9_-]+)$/.test(String(targetPin.pin_id))) {
             const sid = getPinShardId(targetPin.pin_id, 99);
-            targetShardIds.add(sid);
+            targetShardIds.add(getPhysicalShardId(sid));
           }
         }
         if (targetShardIds.size > 0) {
@@ -1388,7 +1513,7 @@ async function run() {
   // Initialize In-Crawler Keep-Alive Heartbeat (every 3.5 min / 210s) to prevent Neon compute scale-to-zero
   crawlerKeepAlive = setInterval(async () => {
     if (activeTargetShards.size === 0) return;
-    const shards = Array.from(activeTargetShards);
+    const shards = Array.from(new Set(Array.from(activeTargetShards).map(s => getPhysicalShardId(s))));
     const chunkSem = new Semaphore(5);
     await Promise.allSettled(
       shards.map((shardId) => chunkSem.run(async () => {
@@ -1519,6 +1644,7 @@ async function run() {
                 )
               )
               OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -1573,6 +1699,7 @@ async function run() {
                 )
               )
               OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -1596,6 +1723,12 @@ async function run() {
             AND (
               kdi.updated_at IS NULL
               OR kdi.updated_at < NOW() - INTERVAL '4 hours'
+            )
+            AND (
+              COALESCE(kdi.last_known_rank, 999) <= 50
+              OR COALESCE(kdi.daily_save_velocity, 0) >= 5
+              OR kdi.updated_at >= NOW() - INTERVAL '3 days'
+              OR MOD(EXTRACT(DOY FROM CURRENT_DATE)::int + kdi.keyword_id, 5) = 0
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -1662,7 +1795,10 @@ async function run() {
       `Folder Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList));
+    const shardsSynced = await flushToStorageShards(
+      buildShardSyncList(myPins, enrichedList),
+      { folder_id: fid, keyword: folderRow.name }
+    );
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
@@ -1813,6 +1949,7 @@ async function run() {
               )
             )
             OR (metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+            OR COALESCE(NULLIF(creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
           )
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
@@ -1850,6 +1987,7 @@ async function run() {
                 )
               )
               OR (metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+              OR COALESCE(NULLIF(creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -1922,7 +2060,7 @@ async function run() {
     );
 
     // Flush to 99 Storage Shards
-    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList, kwRow.id));
+    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList, kwRow.id), kwRow);
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
@@ -2079,6 +2217,7 @@ async function run() {
                 )
               )
               OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -2136,6 +2275,7 @@ async function run() {
                 )
               )
               OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
+              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -2164,6 +2304,12 @@ async function run() {
             AND (
               kdi.updated_at IS NULL
               OR kdi.updated_at < NOW() - INTERVAL '4 hours'
+            )
+            AND (
+              COALESCE(kdi.last_known_rank, 999) <= 50
+              OR COALESCE(kdi.daily_save_velocity, 0) >= 5
+              OR kdi.updated_at >= NOW() - INTERVAL '3 days'
+              OR MOD(EXTRACT(DOY FROM CURRENT_DATE)::int + kdi.keyword_id, 5) = 0
             )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
@@ -2228,7 +2374,14 @@ async function run() {
       `Global Swarm Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList));
+    const shardsSynced = await flushToStorageShards(
+      buildShardSyncList(myPins, enrichedList),
+      {
+        is_global_fleet: true,
+        all_keyword_ids: allFleetKeywordIds,
+        id: mySerpKeywordIds[0] || allFleetKeywordIds[0]
+      }
+    );
     console.log(`\n✅ Global Swarm Slice ${workerIndex + 1}/${workerTotal} Complete: Enriched ${enrichedList.length}/${myPins.length} unique pins | Synced across ${shardsSynced} shards.`);
 
     if (stepSummaryPath) {

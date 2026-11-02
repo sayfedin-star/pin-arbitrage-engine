@@ -442,7 +442,8 @@ async function runShardJanitorGC() {
     console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
 
     await preloadNeonRegistry(sql);
-    const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
+    // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION] Broadcast janitor GC strictly to the 20 physical shards
+    const shardIds = Array.from({ length: 20 }, (_, i) => i + 1);
     const SHARD_CONCURRENCY = 10;
     let purgedShardsCount = 0;
 

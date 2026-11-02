@@ -392,3 +392,126 @@ export async function evictKeywordsCatalogFromD1(env, keywordId = null) {
   }
 }
 
+/**
+ * Synchronizes keyword catalog into Cloudflare D1 (`edge_keywords_catalog`).
+ * Uses safe bounded batching of prepared statements (<= 99 variables per statement,
+ * and chunked into batches of <= 100 statements before calling env.PIN_D1_DB.batch()).
+ *
+ * // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
+ * // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: Safe D1 Catalog Synchronization
+ */
+export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
+  if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
+  await ensureEdgeKeywordsCatalogTable(env);
+  // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: Safe D1 Catalog Synchronization
+  const isFullCatalog = options.isFullCatalog === true;
+  try {
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < keywords.length; i += CHUNK_SIZE) {
+      const slice = keywords.slice(i, i + CHUNK_SIZE);
+      const stmts = [];
+      for (const k of slice) {
+        if (!k) continue;
+        const id = Number(k.id ?? k.keyword_id);
+        if (!id || !Number.isFinite(id)) continue;
+        const keyword = String(k.keyword || '').trim();
+        if (!keyword) continue;
+        const category = String(k.category || 'General');
+        const targetPinCount = Number(k.target_pin_count || 50);
+        const refreshInterval = Number(k.refresh_interval_hours || 24);
+        const lastCrawledAt = k.last_crawled_at ? new Date(k.last_crawled_at).toISOString() : null;
+        const topPinId = k.top_pin_id ? String(k.top_pin_id) : null;
+        const topPinTitle = k.top_pin_title ? String(k.top_pin_title) : null;
+        const topPinImage = k.top_pin_image ? String(k.top_pin_image) : null;
+        const avgVelocity = Number(k.avg_daily_velocity || 0);
+        const isActive = k.is_active === false ? 0 : 1;
+        const tags = typeof k.tags === 'string' ? k.tags : JSON.stringify(k.tags || {});
+        const metadata = typeof k.metadata === 'string' ? k.metadata : JSON.stringify(k.metadata || {});
+        const createdAt = k.created_at ? new Date(k.created_at).toISOString() : new Date().toISOString();
+        const updatedAt = k.updated_at ? new Date(k.updated_at).toISOString() : new Date().toISOString();
+        const crawlPagesLimit = Number(k.crawl_pages_limit || 2);
+        const inspectionMode = String(k.inspection_mode || 'full_catalog');
+        const canonicalKeyword = (k.canonical_keyword ?? k.normalized_keyword) ? String(k.canonical_keyword ?? k.normalized_keyword) : null;
+        const snapshotsCount = Number(k.snapshots_count || 0);
+        const totalPinsCount = Number(k.total_pins_count || 0);
+        const folders = typeof k.folders === 'string' ? k.folders : JSON.stringify(k.folders || []);
+
+        stmts.push(
+          env.PIN_D1_DB.prepare(`
+            INSERT INTO edge_keywords_catalog (
+              id, keyword, category, target_pin_count, refresh_interval_hours,
+              last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+              avg_daily_velocity, is_active, tags, metadata,
+              created_at, updated_at, crawl_pages_limit, inspection_mode,
+              canonical_keyword, snapshots_count, total_pins_count, folders
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              keyword = excluded.keyword,
+              category = excluded.category,
+              target_pin_count = excluded.target_pin_count,
+              refresh_interval_hours = excluded.refresh_interval_hours,
+              last_crawled_at = excluded.last_crawled_at,
+              top_pin_id = excluded.top_pin_id,
+              top_pin_title = excluded.top_pin_title,
+              top_pin_image = excluded.top_pin_image,
+              avg_daily_velocity = excluded.avg_daily_velocity,
+              is_active = excluded.is_active,
+              tags = excluded.tags,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at,
+              crawl_pages_limit = excluded.crawl_pages_limit,
+              inspection_mode = excluded.inspection_mode,
+              canonical_keyword = excluded.canonical_keyword,
+              snapshots_count = excluded.snapshots_count,
+              total_pins_count = excluded.total_pins_count,
+              folders = excluded.folders
+          `).bind(
+            id, keyword, category, targetPinCount, refreshInterval,
+            lastCrawledAt, topPinId, topPinTitle, topPinImage,
+            avgVelocity, isActive, tags, metadata,
+            createdAt, updatedAt, crawlPagesLimit, inspectionMode,
+            canonicalKeyword, snapshotsCount, totalPinsCount, folders
+          )
+        );
+      }
+      if (stmts.length > 0) {
+        // [LND-817 FIX] Chunk statements into batches of <= 100 before calling env.PIN_D1_DB.batch()
+        const BATCH_STMT_LIMIT = 100;
+        for (let b = 0; b < stmts.length; b += BATCH_STMT_LIMIT) {
+          const subBatch = stmts.slice(b, b + BATCH_STMT_LIMIT);
+          await env.PIN_D1_DB.batch(subBatch);
+        }
+      }
+    }
+
+    if (isFullCatalog && keywords.length > 0) {
+      // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
+      // Prune obsolete IDs after in-place upsert without blanking table during sync
+      const activeIds = keywords.map(k => Number(k.id ?? k.keyword_id)).filter(id => Number.isFinite(id) && id > 0);
+      if (activeIds.length > 0) {
+        const existingRows = await env.PIN_D1_DB.prepare('SELECT id FROM edge_keywords_catalog').all().catch(() => ({ results: [] }));
+        const currentIds = (existingRows?.results || []).map(r => Number(r.id));
+        const activeIdSet = new Set(activeIds);
+        const obsoleteIds = currentIds.filter(id => !activeIdSet.has(id));
+        if (obsoleteIds.length > 0) {
+          const PRUNE_CHUNK = 50;
+          for (let p = 0; p < obsoleteIds.length; p += PRUNE_CHUNK) {
+            const pSlice = obsoleteIds.slice(p, p + PRUNE_CHUNK);
+            const placeholders = pSlice.map(() => '?').join(',');
+            await env.PIN_D1_DB.prepare(`DELETE FROM edge_keywords_catalog WHERE id IN (${placeholders})`).bind(...pSlice).run().catch(() => {});
+          }
+        }
+      }
+      await env.PIN_D1_DB.prepare(`
+        INSERT INTO edge_keywords_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).bind('catalog_status', JSON.stringify({ is_warmed: true, count: keywords.length, synced_at: new Date().toISOString() })).run().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[syncKeywordsCatalogToD1] Non-fatal catalog D1 sync error:', err?.message || err);
+  }
+}
+
