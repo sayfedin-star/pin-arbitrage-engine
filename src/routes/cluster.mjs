@@ -32,13 +32,14 @@ import {
   getDiscoveryTypeaheadService
 } from '../modules/cluster/service.mjs';
 
-import { getGlobal24hPulseService } from '../modules/pulse/service.mjs';
+import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pulse/service.mjs';
 
 /**
  * Fast URI discriminator for Cluster & Discovery routes
  */
 export function isClusterRoute(pathname) {
   return pathname === '/api/pulse/24h' ||
+    pathname === '/api/pulse/blueprint' ||
     pathname === '/api/overview' ||
     pathname === '/api/seeds' ||
     pathname.startsWith('/api/seeds/') ||
@@ -98,6 +99,39 @@ export async function handleClusterRoutes({
       return jsonResponse(payload, 200, 10);
     } catch (err) {
       console.error('[Pulse 24h Route Error]', err.message);
+      return jsonResponse({
+        success: false,
+        error: 'PULSE_SERVICE_ERROR',
+        message: redactSecrets ? redactSecrets(err.message) : err.message
+      }, 500);
+    }
+  }
+
+  // 0B. /api/pulse/blueprint (One-Click 5-Source Scientific Pin Blueprint)
+  if (pathname === '/api/pulse/blueprint') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const pinId = searchParams.get('pin_id') || searchParams.get('id') || '';
+    if (!pinId) {
+      return jsonResponse({ success: false, error: 'pin_id query parameter is required' }, 400);
+    }
+    const folderId = searchParams.get('folder_id') || searchParams.get('folderId') || '';
+    const windowParam = searchParams.get('window') || '24h';
+
+    try {
+      const pulseData = await getGlobal24hPulseService(targetSql, env, {
+        folderId,
+        window: windowParam,
+        ctx
+      });
+      const blueprint = synthesizePinBlueprint(pinId, pulseData);
+      if (!blueprint) {
+        return jsonResponse({ success: false, error: 'Blueprint could not be synthesized for this pin' }, 404);
+      }
+      return jsonResponse({ success: true, blueprint }, 200, 10);
+    } catch (err) {
+      console.error('[Pulse Blueprint Route Error]', err.message);
       return jsonResponse({
         success: false,
         error: 'PULSE_SERVICE_ERROR',

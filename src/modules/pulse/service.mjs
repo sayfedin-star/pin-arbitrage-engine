@@ -105,6 +105,21 @@ function setPulseMemoryCache(key, payload) {
 }
 
 /**
+ * Numeric Sanitization Helpers (Anti-NaN Shield)
+ * Enforces Rule 3 (Numeric & Object Cast Hygiene): Math.max(5, NaN) === NaN.
+ */
+export const safeNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+export const safeNullableNum = (v) => {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
  * Query 1: Active SERP & Folder Mapping (Zero-Cartesian CTE)
  * Strictly obeys Hub Skeletal Compaction: does NOT select description, alt_text, or seo_title.
  */
@@ -165,7 +180,8 @@ async function queryActiveSerp(sql, folderIdNum) {
 /**
  * Query 2: Displaced Vault Surge & 24h SERP Vacuum (keyword_displaced_index)
  * Part 2A: Aggregates displaced counts per keyword.
- * Part 2B: Top 50 Vault Surge Sleepers hydrated from D1.
+ * Part 2B: Top 250 Vault Surge Sleepers hydrated from D1.
+ * // [CRITICAL SCHEMA INVARIANT: keyword_displaced_index has NO delta_saves_24h column in Postgres DDL]
  */
 async function queryVaultAndVacuum(sql, folderIdNum, env) {
   const [vacuumRows, vaultPinsRaw] = await Promise.all([
@@ -212,31 +228,39 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
           WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
         ))
       ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0)) DESC
-      LIMIT 50;
+      LIMIT 250;
     `
   ]);
 
-  const vaultPins = vaultPinsRaw.map(r => ({
-    ...r,
-    pin_id: String(r.pin_id),
-    save_count: Number(r.save_count || 0),
-    repin_count: Number(r.repin_count || 0),
-    daily_save_velocity: Number(r.daily_save_velocity || 0),
-    delta_repins_24h: Number(r.delta_repins_24h || 0),
-    gains_5d: Number(r.gains_5d || 0),
-    gains_7d: Number(r.gains_7d || 0),
-    gains_10d: Number(r.gains_10d || 0),
-    gains_15d: Number(r.gains_15d || 0),
-    last_known_rank: r.last_known_rank != null ? Number(r.last_known_rank) : null,
-    vacuum_opportunity_score: Number(r.vacuum_opportunity_score || 0),
-    title: '',
-    image_url: '',
-    destination_url: '',
-    board_name: '',
-    dominant_color: '#888888',
-    visual_annotations: [],
-    created_at_pinterest: null
-  }));
+  const vaultPins = vaultPinsRaw.map(r => {
+    const dailyVel = safeNum(r.daily_save_velocity);
+    const deltaRepins = safeNum(r.delta_repins_24h);
+    return {
+      ...r,
+      pin_id: String(r.pin_id),
+      save_count: safeNum(r.save_count),
+      repin_count: safeNum(r.repin_count),
+      daily_save_velocity: dailyVel,
+      delta_saves_24h: dailyVel,
+      delta_repins_24h: deltaRepins,
+      effective_24h_gain: Math.max(dailyVel, deltaRepins),
+      gains_5d: safeNum(r.gains_5d),
+      gains_7d: safeNum(r.gains_7d),
+      gains_10d: safeNum(r.gains_10d),
+      gains_15d: safeNum(r.gains_15d),
+      last_known_rank: safeNullableNum(r.last_known_rank),
+      vacuum_opportunity_score: safeNum(r.vacuum_opportunity_score),
+      title: r.title || '',
+      description: r.description || '',
+      alt_text: r.alt_text || '',
+      image_url: r.image_url || '',
+      destination_url: r.destination_url || '',
+      board_name: r.board_name || '',
+      dominant_color: r.dominant_color || '#888888',
+      visual_annotations: r.visual_annotations || [],
+      created_at_pinterest: r.created_at_pinterest || null
+    };
+  });
 
   if (env?.PIN_D1_DB && vaultPins.length > 0) {
     try {
@@ -247,11 +271,13 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
           const d1 = d1Map.get(p.pin_id);
           if (d1) {
             p.title = p.title || d1.title || '';
+            p.description = p.description || d1.description || '';
+            p.alt_text = p.alt_text || d1.alt_text || d1.seo_alt_text || '';
             p.image_url = p.image_url || d1.image_url || '';
             p.dominant_color = p.dominant_color || d1.dominant_color || '#888888';
             p.destination_url = p.destination_url || d1.destination_url || '';
             p.board_name = p.board_name || d1.board_name || '';
-            p.visual_annotations = p.visual_annotations || d1.visual_annotations || [];
+            p.visual_annotations = p.visual_annotations && p.visual_annotations.length > 0 ? p.visual_annotations : (d1.visual_annotations || []);
             p.created_at_pinterest = p.created_at_pinterest || d1.created_at_pinterest || null;
           }
         }
@@ -260,6 +286,51 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
   }
 
   return { vacuumRows, vaultPins };
+}
+
+/**
+ * Query 6: Top 150 Surging Competitor & Creator Pins (competitor_pins + competitor_profiles)
+ * // [CRITICAL SCHEMA INVARIANT: In competitor_pins, daily velocity is in metadata->>'daily_save_velocity',
+ * //  delta_saves_24h in metadata->>'delta_saves_24h', and domain is link_domain]
+ */
+async function queryViralCreatorPins(sql, folderIdNum) {
+  return await sql`
+    SELECT
+      cpin.pin_id,
+      cpin.title,
+      cpin.description,
+      cpin.alt_text,
+      cpin.image_url,
+      cpin.destination_url,
+      cpin.link_domain AS domain,
+      cpin.board_name,
+      cp.username AS creator_username,
+      COALESCE(cpin.save_count, 0) AS save_count,
+      COALESCE(cpin.repin_count, 0) AS repin_count,
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h,
+      cpin.created_at_pinterest,
+      COALESCE(cpin.metadata->'visual_annotations', cpin.metadata->'annotations', '[]'::jsonb) AS visual_annotations
+    FROM competitor_pins cpin
+    JOIN competitor_profiles cp ON cp.id = cpin.competitor_id
+    WHERE cpin.is_deleted = FALSE
+      AND (${folderIdNum}::int IS NULL OR cp.source_folder_id = ${folderIdNum}::int OR EXISTS (
+        SELECT 1 FROM folder_competitor_items fci 
+        WHERE fci.competitor_id = cpin.competitor_id AND fci.folder_id = ${folderIdNum}::int
+      ))
+      AND (
+        COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) > 0
+        OR COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) > 0
+        OR COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) > 0
+      )
+    ORDER BY GREATEST(
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0),
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0),
+      COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+    ) DESC
+    LIMIT 150;
+  `;
 }
 
 /**
@@ -359,8 +430,9 @@ async function queryBreakoutCreators(sql, folderIdNum) {
     top_creators AS (
       SELECT *
       FROM active_creators
+      WHERE (effective_delta_reach_24h > 0 OR effective_delta_views_24h > 0 OR monthly_reach > 0)
       ORDER BY 
-        GREATEST(ABS(effective_delta_reach_24h), ABS(effective_delta_views_24h)) DESC,
+        GREATEST(effective_delta_reach_24h, effective_delta_views_24h) DESC,
         monthly_reach DESC
       LIMIT 60
     ),
@@ -385,6 +457,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
       FROM competitor_pins cpin
       JOIN top_creators tc ON tc.id = cpin.competitor_id
       WHERE cpin.is_deleted = FALSE
+        AND cpin.image_url IS NOT NULL AND cpin.image_url <> ''
     ),
     driver_pins_agg AS (
       SELECT
@@ -435,7 +508,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
     FROM top_creators tc
     LEFT JOIN driver_pins_agg dpa ON dpa.competitor_id = tc.id
     ORDER BY 
-      GREATEST(ABS(tc.effective_delta_reach_24h), ABS(tc.effective_delta_views_24h)) DESC,
+      GREATEST(tc.effective_delta_reach_24h, tc.effective_delta_views_24h) DESC,
       tc.monthly_reach DESC;
   `;
 }
@@ -502,6 +575,158 @@ async function queryWinnersAndDomains(sql) {
 }
 
 /**
+ * Checks whether a pin title is synthetic or low-signal placeholder
+ */
+function isSyntheticGarbageTitle(title) {
+  if (!title || typeof title !== 'string') return true;
+  const t = title.trim().toLowerCase();
+  if (t.length < 5) return true;
+  if (t === 'untitled' || t.startsWith('untitled pin') || t === 'pin' || t === 'pinterest pin') return true;
+  if (/^\d+$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Merges and ratchets a pin row into pinMap across Active SERP, Displaced Vault, and Creator Viral feeds.
+ * Ensures highest save_count, velocities, longest non-synthetic title, alt_text, description, and unioned annotations.
+ */
+function mergePinIntoMap(pinMap, row, sourceTag) {
+  const pid = String(row.pin_id);
+  const rowSaves = safeNum(row.save_count);
+  const rowRepins = safeNum(row.repin_count);
+  const rowVel = safeNum(row.daily_save_velocity);
+  const rowDeltaSaves = safeNum(row.delta_saves_24h);
+  const rowDeltaRepins = safeNum(row.delta_repins_24h);
+  const rowGains5d = safeNum(row.gains_5d);
+  const rowGains7d = safeNum(row.gains_7d);
+  const rowGains10d = safeNum(row.gains_10d);
+  const rowGains15d = safeNum(row.gains_15d);
+  const rowUrlGlobalSaves = safeNum(row.url_global_saves);
+  const rowCleanAnns = extractCleanAnnotations(row.visual_annotations || row.annotations || []);
+
+  if (!pinMap.has(pid)) {
+    pinMap.set(pid, {
+      pin_id: pid,
+      title: row.title || '',
+      domain: row.domain || '',
+      destination_url: row.destination_url || '',
+      image_url: row.image_url || '',
+      creator_username: row.creator_username || '',
+      board_name: row.board_name || '',
+      dominant_color: row.dominant_color || '#888888',
+      save_count: rowSaves,
+      repin_count: rowRepins,
+      daily_save_velocity: rowVel,
+      delta_saves_24h: rowDeltaSaves,
+      delta_repins_24h: rowDeltaRepins,
+      gains_5d: rowGains5d,
+      gains_7d: rowGains7d,
+      gains_10d: rowGains10d,
+      gains_15d: rowGains15d,
+      url_global_saves: rowUrlGlobalSaves,
+      description: row.description || '',
+      alt_text: row.alt_text || '',
+      cleanAnnotations: rowCleanAnns,
+      created_at_pinterest: row.created_at_pinterest || null,
+      creation_method: row.creation_method || 'pinterest_platform',
+      crawled_at: row.crawled_at || null,
+      keywords: [],
+      folderList: [],
+      folderIdsSeen: [],
+      sources: [sourceTag],
+      best_rank: safeNullableNum(row.rank_position) ?? safeNullableNum(row.last_known_rank),
+      best_prev_rank: safeNullableNum(row.prev_rank_position)
+    });
+  } else {
+    const p = pinMap.get(pid);
+    if (!p.sources.includes(sourceTag)) {
+      p.sources.push(sourceTag);
+    }
+    // Ratchet telemetry
+    p.save_count = Math.max(safeNum(p.save_count), rowSaves);
+    p.repin_count = Math.max(safeNum(p.repin_count), rowRepins);
+    p.daily_save_velocity = Math.max(safeNum(p.daily_save_velocity), rowVel);
+    p.delta_saves_24h = Math.max(safeNum(p.delta_saves_24h), rowDeltaSaves);
+    p.delta_repins_24h = Math.max(safeNum(p.delta_repins_24h), rowDeltaRepins);
+    p.gains_5d = Math.max(safeNum(p.gains_5d), rowGains5d);
+    p.gains_7d = Math.max(safeNum(p.gains_7d), rowGains7d);
+    p.gains_10d = Math.max(safeNum(p.gains_10d), rowGains10d);
+    p.gains_15d = Math.max(safeNum(p.gains_15d), rowGains15d);
+    p.url_global_saves = Math.max(safeNum(p.url_global_saves), rowUrlGlobalSaves);
+
+    // Prefer longest, non-empty, non-synthetic title
+    if ((!p.title || isSyntheticGarbageTitle(p.title)) && row.title && !isSyntheticGarbageTitle(row.title)) {
+      p.title = row.title;
+    } else if (row.title && !isSyntheticGarbageTitle(row.title) && row.title.length > (p.title || '').length) {
+      p.title = row.title;
+    }
+
+    if (!p.image_url && row.image_url) p.image_url = row.image_url;
+    if (!p.domain && row.domain) p.domain = row.domain;
+    if (!p.destination_url && row.destination_url) p.destination_url = row.destination_url;
+    if (!p.creator_username && row.creator_username) p.creator_username = row.creator_username;
+    if (!p.board_name && row.board_name) p.board_name = row.board_name;
+    if (!p.description && row.description) p.description = row.description;
+    else if (row.description && row.description.length > (p.description || '').length) p.description = row.description;
+    if (!p.alt_text && row.alt_text) p.alt_text = row.alt_text;
+    else if (row.alt_text && row.alt_text.length > (p.alt_text || '').length) p.alt_text = row.alt_text;
+
+    if (p.dominant_color === '#888888' && row.dominant_color && row.dominant_color !== '#888888') {
+      p.dominant_color = row.dominant_color;
+    }
+
+    if (!p.created_at_pinterest && row.created_at_pinterest) {
+      p.created_at_pinterest = row.created_at_pinterest;
+    }
+
+    // Union clean annotations
+    if (rowCleanAnns.length > 0) {
+      const existingNorms = new Set(p.cleanAnnotations.map(a => a.norm));
+      for (const ann of rowCleanAnns) {
+        if (!existingNorms.has(ann.norm)) {
+          existingNorms.add(ann.norm);
+          p.cleanAnnotations.push(ann);
+        }
+      }
+    }
+  }
+
+  const pEntry = pinMap.get(pid);
+  if (row.keyword_id && row.keyword_text) {
+    const kid = safeNum(row.keyword_id);
+    const existingKw = pEntry.keywords.find(k => k.keyword_id === kid);
+    const rp = safeNullableNum(row.rank_position) ?? safeNullableNum(row.last_known_rank);
+    const prp = safeNullableNum(row.prev_rank_position);
+    if (!existingKw) {
+      pEntry.keywords.push({
+        keyword_id: kid,
+        keyword_text: row.keyword_text || '',
+        keyword_category: row.keyword_category || 'General',
+        rank_position: rp,
+        prev_rank_position: prp
+      });
+    }
+    if (rp != null) {
+      if (pEntry.best_rank === null || rp < pEntry.best_rank) pEntry.best_rank = rp;
+    }
+    if (prp != null) {
+      if (pEntry.best_prev_rank === null || prp < pEntry.best_prev_rank) pEntry.best_prev_rank = prp;
+    }
+  }
+
+  const fList = Array.isArray(row.folders) ? row.folders : [];
+  for (const f of fList) {
+    const fid = safeNullableNum(f?.folder_id);
+    if (fid != null && !pEntry.folderIdsSeen.includes(fid)) {
+      pEntry.folderIdsSeen.push(fid);
+      pEntry.folderList.push(f);
+    }
+  }
+
+  return pEntry;
+}
+
+/**
  * Main Service Function: getGlobal24hPulseService
  */
 export async function getGlobal24hPulseService(sql, env, options = {}) {
@@ -555,19 +780,21 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   let computePromise;
   computePromise = (async () => {
-    // 4. Concurrent Execution of 5 Hub Queries
+    // 4. Concurrent Execution of 6 Hub Queries (including viral creator pins)
     const [
       activeSerpRows,
       vaultData,
       guidedCapsuleRows,
       creatorBreakoutRows,
-      winnerData
+      winnerData,
+      creatorViralRows
     ] = await Promise.all([
       queryActiveSerp(sql, folderIdNum),
       queryVaultAndVacuum(sql, folderIdNum, env),
       queryGuidedCapsules(sql, folderIdNum),
       queryBreakoutCreators(sql, folderIdNum),
-      queryWinnersAndDomains(sql)
+      queryWinnersAndDomains(sql),
+      queryViralCreatorPins(sql, folderIdNum).catch(() => [])
     ]);
 
     const { vacuumRows, vaultPins } = vaultData;
@@ -585,7 +812,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       });
     }
 
-    // 5. Deduplicate and Group Active SERP Pins
+    // 5. Unified Cross-Table Merge into pinMap (Active SERP + Displaced Vault + Creator Viral)
     const pinMap = new Map();
     const keywordPinStats = new Map();
 
@@ -605,77 +832,32 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
       const kwStats = keywordPinStats.get(kid);
       kwStats.active_pins_count++;
-      const rowVel = Number(row.daily_save_velocity || 0);
+      const rowVel = safeNum(row.daily_save_velocity);
       kwStats.total_velocity += rowVel;
-      if (!kwStats.top_pin || rowVel > Number(kwStats.top_pin.daily_save_velocity || 0)) {
+      if (!kwStats.top_pin || rowVel > safeNum(kwStats.top_pin.daily_save_velocity)) {
         kwStats.top_pin = {
           pin_id: pid,
           title: row.title || '',
           image_url: row.image_url || '',
-          save_count: Number(row.save_count || 0),
+          save_count: safeNum(row.save_count),
           daily_save_velocity: rowVel
         };
       }
 
-      if (!pinMap.has(pid)) {
-        pinMap.set(pid, {
-          pin_id: pid,
-          title: row.title || '',
-          domain: row.domain || '',
-          destination_url: row.destination_url || '',
-          image_url: row.image_url || '',
-          creator_username: row.creator_username || '',
-          board_name: row.board_name || '',
-          dominant_color: row.dominant_color || '#888888',
-          save_count: Number(row.save_count || 0),
-          repin_count: Number(row.repin_count || 0),
-          daily_save_velocity: rowVel,
-          delta_repins_24h: Number(row.delta_repins_24h || 0),
-          gains_5d: Number(row.gains_5d || 0),
-          gains_7d: Number(row.gains_7d || 0),
-          gains_10d: Number(row.gains_10d || 0),
-          gains_15d: Number(row.gains_15d || 0),
-          url_global_saves: Number(row.url_global_saves || 0),
-          visual_annotations: row.visual_annotations || [],
-          created_at_pinterest: row.created_at_pinterest || null,
-          creation_method: row.creation_method || 'pinterest_platform',
-          crawled_at: row.crawled_at || null,
-          keywords: [],
-          folderList: [],
-          folderIdsSeen: [],
-          best_rank: row.rank_position != null ? Number(row.rank_position) : null,
-          best_prev_rank: row.prev_rank_position != null ? Number(row.prev_rank_position) : null
-        });
-      }
-
-      const pEntry = pinMap.get(pid);
-      pEntry.keywords.push({
-        keyword_id: kid,
-        keyword_text: row.keyword_text || '',
-        keyword_category: row.keyword_category || 'General',
-        rank_position: row.rank_position != null ? Number(row.rank_position) : null,
-        prev_rank_position: row.prev_rank_position != null ? Number(row.prev_rank_position) : null
-      });
-
-      if (row.rank_position != null) {
-        const rp = Number(row.rank_position);
-        if (pEntry.best_rank === null || rp < pEntry.best_rank) pEntry.best_rank = rp;
-      }
-      if (row.prev_rank_position != null) {
-        const prp = Number(row.prev_rank_position);
-        if (pEntry.best_prev_rank === null || prp < pEntry.best_prev_rank) pEntry.best_prev_rank = prp;
-      }
-
-      const fList = Array.isArray(row.folders) ? row.folders : [];
-      for (const f of fList) {
-        if (f?.folder_id && !pEntry.folderIdsSeen.includes(Number(f.folder_id))) {
-          pEntry.folderIdsSeen.push(Number(f.folder_id));
-          pEntry.folderList.push(f);
-        }
-      }
+      mergePinIntoMap(pinMap, row, 'active_serp');
     }
 
-    // 6. Process Processed Pins & Extract N-Grams
+    // Merge Displaced Vault Surges (top 250) into unified surge pool
+    for (const vp of vaultPins) {
+      mergePinIntoMap(pinMap, vp, 'vault_surge');
+    }
+
+    // Merge Creator Viral Pins (top 150) into unified surge pool
+    for (const cp of (creatorViralRows || [])) {
+      mergePinIntoMap(pinMap, cp, 'creator_feed');
+    }
+
+    // 6. Process Merged Pins, Compute Unified 24h Velocity & Extract N-Grams
     const allActivePins = [];
     let totalSavesVelocity = 0;
     let totalRepinsDelta = 0;
@@ -683,7 +865,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     let freshRocketCount = 0;
     let bridgePinsCount = 0;
 
-    // N-Gram mining storage (using array kwIds to eliminate Set allocation overhead)
+    // N-Gram mining storage
     const singleTagMap = new Map();
     const boardStatsMap = new Map();
     const colorStatsMap = new Map();
@@ -711,42 +893,62 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       const isFresh14d = pinAgeDays !== null ? (pinAgeDays <= 14) : false;
       const isFresh30d = pinAgeDays !== null ? (pinAgeDays <= 30) : false;
 
-      // Windowed Momentum Calculation
-      let effectiveMomentum = p.daily_save_velocity;
-      if (windowParam === '5d') effectiveMomentum = p.gains_5d;
-      else if (windowParam === '7d') effectiveMomentum = p.gains_7d;
-      else if (windowParam === '15d') effectiveMomentum = p.gains_15d;
-      else effectiveMomentum = p.daily_save_velocity + (p.delta_repins_24h * 0.5);
+      // Unified 24h Velocity & Effective Gain [Fix 2.1 SSOT: Math.max()]
+      const effectiveSaves24h = Math.max(
+        safeNum(p.daily_save_velocity),
+        safeNum(p.delta_saves_24h)
+      );
+      const effectiveRepins24h = Math.max(0, safeNum(p.delta_repins_24h));
+      const effective24hGain = Math.max(effectiveSaves24h, effectiveRepins24h);
+      p.effective_24h_gain = effective24hGain;
 
-      const dailyAvg7d = Math.max(1, p.gains_7d / 7);
-      const accelerationRatio = Number((p.daily_save_velocity / dailyAvg7d).toFixed(2));
+      // Windowed Momentum Calculation (never suppressed to 0 if 24h deltas are positive)
+      let effectiveMomentum = effective24hGain;
+      if (windowParam === '5d') effectiveMomentum = Math.max(effective24hGain, safeNum(p.gains_5d));
+      else if (windowParam === '7d') effectiveMomentum = Math.max(effective24hGain, safeNum(p.gains_7d));
+      else if (windowParam === '15d') effectiveMomentum = Math.max(effective24hGain, safeNum(p.gains_15d));
+      else effectiveMomentum = Math.max(safeNum(p.daily_save_velocity) + (safeNum(p.delta_repins_24h) * 0.5), effective24hGain);
+
+      const dailyAvg7d = Math.max(1, safeNum(p.gains_7d) / 7);
+      const accelerationRatio = Number(((effective24hGain || safeNum(p.daily_save_velocity)) / dailyAvg7d).toFixed(2));
       const isAccelerating = accelerationRatio >= 1.5;
 
-      const urlLeverageRatio = (p.url_global_saves > 0 && p.save_count > 0)
-        ? Number((p.url_global_saves / p.save_count).toFixed(2))
+      const urlLeverageRatio = (safeNum(p.url_global_saves) > 0 && safeNum(p.save_count) > 0)
+        ? Number((safeNum(p.url_global_saves) / safeNum(p.save_count)).toFixed(2))
         : 1.0;
+
+      // True Domainless Viral Pins: true ONLY when no authentic external domain [Fix 2.5 SSOT]
+      const isDomainless = Boolean(
+        !p.domain ||
+        p.domain === 'Uploaded by user' ||
+        p.domain.includes('pinterest.') ||
+        !p.destination_url
+      );
+      p.is_domainless_viral = isDomainless;
 
       // Vacuum Target Check
       let isVacuumHijackTarget = false;
       for (const kw of p.keywords) {
         const vInfo = vacuumKwMap.get(kw.keyword_id);
         if (vInfo && vInfo.displaced_top10_24h_count > 0) {
-          if (bestRank != null && (bestRank <= 15 || p.daily_save_velocity > 0 || rankClimb24h > 0)) {
+          if (bestRank != null && (bestRank <= 15 || effective24hGain > 0 || rankClimb24h > 0)) {
             isVacuumHijackTarget = true;
             break;
           }
         }
       }
 
-      totalSavesVelocity += p.daily_save_velocity;
-      totalRepinsDelta += p.delta_repins_24h;
-      if (p.daily_save_velocity > 0 || p.delta_repins_24h > 0) pinsGainingCount++;
-      if (isFresh14d && (p.daily_save_velocity > 0 || p.delta_repins_24h > 0)) freshRocketCount++;
+      totalSavesVelocity += safeNum(p.daily_save_velocity);
+      totalRepinsDelta += safeNum(p.delta_repins_24h);
+      if (effective24hGain > 0 || safeNum(p.daily_save_velocity) > 0 || safeNum(p.delta_repins_24h) > 0) pinsGainingCount++;
+      if (isFresh14d && (effective24hGain > 0 || safeNum(p.daily_save_velocity) > 0 || safeNum(p.delta_repins_24h) > 0)) freshRocketCount++;
 
       // Clean annotations extraction
-      const cleanAnnotations = extractCleanAnnotations(p.visual_annotations);
+      const cleanAnnotations = (p.cleanAnnotations && p.cleanAnnotations.length > 0)
+        ? p.cleanAnnotations
+        : extractCleanAnnotations(p.visual_annotations || p.annotations || []);
 
-      // Augment p in-place to avoid reallocating full pin objects for thousands of items
+      // Augment p in-place
       p.pin_age_days = pinAgeDays;
       p.is_fresh_14d = isFresh14d;
       p.is_fresh_30d = isFresh30d;
@@ -776,18 +978,24 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
             pin_count: 0,
             kwIds: [],
             total_velocity: 0,
+            total_24h_gain: 0,
             total_saves: 0,
             total_repins_delta: 0,
-            sample_pins: []
+            sample_pins: [],
+            matchingPinsMap: new Map()
           };
           singleTagMap.set(tag.norm, st);
         }
         st.pin_count++;
         st.total_velocity += p.daily_save_velocity;
+        st.total_24h_gain += effective24hGain;
         st.total_saves += p.save_count;
         st.total_repins_delta += p.delta_repins_24h;
         for (const kw of p.keywords) {
           if (!st.kwIds.includes(kw.keyword_id)) st.kwIds.push(kw.keyword_id);
+        }
+        if (!st.matchingPinsMap.has(p.pin_id)) {
+          st.matchingPinsMap.set(p.pin_id, p);
         }
         if (st.sample_pins.length < 2) {
           st.sample_pins.push({
@@ -831,11 +1039,18 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       if (colorHex) {
         let cEntry = colorStatsMap.get(colorHex);
         if (!cEntry) {
-          cEntry = { color: colorHex, pin_count: 0, total_velocity: 0 };
+          cEntry = { color: colorHex, pin_count: 0, total_velocity: 0, sample_pins: [] };
           colorStatsMap.set(colorHex, cEntry);
         }
         cEntry.pin_count++;
         cEntry.total_velocity += p.daily_save_velocity;
+        if (cEntry.sample_pins.length < 4) {
+          cEntry.sample_pins.push({
+            pin_id: p.pin_id,
+            title: p.title,
+            image_url: p.image_url
+          });
+        }
       }
 
       // Creation Method Telemetry
@@ -849,8 +1064,11 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       cmEntry.total_velocity += p.daily_save_velocity;
     }
 
-    // Sort All Active Pins by Momentum
+    // Sort All Active Pins by Unified 24h Gain then Momentum
     allActivePins.sort((a, b) => {
+      if (b.effective_24h_gain !== a.effective_24h_gain) {
+        return b.effective_24h_gain - a.effective_24h_gain;
+      }
       if (b.effective_24h_momentum !== a.effective_24h_momentum) {
         return b.effective_24h_momentum - a.effective_24h_momentum;
       }
@@ -860,9 +1078,35 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       return b.save_count - a.save_count;
     });
 
-    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining
-    // Mining on top 150 momentum pins prevents V8 isolate heap explosion (capping iterations to ~18,000 instead of 460,000+)
-    const candidatePins = allActivePins.slice(0, 150);
+    // Optional D1 edge metadata hydration for top 250 pins missing description/alt_text
+    if (env?.PIN_D1_DB && allActivePins.length > 0) {
+      try {
+        const topPinsNeedingHydration = allActivePins
+          .slice(0, 250)
+          .filter(p => !p.description || !p.alt_text)
+          .map(p => p.pin_id);
+        if (topPinsNeedingHydration.length > 0) {
+          const d1Map = await hydratePinsFromD1(env, topPinsNeedingHydration);
+          if (d1Map && typeof d1Map.get === 'function') {
+            for (const p of allActivePins.slice(0, 250)) {
+              const d1 = d1Map.get(p.pin_id);
+              if (d1) {
+                if (!p.description && d1.description) p.description = d1.description;
+                if (!p.alt_text && (d1.alt_text || d1.seo_alt_text)) p.alt_text = d1.alt_text || d1.seo_alt_text;
+                if ((!p.cleanAnnotations || p.cleanAnnotations.length === 0) && d1.visual_annotations) {
+                  p.cleanAnnotations = extractCleanAnnotations(d1.visual_annotations);
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 500 surging pins)
+    const candidatePins = allActivePins
+      .filter(p => p.cleanAnnotations && p.cleanAnnotations.length > 0)
+      .slice(0, 500);
     const pairTagMap = new Map();
     const tripletTagMap = new Map();
 
@@ -888,18 +1132,24 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
               pin_count: 0,
               kwIds: [],
               total_velocity: 0,
+              total_24h_gain: 0,
               total_saves: 0,
               total_repins_delta: 0,
-              sample_pins: []
+              sample_pins: [],
+              matchingPinsMap: new Map()
             };
             pairTagMap.set(pairKey, pt);
           }
           pt.pin_count++;
           pt.total_velocity += p.daily_save_velocity;
+          pt.total_24h_gain += (p.effective_24h_gain || p.daily_save_velocity);
           pt.total_saves += p.save_count;
           pt.total_repins_delta += p.delta_repins_24h;
           for (const kw of p.keywords) {
             if (!pt.kwIds.includes(kw.keyword_id)) pt.kwIds.push(kw.keyword_id);
+          }
+          if (!pt.matchingPinsMap.has(p.pin_id)) {
+            pt.matchingPinsMap.set(p.pin_id, p);
           }
           if (pt.sample_pins.length < 2) {
             pt.sample_pins.push({
@@ -933,18 +1183,24 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
                 pin_count: 0,
                 kwIds: [],
                 total_velocity: 0,
+                total_24h_gain: 0,
                 total_saves: 0,
                 total_repins_delta: 0,
-                sample_pins: []
+                sample_pins: [],
+                matchingPinsMap: new Map()
               };
               tripletTagMap.set(tripKey, tt);
             }
             tt.pin_count++;
             tt.total_velocity += p.daily_save_velocity;
+            tt.total_24h_gain += (p.effective_24h_gain || p.daily_save_velocity);
             tt.total_saves += p.save_count;
             tt.total_repins_delta += p.delta_repins_24h;
             for (const kw of p.keywords) {
               if (!tt.kwIds.includes(kw.keyword_id)) tt.kwIds.push(kw.keyword_id);
+            }
+            if (!tt.matchingPinsMap.has(p.pin_id)) {
+              tt.matchingPinsMap.set(p.pin_id, p);
             }
             if (tt.sample_pins.length < 2) {
               tt.sample_pins.push({
@@ -959,153 +1215,227 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
     }
 
-    // Helper to format pin summary cleanly
-    const formatPinSummary = (p) => ({
-      pin_id: p.pin_id,
-      title: p.title,
-      domain: p.domain,
-      destination_url: p.destination_url,
-      image_url: p.image_url,
-      creator_username: p.creator_username,
-      board_name: p.board_name,
-      dominant_color: p.dominant_color,
-      save_count: p.save_count,
-      repin_count: p.repin_count,
-      daily_save_velocity: p.daily_save_velocity,
-      delta_repins_24h: p.delta_repins_24h,
-      gains_5d: p.gains_5d,
-      gains_7d: p.gains_7d,
-      gains_10d: p.gains_10d,
-      gains_15d: p.gains_15d,
-      url_global_saves: p.url_global_saves,
-      url_leverage_ratio: p.url_leverage_ratio,
-      pin_age_days: p.pin_age_days,
-      is_fresh_14d: p.is_fresh_14d,
-      is_fresh_30d: p.is_fresh_30d,
-      effective_24h_momentum: p.effective_24h_momentum,
-      acceleration_ratio: p.acceleration_ratio,
-      is_accelerating: p.is_accelerating,
-      overlap_count: p.overlap_count,
-      folder_overlap_count: p.folder_overlap_count,
-      best_rank: p.best_rank,
-      rank_climb_24h: p.rank_climb_24h,
-      is_vacuum_hijack_target: p.is_vacuum_hijack_target,
-      creation_method: p.creation_method,
-      created_at_pinterest: p.created_at_pinterest,
-      keyword_text: p.keyword_text || (p.keywords[0]?.keyword_text || ''),
-      keywords: p.keywords.slice(0, 3),
-      folders: p.folders.slice(0, 3),
-      visual_annotations: p.cleanAnnotations.slice(0, 8)
-    });
+    // Helper to format rich pin summary with dual aliasing and full dossier properties [Fix 2.2 SSOT]
+    const formatPinSummary = (p) => {
+      const cleanAnns = (p.cleanAnnotations && p.cleanAnnotations.length > 0)
+        ? p.cleanAnnotations
+        : extractCleanAnnotations(p.visual_annotations || p.annotations || []);
+      const annSlice = cleanAnns.slice(0, 12);
+      const effectiveSaves24h = Math.max(
+        safeNum(p.daily_save_velocity),
+        safeNum(p.delta_saves_24h)
+      );
+      const effectiveRepins24h = Math.max(0, safeNum(p.delta_repins_24h));
+      const effective24hGain = Number.isFinite(p.effective_24h_gain)
+        ? p.effective_24h_gain
+        : Math.max(effectiveSaves24h, effectiveRepins24h);
 
-    const breakoutPinsTop100 = allActivePins.slice(0, 100).map(formatPinSummary);
+      const isDomainless = Boolean(
+        !p.domain ||
+        p.domain === 'Uploaded by user' ||
+        p.domain.includes('pinterest.') ||
+        !p.destination_url
+      );
+
+      return {
+        pin_id: String(p.pin_id),
+        dossier_url: '/pin/' + encodeURIComponent(p.pin_id),
+        pinterest_url: 'https://www.pinterest.com/pin/' + encodeURIComponent(p.pin_id) + '/',
+        title: p.title || '',
+        description: (p.description || '').slice(0, 500),
+        alt_text: p.alt_text || '',
+        visual_annotations: annSlice,
+        annotations: annSlice, // Aliased to identical array [Fix 2.2 Gate 1 SSOT]
+        keywords: (p.keywords || []).slice(0, 10).map(k => ({
+          keyword_id: k.keyword_id,
+          keyword: k.keyword_text || '',
+          keyword_text: k.keyword_text || '',
+          rank: k.rank_position,
+          rank_position: k.rank_position,
+          folder_name: k.folder_name || ''
+        })),
+        domain: p.domain || '',
+        destination_url: p.destination_url || '',
+        image_url: p.image_url || '',
+        creator_username: p.creator_username || '',
+        board_name: p.board_name || '',
+        dominant_color: p.dominant_color || '#888888',
+        save_count: safeNum(p.save_count),
+        repin_count: safeNum(p.repin_count),
+        daily_save_velocity: safeNum(p.daily_save_velocity) > 0 ? safeNum(p.daily_save_velocity) : effectiveSaves24h,
+        delta_saves_24h: safeNum(p.delta_saves_24h),
+        delta_repins_24h: safeNum(p.delta_repins_24h),
+        effective_24h_gain: effective24hGain,
+        pin_age_days: p.pin_age_days ?? null,
+        is_fresh_14d: Boolean(p.is_fresh_14d),
+        is_fresh_30d: Boolean(p.is_fresh_30d),
+        is_fresh_breakout: Boolean(p.is_fresh_14d && effective24hGain > 0),
+        is_pixie_bridge: ((p.keywords && p.keywords.length) || 0) >= 2,
+        is_domainless_viral: isDomainless,
+        is_vacuum_keyword_pin: Boolean(p.is_vacuum_hijack_target),
+        sources: p.sources || ['active_serp'],
+        creation_method: p.creation_method || 'pinterest_platform',
+        created_at_pinterest: p.created_at_pinterest || null,
+
+        // Backward-compatibility keys
+        effective_24h_momentum: Number.isFinite(p.effective_24h_momentum) ? p.effective_24h_momentum : effective24hGain,
+        acceleration_ratio: safeNum(p.acceleration_ratio) || 1.0,
+        is_accelerating: Boolean(p.is_accelerating),
+        overlap_count: p.overlap_count ?? (p.keywords ? p.keywords.length : 0),
+        folder_overlap_count: p.folder_overlap_count ?? (p.folders ? p.folders.length : 0),
+        keyword_count: p.overlap_count ?? (p.keywords ? p.keywords.length : 0),
+        folder_count: p.folder_overlap_count ?? (p.folders ? p.folders.length : 0),
+        best_rank: p.best_rank ?? null,
+        rank_climb_24h: p.rank_climb_24h ?? 0,
+        url_global_saves: safeNum(p.url_global_saves),
+        url_leverage_ratio: safeNum(p.url_leverage_ratio) || 1.0,
+        folders: (p.folders || []).slice(0, 5),
+        keyword_text: p.keyword_text || (p.keywords && p.keywords[0] ? p.keywords[0].keyword_text : ''),
+        gains_5d: safeNum(p.gains_5d),
+        gains_7d: safeNum(p.gains_7d),
+        gains_10d: safeNum(p.gains_10d),
+        gains_15d: safeNum(p.gains_15d)
+      };
+    };
+
+    // Unified Breakout Pins Feed (Cap at 250 sorted by 24h Gain)
+    const breakoutPinsTop250 = allActivePins.slice(0, 250).map(formatPinSummary);
 
     const freshRocketPinsTop50 = allActivePins
-      .filter(p => p.is_fresh_14d && (p.daily_save_velocity > 0 || p.delta_repins_24h > 0))
-      .sort((a, b) => b.daily_save_velocity - a.daily_save_velocity)
+      .filter(p => p.is_fresh_14d && (p.effective_24h_gain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0))
+      .sort((a, b) => {
+        if (b.effective_24h_gain !== a.effective_24h_gain) return b.effective_24h_gain - a.effective_24h_gain;
+        return b.daily_save_velocity - a.daily_save_velocity;
+      })
       .slice(0, 50)
       .map(formatPinSummary);
 
-    // Section 3: Format N-Gram Crossovers
+    // Section 3: Format N-Gram Crossovers with Hard Support Floor (pin_count >= 2) [Fix 2.3 SSOT]
     const singleAnnotations = Array.from(singleTagMap.values())
-      .map(t => ({
-        label: t.tag_display,
-        display: t.tag_display,
-        tag_norm: t.tag_norm,
-        tag_display: t.tag_display,
-        count: t.pin_count,
-        pin_count: t.pin_count,
-        keywords_count: t.kwIds.length,
-        keyword_count: t.kwIds.length,
-        velocity: Number(t.total_velocity.toFixed(2)),
-        avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
-        total_velocity: Number(t.total_velocity.toFixed(2)),
-        repins_surge: t.total_repins_delta,
-        delta_repins: t.total_repins_delta,
-        total_repins_delta: t.total_repins_delta,
-        total_saves: t.total_saves,
-        sample_pins: t.sample_pins
-      }))
+      .map(t => {
+        const matchingPins = Array.from(t.matchingPinsMap?.values() || [])
+          .sort((a, b) => b.effective_24h_gain - a.effective_24h_gain)
+          .slice(0, 12)
+          .map(formatPinSummary);
+        return {
+          label: t.tag_display,
+          display: t.tag_display,
+          tag_norm: t.tag_norm,
+          tag_display: t.tag_display,
+          count: t.pin_count,
+          pin_count: t.pin_count,
+          keywords_count: t.kwIds.length,
+          keyword_count: t.kwIds.length,
+          total_24h_gain: Number((t.total_24h_gain != null ? t.total_24h_gain : t.total_velocity).toFixed(2)),
+          velocity: Number(t.total_velocity.toFixed(2)),
+          avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
+          total_velocity: Number(t.total_velocity.toFixed(2)),
+          repins_surge: t.total_repins_delta,
+          delta_repins: t.total_repins_delta,
+          total_repins_delta: t.total_repins_delta,
+          total_saves: t.total_saves,
+          matching_pins: matchingPins,
+          sample_pins: matchingPins.slice(0, 2)
+        };
+      })
       .sort((a, b) => {
-        if (b.total_velocity !== a.total_velocity) return b.total_velocity - a.total_velocity;
+        if (b.total_24h_gain !== a.total_24h_gain) return b.total_24h_gain - a.total_24h_gain;
         return b.pin_count - a.pin_count;
       })
       .slice(0, 50);
 
     const pairCrossovers = Array.from(pairTagMap.values())
-      .map(p => ({
-        label: p.crossover_label,
-        pair: p.crossover_label,
-        crossover_label: p.crossover_label,
-        tag_a_norm: p.tag_a_norm,
-        tag_a_display: p.tag_a_display,
-        tag_b_norm: p.tag_b_norm,
-        tag_b_display: p.tag_b_display,
-        count: p.pin_count,
-        pin_count: p.pin_count,
-        keywords_count: p.kwIds.length,
-        keyword_count: p.kwIds.length,
-        velocity: Number(p.total_velocity.toFixed(2)),
-        avg_velocity: p.pin_count > 0 ? Number((p.total_velocity / p.pin_count).toFixed(2)) : 0,
-        total_velocity: Number(p.total_velocity.toFixed(2)),
-        repins_surge: p.total_repins_delta,
-        delta_repins: p.total_repins_delta,
-        total_repins_delta: p.total_repins_delta,
-        total_saves: p.total_saves,
-        sample_pins: p.sample_pins
-      }))
+      .filter(p => p.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
+      .map(p => {
+        const matchingPins = Array.from(p.matchingPinsMap?.values() || [])
+          .sort((a, b) => b.effective_24h_gain - a.effective_24h_gain)
+          .slice(0, 12)
+          .map(formatPinSummary);
+        return {
+          label: p.crossover_label,
+          pair: p.crossover_label,
+          crossover_label: p.crossover_label,
+          tag_a_norm: p.tag_a_norm,
+          tag_a_display: p.tag_a_display,
+          tag_b_norm: p.tag_b_norm,
+          tag_b_display: p.tag_b_display,
+          count: p.pin_count,
+          pin_count: p.pin_count,
+          keywords_count: p.kwIds.length,
+          keyword_count: p.kwIds.length,
+          total_24h_gain: Number((p.total_24h_gain != null ? p.total_24h_gain : p.total_velocity).toFixed(2)),
+          velocity: Number(p.total_velocity.toFixed(2)),
+          avg_velocity: p.pin_count > 0 ? Number((p.total_velocity / p.pin_count).toFixed(2)) : 0,
+          total_velocity: Number(p.total_velocity.toFixed(2)),
+          repins_surge: p.total_repins_delta,
+          delta_repins: p.total_repins_delta,
+          total_repins_delta: p.total_repins_delta,
+          total_saves: p.total_saves,
+          matching_pins: matchingPins,
+          sample_pins: matchingPins.slice(0, 2)
+        };
+      })
       .sort((a, b) => {
-        if (b.total_velocity !== a.total_velocity) return b.total_velocity - a.total_velocity;
+        if (b.total_24h_gain !== a.total_24h_gain) return b.total_24h_gain - a.total_24h_gain;
         return b.pin_count - a.pin_count;
       })
       .slice(0, 50);
 
     const tripletCrossovers = Array.from(tripletTagMap.values())
-      .map(t => ({
-        label: t.crossover_label,
-        triplet: t.crossover_label,
-        crossover_label: t.crossover_label,
-        tag_a_norm: t.tag_a_norm,
-        tag_a_display: t.tag_a_display,
-        tag_b_norm: t.tag_b_norm,
-        tag_b_display: t.tag_b_display,
-        tag_c_norm: t.tag_c_norm,
-        tag_c_display: t.tag_c_display,
-        count: t.pin_count,
-        pin_count: t.pin_count,
-        keywords_count: t.kwIds.length,
-        keyword_count: t.kwIds.length,
-        velocity: Number(t.total_velocity.toFixed(2)),
-        avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
-        total_velocity: Number(t.total_velocity.toFixed(2)),
-        repins_surge: t.total_repins_delta,
-        delta_repins: t.total_repins_delta,
-        total_repins_delta: t.total_repins_delta,
-        total_saves: t.total_saves,
-        sample_pins: t.sample_pins
-      }))
+      .filter(t => t.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
+      .map(t => {
+        const matchingPins = Array.from(t.matchingPinsMap?.values() || [])
+          .sort((a, b) => b.effective_24h_gain - a.effective_24h_gain)
+          .slice(0, 12)
+          .map(formatPinSummary);
+        return {
+          label: t.crossover_label,
+          triplet: t.crossover_label,
+          crossover_label: t.crossover_label,
+          tag_a_norm: t.tag_a_norm,
+          tag_a_display: t.tag_a_display,
+          tag_b_norm: t.tag_b_norm,
+          tag_b_display: t.tag_b_display,
+          tag_c_norm: t.tag_c_norm,
+          tag_c_display: t.tag_c_display,
+          count: t.pin_count,
+          pin_count: t.pin_count,
+          keywords_count: t.kwIds.length,
+          keyword_count: t.kwIds.length,
+          total_24h_gain: Number((t.total_24h_gain != null ? t.total_24h_gain : t.total_velocity).toFixed(2)),
+          velocity: Number(t.total_velocity.toFixed(2)),
+          avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
+          total_velocity: Number(t.total_velocity.toFixed(2)),
+          repins_surge: t.total_repins_delta,
+          delta_repins: t.total_repins_delta,
+          total_repins_delta: t.total_repins_delta,
+          total_saves: t.total_saves,
+          matching_pins: matchingPins,
+          sample_pins: matchingPins.slice(0, 2)
+        };
+      })
       .sort((a, b) => {
-        if (b.total_velocity !== a.total_velocity) return b.total_velocity - a.total_velocity;
+        if (b.total_24h_gain !== a.total_24h_gain) return b.total_24h_gain - a.total_24h_gain;
         return b.pin_count - a.pin_count;
       })
       .slice(0, 50);
 
-    // Section 4: Group Guided Search Capsules Crossovers
+    // Section 4: Group Guided Search Capsules Crossovers (deduplicated by LOWER(TRIM(display_label)))
     const capsuleGroupMap = new Map();
     for (const c of guidedCapsuleRows) {
-      const termNorm = String(c.term || c.display_label || '').trim().toLowerCase();
-      if (!termNorm) continue;
-      let cg = capsuleGroupMap.get(termNorm);
+      const labelNorm = String(c.display_label || c.term || '').trim().toLowerCase();
+      if (!labelNorm) continue;
+      let cg = capsuleGroupMap.get(labelNorm);
       if (!cg) {
         cg = {
-          term: c.term,
-          display_label: c.display_label,
+          term: c.term || c.display_label,
+          display_label: c.display_label || c.term,
           dominant_color: c.dominant_color || '#3b82f6',
           max_score: Number(c.score || 0),
           kwIds: [],
           keywords: []
         };
-        capsuleGroupMap.set(termNorm, cg);
+        capsuleGroupMap.set(labelNorm, cg);
       }
       const kid = Number(c.keyword_id);
       if (!cg.kwIds.includes(kid)) {
@@ -1118,7 +1448,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           display_order: Number(c.display_order || 10)
         });
       }
-      if (Number(c.score || 0) > cg.max_score) cg.max_score = Number(c.score || 0);
+      if (safeNum(c.score) > cg.max_score) cg.max_score = safeNum(c.score);
     }
 
     let sharedCapsulesCount = 0;
@@ -1130,26 +1460,42 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         // Calculate cross-SERP 24h velocity from associated keywords
         let crossSerpVelocity = 0;
         let crossSerpPins = 0;
+        const kwIdSet = new Set(cg.kwIds);
         for (const kw of cg.keywords) {
           const stats = keywordPinStats.get(kw.keyword_id);
           if (stats) {
-            crossSerpVelocity += stats.total_velocity;
-            crossSerpPins += stats.active_pins_count;
+            crossSerpVelocity += safeNum(stats.total_velocity);
+            crossSerpPins += safeNum(stats.active_pins_count);
           }
         }
+
+        // Attach top 8 surging matching pins for this capsule intent
+        const targetLabelNorm = (cg.display_label || cg.term || '').toLowerCase();
+        const matchingPins = allActivePins
+          .filter(p => {
+            const inKw = p.keywords.some(k => kwIdSet.has(k.keyword_id));
+            if (inKw) return true;
+            if (p.cleanAnnotations && p.cleanAnnotations.some(a => a.norm.includes(targetLabelNorm) || targetLabelNorm.includes(a.norm))) return true;
+            if (p.title && p.title.toLowerCase().includes(targetLabelNorm)) return true;
+            return false;
+          })
+          .slice(0, 8)
+          .map(formatPinSummary);
 
         return {
           term: cg.term,
           display_label: cg.display_label,
           dominant_color: cg.dominant_color,
-          score: Number(cg.max_score.toFixed(2)),
-          max_score: Number(cg.max_score.toFixed(2)),
+          score: Number(safeNum(cg.max_score).toFixed(2)),
+          max_score: Number(safeNum(cg.max_score).toFixed(2)),
           keyword_text: cg.keywords[0]?.keyword_text || '',
           distinct_keywords: keywordCount,
           keyword_count: keywordCount,
-          cross_serp_velocity: Number(crossSerpVelocity.toFixed(2)),
+          cross_serp_velocity: Number(safeNum(crossSerpVelocity).toFixed(2)),
           cross_serp_pins: crossSerpPins,
-          keywords: cg.keywords.slice(0, 4)
+          keywords: cg.keywords.slice(0, 4),
+          matching_pins: matchingPins,
+          sample_pins: matchingPins.slice(0, 2)
         };
       })
       .sort((a, b) => {
@@ -1159,11 +1505,19 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       })
       .slice(0, 50);
 
-    // Section 5: Creator Breakouts with Snapshot Delta Fallbacks
+    // Section 5: Creator Breakouts (Strictly positive growth only + David Accounts boundary fix) [Fix 2.5 SSOT]
     let breakoutCreatorsCount = 0;
     const creatorBreakouts = creatorBreakoutRows
       .filter(cp => {
-        if (minAudience > 0 && Number(cp.monthly_reach || 0) < minAudience) return false;
+        const reach = Number(cp.monthly_reach || 0);
+        if (minAudience > 0 && reach < minAudience) return false;
+        const deltaReach = Number(cp.effective_delta_reach_24h || cp.delta_reach_24h || 0);
+        const deltaViews = Number(cp.effective_delta_views_24h || cp.delta_views_24h || 0);
+        const driverPins = Array.isArray(cp.driver_pins) ? cp.driver_pins : [];
+        const maxPinVel = driverPins.reduce((max, dp) => Math.max(max, Number(dp.daily_save_velocity || dp.delta_saves_24h || 0)), 0);
+
+        // Strictly positive growth: eliminate negative drop accounts (-346,814) and stagnant zero accounts
+        if (deltaReach <= 0 && deltaViews <= 0 && maxPinVel <= 0) return false;
         return true;
       })
       .map(cp => {
@@ -1178,16 +1532,29 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
         if (deltaReach > 0 || deltaViews > 0) breakoutCreatorsCount++;
 
+        // Filter driver pins for valid non-empty images
+        const rawDriverPins = (Array.isArray(cp.driver_pins) ? cp.driver_pins : [])
+          .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0)
+          .map(dp => ({
+            ...dp,
+            dossier_url: '/pin/' + encodeURIComponent(dp.pin_id),
+            daily_save_velocity: Number(dp.daily_save_velocity || 0),
+            delta_saves_24h: Number(dp.delta_saves_24h || 0),
+            save_count: Number(dp.save_count || 0),
+            repin_count: Number(dp.repin_count || 0)
+          }));
+
+        const maxPinVel = rawDriverPins.reduce((max, dp) => Math.max(max, dp.daily_save_velocity || dp.delta_saves_24h || 0), 0);
         const audiencePerPin = totalPins > 0 ? Math.round(reach / totalPins) : 0;
-        const isDavidBreakout = (totalPins <= 150 || followers <= 2500) && (deltaReach >= 10000 || reach >= 50000);
+
+        // Fix 2.5: require totalPins > 0 && totalPins <= 250 && reach <= 500000 && positive delta
+        const isDavidBreakout = totalPins > 0 && totalPins <= 250 && reach <= 500000 && (deltaReach >= 1000 || deltaViews >= 5000 || maxPinVel >= 20);
 
         let milestoneTier = 'Emerging';
         if (reach >= 10_000_000) milestoneTier = 'Titan (10M+)';
         else if (reach >= 1_000_000) milestoneTier = 'Whale (1M+)';
         else if (reach >= 250_000) milestoneTier = 'Established (250K+)';
         else if (reach >= 50_000) milestoneTier = 'Growth (50K+)';
-
-        const driverPins = Array.isArray(cp.driver_pins) ? cp.driver_pins : [];
 
         return {
           id: cp.id,
@@ -1209,38 +1576,32 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           last_synced_at: cp.last_synced_at,
           audience_per_pin: audiencePerPin,
           is_david_breakout: isDavidBreakout,
+          is_david_account: isDavidBreakout,
           milestone_tier: milestoneTier,
-          driver_pins: driverPins
+          driver_pins: rawDriverPins
         };
+      })
+      .sort((a, b) => {
+        const aGain = Math.max(a.effective_delta_reach_24h, a.effective_delta_views_24h);
+        const bGain = Math.max(b.effective_delta_reach_24h, b.effective_delta_views_24h);
+        if (bGain !== aGain) return bGain - aGain;
+        return b.monthly_reach - a.monthly_reach;
       })
       .slice(0, 40);
 
-    // Section 6: Keyword Vacuums & Multi-Keyword Pixie Bridges
+    // Section 6: Keyword Vacuums & Multi-Keyword Pixie Bridges (prioritizing actively surging pins) [Fix 2.5 SSOT]
     const bridgePins = allActivePins
       .filter(p => p.overlap_count >= 2)
-      .map(p => ({
-        pin_id: p.pin_id,
-        title: p.title,
-        image_url: p.image_url,
-        domain: p.domain,
-        creator_username: p.creator_username,
-        board_name: p.board_name,
-        dominant_color: p.dominant_color,
-        save_count: p.save_count,
-        daily_save_velocity: p.daily_save_velocity,
-        delta_repins_24h: p.delta_repins_24h,
-        keyword_count: p.overlap_count,
-        keywords: p.keywords.slice(0, 3),
-        folder_count: p.folder_overlap_count,
-        folders: p.folders.slice(0, 3),
-        bridge_score: Number((p.overlap_count * Math.max(1, p.daily_save_velocity)).toFixed(2))
-      }))
+      .map(formatPinSummary)
       .sort((a, b) => {
+        const aSurging = (a.effective_24h_gain > 0) ? 1 : 0;
+        const bSurging = (b.effective_24h_gain > 0) ? 1 : 0;
+        if (bSurging !== aSurging) return bSurging - aSurging;
+        if (b.effective_24h_gain !== a.effective_24h_gain) return b.effective_24h_gain - a.effective_24h_gain;
         if (b.keyword_count !== a.keyword_count) return b.keyword_count - a.keyword_count;
-        if (b.bridge_score !== a.bridge_score) return b.bridge_score - a.bridge_score;
-        return b.daily_save_velocity - a.daily_save_velocity;
+        return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
       })
-      .slice(0, 40);
+      .slice(0, 60);
 
     let totalVacuumTop10_24h = 0;
     const keywordVacuumOpportunities = Array.from(vacuumKwMap.values())
@@ -1269,8 +1630,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           displaced_top10_24h_count: top10_24h,
           displaced_top10_7d_count: top10_7d,
           active_pins_count: kwStats.active_pins_count,
-          avg_velocity: kwStats.active_pins_count > 0 ? Number((kwStats.total_velocity / kwStats.active_pins_count).toFixed(2)) : 0,
-          top_pin: kwStats.top_pin,
+          avg_velocity: kwStats.active_pins_count > 0 ? Number((safeNum(kwStats.total_velocity) / kwStats.active_pins_count).toFixed(2)) : 0,
+          top_pin: kwStats.top_pin ? {
+            ...kwStats.top_pin,
+            save_count: safeNum(kwStats.top_pin.save_count),
+            daily_save_velocity: safeNum(kwStats.top_pin.daily_save_velocity)
+          } : null,
           vacuum_score: vacuumScore,
           urgency
         };
@@ -1301,10 +1666,22 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const vacuumHijackPins = allActivePins
       .filter(p => p.is_vacuum_hijack_target)
       .sort((a, b) => {
+        if (b.effective_24h_gain !== a.effective_24h_gain) return b.effective_24h_gain - a.effective_24h_gain;
         if (b.daily_save_velocity !== a.daily_save_velocity) return b.daily_save_velocity - a.daily_save_velocity;
         return (a.best_rank || 99) - (b.best_rank || 99);
       })
-      .slice(0, 40);
+      .slice(0, 40)
+      .map(formatPinSummary);
+
+    // True Domainless Viral Pins (no external website domain) [Fix 2.5 SSOT]
+    const domainlessViralPins = allActivePins
+      .filter(p => p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100))
+      .sort((a, b) => {
+        if (b.effective_24h_gain !== a.effective_24h_gain) return b.effective_24h_gain - a.effective_24h_gain;
+        return b.save_count - a.save_count;
+      })
+      .slice(0, 40)
+      .map(formatPinSummary);
 
     const totalActivePinsCount = allActivePins.length;
     const creationMethodBreakdown = Array.from(creationMethodMap.values())
@@ -1316,12 +1693,16 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }))
       .sort((a, b) => b.pin_count - a.pin_count);
 
+    // Dominant Color Palette exporting both pin_count and count: pin_count [Fix 2.5 SSOT]
     const dominantColorPalette = Array.from(colorStatsMap.values())
       .map(c => ({
         color: c.color,
         pin_count: c.pin_count,
+        count: c.pin_count, // Dual export: pin_count AND count
+        frequency: c.pin_count,
         total_velocity: Number(c.total_velocity.toFixed(2)),
-        avg_velocity: c.pin_count > 0 ? Number((c.total_velocity / c.pin_count).toFixed(2)) : 0
+        avg_velocity: c.pin_count > 0 ? Number((c.total_velocity / c.pin_count).toFixed(2)) : 0,
+        sample_pins: c.sample_pins || []
       }))
       .sort((a, b) => b.total_velocity - a.total_velocity)
       .slice(0, 12);
@@ -1362,9 +1743,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         min_audience: minAudience
       },
       kpis,
-      breakout_pins: breakoutPinsTop100,
+      breakout_pins: breakoutPinsTop250,
       fresh_rocket_pins: freshRocketPinsTop50,
-      vault_surge_pins: vaultPins,
+      vault_surge_pins: vaultPins.map(formatPinSummary),
       pinarchive_winners: paWinners.map(p => ({
         ...p,
         saves: Number(p.saves || 0),
@@ -1387,6 +1768,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       hidden_gems_telemetry: {
         winning_boards: winningBoards,
         vacuum_hijack_pins: vacuumHijackPins,
+        domainless_viral_pins: domainlessViralPins,
         creation_method_breakdown: creationMethodBreakdown,
         dominant_color_palette: dominantColorPalette,
         top_arbitrage_domains: topArbitrageDomains
