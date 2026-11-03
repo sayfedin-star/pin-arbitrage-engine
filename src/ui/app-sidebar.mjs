@@ -15,6 +15,7 @@ export function renderAppSidebar({
   refreshHandler = 'window.location.reload()'
 } = {}) {
   const isOverview = activeNav === 'overview';
+  const isPulse = activeNav === 'pulse' || activeNav === '24h';
   const isCreators = activeNav === 'creators';
   const isKeywords = activeNav === 'keywords';
   const isDomains = activeNav === 'domains';
@@ -26,6 +27,7 @@ export function renderAppSidebar({
   const activeClass = 'bg-rose-50/80 dark:bg-[#18181B] text-rose-600 dark:text-rose-400 font-semibold border border-rose-200/80 dark:border-rose-500/30 shadow-xs';
 
   const overviewActive = isOverview ? activeClass : inactiveClass;
+  const pulseActive = isPulse ? activeClass : inactiveClass;
   const creatorsActive = isCreators ? activeClass : inactiveClass;
   const keywordsActive = isKeywords ? activeClass : inactiveClass;
   const domainsActive = isDomains ? activeClass : inactiveClass;
@@ -111,6 +113,15 @@ export function renderAppSidebar({
             <span>Overview & Hub</span>
           </div>
           <span class="${isOverview ? badgeActive : badgeInactive}">Home</span>
+        </a>
+
+        <!-- 24h Pulse Studio -->
+        <a href="/pulse" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="activity" class="w-4 h-4 shrink-0 ${isPulse ? iconActive : iconInactive}"></i>
+            <span>24h Pulse Studio</span>
+          </div>
+          <span class="${isPulse ? badgeActive : badgeInactive}">Live</span>
         </a>
 
         <!-- Creator Hub -->
@@ -261,6 +272,20 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed" class="${isOverview ? badgeActive : badgeInactive}">Home</span>
           ${isOverview ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+        </a>
+
+        <!-- 24h Pulse Studio (/pulse) -->
+        <a 
+          href="/pulse" 
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="24h Pulse Studio">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="activity" class="w-4 h-4 shrink-0 ${isPulse ? iconActive : iconInactive}"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">24h Pulse Studio</span>
+          </div>
+          <span x-show="!isSidebarCollapsed" class="${isPulse ? badgeActive : badgeInactive}">Live</span>
+          ${isPulse ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
         <!-- Creator Hub (/accounts) -->

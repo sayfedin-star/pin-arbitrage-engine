@@ -71,6 +71,8 @@ import {
   evictKeywordsCatalogFromD1 as d1EvictKeywordsCatalog
 } from '../modules/keywords/d1-metadata.mjs';
 
+import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
+
 /**
  * Bumps the global fleet cache epoch in Workers KV to invalidate edge caches across all PoPs
  */
@@ -430,6 +432,10 @@ export async function handleKeywordsRoutes({
       skip_top_enrich: true,
       env
     });
+
+    if (res?.success) {
+      invalidateGlobalPulseCache(env, ctx).catch(() => {});
+    }
 
     // [INVARIANT: EDGE-ONLY-SERP-DISCOVERY]
     // Table row re-crawls and synchronous SERP queries are strictly edge-only (< 2s).

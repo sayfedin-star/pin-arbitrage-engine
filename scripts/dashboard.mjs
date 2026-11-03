@@ -23,6 +23,8 @@ import { getDomainsPageHtml } from '../src/domains-ui.mjs';
 import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
+import { getPulsePageHtml } from '../src/pulse-ui.mjs';
+import { getGlobal24hPulseService, synthesizePinBlueprint } from '../src/modules/pulse/service.mjs';
 import { isPinsRoute, handlePinsRoutes } from '../src/routes/pins.mjs';
 import {
   listDomainsIntelligence,
@@ -2994,6 +2996,68 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 7C. GET /api/pulse/24h -> Global 24-Hour Algorithmic Pulse Telemetry
+    if (pathname === '/api/pulse/24h' || pathname === '/api/pulse/24h/') {
+      if (method !== 'GET' && method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'application/json', 'Allow': 'GET, HEAD, OPTIONS' });
+        return res.end(JSON.stringify({ error: 'Method Not Allowed', allowed: 'GET, HEAD, OPTIONS' }));
+      }
+      if (method === 'HEAD') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end();
+      }
+      try {
+        const folderId = searchParams.get('folder_id') || searchParams.get('folderId') || '';
+        const windowParam = searchParams.get('window') || '24h';
+        const forceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+        const minAudience = Number(searchParams.get('min_audience') || searchParams.get('minAudience') || 0);
+
+        const data = await getGlobal24hPulseService(sql, process.env, {
+          folderId,
+          window: windowParam,
+          forceRefresh,
+          minAudience
+        });
+
+        return sendJson(res, 200, data);
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    // 7D. GET /api/pulse/blueprint -> One-Click 5-Source Scientific Pin Blueprint
+    if (pathname === '/api/pulse/blueprint' || pathname === '/api/pulse/blueprint/') {
+      if (method !== 'GET' && method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'application/json', 'Allow': 'GET, HEAD, OPTIONS' });
+        return res.end(JSON.stringify({ error: 'Method Not Allowed', allowed: 'GET, HEAD, OPTIONS' }));
+      }
+      if (method === 'HEAD') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end();
+      }
+      try {
+        const pinId = searchParams.get('pin_id') || searchParams.get('id') || '';
+        if (!pinId) {
+          return sendJson(res, 400, { success: false, error: 'pin_id query parameter is required' });
+        }
+        const folderId = searchParams.get('folder_id') || searchParams.get('folderId') || '';
+        const windowParam = searchParams.get('window') || '24h';
+
+        const pulseData = await getGlobal24hPulseService(sql, process.env, {
+          folderId,
+          window: windowParam
+        });
+
+        const blueprint = synthesizePinBlueprint(pinId, pulseData);
+        if (!blueprint) {
+          return sendJson(res, 404, { success: false, error: 'Blueprint could not be synthesized for this pin' });
+        }
+        return sendJson(res, 200, { success: true, blueprint });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
     // 8. GET or HEAD /keywords/discovery or /discovery -> Dedicated Keyword Discovery Hub
     if ((method === 'GET' || method === 'HEAD') && (
       pathname === '/keywords/discovery' ||
@@ -3036,10 +3100,23 @@ const server = http.createServer(async (req, res) => {
       } else if (room === 'settings') {
         // Room 5: /folders/:id/settings -> Campaign Folder Settings & Smart Bulk Pin Pruning
         html = getCampaignFoldersPageHtml(folderId, 'settings');
+      } else if (room === 'pulse' || room === '24h') {
+        // Room 6: /folders/:id/pulse -> Scoped 24h Pulse Radar
+        html = getPulsePageHtml(folderId);
       } else {
         html = getCampaignFoldersPageHtml(folderId);
       }
 
+      return sendHtml(res, method, html);
+    }
+
+    // 8C. GET or HEAD /pulse or /24h -> Global 24-Hour Algorithmic Pulse & Crossover Studio
+    if (pathname === '/pulse' || pathname === '/pulse/' || pathname === '/24h' || pathname === '/24h/') {
+      if (method !== 'GET' && method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'application/json', 'Allow': 'GET, HEAD, OPTIONS' });
+        return res.end(JSON.stringify({ error: 'Method Not Allowed', allowed: 'GET, HEAD, OPTIONS' }));
+      }
+      const html = getPulsePageHtml('');
       return sendHtml(res, method, html);
     }
 

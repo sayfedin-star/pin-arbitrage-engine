@@ -32,11 +32,14 @@ import {
   getDiscoveryTypeaheadService
 } from '../modules/cluster/service.mjs';
 
+import { getGlobal24hPulseService } from '../modules/pulse/service.mjs';
+
 /**
  * Fast URI discriminator for Cluster & Discovery routes
  */
 export function isClusterRoute(pathname) {
-  return pathname === '/api/overview' ||
+  return pathname === '/api/pulse/24h' ||
+    pathname === '/api/overview' ||
     pathname === '/api/seeds' ||
     pathname.startsWith('/api/seeds/') ||
     pathname === '/api/candidates' ||
@@ -74,6 +77,35 @@ export async function handleClusterRoutes({
   getPinKvKeysToEvict,
   redactSecrets
 }) {
+  // 0. /api/pulse/24h (Global 24-Hour Algorithmic Pulse & Crossover Matrix)
+  if (pathname === '/api/pulse/24h') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const folderId = searchParams.get('folder_id') || searchParams.get('folderId') || '';
+    const windowParam = searchParams.get('window') || '24h';
+    const forceRefresh = searchParams.get('force_refresh') === 'true' || searchParams.get('refresh') === 'true';
+    const minAudience = Number(searchParams.get('min_audience') || searchParams.get('minAudience') || 0);
+
+    try {
+      const payload = await getGlobal24hPulseService(targetSql, env, {
+        folderId,
+        window: windowParam,
+        forceRefresh,
+        minAudience,
+        ctx
+      });
+      return jsonResponse(payload, 200, 10);
+    } catch (err) {
+      console.error('[Pulse 24h Route Error]', err.message);
+      return jsonResponse({
+        success: false,
+        error: 'PULSE_SERVICE_ERROR',
+        message: redactSecrets ? redactSecrets(err.message) : err.message
+      }, 500);
+    }
+  }
+
   // 1. GET /api/overview
   if (method === 'GET' && pathname === '/api/overview') {
     const cacheKey = buildCanonicalCacheKey('api:overview', {});

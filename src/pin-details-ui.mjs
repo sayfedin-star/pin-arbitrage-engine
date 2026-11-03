@@ -280,6 +280,16 @@ export function getPinDetailPageHtml(pinId = '') {
         <span class="hidden sm:inline">Purge Pin</span>
       </button>
 
+      <!-- 24h Pulse Radar Quick Link -->
+      <a 
+        href="/pulse" 
+        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold transition"
+        title="Open 24h Algorithmic Pulse & Crossover Radar"
+      >
+        <span>⚡</span>
+        <span class="hidden sm:inline">24h Pulse Radar</span>
+      </a>
+
       <!-- Open External Pinterest -->
       <a 
         :href="'https://www.pinterest.com/pin/' + pinId + '/'" 

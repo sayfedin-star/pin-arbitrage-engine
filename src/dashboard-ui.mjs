@@ -252,6 +252,15 @@ export function getDashboardHtml(folderId = '') {
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
         </button>
+
+        <!-- 24h Pulse Studio (/pulse) -->
+        <a href="/pulse" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="activity" class="w-4 h-4 shrink-0 text-rose-500"></i>
+            <span>24h Pulse Studio</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">Live</span>
+        </a>
       </nav>
 
       <!-- Mobile Drawer Footer -->
@@ -440,6 +449,19 @@ export function getDashboardHtml(folderId = '') {
           </div>
           <span x-show="isSidebarCollapsed && (seeds.length > 0 || intersections.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
         </button>
+
+        <!-- 24h Pulse Studio (/pulse) -->
+        <a 
+          href="/pulse" 
+          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="24h Pulse Studio">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="activity" class="w-4 h-4 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">24h Pulse Studio</span>
+          </div>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">Live</span>
+        </a>
       </nav>
     </div>
 
@@ -1013,6 +1035,31 @@ export function getDashboardHtml(folderId = '') {
           <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-2xs cursor-pointer" title="Refresh All Data">
             <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
           </button>
+        </div>
+      </div>
+
+      <!-- Global 24-Hour Algorithmic Pulse & Crossover Command Banner [INVARIANT: 24H-PULSE-COMMAND-BANNER] -->
+      <div class="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-rose-950/20 via-purple-950/20 to-slate-900/40 border border-rose-500/30 dark:border-rose-500/20 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div class="flex items-start sm:items-center space-x-3.5">
+          <div class="h-11 w-11 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 text-white flex items-center justify-center shadow-md shadow-rose-900/30 shrink-0">
+            <i data-lucide="activity" class="w-6 h-6"></i>
+          </div>
+          <div class="space-y-0.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">Global 24-Hour Algorithmic Pulse &amp; Crossover Studio</span>
+              <span class="px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">Live Telemetry</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">
+              Real-time multi-keyword SERP breakout momentum, 1/2/3-gram annotation matrix, guided search capsules &amp; scientific pin blueprints.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <a href="/pulse" class="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-2 shadow-sm shadow-rose-950/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+            <span>Launch 24h Pulse Studio →</span>
+          </a>
         </div>
       </div>
 

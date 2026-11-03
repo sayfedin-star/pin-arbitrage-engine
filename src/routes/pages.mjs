@@ -6,7 +6,7 @@
  * on mutative HTTP verbs (POST/PUT/DELETE) without requiring API authorization.
  * 
  * [INVARIANT: DYNAMIC-UI-LAZY-LOADING]
- * All 6 UI template modules are loaded lazily via dynamic await import() inside
+ * All 7 UI template modules are loaded lazily via dynamic await import() inside
  * handlePagesRoutes to eliminate 1.65 MB of cold-start V8 compilation overhead
  * on all /api/... requests and health checks.
  */
@@ -123,6 +123,28 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
+  // 4C. Level 5: 24-Hour Algorithmic Pulse & Crossover Studio (/pulse, /24h)
+  if (
+    pathLower === '/pulse' ||
+    pathLower === '/pulse/' ||
+    pathLower === '/24h' ||
+    pathLower === '/24h/' ||
+    pathLower.startsWith('/pulse/') ||
+    pathLower.startsWith('/24h/')
+  ) {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
+    const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+    return new Response(getPulsePageHtml(''), {
+      status: 200,
+      headers: HTML_HEADERS
+    });
+  }
+
   // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id) [CAP-07]
   if (pathLower.startsWith('/pins/') || pathLower.startsWith('/pin/')) {
     if (method !== 'GET' && method !== 'HEAD') {
@@ -234,6 +256,12 @@ export async function handlePagesRoutes(routeCtx) {
       return new Response(getCampaignFoldersPageHtml(folderId, 'settings'), { status: 200, headers: HTML_HEADERS });
     }
 
+    if (room === 'pulse' || room === '24h') {
+      // Room 6: /folders/:id/pulse -> Scoped 24h Pulse Radar
+      const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+      return new Response(getPulsePageHtml(folderId), { status: 200, headers: HTML_HEADERS });
+    }
+
     // Fallback to Room 1
     const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
     return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });
@@ -293,6 +321,14 @@ export async function handlePagesRoutes(routeCtx) {
         try { domain = decodeURIComponent(domain); } catch (_) {}
         const { getDomainsPageHtml } = await import('../domains-ui.mjs');
         return new Response(getDomainsPageHtml(domain), {
+          status: 200,
+          headers: HTML_HEADERS
+        });
+      }
+      if (slugLower === 'pulse' || slugLower === '24h') {
+        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+        return new Response(getPulsePageHtml(''), {
           status: 200,
           headers: HTML_HEADERS
         });

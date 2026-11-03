@@ -230,14 +230,14 @@ runTest('2.3 coalesceShardGroupsByPhysical handles edge cases defensively', () =
 // ============================================================================
 console.log('\n--- SUITE 3: AST Schema Parity & Column Validation ---');
 
-runTest('3.1 KNOWN_TABLE_COLUMNS contains url_global_saves on keyword_serp_current & universal_master_pins', () => {
+runTest('3.1 KNOWN_TABLE_COLUMNS contains url_global_saves on keyword_serp_current & NOT universal_master_pins', () => {
   assert.ok(
     KNOWN_TABLE_COLUMNS.keyword_serp_current.has('url_global_saves'),
     'KNOWN_TABLE_COLUMNS.keyword_serp_current must include url_global_saves'
   );
   assert.ok(
-    KNOWN_TABLE_COLUMNS.universal_master_pins.has('url_global_saves'),
-    'KNOWN_TABLE_COLUMNS.universal_master_pins must include url_global_saves'
+    !KNOWN_TABLE_COLUMNS.universal_master_pins.has('url_global_saves'),
+    'KNOWN_TABLE_COLUMNS.universal_master_pins must NOT include url_global_saves'
   );
   // Ensure tables without url_global_saves do NOT have it
   assert.ok(
@@ -369,13 +369,13 @@ runTest('3.2 SQL queries referencing url_global_saves pass AST validation cleanl
 
   const cleanSql2 = [
     'const q2 = sql`',
-    '  SELECT ump.pin_id, ump.title, ump.url_global_saves',
+    '  SELECT ump.pin_id, ump.title, ump.dominant_color',
     '  FROM universal_master_pins ump',
     '  WHERE ump.pin_id = ${pinId}',
     '`;'
   ].join('\n');
   const violations2 = auditSqlFragment(cleanSql2);
-  assert.strictEqual(violations2.length, 0, 'url_global_saves on universal_master_pins should have 0 violations');
+  assert.strictEqual(violations2.length, 0, 'valid columns on universal_master_pins should have 0 violations');
 
   const cleanSql3 = [
     'const q3 = sql`',
@@ -422,6 +422,15 @@ runTest('3.3 Non-existent hallucinated columns are strictly detected and rejecte
   ].join('\n');
   const violations3 = auditSqlFragment(badSql3);
   assert.ok(violations3.some(v => v.column === 'fantasy_column'), 'Must detect fantasy_column in EXCLUDED');
+
+  const badSql4 = [
+    'const q4 = sql`',
+    '  SELECT ump.pin_id, ump.url_global_saves',
+    '  FROM universal_master_pins ump',
+    '`;'
+  ].join('\n');
+  const violations4 = auditSqlFragment(badSql4);
+  assert.ok(violations4.some(v => v.column === 'url_global_saves'), 'Must detect url_global_saves on universal_master_pins as non-existent');
 });
 
 // ============================================================================

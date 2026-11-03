@@ -32,7 +32,7 @@ export const RESERVED_KEYWORD_SLUGS = new Set([
   'accounts', 'creators', 'creator', 'pinarchive', 'fleet', 'pin', 'pins', 'board', 'boards',
   'feed', 'search', 'topics', 'all-pins', 'winning-pins', 'links', 'overview',
   'dashboard', 'related-pins', 'related_pins', 'seeds', 'intersections', 'archive', 'explorer',
-  'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'assets', 'static'
+  'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'assets', 'static', 'pulse', '24h'
 ]);
 
 import { escapeSqlWildcards, maskDatabaseUrl } from './utils.mjs';

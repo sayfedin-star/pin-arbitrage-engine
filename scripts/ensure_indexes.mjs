@@ -161,7 +161,19 @@ async function optimizeIndexes() {
     WHERE link_domain IS NOT NULL;
   `.catch(err => console.warn('[Index Notice]', err.message));
 
-  console.log('[*] 13. Propagating core indexes across registered storage shards [CAP-21]...');
+  console.log('[*] 13. Ensuring 24h Pulse breakout and driver pin indexes [Round 14]...');
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ksc_velocity_breakout
+    ON keyword_serp_current(daily_save_velocity DESC, delta_repins_24h DESC)
+    WHERE (is_displaced = FALSE AND daily_save_velocity > 0);
+  `.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_cp_driver_pins
+    ON competitor_pins(competitor_id, save_count DESC)
+    WHERE is_deleted = FALSE;
+  `.catch(err => console.warn('[Index Notice]', err.message));
+
+  console.log('[*] 14. Propagating core indexes across registered storage shards [CAP-21]...');
   let shards = [];
   try {
     shards = await sql`

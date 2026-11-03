@@ -43,6 +43,8 @@ import {
   safeWaitUntil
 } from '../sharding/fleet-router.mjs';
 
+import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
+
 /**
  * Offloads crawled active pins and newly displaced pins directly to the 99 Neon Storage Shards
  * (universal_master_pins, pins_daily_metrics, pin_serp_positions, and pins_daily_snapshots)
@@ -2276,6 +2278,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         envObj.PIN_ENGINE_KV.delete(`displaced:kw:${kid}:250:0`)
       ]).catch(() => {});
     }
+
+    // Invalidate Global 24h Pulse Cache upon crawl completion
+    invalidateGlobalPulseCache(envObj, ctxObj).catch(() => {});
 
     return {
       success: true,

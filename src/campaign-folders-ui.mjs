@@ -183,6 +183,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
             <span>Discovery</span>
           </a>
+          <a href="/pulse" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition inline-flex items-center space-x-1.5 shadow-2xs" title="24h Algorithmic Pulse & Crossover Radar">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
+            <span>⚡ 24h Pulse Radar</span>
+          </a>
           <button @click="openNewFolderModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>
             <span>+ New Folder</span>
@@ -209,6 +213,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'(' + (activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster)'"></span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+          <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${safeFolderId}') + '/pulse'"
+             href="/folders/${safeFolderId}/pulse"
+             class="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+             title="View Scoped 24h Algorithmic Pulse & Crossover Radar">
+            <span>⚡</span>
+            <span>24h Pulse Radar</span>
+          </a>
           <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
             <span>🎯</span>
             <span>Content Blueprint</span>

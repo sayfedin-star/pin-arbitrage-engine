@@ -200,6 +200,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
             <span>Campaign Folders</span>
           </a>
+          <a href="/pulse" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition inline-flex items-center space-x-1.5 shadow-2xs" title="24h Algorithmic Pulse & Crossover Radar">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
+            <span>⚡ 24h Pulse Radar</span>
+          </a>
           <button @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(refreshingRollup || loading) ? 'animate-spin' : ''"></i>
             <span x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>

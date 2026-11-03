@@ -209,6 +209,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <span class="hidden sm:inline">Discovery</span>
             </a>
 
+            <!-- 24h Pulse Radar Quick Link -->
+            <a href="/pulse"
+               class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 border border-rose-500/20 text-rose-600 dark:text-rose-400 transition inline-flex items-center space-x-1.5 shadow-2xs"
+               title="24h Algorithmic Pulse & Crossover Radar">
+              <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
+              <span class="hidden sm:inline">⚡ 24h Pulse Radar</span>
+            </a>
+
             <!-- Campaign Folders Fleet Link (Level 4) -->
             <a href="/folders"
                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition inline-flex items-center space-x-1.5 shadow-2xs">

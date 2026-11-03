@@ -33,12 +33,14 @@ export function renderCampaignWorkspaceHeader({
   const isKeywords = activeRoom === 'keywords';
   const isCreators = activeRoom === 'creators';
   const isDomains = activeRoom === 'domains';
+  const isPulse = activeRoom === 'pulse' || activeRoom === '24h';
   const isSettings = activeRoom === 'settings';
 
   const crossoverClass = isCrossover ? tabActive : tabInactive;
   const keywordsClass = isKeywords ? tabActive : tabInactive;
   const creatorsClass = isCreators ? tabActive : tabInactive;
   const domainsClass = isDomains ? tabActive : tabInactive;
+  const pulseClass = isPulse ? tabActive : tabInactive;
   const settingsClass = isSettings ? tabActive : tabInactive;
 
   const iconActive = 'text-rose-600 dark:text-rose-400 shrink-0';
@@ -96,7 +98,7 @@ export function renderCampaignWorkspaceHeader({
                   <a href="/folders" class="text-rose-600 dark:text-rose-400 hover:underline">All Folders →</a>
                 </div>
                 <template x-for="f in (typeof foldersList !== 'undefined' && foldersList && foldersList.length ? foldersList : ((typeof folders !== 'undefined' && folders && folders.length) ? folders : ((typeof allFolders !== 'undefined' && allFolders) ? allFolders : [])))" :key="f.id">
-                  <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isSettings ? "'/settings'" : "''")))})"
+                  <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isPulse ? "'/pulse'" : (isSettings ? "'/settings'" : "''"))))})"
                      class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors"
                      :class="(f.id == '${cleanFolderId}') ? 'bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
                     <div class="flex items-center gap-2 truncate">
@@ -181,6 +183,14 @@ export function renderCampaignWorkspaceHeader({
           <span>Domain Studio</span>
           <span class="${isDomains ? badgeActive : badgeInactive}"
                 x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' 📌)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
+        </a>
+
+        <!-- Room 6: 24h Pulse Radar -->
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/pulse'"
+           href="/folders/${cleanFolderId}/pulse" class="${pulseClass}">
+          <i data-lucide="activity" class="w-4 h-4 ${isPulse ? iconActive : iconInactive}"></i>
+          <span>24h Pulse Radar</span>
+          <span class="${isPulse ? badgeActive : badgeInactive}">Live</span>
         </a>
 
         <!-- Room 5: Settings & Pruning -->

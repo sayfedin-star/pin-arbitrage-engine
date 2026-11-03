@@ -133,8 +133,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'first_discovered_pillar',
     'first_discovered_at',
     'updated_at',
-    'metadata',
-    'url_global_saves'
+    'metadata'
   ]),
   tracked_keywords: new Set([
     'id',
@@ -198,6 +197,16 @@ export const KNOWN_TABLE_COLUMNS = {
     'pin_id',
     'ignored_reason',
     'ignored_at'
+  ]),
+  keyword_guided_capsules: new Set([
+    'id',
+    'keyword_id',
+    'term',
+    'display_label',
+    'score',
+    'dominant_color',
+    'display_order',
+    'discovered_at'
   ]),
   competitor_profiles: new Set([
     'id',
@@ -314,6 +323,9 @@ export const KNOWN_TABLE_COLUMNS = {
     'id',
     'tier1_min_saves',
     'tier2_min_repins',
+    'tier2_min_velocity',
+    'tier2_max_age_days',
+    'tier2_min_shares',
     'tier3_max_age_days',
     'tier3_min_saves',
     'master_ingest_enabled',
