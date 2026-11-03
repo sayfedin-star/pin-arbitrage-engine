@@ -21,8 +21,8 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchPinFromPinterest } from './lib/pinterest.mjs';
-import { resolveShardConnection, preloadNeonRegistry, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { fetchPinFromPinterest } from '../../lib/pinterest.mjs';
+import { resolveShardConnection, preloadNeonRegistry, getPinShardId } from '../../../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -100,14 +100,14 @@ export async function runRestoreAndSlimHub(hubSql) {
   const validKeywordIds = new Set(validKeywordsRows.map(r => Number(r.id)));
   console.log(`    Active Tracked Keywords in Hub: ${validKeywordIds.size}`);
 
-  // 2. Preload & Prewarm all 99 Shards
-  console.log('\n[*] Step 2: Preloading & Pre-warming 99 Storage Shards...');
+  // 2. Preload & Prewarm 20 Physical Shards
+  console.log('\n[*] Step 2: Preloading & Pre-warming 20 Physical Storage Shards...');
   await preloadNeonRegistry(hubSql);
-  const allShardIds = Array.from({ length: 99 }, (_, i) => i + 1);
+  const allShardIds = Array.from({ length: 20 }, (_, i) => i + 1);
   await prewarmFleetShards({ hubSql, shardIds: allShardIds, concurrency: 20, timeoutMs: 5000 });
 
-  // 3. Scan all 99 Shards using Window Function to avoid the 2026-10-15 NULL rank_position trap
-  console.log('\n[*] Step 3: Extracting Latest Non-Null Active SERP Rankings Across 99 Shards...');
+  // 3. Scan 20 Physical Shards using Window Function to avoid the 2026-10-15 NULL rank_position trap
+  console.log('\n[*] Step 3: Extracting Latest Non-Null Active SERP Rankings Across 20 Physical Shards...');
   const recoveredRows = [];
   let shardsScanned = 0;
   let shardErrors = 0;

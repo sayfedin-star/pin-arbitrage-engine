@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 if (typeof process.loadEnvFile === 'function') process.loadEnvFile();
-import { getPinDeepDossier } from '../src/modules/keywords/service.mjs';
+import { getPinDeepDossier } from '../../../src/modules/keywords/service.mjs';
 
 const sql = neon(process.env.DATABASE_URL);
 

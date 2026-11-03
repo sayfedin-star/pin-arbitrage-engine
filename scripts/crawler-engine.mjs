@@ -332,7 +332,14 @@ export async function bulkSyncPinsToDeterministicShards(hubSql, enrichedPins) {
         ON CONFLICT (pin_id) DO UPDATE SET
           creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
           board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-          title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+          title = CASE
+            WHEN EXCLUDED.title IS NOT NULL
+             AND BTRIM(EXCLUDED.title) <> ''
+             AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+             AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+            THEN EXCLUDED.title
+            ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+          END,
           domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
           destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),

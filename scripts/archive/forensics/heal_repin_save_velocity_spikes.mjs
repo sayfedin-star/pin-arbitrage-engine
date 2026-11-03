@@ -14,7 +14,7 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
-import { calculateFolderCrossover } from '../src/modules/keywords/folders-service.mjs';
+import { calculateFolderCrossover } from '../../../src/modules/keywords/folders-service.mjs';
 
 const envPath = path.resolve('.env');
 if (!fs.existsSync(envPath)) {

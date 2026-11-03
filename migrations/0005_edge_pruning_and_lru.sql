@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration 0004: Cloudflare D1 14-Day LRU Pruning & Storage Compaction
+-- Migration 0005: Cloudflare D1 14-Day LRU Pruning & Storage Compaction
 -- Target: Cloudflare D1 SQLite Edge Database (PIN_D1_DB / pin-engine-edge)
 -- Defuses Landmine LND-818: Prevents monotonic table growth exceeding D1 10 GB storage ceiling.
 -- Ensures table footprint is capped permanently at < 250 MB.

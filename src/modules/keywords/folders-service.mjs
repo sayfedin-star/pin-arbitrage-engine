@@ -28,11 +28,20 @@ import {
 import { hydratePinsFromD1, syncPinsBatchToD1 } from './d1-metadata.mjs';
 
 export const folderTrendsCache = new Map();
+export const FOLDER_TRENDS_CACHE_MAX = 100;
 
 export function cacheFolderTrends(term, data) {
   if (!term || typeof term !== 'string') return;
   const cleanTerm = term.trim().toLowerCase();
   if (cleanTerm) {
+    if (folderTrendsCache.has(cleanTerm)) {
+      folderTrendsCache.delete(cleanTerm);
+    } else if (folderTrendsCache.size >= FOLDER_TRENDS_CACHE_MAX) {
+      const oldestKey = folderTrendsCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        folderTrendsCache.delete(oldestKey);
+      }
+    }
     folderTrendsCache.set(cleanTerm, { timestamp: Date.now(), data });
   }
 }
@@ -41,6 +50,8 @@ const crossoverCache = new Map();
 const CROSSOVER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
 const CROSSOVER_CACHE_MAX = 50;
 const inflightCrossover = new Map();
+export const folderForceRefreshCooldown = new Map();
+export const FOLDER_FORCE_REFRESH_COOLDOWN_MS = 15 * 1000; // 15-second per-folder cooldown on forced ?refresh=true
 
 export function normalizeFolderMetadata(raw) {
   if (!raw) return {};
@@ -67,8 +78,10 @@ export function normalizeFolderMetadata(raw) {
 export function invalidateFolderCache(folderId) {
   if (folderId) {
     crossoverCache.delete(Number(folderId));
+    folderForceRefreshCooldown.delete(Number(folderId));
   } else {
     crossoverCache.clear();
+    folderForceRefreshCooldown.clear();
   }
 }
 
@@ -2046,7 +2059,19 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   if (!fid) throw new Error('Invalid folder ID');
 
   const now = Date.now();
-  if (!refresh) {
+  let effectiveRefresh = Boolean(refresh);
+
+  // [INVARIANT: FOLDER-FORCE-REFRESH-COOLDOWN]
+  // 15-second per-folder in-memory cooldown on forced ?refresh=true requests
+  // Rapid repeated requests within 15 seconds serve the freshly computed cache instead of launching parallel 20-shard DoS storms.
+  if (effectiveRefresh) {
+    const lastRefresh = folderForceRefreshCooldown.get(fid);
+    if (lastRefresh && (now - lastRefresh < FOLDER_FORCE_REFRESH_COOLDOWN_MS)) {
+      effectiveRefresh = false;
+    }
+  }
+
+  if (!effectiveRefresh) {
     const cached = crossoverCache.get(fid);
     const ttl = cached?.ttlMs || CROSSOVER_TTL_MS;
     if (cached && (now - cached.timestamp < ttl)) {
@@ -2062,6 +2087,10 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
           (Array.isArray(kvData?.super_pins) && kvData.super_pins.slice(0, 25).some(p => !p.image_url || p.pin_age_days == null))
         );
         if (kvData && !isKvPoisoned) {
+          if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
+            const oldest = crossoverCache.keys().next().value;
+            if (oldest) crossoverCache.delete(oldest);
+          }
           crossoverCache.set(fid, { timestamp: now, ttlMs: CROSSOVER_TTL_MS, data: kvData });
           return kvData;
         }
@@ -2069,9 +2098,17 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
     }
   }
 
-  const flightKey = `${fid}:${refresh ? 'refresh' : 'standard'}`;
+  const flightKey = `${fid}:${effectiveRefresh ? 'refresh' : 'standard'}`;
   if (inflightCrossover.has(flightKey)) {
     return await inflightCrossover.get(flightKey);
+  }
+
+  if (effectiveRefresh) {
+    if (folderForceRefreshCooldown.size >= 200) {
+      const oldest = folderForceRefreshCooldown.keys().next().value;
+      if (oldest) folderForceRefreshCooldown.delete(oldest);
+    }
+    folderForceRefreshCooldown.set(fid, now);
   }
 
   const computePromise = (async () => {
@@ -2094,6 +2131,11 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
         } catch (_) {}
       }
       return result;
+    } catch (err) {
+      if (effectiveRefresh) {
+        folderForceRefreshCooldown.delete(fid);
+      }
+      throw err;
     } finally {
       inflightCrossover.delete(flightKey);
     }
@@ -2664,10 +2706,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         const CONCURRENCY_LIMIT = 4;
         const SCATTER_GATHER_DEADLINE_MS = 4500;
 
-        const hydrateShardBatch = async (entries, perShardTimeoutMs = 2500) => {
+        const hydrateShardBatch = async (entries, perShardTimeoutMs = 2500, concurrency = CONCURRENCY_LIMIT) => {
           const hydratedBatch = [];
-          for (let i = 0; i < entries.length; i += CONCURRENCY_LIMIT) {
-            const chunk = entries.slice(i, i + CONCURRENCY_LIMIT);
+          for (let i = 0; i < entries.length; i += concurrency) {
+            const chunk = entries.slice(i, i + concurrency);
             await Promise.allSettled(
               chunk.map(async ([shardId, pins]) => {
                 const pids = pins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
@@ -2720,8 +2762,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           deadlineTimerId = setTimeout(() => resolve(null), SCATTER_GATHER_DEADLINE_MS);
         });
 
+        const priorityTask = hydrateShardBatch(shardEntries, 2500, CONCURRENCY_LIMIT);
+
         const raceResult = await Promise.race([
-          hydrateShardBatch(shardEntries, 2500),
+          priorityTask,
           deadlinePromise
         ]).finally(() => {
           if (deadlineTimerId) clearTimeout(deadlineTimerId);
@@ -2747,20 +2791,28 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'crossover_sync_priority_d1');
         }
 
-        // Tier 4B: Background Tail Warming in waves of 4 for folders with > 350 displaced pins
+        // Tier 4B: Background Tail Warming in waves of 2 for folders with > 350 displaced pins
         if (env?.PIN_D1_DB && tailShardPins.length > 0) {
           const tailGroups = coalesceShardGroupsByPhysical(batchGroupByShard(tailShardPins, 99));
-          const tailEntries = Array.from(tailGroups.entries());
-          safeWaitUntil(
-            ctx,
-            (async () => {
-              const tailHydrated = await hydrateShardBatch(tailEntries, 3000);
-              if (tailHydrated.length > 0) {
-                await syncPinsBatchToD1(env, tailHydrated);
-              }
-            })(),
-            'crossover_warm_tail_shards_to_d1'
-          );
+          const tailShardEntries = Array.from(tailGroups.entries());
+          const maxTailShards = Math.min(tailShardEntries.length, 4);
+          const budgetedTailEntries = tailShardEntries.slice(0, maxTailShards);
+
+          if (budgetedTailEntries.length > 0) {
+            safeWaitUntil(
+              ctx,
+              (async () => {
+                // Ensure in-flight priority shard queries settle before opening tail shard sockets
+                // so total simultaneous origin connections NEVER exceed 6
+                await priorityTask.catch(() => {});
+                const tailHydrated = await hydrateShardBatch(budgetedTailEntries, 3000, 2);
+                if (tailHydrated.length > 0) {
+                  await syncPinsBatchToD1(env, tailHydrated);
+                }
+              })(),
+              'crossover_warm_tail_shards_to_d1'
+            );
+          }
         }
       } catch (_) {}
     }
@@ -2874,10 +2926,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     const rawTags = new Set();
     // 1. From visual annotations (Pinterest Computer Vision labels)
     for (const va of pin.visual_annotations) {
-      if (typeof va === 'string' && va.trim().length >= 3) {
-        const cleanVa = va.trim().toLowerCase();
-        if (STOPWORDS.has(cleanVa)) continue;
-        const lemma = normalizeTagLemma(cleanVa);
+      const rawTag = (typeof va === 'object' && va !== null)
+        ? String(va.name || va.tag || va.label || va.display_label || va.term || va.title || '')
+        : (typeof va === 'string' ? va : '');
+      const clean = rawTag.trim().toLowerCase();
+      if (clean && clean.length >= 3 && !STOPWORDS.has(clean)) {
+        const lemma = normalizeTagLemma(clean);
         if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
           rawTags.add(lemma);
         }
@@ -2960,8 +3014,14 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   for (const pin of allPins) {
     const matchedBridges = [];
     for (const va of pin.visual_annotations) {
-      const clean = typeof va === 'string' ? normalizeTagLemma(va.trim().toLowerCase()) : '';
-      if (clean && bridgeTagMap.has(clean)) {
+      const rawTag = (typeof va === 'object' && va !== null)
+        ? String(va.name || va.tag || va.label || va.display_label || va.term || va.title || '')
+        : (typeof va === 'string' ? va : '');
+      const clean = rawTag.trim().toLowerCase();
+      const lemma = clean ? normalizeTagLemma(clean) : '';
+      if (lemma && bridgeTagMap.has(lemma)) {
+        matchedBridges.push(bridgeTagMap.get(lemma).tag);
+      } else if (clean && bridgeTagMap.has(clean)) {
         matchedBridges.push(bridgeTagMap.get(clean).tag);
       }
     }

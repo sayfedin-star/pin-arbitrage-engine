@@ -32,14 +32,14 @@ import {
   autoDiscoverFolderCreators,
   toggleFolderCreatorTracking,
   pruneFolderPins
-} from '../src/modules/keywords/folders-service.mjs';
+} from '../../../src/modules/keywords/folders-service.mjs';
 
-import { renderAppSidebar } from '../src/ui/app-sidebar.mjs';
-import { renderCampaignWorkspaceHeader } from '../src/ui/campaign-workspace-header.mjs';
-import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
-import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
-import { getDomainsPageHtml } from '../src/domains-ui.mjs';
-import { getDashboardHtml } from '../src/dashboard-ui.mjs';
+import { renderAppSidebar } from '../../../src/ui/app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from '../../../src/ui/campaign-workspace-header.mjs';
+import { getKeywordsPageHtml } from '../../../src/keywords-ui.mjs';
+import { getCampaignFoldersPageHtml } from '../../../src/campaign-folders-ui.mjs';
+import { getDomainsPageHtml } from '../../../src/domains-ui.mjs';
+import { getDashboardHtml } from '../../../src/dashboard-ui.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

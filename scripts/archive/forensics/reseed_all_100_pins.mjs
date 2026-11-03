@@ -9,7 +9,7 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
-import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
+import { crawlKeywordSERP } from '../../../src/modules/keywords/service.mjs';
 
 const envPath = path.resolve(process.cwd(), '.env');
 if (fs.existsSync(envPath)) {

@@ -23,7 +23,7 @@ const hubSql = neon(DATABASE_URL);
 
 async function backfillFleetShards() {
   console.log('================================================================');
-  console.log('⚡ FLEET COLD SHARDS HISTORICAL BACKFILL (99 NEON SHARDS)');
+  console.log('⚡ FLEET COLD SHARDS HISTORICAL BACKFILL (20 PHYSICAL NEON SHARDS)');
   console.log('================================================================');
 
   const startTime = Date.now();
@@ -31,7 +31,7 @@ async function backfillFleetShards() {
   const activeMappings = await preloadNeonRegistry(hubSql);
   console.log(`[+] Loaded ${activeMappings} shard mappings from registry.`);
 
-  const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
+  const shardIds = Array.from({ length: 20 }, (_, i) => i + 1);
   const SHARD_CONCURRENCY = 10;
   let totalMetricsMigrated = 0;
   let totalPositionsMigrated = 0;

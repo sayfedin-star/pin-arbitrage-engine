@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 if (typeof process.loadEnvFile === 'function') process.loadEnvFile();
-import { fetchPinFromPinterest } from './lib/pinterest.mjs';
+import { fetchPinFromPinterest } from '../../lib/pinterest.mjs';
 
 const sql = neon(process.env.DATABASE_URL);
 

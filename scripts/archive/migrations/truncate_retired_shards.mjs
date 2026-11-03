@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import {
   isValidShardDsn,
   enforceNeonPoolerUrl
-} from '../src/modules/sharding/fleet-router.mjs';
+} from '../../../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

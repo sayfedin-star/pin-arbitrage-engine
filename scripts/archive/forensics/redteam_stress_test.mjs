@@ -1,13 +1,13 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
-import worker from '../src/worker.mjs';
+import worker from '../../../src/worker.mjs';
 import { 
   getKeywordSERPComparison, 
   getKeywordDisplacedPins, 
   getPinPerformanceTrajectory, 
   getPinDeepDossier 
-} from '../src/modules/keywords/service.mjs';
+} from '../../../src/modules/keywords/service.mjs';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');

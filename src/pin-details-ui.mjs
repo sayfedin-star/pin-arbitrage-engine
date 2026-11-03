@@ -103,6 +103,40 @@ export function getPinDetailPageHtml(pinId = '') {
   };
 })();
   </script>
+  <script>
+    (function() {
+      if (typeof window === 'undefined') return;
+      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
+
+      window.resolvePinImageUrl = function(url, tier) {
+        tier = tier || '236x';
+        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
+        if (!url.includes('pinimg.com')) return url;
+        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
+      };
+
+      window.handlePinImgError = function(img) {
+        if (!img) return;
+        var currentSrc = img.src || '';
+        img._errStep = (img._errStep || 0) + 1;
+        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+          return;
+        }
+        if (currentSrc.includes('/236x/')) {
+          img.src = currentSrc.replace('/236x/', '/474x/');
+        } else if (currentSrc.includes('/474x/')) {
+          img.src = currentSrc.replace('/474x/', '/736x/');
+        } else if (currentSrc.includes('/736x/')) {
+          img.src = currentSrc.replace('/736x/', '/originals/');
+        } else {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+        }
+      };
+    })();
+  </script>
 </head>
 <body class="bg-[#09090B] text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${safePinId}')">
 
@@ -330,7 +364,7 @@ export function getPinDetailPageHtml(pinId = '') {
             :src="resolveHdImageUrl(dossier?.creative?.image_hd_url || dossier?.creative?.image_url)" 
             :alt="dossier?.creative?.alt_text || dossier?.creative?.title"
             @load="onImageLoad($event)"
-            @error="if ($el.src !== (dossier?.creative?.image_url || '')) { $el.src = (dossier?.creative?.image_url || ''); }"
+            @error="if (window.handlePinImgError) { window.handlePinImgError($el); } else if ($el.src !== (dossier?.creative?.image_url || '')) { $el.src = (dossier?.creative?.image_url || ''); }"
             loading="lazy" 
             class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
           />
@@ -2136,7 +2170,7 @@ export function getPinDetailPageHtml(pinId = '') {
             return list.filter(t => t.is_live);
           }
           return (this.dossier?.creative?.visual_annotations || []).map(t => ({
-            name: typeof t === 'object' && t !== null ? (t.name || t.tag || '') : t,
+            name: typeof t === 'object' && t !== null ? (t.name || t.tag || t.label || t.term || '') : t,
             is_live: true
           }));
         },

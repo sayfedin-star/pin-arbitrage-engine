@@ -69,7 +69,10 @@ async function healDatabase(sql, dbName) {
         r.destination_url || meta.destination_url,
         r.keyword,
         meta.board_name,
-        Array.isArray(meta.visual_annotations) ? meta.visual_annotations : []
+        Array.isArray(meta.visual_annotations) ? meta.visual_annotations : [],
+        meta.description || r.description || '',
+        meta.alt_text || r.alt_text || '',
+        meta.seo_title || ''
       );
 
       if (newTitle && newTitle !== r.title && !newTitle.toLowerCase().startsWith('untitled')) {

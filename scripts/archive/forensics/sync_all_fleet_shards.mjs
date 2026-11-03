@@ -9,7 +9,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
-import { syncFleetDatabases } from '../src/modules/fleet/service.mjs';
+import { syncFleetDatabases } from '../../../src/modules/fleet/service.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}

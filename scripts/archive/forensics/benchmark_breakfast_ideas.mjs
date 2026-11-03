@@ -1,4 +1,4 @@
-import { getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { getPinShardId } from '../../../src/modules/sharding/fleet-router.mjs';
 
 const benchmarkPins = [
   {

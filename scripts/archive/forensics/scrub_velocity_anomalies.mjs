@@ -23,9 +23,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { neon } from '@neondatabase/serverless';
-import { getPinShardId, resolveShardConnection, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
-import { refreshDomainIntelligenceRollup } from '../src/modules/domains/service.mjs';
-import { calculateDailyVelocity } from '../src/lib/math.mjs';
+import { getPinShardId, resolveShardConnection, preloadNeonRegistry } from '../../../src/modules/sharding/fleet-router.mjs';
+import { refreshDomainIntelligenceRollup } from '../../../src/modules/domains/service.mjs';
+import { calculateDailyVelocity } from '../../../src/lib/math.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

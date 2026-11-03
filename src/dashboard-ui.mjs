@@ -97,6 +97,40 @@ export function getDashboardHtml(folderId = '') {
 })();
   </script>
   <script>
+    (function() {
+      if (typeof window === 'undefined') return;
+      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
+
+      window.resolvePinImageUrl = function(url, tier) {
+        tier = tier || '236x';
+        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
+        if (!url.includes('pinimg.com')) return url;
+        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
+      };
+
+      window.handlePinImgError = function(img) {
+        if (!img) return;
+        var currentSrc = img.src || '';
+        img._errStep = (img._errStep || 0) + 1;
+        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+          return;
+        }
+        if (currentSrc.includes('/236x/')) {
+          img.src = currentSrc.replace('/236x/', '/474x/');
+        } else if (currentSrc.includes('/474x/')) {
+          img.src = currentSrc.replace('/474x/', '/736x/');
+        } else if (currentSrc.includes('/736x/')) {
+          img.src = currentSrc.replace('/736x/', '/originals/');
+        } else {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+        }
+      };
+    })();
+  </script>
+  <script>
     setTimeout(function() {
       if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
         document.body.removeAttribute('x-cloak');
@@ -733,7 +767,7 @@ export function getDashboardHtml(folderId = '') {
             
             <!-- Pin Image Container -->
             <div class="relative h-64 w-full overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer" @click="openPinPage(p)">
-              <img :src="p.image_url" :alt="p.title" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              <img :src="p.image_url" :alt="p.title" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="window.handlePinImgError(this)" />
               
               <!-- Gradient Overlay -->
               <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80 group-hover:opacity-90 transition-opacity"></div>
@@ -847,7 +881,7 @@ export function getDashboardHtml(folderId = '') {
                   <!-- Thumbnail -->
                   <td class="py-2.5 px-4 w-14">
                     <div class="w-11 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] cursor-pointer" @click="openPinPage(p)">
-                      <img :src="p.image_url" loading="lazy" class="w-full h-full object-cover" />
+                      <img :src="p.image_url" loading="lazy" class="w-full h-full object-cover" onerror="window.handlePinImgError(this)" />
                     </div>
                   </td>
 
@@ -2027,7 +2061,7 @@ export function getDashboardHtml(folderId = '') {
                         <div class="flex items-center space-x-2.5">
                           <template x-if="item.image_url">
                             <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
-                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
                             </a>
                           </template>
                           <template x-if="!item.image_url">
@@ -2476,7 +2510,7 @@ export function getDashboardHtml(folderId = '') {
               <!-- 1. Media Image Container (2:3 Aspect Ratio) -->
               <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden cursor-pointer" @click="openHubDrawer(item)">
                 <template x-if="item.image_url">
-                  <img :src="item.image_url" alt="Pin preview" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+                  <img :src="item.image_url" alt="Pin preview" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="window.handlePinImgError(this)">
                 </template>
                 <template x-if="!item.image_url">
                   <div class="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
@@ -2631,7 +2665,7 @@ export function getDashboardHtml(folderId = '') {
                     <div class="flex items-center space-x-2.5">
                       <div @click="openHubDrawer(item)" class="group/thumb block relative flex-shrink-0 cursor-pointer">
                         <template x-if="item.image_url">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
                         </template>
                         <template x-if="!item.image_url">
                           <div class="w-10 h-14 rounded-xl flex-shrink-0 flex items-center justify-center border-2 shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
@@ -3017,7 +3051,7 @@ export function getDashboardHtml(folderId = '') {
                     <div class="flex items-center space-x-2.5">
                       <template x-if="item.image_url">
                         <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
                         </a>
                       </template>
                       <template x-if="!item.image_url">
@@ -4629,7 +4663,7 @@ export function getDashboardHtml(folderId = '') {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
-                  <template x-for="p in activeCreatorAllPins" :key="p.pin_id">
+                  <template x-for="p in activeCreatorAllPins.slice(0, creatorAllPinsLimit)" :key="p.pin_id">
                     <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''">
                       <!-- Selection Checkbox -->
                       <td class="py-2.5 px-3 text-center">
@@ -4638,9 +4672,9 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Thumbnail with hover preview -->
                       <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
-                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" />
+                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" onerror="window.handlePinImgError(this)" />
                           <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#27272A] pointer-events-none bg-white dark:bg-slate-900">
-                            <img :src="p.image_url" class="w-full h-auto object-cover" />
+                            <img :src="p.image_url" class="w-full h-auto object-cover" onerror="window.handlePinImgError(this)" />
                           </div>
                         </div>
                       </td>
@@ -4732,6 +4766,16 @@ export function getDashboardHtml(folderId = '') {
                   </template>
                 </tbody>
               </table>
+
+              <!-- Load More Windowing Button (LND-914) -->
+              <template x-if="activeCreatorAllPins.length > creatorAllPinsLimit">
+                <div class="flex items-center justify-center p-3 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
+                  <button type="button" @click="creatorAllPinsLimit += 100" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition shadow-2xs cursor-pointer">
+                    <span>Load More Pins</span>
+                    <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="'(' + creatorAllPinsLimit + ' of ' + activeCreatorAllPins.length + ')'"></span>
+                  </button>
+                </div>
+              </template>
 
               <!-- Pagination Footer Bar -->
               <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
@@ -4965,7 +5009,7 @@ export function getDashboardHtml(folderId = '') {
               <div class="flex items-center gap-2.5 overflow-x-auto pb-2">
                 <template x-for="s in creatorRelatedSeeds" :key="s.pin_id">
                   <div class="shrink-0 flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs">
-                    <img x-show="s.image_url" :src="s.image_url" class="w-8 h-8 rounded-lg object-cover bg-slate-200 dark:bg-slate-800" />
+                    <img x-show="s.image_url" :src="s.image_url" class="w-8 h-8 rounded-lg object-cover bg-slate-200 dark:bg-slate-800" onerror="window.handlePinImgError(this)" />
                     <div class="max-w-[130px]">
                       <div class="font-bold text-slate-900 dark:text-white truncate" x-text="s.title || ('Pin #' + s.pin_id)"></div>
                       <div class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="(s.related_count || 0) + ' related'"></div>
@@ -5034,7 +5078,7 @@ export function getDashboardHtml(folderId = '') {
                         <!-- Pin Preview & Title -->
                         <td class="p-3.5 pl-5">
                           <div class="flex items-center gap-3">
-                            <img x-show="item.image_url" :src="item.image_url" class="w-10 h-10 rounded-xl object-cover bg-slate-200 dark:bg-slate-800 shrink-0 cursor-pointer" @click="openPinPage(item.candidate_pin_id)" />
+                            <img x-show="item.image_url" :src="item.image_url" class="w-10 h-10 rounded-xl object-cover bg-slate-200 dark:bg-slate-800 shrink-0 cursor-pointer" @click="openPinPage(item.candidate_pin_id)" onerror="window.handlePinImgError(this)" />
                             <div class="max-w-xs sm:max-w-sm">
                               <span @click="openPinPage(item.candidate_pin_id)" class="font-bold text-slate-900 dark:text-white hover:text-amber-500 transition cursor-pointer line-clamp-1" x-text="item.title || ('Pin #' + item.candidate_pin_id)"></span>
                               <div class="text-[11px] text-slate-400 font-mono tabular-nums flex items-center gap-1 mt-0.5">
@@ -5811,6 +5855,8 @@ export function getDashboardHtml(folderId = '') {
         activeCreatorAllPinsPage: 1,
         activeCreatorAllPinsTotalPages: 1,
         activeCreatorAllPinsBoards: [],
+        creatorAllPinsLimit: 100,
+        _creatorsReqSeq: 0,
         creatorAllPinSearch: '',
         creatorAllPinBoard: '',
         creatorAllPinMinSaves: 0,
@@ -7889,11 +7935,14 @@ export function getDashboardHtml(folderId = '') {
           if (this.scopedFolderId || this.folderFilter) {
             return this.loadFolderCreators(this.scopedFolderId || this.folderFilter);
           }
+          const reqSeq = ++this._creatorsReqSeq;
           try {
             const baseEndpoint = '/api/competitors?limit=5000' + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
+            if (reqSeq !== this._creatorsReqSeq) return;
             if (res.ok) {
               const data = await res.json();
+              if (reqSeq !== this._creatorsReqSeq) return;
               this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = data.competitors || [];
               this._competitorsCacheKey = '';
@@ -7904,16 +7953,20 @@ export function getDashboardHtml(folderId = '') {
                 }
               }
             } else {
+              if (reqSeq !== this._creatorsReqSeq) return;
               this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = [];
               this._competitorsCacheKey = '';
             }
           } catch (e) {
+            if (reqSeq !== this._creatorsReqSeq) return;
             this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
             this.competitors = [];
             this._competitorsCacheKey = '';
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            if (reqSeq === this._creatorsReqSeq) {
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
@@ -8059,6 +8112,7 @@ export function getDashboardHtml(folderId = '') {
         async loadFolderCreators(folderId) {
           if (!folderId) return;
           const fid = String(folderId);
+          const reqSeq = ++this._creatorsReqSeq;
           const inflightKey = fid + ':' + (this.vaultScope || 'high_signal');
           if (this._loadingFolderCreatorsKey === inflightKey && this._loadingFolderCreatorsPromise) {
             return this._loadingFolderCreatorsPromise;
@@ -8068,8 +8122,10 @@ export function getDashboardHtml(folderId = '') {
             try {
               const scopeParam = this.vaultScope ? ('&vault_scope=' + encodeURIComponent(this.vaultScope)) : '';
               const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam);
+              if (reqSeq !== this._creatorsReqSeq) return;
               if (res.ok) {
                 const data = await res.json();
+                if (reqSeq !== this._creatorsReqSeq) return;
                 const linkedList = Array.isArray(data.linked_creators) ? data.linked_creators : [];
                 const discoveredList = Array.isArray(data.discovered_creators) ? data.discovered_creators : [];
                 const allList = Array.isArray(data.creators) ? data.creators : [...linkedList, ...discoveredList];
@@ -8104,7 +8160,9 @@ export function getDashboardHtml(folderId = '') {
                 this._loadingFolderCreatorsKey = null;
                 this._loadingFolderCreatorsPromise = null;
               }
-              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              if (reqSeq === this._creatorsReqSeq) {
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              }
             }
           })();
           return this._loadingFolderCreatorsPromise;
@@ -9380,6 +9438,7 @@ export function getDashboardHtml(folderId = '') {
           this.activeCreator = creator;
           this.activeCreatorTab = tab || 'overview';
           this.currentTab = 'creators_archive';
+          this.creatorAllPinsLimit = 100;
           this.activePinId = null;
           this.activePinDossier = null;
           this.isCreatorDossierOpen = false;
@@ -9772,6 +9831,7 @@ export function getDashboardHtml(folderId = '') {
               const data = await res.json();
               if (reqSeq !== this._creatorAllPinsReqSeq) return;
               this.activeCreatorAllPins = data.pins || [];
+              this.creatorAllPinsLimit = 100;
               this.activeCreatorAllPinsTotal = data.total || 0;
               this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
               this.activeCreatorWinningPinsTotal = data.qualified_total ?? 0;
@@ -10297,6 +10357,7 @@ export function getDashboardHtml(folderId = '') {
           this.activeCreatorDetail = null;
           this.activeCreatorPins = [];
           this.activeCreatorAllPins = [];
+          this.creatorAllPinsLimit = 100;
           this.activeCreatorAllPinsTotal = 0;
           this.activeCreatorCatalogTotal = 0;
           this.activeCreatorWinningPinsTotal = 0;

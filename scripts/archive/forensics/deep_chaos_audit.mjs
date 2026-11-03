@@ -1,20 +1,20 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
-import worker from '../src/worker.mjs';
+import worker from '../../../src/worker.mjs';
 import { 
   getShardNumberForEntity, 
   getShardProjectName, 
   crc32 
-} from '../src/modules/sharding/fleet-router.mjs';
+} from '../../../src/modules/sharding/fleet-router.mjs';
 import { 
   listKeywords, 
   getKeywordSERPComparison, 
   getPinPerformanceTrajectory, 
   getPinDeepDossier,
   crawlKeywordSERP
-} from '../src/modules/keywords/service.mjs';
-import { calculateFolderCrossover } from '../src/modules/keywords/folders-service.mjs';
+} from '../../../src/modules/keywords/service.mjs';
+import { calculateFolderCrossover } from '../../../src/modules/keywords/folders-service.mjs';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');

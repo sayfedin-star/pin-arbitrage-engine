@@ -23,6 +23,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
+import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
 import { fetchPinFromPinterest, fetchPinHybrid, setDefaultDispatcher } from './lib/pinterest.mjs';
@@ -1114,6 +1115,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 rank_position: sp.rank_position ? Number(sp.rank_position) : null,
                 save_count: sp.save_count != null ? Number(sp.save_count) : null,
                 repin_count: sp.repin_count != null ? Number(sp.repin_count) : null,
+                reaction_count: sp.reaction_count != null ? Number(sp.reaction_count) : null,
                 comment_count: sp.comment_count != null ? Number(sp.comment_count) : null,
                 share_count: sp.share_count != null ? Number(sp.share_count) : null,
                 daily_save_velocity: sp.daily_save_velocity != null ? Number(sp.daily_save_velocity) : null,
@@ -1146,7 +1148,14 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               ON CONFLICT (pin_id) DO UPDATE SET
                 creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
                 board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-                title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+                title = CASE
+                  WHEN EXCLUDED.title IS NOT NULL
+                   AND BTRIM(EXCLUDED.title) <> ''
+                   AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+                   AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+                  THEN EXCLUDED.title
+                  ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+                END,
                 domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
                 destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
                 image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
@@ -1186,6 +1195,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   catalog_rank int,
                   save_count bigint,
                   repin_count int,
+                  reaction_count int,
                   comment_count int,
                   share_count int,
                   daily_save_velocity numeric
@@ -1196,6 +1206,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   rb.pin_id,
                   COALESCE(MAX(rb.save_count), 0) AS save_count,
                   COALESCE(MAX(rb.repin_count), 0) AS repin_count,
+                  COALESCE(MAX(rb.reaction_count), 0) AS reaction_count,
                   COALESCE(MAX(rb.comment_count), 0) AS comment_count,
                   COALESCE(MAX(rb.share_count), 0) AS share_count,
                   CASE
@@ -1250,7 +1261,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               ),
               upsert_metrics AS (
                 INSERT INTO pins_daily_metrics (
-                  pin_id, snapshot_date, save_count, repin_count, comment_count,
+                  pin_id, snapshot_date, save_count, repin_count, reaction_count, comment_count,
                   share_count, daily_save_velocity, updated_at
                 )
                 SELECT 
@@ -1258,6 +1269,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   (NOW() AT TIME ZONE 'UTC')::date,
                   save_count,
                   repin_count,
+                  reaction_count,
                   comment_count,
                   share_count,
                   daily_save_velocity,
@@ -1266,6 +1278,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
                   save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
                   repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                  reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE
@@ -1555,6 +1568,7 @@ async function run() {
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
       console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
       for (const kid of keywordIdsInput) {
+        const effectiveToken = crypto.randomUUID();
         try {
           console.log(`  [*] [Phase 1A] Harvesting SERP for Keyword ID ${kid}...`);
           const res = await crawlKeywordSERP(sql, kid, {
@@ -1562,7 +1576,8 @@ async function run() {
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
             skip_shard_offload: true,
-            force: true
+            force: true,
+            lease_token: effectiveToken
           });
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
@@ -1574,7 +1589,8 @@ async function run() {
             SET updated_at = NOW(),
                 crawl_lease_token = NULL,
                 crawl_lease_until = NULL
-            WHERE id = ${kid};
+            WHERE id = ${kid}
+              AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
           `.catch(() => {});
         }
       }
@@ -1862,13 +1878,15 @@ async function run() {
     if (enableSerpHarvest) {
       if (workerIndex === 0) {
         console.log(`[Phase 1A] Runner 1/${workerTotal} (Lead): Ingesting SERP for "${kwRow.keyword}" (ID: ${kwRow.id})...`);
+        const effectiveToken = crypto.randomUUID();
         try {
           const res = await crawlKeywordSERP(sql, kwRow.id, {
             cookie,
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
             skip_shard_offload: true,
-            force: true
+            force: true,
+            lease_token: effectiveToken
           });
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
@@ -1882,7 +1900,8 @@ async function run() {
               updated_at = NOW(),
               crawl_lease_token = NULL,
               crawl_lease_until = NULL
-            WHERE id = ${kwRow.id};
+            WHERE id = ${kwRow.id}
+              AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
           `.catch(() => {});
           console.log(`[Worker 0] Successfully sealed Phase 1A barrier token: ${runToken}`);
         }
@@ -2130,13 +2149,15 @@ async function run() {
       const serpSem = new Semaphore(2);
       await Promise.allSettled(
         mySerpKeywordIds.map((kid) => serpSem.run(async () => {
+          const effectiveToken = crypto.randomUUID();
           try {
             const res = await crawlKeywordSERP(sql, kid, {
               cookie,
               max_serp_pins: maxSerpPins,
               skip_top_enrich: true,
               skip_shard_offload: true,
-              force: true
+              force: true,
+              lease_token: effectiveToken
             });
             console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins)`);
           } catch (err) {
@@ -2148,7 +2169,8 @@ async function run() {
               SET updated_at = NOW(),
                   crawl_lease_token = NULL,
                   crawl_lease_until = NULL
-              WHERE id = ${kid};
+              WHERE id = ${kid}
+                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
             `.catch(() => {});
           }
         }))

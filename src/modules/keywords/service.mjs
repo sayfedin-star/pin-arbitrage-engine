@@ -62,7 +62,7 @@ import {
   hydratePinsFromD1
 } from './d1-metadata.mjs';
 
-export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = [], env = null) {
+export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = [], env = null, ctx = null) {
   const kid = Number(keywordId);
   if (!hubSql || !kid) return 0;
 
@@ -89,6 +89,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       is_displaced: false,
       save_count: Number(p.save_count || 0),
       repin_count: Number(p.repin_count || 0),
+      reaction_count: Number(p.reaction_count || p.metadata?.reaction_count || 0),
       comment_count: Number(p.comment_count || 0),
       share_count: Number(p.metadata?.share_count || 0),
       daily_save_velocity: Number(p.daily_save_velocity || 0),
@@ -122,6 +123,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       is_displaced: true,
       save_count: Number(dp.save_count || 0),
       repin_count: Number(dp.repin_count || 0),
+      reaction_count: Number(dp.reaction_count || dp.metadata?.reaction_count || 0),
       comment_count: Number(dp.comment_count || 0),
       share_count: Number(dp.metadata?.share_count || 0),
       daily_save_velocity: 0,
@@ -139,9 +141,11 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
   } catch (_) {}
 
   if (env?.PIN_D1_DB) {
-    syncPinsBatchToD1(env, combined).catch(() => {});
+    const d1Promise = syncPinsBatchToD1(env, combined).catch(() => {});
+    safeWaitUntil(ctx, d1Promise, 'sync_pins_batch_to_d1');
   }
 
+  const confirmedPinIds = new Set();
   // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
   const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(combined, 99));
   const shardEntries = Array.from(shardGroups.entries());
@@ -189,7 +193,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
             board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
             title = CASE
-              WHEN EXCLUDED.title <> ''
+              WHEN EXCLUDED.title IS NOT NULL
+               AND BTRIM(EXCLUDED.title) <> ''
                AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
                AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
               THEN EXCLUDED.title
@@ -220,7 +225,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
             SELECT * FROM jsonb_to_recordset(${payload}::jsonb) AS u(
               pin_id text, keyword_id int, rank_position int, last_known_rank int,
               catalog_rank int, is_displaced boolean, save_count bigint, repin_count int,
-              comment_count int, share_count int, daily_save_velocity numeric
+              reaction_count int, comment_count int, share_count int, daily_save_velocity numeric
             )
           ),
           dedup_metrics AS (
@@ -228,6 +233,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               pin_id,
               MAX(save_count) AS save_count,
               MAX(repin_count) AS repin_count,
+              MAX(COALESCE(reaction_count, 0)) AS reaction_count,
               MAX(comment_count) AS comment_count,
               MAX(share_count) AS share_count,
               MAX(daily_save_velocity) AS daily_save_velocity
@@ -236,17 +242,18 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
           ),
           upsert_metrics AS (
             INSERT INTO pins_daily_metrics (
-              pin_id, snapshot_date, save_count, repin_count, comment_count,
+              pin_id, snapshot_date, save_count, repin_count, reaction_count, comment_count,
               share_count, daily_save_velocity, updated_at
             )
             SELECT 
               pin_id, (NOW() AT TIME ZONE 'UTC')::date, save_count, repin_count,
-              comment_count, share_count, daily_save_velocity, NOW()
+              reaction_count, comment_count, share_count, daily_save_velocity, NOW()
             FROM dedup_metrics
             ORDER BY pin_id ASC
             ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
               save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
               repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+              reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
               comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
               share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
               daily_save_velocity = CASE 
@@ -288,13 +295,18 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
           await buildMasterQuery(shardSql);
           await buildTwoTierQuery(shardSql);
         }
+        for (const p of shardPins) {
+          if (p && p.pin_id) confirmedPinIds.add(String(p.pin_id));
+        }
         shardsSynced++;
       } catch (err) {
         console.warn(`[offloadKeywordCrawlToShards] Shard #${shardId} write deferred:`, err.message);
       }
     }));
   }
-  return shardsSynced;
+  const res = new Number(shardsSynced);
+  res.confirmedPinIds = Array.from(confirmedPinIds);
+  return res;
 }
 
 /**
@@ -395,7 +407,18 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
                 fallbackFn: async () => []
               });
               for (const r of (rows || [])) {
-                masterMap.set(String(r.pin_id), r);
+                if (!r || !r.pin_id) continue;
+                const existing = masterMap.get(String(r.pin_id));
+                if (existing) {
+                  const keepExistingTitle = !isSyntheticPinTitle(existing.title) && (isSyntheticPinTitle(r.title) || !r.title);
+                  masterMap.set(String(r.pin_id), {
+                    ...existing,
+                    ...r,
+                    title: keepExistingTitle ? existing.title : (r.title || existing.title || '')
+                  });
+                } else {
+                  masterMap.set(String(r.pin_id), r);
+                }
                 newlyHydratedFromShards.push(r);
               }
             })
@@ -423,7 +446,7 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       if (!m) return row;
       return {
         ...row,
-        title: row.title || m.title || '',
+        title: (!isSyntheticPinTitle(row.title) && row.title) ? row.title : ((!isSyntheticPinTitle(m.title) && m.title) ? m.title : (m.title || row.title || '')),
         domain: row.domain || m.domain || '',
         destination_url: row.destination_url || m.destination_url || '',
         image_url: row.image_url || m.image_url || '',
@@ -2129,11 +2152,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             updated_at = NOW();
         `);
 
-        // Evict displaced rows from keyword_serp_current so Hub SERP cache remains < 15 MB
+        // Mark displaced pins in keyword_serp_current without premature deletion until shard offload confirms them
         txBatch.push((db) => db`
-          DELETE FROM keyword_serp_current
+          UPDATE keyword_serp_current SET
+            is_displaced = TRUE,
+            rank_position = NULL,
+            displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
+            updated_at = NOW()
           WHERE keyword_id = ${kid}
-            AND (is_displaced = TRUE OR NOT (pin_id = ANY(${pinIds})));
+            AND NOT (pin_id = ANY(${pinIds}));
         `);
       } else if (pinIds.length > 0) {
         console.warn(`[SERP Guard] Crawl returned only ${pinIds.length} pins for keyword "${keywordRow.keyword}" (Dynamic Threshold: ${minRequiredForEviction}, Expected: ${expectedCount}, Prior Active: ${priorActiveCount}). Displacement skipped to protect active rankings.`);
@@ -2219,10 +2246,25 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the 99 Shards + D1
     // Bypassed during Fleet Phase 1A when skip_shard_offload=true since Phase 1B performs global deduplicated shard sync
     const envObj = options?.env || null;
+    const ctxObj = options?.ctx || null;
+    let confirmedPinIds = [];
     if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
-      await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj).catch(err => {
+      const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
         console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
+        return null;
       });
+      if (offloadRes?.confirmedPinIds) {
+        confirmedPinIds = offloadRes.confirmedPinIds;
+      }
+    }
+
+    if (confirmedPinIds.length > 0) {
+      await sql`
+        DELETE FROM keyword_serp_current
+        WHERE keyword_id = ${kid}
+          AND is_displaced = TRUE
+          AND pin_id = ANY(${confirmedPinIds}::text[]);
+      `.catch(() => {});
     }
 
     // Invalidate stale Edge KV caches for this keyword immediately upon successful crawl
@@ -2435,7 +2477,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
 
   for (const p of currentPins) {
     const meta = p.metadata || {};
-    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations);
+    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations, meta.description || p.description || '', meta.alt_text || p.alt_text || p.seo_alt_text || '', meta.seo_title || p.seo_title || '');
     const delta = Number(meta.rank_delta || 0);
     const vel = Number(p.daily_save_velocity || 0);
 
@@ -2462,7 +2504,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     p.board_name = p.board_name || meta.board_name || null;
     p.creation_method = p.creation_method || p.method || meta.creation_method || meta.method || null;
     p.created_at_pinterest = p.created_at_pinterest || meta.created_at_pinterest || meta.created_at || null;
-    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, p.board_name, meta.visual_annotations);
+    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, p.board_name, meta.visual_annotations, meta.description || p.description || '', meta.alt_text || p.alt_text || p.seo_alt_text || '', meta.seo_title || p.seo_title || '');
   }
 
   // Pre-calculate visual tag frequency crossover map on the server (sub-millisecond Node/V8)

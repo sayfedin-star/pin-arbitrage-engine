@@ -190,7 +190,14 @@ export async function optimizeHubStorage(sql) {
               ON CONFLICT (pin_id) DO UPDATE SET
                 creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
                 board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-                title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+                title = CASE
+                  WHEN EXCLUDED.title IS NOT NULL
+                   AND BTRIM(EXCLUDED.title) <> ''
+                   AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+                   AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+                  THEN EXCLUDED.title
+                  ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+                END,
                 domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
                 destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
                 image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
@@ -270,6 +277,7 @@ export async function optimizeHubStorage(sql) {
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
                   save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
                   repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                  reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE

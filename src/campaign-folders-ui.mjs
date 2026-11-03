@@ -100,6 +100,40 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
   };
 })();
   </script>
+  <script>
+    (function() {
+      if (typeof window === 'undefined') return;
+      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
+
+      window.resolvePinImageUrl = function(url, tier) {
+        tier = tier || '236x';
+        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
+        if (!url.includes('pinimg.com')) return url;
+        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
+      };
+
+      window.handlePinImgError = function(img) {
+        if (!img) return;
+        var currentSrc = img.src || '';
+        img._errStep = (img._errStep || 0) + 1;
+        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+          return;
+        }
+        if (currentSrc.includes('/236x/')) {
+          img.src = currentSrc.replace('/236x/', '/474x/');
+        } else if (currentSrc.includes('/474x/')) {
+          img.src = currentSrc.replace('/474x/', '/736x/');
+        } else if (currentSrc.includes('/736x/')) {
+          img.src = currentSrc.replace('/736x/', '/originals/');
+        } else {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+        }
+      };
+    })();
+  </script>
 </head>
 <body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}'${activeRoom === 'settings' ? ", 'settings'" : ''})">
 
@@ -409,7 +443,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                         <img :src="sp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
                              class="w-full h-full object-cover"
                              loading="lazy"
-                             onerror="if (this.src.includes('/originals/')) { this.src = this.src.replace('/originals/', '/1200x/'); } else if (this.src.includes('/1200x/')) { this.src = this.src.replace('/1200x/', '/736x/'); } else { this.onerror = null; this.src = 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'; }">
+                             onerror="window.handlePinImgError(this)">
                       </div>
                       <div class="flex flex-col gap-1 max-w-xs">
                         <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->
@@ -448,15 +482,15 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
                         <!-- Pinterest Computer Vision Visual Annotations -->
                         <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
-                          <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="va">
-                            <button @click="searchQuery = va; currentPage = 1" 
+                          <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va">
+                            <button @click="searchQuery = (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va); currentPage = 1" 
                                     class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left" 
-                                    :title="'Filter cluster pins by visual tag: ' + va"
-                                    x-text="'👁️ ' + va"></button>
+                                    :title="'Filter cluster pins by visual tag: ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"
+                                    x-text="'👁️ ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></button>
                           </template>
                           <span x-show="sp.visual_annotations?.length > 3" 
                                 class="text-[9px] font-mono tabular-nums text-slate-400 dark:text-slate-500 cursor-help"
-                                :title="(sp.visual_annotations || []).slice(3).join(', ')"
+                                :title="(sp.visual_annotations || []).slice(3).map(tag => typeof tag === 'object' && tag !== null ? (tag.name || tag.tag || tag.label || tag.term || '') : tag).join(', ')"
                                 x-text="'+' + (sp.visual_annotations.length - 3) + ' more'"></span>
                         </div>
                       </div>
@@ -1758,7 +1792,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             <div class="group relative rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] overflow-hidden flex flex-col justify-between hover:border-emerald-500/50 transition shadow-2xs">
               <div class="relative aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden">
                 <img :src="p.images?.['1200x']?.url || p.image_url"
-                     @error="$event.target.src = p.images?.['736x']?.url || p.images?.['474x']?.url || p.image_url"
+                     onerror="window.handlePinImgError(this)"
                      class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                      loading="lazy" />
                 <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition duration-200 flex flex-col justify-between p-2">
@@ -1820,6 +1854,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         activeFolder: null,
         crossoverData: null,
         crossoverLoading: false,
+        _folderReqSeq: 0,
         auditDispatching: false,
         isSettingsModalOpen: false,
         settingsLoading: false,
@@ -2351,11 +2386,14 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         },
 
         async loadActiveFolder() {
+          const reqSeq = ++this._folderReqSeq;
           // Phase 1: Fast metadata hydration (< 50ms)
           try {
             const folderRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId);
+            if (reqSeq !== this._folderReqSeq) return;
             if (folderRes.ok) {
               const data = await folderRes.json().catch(() => ({}));
+              if (reqSeq !== this._folderReqSeq) return;
               const fetched = data.folder || null;
               this.activeFolder = fetched ? (this.activeFolder ? { ...this.activeFolder, ...fetched } : fetched) : null;
               this.syncFolderSettingsFromActive();
@@ -2363,6 +2401,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               this.showToast('Campaign folder not found', 'error');
             }
           } catch (e) {
+            if (reqSeq !== this._folderReqSeq) return;
             console.error('Error fetching folder metadata:', e);
           }
 
@@ -2373,8 +2412,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               timeout: 30000,
               retries: 1
             });
+            if (reqSeq !== this._folderReqSeq) return;
             if (crossoverRes.ok) {
               const cdata = await crossoverRes.json().catch(() => ({}));
+              if (reqSeq !== this._folderReqSeq) return;
               this.crossoverData = cdata.crossover || cdata;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -2388,21 +2429,27 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
           } catch (e) {
+            if (reqSeq !== this._folderReqSeq) return;
             console.error('Error loading crossover matrix:', e);
             this.showToast('Crossover matrix analysis timed out or failed', 'error');
           } finally {
-            this.crossoverLoading = false;
+            if (reqSeq === this._folderReqSeq) {
+              this.crossoverLoading = false;
+            }
           }
         },
 
         async runCrossoverAnalysis(isRefresh = false) {
           if (!this.activeFolderId) return;
+          const reqSeq = ++this._folderReqSeq;
           this.crossoverLoading = true;
           try {
             const url = '/api/folders/' + this.activeFolderId + '/raw-visual-crossover' + (isRefresh ? '?refresh=true' : '');
             const res = await (window.safeApiFetch || fetch)(url);
+            if (reqSeq !== this._folderReqSeq) return;
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
+              if (reqSeq !== this._folderReqSeq) return;
               this.crossoverData = data.crossover || data;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -2419,10 +2466,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
           } catch (e) {
+            if (reqSeq !== this._folderReqSeq) return;
             console.error('Error running crossover analysis:', e);
             this.showToast('Network error analyzing crossover', 'error');
           } finally {
-            this.crossoverLoading = false;
+            if (reqSeq === this._folderReqSeq) {
+              this.crossoverLoading = false;
+            }
           }
         },
 
@@ -2580,8 +2630,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             const tags = Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [];
             const seen = new Set();
             for (const t of tags) {
-              if (typeof t === 'string' && t.trim().length >= 3) {
-                const clean = t.trim();
+              const str = typeof t === 'object' && t !== null ? (t.name || t.tag || t.label || t.term || '') : (typeof t === 'string' ? t : '');
+              if (str && str.trim().length >= 3) {
+                const clean = str.trim();
                 const key = clean.toLowerCase();
                 if (!seen.has(key)) {
                   seen.add(key);
@@ -2629,8 +2680,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
           for (const pin of pins) {
             const rawSet = new Set();
-            for (const va of (pin.visual_annotations || [])) {
-              if (typeof va === 'string') {
+            for (const rawVa of (pin.visual_annotations || [])) {
+              const va = typeof rawVa === 'object' && rawVa !== null ? (rawVa.name || rawVa.tag || rawVa.label || rawVa.term || '') : (typeof rawVa === 'string' ? rawVa : '');
+              if (va) {
                 // Preserve spaces between words, strip punctuation without template-string regex hazards
                 const clean = va.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
                 if (clean.length >= 3 && clean.length <= 35 && !skipWords.has(clean)) {

@@ -115,6 +115,40 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       }
     }, 1200);
   </script>
+  <script>
+    (function() {
+      if (typeof window === 'undefined') return;
+      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
+
+      window.resolvePinImageUrl = function(url, tier) {
+        tier = tier || '236x';
+        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
+        if (!url.includes('pinimg.com')) return url;
+        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
+      };
+
+      window.handlePinImgError = function(img) {
+        if (!img) return;
+        var currentSrc = img.src || '';
+        img._errStep = (img._errStep || 0) + 1;
+        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+          return;
+        }
+        if (currentSrc.includes('/236x/')) {
+          img.src = currentSrc.replace('/236x/', '/474x/');
+        } else if (currentSrc.includes('/474x/')) {
+          img.src = currentSrc.replace('/474x/', '/736x/');
+        } else if (currentSrc.includes('/736x/')) {
+          img.src = currentSrc.replace('/736x/', '/originals/');
+        } else {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+        }
+      };
+    })();
+  </script>
 </head>
 <body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
@@ -1291,7 +1325,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                            referrerpolicy="no-referrer"
                            class="w-14 h-20 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
                            loading="lazy"
-                           onerror="this.onerror=null; this.style.opacity='0.25'">
+                           onerror="window.handlePinImgError(this)">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
@@ -1333,8 +1367,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                           </template>
                           <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
                             <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
-                                  :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || '') : String(a || '')).filter(Boolean).join(', ')"
-                                  x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
+                                  :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).join(', ')"
+                                  x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
                           </template>
                         </div>
                         <!-- SERP Appearances Badges (Clickable with drilldown) -->
@@ -1512,7 +1546,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                                  referrerpolicy="no-referrer"
                                  class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
                                  loading="lazy"
-                                 onerror="this.onerror=null; this.style.opacity='0.25'">
+                                 onerror="window.handlePinImgError(this)">
                             
                             <!-- Top Badges Overlay (Age & Intent) -->
                             <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
@@ -2061,6 +2095,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         dossierArticlesPerPage: 10,
         currentDisplacedLimit: 30,
         dossierLoadingMore: false,
+        _dossierReqSeq: 0,
 
         // Arbitrage Attack Blueprint Modal State (Pillar 6)
         isBlueprintModalOpen: false,
@@ -2711,6 +2746,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
         async openDossier(domain, pushState = true, forceRefresh = false) {
           if (!domain) return;
+          const reqSeq = ++this._dossierReqSeq;
           this.dossierDomain = domain;
           this.isDossierOpen = true;
           this.dossierLoading = true;
@@ -2736,8 +2772,11 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
             const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(domain) + folderParam + (forceRefresh ? '&refresh=true' : '');
             const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
+            if (reqSeq !== this._dossierReqSeq) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
-            this.dossierData = await res.json();
+            const data = await res.json();
+            if (reqSeq !== this._dossierReqSeq) return;
+            this.dossierData = data;
             if (Array.isArray(this.dossierData?.top_articles) && this.dossierData.top_articles.length > 0) {
               const sampleUrls = this.dossierData.top_articles.map(a => a.sample_url).filter(Boolean).slice(0, 15);
               if (sampleUrls.length > 0) {
@@ -2755,6 +2794,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       for (const r of results) {
                         if (r.url) countMap.set(r.url, Number(r.count || r.global_saves || 0));
                       }
+                      if (reqSeq !== this._dossierReqSeq) return;
                       for (const art of (this.dossierData?.top_articles || [])) {
                         if (art.sample_url && countMap.has(art.sample_url)) {
                           art.url_global_saves = countMap.get(art.sample_url);
@@ -2766,9 +2806,12 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               }
             }
           } catch (err) {
+            if (reqSeq !== this._dossierReqSeq) return;
             this.showToast('Failed to load dossier: ' + err.message, 'error');
           } finally {
-            this.dossierLoading = false;
+            if (reqSeq === this._dossierReqSeq) {
+              this.dossierLoading = false;
+            }
           }
         },
 

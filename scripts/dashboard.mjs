@@ -2180,7 +2180,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/keywords/resolve') {
       const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
       if (!slug) return sendJson(res, 400, { error: 'slug or keyword query parameter is required' });
-      const autoCreate = searchParams.get('auto_create') !== 'false';
+      const autoCreate = searchParams.get('auto_create') === 'true';
       const row = await resolveKeywordBySlug(targetSql, slug, autoCreate);
       if (!row) return sendJson(res, 404, { error: 'Keyword not found and could not be resolved' });
       return sendJson(res, 200, { success: true, keyword: row });
@@ -2214,15 +2214,56 @@ const server = http.createServer(async (req, res) => {
           keyword = body.keyword;
         } catch (_) {}
       }
+
+      let targetIds = [];
       if (id && !isNaN(Number(id))) {
-        await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
-        return sendJson(res, 200, { success: true, deleted_id: Number(id) });
+        targetIds = [Number(id)];
       } else if (keyword) {
         const cleanKeyword = keyword.toLowerCase().trim();
-        await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
-        return sendJson(res, 200, { success: true, deleted_keyword: cleanKeyword });
+        const rows = await targetSql`SELECT id FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`.catch(() => []);
+        targetIds = rows.map(r => Number(r.id)).filter(Boolean);
       }
-      return sendJson(res, 400, { error: 'id or keyword is required to delete tracked keyword' });
+
+      if (targetIds.length === 0) {
+        return sendJson(res, 400, { error: 'id or keyword is required to delete tracked keyword' });
+      }
+
+      // 1. Ensure persistent distributed tombstone table exists on Central Hub
+      await targetSql`
+        CREATE TABLE IF NOT EXISTS keyword_tombstones (
+          keyword_id INT PRIMARY KEY,
+          keyword TEXT,
+          deleted_at TIMESTAMPTZ DEFAULT NOW(),
+          shards_purged BOOLEAN DEFAULT FALSE,
+          purged_at TIMESTAMPTZ
+        );
+      `.catch(() => {});
+
+      // 2. Fetch keyword metadata for the tombstone audit trail
+      const existingKw = await targetSql`
+        SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
+      `.catch(() => []);
+
+      // 3. Record tombstones for Shard Janitor GC (initiating 99 Shards cleanup lifecycle)
+      if (existingKw.length > 0) {
+        await targetSql`
+          INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged)
+          SELECT u.id, u.keyword, NOW(), FALSE
+          FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
+          ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), shards_purged = FALSE;
+        `.catch(() => {});
+      }
+
+      // 4. Clean Central Hub items & execute deletion from tracked_keywords
+      await targetSql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+      await targetSql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+      await targetSql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
+
+      if (id) {
+        return sendJson(res, 200, { success: true, deleted_id: Number(id), deleted_ids: targetIds });
+      } else {
+        return sendJson(res, 200, { success: true, deleted_keyword: keyword.toLowerCase().trim(), deleted_ids: targetIds });
+      }
     }
 
     if (method === 'GET' && pathname === '/api/keywords/pins') {

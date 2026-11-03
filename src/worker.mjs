@@ -252,6 +252,19 @@ export function getPinKvKeysToEvict(pinId, associatedKids = []) {
   return [...keys];
 }
 
+export async function getFleetCacheEpoch(env) {
+  if (!env?.PIN_ENGINE_KV) return '0';
+  try {
+    return (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+  } catch (_) {
+    return '0';
+  }
+}
+
+export async function isFleetCacheValid(env, cachedEpoch = '0') {
+  const currentEpoch = await getFleetCacheEpoch(env);
+  return Number(cachedEpoch || 0) >= Number(currentEpoch || 0);
+}
 
 let isEdgeFoldersTableReady = false;
 

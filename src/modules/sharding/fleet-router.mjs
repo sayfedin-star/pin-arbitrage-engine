@@ -335,14 +335,16 @@ export function _resetCircuitBreakers() {
  * Test helper: Inspect circuit breaker state
  */
 export function _getCircuitBreakerState(shardId) {
-  return circuitBreakers.get(shardId) || { state: 'CLOSED', failures: 0, nextAttempt: 0 };
+  const physicalKey = getPhysicalShardId(shardId);
+  return circuitBreakers.get(physicalKey) || { state: 'CLOSED', failures: 0, nextAttempt: 0 };
 }
 
 /**
  * Test helper: Manually set circuit breaker state
  */
 export function _setCircuitBreakerState(shardId, stateObj) {
-  circuitBreakers.set(shardId, stateObj);
+  const physicalKey = getPhysicalShardId(shardId);
+  circuitBreakers.set(physicalKey, stateObj);
 }
 
 /**
@@ -703,10 +705,11 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
   if (!shardSql) {
     shardSql = await resolveShardConnection({ shardId }).catch(() => null);
   }
-  let cb = circuitBreakers.get(shardId);
+  const physicalKey = getPhysicalShardId(shardId);
+  let cb = circuitBreakers.get(physicalKey);
   if (!cb) {
     cb = { state: 'CLOSED', failures: 0, nextAttempt: 0, _failedBatches: new Set() };
-    circuitBreakers.set(shardId, cb);
+    circuitBreakers.set(physicalKey, cb);
   }
   const now = Date.now();
 
@@ -715,16 +718,16 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
     if (bypassBreaker) {
       // [INVARIANT: FORCE-REFRESH-PROBE] User or caller explicitly bypassed cache: probe shard immediately
       cb.state = 'HALF_OPEN';
-      circuitBreakers.set(shardId, cb);
+      circuitBreakers.set(physicalKey, cb);
     } else if (now < cb.nextAttempt) {
       if (fallbackFn) {
-        return await fallbackFn({ reason: 'CIRCUIT_OPEN', shardId });
+        return await fallbackFn({ reason: 'CIRCUIT_OPEN', shardId, physicalShardId: physicalKey });
       }
       throw new Error(`Shard ${shardId} circuit breaker is OPEN (re-evaluating in ${Math.round((cb.nextAttempt - now) / 1000)}s).`);
     } else {
       // Probe attempt (HALF_OPEN)
       cb.state = 'HALF_OPEN';
-      circuitBreakers.set(shardId, cb);
+      circuitBreakers.set(physicalKey, cb);
     }
   }
 
@@ -752,7 +755,7 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
     cb.state = 'CLOSED';
     cb.failures = 0;
     if (cb._failedBatches) cb._failedBatches.clear();
-    circuitBreakers.set(shardId, cb);
+    circuitBreakers.set(physicalKey, cb);
     return result;
   } catch (err) {
     clearTimeout(timeoutTimer);
@@ -779,12 +782,12 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
     if (cb.failures >= CIRCUIT_FAILURE_THRESHOLD || cb.state === 'HALF_OPEN') {
       cb.state = 'OPEN';
       cb.nextAttempt = now + CIRCUIT_COOLDOWN_MS;
-      console.warn(`[Fleet Circuit Breaker] Tripped OPEN for shard ${shardId}. Reason: ${err.message}`);
+      console.warn(`[Fleet Circuit Breaker] Tripped OPEN for shard ${shardId} (physical ${physicalKey}). Reason: ${err.message}`);
     }
-    circuitBreakers.set(shardId, cb);
+    circuitBreakers.set(physicalKey, cb);
 
     if (fallbackFn) {
-      return await fallbackFn({ reason: err.name || 'SHARD_ERROR', error: err, shardId });
+      return await fallbackFn({ reason: err.name || 'SHARD_ERROR', error: err, shardId, physicalShardId: physicalKey });
     }
     throw err;
   }
@@ -1148,10 +1151,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // L1.5 Tier: Check Cloudflare Workers KV dossier cache (< 1.5ms) before touching any databases
   if (env?.PIN_ENGINE_KV && !bypassEdgeCache) {
     try {
+      const currentEpoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch').catch(() => null)) || '0';
       const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier:v3?pin_id=${cleanPinId}`, { type: 'json' });
       if (kvCached && kvCached.success && kvCached.creative && Array.isArray(kvCached.daily_trajectory)) {
-        sanitizeDossierTrajectory(kvCached);
-        return { ...kvCached, source: 'edge_kv' };
+        if (!kvCached._epoch || Number(kvCached._epoch) >= Number(currentEpoch)) {
+          sanitizeDossierTrajectory(kvCached);
+          return { ...kvCached, source: 'edge_kv' };
+        }
       }
     } catch (_) {}
   }
@@ -1656,7 +1662,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           ON CONFLICT (pin_id) DO UPDATE SET
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
             board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            title = CASE
+              WHEN EXCLUDED.title IS NOT NULL
+               AND BTRIM(EXCLUDED.title) <> ''
+               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+              THEN EXCLUDED.title
+              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+            END,
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
             image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
             description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
             alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
@@ -2562,7 +2577,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       // [INVARIANT: CANONICAL-KV-KEY-V3] (LND-816) Write exclusively to canonical key
       if (env?.PIN_ENGINE_KV && !isDegraded) {
         try {
-          const kvPayload = JSON.stringify(dossierResult);
+          const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch').catch(() => null)) || '0';
+          const kvPayload = JSON.stringify({ ...dossierResult, _epoch: epoch });
           await env.PIN_ENGINE_KV.put(`pin:dossier:v3?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 });
         } catch (_) {}
       }
@@ -2947,7 +2963,14 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     ON CONFLICT (pin_id) DO UPDATE SET
       creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
       board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-      title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+      title = CASE
+        WHEN EXCLUDED.title IS NOT NULL
+         AND BTRIM(EXCLUDED.title) <> ''
+         AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+         AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+        THEN EXCLUDED.title
+        ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+      END,
       domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
       destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
       image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
@@ -3333,7 +3356,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run().catch(() => {});
   }
 
-  // Step B: Evict all Cloudflare KV key variants in tandem (active + displaced keyword scopes + all trajectory ranges)
+  // Step B: Evict stale KV keys capped strictly to <= 12 operations (subrequest budget shield)
   if (env?.PIN_ENGINE_KV) {
     const associatedKids = [
       ...new Set([
@@ -3342,27 +3365,22 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       ].filter(kid => Number.isFinite(kid) && kid > 0))
     ];
     const serpKeys = associatedKids.map(kid => `serp:comp:${kid}`);
-    const evictions = [
-      `dossier:pin:${cleanPinId}`,
-      `dossier:pin:${cleanPinId}:0`,
-      `dossier:v3:pin:${cleanPinId}`,
-      `dossier:v3:pin:${cleanPinId}:0`,
-      `pin:dossier:${cleanPinId}`,
-      `pin:dossier:v3:${cleanPinId}`,
-      `pin:dossier?pin_id=${cleanPinId}`,
+    const candidateKeys = [
       `pin:dossier:v3?pin_id=${cleanPinId}`,
+      `dossier:v3:pin:${cleanPinId}`,
+      `dossier:pin:${cleanPinId}`,
+      `pin:dossier:${cleanPinId}`,
+      `pin:dossier?pin_id=${cleanPinId}`,
       `traj:pin:${cleanPinId}`,
-      `traj:pin:${cleanPinId}:0`,
       `traj:pin:${cleanPinId}:all`,
-      `traj:pin:${cleanPinId}:7d`,
-      `traj:pin:${cleanPinId}:14d`,
-      `traj:pin:${cleanPinId}:30d`,
       `pin:trajectory?pin_id=${cleanPinId}`,
-      ...associatedKids.map(kid => `dossier:pin:${cleanPinId}:${kid}`),
-      ...associatedKids.map(kid => `dossier:v3:pin:${cleanPinId}:${kid}`),
-      ...associatedKids.map(kid => `traj:pin:${cleanPinId}:${kid}`),
-      ...serpKeys
-    ].map(k => env.PIN_ENGINE_KV.delete(k));
+      ...serpKeys,
+      `dossier:pin:${cleanPinId}:0`,
+      `traj:pin:${cleanPinId}:0`,
+      `traj:pin:${cleanPinId}:7d`
+    ];
+    const keysToEvict = [...new Set(candidateKeys)].slice(0, 12);
+    const evictions = keysToEvict.map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
     await Promise.all(evictions);
   }
 
@@ -3505,7 +3523,14 @@ export async function writeBatchToDeterministicShards(params = {}) {
           ON CONFLICT (pin_id) DO UPDATE SET
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
             board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            title = CASE
+              WHEN EXCLUDED.title IS NOT NULL
+               AND BTRIM(EXCLUDED.title) <> ''
+               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+              THEN EXCLUDED.title
+              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+            END,
             domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
             destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
             image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),

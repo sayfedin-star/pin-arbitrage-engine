@@ -105,6 +105,40 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 })();
   </script>
   <script>
+    (function() {
+      if (typeof window === 'undefined') return;
+      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
+
+      window.resolvePinImageUrl = function(url, tier) {
+        tier = tier || '236x';
+        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
+        if (!url.includes('pinimg.com')) return url;
+        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
+      };
+
+      window.handlePinImgError = function(img) {
+        if (!img) return;
+        var currentSrc = img.src || '';
+        img._errStep = (img._errStep || 0) + 1;
+        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+          return;
+        }
+        if (currentSrc.includes('/236x/')) {
+          img.src = currentSrc.replace('/236x/', '/474x/');
+        } else if (currentSrc.includes('/474x/')) {
+          img.src = currentSrc.replace('/474x/', '/736x/');
+        } else if (currentSrc.includes('/736x/')) {
+          img.src = currentSrc.replace('/736x/', '/originals/');
+        } else {
+          img.onerror = null;
+          img.src = SVG_PLACEHOLDER;
+        }
+      };
+    })();
+  </script>
+  <script>
     try {
       const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
       if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -553,7 +587,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <td x-show="visibleColumns.preview" class="py-3 px-3">
                       <div class="w-10 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] shadow-2xs relative">
                         <template x-if="kw.top_pin_image">
-                          <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
+                          <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" onerror="window.handlePinImgError(this)">
                         </template>
                         <template x-if="!kw.top_pin_image">
                           <div class="w-full h-full flex items-center justify-center">
@@ -828,7 +862,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <!-- Card Header: Image Banner with Floating Badges -->
                   <div class="w-full h-44 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-[#27272A] relative">
                     <template x-if="kw.top_pin_image">
-                      <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                      <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onerror="window.handlePinImgError(this)">
                     </template>
                     <template x-if="!kw.top_pin_image">
                       <div class="w-full h-full flex items-center justify-center">
@@ -1653,7 +1687,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <td class="py-3.5 px-3">
                       <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                         <template x-if="pin.image_url">
-                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition">
+                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition" onerror="window.handlePinImgError(this)">
                         </template>
                         <template x-if="!pin.image_url">
                           <div class="w-10 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
@@ -1870,7 +1904,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <!-- Thumbnail with Rank & Format overlays -->
                   <a :href="getPinDossierUrl(pin)" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                     <template x-if="pin.image_url">
-                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="window.handlePinImgError(this)">
                     </template>
                     <template x-if="!pin.is_displaced">
                       <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs"
@@ -2463,7 +2497,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
                     <template x-if="p.image_url">
-                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" referrerpolicy="no-referrer">
+                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" referrerpolicy="no-referrer" onerror="window.handlePinImgError(this)">
                     </template>
                     <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-2.5">
                       <span class="text-[10px] font-bold text-white flex items-center space-x-1">
@@ -3148,7 +3182,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <td class="py-3.5 px-3">
                       <div class="relative group/img shrink-0">
                         <template x-if="pin.image_url">
-                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition">
+                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition" onerror="window.handlePinImgError(this)">
                         </template>
                         <template x-if="!pin.image_url">
                           <div class="w-10 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
@@ -3282,7 +3316,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 <div class="space-y-3">
                   <div class="relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800">
                     <template x-if="pin.image_url">
-                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="window.handlePinImgError(this)">
                     </template>
                     <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs"
                          x-text="'Was #' + (pin.last_known_rank || '?')"></div>
@@ -3597,7 +3631,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         
                         <div class="flex items-start space-x-3 min-w-0">
                           <template x-if="pin.image_url">
-                            <img :src="pin.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-[#27272A] shrink-0 group-hover:scale-105 transition shadow-xs">
+                            <img :src="pin.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-[#27272A] shrink-0 group-hover:scale-105 transition shadow-xs" onerror="window.handlePinImgError(this)">
                           </template>
                           <template x-if="!pin.image_url">
                             <div class="w-14 h-20 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center shrink-0">

@@ -15,7 +15,7 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeBatchToDeterministicShards } from '../src/modules/sharding/fleet-router.mjs';
+import { writeBatchToDeterministicShards } from '../../../src/modules/sharding/fleet-router.mjs';
 
 // Auto-load .env in Node runtime
 const envPath = path.resolve(process.cwd(), '.env');

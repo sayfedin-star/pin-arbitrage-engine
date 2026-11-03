@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { fetchUniversalPinDossier, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
+import { fetchUniversalPinDossier, preloadNeonRegistry } from '../../../src/modules/sharding/fleet-router.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -11,7 +11,7 @@ async function run() {
   console.log('--- Benchmarking Dossier Latency ---');
   await preloadNeonRegistry(sql);
 
-  const { listKeywords } = await import('../src/modules/keywords/service.mjs');
+  const { listKeywords } = await import('../../../src/modules/keywords/service.mjs');
   const tKw0 = Date.now();
   const kwList = await listKeywords(sql, { limit: 50 });
   console.log(`listKeywords (50 items): ${Date.now() - tKw0} ms | Count: ${kwList.length}`);

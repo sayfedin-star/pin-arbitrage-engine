@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { fetchPinFromPinterest } from './lib/pinterest.mjs';
+import { fetchPinFromPinterest } from '../../lib/pinterest.mjs';
 
 const sql = neon(process.env.DATABASE_URL);
 

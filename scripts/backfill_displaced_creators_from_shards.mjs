@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 import {
   getPinShardId,
   resolveShardConnection,
-  enforceNeonPoolerUrl
+  enforceNeonPoolerUrl,
+  coalesceShardGroupsByPhysical
 } from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -71,16 +72,17 @@ export async function runDisplacedCreatorsShardBackfill() {
     return { totalMissing: 0, totalAttributed: 0 };
   }
 
-  // Phase 2: Partition pin IDs across 99 shards
-  console.log('\n[*] Phase 2: Partitioning pins across shards using IEEE 802.3 CRC32...');
-  const shardMap = new Map();
+  // Phase 2: Partition pin IDs across 99 virtual shards coalesced into physical shards
+  console.log('\n[*] Phase 2: Partitioning pins across shards using IEEE 802.3 CRC32 and physical coalescence...');
+  const virtualShardMap = new Map();
   for (const row of missingPins) {
     const pinId = String(row.pin_id);
     const shardId = getPinShardId(pinId, 99);
-    if (!shardMap.has(shardId)) shardMap.set(shardId, []);
-    shardMap.get(shardId).push(pinId);
+    if (!virtualShardMap.has(shardId)) virtualShardMap.set(shardId, []);
+    virtualShardMap.get(shardId).push(pinId);
   }
-  console.log(`[+] Mapped ${missingPins.length} pins across ${shardMap.size} active shards.`);
+  const shardMap = coalesceShardGroupsByPhysical(virtualShardMap);
+  console.log(`[+] Mapped ${missingPins.length} pins across ${virtualShardMap.size} virtual shards coalesced into ${shardMap.size} physical shards.`);
 
   // Phase 3: Query universal_master_pins on each shard
   console.log('\n[*] Phase 3: Querying universal_master_pins on storage shards...');
