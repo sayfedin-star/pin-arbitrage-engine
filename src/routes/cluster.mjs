@@ -84,7 +84,7 @@ export async function handleClusterRoutes({
     }
     const folderId = searchParams.get('folder_id') || searchParams.get('folderId') || '';
     const windowParam = searchParams.get('window') || '24h';
-    const forceRefresh = searchParams.get('force_refresh') === 'true' || searchParams.get('refresh') === 'true';
+    const forceRefresh = searchParams.get('force_refresh') === 'true' || searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
     const minAudience = Number(searchParams.get('min_audience') || searchParams.get('minAudience') || 0);
 
     try {

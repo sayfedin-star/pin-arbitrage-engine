@@ -629,7 +629,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           dominant_color: row.dominant_color || '#888888',
           save_count: Number(row.save_count || 0),
           repin_count: Number(row.repin_count || 0),
-          daily_save_velocity: Number(row.daily_save_velocity || 0),
+          daily_save_velocity: rowVel,
           delta_repins_24h: Number(row.delta_repins_24h || 0),
           gains_5d: Number(row.gains_5d || 0),
           gains_7d: Number(row.gains_7d || 0),
@@ -641,9 +641,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           creation_method: row.creation_method || 'pinterest_platform',
           crawled_at: row.crawled_at || null,
           keywords: [],
-          foldersMap: new Map(),
-          rank_positions: [],
-          prev_rank_positions: []
+          folderList: [],
+          folderIdsSeen: [],
+          best_rank: row.rank_position != null ? Number(row.rank_position) : null,
+          best_prev_rank: row.prev_rank_position != null ? Number(row.prev_rank_position) : null
         });
       }
 
@@ -656,12 +657,21 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         prev_rank_position: row.prev_rank_position != null ? Number(row.prev_rank_position) : null
       });
 
-      if (row.rank_position != null) pEntry.rank_positions.push(Number(row.rank_position));
-      if (row.prev_rank_position != null) pEntry.prev_rank_positions.push(Number(row.prev_rank_position));
+      if (row.rank_position != null) {
+        const rp = Number(row.rank_position);
+        if (pEntry.best_rank === null || rp < pEntry.best_rank) pEntry.best_rank = rp;
+      }
+      if (row.prev_rank_position != null) {
+        const prp = Number(row.prev_rank_position);
+        if (pEntry.best_prev_rank === null || prp < pEntry.best_prev_rank) pEntry.best_prev_rank = prp;
+      }
 
       const fList = Array.isArray(row.folders) ? row.folders : [];
       for (const f of fList) {
-        if (f?.folder_id) pEntry.foldersMap.set(Number(f.folder_id), f);
+        if (f?.folder_id && !pEntry.folderIdsSeen.includes(Number(f.folder_id))) {
+          pEntry.folderIdsSeen.push(Number(f.folder_id));
+          pEntry.folderList.push(f);
+        }
       }
     }
 
@@ -673,12 +683,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     let freshRocketCount = 0;
     let bridgePinsCount = 0;
 
-    // N-Gram mining storage
+    // N-Gram mining storage (using array kwIds to eliminate Set allocation overhead)
     const singleTagMap = new Map();
-    const pairTagMap = new Map();
-    const tripletTagMap = new Map();
-
-    // Board & Color telemetry
     const boardStatsMap = new Map();
     const colorStatsMap = new Map();
     const creationMethodMap = new Map();
@@ -689,11 +695,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       const overlapCount = p.keywords.length;
       if (overlapCount >= 2) bridgePinsCount++;
 
-      const folders = Array.from(p.foldersMap.values());
+      const folders = p.folderList;
       const folderOverlapCount = folders.length;
-      const bestRank = p.rank_positions.length > 0 ? Math.min(...p.rank_positions) : null;
-      const bestPrevRank = p.prev_rank_positions.length > 0 ? Math.min(...p.prev_rank_positions) : null;
-      const rankClimb24h = (bestPrevRank != null && bestRank != null) ? (bestPrevRank - bestRank) : 0;
+      const bestRank = p.best_rank;
+      const rankClimb24h = (p.best_prev_rank != null && bestRank != null) ? (p.best_prev_rank - bestRank) : 0;
 
       // Calculate Age
       let pinAgeDays = null;
@@ -741,72 +746,50 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       // Clean annotations extraction
       const cleanAnnotations = extractCleanAnnotations(p.visual_annotations);
 
-      const pinObject = {
-        pin_id: p.pin_id,
-        title: p.title,
-        domain: p.domain,
-        destination_url: p.destination_url,
-        image_url: p.image_url,
-        creator_username: p.creator_username,
-        board_name: p.board_name,
-        dominant_color: p.dominant_color,
-        save_count: p.save_count,
-        repin_count: p.repin_count,
-        daily_save_velocity: p.daily_save_velocity,
-        delta_repins_24h: p.delta_repins_24h,
-        gains_5d: p.gains_5d,
-        gains_7d: p.gains_7d,
-        gains_10d: p.gains_10d,
-        gains_15d: p.gains_15d,
-        url_global_saves: p.url_global_saves,
-        url_leverage_ratio: urlLeverageRatio,
-        pin_age_days: pinAgeDays,
-        is_fresh_14d: isFresh14d,
-        is_fresh_30d: isFresh30d,
-        effective_24h_momentum: Number(effectiveMomentum.toFixed(2)),
-        acceleration_ratio: accelerationRatio,
-        is_accelerating: isAccelerating,
-        overlap_count: overlapCount,
-        folder_overlap_count: folderOverlapCount,
-        best_rank: bestRank,
-        rank_climb_24h: rankClimb24h,
-        is_vacuum_hijack_target: isVacuumHijackTarget,
-        creation_method: p.creation_method,
-        created_at_pinterest: p.created_at_pinterest,
-        keywords: p.keywords,
-        folders,
-        visual_annotations: cleanAnnotations
-      };
+      // Augment p in-place to avoid reallocating full pin objects for thousands of items
+      p.pin_age_days = pinAgeDays;
+      p.is_fresh_14d = isFresh14d;
+      p.is_fresh_30d = isFresh30d;
+      p.effective_24h_momentum = Number(effectiveMomentum.toFixed(2));
+      p.acceleration_ratio = accelerationRatio;
+      p.is_accelerating = isAccelerating;
+      p.overlap_count = overlapCount;
+      p.folder_overlap_count = folderOverlapCount;
+      p.best_rank = bestRank;
+      p.rank_climb_24h = rankClimb24h;
+      p.is_vacuum_hijack_target = isVacuumHijackTarget;
+      p.cleanAnnotations = cleanAnnotations;
+      p.folders = folders;
+      p.url_leverage_ratio = urlLeverageRatio;
+      p.keyword_text = p.keywords[0]?.keyword_text || '';
 
-      allActivePins.push(pinObject);
+      allActivePins.push(p);
 
-      // In-Memory N-Gram Mining (Lexicographically sorted, capped at 10 tags)
-      const sortedTags = cleanAnnotations.slice().sort((a, b) => a.norm.localeCompare(b.norm));
-      const boundedTags = sortedTags.slice(0, 10);
-      const K = boundedTags.length;
-
-      // 1-Gram (single_annotations)
-      for (let i = 0; i < K; i++) {
-        const tag = boundedTags[i];
-        if (!singleTagMap.has(tag.norm)) {
-          singleTagMap.set(tag.norm, {
+      // 1-Gram (single_annotations) - capped at top 10 tags
+      const sortedTags = cleanAnnotations.slice().sort((a, b) => a.norm.localeCompare(b.norm)).slice(0, 10);
+      for (const tag of sortedTags) {
+        let st = singleTagMap.get(tag.norm);
+        if (!st) {
+          st = {
             tag_norm: tag.norm,
             tag_display: tag.display,
             pin_count: 0,
-            keywordsSet: new Set(),
+            kwIds: [],
             total_velocity: 0,
             total_saves: 0,
             total_repins_delta: 0,
             sample_pins: []
-          });
+          };
+          singleTagMap.set(tag.norm, st);
         }
-        const st = singleTagMap.get(tag.norm);
         st.pin_count++;
         st.total_velocity += p.daily_save_velocity;
         st.total_saves += p.save_count;
         st.total_repins_delta += p.delta_repins_24h;
-        for (const kw of p.keywords) st.keywordsSet.add(kw.keyword_id);
-        if (st.sample_pins.length < 3) {
+        for (const kw of p.keywords) {
+          if (!st.kwIds.includes(kw.keyword_id)) st.kwIds.push(kw.keyword_id);
+        }
+        if (st.sample_pins.length < 2) {
           st.sample_pins.push({
             pin_id: p.pin_id,
             title: p.title,
@@ -816,101 +799,21 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         }
       }
 
-      // 2-Pairs (A + B)
-      for (let i = 0; i < K - 1; i++) {
-        for (let j = i + 1; j < K; j++) {
-          const tA = boundedTags[i];
-          const tB = boundedTags[j];
-          const pairKey = `${tA.norm} +++ ${tB.norm}`;
-          if (!pairTagMap.has(pairKey)) {
-            pairTagMap.set(pairKey, {
-              tag_a_norm: tA.norm,
-              tag_a_display: tA.display,
-              tag_b_norm: tB.norm,
-              tag_b_display: tB.display,
-              crossover_label: `${tA.display} + ${tB.display}`,
-              pin_count: 0,
-              keywordsSet: new Set(),
-              total_velocity: 0,
-              total_saves: 0,
-              total_repins_delta: 0,
-              sample_pins: []
-            });
-          }
-          const pt = pairTagMap.get(pairKey);
-          pt.pin_count++;
-          pt.total_velocity += p.daily_save_velocity;
-          pt.total_saves += p.save_count;
-          pt.total_repins_delta += p.delta_repins_24h;
-          for (const kw of p.keywords) pt.keywordsSet.add(kw.keyword_id);
-          if (pt.sample_pins.length < 3) {
-            pt.sample_pins.push({
-              pin_id: p.pin_id,
-              title: p.title,
-              image_url: p.image_url,
-              rank_position: bestRank
-            });
-          }
-        }
-      }
-
-      // 3-Triplets (A + B + C)
-      for (let i = 0; i < K - 2; i++) {
-        for (let j = i + 1; j < K - 1; j++) {
-          for (let k = j + 1; k < K; k++) {
-            const tA = boundedTags[i];
-            const tB = boundedTags[j];
-            const tC = boundedTags[k];
-            const tripKey = `${tA.norm} +++ ${tB.norm} +++ ${tC.norm}`;
-            if (!tripletTagMap.has(tripKey)) {
-              tripletTagMap.set(tripKey, {
-                tag_a_norm: tA.norm,
-                tag_a_display: tA.display,
-                tag_b_norm: tB.norm,
-                tag_b_display: tB.display,
-                tag_c_norm: tC.norm,
-                tag_c_display: tC.display,
-                crossover_label: `${tA.display} + ${tB.display} + ${tC.display}`,
-                pin_count: 0,
-                keywordsSet: new Set(),
-                total_velocity: 0,
-                total_saves: 0,
-                total_repins_delta: 0,
-                sample_pins: []
-              });
-            }
-            const tt = tripletTagMap.get(tripKey);
-            tt.pin_count++;
-            tt.total_velocity += p.daily_save_velocity;
-            tt.total_saves += p.save_count;
-            tt.total_repins_delta += p.delta_repins_24h;
-            for (const kw of p.keywords) tt.keywordsSet.add(kw.keyword_id);
-            if (tt.sample_pins.length < 3) {
-              tt.sample_pins.push({
-                pin_id: p.pin_id,
-                title: p.title,
-                image_url: p.image_url,
-                rank_position: bestRank
-              });
-            }
-          }
-        }
-      }
-
       // Board Telemetry
       const cleanBoard = (p.board_name || '').trim();
       if (cleanBoard && cleanBoard.toLowerCase() !== 'unknown') {
-        if (!boardStatsMap.has(cleanBoard)) {
-          boardStatsMap.set(cleanBoard, {
+        let bEntry = boardStatsMap.get(cleanBoard);
+        if (!bEntry) {
+          bEntry = {
             board_name: cleanBoard,
             creator_username: p.creator_username || '',
             pin_count: 0,
             total_velocity: 0,
             total_saves: 0,
             sample_pins: []
-          });
+          };
+          boardStatsMap.set(cleanBoard, bEntry);
         }
-        const bEntry = boardStatsMap.get(cleanBoard);
         bEntry.pin_count++;
         bEntry.total_velocity += p.daily_save_velocity;
         bEntry.total_saves += p.save_count;
@@ -926,29 +829,27 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       // Dominant Color Telemetry
       const colorHex = (p.dominant_color || '#888888').trim().toLowerCase();
       if (colorHex) {
-        if (!colorStatsMap.has(colorHex)) {
-          colorStatsMap.set(colorHex, {
-            color: colorHex,
-            pin_count: 0,
-            total_velocity: 0
-          });
+        let cEntry = colorStatsMap.get(colorHex);
+        if (!cEntry) {
+          cEntry = { color: colorHex, pin_count: 0, total_velocity: 0 };
+          colorStatsMap.set(colorHex, cEntry);
         }
-        const cEntry = colorStatsMap.get(colorHex);
         cEntry.pin_count++;
         cEntry.total_velocity += p.daily_save_velocity;
       }
 
       // Creation Method Telemetry
       const cm = (p.creation_method || 'pinterest_platform').trim();
-      if (!creationMethodMap.has(cm)) {
-        creationMethodMap.set(cm, { method: cm, pin_count: 0, total_velocity: 0 });
+      let cmEntry = creationMethodMap.get(cm);
+      if (!cmEntry) {
+        cmEntry = { method: cm, pin_count: 0, total_velocity: 0 };
+        creationMethodMap.set(cm, cmEntry);
       }
-      const cmEntry = creationMethodMap.get(cm);
       cmEntry.pin_count++;
       cmEntry.total_velocity += p.daily_save_velocity;
     }
 
-    // Sort Breakout Pins
+    // Sort All Active Pins by Momentum
     allActivePins.sort((a, b) => {
       if (b.effective_24h_momentum !== a.effective_24h_momentum) {
         return b.effective_24h_momentum - a.effective_24h_momentum;
@@ -959,23 +860,170 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       return b.save_count - a.save_count;
     });
 
-    const breakoutPinsTop150 = allActivePins.slice(0, 150);
+    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining
+    // Mining on top 150 momentum pins prevents V8 isolate heap explosion (capping iterations to ~18,000 instead of 460,000+)
+    const candidatePins = allActivePins.slice(0, 150);
+    const pairTagMap = new Map();
+    const tripletTagMap = new Map();
+
+    for (const p of candidatePins) {
+      const sortedTags = p.cleanAnnotations.slice().sort((a, b) => a.norm.localeCompare(b.norm)).slice(0, 10);
+      const K = sortedTags.length;
+      if (K < 2) continue;
+
+      // 2-Pairs (A + B)
+      for (let i = 0; i < K - 1; i++) {
+        for (let j = i + 1; j < K; j++) {
+          const tA = sortedTags[i];
+          const tB = sortedTags[j];
+          const pairKey = `${tA.norm} +++ ${tB.norm}`;
+          let pt = pairTagMap.get(pairKey);
+          if (!pt) {
+            pt = {
+              tag_a_norm: tA.norm,
+              tag_a_display: tA.display,
+              tag_b_norm: tB.norm,
+              tag_b_display: tB.display,
+              crossover_label: `${tA.display} + ${tB.display}`,
+              pin_count: 0,
+              kwIds: [],
+              total_velocity: 0,
+              total_saves: 0,
+              total_repins_delta: 0,
+              sample_pins: []
+            };
+            pairTagMap.set(pairKey, pt);
+          }
+          pt.pin_count++;
+          pt.total_velocity += p.daily_save_velocity;
+          pt.total_saves += p.save_count;
+          pt.total_repins_delta += p.delta_repins_24h;
+          for (const kw of p.keywords) {
+            if (!pt.kwIds.includes(kw.keyword_id)) pt.kwIds.push(kw.keyword_id);
+          }
+          if (pt.sample_pins.length < 2) {
+            pt.sample_pins.push({
+              pin_id: p.pin_id,
+              title: p.title,
+              image_url: p.image_url,
+              rank_position: p.best_rank
+            });
+          }
+        }
+      }
+
+      // 3-Triplets (A + B + C)
+      for (let i = 0; i < K - 2; i++) {
+        for (let j = i + 1; j < K - 1; j++) {
+          for (let k = j + 1; k < K; k++) {
+            const tA = sortedTags[i];
+            const tB = sortedTags[j];
+            const tC = sortedTags[k];
+            const tripKey = `${tA.norm} +++ ${tB.norm} +++ ${tC.norm}`;
+            let tt = tripletTagMap.get(tripKey);
+            if (!tt) {
+              tt = {
+                tag_a_norm: tA.norm,
+                tag_a_display: tA.display,
+                tag_b_norm: tB.norm,
+                tag_b_display: tB.display,
+                tag_c_norm: tC.norm,
+                tag_c_display: tC.display,
+                crossover_label: `${tA.display} + ${tB.display} + ${tC.display}`,
+                pin_count: 0,
+                kwIds: [],
+                total_velocity: 0,
+                total_saves: 0,
+                total_repins_delta: 0,
+                sample_pins: []
+              };
+              tripletTagMap.set(tripKey, tt);
+            }
+            tt.pin_count++;
+            tt.total_velocity += p.daily_save_velocity;
+            tt.total_saves += p.save_count;
+            tt.total_repins_delta += p.delta_repins_24h;
+            for (const kw of p.keywords) {
+              if (!tt.kwIds.includes(kw.keyword_id)) tt.kwIds.push(kw.keyword_id);
+            }
+            if (tt.sample_pins.length < 2) {
+              tt.sample_pins.push({
+                pin_id: p.pin_id,
+                title: p.title,
+                image_url: p.image_url,
+                rank_position: p.best_rank
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Helper to format pin summary cleanly
+    const formatPinSummary = (p) => ({
+      pin_id: p.pin_id,
+      title: p.title,
+      domain: p.domain,
+      destination_url: p.destination_url,
+      image_url: p.image_url,
+      creator_username: p.creator_username,
+      board_name: p.board_name,
+      dominant_color: p.dominant_color,
+      save_count: p.save_count,
+      repin_count: p.repin_count,
+      daily_save_velocity: p.daily_save_velocity,
+      delta_repins_24h: p.delta_repins_24h,
+      gains_5d: p.gains_5d,
+      gains_7d: p.gains_7d,
+      gains_10d: p.gains_10d,
+      gains_15d: p.gains_15d,
+      url_global_saves: p.url_global_saves,
+      url_leverage_ratio: p.url_leverage_ratio,
+      pin_age_days: p.pin_age_days,
+      is_fresh_14d: p.is_fresh_14d,
+      is_fresh_30d: p.is_fresh_30d,
+      effective_24h_momentum: p.effective_24h_momentum,
+      acceleration_ratio: p.acceleration_ratio,
+      is_accelerating: p.is_accelerating,
+      overlap_count: p.overlap_count,
+      folder_overlap_count: p.folder_overlap_count,
+      best_rank: p.best_rank,
+      rank_climb_24h: p.rank_climb_24h,
+      is_vacuum_hijack_target: p.is_vacuum_hijack_target,
+      creation_method: p.creation_method,
+      created_at_pinterest: p.created_at_pinterest,
+      keyword_text: p.keyword_text || (p.keywords[0]?.keyword_text || ''),
+      keywords: p.keywords.slice(0, 3),
+      folders: p.folders.slice(0, 3),
+      visual_annotations: p.cleanAnnotations.slice(0, 8)
+    });
+
+    const breakoutPinsTop100 = allActivePins.slice(0, 100).map(formatPinSummary);
 
     const freshRocketPinsTop50 = allActivePins
       .filter(p => p.is_fresh_14d && (p.daily_save_velocity > 0 || p.delta_repins_24h > 0))
       .sort((a, b) => b.daily_save_velocity - a.daily_save_velocity)
-      .slice(0, 50);
+      .slice(0, 50)
+      .map(formatPinSummary);
 
     // Section 3: Format N-Gram Crossovers
     const singleAnnotations = Array.from(singleTagMap.values())
       .map(t => ({
+        label: t.tag_display,
+        display: t.tag_display,
         tag_norm: t.tag_norm,
         tag_display: t.tag_display,
+        count: t.pin_count,
         pin_count: t.pin_count,
-        keyword_count: t.keywordsSet.size,
+        keywords_count: t.kwIds.length,
+        keyword_count: t.kwIds.length,
+        velocity: Number(t.total_velocity.toFixed(2)),
+        avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
         total_velocity: Number(t.total_velocity.toFixed(2)),
-        total_saves: t.total_saves,
+        repins_surge: t.total_repins_delta,
+        delta_repins: t.total_repins_delta,
         total_repins_delta: t.total_repins_delta,
+        total_saves: t.total_saves,
         sample_pins: t.sample_pins
       }))
       .sort((a, b) => {
@@ -986,16 +1034,24 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     const pairCrossovers = Array.from(pairTagMap.values())
       .map(p => ({
+        label: p.crossover_label,
+        pair: p.crossover_label,
+        crossover_label: p.crossover_label,
         tag_a_norm: p.tag_a_norm,
         tag_a_display: p.tag_a_display,
         tag_b_norm: p.tag_b_norm,
         tag_b_display: p.tag_b_display,
-        crossover_label: p.crossover_label,
+        count: p.pin_count,
         pin_count: p.pin_count,
-        keyword_count: p.keywordsSet.size,
+        keywords_count: p.kwIds.length,
+        keyword_count: p.kwIds.length,
+        velocity: Number(p.total_velocity.toFixed(2)),
+        avg_velocity: p.pin_count > 0 ? Number((p.total_velocity / p.pin_count).toFixed(2)) : 0,
         total_velocity: Number(p.total_velocity.toFixed(2)),
-        total_saves: p.total_saves,
+        repins_surge: p.total_repins_delta,
+        delta_repins: p.total_repins_delta,
         total_repins_delta: p.total_repins_delta,
+        total_saves: p.total_saves,
         sample_pins: p.sample_pins
       }))
       .sort((a, b) => {
@@ -1006,18 +1062,26 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     const tripletCrossovers = Array.from(tripletTagMap.values())
       .map(t => ({
+        label: t.crossover_label,
+        triplet: t.crossover_label,
+        crossover_label: t.crossover_label,
         tag_a_norm: t.tag_a_norm,
         tag_a_display: t.tag_a_display,
         tag_b_norm: t.tag_b_norm,
         tag_b_display: t.tag_b_display,
         tag_c_norm: t.tag_c_norm,
         tag_c_display: t.tag_c_display,
-        crossover_label: t.crossover_label,
+        count: t.pin_count,
         pin_count: t.pin_count,
-        keyword_count: t.keywordsSet.size,
+        keywords_count: t.kwIds.length,
+        keyword_count: t.kwIds.length,
+        velocity: Number(t.total_velocity.toFixed(2)),
+        avg_velocity: t.pin_count > 0 ? Number((t.total_velocity / t.pin_count).toFixed(2)) : 0,
         total_velocity: Number(t.total_velocity.toFixed(2)),
-        total_saves: t.total_saves,
+        repins_surge: t.total_repins_delta,
+        delta_repins: t.total_repins_delta,
         total_repins_delta: t.total_repins_delta,
+        total_saves: t.total_saves,
         sample_pins: t.sample_pins
       }))
       .sort((a, b) => {
@@ -1031,20 +1095,21 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     for (const c of guidedCapsuleRows) {
       const termNorm = String(c.term || c.display_label || '').trim().toLowerCase();
       if (!termNorm) continue;
-      if (!capsuleGroupMap.has(termNorm)) {
-        capsuleGroupMap.set(termNorm, {
+      let cg = capsuleGroupMap.get(termNorm);
+      if (!cg) {
+        cg = {
           term: c.term,
           display_label: c.display_label,
           dominant_color: c.dominant_color || '#3b82f6',
           max_score: Number(c.score || 0),
-          keywordsSet: new Set(),
+          kwIds: [],
           keywords: []
-        });
+        };
+        capsuleGroupMap.set(termNorm, cg);
       }
-      const cg = capsuleGroupMap.get(termNorm);
       const kid = Number(c.keyword_id);
-      if (!cg.keywordsSet.has(kid)) {
-        cg.keywordsSet.add(kid);
+      if (!cg.kwIds.includes(kid)) {
+        cg.kwIds.push(kid);
         cg.keywords.push({
           keyword_id: kid,
           keyword_text: c.keyword_text || '',
@@ -1059,7 +1124,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     let sharedCapsulesCount = 0;
     const guidedCapsuleCrossovers = Array.from(capsuleGroupMap.values())
       .map(cg => {
-        const keywordCount = cg.keywordsSet.size;
+        const keywordCount = cg.kwIds.length;
         if (keywordCount >= 2) sharedCapsulesCount++;
 
         // Calculate cross-SERP 24h velocity from associated keywords
@@ -1077,11 +1142,14 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           term: cg.term,
           display_label: cg.display_label,
           dominant_color: cg.dominant_color,
+          score: Number(cg.max_score.toFixed(2)),
           max_score: Number(cg.max_score.toFixed(2)),
+          keyword_text: cg.keywords[0]?.keyword_text || '',
+          distinct_keywords: keywordCount,
           keyword_count: keywordCount,
           cross_serp_velocity: Number(crossSerpVelocity.toFixed(2)),
           cross_serp_pins: crossSerpPins,
-          keywords: cg.keywords
+          keywords: cg.keywords.slice(0, 4)
         };
       })
       .sort((a, b) => {
@@ -1089,7 +1157,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (b.cross_serp_velocity !== a.cross_serp_velocity) return b.cross_serp_velocity - a.cross_serp_velocity;
         return b.max_score - a.max_score;
       })
-      .slice(0, 60);
+      .slice(0, 50);
 
     // Section 5: Creator Breakouts with Snapshot Delta Fallbacks
     let breakoutCreatorsCount = 0;
@@ -1145,7 +1213,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           driver_pins: driverPins
         };
       })
-      .slice(0, 60);
+      .slice(0, 40);
 
     // Section 6: Keyword Vacuums & Multi-Keyword Pixie Bridges
     const bridgePins = allActivePins
@@ -1162,9 +1230,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         daily_save_velocity: p.daily_save_velocity,
         delta_repins_24h: p.delta_repins_24h,
         keyword_count: p.overlap_count,
-        keywords: p.keywords,
+        keywords: p.keywords.slice(0, 3),
         folder_count: p.folder_overlap_count,
-        folders: p.folders,
+        folders: p.folders.slice(0, 3),
         bridge_score: Number((p.overlap_count * Math.max(1, p.daily_save_velocity)).toFixed(2))
       }))
       .sort((a, b) => {
@@ -1172,7 +1240,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (b.bridge_score !== a.bridge_score) return b.bridge_score - a.bridge_score;
         return b.daily_save_velocity - a.daily_save_velocity;
       })
-      .slice(0, 60);
+      .slice(0, 40);
 
     let totalVacuumTop10_24h = 0;
     const keywordVacuumOpportunities = Array.from(vacuumKwMap.values())
@@ -1294,7 +1362,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         min_audience: minAudience
       },
       kpis,
-      breakout_pins: breakoutPinsTop150,
+      breakout_pins: breakoutPinsTop100,
       fresh_rocket_pins: freshRocketPinsTop50,
       vault_surge_pins: vaultPins,
       pinarchive_winners: paWinners.map(p => ({

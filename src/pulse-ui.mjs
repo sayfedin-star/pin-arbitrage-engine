@@ -557,12 +557,12 @@ export function getPulsePageHtml(folderId = '') {
               <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition">
                 <td class="py-2.5 px-3 text-center font-mono font-bold text-slate-400" x-text="idx + 1"></td>
                 <td class="py-2.5 px-3">
-                  <div class="font-bold text-slate-900 dark:text-white" x-text="item.label || item.pair || item.triplet || item.display"></div>
-                  <div class="text-[10px] text-slate-400 font-mono" x-text="(item.keywords_count ? item.keywords_count + ' keywords' : '')"></div>
+                  <div class="font-bold text-slate-900 dark:text-white" x-text="item.label || item.pair || item.triplet || item.display || item.crossover_label || item.tag_display"></div>
+                  <div class="text-[10px] text-slate-400 font-mono" x-text="((item.keywords_count || item.keyword_count) ? (item.keywords_count || item.keyword_count) + ' keywords' : '')"></div>
                 </td>
-                <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(item.count || item.frequency || 0)"></td>
-                <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400" x-text="formatVelocity(item.avg_velocity || item.velocity || 0)"></td>
-                <td class="py-2.5 px-3 text-right font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="'+' + formatNumber(item.repins_surge || item.delta_repins || 0)"></td>
+                <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(item.count || item.pin_count || item.frequency || 0)"></td>
+                <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400" x-text="formatVelocity(item.avg_velocity || item.velocity || item.total_velocity || 0)"></td>
+                <td class="py-2.5 px-3 text-right font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="'+' + formatNumber(item.repins_surge || item.total_repins_delta || item.delta_repins || 0)"></td>
               </tr>
             </template>
           </tbody>
@@ -993,7 +993,12 @@ export function getPulsePageHtml(folderId = '') {
             if (seq !== this._pulseReqSeq) return;
 
             this.kpis = data.kpis || {};
-            this.breakout_pins = data.breakout_pins || {};
+            this.breakout_pins = {
+              top_breakouts: Array.isArray(data.breakout_pins) ? data.breakout_pins : (data.breakout_pins?.top_breakouts || []),
+              fresh_rockets: Array.isArray(data.fresh_rocket_pins) ? data.fresh_rocket_pins : (data.breakout_pins?.fresh_rockets || []),
+              vault_surge_pins: Array.isArray(data.vault_surge_pins) ? data.vault_surge_pins : (data.breakout_pins?.vault_surge_pins || []),
+              pinarchive_winners: Array.isArray(data.pinarchive_winners) ? data.pinarchive_winners : (data.breakout_pins?.pinarchive_winners || [])
+            };
             this.annotation_crossovers = data.annotation_crossovers || {};
             this.guided_capsule_crossovers = data.guided_capsule_crossovers || [];
             this.creator_breakouts = data.creator_breakouts || [];
