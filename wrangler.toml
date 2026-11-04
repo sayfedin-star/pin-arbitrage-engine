@@ -40,7 +40,3 @@ database_id = "b0e9c924-4190-436f-909b-a7142696680b"
 [[env.preview.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "66ba4dc750fc464b991eb52558a8c026"
-
-# 5. Worker CPU Execution Limit for Cold-Start Pulse Syntheses
-[limits]
-cpu_ms = 30000
