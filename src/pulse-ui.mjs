@@ -658,9 +658,12 @@ export function getPulsePageHtml(folderId = '') {
 
                   <!-- Capsule Presentation -->
                   <template x-if="matrixSubFilter === 'capsules'">
-                    <div class="flex items-center space-x-2 min-w-0">
-                      <span class="w-3 h-3 rounded-full shrink-0" :style="'background-color: ' + (item.dominant_color || '#3b82f6')"></span>
-                      <span class="font-bold text-slate-900 dark:text-white truncate" x-text="item.display_label || item.term"></span>
+                    <div class="min-w-0">
+                      <div class="flex items-center space-x-2 min-w-0">
+                        <span class="w-3 h-3 rounded-full shrink-0" :style="'background-color: ' + (item.dominant_color || '#3b82f6')"></span>
+                        <span class="font-bold text-slate-900 dark:text-white truncate" x-text="item.display_label || item.term"></span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 font-mono pl-5" x-text="((item.distinct_keywords || item.keyword_count) ? (item.distinct_keywords || item.keyword_count) + ' keywords' : '')"></div>
                     </div>
                   </template>
 
@@ -680,7 +683,7 @@ export function getPulsePageHtml(folderId = '') {
                     <span class="text-[10px] text-slate-400">pins</span>
                   </div>
                   <div class="font-mono tabular-nums text-[11px] text-rose-600 dark:text-rose-400 font-bold" 
-                       x-text="matrixSubFilter === 'capsules' ? ('Score ' + Number(item.score || 0).toFixed(1)) : formatVelocity(item.avg_velocity || item.velocity || item.total_velocity || 0)"></div>
+                       x-text="matrixSubFilter === 'capsules' ? (item.cross_serp_velocity > 0 ? (formatVelocity(item.cross_serp_velocity) + ' · Score ' + Number(item.score || 0).toFixed(1)) : ('Score ' + Number(item.score || 0).toFixed(1))) : formatVelocity(item.total_velocity || item.total_24h_gain || item.velocity || item.avg_velocity || 0)"></div>
                 </div>
               </div>
             </template>
@@ -748,7 +751,7 @@ export function getPulsePageHtml(folderId = '') {
                     
                     <div class="flex items-center gap-2 font-mono text-[11px] pt-0.5">
                       <span class="text-rose-600 dark:text-rose-400 font-bold" 
-                            x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || 0)"></span>
+                            x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || p.effective_24h_gain || 0)"></span>
                       <span class="text-purple-600 dark:text-purple-400 font-bold" 
                             x-text="'+' + formatNumber(p.delta_repins_24h || 0) + ' repins'"></span>
                       <span class="text-slate-400" x-text="(p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '') ? formatAge(p.pin_age_days) : '—'"></span>
@@ -884,7 +887,7 @@ export function getPulsePageHtml(folderId = '') {
                             </div>
                             <div class="min-w-0 pr-1 text-left">
                               <div class="text-[10px] font-bold text-slate-900 dark:text-white truncate max-w-[85px]" x-text="p.title || 'Driver Pin'"></div>
-                              <div class="text-[9.5px] font-mono tabular-nums text-rose-600 dark:text-rose-400 font-bold" x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || 0)"></div>
+                              <div class="text-[9.5px] font-mono tabular-nums text-rose-600 dark:text-rose-400 font-bold" x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || p.effective_24h_gain || 0)"></div>
                             </div>
                           </div>
                         </template>

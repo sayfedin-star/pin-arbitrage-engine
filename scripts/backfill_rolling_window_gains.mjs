@@ -78,10 +78,23 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   const currentRepins = Number(latest.repin_count || 0);
 
   // 1. 24h repin delta
+  // [INVARIANT: ANTI-HYDRATION-SPIKE]
+  // Protect against unhydrated 0-repin baselines jumping to full lifetime repins
   let delta_repins_24h = 0;
   if (sorted.length >= 2) {
     const prevRepins = Number(sorted[1].repin_count || 0);
-    delta_repins_24h = Math.max(0, currentRepins - prevRepins);
+    const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
+    if (prevRepins <= 0 && currentRepins >= 10) {
+      delta_repins_24h = 0;
+    } else if (isMultiStageHydrationJump(sorted[1], latest)) {
+      delta_repins_24h = 0;
+    } else if (prevRepins > 0 && (currentRepins / prevRepins) >= 4.0 && (currentRepins - prevRepins) >= 200) {
+      delta_repins_24h = 0;
+    } else if (daysDiff > 7) {
+      delta_repins_24h = 0;
+    } else {
+      delta_repins_24h = Math.round(Math.max(0, currentRepins - prevRepins) / daysDiff);
+    }
   }
 
   // 2. Multi-window save gains
