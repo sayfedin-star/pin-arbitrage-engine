@@ -315,3 +315,27 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings, 100/100 files, 14 locks PASS)
   - `npm run test:offline` (100% PASS)
   - `npm test` (100% PASS)
+
+
+---
+
+## Round 21: Phase 7 — Zero-404 Pin Dossiers, Pulse Velocity Parity & Folder Crossover Deduplication
+- **Round / Feature**: Phase 7 — Pin Dossier Multi-Tier Fallback Synthesis, Velocity Symmetrical Clamp & Creative Deduplication
+- **Trap / Failure Mode**: 
+  1. Pin Dossier `/pin/:id` returned 404 NOT_FOUND for active folder/crossover pins that were pruned from `universal_master_pins` during storage compaction or resided only in `competitor_pins`, `pa_pins`, or D1 edge cache.
+  2. Pulse Radar displayed a misleading purple `+468/d REPIN SURGE` badge for pins whose authentic save velocity was `+371/d` because stale repin deltas were allowed to exceed save velocity and `Math.max(saves, repins)` overrode authentic save gains.
+  3. Folder Crossover Room 2 displayed duplicate identical visual pins side-by-side because different creators pinned the same image or post under distinct Pinterest pin IDs.
+- **Root Cause & Technical Mechanism**:
+  1. In `src/modules/sharding/fleet-router.mjs`, `fetchUniversalPinDossier` only checked `universal_master_pins` on the shard/hub. If `masterRecord` was null, it failed immediately with 404 without synthesizing from `competitor_pins`, `pa_pins`, or D1 `edge_pins_metadata`.
+  2. In `scripts/backfill_rolling_window_gains.mjs` and `src/modules/pulse/service.mjs`, `delta_repins_24h` lacked an upper bound against daily save velocity. When Pinterest repin counters fluctuated or lagged, stale repin deltas exceeded daily saves.
+  3. In `src/modules/keywords/folders-service.mjs`, `_executeFolderCrossover` mapped pins purely by `p.pin_id`, retaining identical duplicate creative assets across different boards/accounts.
+- **Verified Solution & Invariant Codification**:
+  1. Multi-Tier Dossier Synthesis: Enhanced `fetchUniversalPinDossier` to query `competitor_pins` and `pa_pins` in parallel with SERP/KDI, synthesize `masterRecord` from any available pillar, fall back to on-demand D1 query, and synthesize a 1-day fallback snapshot in `snapshotMap` so `daily_trajectory` is never empty.
+  2. Physical Invariant Clamping: Enforced `if (saveDelta24h > 0 && delta_repins_24h > saveDelta24h) delta_repins_24h = saveDelta24h` in `calculateRollingGainsFromSnapshots` and `service.mjs`, and updated `src/pulse-ui.mjs` to prioritize rose Save Velocity whenever `daily_save_velocity || delta_saves_24h > 0`.
+  3. Crossover Creative Deduplication: Grouped `allPins` by canonical creative key (`img:hash` or `ts:title:saves`), merging multi-keyword rankings into a single canonical pin card before computing Super Pins and tag bridges.
+  4. Cache Busting & Compaction: Bumped cache keys to `crossover:v4` and `pulse:global_24h:summary:v2`, cleared `keyword_folder_synopses`, and ran `VACUUM FULL ANALYZE` keeping Central Hub storage at 170 MB (< 195 MB limit).
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 101/101 files, 14 locks PASS)
+  - `npm run test:offline` (13 suites, 100% PASS)
+  - `npm test` (21 suites, 100% PASS)
+  - Live Neon Hub verification: Pin #1098245059160132988 displays exact +371/d velocity across Pulse Radar and Dossier; Pin #524950900340768832 resolves cleanly; Folder 5 Crossover has 0 duplicate twin pins and 10/10 working dossiers.
