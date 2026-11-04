@@ -472,7 +472,7 @@ export function getPulsePageHtml(folderId = '') {
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                       <!-- Keyword Context Badge -->
                       <template x-if="pin.keyword_text">
-                        <a :href="'/keywords/' + (pin.keyword_id || '')" 
+                        <a :href="getKeywordUrl(pin.keyword_slug || pin.keyword_text, pin.keyword_id)" 
                            class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-[10px] font-mono text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/40">
                           <span x-text="pin.keyword_text"></span>
                           <template x-if="pin.rank_position">
@@ -980,7 +980,7 @@ export function getPulsePageHtml(folderId = '') {
                 <div class="flex items-center space-x-2 shrink-0">
                   <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20" 
                         x-text="'Score: ' + (v.vacuum_score || v.displaced_top10_24h_count || 0)"></span>
-                  <a :href="'/keywords/' + (v.keyword_id || '')" 
+                  <a :href="getKeywordUrl(v.keyword_slug || v.keyword_text || v.keyword, v.keyword_id)" 
                      class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-[10.5px] font-semibold text-rose-600 dark:text-rose-400 hover:border-rose-500 transition flex items-center space-x-0.5">
                     <span>Inspect</span>
                     <i data-lucide="arrow-up-right" class="w-3 h-3"></i>
@@ -1178,7 +1178,11 @@ export function getPulsePageHtml(folderId = '') {
                 <tbody class="divide-y divide-slate-100 dark:divide-[#27272A]/50 font-mono text-[11px]">
                   <template x-for="(kw, kwidx) in (activeBlueprintPin?.keywords || [{ keyword: activeBlueprintPin?.keyword_text, rank: activeBlueprintPin?.rank_position }])" :key="kwidx">
                     <tr>
-                      <td class="py-2 px-3 font-medium text-slate-800 dark:text-slate-200" x-text="kw.keyword || 'Universal'"></td>
+                      <td class="py-2 px-3 font-medium text-slate-800 dark:text-slate-200">
+                        <a :href="getKeywordUrl(kw.keyword || kw.keyword_text || kw.keyword_slug, kw.keyword_id)" 
+                           class="hover:text-rose-600 hover:underline transition"
+                           x-text="kw.keyword || kw.keyword_text || 'Universal'"></a>
+                      </td>
                       <td class="py-2 px-3 text-right font-bold text-rose-600" x-text="'#' + (kw.rank || activeBlueprintPin?.rank_position || '1')"></td>
                       <td class="py-2 px-3 text-right text-slate-400" x-text="kw.folder_name || 'Global'"></td>
                     </tr>
@@ -1283,6 +1287,7 @@ export function getPulsePageHtml(folderId = '') {
         hidden_gems_telemetry: {
           winning_boards: [],
           vacuum_hijack_pins: [],
+          domainless_viral_pins: [],
           creation_method_breakdown: [],
           dominant_color_palette: [],
           top_arbitrage_domains: []
@@ -1449,6 +1454,19 @@ export function getPulsePageHtml(folderId = '') {
           this.toasts = this.toasts.filter(function(t) { return t.id !== id; });
         },
 
+        getKeywordUrl: function(kwTextOrSlug, kwId) {
+          if (kwTextOrSlug && typeof kwTextOrSlug === 'string' && kwTextOrSlug.trim()) {
+            var slug = kwTextOrSlug.trim().toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+            if (slug) return '/keywords/' + encodeURIComponent(slug);
+          }
+          if (kwId) {
+            return '/keywords/' + encodeURIComponent(String(kwId));
+          }
+          return '/keywords';
+        },
+
         setWindow: function(win) {
           this.selectedWindow = win;
           this.fetchPulseData(false);
@@ -1469,15 +1487,29 @@ export function getPulsePageHtml(folderId = '') {
             params.set('window', this.selectedWindow || '24h');
             if (forceRefresh) params.set('force', 'true');
 
-            var res = await fetch('/api/pulse/24h?' + params.toString(), {
+            var url = '/api/pulse/24h?' + params.toString();
+            var fetchOptions = {
               headers: { 'Accept': 'application/json' },
               signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(15000) : undefined
-            });
+            };
+
+            var res = await fetch(url, fetchOptions);
+
+            // [INVARIANT: COLD-START-TRANSIENT-RETRY] 1-attempt automatic retry on cold-start HTTP 502/503/504
+            if ((res.status === 502 || res.status === 503 || res.status === 504) && seq === this._pulseReqSeq) {
+              console.warn('[Pulse UI] Cold-start HTTP ' + res.status + ' encountered. Retrying in 1,200ms...');
+              await new Promise(function(resolve) { setTimeout(resolve, 1200); });
+              if (seq !== this._pulseReqSeq) return; // Discard if user triggered new action during wait
+              res = await fetch(url, fetchOptions);
+            }
 
             if (seq !== this._pulseReqSeq) return; // Discard stale race responses
 
             if (!res.ok) {
-              throw new Error('Server returned HTTP ' + res.status);
+              var errData = null;
+              try { errData = await res.json(); } catch (_) {}
+              var msg = (errData && errData.message) ? errData.message : ('Server returned HTTP ' + res.status);
+              throw new Error(msg);
             }
 
             var data = await res.json();
@@ -1779,12 +1811,14 @@ export function getPulsePageHtml(folderId = '') {
         getDomainlessViralPins: function() {
           var list = [];
           var seen = new Set();
-          var candidates = (this.hidden_gems_telemetry.vacuum_hijack_pins || []).concat(this.breakout_pins.top_breakouts || []);
+          var candidates = (this.hidden_gems_telemetry.domainless_viral_pins || [])
+            .concat(this.hidden_gems_telemetry.vacuum_hijack_pins || [])
+            .concat(this.breakout_pins.top_breakouts || []);
           for (var i = 0; i < candidates.length; i++) {
             var p = candidates[i];
             if (p && p.pin_id && !seen.has(p.pin_id)) {
               seen.add(p.pin_id);
-              var isDomainless = !p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url;
+              var isDomainless = Boolean(p.is_domainless_viral || (!p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url));
               if (isDomainless) {
                 list.push(p);
               }
@@ -1799,6 +1833,9 @@ export function getPulsePageHtml(folderId = '') {
           }
 
           list.sort(function(a, b) {
+            var gainA = Number(a.effective_24h_gain || a.daily_save_velocity || a.delta_saves_24h || 0);
+            var gainB = Number(b.effective_24h_gain || b.daily_save_velocity || b.delta_saves_24h || 0);
+            if (gainB !== gainA) return gainB - gainA;
             return (Number(b.save_count) || 0) - (Number(a.save_count) || 0);
           });
 
@@ -1854,20 +1891,55 @@ export function getPulsePageHtml(folderId = '') {
           })
           .then(function(res) { return res.ok ? res.json() : null; })
           .then(function(data) {
-            if (data && data.pin && self.activeBlueprintPin && self.activeBlueprintPin.pin_id === targetPinId) {
-              var p = data.pin;
-              if (p.description && !self.activeBlueprintPin.description) {
-                self.activeBlueprintPin.description = p.description;
+            if (data && self.activeBlueprintPin && self.activeBlueprintPin.pin_id === targetPinId) {
+              var c = data.creative || data.pin || data;
+              var creatorCtx = data.pillar_1_creator_context || {};
+              var kwCtx = data.pillar_2_keywords_context || {};
+              var algoCtx = data.algorithmic_intelligence || {};
+
+              var desc = c.description || algoCtx.seo_description || '';
+              if (desc && !self.activeBlueprintPin.description) {
+                self.activeBlueprintPin.description = desc;
               }
-              if (p.alt_text && !self.activeBlueprintPin.alt_text) {
-                self.activeBlueprintPin.alt_text = p.alt_text;
+              var alt = c.alt_text || '';
+              if (alt && !self.activeBlueprintPin.alt_text) {
+                self.activeBlueprintPin.alt_text = alt;
               }
-              if (p.board_name && !self.activeBlueprintPin.board_name) {
-                self.activeBlueprintPin.board_name = p.board_name;
+              var board = creatorCtx.board_name || c.board_name || '';
+              if (board && (!self.activeBlueprintPin.board_name || self.activeBlueprintPin.board_name === 'General Inspiration')) {
+                self.activeBlueprintPin.board_name = board;
               }
-              if (p.visual_annotations && p.visual_annotations.length && (!self.activeBlueprintPin.visual_annotations || !self.activeBlueprintPin.visual_annotations.length)) {
-                self.activeBlueprintPin.visual_annotations = p.visual_annotations;
-                self.activeBlueprintPin.annotations = p.visual_annotations;
+              var annotations = (c.visual_annotations && c.visual_annotations.length)
+                ? c.visual_annotations
+                : (c.annotations && c.annotations.length ? c.annotations : null);
+              if (annotations && (!self.activeBlueprintPin.visual_annotations || !self.activeBlueprintPin.visual_annotations.length)) {
+                self.activeBlueprintPin.visual_annotations = annotations;
+                self.activeBlueprintPin.annotations = annotations;
+              }
+              if (c.title && (!self.activeBlueprintPin.title || self.activeBlueprintPin.title === 'Untitled Pin')) {
+                self.activeBlueprintPin.title = c.title;
+              }
+              if (c.image_url && !self.activeBlueprintPin.image_url) {
+                self.activeBlueprintPin.image_url = c.image_url;
+              }
+              if (c.destination_url && !self.activeBlueprintPin.destination_url) {
+                self.activeBlueprintPin.destination_url = c.destination_url;
+              }
+              if (c.domain && (!self.activeBlueprintPin.domain || self.activeBlueprintPin.domain === 'pinterest.com')) {
+                self.activeBlueprintPin.domain = c.domain;
+              }
+              if (Array.isArray(kwCtx.ranking_keywords) && kwCtx.ranking_keywords.length > 0) {
+                if (!self.activeBlueprintPin.keywords || self.activeBlueprintPin.keywords.length <= 1) {
+                  self.activeBlueprintPin.keywords = kwCtx.ranking_keywords.map(function(rk) {
+                    return {
+                      keyword_id: rk.keyword_id,
+                      keyword: rk.keyword,
+                      keyword_text: rk.keyword,
+                      rank: rk.rank || rk.rank_position || rk.last_known_rank || 1,
+                      folder_name: rk.folder_name || 'Global'
+                    };
+                  });
+                }
               }
             }
           })
