@@ -465,7 +465,28 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   const physicalShardName = getShardProjectName(physicalShardId, prefix);
   const shardName = getShardProjectName(cleanId, prefix);
 
-  // 1. Template-based Resolution (Zero database roundtrip)
+  // 1. Ultra-Fast In-Memory Lookup from shardSqlClients cache (e.g. unit tests using _setShardSqlClient)
+  if (globalShardMap.has(cleanId) || globalShardMap.has(physicalShardId)) {
+    const cachedEntry = globalShardMap.get(cleanId) || globalShardMap.get(physicalShardId);
+    if (cachedEntry?.database_url) {
+      const cachedClient = getCachedShardSqlClient(cachedEntry.database_url);
+      if (cachedClient) {
+        return cachedClient;
+      }
+    }
+  }
+
+  // 2. Cloud VPS Unified-Postgres Topology Adapter (Default SSOT)
+  const topology = getDatabaseTopology(env);
+  if (topology === 'unified_postgres') {
+    if (hubSql) return hubSql;
+    const defaultDsn = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
+    if (defaultDsn && isValidShardDsn(defaultDsn)) {
+      return getOrCreateShardSqlClient(enforceNeonPoolerUrl(defaultDsn));
+    }
+  }
+
+  // 3. Template-based Resolution (Zero database roundtrip)
   const template = dsnTemplate || (typeof process !== 'undefined' ? process.env.NEON_SHARD_DSN_TEMPLATE : null);
   if (template) {
     const physicalPadded = String(physicalShardId).padStart(2, '0');
@@ -480,18 +501,7 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     }
   }
 
-  // 2. Ultra-Fast In-Memory Lookup from shardSqlClients cache (e.g. unit tests using _setShardSqlClient)
-  if (globalShardMap.has(cleanId) || globalShardMap.has(physicalShardId)) {
-    const cachedEntry = globalShardMap.get(cleanId) || globalShardMap.get(physicalShardId);
-    if (cachedEntry?.database_url) {
-      const cachedClient = getCachedShardSqlClient(cachedEntry.database_url);
-      if (cachedClient) {
-        return cachedClient;
-      }
-    }
-  }
-
-  // 3. Workers KV Fast Shard Routing (if explicitly in sharded mode or testing with KV)
+  // 4. Workers KV Fast Shard Routing (if explicitly in sharded mode or testing with KV)
   if (env?.PIN_ENGINE_KV && env?.DATABASE_TOPOLOGY !== 'unified_postgres') {
     const kvRows = await getFleetShardsMap(env, hubSql);
     if (Array.isArray(kvRows)) {
@@ -505,16 +515,6 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
         const pooledDsn = enforceNeonPoolerUrl(match.database_url);
         return getOrCreateShardSqlClient(pooledDsn);
       }
-    }
-  }
-
-  // 4. Cloud VPS Unified-Postgres Topology Adapter (Default)
-  const topology = getDatabaseTopology(env);
-  if (topology === 'unified_postgres') {
-    if (hubSql) return hubSql;
-    const defaultDsn = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
-    if (defaultDsn && isValidShardDsn(defaultDsn)) {
-      return getOrCreateShardSqlClient(enforceNeonPoolerUrl(defaultDsn));
     }
   }
 
@@ -638,6 +638,9 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
  * @returns {Promise<number>} Number of shard mappings loaded
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
+  if (isUnifiedPostgres(env) && (env?.DATABASE_TOPOLOGY === 'unified_postgres' || (typeof process !== 'undefined' && process.env?.DATABASE_TOPOLOGY === 'unified_postgres'))) {
+    return 0;
+  }
   if (shardMapWarmupPromise) {
     return await shardMapWarmupPromise;
   }
@@ -1192,16 +1195,17 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   if (!cleanPinId) throw new Error('Pin ID is required');
 
   const shardId = getPinShardId(cleanPinId, 99);
+  const effectiveBypassEdgeCache = bypassEdgeCache || isUnifiedPostgres(env);
 
   // L1.5 Tier: Check Cloudflare Workers KV dossier cache (< 1.5ms) before touching any databases
-  if (env?.PIN_ENGINE_KV && !bypassEdgeCache) {
+  if (env?.PIN_ENGINE_KV && !effectiveBypassEdgeCache) {
     try {
       const currentEpoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch').catch(() => null)) || '0';
       const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier:v3?pin_id=${cleanPinId}`, { type: 'json' });
       if (kvCached && kvCached.success && kvCached.creative && Array.isArray(kvCached.daily_trajectory)) {
         if (!kvCached._epoch || Number(kvCached._epoch) >= Number(currentEpoch)) {
           sanitizeDossierTrajectory(kvCached);
-          return { ...kvCached, source: 'edge_kv' };
+          return { ...kvCached, source: 'edge_kv', topology: getDatabaseTopology(env) };
         }
       }
     } catch (_) {}
@@ -1210,7 +1214,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // Tier 1: Check Cloudflare D1 edge database (3.4ms latency) with 12h TTL freshness guard
   // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
   let d1Record = null;
-  if (env?.PIN_D1_DB && !bypassEdgeCache) {
+  if (env?.PIN_D1_DB && !effectiveBypassEdgeCache) {
     try {
       await ensureEdgePinsMetadataTable(env);
       const row = await env.PIN_D1_DB.prepare(
@@ -2555,7 +2559,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       radar_url: `/api/keywords/visual-search?pin_id=${cleanPinId}`
     },
     daily_trajectory: dailyTrajectory,
-    snapshots: enrichedSnapshots
+    snapshots: enrichedSnapshots,
+    topology: getDatabaseTopology(env)
   };
 
   // Tier 1 Edge Mirror & Write-Through: Persist fresh shard metadata & daily_trajectory to D1 & KV

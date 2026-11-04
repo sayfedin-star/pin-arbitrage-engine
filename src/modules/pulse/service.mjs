@@ -54,16 +54,33 @@ function getKeywordSlug(kwText, kwId) {
   return kwId ? String(kwId) : '';
 }
 
-const fastParseIsoDateMs = (str) => {
-  if (!str || typeof str !== 'string') return NaN;
-  if (str.length >= 10 && str.charCodeAt(4) === 45 && str.charCodeAt(7) === 45) {
-    const y = +str.slice(0, 4);
-    const m = (+str.slice(5, 7)) - 1;
-    const d = +str.slice(8, 10);
-    return Date.UTC(y, m, d);
+const fastParseIsoDateMs = (val) => {
+  if (!val) return NaN;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val === 'number') return Number.isFinite(val) ? val : NaN;
+  if (typeof val !== 'string') return NaN;
+  if (val.length >= 10 && val.charCodeAt(4) === 45 && val.charCodeAt(7) === 45) {
+    const y = +val.slice(0, 4);
+    const m = (+val.slice(5, 7)) - 1;
+    const d = +val.slice(8, 10);
+    const t = Date.UTC(y, m, d);
+    if (!Number.isNaN(t)) return t;
   }
-  return Date.parse(str);
+  return Date.parse(val);
 };
+
+export function getCanonicalCreativeKey(p) {
+  if (!p) return '';
+  if (p.image_url) {
+    const match = String(p.image_url).match(/([a-f0-9]{32})/i) || String(p.image_url).match(/\/([^/?#]+\.(?:jpg|jpeg|png|webp))/i);
+    if (match) return `img:${match[1].toLowerCase()}`;
+    return `img:${p.image_url}`;
+  }
+  const t = (p.title || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const d = (p.domain || '').trim().toLowerCase();
+  if (t && d) return `td:${d}:${t}`;
+  return `pid:${p.pin_id || ''}`;
+}
 
 /**
  * Normalizes and extracts clean visual annotations from polymorphic shapes:
@@ -256,11 +273,12 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ksc.url_global_saves, 0) AS url_global_saves,
       COALESCE(ksc.dominant_color, '#888888') AS dominant_color,
       COALESCE(ksc.visual_annotations, '[]'::jsonb) AS visual_annotations,
-      ksc.created_at_pinterest,
+      COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
       COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
       ksc.crawled_at
     FROM keyword_serp_current ksc
     JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
     LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksc.keyword_id
     WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE
       AND ksc.rank_position IS NOT NULL
@@ -379,10 +397,11 @@ async function queryViralCreatorPins(sql, folderIdNum) {
       m.daily_save_velocity,
       m.delta_saves_24h,
       m.delta_repins_24h,
-      cpin.created_at_pinterest,
+      COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
       COALESCE(cpin.metadata->'visual_annotations', cpin.metadata->'annotations', '[]'::jsonb) AS visual_annotations
     FROM competitor_pins cpin
     JOIN competitor_profiles cp ON cp.id = cpin.competitor_id
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
     CROSS JOIN LATERAL (
       SELECT
         COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
@@ -602,6 +621,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
           ORDER BY GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) DESC, dcp.save_count DESC
         ) AS rn
       FROM deduped_creator_pins dcp
+      WHERE GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) > 0
     ),
     driver_pins_agg AS (
       SELECT
@@ -737,6 +757,10 @@ function isSyntheticGarbageTitle(title) {
 function mergePinIntoMap(pinMap, row, sourceTag, keywordFoldersMap = null) {
   const pid = String(row.pin_id);
 
+  if (row.created_at_pinterest instanceof Date) {
+    row.created_at_pinterest = row.created_at_pinterest.toISOString();
+  }
+
   const rawSaves = row.save_count ?? row.saves;
   const rowSaves = (typeof rawSaves === 'number') ? rawSaves : fastNum(rawSaves);
   const rawRepins = row.repin_count ?? row.repins;
@@ -828,6 +852,9 @@ function mergePinIntoMap(pinMap, row, sourceTag, keywordFoldersMap = null) {
 
     if (!p.created_at_pinterest && row.created_at_pinterest) {
       p.created_at_pinterest = row.created_at_pinterest;
+    }
+    if (p.created_at_pinterest instanceof Date) {
+      p.created_at_pinterest = p.created_at_pinterest.toISOString();
     }
 
     // Union clean annotations (zero Set allocation)
@@ -1082,9 +1109,20 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
       const isFresh14d = pinAgeDays !== null ? (pinAgeDays <= 14) : false;
       const isFresh30d = pinAgeDays !== null ? (pinAgeDays <= 30) : false;
+      p.pin_age_days = pinAgeDays;
+      p.is_fresh_14d = isFresh14d;
+      p.is_fresh_30d = isFresh30d;
+      p.lifetime_velocity = (pinAgeDays !== null && pinAgeDays > 0)
+        ? Math.round((p.save_count / pinAgeDays) * 10) / 10
+        : null;
 
       // Unified 24h Velocity & Effective Gain [Fix 2.1 SSOT: Math.max()]
-      const effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
+      let effectiveSaves24h = p.delta_saves_24h;
+      if (effectiveSaves24h <= 0 || !Number.isFinite(effectiveSaves24h)) {
+        effectiveSaves24h = p.daily_save_velocity;
+      } else if (p.daily_save_velocity > 0 && p.daily_save_velocity < effectiveSaves24h * 5) {
+        effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
+      }
       const effectiveRepins24h = (p.delta_repins_24h > 0) ? p.delta_repins_24h : 0;
       const effective24hGain = (effectiveSaves24h > effectiveRepins24h) ? effectiveSaves24h : effectiveRepins24h;
       p.effective_24h_gain = effective24hGain;
@@ -1588,6 +1626,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     // Unified Breakout Pins Feed (Hydrated pins first up to 100, then unhydrated skeletons up to 10) [Round 16 Gate 5.2 & Gate 5.3]
     const seenBreakoutIds = new Set();
+    const seenCreativeKeys = new Set();
     const breakoutPinsTop250 = [];
 
     const hydratedPins = [];
@@ -1616,14 +1655,19 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     for (let i = 0; i < hydratedPins.length; i++) {
       const p = hydratedPins[i];
+      const cKey = getCanonicalCreativeKey(p);
+      if (seenBreakoutIds.has(p.pin_id) || (cKey && seenCreativeKeys.has(cKey))) continue;
       seenBreakoutIds.add(p.pin_id);
+      if (cKey) seenCreativeKeys.add(cKey);
       breakoutPinsTop250.push(formatPinSummary(p));
     }
 
     for (let i = 0; i < paPinsList.length; i++) {
       const p = paPinsList[i];
-      if (!seenBreakoutIds.has(p.pin_id)) {
+      const cKey = getCanonicalCreativeKey(p);
+      if (!seenBreakoutIds.has(p.pin_id) && (!cKey || !seenCreativeKeys.has(cKey))) {
         seenBreakoutIds.add(p.pin_id);
+        if (cKey) seenCreativeKeys.add(cKey);
         breakoutPinsTop250.push(formatPinSummary(p));
         if (breakoutPinsTop250.length >= 100) break;
       }
@@ -1631,8 +1675,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     for (let i = 0; i < skeletonPins.length; i++) {
       const p = skeletonPins[i];
-      if (!seenBreakoutIds.has(p.pin_id)) {
+      const cKey = getCanonicalCreativeKey(p);
+      if (!seenBreakoutIds.has(p.pin_id) && (!cKey || !seenCreativeKeys.has(cKey))) {
         seenBreakoutIds.add(p.pin_id);
+        if (cKey) seenCreativeKeys.add(cKey);
         breakoutPinsTop250.push(formatPinSummary(p));
       }
     }
@@ -1866,7 +1912,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         const driverPins = Array.isArray(cp.driver_pins) ? cp.driver_pins : [];
         const maxPinVel = driverPins.reduce((max, dp) => Math.max(max, Number(dp.daily_save_velocity || dp.delta_saves_24h || 0)), 0);
 
-        // Strictly positive growth: eliminate negative drop accounts (-346,814) and stagnant zero accounts
+        // Strictly positive growth: eliminate negative drop accounts and stagnant zero accounts with no active driver pins
+        if (deltaReach < 0 && deltaViews < 0) return false;
         if (deltaReach <= 0 && deltaViews <= 0 && maxPinVel <= 0) return false;
         return true;
       })
@@ -1882,9 +1929,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
         if (deltaReach > 0 || deltaViews > 0) breakoutCreatorsCount++;
 
-        // Filter driver pins for valid non-empty images
+        // Filter driver pins for valid non-empty images and strictly positive velocity/delta
         const rawDriverPins = (Array.isArray(cp.driver_pins) ? cp.driver_pins : [])
-          .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0)
+          .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0 && Math.max(Number(dp.daily_save_velocity || 0), Number(dp.delta_saves_24h || 0)) > 0)
           .map(dp => ({
             ...dp,
             dossier_url: '/pin/' + encodeURIComponent(dp.pin_id),

@@ -238,9 +238,13 @@ export function getPinDetailPageHtml(pinId = '') {
     <div class="hidden lg:flex items-center gap-2">
       <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#27272A] bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-300">
         <span class="w-2 h-2 rounded-full" :class="isShardWarming ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
-        <span>Storage Shard</span>
-        <span class="text-emerald-400 font-bold" x-text="dossier?.shard_id ? ('#' + dossier.shard_id) : 'resolving...'"></span>
-        <span class="text-slate-600">/ 99</span>
+        <span x-text="dossier?.topology === 'unified_postgres' ? 'Unified Central Hub' : 'Storage Shard'"></span>
+        <template x-if="dossier?.topology !== 'unified_postgres'">
+          <span>
+            <span class="text-emerald-400 font-bold" x-text="dossier?.shard_id ? ('#' + dossier.shard_id) : 'resolving...'"></span>
+            <span class="text-slate-600">/ 99</span>
+          </span>
+        </template>
       </div>
       <template x-if="dossier?.from_shard_snapshots">
         <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">Shard Snapshot SSOT</span>
@@ -535,10 +539,10 @@ export function getPinDetailPageHtml(pinId = '') {
           <span class="font-mono tabular-nums font-bold text-slate-200" x-text="formatStrictUniversalAge()"></span>
         </div>
 
-        <!-- Shard Allocation -->
+        <!-- Shard Allocation / Storage Topology -->
         <div class="flex items-center justify-between gap-2 border-t border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0">CRC32 Routing</span>
-          <span class="font-mono tabular-nums text-emerald-400 font-semibold" x-text="'Shard #' + dossier?.shard_id"></span>
+          <span class="text-slate-400 shrink-0" x-text="dossier?.topology === 'unified_postgres' ? 'Storage Architecture' : 'CRC32 Routing'"></span>
+          <span class="font-mono tabular-nums text-emerald-400 font-semibold" x-text="dossier?.topology === 'unified_postgres' ? 'Unified Central Hub' : ('Shard #' + dossier?.shard_id)"></span>
         </div>
 
         <!-- Cross-Pillar Radar Action -->
