@@ -2282,7 +2282,7 @@ export function getPinDetailPageHtml(pinId = '') {
           const prevSaves = Number(prev.save_count || 0);
           const prevRepins = Number(prev.repin_count || 0);
 
-          if (prevSaves < prevRepins) return true;
+          // [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
           if (prevRepins > 0 && prevSaves === prevRepins && currSaves > currRepins * 1.35) return true;
           if (prevRepins === 0 && currRepins >= 25 && currSaves >= prevSaves * 2.5) return true;
           if (prevSaves > 0 && (currSaves / prevSaves) >= 4.0 && (currSaves - prevSaves) >= 2500) return true;

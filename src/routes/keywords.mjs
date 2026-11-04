@@ -1634,6 +1634,8 @@ export async function handleKeywordsRoutes({
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
           } catch (_) {}
         })(), 'kv_del_folder_cache');
       }
@@ -1661,6 +1663,8 @@ export async function handleKeywordsRoutes({
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
           } catch (_) {}
         })(), 'kv_del_folder_cache_del');
       }

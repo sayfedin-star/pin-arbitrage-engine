@@ -338,8 +338,10 @@ async function inspectPin(pin, kw) {
     (pin.creation_method && pin.creation_method !== 'pinterest_platform')
   );
 
-  // Use 3KB JSON PinResource fast path for Displaced Vault pins & already-hydrated pins
-  const isTelemetryOnly = Boolean(pin.is_displaced || wasDeepHydrated);
+  // Use 3KB JSON PinResource fast path only if displaced OR (deep-hydrated AND already has visual annotations)
+  // [INVARIANT: ANNOTATIONS-COMPLETENESS]
+  const hasAnnotations = Array.isArray(pin.visual_annotations) && pin.visual_annotations.length > 0;
+  const isTelemetryOnly = Boolean(pin.is_displaced || (wasDeepHydrated && hasAnnotations));
 
   let detail = null;
   let isDead = false;
@@ -417,17 +419,18 @@ async function inspectPin(pin, kw) {
     return null;
   }
 
-  const detailSaves = Math.max(Number(detail?.saves || 0), Number(detail?.save_count || 0));
-  const rawAuthenticSaves = (!wasDeepHydrated && detailSaves > 0)
-    ? detailSaves
-    : Math.max(Number(pin.save_count || 0), detailSaves);
+  const detailSaves = Number(detail?.saves ?? detail?.save_count ?? 0);
+  const prevKnownSaves = Number(pin.save_count || 0);
+  // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
+  // Preserve previously known save_count if PinResource fast path omitted saves (detailSaves === 0)
+  const authenticSaves = (detailSaves > 0)
+    ? Math.max(prevKnownSaves, detailSaves)
+    : prevKnownSaves;
   const authenticRepins = Math.max(
     Number(pin.repin_count || 0),
     Number(detail?.repins || 0),
     Number(detail?.repin_count || 0)
   );
-  // Physical Invariant: Total saves must always be at least verified repin count
-  const authenticSaves = Math.max(rawAuthenticSaves, authenticRepins);
   const authenticComments = Number(detail?.comments || detail?.comment_count || 0);
   const authenticShares = Number(detail?.shares || detail?.share_count || 0);
 

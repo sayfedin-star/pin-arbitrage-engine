@@ -96,10 +96,8 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
     } else {
       delta_repins_24h = Math.round(Math.max(0, currentRepins - prevRepins) / daysDiff);
     }
-    const saveDelta24h = Math.max(0, currentSaves - prevSaves);
-    if (saveDelta24h > 0 && delta_repins_24h > saveDelta24h) {
-      delta_repins_24h = saveDelta24h;
-    }
+    // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
+    // Saves and repins track their own consecutive daily deltas independently
   }
 
   // 2. Multi-window save gains

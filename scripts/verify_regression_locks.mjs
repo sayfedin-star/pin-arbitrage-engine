@@ -235,7 +235,7 @@ try {
     foldersServiceContent.includes('coalesceShardGroupsByPhysical') &&
     foldersServiceContent.includes('FROM universal_master_pins') &&
     foldersServiceContent.includes('isSyntheticPinTitle') &&
-    (foldersServiceContent.includes(':crossover:v4') || foldersServiceContent.includes(':crossover:v3')) &&
+    (foldersServiceContent.includes(':crossover:v5') || foldersServiceContent.includes(':crossover:v4') || foldersServiceContent.includes(':crossover:v3')) &&
     foldersServiceContent.includes('resolveShardConnection({ hubSql: sql, shardId, env })') &&
     foldersServiceContent.includes('aMissingImg !== bMissingImg') &&
     foldersServiceContent.includes("(ump.metadata->>'aspect_ratio') AS aspect_ratio") &&

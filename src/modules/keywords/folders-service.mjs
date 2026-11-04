@@ -2080,8 +2080,8 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
     if (env?.PIN_ENGINE_KV) {
       try {
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-        // [INVARIANT-LOCK: :crossover:v3 upgraded to :crossover:v4 in Phase 7]
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v4`;
+        // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v5`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         const isKvPoisoned = Boolean(
           kvData?._has_unhydrated_priority_pins ||
@@ -2127,8 +2127,8 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       if (env?.PIN_ENGINE_KV) {
         try {
           const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-          // [INVARIANT-LOCK: :crossover:v3 upgraded to :crossover:v4 in Phase 7]
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v4`;
+          // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v5`;
           await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: kvTtlSec });
         } catch (_) {}
       }
@@ -2409,11 +2409,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     // Consistency check between 24h delta and 7d gains:
     // If verified shard rolling gains exist (gains_7d > 0) and 24h delta exceeds gains_7d, clamp or use authentic gains_24h
     let delta24h = (rowGains24h != null) ? Math.min(vel, rowGains24h) : vel;
-    if (rowGains7d !== null && rowGains7d > 0 && delta24h > rowGains7d) {
+    if (rowGains7d !== null && delta24h > (rowGains7d || 0)) {
       if (rowSaves > 0 && rowRepins > 0 && Math.abs((rowSaves - rowRepins) - delta24h) <= Math.max(50, rowRepins * 0.03)) {
         delta24h = 0;
         vel = 0;
-      } else {
+      } else if (rowGains7d > 0) {
         delta24h = Math.min(delta24h, rowGains7d);
       }
     }

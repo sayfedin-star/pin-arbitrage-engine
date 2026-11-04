@@ -1055,8 +1055,7 @@ export function isMultiStageHydrationJump(prev, curr) {
   // 1. prev.save_count === 0 && curr.save_count > 0
   if (pSaves === 0 && cSaves > 0) return true;
 
-  // 2. prev.save_count < prev.repin_count
-  if (pSaves < pRepins) return true;
+  // 2. [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
 
   // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
   // while curSaves jumped by >= 15% (and rawDelta >= 50) above that repin baseline

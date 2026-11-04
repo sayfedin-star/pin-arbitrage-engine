@@ -45,8 +45,7 @@ export function detectHydrationJump(params) {
   if (params.wasDeepHydrated === false && curSaves >= 30) return true;
   if (prevSaves < 10 && curSaves >= 100) return true;
 
-  // 2. prev.save_count < prev.repin_count
-  if (prevSaves > 0 && prevRepins > 0 && prevSaves < prevRepins) return true;
+  // 2. [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
 
   // 2B. Repin-Baseline Fingerprint Guard:
   // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100:

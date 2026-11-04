@@ -339,3 +339,31 @@ trigger: always_on
   - `npm run test:offline` (13 suites, 100% PASS)
   - `npm test` (21 suites, 100% PASS)
   - Live Neon Hub verification: Pin #1098245059160132988 displays exact +371/d velocity across Pulse Radar and Dossier; Pin #524950900340768832 resolves cleanly; Folder 5 Crossover has 0 duplicate twin pins and 10/10 working dossiers.
+
+---
+
+## Round 22: Phase 8 — End-to-End Forensic Database Reality Healing & Clean-Slate Single-DB Pipeline Rewrite
+- **Round / Feature**: Phase 8 — Critical Domain Law (`repin_count` vs `save_count`), Anti-Sawtooth Database Healing, Room 2 Tag Matrix Hydration & Room 3 Surging Creator Parity
+- **Trap / Failure Mode**: 
+  1. The Sawtooth Hydration Spike Trap: Pins with steady saves (e.g. 19,236 saves) oscillated between authentic saves and repins (11,989), producing fake recurring daily velocity spikes (+7,247/d).
+  2. Banned Assumption Trap (`save_count >= repin_count`): Code previously assumed `saves >= repins`, treating `prevSaves < prevRepins` as a hydration jump and clamping `delta_repins_24h <= daily_save_velocity`. On authentic Pinterest pins, `repin_count` is frequently greater than `save_count`.
+  3. Room 2 Empty Pattern Trap: Visual annotations were missing in `keyword_serp_current`, and candidate pin selection was artificially choked to 40 pins with 4 tags, resulting in empty co-occurrence matrices.
+  4. Room 3 Creator Inversion Trap: Snapshot subtraction of unhydrated 0-reach/views snapshots (`monthly_reach - 0`) generated millions of fake reach delta, pushing stagnant accounts to #1 and burying authentic breakout creators (+296k, +168k). Driver pins displayed "No driver pins in SERP" due to strict velocity > 0 filtering and case-sensitive username mismatch.
+- **Root Cause & Technical Mechanism**:
+  1. `formatPin` in `scripts/lib/pinterest.mjs` had `const saves = hasExplicitSaves ? Math.max(rawSaves, rawRepins) : rawRepins;`. When lightweight `PinResource` returned `rawSaves = 0`, repins were stored in `save_count`, creating non-monotonic sawtooth drops.
+  2. Anti-hydration guards in `math.mjs`, `fleet-router.mjs`, and `pin-details-ui.mjs` checked `if (prevSaves < prevRepins) return true`, suppressing valid trajectories.
+  3. `queryActiveSerp` used `COALESCE(ksc.visual_annotations, '[]'::jsonb)` without joining `universal_master_pins.visual_annotations`.
+  4. `queryBreakoutCreators` computed `monthly_reach - sp1.prev_reach_1d` even when `prev_reach_1d = 0`.
+- **Verified Solution & Invariant Codification**:
+  1. Database Reality Healing (`scripts/phase8_db_healer.mjs`): Repaired 2,082 sawtooth rows in `pins_daily_metrics`, recalculated 7,198 velocities, synchronized 1,772 KSC and 2,489 KDI rows, cross-pollinated 875 visual annotation rows, pruned 10,450 zero snapshots, keeping database size at 155 MB (< 195 MB limit).
+  2. Authentic Pinterest Law Codified: Eradicated all `Math.max(saves, repins)` overrides and removed `prevSaves < prevRepins` jump checks across crawlers, math library, and UI components.
+  3. Visual Annotations Cross-Pollination: Added `COALESCE(NULLIF(ksc.visual_annotations, '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb)` in `queryActiveSerp` and `queryViralCreatorPins`.
+  4. Room 3 Surging Creators Parity: Added `AND sp1.prev_reach_1d > 0` guard, sorted top creators by `effective_delta_reach_24h DESC`, case-normalized username joins, and preserved portfolio driver pins without requiring velocity > 0.
+  5. Cache Invalidation: Bumped KV cache keys to `pulse:global_24h:summary:v3` and `crossover:v5`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 111/111 files, 14 locks PASS)
+  - `npm run test:offline` (13 suites, 100% PASS)
+  - `npm test` (21 suites, 100% PASS)
+  - `node tests/round15-pulse-v2.test.mjs` (21/21 PASS)
+  - `node tests/round16-pulse-503-and-data-truth.test.mjs` (16/16 PASS)
+  - Live Neon Hub verification: Pin #911134568440407967 velocity strictly 0; Room 3 ranks Sarah Scoop (+296k) at #1 with 3 driver pins; Folder #5 crossover velocity is strictly 0.

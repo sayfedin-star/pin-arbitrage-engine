@@ -990,7 +990,10 @@ export function formatPin(pin) {
   );
 
   const hasExplicitSaves = rawSaves > 0;
-  const saves = hasExplicitSaves ? Math.max(rawSaves, rawRepins) : rawRepins;
+  // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
+  // Never conflate saves with repins, and never assume saves >= repins.
+  // When an endpoint does not return explicit saves (rawSaves === 0), saves is 0 (or preserves prior known value in caller).
+  const saves = rawSaves;
   const repins = rawRepins;
 
   const comments = parseCleanMetric(

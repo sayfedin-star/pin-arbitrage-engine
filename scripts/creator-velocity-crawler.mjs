@@ -757,7 +757,8 @@ async function run() {
 
           // Physical Invariant: Total saves must always be at least verified repin count
           const freshRepins = Math.max(prevRepins, rawFreshRepins);
-          const freshSaves = Math.max(prevSaves, rawFreshSaves, freshRepins);
+          // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
+          const freshSaves = rawFreshSaves > 0 ? Math.max(prevSaves, rawFreshSaves) : prevSaves;
           const freshComments = Math.max(prevComments, rawFreshComments);
 
           const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
@@ -1197,7 +1198,8 @@ async function run() {
 
             // Physical Invariant: Total saves must always be at least verified repin count
             const freshRepins = Math.max(prevRepins, rawFreshRepins);
-            const freshSaves = Math.max(prevSaves, rawFreshSaves, freshRepins);
+            // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
+            const freshSaves = rawFreshSaves > 0 ? Math.max(prevSaves, rawFreshSaves) : prevSaves;
             const freshComments = Math.max(prevComments, rawFreshComments);
 
             const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);

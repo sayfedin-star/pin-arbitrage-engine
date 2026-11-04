@@ -140,7 +140,8 @@ export async function invalidateGlobalPulseCache(env = null, ctx = null) {
   if (env?.PIN_ENGINE_KV) {
     const p = Promise.all([
       env.PIN_ENGINE_KV.delete('pulse:global_24h:summary').catch(() => {}),
-      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v2').catch(() => {})
+      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v2').catch(() => {}),
+      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v3').catch(() => {})
     ]);
     if (ctx && typeof ctx.waitUntil === 'function') {
       try {
@@ -275,7 +276,7 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ksc.gains_15d, 0) AS gains_15d,
       COALESCE(ksc.url_global_saves, 0) AS url_global_saves,
       COALESCE(ksc.dominant_color, '#888888') AS dominant_color,
-      COALESCE(ksc.visual_annotations, '[]'::jsonb) AS visual_annotations,
+      COALESCE(NULLIF(ksc.visual_annotations, '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
       COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
       COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
       ksc.crawled_at
@@ -401,7 +402,7 @@ async function queryViralCreatorPins(sql, folderIdNum) {
       m.delta_saves_24h,
       m.delta_repins_24h,
       COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-      COALESCE(cpin.metadata->'visual_annotations', cpin.metadata->'annotations', '[]'::jsonb) AS visual_annotations
+      COALESCE(NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(cpin.metadata->'annotations', '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations
     FROM competitor_pins cpin
     JOIN competitor_profiles cp ON cp.id = cpin.competitor_id
     LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
@@ -484,22 +485,22 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         cprof.last_synced_at,
         CASE
           WHEN COALESCE(cprof.delta_reach_24h, 0) <> 0 THEN cprof.delta_reach_24h
-          WHEN sp1.prev_reach_1d IS NOT NULL THEN (cprof.monthly_reach - sp1.prev_reach_1d)
+          WHEN sp1.prev_reach_1d IS NOT NULL AND sp1.prev_reach_1d > 0 THEN (cprof.monthly_reach - sp1.prev_reach_1d)
           ELSE 0
         END AS effective_delta_reach_24h,
         CASE
           WHEN COALESCE(cprof.delta_views_24h, 0) <> 0 THEN cprof.delta_views_24h
-          WHEN sp1.prev_views_1d IS NOT NULL THEN (cprof.profile_views - sp1.prev_views_1d)
+          WHEN sp1.prev_views_1d IS NOT NULL AND sp1.prev_views_1d > 0 THEN (cprof.profile_views - sp1.prev_views_1d)
           ELSE 0
         END AS effective_delta_views_24h,
         CASE
           WHEN COALESCE(cprof.reach_delta_7d, 0) <> 0 THEN cprof.reach_delta_7d
-          WHEN sp7.prev_reach_7d IS NOT NULL THEN (cprof.monthly_reach - sp7.prev_reach_7d)
+          WHEN sp7.prev_reach_7d IS NOT NULL AND sp7.prev_reach_7d > 0 THEN (cprof.monthly_reach - sp7.prev_reach_7d)
           ELSE 0
         END AS effective_reach_delta_7d,
         CASE
           WHEN COALESCE(cprof.views_delta_7d, 0) <> 0 THEN cprof.views_delta_7d
-          WHEN sp7.prev_views_7d IS NOT NULL THEN (cprof.profile_views - sp7.prev_views_7d)
+          WHEN sp7.prev_views_7d IS NOT NULL AND sp7.prev_views_7d > 0 THEN (cprof.profile_views - sp7.prev_views_7d)
           ELSE 0
         END AS effective_views_delta_7d
       FROM competitor_profiles cprof
@@ -520,9 +521,10 @@ async function queryBreakoutCreators(sql, folderIdNum) {
     top_creators AS (
       SELECT *
       FROM active_creators
-      WHERE (effective_delta_reach_24h > 0 OR effective_delta_views_24h > 0 OR monthly_reach > 0)
+      WHERE (effective_delta_reach_24h > 0 OR effective_reach_delta_7d > 0 OR monthly_reach > 0)
       ORDER BY 
-        GREATEST(effective_delta_reach_24h, effective_delta_views_24h) DESC,
+        effective_delta_reach_24h DESC,
+        effective_reach_delta_7d DESC,
         monthly_reach DESC
       LIMIT 60
     ),
@@ -566,7 +568,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(pa.velocity, 0)::numeric AS daily_save_velocity,
         pa.created_at_pinterest
       FROM pa_pins pa
-      JOIN top_creators tc ON tc.username = pa.account_username
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(pa.account_username, '@', '')))
       WHERE pa.image_url IS NOT NULL AND pa.image_url <> ''
 
       UNION ALL
@@ -585,7 +587,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(ksc.daily_save_velocity, 0)::numeric AS daily_save_velocity,
         ksc.created_at_pinterest
       FROM keyword_serp_current ksc
-      JOIN top_creators tc ON tc.username = ksc.creator_username
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(ksc.creator_username, '@', '')))
       WHERE ksc.image_url IS NOT NULL AND ksc.image_url <> ''
     ),
     deduped_creator_pins AS (
@@ -624,7 +626,6 @@ async function queryBreakoutCreators(sql, folderIdNum) {
           ORDER BY GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) DESC, dcp.save_count DESC
         ) AS rn
       FROM deduped_creator_pins dcp
-      WHERE GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) > 0
     ),
     driver_pins_agg AS (
       SELECT
@@ -981,7 +982,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   const isDefaultFilter = (!folderIdNum) && (windowParam === '24h') && (minAudience === 0);
   if (!bypassCache && isDefaultFilter && !effectiveRefresh && env?.PIN_ENGINE_KV) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v2', { type: 'json' });
+      const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v3', { type: 'json' });
       if (kvCached) {
         setPulseMemoryCache(cacheKey, kvCached);
         return kvCached;
@@ -1131,12 +1132,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       if (p.repin_count >= 20 && p.delta_repins_24h >= p.repin_count && p.daily_save_velocity === 0 && p.delta_saves_24h === 0) {
         p.delta_repins_24h = 0;
       }
-      if (p.daily_save_velocity > 0 || p.delta_saves_24h > 0) {
-        const maxSaveVel = Math.max(p.daily_save_velocity || 0, p.delta_saves_24h || 0);
-        if (p.delta_repins_24h > maxSaveVel) {
-          p.delta_repins_24h = Math.floor(maxSaveVel);
-        }
-      }
+
       let effectiveSaves24h = p.delta_saves_24h;
       if (effectiveSaves24h <= 0 || !Number.isFinite(effectiveSaves24h)) {
         effectiveSaves24h = p.daily_save_velocity;
@@ -2023,9 +2019,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
         if (deltaReach > 0 || deltaViews > 0) breakoutCreatorsCount++;
 
-        // Filter driver pins for valid non-empty images and strictly positive velocity/delta
+        // Filter driver pins for valid non-empty images
         const rawDriverPins = (Array.isArray(cp.driver_pins) ? cp.driver_pins : [])
-          .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0 && Math.max(Number(dp.daily_save_velocity || 0), Number(dp.delta_saves_24h || 0)) > 0)
+          .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0)
           .map(dp => ({
             ...dp,
             dossier_url: '/pin/' + encodeURIComponent(dp.pin_id),
@@ -2069,10 +2065,18 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           is_david_breakout: isDavidBreakout,
           is_david_account: isDavidBreakout,
           milestone_tier: milestoneTier,
+          max_pin_velocity: maxPinVel,
           driver_pins: rawDriverPins
         };
       })
       .sort((a, b) => {
+        const aReach = a.effective_delta_reach_24h;
+        const bReach = b.effective_delta_reach_24h;
+        if (bReach !== aReach) return bReach - aReach;
+        const aReach7d = a.reach_delta_7d;
+        const bReach7d = b.reach_delta_7d;
+        if (bReach7d !== aReach7d) return bReach7d - aReach7d;
+        if (b.max_pin_velocity !== a.max_pin_velocity) return b.max_pin_velocity - a.max_pin_velocity;
         const aGain = Math.max(a.effective_delta_reach_24h, a.effective_delta_views_24h);
         const bGain = Math.max(b.effective_delta_reach_24h, b.effective_delta_views_24h);
         if (bGain !== aGain) return bGain - aGain;
@@ -2263,7 +2267,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Save into L2 Cloudflare Workers KV for default view
     if (!bypassCache && isDefaultFilter && env?.PIN_ENGINE_KV) {
       const kvTask = env.PIN_ENGINE_KV.put(
-        'pulse:global_24h:summary:v2',
+        'pulse:global_24h:summary:v3',
         JSON.stringify(payload),
         { expirationTtl: 600 }
       ).catch(() => {});
