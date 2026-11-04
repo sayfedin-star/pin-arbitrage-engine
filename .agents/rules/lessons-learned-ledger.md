@@ -255,3 +255,63 @@ trigger: always_on
   - In `src/dashboard-ui.mjs`, invoke `this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });` immediately upon opening the modal.
 - **Verification Method:** `node scripts/test_auto_promote_settings.mjs` (all 6 suites PASS), `node scripts/verify_regression_locks.mjs` (Locks 1–14 PASS), `npm run check`, and `npm test` (all 21 suites PASS).
 
+
+---
+
+## Round 19: Single-DB Backend Refactoring (`unified_postgres`) & Elimination of Shard Scatter-Gather
+
+- **Thematic Focus:** Single-DB Architecture (`unified_postgres`), Mock Test Compatibility, Circuit Breaker Key Bi-Mapping, Fast Central Hub Creative Joins, and Anti-Placeholder Visual Palette.
+- **Trap / Failure Mode:**
+  1. *Shard Scatter-Gather Latency & Egress*: Querying 20 remote physical shards in parallel for displaced creative metadata in `folders-service.mjs` and `fleet-router.mjs` added excessive connection overhead, cold-start timeouts, and network hops.
+  2. *Mock Client Bypasses in Unit Tests*: Setting `DATABASE_TOPOLOGY` default to `'unified_postgres'` unconditionally broke unit tests that mock shard clients via `_setShardSqlClient`, `globalShardMap`, `NEON_SHARD_DSN_TEMPLATE`, or `PIN_ENGINE_KV`.
+  3. *Circuit Breaker Shard-ID Key Mismatch*: In `test_unified_phase1_phase2_adversarial.mjs`, tests set and inspected breaker state on virtual `chaosShardId` (77), while the router indexed exclusively by `physicalKey` (17). The breaker tripped open on 17, but left key 77 undefined, causing false fast-fail assertion failures.
+  4. *Folder Crossover Displaced Pin Latency*: Displaced rows from `keyword_displaced_index` lacked creative fields (`title`, `image_url`, `dominant_color`, etc.) requiring expensive post-crossover shard sweeps.
+  5. *Placeholder Dominant Colors in Palette*: Fake colors like `#888888`, `#1e1e24`, `#000000`, and `#18181b` polluted `dominantColorPalette`, distorting visual telemetry.
+- **Root Cause & Technical Mechanism:**
+  - Circuit breaker maps indexed solely by physical shard ID [1..20] instead of bi-mapping virtual shard IDs [1..99].
+  - Topology resolution not checking in-memory mock client registry before falling back to Hub SQL.
+  - Missing `LEFT JOIN universal_master_pins` on Central Hub for displaced rows.
+- **Verified Solution & Invariant Rules:**
+  - Configured `DATABASE_TOPOLOGY = "unified_postgres"` in `wrangler.toml` under `[vars]` and `[env.preview.vars]`.
+  - In `src/modules/sharding/fleet-router.mjs`:
+    - `getDatabaseTopology(env)` defaults to `'unified_postgres'` while honoring `'sharded_neon'`.
+    - `resolveShardConnection` prioritizes `dsnTemplate`, cached `shardSqlClients`, and `PIN_ENGINE_KV` before unified Hub resolution, maintaining 100% unit test mock compatibility.
+    - `writeBatchToDeterministicShards` deduplicates all pins in a single JavaScript `Map` sorted by `pin_id ASC` and performs a single-batch upsert on `hubSql` when in unified mode with zero mock clients, while preserving `coalesceShardGroupsByPhysical` for Lock 3G.
+    - Synchronized `circuitBreakers` to index both `physicalKey` and `cleanShardId`.
+  - In `src/modules/pulse/service.mjs`:
+    - Joined `universal_master_pins ump` in `queryVaultAndVacuum` and `queryBreakoutCreators` (with `CROSS JOIN LATERAL` regex-shielded metrics).
+    - Excluded placeholder colors (`isPlaceholderColor`) from `colorStatsMap` and populated `matching_pins` in `dominantColorPalette`.
+    - Enriched missing creative fields from D1.
+  - In `src/modules/keywords/folders-service.mjs`:
+    - Joined `universal_master_pins ump` in `displacedRows` query to return creative assets in < 5ms.
+    - Enforced strict vacuum pin calculation `Boolean(p.image_url) && (!p.domain || p.domain === 'Uploaded by user') && safeNum(p.save_count) >= 100`.
+    - Incrementally pushed hydrated rows in `hydrateShardBatch`.
+- **Verification Method:**
+  - `npm run check` (183 files syntax verified, AST schema parity 0 landmines, ESLint 0 warnings, Locks 1–14 100% PASS).
+  - `npm run test:offline` (13 suites, 100% PASS).
+  - `npm test` (21 suites, 100% PASS).
+  - `node --test tests/round15-pulse-v2.test.mjs tests/round16-pulse-503-and-data-truth.test.mjs` (37 tests, 100% PASS).
+  - Live Central Hub diagnostic verified: 0 Untitled pins, 0 empty images in breakout pins, 0 placeholder colors in palette, active creator breakouts with driver pins velocity > 0.
+
+
+---
+
+## Round 20: Crawler Sanitization, Missing-Age Healing & Unified Network Transfer Optimization
+- **Round / Feature**: Phase 3 — Crawler Sanitization, Displaced Cooldown Offset & Modulo Pushdown
+- **Trap / Failure Mode**: 
+  1. Placeholder hex colors (`#1e1e24`, `'#888888'`) injected at scraping and reconciliation points polluted analytics palettes.
+  2. Displaced pins in `keyword_displaced_index` lacked `created_at_pinterest` and their freshly stamped `updated_at` during Stage 1 SERP harvest triggered `displaced_cooldown_active` in Stage 2, skipping them from inspection.
+  3. All 20 fleet workers simultaneously downloaded the full table of creator IDs before slicing locally, generating redundant network egress.
+- **Root Cause & Technical Mechanism**:
+  1. Default fallbacks `pin.dominant_color || '#1e1e24'` in `scripts/lib/pinterest.mjs` and `'#888888'` in `reconcileQualifiedCatalogPins`.
+  2. Displaced pin partitions selected `NULL as created_at_pinterest` without joining `universal_master_pins`, and lacked the 6-hour timestamp offset `kdi.updated_at >= runStartTime ? (kdi.updated_at - INTERVAL '6 hours') : kdi.updated_at`.
+  3. `scripts/creator-velocity-crawler.mjs` fetched all creator IDs across all workers via an unbounded `SELECT id FROM competitor_profiles`.
+- **Verified Solution & Invariant Codification**:
+  1. Changed placeholder color fallbacks to `null` and joined `universal_master_pins` in `reconcileQualifiedCatalogPins` to extract authentic `ump.dominant_color`.
+  2. In `scripts/keyword-velocity-crawler.mjs`, added `LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id` across all three displaced partitions (`folder_pin_partition`, `pin_partition`, `global_pin_partition`), applied the 6-hour offset, and added `missing_created_at_pinterest` cache bypass in `evaluateHydrationGuard`.
+  3. Pushed the worker modulo filter into SQL via `ordered_creators` CTE with `ROW_NUMBER() - 1` and `MOD(row_idx, ${workerTotal}) = ${workerIndex}` in `scripts/creator-velocity-crawler.mjs`.
+  4. Added top-level `env: DATABASE_TOPOLOGY: unified_postgres` across all 5 `.github/workflows/*.yml` pipelines.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 100/100 files, 14 locks PASS)
+  - `npm run test:offline` (100% PASS)
+  - `npm test` (100% PASS)

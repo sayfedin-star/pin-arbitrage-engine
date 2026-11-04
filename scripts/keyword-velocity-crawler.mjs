@@ -197,6 +197,11 @@ function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const lastCrawlMs = crawlTime ? new Date(crawlTime).getTime() : NaN;
   const elapsedMs = !isNaN(lastCrawlMs) ? (currentUtcTimestamp - lastCrawlMs) : Infinity;
 
+  // Self-Healing: Invalidate cache and fetch if original Pinterest creation date is missing
+  if (!pin.created_at_pinterest) {
+    return { shouldFetch: true, reason: 'missing_created_at_pinterest', reuseTelemetry: null };
+  }
+
   // Displaced pins lack full metadata column in keyword_displaced_index; guard by crawlTime / updated_at cooldown
   if (isDisplaced && !isNaN(lastCrawlMs) && pin.save_count != null && elapsedMs < HARD_COOLDOWN_MS) {
     return {
@@ -1727,13 +1732,15 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
-            NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
-            kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
+            CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
+            kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
+          LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND kdi.shard_id = ANY(${assignedShards}::smallint[])
             AND (
@@ -1863,6 +1870,7 @@ async function run() {
     }
 
     console.log(`[*] Target Keyword Identified: "${kwRow.keyword}" (ID: ${kwRow.id})`);
+    const runStartTime = new Date();
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Single-Keyword SERP Ingestion (Lead Runner Ingests, Peers Sync)
@@ -2018,12 +2026,14 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
-            NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
-            kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
+            CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
+            kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
+          LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND kdi.shard_id = ANY(${assignedShards}::smallint[])
             AND (
@@ -2309,7 +2319,7 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
-            NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
@@ -2317,6 +2327,7 @@ async function run() {
             NULL::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
+          LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ANY(${allFleetKeywordIds})
             AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND (

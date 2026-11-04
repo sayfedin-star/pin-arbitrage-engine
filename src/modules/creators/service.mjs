@@ -2977,7 +2977,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           COALESCE(cp.link_domain, '') AS domain,
           COALESCE(cp.board_name, 'General') AS board_name,
           COALESCE(cp.image_url, '') AS image_url,
-          '#888888' AS dominant_color,
+          COALESCE(NULLIF(ump.dominant_color, '#888888'), NULL) AS dominant_color,
           COALESCE(cp.save_count, 0) AS saves,
           COALESCE(cp.repin_count, 0) AS repins,
           COALESCE(cp.comment_count, 0) AS comments,
@@ -3002,6 +3002,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           COALESCE(NULLIF(cp.alt_text, ''), cp.title, '') AS alt_text
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE 1=1
           AND (${numericId}::int IS NULL OR cp.competitor_id = ${numericId})
           AND (cp.is_deleted IS NULL OR cp.is_deleted = FALSE)

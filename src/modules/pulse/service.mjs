@@ -158,6 +158,12 @@ export const safeNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+export function isPlaceholderColor(hex) {
+  if (!hex || typeof hex !== 'string') return true;
+  const clean = hex.trim().toLowerCase();
+  return ['', '#888888', '#1e1e24', '#000000', '#18181b', 'none', 'null', 'undefined'].includes(clean);
+}
+
 export const safeNullableNum = (v) => {
   if (v == null) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -308,21 +314,26 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(kdi.gains_7d, 0) AS gains_7d,
         COALESCE(kdi.gains_10d, 0) AS gains_10d,
         COALESCE(kdi.gains_15d, 0) AS gains_15d,
-        COALESCE(NULLIF(kdi.domain, ''), pa.domain, cpin.link_domain, '') AS domain,
-        COALESCE(NULLIF(kdi.creator_username, ''), pa.account_username, '') AS creator_username,
+        COALESCE(NULLIF(kdi.domain, ''), NULLIF(ump.domain, ''), NULLIF(pa.domain, ''), NULLIF(cpin.link_domain, ''), '') AS domain,
+        COALESCE(NULLIF(kdi.creator_username, ''), NULLIF(ump.creator_username, ''), NULLIF(pa.account_username, ''), '') AS creator_username,
         kdi.shard_id,
-        COALESCE(pa.title, cpin.title, '') AS title,
-        COALESCE(pa.description, cpin.description, '') AS description,
-        COALESCE(pa.alt_text, cpin.alt_text, '') AS alt_text,
-        COALESCE(pa.image_url, cpin.image_url, '') AS image_url,
-        COALESCE(pa.link, cpin.destination_url, '') AS destination_url,
-        COALESCE(pa.board_name, cpin.board_name, '') AS board_name,
-        COALESCE(pa.dominant_color, '#888888') AS dominant_color,
-        COALESCE(pa.annotations, cpin.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
-        COALESCE(pa.created_at_pinterest, cpin.created_at_pinterest) AS created_at_pinterest
+        COALESCE(NULLIF(pa.title, ''), NULLIF(cpin.title, ''), NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(pa.description, ''), NULLIF(cpin.description, ''), NULLIF(ump.description, ''), '') AS description,
+        COALESCE(NULLIF(pa.alt_text, ''), NULLIF(cpin.alt_text, ''), NULLIF(ump.alt_text, ''), '') AS alt_text,
+        COALESCE(NULLIF(pa.image_url, ''), NULLIF(cpin.image_url, ''), NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(pa.link, ''), NULLIF(cpin.destination_url, ''), NULLIF(ump.destination_url, ''), '') AS destination_url,
+        COALESCE(NULLIF(pa.board_name, ''), NULLIF(cpin.board_name, ''), NULLIF(ump.board_name, ''), '') AS board_name,
+        COALESCE(
+          CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
+          CASE WHEN pa.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN pa.dominant_color ELSE NULL END,
+          NULL
+        ) AS dominant_color,
+        COALESCE(NULLIF(pa.annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+        COALESCE(pa.created_at_pinterest, cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
       FROM keyword_displaced_index kdi
       JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
       LEFT JOIN pa_pins pa ON pa.pin_id = kdi.pin_id
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
       LEFT JOIN LATERAL (
         SELECT title, description, alt_text, image_url, destination_url, link_domain, board_name, metadata, created_at_pinterest
         FROM public.competitor_pins cp
@@ -493,7 +504,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         monthly_reach DESC
       LIMIT 60
     ),
-    ranked_pins AS (
+    candidate_creator_pins AS (
       SELECT
         cpin.competitor_id,
         cpin.pin_id,
@@ -502,15 +513,11 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         cpin.board_name,
         cpin.link_domain,
         cpin.destination_url,
-        COALESCE(cpin.save_count, 0) AS save_count,
-        COALESCE(cpin.repin_count, 0) AS repin_count,
-        COALESCE(clean_metrics.delta_saves_24h, clean_metrics.daily_save_velocity, 0) AS delta_saves_24h,
-        clean_metrics.daily_save_velocity,
-        cpin.created_at_pinterest,
-        ROW_NUMBER() OVER (
-          PARTITION BY cpin.competitor_id
-          ORDER BY GREATEST(clean_metrics.delta_saves_24h, clean_metrics.daily_save_velocity) DESC, cpin.save_count DESC
-        ) AS rn
+        COALESCE(cpin.save_count, 0)::bigint AS save_count,
+        COALESCE(cpin.repin_count, 0)::int AS repin_count,
+        COALESCE(clean_metrics.delta_saves_24h, clean_metrics.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        clean_metrics.daily_save_velocity::numeric AS daily_save_velocity,
+        cpin.created_at_pinterest
       FROM competitor_pins cpin
       JOIN top_creators tc ON tc.id = cpin.competitor_id
       CROSS JOIN LATERAL (
@@ -520,6 +527,81 @@ async function queryBreakoutCreators(sql, folderIdNum) {
       ) clean_metrics
       WHERE cpin.is_deleted = FALSE
         AND cpin.image_url IS NOT NULL AND cpin.image_url <> ''
+
+      UNION ALL
+
+      SELECT
+        tc.id AS competitor_id,
+        pa.pin_id,
+        pa.title,
+        pa.image_url,
+        pa.board_name,
+        pa.domain AS link_domain,
+        pa.link AS destination_url,
+        COALESCE(pa.saves, 0)::bigint AS save_count,
+        COALESCE(pa.repins, 0)::int AS repin_count,
+        0::numeric AS delta_saves_24h,
+        COALESCE(pa.velocity, 0)::numeric AS daily_save_velocity,
+        pa.created_at_pinterest
+      FROM pa_pins pa
+      JOIN top_creators tc ON tc.username = pa.account_username
+      WHERE pa.image_url IS NOT NULL AND pa.image_url <> ''
+
+      UNION ALL
+
+      SELECT
+        tc.id AS competitor_id,
+        ksc.pin_id,
+        ksc.title,
+        ksc.image_url,
+        ksc.board_name,
+        ksc.domain AS link_domain,
+        ksc.destination_url,
+        COALESCE(ksc.save_count, 0)::bigint AS save_count,
+        COALESCE(ksc.repin_count, 0)::int AS repin_count,
+        0::numeric AS delta_saves_24h,
+        COALESCE(ksc.daily_save_velocity, 0)::numeric AS daily_save_velocity,
+        ksc.created_at_pinterest
+      FROM keyword_serp_current ksc
+      JOIN top_creators tc ON tc.username = ksc.creator_username
+      WHERE ksc.image_url IS NOT NULL AND ksc.image_url <> ''
+    ),
+    deduped_creator_pins AS (
+      SELECT DISTINCT ON (ccp.competitor_id, ccp.pin_id)
+        ccp.competitor_id,
+        ccp.pin_id,
+        ccp.title,
+        ccp.image_url,
+        ccp.board_name,
+        ccp.link_domain,
+        ccp.destination_url,
+        ccp.save_count,
+        ccp.repin_count,
+        ccp.delta_saves_24h,
+        ccp.daily_save_velocity,
+        ccp.created_at_pinterest
+      FROM candidate_creator_pins ccp
+      ORDER BY ccp.competitor_id, ccp.pin_id, GREATEST(ccp.delta_saves_24h, ccp.daily_save_velocity) DESC, ccp.save_count DESC
+    ),
+    ranked_pins AS (
+      SELECT
+        dcp.competitor_id,
+        dcp.pin_id,
+        dcp.title,
+        dcp.image_url,
+        dcp.board_name,
+        dcp.link_domain,
+        dcp.destination_url,
+        dcp.save_count,
+        dcp.repin_count,
+        dcp.delta_saves_24h,
+        dcp.daily_save_velocity,
+        dcp.created_at_pinterest,
+        ROW_NUMBER() OVER (
+          PARTITION BY dcp.competitor_id
+          ORDER BY GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) DESC, dcp.save_count DESC
+        ) AS rn
+      FROM deduped_creator_pins dcp
     ),
     driver_pins_agg AS (
       SELECT
@@ -1146,21 +1228,26 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         }
       }
 
-      // Dominant Color Telemetry
-      const colorHex = p.dominant_color || '#888888';
-      let cEntry = colorStatsMap.get(colorHex);
-      if (!cEntry) {
-        cEntry = { color: colorHex, pin_count: 0, total_velocity: 0, sample_pins: [] };
-        colorStatsMap.set(colorHex, cEntry);
-      }
-      cEntry.pin_count++;
-      cEntry.total_velocity += p.daily_save_velocity;
-      if (cEntry.sample_pins.length < 2) {
-        cEntry.sample_pins.push({
-          pin_id: p.pin_id,
-          title: p.title,
-          image_url: p.image_url
-        });
+      // Dominant Color Telemetry (Exclude placeholders)
+      if (p.dominant_color && !isPlaceholderColor(p.dominant_color)) {
+        const colorHex = String(p.dominant_color).trim();
+        let cEntry = colorStatsMap.get(colorHex);
+        if (!cEntry) {
+          cEntry = { color: colorHex, pin_count: 0, total_velocity: 0, sample_pins: [], matchingPins: [] };
+          colorStatsMap.set(colorHex, cEntry);
+        }
+        cEntry.pin_count++;
+        cEntry.total_velocity += p.daily_save_velocity;
+        if (cEntry.sample_pins.length < 2) {
+          cEntry.sample_pins.push({
+            pin_id: p.pin_id,
+            title: p.title,
+            image_url: p.image_url
+          });
+        }
+        if (cEntry.matchingPins.length < 12) {
+          cEntry.matchingPins.push(p);
+        }
       }
 
       // Creation Method Telemetry
@@ -1197,6 +1284,22 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
                 if ((!p.cleanAnnotations || p.cleanAnnotations.length === 0) && d1.visual_annotations) {
                   p.cleanAnnotations = extractCleanAnnotations(d1.visual_annotations);
                 }
+                if ((!p.dominant_color || isPlaceholderColor(p.dominant_color)) && d1.dominant_color && !isPlaceholderColor(d1.dominant_color)) {
+                  p.dominant_color = d1.dominant_color;
+                }
+                if (!p.created_at_pinterest && d1.created_at_pinterest) {
+                  p.created_at_pinterest = d1.created_at_pinterest;
+                  const createdMs = fastParseIsoDateMs(p.created_at_pinterest);
+                  if (Number.isFinite(createdMs) && createdMs <= nowMs) {
+                    p.pin_age_days = Math.floor((nowMs - createdMs) / 86400000);
+                    p.is_fresh_14d = p.pin_age_days <= 14;
+                    p.is_fresh_30d = p.pin_age_days <= 30;
+                  }
+                }
+                if (!p.domain && d1.domain) p.domain = d1.domain;
+                if (!p.destination_url && d1.destination_url) p.destination_url = d1.destination_url;
+                if (!p.creator_username && d1.creator_username) p.creator_username = d1.creator_username;
+                if (!p.board_name && d1.board_name) p.board_name = d1.board_name;
               }
             }
           }
@@ -1934,7 +2037,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         frequency: c.pin_count,
         total_velocity: Number(c.total_velocity.toFixed(2)),
         avg_velocity: c.pin_count > 0 ? Number((c.total_velocity / c.pin_count).toFixed(2)) : 0,
-        sample_pins: c.sample_pins || []
+        sample_pins: c.sample_pins || [],
+        matching_pins: (c.matchingPins || []).slice(0, 12).map(formatMatrixPinSummary)
       }))
       .sort((a, b) => b.total_velocity - a.total_velocity)
       .slice(0, 12);

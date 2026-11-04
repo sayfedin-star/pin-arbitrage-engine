@@ -60,7 +60,8 @@ import {
 
 import {
   getPinShardId,
-  resolveShardConnection
+  resolveShardConnection,
+  isUnifiedPostgres
 } from '../modules/sharding/fleet-router.mjs';
 
 import { escapeSqlWildcards } from '../utils.mjs';
@@ -306,7 +307,7 @@ export async function handleKeywordsRoutes({
     // [INVARIANT: D1-FOLDER-SCOPED-READ] Supports folder-scoped filtering via D1 edge_keywords_catalog.folders JSON
     const effectiveReadKeywordsFromD1 = d1ReadKeywords;
     const effectiveSyncKeywordsCatalogToD1 = d1SyncKeywordsCatalogToD1;
-    if (!forceRefresh && env?.PIN_D1_DB && effectiveReadKeywordsFromD1) {
+    if (!forceRefresh && env?.PIN_D1_DB && effectiveReadKeywordsFromD1 && !isUnifiedPostgres(env)) {
       try {
         const d1Keywords = await effectiveReadKeywordsFromD1(env, { search, limit, offset, folderId });
         if (Array.isArray(d1Keywords) && (d1Keywords.length > 0 || folderId != null || search)) {
@@ -1416,7 +1417,7 @@ export async function handleKeywordsRoutes({
         }
 
         // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 60m) before hitting Neon Hub
-        if (!isRefreshRequested && env?.PIN_D1_DB) {
+        if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
               "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
@@ -1478,7 +1479,7 @@ export async function handleKeywordsRoutes({
       }
 
       // [INVARIANT: SWR-D1-EDGE-FOLDERS] Query ALL cached rows from D1 immediately (< 5ms)
-      if (!isRefreshRequested && env?.PIN_D1_DB) {
+      if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
             "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
@@ -1741,7 +1742,7 @@ export async function handleKeywordsRoutes({
     const isRefreshRequested = searchParams.get('refresh') === 'true';
     const folderId = searchParams.get('id') || searchParams.get('folder_id');
     if (folderId) {
-      if (!isRefreshRequested && env?.PIN_D1_DB) {
+      if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
         try {
           const d1Folder = await env.PIN_D1_DB.prepare(
             "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
@@ -1769,7 +1770,7 @@ export async function handleKeywordsRoutes({
       }
       return jsonResponse({ success: true, folder });
     }
-    if (!isRefreshRequested && env?.PIN_D1_DB) {
+    if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
       try {
         const d1Folders = await env.PIN_D1_DB.prepare(
           "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"

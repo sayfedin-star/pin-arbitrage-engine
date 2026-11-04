@@ -2302,25 +2302,35 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       LIMIT 2000
     )
     SELECT
-      keyword_id,
-      pin_id,
-      rank_position,
-      domain,
-      creator_username,
-      save_count,
-      repin_count,
-      comment_count,
-      daily_save_velocity,
-      delta_repins_24h,
-      gains_5d,
-      gains_7d,
-      gains_10d,
-      gains_15d,
-      snapshot_date,
-      keyword_text,
-      folder_added_at,
-      is_displaced
-    FROM filtered_kdi;
+      fk.keyword_id,
+      fk.pin_id,
+      fk.rank_position,
+      COALESCE(NULLIF(fk.domain, ''), ump.domain, '') AS domain,
+      COALESCE(NULLIF(fk.creator_username, ''), ump.creator_username, '') AS creator_username,
+      fk.save_count,
+      fk.repin_count,
+      fk.comment_count,
+      fk.daily_save_velocity,
+      fk.delta_repins_24h,
+      fk.gains_5d,
+      fk.gains_7d,
+      fk.gains_10d,
+      fk.gains_15d,
+      fk.snapshot_date,
+      fk.keyword_text,
+      fk.folder_added_at,
+      fk.is_displaced,
+      ump.title,
+      ump.image_url,
+      ump.destination_url,
+      ump.board_name,
+      ump.dominant_color,
+      ump.description,
+      ump.alt_text,
+      ump.visual_annotations,
+      ump.created_at_pinterest
+    FROM filtered_kdi fk
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = fk.pin_id;
   `;
   if (!displacedRows) displacedRows = [];
 
@@ -2422,10 +2432,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         domain_age_days: null,
         domain_age_years: null,
         save_count: rowSaves,
-        is_vacuum_pin: (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
+        is_vacuum_pin: Boolean(row.image_url || meta.image_url) && (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
         board_name: row.board_name || meta.board_name || '',
         visual_annotations: rowVisualAnnotations,
-        dominant_color: row.dominant_color || meta.dominant_color || '#1e1e24',
+        dominant_color: row.dominant_color || meta.dominant_color || null,
         created_at_pinterest: row.created_at_pinterest || meta.created_at_pinterest || null,
         alt_text: row.alt_text || meta.alt_text || '',
         description: row.description || meta.description || '',
@@ -2542,7 +2552,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
     // [INVARIANT: VACUUM-PIN-CALCULATION]
     const cleanDom = String(p.domain || '').trim();
-    p.is_vacuum_pin = (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
+    p.is_vacuum_pin = Boolean(p.image_url) && (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
     if (p.is_vacuum_pin) {
       vacuumPinsCount++;
     }
@@ -2749,6 +2759,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
                 for (const r of (rows || [])) {
                   if (r && r.pin_id) {
                     hydratedBatch.push(r);
+                    newlyHydratedFromShards.push(r);
                   }
                 }
               })
@@ -2772,7 +2783,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         });
 
         if (Array.isArray(raceResult)) {
-          newlyHydratedFromShards.push(...raceResult);
+          for (const r of raceResult) {
+            if (!newlyHydratedFromShards.includes(r)) {
+              newlyHydratedFromShards.push(r);
+            }
+          }
         }
 
         for (const r of newlyHydratedFromShards) {
@@ -2885,7 +2900,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       );
     }
     const cleanDom = String(p.domain || '').trim();
-    p.is_vacuum_pin = (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
+    p.is_vacuum_pin = Boolean(p.image_url) && (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
     if (p.is_vacuum_pin) {
       vacuumPinsCount++;
     }

@@ -788,22 +788,29 @@ async function run() {
     let allFleetAccountIds = allAccountIdsInput.length > 0
       ? allAccountIdsInput
       : (accountIdsInput.length > 0 ? accountIdsInput : []);
+    let myAccountIds = [];
     if (allFleetAccountIds.length === 0 && accountIdsInput.length === 0) {
       const rows = await sql`
-        SELECT id FROM competitor_profiles WHERE is_active = TRUE ORDER BY last_synced_at ASC NULLS FIRST, id ASC;
+        WITH ordered_creators AS (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY last_synced_at ASC NULLS FIRST, id ASC) - 1) AS row_idx
+          FROM competitor_profiles
+          WHERE is_active = TRUE
+        )
+        SELECT id FROM ordered_creators
+        WHERE MOD(row_idx, ${workerTotal}) = ${workerIndex};
       `;
-      allFleetAccountIds = rows.map(r => Number(r.id));
+      myAccountIds = rows.map(r => Number(r.id));
+      allFleetAccountIds = myAccountIds;
+    } else {
+      myAccountIds = process.env.ACCOUNT_IDS !== undefined && accountIdsInput.length > 0
+        ? accountIdsInput
+        : allFleetAccountIds.filter((_, idx) => idx % workerTotal === workerIndex);
     }
 
-    if (allFleetAccountIds.length === 0 && accountIdsInput.length === 0) {
+    if (myAccountIds.length === 0 && accountIdsInput.length === 0) {
       console.log('[!] No active creators to sweep. Exiting cleanly.');
       process.exit(0);
     }
-
-    // Determine which accounts belong to this worker for Phase 1
-    const myAccountIds = process.env.ACCOUNT_IDS !== undefined && accountIdsInput.length > 0
-      ? accountIdsInput
-      : allFleetAccountIds.filter((_, idx) => idx % workerTotal === workerIndex);
 
     console.log(`[Phase 1] Assigned ${myAccountIds.length} creator accounts to Worker #${workerIndex + 1}/${workerTotal}...`);
 

@@ -52,6 +52,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  DATABASE_TOPOLOGY: unified_postgres
+
 jobs:
   # ============================================================================
   # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~10s)

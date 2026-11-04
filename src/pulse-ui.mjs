@@ -482,7 +482,7 @@ export function getPulsePageHtml(folderId = '') {
                       </template>
 
                       <!-- Fresh Rocket Badge -->
-                      <template x-if="pin.is_fresh_14d || pin.is_fresh_breakout || (Number(pin.pin_age_days) <= 14)">
+                      <template x-if="pin.is_fresh_14d || pin.is_fresh_breakout || (pin.pin_age_days !== null && pin.pin_age_days !== undefined && pin.pin_age_days !== '' && Number(pin.pin_age_days) >= 0 && Number(pin.pin_age_days) <= 14)">
                         <span class="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold border border-amber-500/20">🚀 Rocket (≤14d)</span>
                       </template>
 
@@ -545,7 +545,7 @@ export function getPulsePageHtml(folderId = '') {
 
                   <!-- Age (Rule 31 Compliant) -->
                   <td class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
-                      x-text="formatAge(pin.pin_age_days)"></td>
+                      x-text="(pin.pin_age_days !== null && pin.pin_age_days !== undefined && pin.pin_age_days !== '') ? formatAge(pin.pin_age_days) : '—'"></td>
 
                   <!-- Actions -->
                   <td class="py-2.5 px-3 text-right">
@@ -751,7 +751,7 @@ export function getPulsePageHtml(folderId = '') {
                             x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || 0)"></span>
                       <span class="text-purple-600 dark:text-purple-400 font-bold" 
                             x-text="'+' + formatNumber(p.delta_repins_24h || 0) + ' repins'"></span>
-                      <span class="text-slate-400" x-text="formatAge(p.pin_age_days)"></span>
+                      <span class="text-slate-400" x-text="(p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '') ? formatAge(p.pin_age_days) : '—'"></span>
                     </div>
 
                     <div class="text-[10.5px] text-slate-400 truncate font-mono" 
@@ -863,7 +863,9 @@ export function getPulsePageHtml(folderId = '') {
                     <!-- Pinterest Business Terminology: Impressions & Total Audience -->
                     <td class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300" x-text="formatNumber(c.profile_views || 0)"></td>
                     <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach || 0)"></td>
-                    <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(c.effective_delta_reach_24h || c.delta_reach_24h || 0)"></td>
+                    <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold"
+                        :class="Number(c.effective_delta_reach_24h || c.delta_reach_24h || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (Number(c.effective_delta_reach_24h || c.delta_reach_24h || 0) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500')"
+                        x-text="(Number(c.effective_delta_reach_24h || c.delta_reach_24h || 0) > 0 ? '+' : '') + formatNumber(c.effective_delta_reach_24h || c.delta_reach_24h || 0)"></td>
                     <td class="py-2.5 px-3 text-right font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="(Number(c.reach_delta_7d || 0) > 0 ? '+' : '') + formatNumber(c.reach_delta_7d || 0)"></td>
 
                     <!-- Driver Pins Micro-Cards [Bug 6 & Bug 9 Fix] -->
@@ -1094,7 +1096,7 @@ export function getPulsePageHtml(folderId = '') {
               <div class="flex items-center gap-2.5 pt-1 font-mono text-[11px] flex-wrap">
                 <span class="text-rose-600 dark:text-rose-400 font-bold" x-text="formatVelocity(activeBlueprintPin?.daily_save_velocity || activeBlueprintPin?.delta_saves_24h || 0) + ' saves/d'"></span>
                 <span class="text-purple-600 dark:text-purple-400 font-bold" x-text="'+' + formatNumber(activeBlueprintPin?.delta_repins_24h || 0) + ' repins'"></span>
-                <span class="text-slate-400" x-text="formatAge(activeBlueprintPin?.pin_age_days)"></span>
+                <span class="text-slate-400" x-text="(activeBlueprintPin && activeBlueprintPin.pin_age_days !== null && activeBlueprintPin.pin_age_days !== undefined && activeBlueprintPin.pin_age_days !== '') ? formatAge(activeBlueprintPin.pin_age_days) : '—'"></span>
                 <span class="text-slate-400" x-text="activeBlueprintPin?.domain ? '• ' + activeBlueprintPin.domain : ''"></span>
               </div>
             </div>
@@ -1580,13 +1582,18 @@ export function getPulsePageHtml(folderId = '') {
                 }
               }
             }
+
+            // Filter out unhydrated skeleton pins lacking both image and valid title
+            list = list.filter(function(p) {
+              return !(!p.image_url && (!p.title || p.title === 'Untitled Pin'));
+            });
           }
 
           // 1. Radar Filter Pills
           var rf = this.radarFilter;
           if (rf === 'fresh') {
             list = list.filter(function(p) {
-              return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (Number(p.pin_age_days) <= 14));
+              return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '' && Number(p.pin_age_days) >= 0 && Number(p.pin_age_days) <= 14));
             });
           } else if (rf === 'bridges') {
             list = list.filter(function(p) {
@@ -1631,8 +1638,12 @@ export function getPulsePageHtml(folderId = '') {
             });
           }
 
-          // Sort by effective momentum descending
+          // Sort by effective momentum descending (prioritizing hydrated pins with images)
           list.sort(function(a, b) {
+            var aHyd = Boolean(a.image_url && a.title && a.title !== 'Untitled Pin');
+            var bHyd = Boolean(b.image_url && b.title && b.title !== 'Untitled Pin');
+            if (aHyd !== bHyd) return aHyd ? -1 : 1;
+
             var gainA = Math.max(Number(a.daily_save_velocity) || 0, Number(a.delta_saves_24h) || 0, Number(a.delta_repins_24h) || 0);
             var gainB = Math.max(Number(b.daily_save_velocity) || 0, Number(b.delta_saves_24h) || 0, Number(b.delta_repins_24h) || 0);
             return gainB - gainA;
@@ -1695,7 +1706,7 @@ export function getPulsePageHtml(folderId = '') {
 
           // Priority 1: Use backend matching_pins if populated
           if (Array.isArray(item.matching_pins) && item.matching_pins.length > 0) {
-            return item.matching_pins;
+            return item.matching_pins.filter(function(p) { return Boolean(p && p.image_url); });
           }
 
           // Priority 2: In-memory client fallback scanning breakout_pins
@@ -1766,7 +1777,7 @@ export function getPulsePageHtml(folderId = '') {
           } else if (sub === 'colors') {
             var targetColor = String(item.color || item.dominant_color || '').toLowerCase();
             matched = allPins.filter(function(p) {
-              return (p.dominant_color || '').toLowerCase() === targetColor;
+              return Boolean(p.image_url) && (p.dominant_color || '').toLowerCase() === targetColor;
             });
           }
 

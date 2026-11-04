@@ -8,6 +8,7 @@ mode = "smart"
 
 [vars]
 PORT = "3456"
+DATABASE_TOPOLOGY = "unified_postgres"
 
 # 1. Workers KV Namespace for Shard Routing & Circuit Breakers
 [[kv_namespaces]]
@@ -28,6 +29,7 @@ id = "66ba4dc750fc464b991eb52558a8c026"
 # 4. Preview Configuration for Worker Previews (Wrangler environments)
 [env.preview.vars]
 PORT = "3456"
+DATABASE_TOPOLOGY = "unified_postgres"
 
 [[env.preview.kv_namespaces]]
 binding = "PIN_ENGINE_KV"

@@ -24,6 +24,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  DATABASE_TOPOLOGY: unified_postgres
+
 jobs:
   crawl-and-synthesize:
     name: Crawl Shard ${{ matrix.shard }}/20

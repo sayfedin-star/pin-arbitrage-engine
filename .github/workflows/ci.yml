@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DATABASE_TOPOLOGY: unified_postgres
+
 jobs:
   verify:
     name: Code Quality, Typecheck & Security Audit

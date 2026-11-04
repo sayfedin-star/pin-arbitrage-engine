@@ -25,6 +25,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  DATABASE_TOPOLOGY: unified_postgres
+
 jobs:
   harvest-related-graph:
     name: Harvest Graph & Compute Overlap for @${{ inputs.target_account }}
