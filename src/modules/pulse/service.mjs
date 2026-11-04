@@ -138,7 +138,10 @@ export async function invalidateGlobalPulseCache(env = null, ctx = null) {
   inflightPulse.clear();
 
   if (env?.PIN_ENGINE_KV) {
-    const p = env.PIN_ENGINE_KV.delete('pulse:global_24h:summary').catch(() => {});
+    const p = Promise.all([
+      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary').catch(() => {}),
+      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v2').catch(() => {})
+    ]);
     if (ctx && typeof ctx.waitUntil === 'function') {
       try {
         ctx.waitUntil(p);
@@ -978,7 +981,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   const isDefaultFilter = (!folderIdNum) && (windowParam === '24h') && (minAudience === 0);
   if (!bypassCache && isDefaultFilter && !effectiveRefresh && env?.PIN_ENGINE_KV) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary', { type: 'json' });
+      const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v2', { type: 'json' });
       if (kvCached) {
         setPulseMemoryCache(cacheKey, kvCached);
         return kvCached;
@@ -1128,6 +1131,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       if (p.repin_count >= 20 && p.delta_repins_24h >= p.repin_count && p.daily_save_velocity === 0 && p.delta_saves_24h === 0) {
         p.delta_repins_24h = 0;
       }
+      if (p.daily_save_velocity > 0 || p.delta_saves_24h > 0) {
+        const maxSaveVel = Math.max(p.daily_save_velocity || 0, p.delta_saves_24h || 0);
+        if (p.delta_repins_24h > maxSaveVel) {
+          p.delta_repins_24h = Math.floor(maxSaveVel);
+        }
+      }
       let effectiveSaves24h = p.delta_saves_24h;
       if (effectiveSaves24h <= 0 || !Number.isFinite(effectiveSaves24h)) {
         effectiveSaves24h = p.daily_save_velocity;
@@ -1135,7 +1144,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
       }
       const effectiveRepins24h = (p.delta_repins_24h > 0) ? p.delta_repins_24h : 0;
-      const effective24hGain = (effectiveSaves24h > effectiveRepins24h) ? effectiveSaves24h : effectiveRepins24h;
+      const effective24hGain = (effectiveSaves24h > 0) ? effectiveSaves24h : effectiveRepins24h;
       p.effective_24h_gain = effective24hGain;
 
       // Windowed Momentum Calculation (never suppressed to 0 if 24h deltas are positive)
@@ -2254,7 +2263,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Save into L2 Cloudflare Workers KV for default view
     if (!bypassCache && isDefaultFilter && env?.PIN_ENGINE_KV) {
       const kvTask = env.PIN_ENGINE_KV.put(
-        'pulse:global_24h:summary',
+        'pulse:global_24h:summary:v2',
         JSON.stringify(payload),
         { expirationTtl: 600 }
       ).catch(() => {});

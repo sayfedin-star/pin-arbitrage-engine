@@ -83,6 +83,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   let delta_repins_24h = 0;
   if (sorted.length >= 2) {
     const prevRepins = Number(sorted[1].repin_count || 0);
+    const prevSaves = Number(sorted[1].save_count || 0);
     const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
     if (prevRepins <= 0 && currentRepins >= 10) {
       delta_repins_24h = 0;
@@ -94,6 +95,10 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
       delta_repins_24h = 0;
     } else {
       delta_repins_24h = Math.round(Math.max(0, currentRepins - prevRepins) / daysDiff);
+    }
+    const saveDelta24h = Math.max(0, currentSaves - prevSaves);
+    if (saveDelta24h > 0 && delta_repins_24h > saveDelta24h) {
+      delta_repins_24h = saveDelta24h;
     }
   }
 

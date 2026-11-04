@@ -1316,25 +1316,33 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     WHERE sc.pin_id = ${cleanPinId}
     UNION ALL
     SELECT 
-      kdi.keyword_id, kdi.pin_id, '' as title, '' as domain, '' as destination_url, '' as image_url,
-      '' as creator_username, '' as board_name, kdi.save_count, kdi.repin_count,
+      kdi.keyword_id, kdi.pin_id, '' as title, COALESCE(kdi.domain, '') as domain, '' as destination_url, '' as image_url,
+      COALESCE(kdi.creator_username, '') as creator_username, '' as board_name, kdi.save_count, kdi.repin_count,
       COALESCE(kdi.comment_count, 0) as comment_count,
       COALESCE(kdi.share_count, 0) as share_count,
       0 as reaction_count,
       kdi.daily_save_velocity, '#888888' as dominant_color, '[]'::jsonb as visual_annotations,
       NULL::int as rank_position, NULL::int as prev_rank_position, kdi.last_known_rank,
-      TRUE as is_displaced, '{}'::jsonb as metadata,
+      TRUE as is_displaced,
+      jsonb_build_object(
+        'delta_repins_24h', kdi.delta_repins_24h,
+        'gains_5d', kdi.gains_5d,
+        'gains_7d', kdi.gains_7d,
+        'gains_10d', kdi.gains_10d,
+        'gains_15d', kdi.gains_15d
+      ) as metadata,
       kdi.updated_at as crawled_at, kdi.updated_at,
       NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
       tk.keyword AS keyword_name,
       NULL::text as creation_method,
       NULL::timestamptz as created_at_pinterest,
-      NULL::bigint as competitor_id,
-      NULL::text as competitor_username,
-      NULL::text as competitor_display_name,
-      NULL::boolean as competitor_active
+      cprof.id as competitor_id,
+      cprof.username as competitor_username,
+      cprof.display_name as competitor_display_name,
+      cprof.is_active as competitor_active
     FROM keyword_displaced_index kdi
     LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
+    LEFT JOIN competitor_profiles cprof ON cprof.username = kdi.creator_username
     WHERE kdi.pin_id = ${cleanPinId}
       AND NOT EXISTS (
         SELECT 1 FROM keyword_serp_current sc2
@@ -1345,13 +1353,23 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   const hubCompetitorPromise = hubSql`
     SELECT 
-      cp.competitor_id, 
-      cprof.username as competitor_username, 
-      cprof.display_name, 
-      cprof.is_active as competitor_active
+      cp.pin_id, cp.competitor_id, cprof.username as competitor_username, cprof.display_name, cprof.is_active as competitor_active,
+      cp.title, cp.description, cp.alt_text, cp.image_url, cp.destination_url, cp.link_domain as domain,
+      cp.board_name, cp.save_count, cp.repin_count, cp.comment_count, cp.created_at_pinterest, cp.updated_at, cp.metadata
     FROM competitor_pins cp
-    JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
+    LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
     WHERE cp.pin_id = ${cleanPinId}
+    LIMIT 1;
+  `.catch(() => []);
+
+  const hubPaPromise = hubSql`
+    SELECT 
+      pa.pin_id, NULL::bigint as competitor_id, pa.account_username as competitor_username, pa.account_username as display_name, false as competitor_active,
+      pa.title, pa.description, pa.alt_text, pa.image_url, pa.link as destination_url, pa.domain,
+      pa.board_name, pa.saves as save_count, pa.repins as repin_count, pa.comments as comment_count, pa.created_at_pinterest, pa.last_updated_at as updated_at,
+      pa.velocity as daily_save_velocity, pa.dominant_color, pa.annotations as visual_annotations
+    FROM pa_pins pa
+    WHERE pa.pin_id = ${cleanPinId}
     LIMIT 1;
   `.catch(() => []);
 
@@ -1471,11 +1489,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const [
     shardData,
     hubSerpRowsRaw,
-    hubCompetitorRowsRaw
+    hubCompetitorRowsRaw,
+    hubPaRowsRaw
   ] = await Promise.all([
     shardDataPromise,
     hubSerpPromise,
-    hubCompetitorPromise
+    hubCompetitorPromise,
+    hubPaPromise
   ]);
 
   const initialMaster = shardData?.master || null;
@@ -1575,9 +1595,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
-  // Hub Fallback & Synthesis: If masterRecord is missing on Shard N, synthesize from Hub SERP/Snapshots
+  // Hub Fallback & Synthesis: If masterRecord is missing on Shard N, synthesize from Hub SERP/Snapshots/Competitor/PA/D1
   if (!masterRecord) {
-    if (hubSerpRows.length > 0) {
+    if (hubSerpRows.length > 0 && (hubSerpRows[0].title || hubSerpRows[0].image_url || Number(hubSerpRows[0].save_count) > 0)) {
       const topRow = hubSerpRows[0];
       const candidateHubMethods = [
         topRow.creation_method,
@@ -1606,6 +1626,52 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         visual_annotations: Array.from(unionSet),
         metadata: { ...topHubMeta, ...snapMetaObj, creation_method: resolvedHubMethod, method: resolvedHubMethod }
       };
+    } else if (hubCompetitorRowsRaw && hubCompetitorRowsRaw.length > 0 && (hubCompetitorRowsRaw[0].title || hubCompetitorRowsRaw[0].image_url)) {
+      const compRow = hubCompetitorRowsRaw[0];
+      const cMeta = normalizeMetadata(compRow.metadata);
+      const cMethod = cMeta.creation_method || cMeta.method || 'pinterest_platform';
+      const cAnnotations = normalizeVisualAnnotations(cMeta.visual_annotations || compRow.visual_annotations);
+      masterRecord = {
+        pin_id: compRow.pin_id,
+        title: compRow.title || cMeta.seo_title || '',
+        domain: compRow.domain || '',
+        destination_url: compRow.destination_url || '',
+        image_url: compRow.image_url || '',
+        creator_username: compRow.competitor_username || '',
+        board_name: compRow.board_name || '',
+        save_count: Number(compRow.save_count || 0),
+        repin_count: Number(compRow.repin_count || 0),
+        daily_save_velocity: Number(cMeta.daily_save_velocity || cMeta.velocity || 0),
+        dominant_color: cMeta.dominant_color || '#888888',
+        alt_text: compRow.alt_text || cMeta.alt_text || '',
+        description: compRow.description || cMeta.description || '',
+        created_at_pinterest: compRow.created_at_pinterest || null,
+        creation_method: cMethod,
+        visual_annotations: cAnnotations.length > 0 ? cAnnotations : Array.from(unionSet),
+        metadata: { ...cMeta, creation_method: cMethod, method: cMethod }
+      };
+    } else if (hubPaRowsRaw && hubPaRowsRaw.length > 0 && (hubPaRowsRaw[0].title || hubPaRowsRaw[0].image_url)) {
+      const paRow = hubPaRowsRaw[0];
+      const paAnnotations = normalizeVisualAnnotations(paRow.visual_annotations);
+      masterRecord = {
+        pin_id: paRow.pin_id,
+        title: paRow.title || '',
+        domain: paRow.domain || '',
+        destination_url: paRow.destination_url || '',
+        image_url: paRow.image_url || '',
+        creator_username: paRow.creator_username || '',
+        board_name: paRow.board_name || '',
+        save_count: Number(paRow.save_count || 0),
+        repin_count: Number(paRow.repin_count || 0),
+        daily_save_velocity: Number(paRow.daily_save_velocity || 0),
+        dominant_color: paRow.dominant_color || '#888888',
+        alt_text: paRow.alt_text || '',
+        description: paRow.description || '',
+        created_at_pinterest: paRow.created_at_pinterest || null,
+        creation_method: 'pinterest_platform',
+        visual_annotations: paAnnotations.length > 0 ? paAnnotations : Array.from(unionSet),
+        metadata: { creation_method: 'pinterest_platform', method: 'pinterest_platform' }
+      };
     } else if (hubHistoricalSnap) {
       const candidateSnapMethods = [
         snapMetaObj.creation_method,
@@ -1632,6 +1698,29 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         metadata: { ...snapMetaObj, creation_method: resolvedSnapMethod, method: resolvedSnapMethod }
       };
     }
+  }
+
+  // On-demand D1 last-resort fallback for unified_postgres or pruned pins
+  if (!masterRecord && env?.PIN_D1_DB) {
+    try {
+      await ensureEdgePinsMetadataTable(env);
+      const row = await env.PIN_D1_DB.prepare(
+        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
+      ).bind(cleanPinId).first().catch(() => null);
+      if (row && (row.title || row.image_url)) {
+        let parsedAnnotations = [];
+        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
+        let parsedMeta = {};
+        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+        masterRecord = {
+          ...row,
+          metadata: parsedMeta,
+          visual_annotations: parsedAnnotations,
+          alt_text: row.seo_alt_text || '',
+          creation_method: parsedMeta.creation_method || parsedMeta.method || null
+        };
+      }
+    } catch (_) {}
   } else {
     // Shard record exists: enrich missing alt_text, description, or created_at_pinterest if recovered from Hub
     if (!masterRecord.alt_text) {
@@ -1939,6 +2028,30 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         snapshotMap.set(dedupKey, h);
       }
     }
+  }
+
+  if (snapshotMap.size === 0 && masterRecord) {
+    const todayStr = formatUtcDate(new Date());
+    const livePoint = {
+      pin_id: cleanPinId,
+      keyword_id: null,
+      keyword_name: null,
+      snapshot_date: todayStr,
+      rank_position: null,
+      last_known_rank: null,
+      is_displaced: false,
+      save_count: Number(masterRecord.save_count || 0),
+      repin_count: Number(masterRecord.repin_count || 0),
+      comment_count: Number(masterRecord.comment_count || 0),
+      share_count: 0,
+      reaction_count: 0,
+      daily_save_velocity: Number(masterRecord.daily_save_velocity || 0),
+      created_at: new Date().toISOString(),
+      crawled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: masterRecord.metadata || {}
+    };
+    snapshotMap.set(`${todayStr}_global`, livePoint);
   }
 
   snapshots = Array.from(snapshotMap.values()).sort(

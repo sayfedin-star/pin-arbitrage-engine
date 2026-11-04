@@ -2080,7 +2080,8 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
     if (env?.PIN_ENGINE_KV) {
       try {
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v3`;
+        // [INVARIANT-LOCK: :crossover:v3 upgraded to :crossover:v4 in Phase 7]
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v4`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         const isKvPoisoned = Boolean(
           kvData?._has_unhydrated_priority_pins ||
@@ -2126,7 +2127,8 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       if (env?.PIN_ENGINE_KV) {
         try {
           const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-          const kvKey = `fep:${epoch}:folder:${fid}:crossover:v3`;
+          // [INVARIANT-LOCK: :crossover:v3 upgraded to :crossover:v4 in Phase 7]
+        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v4`;
           await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: kvTtlSec });
         } catch (_) {}
       }
@@ -2537,7 +2539,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     });
   }
 
-  const allPins = Array.from(pinMap.values());
+  let allPins = Array.from(pinMap.values());
   let vacuumPinsCount = 0;
   for (const p of allPins) {
     p.has_active_rank = p.rankings.some(r => !r.is_displaced);
@@ -2905,6 +2907,82 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       vacuumPinsCount++;
     }
   }
+
+  // Deduplicate allPins by canonical creative signature before deriving Super Pins
+  // [INVARIANT: FOLDER-CROSSOVER-CREATIVE-DEDUPLICATION]
+  const creativePinMap = new Map();
+  for (const p of allPins) {
+    let cKey = '';
+    if (p.image_url) {
+      const match = String(p.image_url).match(/([a-f0-9]{32})/i) || String(p.image_url).match(/\/([^/?#]+\.(?:jpg|jpeg|png|webp))/i);
+      if (match) cKey = `img:${match[1].toLowerCase()}`;
+    }
+    if (!cKey && p.title && !isSyntheticPinTitle(p.title) && p.save_count >= 100) {
+      const tNorm = String(p.title).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (tNorm.length >= 5) {
+        cKey = `ts:${tNorm}:${p.save_count}`;
+      }
+    }
+    if (!cKey) {
+      cKey = `pid:${p.pin_id}`;
+    }
+
+    if (!creativePinMap.has(cKey)) {
+      creativePinMap.set(cKey, p);
+    } else {
+      const existing = creativePinMap.get(cKey);
+      const existingHasActive = existing.rankings?.some(r => !r.is_displaced && r.rank_position && r.rank_position <= 100);
+      const incomingHasActive = p.rankings?.some(r => !r.is_displaced && r.rank_position && r.rank_position <= 100);
+
+      let primary = existing;
+      let secondary = p;
+
+      if (!existingHasActive && incomingHasActive) {
+        primary = p;
+        secondary = existing;
+        creativePinMap.set(cKey, primary);
+      } else if (existingHasActive === incomingHasActive) {
+        const pVel = p.daily_save_velocity || 0;
+        const eVel = existing.daily_save_velocity || 0;
+        if (pVel > eVel || (pVel === eVel && (p.save_count || 0) > (existing.save_count || 0))) {
+          primary = p;
+          secondary = existing;
+          creativePinMap.set(cKey, primary);
+        }
+      }
+
+      // Merge rankings arrays across distinct keyword_ids
+      const seenKws = new Set(primary.rankings.map(r => r.keyword_id));
+      for (const r of (secondary.rankings || [])) {
+        if (!seenKws.has(r.keyword_id)) {
+          seenKws.add(r.keyword_id);
+          primary.rankings.push(r);
+        } else {
+          const existingR = primary.rankings.find(er => er.keyword_id === r.keyword_id);
+          if (existingR && r.rank_position && (!existingR.rank_position || r.rank_position < existingR.rank_position)) {
+            existingR.rank_position = r.rank_position;
+            existingR.is_displaced = r.is_displaced;
+          }
+        }
+      }
+      primary.overlap_count = primary.rankings.length;
+      primary.overlap_percentage = Math.round((primary.overlap_count / totalKeywords) * 100);
+      primary.is_super_pin = primary.overlap_count >= (totalKeywords > 1 ? 2 : 1) && primary.rankings.every(r => Number.isFinite(r.rank_position) && r.rank_position >= 1);
+      primary.has_active_rank = primary.rankings.some(r => !r.is_displaced);
+      primary.has_vault_rank = primary.rankings.some(r => r.is_displaced);
+      primary.min_rank = primary.rankings.length > 0 ? Math.min(...primary.rankings.map(r => r.rank_position)) : 1;
+      primary.save_count = Math.max(primary.save_count || 0, secondary.save_count || 0);
+      primary.daily_save_velocity = Math.max(primary.daily_save_velocity || 0, secondary.daily_save_velocity || 0);
+      primary.delta_saves_24h = Math.max(primary.delta_saves_24h || 0, secondary.delta_saves_24h || 0);
+      primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
+      if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
+      if ((!primary.raw_title || isSyntheticPinTitle(primary.title)) && secondary.title && !isSyntheticPinTitle(secondary.title)) {
+        primary.title = secondary.title;
+        primary.raw_title = secondary.raw_title;
+      }
+    }
+  }
+  allPins = Array.from(creativePinMap.values());
 
   // Check if any top-50 priority pin still lacks image_url (due to cold shard timeout)
   const top50PriorityCheck = allPins

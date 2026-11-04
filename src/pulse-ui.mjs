@@ -528,11 +528,11 @@ export function getPulsePageHtml(folderId = '') {
                   <!-- Unified 24H Gain Column -->
                   <td class="py-2.5 px-3 text-right">
                     <div class="font-mono tabular-nums font-bold text-xs"
-                         :class="(Number(pin.delta_repins_24h || 0) > (Number(pin.daily_save_velocity || pin.delta_saves_24h || 0))) ? 'text-purple-600 dark:text-purple-400' : 'text-rose-600 dark:text-rose-400'"
-                         x-text="'+' + formatNumber(Math.max(Number(pin.daily_save_velocity) || 0, Number(pin.delta_saves_24h) || 0, Number(pin.delta_repins_24h) || 0)) + '/d'">
+                         :class="(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'text-purple-600 dark:text-purple-400' : 'text-rose-600 dark:text-rose-400'"
+                         x-text="'+' + formatNumber(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) > 0 ? (Number(pin.daily_save_velocity || pin.delta_saves_24h || 0)) : (Number(pin.delta_repins_24h || 0))) + '/d'">
                     </div>
                     <div class="text-[9px] font-mono text-slate-400 uppercase" 
-                         x-text="(Number(pin.delta_repins_24h || 0) > (Number(pin.daily_save_velocity || 0))) ? 'Repin Surge' : 'Save Velocity'"></div>
+                         x-text="(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'Repin Surge' : 'Save Velocity'"></div>
                   </td>
 
                   <!-- Total Saves -->
