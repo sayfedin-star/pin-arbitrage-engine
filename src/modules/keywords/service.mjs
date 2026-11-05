@@ -2659,14 +2659,14 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       kdi.last_known_rank,
       kdi.displaced_date,
       'displaced_active' AS status,
-      COALESCE(NULLIF(kdi.save_count, 0), ump.save_count, 0) AS current_saves,
-      COALESCE(NULLIF(kdi.save_count, 0), ump.save_count, 0) AS save_count,
-      COALESCE(NULLIF(kdi.repin_count, 0), ump.repin_count, 0) AS current_repins,
-      COALESCE(NULLIF(kdi.repin_count, 0), ump.repin_count, 0) AS repin_count,
-      COALESCE(NULLIF(kdi.comment_count, 0), ump.comment_count, 0) AS current_comments,
-      COALESCE(NULLIF(kdi.comment_count, 0), ump.comment_count, 0) AS comment_count,
-      COALESCE(NULLIF(kdi.share_count, 0), ump.share_count, 0) AS current_shares,
-      COALESCE(NULLIF(kdi.share_count, 0), ump.share_count, 0) AS share_count,
+      COALESCE(NULLIF(kdi.save_count, 0), ksc.save_count, 0) AS current_saves,
+      COALESCE(NULLIF(kdi.save_count, 0), ksc.save_count, 0) AS save_count,
+      COALESCE(NULLIF(kdi.repin_count, 0), ksc.repin_count, 0) AS current_repins,
+      COALESCE(NULLIF(kdi.repin_count, 0), ksc.repin_count, 0) AS repin_count,
+      COALESCE(NULLIF(kdi.comment_count, 0), ksc.comment_count, 0) AS current_comments,
+      COALESCE(NULLIF(kdi.comment_count, 0), ksc.comment_count, 0) AS comment_count,
+      COALESCE(NULLIF(kdi.share_count, 0), ksc.share_count, 0) AS current_shares,
+      COALESCE(NULLIF(kdi.share_count, 0), ksc.share_count, 0) AS share_count,
       kdi.daily_save_velocity,
       kdi.daily_save_velocity AS calculated_velocity,
       kdi.vacuum_opportunity_score,
@@ -2799,7 +2799,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   };
 
   // [INVARIANT: ZERO-SKELETON-KV-POISONING] Only cache in KV when 100% of rows are hydrated
-  if (env?.PIN_ENGINE_KV && rows.length > 0 && rows.every(r => Boolean(r.title || r.image_url))) {
+  if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && rows.length > 0 && rows.every(r => Boolean(r.title || r.image_url))) {
     try {
       await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(displacedResult), { expirationTtl: 1800 });
     } catch (_) {}
@@ -2842,7 +2842,7 @@ export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId,
   if (!cleanPin) throw new Error('pin_id is required');
 
   const trajKvKey = `traj:pin:${cleanPin}:${cleanRange}`;
-  if (env?.PIN_ENGINE_KV && !forceRefresh) {
+  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
       const kvCached = await env.PIN_ENGINE_KV.get(trajKvKey, { type: 'json' });
@@ -2904,7 +2904,7 @@ export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId,
     trajectory: snapshots
   };
 
-  if (env?.PIN_ENGINE_KV && snapshots.length > 0) {
+  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && snapshots.length > 0) {
     try {
       await env.PIN_ENGINE_KV.put(trajKvKey, JSON.stringify(trajResult), { expirationTtl: 21600 });
     } catch (_) {}
@@ -2925,7 +2925,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   const kid = keywordId ? Number(keywordId) : null;
 
   const dossierKvKey = `dossier:v3:pin:${cleanPin}:${kid || 0}`;
-  if (env?.PIN_ENGINE_KV && !forceRefresh) {
+  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
       let kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json' });
@@ -3067,7 +3067,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     trajectory
   };
 
-  if (env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {
+  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {
     try {
       const payloadStr = JSON.stringify(projectedDossier);
       await Promise.all([

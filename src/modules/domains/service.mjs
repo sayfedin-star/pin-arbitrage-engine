@@ -2471,24 +2471,32 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       });
       uGroup.angles_targeted.add(angleInfo.angle);
 
-      uGroup.pins.push({
-        pin_id: p.pin_id,
-        title: p.title,
-        image_url: p.image_url,
-        saves: p.saves,
-        velocity: p.velocity,
-        best_rank: p.best_rank,
-        creator_username: p.creator_username,
-        dominant_color: p.dominant_color,
-        visual_annotations: p.visual_annotations,
-        created_at_pinterest: p.created_at_pinterest,
-        is_vulnerable: p.is_vulnerable,
-        vulnerability_score: p.vulnerability_score,
-        is_displaced: Boolean(p.is_displaced),
-        detected_angle: angleInfo.angle,
-        intent_tag: angleInfo.intent_tag,
-        badge_color: angleInfo.badge_color
-      });
+      if (!uGroup.pins.some(existing => String(existing.pin_id) === String(p.pin_id))) {
+        const primarySa = Array.isArray(p.serp_appearances) && p.serp_appearances.length > 0
+          ? (p.serp_appearances.find(sa => !sa.is_displaced) || p.serp_appearances[0])
+          : null;
+        uGroup.pins.push({
+          pin_id: p.pin_id,
+          title: p.title,
+          image_url: p.image_url,
+          saves: p.saves,
+          velocity: p.velocity,
+          best_rank: p.best_rank,
+          last_known_rank: primarySa?.rank_position || primarySa?.last_known_rank || null,
+          primary_keyword: primarySa?.keyword_name || '',
+          keywords_count: Array.isArray(p.serp_appearances) ? p.serp_appearances.length : 0,
+          creator_username: p.creator_username,
+          dominant_color: p.dominant_color,
+          visual_annotations: p.visual_annotations,
+          created_at_pinterest: p.created_at_pinterest,
+          is_vulnerable: p.is_vulnerable,
+          vulnerability_score: p.vulnerability_score,
+          is_displaced: Boolean(p.is_displaced),
+          detected_angle: angleInfo.angle,
+          intent_tag: angleInfo.intent_tag,
+          badge_color: angleInfo.badge_color
+        });
+      }
     }
 
     return {
@@ -2660,7 +2668,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       }
     }
     const c = (p.dominant_color || '').trim().toLowerCase();
-    if (c && c.startsWith('#')) {
+    const isPlaceholderColorHex = !c || !c.startsWith('#') || c === '#888888' || c === '#888' || c === '#1e1e24' || c === '#000000' || c === '#18181b' || c === '#121215';
+    if (!isPlaceholderColorHex) {
       colorFreq.set(c, (colorFreq.get(c) || 0) + 1);
     }
     const ar = p.aspect_ratio || '2:3';
@@ -2677,12 +2686,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     .sort((a, b) => b.count - a.count)
     .slice(0, 15);
 
-  const totalColorPins = Math.max(1, allPins.length);
+  const totalRealColorPins = Math.max(1, Array.from(colorFreq.values()).reduce((sum, cnt) => sum + cnt, 0));
   const dominantColorsPalette = Array.from(colorFreq.entries())
     .map(([color, count]) => ({
       color,
       count,
-      percentage: Math.round((count / totalColorPins) * 100)
+      percentage: Math.round((count / totalRealColorPins) * 100)
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 6);
@@ -2730,6 +2739,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       displaced_total_count: allPins.filter(p => p.is_displaced).length,
       displaced_remaining_count: Math.max(0, allPins.filter(p => p.is_displaced).length - visualPins.filter(p => p.is_displaced).length),
       unique_urls: summaryUniqueUrls,
+      all_unique_urls_count: isOrganicVault ? 0 : moneyUrls.length,
+      active_unique_urls_count: activeUniqueUrls,
+      vault_unique_urls_count: Math.max(0, (isOrganicVault ? 0 : moneyUrls.length) - activeUniqueUrls),
       pins_per_url: summaryPinsPerUrl,
       ranked_keywords_count: keywordMonopoly.length,
       total_saves: summaryTotalSaves,

@@ -3404,7 +3404,7 @@ export function getDashboardHtml(folderId = '') {
               <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
                 <option value="">All Folders</option>
                 <template x-for="f in foldersList" :key="f.id">
-                  <option :value="String(f.id)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
+                  <option :value="String(f.id)" :selected="String(f.id) === String(folderFilter || scopedFolderId)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
                 </template>
               </select>
             </div>
@@ -3519,12 +3519,17 @@ export function getDashboardHtml(folderId = '') {
                               <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
                             </template>
                           </div>
-                          <div class="text-[10px] text-slate-500 truncate max-w-[140px]" x-text="c.display_name || c.username"></div>
+                          <div class="text-[10px] text-slate-500 truncate max-w-[200px]" x-text="(c.pin_count > 0 && (scopedFolderId || folderFilter)) ? ((c.display_name || c.username) + ' • ' + c.pin_count + ' folder pins') : (c.display_name || c.username)"></div>
                         </div>
                       </div>
                     </td>
                     <td class="py-3 px-3 text-right">
-                      <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
+                      <div class="inline-flex items-center justify-end gap-1">
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
+                        <template x-if="Number(c.monthly_reach) === 10000001">
+                          <span class="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="Pinterest 10M+ public API ceiling">10M+</span>
+                        </template>
+                      </div>
                       <!-- 24h & 7d Deltas -->
                       <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
                         <template x-if="(c.delta_reach_24h != null && c.delta_reach_24h !== 0) || (c.delta_24h != null && c.delta_24h !== 0)">
@@ -3536,7 +3541,12 @@ export function getDashboardHtml(folderId = '') {
                       </div>
                     </td>
                     <td class="py-3 px-3 text-right">
-                      <span class="text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(c.profile_views)"></span>
+                      <div class="inline-flex items-center justify-end gap-1">
+                        <span class="text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(c.profile_views)"></span>
+                        <template x-if="Number(c.profile_views) === 10000001">
+                          <span class="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="Pinterest 10M+ public API ceiling">10M+</span>
+                        </template>
+                      </div>
                       <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
                         <template x-if="c.delta_views_24h != null && c.delta_views_24h !== 0">
                           <span :class="c.delta_views_24h > 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'" x-text="(c.delta_views_24h > 0 ? '+' : '') + formatNumber(c.delta_views_24h) + ' 24h'"></span>
@@ -6334,38 +6344,51 @@ export function getDashboardHtml(folderId = '') {
           }
 
           const sortMode = this.competitorSort || 'audience_desc';
+          const tieBreak = (a, b) => {
+            const pDiff = (Number(b.pin_count) || 0) - (Number(a.pin_count) || 0);
+            if (pDiff !== 0) return pDiff;
+            const sDiff = (Number(b.top_pin_saves) || 0) - (Number(a.top_pin_saves) || 0);
+            if (sDiff !== 0) return sDiff;
+            return (Number(b.follower_count) || 0) - (Number(a.follower_count) || 0);
+          };
           list = [...list].sort((a, b) => {
             if (sortMode === 'gain_24h_desc') {
               const dA = Number(a.delta_reach_24h ?? a.delta_24h ?? 0);
               const dB = Number(b.delta_reach_24h ?? b.delta_24h ?? 0);
               if (dB !== dA) return dB - dA;
-              return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+              const rDiff = (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+              return rDiff !== 0 ? rDiff : tieBreak(a, b);
             }
             if (sortMode === 'gain_7d_desc') {
               const dA = Number(a.reach_delta_7d ?? 0);
               const dB = Number(b.reach_delta_7d ?? 0);
               if (dB !== dA) return dB - dA;
-              return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+              const rDiff = (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+              return rDiff !== 0 ? rDiff : tieBreak(a, b);
             }
             if (sortMode === 'impressions_desc') {
-              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              const vDiff = (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              return vDiff !== 0 ? vDiff : tieBreak(a, b);
             }
             if (sortMode === 'impressions_24h_desc') {
               const vA = Number(a.delta_views_24h ?? 0);
               const vB = Number(b.delta_views_24h ?? 0);
               if (vB !== vA) return vB - vA;
-              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              const vDiff = (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              return vDiff !== 0 ? vDiff : tieBreak(a, b);
             }
             if (sortMode === 'impressions_7d_desc') {
               const vA = Number(a.views_delta_7d ?? 0);
               const vB = Number(b.views_delta_7d ?? 0);
               if (vB !== vA) return vB - vA;
-              return (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              const vDiff = (Number(b.profile_views) || 0) - (Number(a.profile_views) || 0);
+              return vDiff !== 0 ? vDiff : tieBreak(a, b);
             }
             if (sortMode === 'pins_desc') {
               return (Number(b.total_pins) || 0) - (Number(a.total_pins) || 0);
             }
-            return (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+            const rDiff = (Number(b.monthly_reach) || 0) - (Number(a.monthly_reach) || 0);
+            return rDiff !== 0 ? rDiff : tieBreak(a, b);
           });
 
           this._competitorsCacheKey = cacheKey;
@@ -6412,8 +6435,10 @@ export function getDashboardHtml(folderId = '') {
             const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
             const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
             const delta24h = list.reduce((sum, c) => sum + Math.max(0, Number(c.delta_reach_24h || c.delta_24h || 0)), 0);
-            const avgCadence = list.length > 0
-              ? Number((list.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / list.length).toFixed(1))
+            const nonAggregatorList = list.filter(c => Number(c.total_pins || 0) < 1000000);
+            const cadencePool = nonAggregatorList.length > 0 ? nonAggregatorList : list;
+            const avgCadence = cadencePool.length > 0
+              ? Number((cadencePool.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / cadencePool.length).toFixed(1))
               : 0;
             return {
               combined_audience: combinedAudience,

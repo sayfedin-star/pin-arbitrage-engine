@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/worker.mjs",
   "scripts": {
+    "dev": "PORT=3000 HOST=0.0.0.0 node src/server.mjs",
     "build": "node scripts/verify_all_syntax.mjs",
     "start": "node src/server.mjs",
     "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",

@@ -368,6 +368,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             </button>
             <button @click="scopeFilter = 'active_only'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                    :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
                     :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               <span>🟢</span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
             </button>
@@ -578,9 +579,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
                   <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
                     <div class="flex flex-col gap-0.5">
-                      <span x-text="'+' + formatNumber(sp.daily_save_velocity) + '/d'"></span>
-                      <template x-if="sp.delta_saves_24h != null">
-                        <span class="text-[10px] text-emerald-500 font-semibold" x-text="'+' + formatNumber(sp.delta_saves_24h) + ' (24h)'"></span>
+                      <span x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d'"></span>
+                      <template x-if="(sp.delta_saves_24h || 0) > 0 || (sp.delta_repins_24h || 0) <= 0">
+                        <span class="text-[10px] text-emerald-500 font-semibold" x-text="'+' + formatNumber(sp.delta_saves_24h || 0) + ' (24h)'"></span>
+                      </template>
+                      <template x-if="!(sp.delta_saves_24h > 0) && (sp.delta_repins_24h || 0) > 0">
+                        <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(sp.delta_repins_24h) + ' repins (24h)'"></span>
                       </template>
                       <template x-if="sp.gains_7d != null">
                         <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>

@@ -1149,13 +1149,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 font-mono tabular-nums text-center">
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ranked Pins</div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="formatNumber(dossierData?.summary?.total_pins || 0)"></div>
-          <div class="text-[11px] text-slate-400" x-text="(dossierData?.summary?.visual_pins_count != null && dossierData?.summary?.visual_pins_count < dossierData?.summary?.total_pins) ? (formatNumber(dossierData.summary.visual_pins_count) + ' visual cards loaded') : 'Total SERP pins'"></div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="formatNumber(filteredDossierPins().length || dossierData?.summary?.total_pins || 0)"></div>
+          <div class="text-[11px] text-slate-400" x-text="(dossierData?.summary?.displaced_total_count > 0) ? (formatNumber(dossierData?.summary?.active_pins_count || dossierData?.summary?.total_pins || 0) + ' Active • ' + formatNumber(dossierData.summary.displaced_total_count) + ' Vault') : ((dossierData?.summary?.visual_pins_count != null && dossierData?.summary?.visual_pins_count < dossierData?.summary?.total_pins) ? (formatNumber(dossierData.summary.visual_pins_count) + ' visual cards loaded') : 'Total SERP pins')"></div>
         </div>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider" x-text="dossierData?.summary?.is_organic_vault ? 'Upload Boards' : 'Money Articles'"></div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.is_organic_vault ? filteredDossierArticles().length : (dossierData?.summary?.unique_urls || 0)"></div>
-          <div class="text-[11px] text-slate-400" x-text="dossierData?.summary?.is_organic_vault ? 'Niche board groups' : 'Unique URLs'"></div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.is_organic_vault ? filteredDossierArticles().length : formatNumber(filteredDossierArticles().length || dossierData?.summary?.unique_urls || 0)"></div>
+          <div class="text-[11px] text-slate-400" x-text="dossierData?.summary?.is_organic_vault ? 'Niche board groups' : ((dossierData?.summary?.vault_unique_urls_count > 0) ? (formatNumber(dossierData?.summary?.active_unique_urls_count || dossierData?.summary?.unique_urls || 0) + ' Active • ' + formatNumber(dossierData.summary.vault_unique_urls_count) + ' Vault') : 'Unique URLs')"></div>
         </div>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Multiplier</div>
@@ -1200,7 +1200,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <span>🎯 Ranked Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
-                  x-text="dossierData?.summary?.total_pins || filteredDossierPins().length"></span>
+                  x-text="filteredDossierPins().length || dossierData?.summary?.total_pins || 0"></span>
           </button>
 
           <!-- Button 3: Keyword Monopoly -->
@@ -1362,7 +1362,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                           </template>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(p.saves) + ' saves'"></span>
-                          <template x-if="p.dominant_color">
+                          <template x-if="p.dominant_color && p.dominant_color.toLowerCase() !== '#888888' && p.dominant_color.toLowerCase() !== '#1e1e24'">
                             <span class="inline-flex items-center gap-1 text-[10px]">
                               <span>•</span>
                               <span class="w-2.5 h-2.5 rounded-full border border-slate-400/40 inline-block shadow-sm" :style="'background-color: ' + p.dominant_color"></span>
@@ -1381,7 +1381,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                             <button @click="filterToKeyword(app.keyword_name)"
                                     class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
                                     :title="'Drilldown to keyword monopoly for ' + app.keyword_name">
-                              <span x-text="app.rank_position ? '#' + app.rank_position : 'Displaced'" class="font-bold"></span>
+                              <span x-text="app.rank_position ? '#' + app.rank_position : (app.last_known_rank ? 'Vault #' + app.last_known_rank : 'Displaced')" class="font-bold"></span>
                               <span class="text-slate-500 dark:text-slate-400 truncate max-w-[150px]" x-text="app.keyword_name"></span>
                               <span class="text-[9px]">→</span>
                             </button>
@@ -1391,7 +1391,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     </div>
 
                     <div class="flex items-center gap-2 shrink-0">
-                      <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + '&return_url=' + encodeURIComponent('/domains/' + dossierDomain))"
+                      <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (activeFolderId ? '&folder_id=' + encodeURIComponent(activeFolderId) : '') + '&return_url=' + encodeURIComponent(activeFolderId ? ('/folders/' + activeFolderId + '/domains') : ('/domains/' + dossierDomain)))"
                          target="_blank"
                          class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums">
                         Inspect ↗
@@ -1567,12 +1567,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                             </div>
 
                             <!-- Bottom Rank & Saves Overlay -->
-                            <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono tabular-nums text-white flex items-center justify-between">
-                              <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + '&return_url=' + encodeURIComponent('/domains/' + dossierDomain))" target="_blank" class="hover:underline flex items-center gap-0.5">
-                                <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
-                                <span class="text-[8px]">↗</span>
-                              </a>
-                              <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
+                            <div class="relative z-10 bg-slate-950/90 p-1 text-[9px] font-mono tabular-nums text-white flex flex-col gap-0.5"
+                                 :title="(p.primary_keyword ? 'Keyword: ' + p.primary_keyword + ' • ' : '') + 'Pin #' + p.pin_id">
+                              <template x-if="p.primary_keyword">
+                                <div class="text-[8px] text-slate-300 truncate leading-tight" x-text="p.primary_keyword"></div>
+                              </template>
+                              <div class="flex items-center justify-between">
+                                <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (scopedFolderId ? '&folder_id=' + encodeURIComponent(scopedFolderId) : '') + '&return_url=' + encodeURIComponent(scopedFolderId ? ('/folders/' + scopedFolderId + '/domains/' + dossierDomain) : ('/domains/' + dossierDomain)))" target="_blank" class="hover:underline flex items-center gap-0.5">
+                                  <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? ('Vault' + (p.last_known_rank ? ' #' + p.last_known_rank : '')) : 'Pin')"></span>
+                                  <span class="text-[8px]">↗</span>
+                                </a>
+                                <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
+                              </div>
                             </div>
                           </div>
                         </template>

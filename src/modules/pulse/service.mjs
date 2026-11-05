@@ -286,12 +286,13 @@ async function queryActiveSerp(sql, folderIdNum) {
     LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksc.keyword_id
     WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE
       AND ksc.rank_position IS NOT NULL
+      AND ksc.rank_position >= 1
       AND (${folderIdNum}::int IS NULL OR EXISTS (
         SELECT 1 FROM keyword_folder_items fi 
         WHERE fi.keyword_id = ksc.keyword_id AND fi.folder_id = ${folderIdNum}::int
       ))
     ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0)) DESC, ksc.save_count DESC
-    LIMIT 1200;
+    LIMIT 5000;
   `;
 }
 

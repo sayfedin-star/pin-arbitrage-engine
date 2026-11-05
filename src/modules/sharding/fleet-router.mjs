@@ -1699,8 +1699,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
-  // On-demand D1 last-resort fallback for unified_postgres or pruned pins
-  if (!masterRecord && env?.PIN_D1_DB) {
+  // On-demand D1 last-resort fallback for legacy sharded mode or pruned pins
+  if (!masterRecord && !isUnifiedPostgres(env) && env?.PIN_D1_DB) {
     try {
       await ensureEdgePinsMetadataTable(env);
       const row = await env.PIN_D1_DB.prepare(
@@ -2684,7 +2684,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     (Array.isArray(dailyTrajectory) && dailyTrajectory.length > 2)
   );
 
-  if ((env?.PIN_D1_DB || env?.PIN_ENGINE_KV) && masterRecord && (!hasValidTrajectoryFromD1 || bypassEdgeCache)) {
+  if (!isUnifiedPostgres(env) && (env?.PIN_D1_DB || env?.PIN_ENGINE_KV) && masterRecord && (!hasValidTrajectoryFromD1 || bypassEdgeCache)) {
     const edgeWriteThroughPromise = (async () => {
       const fullMetaObj = {
         ...snapMeta,

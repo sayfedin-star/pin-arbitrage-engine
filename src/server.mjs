@@ -188,7 +188,7 @@ export function createServer(customEnv = {}) {
 /**
  * Starts the server on specified port and host
  */
-export function startServer(port = Number(process.env.PORT || 3456), host = process.env.HOST || '127.0.0.1') {
+export function startServer(port = Number(process.env.PORT || 3000), host = process.env.HOST || '0.0.0.0') {
   const server = createServer();
   return new Promise((resolve, reject) => {
     server.on('error', reject);
@@ -202,8 +202,8 @@ export function startServer(port = Number(process.env.PORT || 3456), host = proc
 // Auto-start when executed directly via node src/server.mjs
 const isDirectExecution = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isDirectExecution) {
-  const port = Number(process.env.PORT || 3456);
-  const host = process.env.HOST || '127.0.0.1';
+  const port = Number(process.env.PORT || 3000);
+  const host = process.env.HOST || '0.0.0.0';
   startServer(port, host).catch(err => {
     console.error('[PAE Server] Fatal boot error:', err);
     process.exit(1);

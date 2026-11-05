@@ -1026,6 +1026,8 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     vault_pin_count: Number(r.vault_pin_count || 0),
     has_active_pins: Boolean(r.has_active_pins),
     has_vault_pins: Boolean(r.has_vault_pins),
+    top_pin_saves: Number(r.top_pin_saves || 0),
+    follower_count: Number(r.follower_count || 0),
     monthly_reach: Number(r.monthly_reach || 0),
     profile_views: Number(r.profile_views || 0),
     total_pins: Number(r.total_pins || 0),
@@ -1045,8 +1047,10 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
   const totalAudience = allRows.reduce((sum, r) => sum + Number(r.monthly_reach || 0), 0);
   const totalImpressions = allRows.reduce((sum, r) => sum + Number(r.profile_views || 0), 0);
   const totalPins = allRows.reduce((sum, r) => sum + Number(r.total_pins || 0), 0);
-  const avgCadence = allRows.length > 0
-    ? Number((allRows.reduce((sum, r) => sum + (Number(r.total_pins || 0) / 365), 0) / allRows.length).toFixed(1))
+  const nonAggregatorRows = allRows.filter(r => Number(r.total_pins || 0) < 1000000);
+  const cadencePool = nonAggregatorRows.length > 0 ? nonAggregatorRows : allRows;
+  const avgCadence = cadencePool.length > 0
+    ? Number((cadencePool.reduce((sum, r) => sum + (Number(r.total_pins || 0) / 365), 0) / cadencePool.length).toFixed(1))
     : 0;
 
   const totalDeltaAudience24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_reach_24h || 0)), 0);
@@ -2091,7 +2095,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
     if (cached && (now - cached.timestamp < ttl)) {
       return cached.data;
     }
-    if (env?.PIN_ENGINE_KV) {
+    if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
       try {
         const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
         // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
@@ -2099,6 +2103,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         const isKvPoisoned = Boolean(
           kvData?._has_unhydrated_priority_pins ||
+          !kvData?.summary?.active_pins_count ||
           (Array.isArray(kvData?.super_pins) && kvData.super_pins.slice(0, 25).some(p => !p.image_url || p.pin_age_days == null))
         );
         if (kvData && !isKvPoisoned) {
@@ -2138,7 +2143,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       const kvTtlSec = hasUnhydrated ? 60 : 86400;
 
       crossoverCache.set(fid, { timestamp: Date.now(), data: result, ttlMs: memTtlMs });
-      if (env?.PIN_ENGINE_KV) {
+      if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
         try {
           const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
           // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
@@ -2220,53 +2225,93 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
   // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
   let pinRows = await sql`
-    SELECT 
-      c.keyword_id,
-      c.pin_id,
-      c.rank_position,
-      c.title,
-      c.domain,
-      c.destination_url,
-      c.image_url,
-      c.creator_username,
-      c.board_name,
-      c.visual_annotations,
-      c.creation_method,
-      c.save_count,
-      c.repin_count,
-      c.comment_count,
-      c.daily_save_velocity,
-      c.delta_repins_24h,
-      c.gains_5d,
-      c.gains_7d,
-      c.gains_10d,
-      c.gains_15d,
-      c.created_at_pinterest,
-      c.crawled_at,
-      c.baseline_day_saves,
-      c.updated_at as snapshot_date,
-      (c.metadata->>'aspect_ratio') as aspect_ratio,
-      (c.metadata->>'format') as format,
-      (c.metadata->>'seo_title') as seo_title,
-      (c.metadata->>'alt_text') as alt_text,
-      (c.metadata->>'description') as description,
-      tk.keyword as keyword_text,
-      i.added_at as folder_added_at
-    FROM keyword_folder_items i
-    JOIN tracked_keywords tk ON tk.id = i.keyword_id
-    JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
-    WHERE i.folder_id = ${fid}
-      AND c.is_displaced IS FALSE
-      AND c.rank_position IS NOT NULL
-      AND c.rank_position >= 1
-    ORDER BY c.save_count DESC, c.daily_save_velocity DESC;
+    WITH ranked_active AS (
+      SELECT
+        c.keyword_id,
+        c.pin_id,
+        c.rank_position,
+        c.title,
+        c.domain,
+        c.destination_url,
+        c.image_url,
+        c.creator_username,
+        c.board_name,
+        c.visual_annotations,
+        c.creation_method,
+        c.save_count,
+        c.repin_count,
+        c.comment_count,
+        c.daily_save_velocity,
+        c.delta_repins_24h,
+        c.gains_5d,
+        c.gains_7d,
+        c.gains_10d,
+        c.gains_15d,
+        c.created_at_pinterest,
+        c.crawled_at,
+        c.baseline_day_saves,
+        c.updated_at AS snapshot_date,
+        (c.metadata->>'aspect_ratio') AS aspect_ratio,
+        (c.metadata->>'format') AS format,
+        (c.metadata->>'seo_title') AS seo_title,
+        tk.keyword AS keyword_text,
+        i.added_at AS folder_added_at,
+        ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY c.save_count DESC NULLS LAST, c.daily_save_velocity DESC NULLS LAST) AS pin_rn
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND c.is_displaced IS FALSE
+        AND c.rank_position IS NOT NULL
+        AND c.rank_position >= 1
+    )
+    SELECT
+      ra.keyword_id,
+      ra.pin_id,
+      ra.rank_position,
+      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.title, ''), ump.title, '') ELSE NULL END AS title,
+      COALESCE(NULLIF(ra.domain, ''), ump.domain, '') AS domain,
+      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.destination_url, ''), ump.destination_url, '') ELSE NULL END AS destination_url,
+      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.image_url, ''), ump.image_url, '') ELSE NULL END AS image_url,
+      COALESCE(NULLIF(ra.creator_username, ''), ump.creator_username, '') AS creator_username,
+      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.board_name, ''), ump.board_name, '') ELSE NULL END AS board_name,
+      CASE
+        WHEN ra.pin_rn = 1 THEN
+          CASE
+            WHEN ra.visual_annotations IS NOT NULL AND jsonb_typeof(ra.visual_annotations) = 'array' AND jsonb_array_length(ra.visual_annotations) > 0 THEN ra.visual_annotations
+            ELSE ump.visual_annotations
+          END
+        ELSE NULL
+      END AS visual_annotations,
+      ra.creation_method,
+      ra.save_count,
+      ra.repin_count,
+      ra.comment_count,
+      ra.daily_save_velocity,
+      ra.delta_repins_24h,
+      ra.gains_5d,
+      ra.gains_7d,
+      ra.gains_10d,
+      ra.gains_15d,
+      COALESCE(ra.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
+      ra.crawled_at,
+      ra.baseline_day_saves,
+      ra.snapshot_date,
+      COALESCE(NULLIF(ra.aspect_ratio, ''), (ump.metadata->>'aspect_ratio')) AS aspect_ratio,
+      ra.format,
+      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.seo_title, ''), (ump.metadata->>'seo_title')) ELSE NULL END AS seo_title,
+      ra.keyword_text,
+      ra.folder_added_at
+    FROM ranked_active ra
+    LEFT JOIN universal_master_pins ump ON ra.pin_rn = 1 AND ump.pin_id = ra.pin_id
+    ORDER BY ra.pin_rn ASC, ra.save_count DESC, ra.daily_save_velocity DESC;
   `;
 
   if (!pinRows) {
     pinRows = [];
   }
 
-  // 2B. High-Signal Vault Union from keyword_displaced_index
+  // 2B. High-Signal Vault Union from keyword_displaced_index (Deduplicated heavy payload per pin_id)
   let displacedRows = await sql`
     WITH active_pin_ids AS (
       SELECT DISTINCT c.pin_id
@@ -2298,7 +2343,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         i.added_at AS folder_added_at,
         TRUE AS is_displaced,
         (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
-        COUNT(kdi.keyword_id) OVER (PARTITION BY kdi.pin_id) AS kdi_keyword_count
+        ROW_NUMBER() OVER (
+          PARTITION BY kdi.pin_id
+          ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, kdi.daily_save_velocity DESC NULLS LAST, kdi.save_count DESC NULLS LAST
+        ) AS pin_rn
       FROM keyword_folder_items i
       JOIN tracked_keywords tk ON tk.id = i.keyword_id
       JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
@@ -2309,7 +2357,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     filtered_kdi AS (
       SELECT *
       FROM folder_kdi
-      ORDER BY in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
+      ORDER BY pin_rn ASC, in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
       LIMIT 15000
     )
     SELECT
@@ -2331,17 +2379,18 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       fk.keyword_text,
       fk.folder_added_at,
       fk.is_displaced,
-      ump.title,
-      ump.image_url,
-      ump.destination_url,
-      ump.board_name,
-      ump.dominant_color,
-      ump.description,
-      ump.alt_text,
-      ump.visual_annotations,
-      ump.created_at_pinterest
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.title ELSE NULL END AS title,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.image_url ELSE NULL END AS image_url,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.destination_url ELSE NULL END AS destination_url,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.board_name ELSE NULL END AS board_name,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.dominant_color ELSE NULL END AS dominant_color,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.visual_annotations ELSE NULL END AS visual_annotations,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.created_at_pinterest ELSE NULL END AS created_at_pinterest,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'aspect_ratio') ELSE NULL END AS aspect_ratio,
+      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'seo_title') ELSE NULL END AS seo_title
     FROM filtered_kdi fk
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = fk.pin_id;
+    LEFT JOIN universal_master_pins ump ON fk.pin_rn = 1 AND NOT fk.in_active_serp AND ump.pin_id = fk.pin_id
+    ORDER BY fk.pin_rn ASC;
   `;
   if (!displacedRows) displacedRows = [];
 
@@ -2443,6 +2492,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         comment_count: safeNum(row.comment_count),
         daily_save_velocity: vel,
         effective_velocity: effectiveVel,
+        velocity_source: vel > 0 ? 'saves' : (safeNum(row.delta_repins_24h, 0) > 0 ? 'repins' : 'saves'),
         creator_username: row.creator_username || pinner.username || '',
         creator_name: pinner.full_name || row.creator_username || '',
         format: row.format || meta.format || (row.creation_method ? String(row.creation_method).toUpperCase() : 'ORGANIC PIN'),
@@ -2503,6 +2553,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         effectiveVel,
         existingPin.daily_save_velocity > 0 ? existingPin.daily_save_velocity : existingPin.delta_repins_24h
       );
+      existingPin.velocity_source = existingPin.daily_save_velocity > 0
+        ? 'saves'
+        : ((existingPin.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
 
       // Preserve authentic database rolling gains without blowing up by multiplying corrupted velocity
       if (rowGains5d != null && (existingPin.gains_5d == null || rowGains5d > existingPin.gains_5d)) existingPin.gains_5d = rowGains5d;
@@ -2712,7 +2765,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         return (b.save_count || 0) - (a.save_count || 0);
       });
 
-    if (sql && stillMissingAfterHub.length > 0) {
+    if (sql && stillMissingAfterHub.length > 0 && !isUnifiedPostgres(env)) {
       const SYNC_SHARD_HYDRATION_CAP = 350;
       const priorityShardPins = stillMissingAfterHub.slice(0, SYNC_SHARD_HYDRATION_CAP);
       const tailShardPins = stillMissingAfterHub.slice(SYNC_SHARD_HYDRATION_CAP);
@@ -2977,6 +3030,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         secondary.effective_velocity || 0,
         primary.daily_save_velocity > 0 ? primary.daily_save_velocity : (primary.delta_repins_24h || 0)
       );
+      primary.velocity_source = primary.daily_save_velocity > 0
+        ? 'saves'
+        : ((primary.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
       primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
       if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
       if ((!primary.raw_title || isSyntheticPinTitle(primary.title)) && secondary.title && !isSyntheticPinTitle(secondary.title)) {
@@ -3590,6 +3646,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       total_keywords: totalKeywords,
       total_unique_pins: allPins.length,
       active_pins_count: allPins.filter(p => p.has_active_rank).length,
+      active_serp_slots_count: pinRows.length,
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
       vacuum_pins_count: vacuumPinsCount,
@@ -3607,7 +3664,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       }
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
-    all_pins: allPins.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)).slice(0, 1500),
+    all_pins: allPins.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,

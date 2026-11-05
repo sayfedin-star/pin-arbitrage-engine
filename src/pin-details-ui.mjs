@@ -65,7 +65,69 @@ export function getPinDetailPageHtml(pinId = '') {
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
+
+    /* Unified Light Theme Overrides for Pin Dossier */
+    html.light body,
+    html:not(.dark) body {
+      background-color: #f8fafc !important;
+      color: #0f172a !important;
+    }
+    html:not(.dark) .bg-\[\#09090B\],
+    html:not(.dark) .bg-slate-950,
+    html:not(.dark) .bg-slate-950\/50,
+    html:not(.dark) .bg-slate-950\/80 {
+      background-color: #f8fafc !important;
+    }
+    html:not(.dark) .bg-\[\#121215\],
+    html:not(.dark) .bg-\[\#121215\]\/95,
+    html:not(.dark) .bg-slate-900,
+    html:not(.dark) .bg-slate-900\/80 {
+      background-color: #ffffff !important;
+    }
+    html:not(.dark) .bg-\[\#18181B\],
+    html:not(.dark) .bg-\[\#18181B\]\/60,
+    html:not(.dark) .bg-\[\#18181B\]\/80,
+    html:not(.dark) .bg-slate-800\/50 {
+      background-color: #f1f5f9 !important;
+    }
+    html:not(.dark) .border-\[\#27272A\],
+    html:not(.dark) .border-slate-800,
+    html:not(.dark) .border-slate-800\/80,
+    html:not(.dark) .divide-\[\#27272A\] > :not([hidden]) ~ :not([hidden]) {
+      border-color: #e2e8f0 !important;
+    }
+    html:not(.dark) .text-\[\#FAFAFA\],
+    html:not(.dark) .text-white,
+    html:not(.dark) .text-slate-100,
+    html:not(.dark) .text-slate-200 {
+      color: #0f172a !important;
+    }
+    html:not(.dark) .text-slate-300 {
+      color: #334155 !important;
+    }
+    html:not(.dark) .text-slate-400 {
+      color: #475569 !important;
+    }
+    html:not(.dark) .bg-rose-600.text-white,
+    html:not(.dark) .bg-indigo-600.text-white,
+    html:not(.dark) .bg-emerald-600.text-white {
+      color: #ffffff !important;
+    }
   </style>
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme');
+        if (saved === 'light') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+        } else {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        }
+      } catch (_) {}
+    })();
+  </script>
   <script>
 (function() {
   if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
@@ -247,7 +309,7 @@ export function getPinDetailPageHtml(pinId = '') {
         </template>
       </div>
       <template x-if="dossier?.from_shard_snapshots">
-        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">Shard Snapshot SSOT</span>
+        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80" x-text="dossier?.topology === 'unified_postgres' ? 'Unified Hub SSOT' : 'Shard Snapshot SSOT'">Shard Snapshot SSOT</span>
       </template>
     </div>
 
@@ -286,9 +348,9 @@ export function getPinDetailPageHtml(pinId = '') {
 
       <!-- 24h Pulse Radar Quick Link -->
       <a 
-        href="/pulse" 
+        :href="originFolderId ? ('/folders/' + encodeURIComponent(originFolderId) + '/pulse') : '/pulse'" 
         class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold transition"
-        title="Open 24h Algorithmic Pulse & Crossover Radar"
+        :title="originFolderId ? ('Open Folder #' + originFolderId + ' 24h Algorithmic Pulse Radar') : 'Open 24h Algorithmic Pulse & Crossover Radar'"
       >
         <span>⚡</span>
         <span class="hidden sm:inline">24h Pulse Radar</span>
@@ -322,7 +384,7 @@ export function getPinDetailPageHtml(pinId = '') {
         @click="loadDossier(true)" 
         :disabled="loading"
         class="p-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer"
-        title="Reload dossier from Edge & Shard"
+        :title="dossier?.topology === 'unified_postgres' ? 'Reload dossier from Unified Central Hub' : 'Reload dossier from Edge & Shard'"
       >
         <span class="inline-block" :class="loading ? 'animate-spin' : ''">🔄</span>
       </button>
@@ -442,37 +504,39 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="flex items-start justify-between gap-2">
           <span class="text-slate-400 shrink-0">Creator</span>
           <div class="text-right truncate">
-            <template x-if="dossier?.pillar_1_creator_context?.creator_username">
-              <template x-if="dossier?.pillar_1_creator_context?.is_tracked_competitor">
-                <a :href="'/' + encodeURIComponent(dossier.pillar_1_creator_context.creator_username)" class="font-bold text-rose-400 hover:underline flex items-center justify-end gap-1">
-                  <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
-                  <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
-                    <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
-                  </template>
-                </a>
-              </template>
-              <template x-if="!dossier?.pillar_1_creator_context?.is_tracked_competitor">
-                <div class="flex items-center justify-end gap-1.5 flex-wrap">
-                  <span class="font-medium text-slate-300 flex items-center gap-1" :title="'Untracked creator @' + dossier.pillar_1_creator_context.creator_username">
-                    <span>@</span><span x-text="dossier.pillar_1_creator_context.creator_username"></span>
-                  </span>
-                  <button 
-                    type="button"
-                    @click="trackCreatorPulse(dossier.pillar_1_creator_context.creator_username)"
-                    :disabled="isTrackingCreator"
-                    class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition flex items-center gap-1 active:scale-95 disabled:opacity-50 cursor-pointer"
-                    title="Track creator with 24h lightweight pulse sync"
-                  >
-                    <i data-lucide="zap" class="w-2.5 h-2.5 text-rose-400" :class="isTrackingCreator ? 'animate-spin' : ''"></i>
-                    <span x-text="isTrackingCreator ? 'Tracking...' : '+ Track Creator (Pulse)'"></span>
-                  </button>
-                  <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
-                    <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
-                  </template>
-                </div>
-              </template>
+            <template x-if="dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username">
+              <div class="flex flex-col items-end gap-1">
+                <template x-if="dossier?.pillar_1_creator_context?.is_tracked_competitor">
+                  <a :href="'/' + encodeURIComponent(dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)" class="font-bold text-rose-400 hover:underline flex items-center justify-end gap-1">
+                    <span>@</span><span x-text="dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username"></span>
+                    <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
+                      <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                    </template>
+                  </a>
+                </template>
+                <template x-if="!dossier?.pillar_1_creator_context?.is_tracked_competitor">
+                  <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                    <span class="font-medium text-slate-300 flex items-center gap-1" :title="'Untracked creator @' + (dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)">
+                      <span>@</span><span x-text="dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username"></span>
+                    </span>
+                    <button 
+                      type="button"
+                      @click="trackCreatorPulse(dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)"
+                      :disabled="isTrackingCreator"
+                      class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition flex items-center gap-1 active:scale-95 disabled:opacity-50 cursor-pointer"
+                      title="Track creator with 24h lightweight pulse sync"
+                    >
+                      <i data-lucide="zap" class="w-2.5 h-2.5 text-rose-400" :class="isTrackingCreator ? 'animate-spin' : ''"></i>
+                      <span x-text="isTrackingCreator ? 'Tracking...' : '+ Track Creator (Pulse)'"></span>
+                    </button>
+                    <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
+                      <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                    </template>
+                  </div>
+                </template>
+              </div>
             </template>
-            <template x-if="!dossier?.pillar_1_creator_context?.creator_username">
+            <template x-if="!(dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)">
               <span class="text-slate-500">Unattributed</span>
             </template>
             <template x-if="dossier?.algorithmic_intelligence?.origin_pinner_followers || dossier?.pillar_1_creator_context?.competitor_profile?.followers">
@@ -740,7 +804,7 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Performance Trajectory</div>
-            <div class="text-[11px] text-slate-500 font-mono tabular-nums">Multi-day historical telemetry plotted from Shard database</div>
+            <div class="text-[11px] text-slate-500 font-mono tabular-nums" x-text="dossier?.topology === 'unified_postgres' ? 'Multi-day historical telemetry plotted from Unified Central Hub' : 'Multi-day historical telemetry plotted from Shard database'">Multi-day historical telemetry plotted from Shard database</div>
           </div>
 
           <!-- Timeframe & Metric Selector [NL-03 Resolved] -->
@@ -2042,7 +2106,7 @@ export function getPinDetailPageHtml(pinId = '') {
 
         initTheme() {
           if (typeof localStorage !== 'undefined') {
-            const saved = localStorage.getItem('pa_theme');
+            const saved = localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme');
             if (saved === 'light') {
               this.isDark = false;
               if (typeof document !== 'undefined') {
@@ -2061,8 +2125,10 @@ export function getPinDetailPageHtml(pinId = '') {
 
         toggleTheme() {
           this.isDark = !this.isDark;
+          const nextTheme = this.isDark ? 'dark' : 'light';
           if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('pa_theme', this.isDark ? 'dark' : 'light');
+            localStorage.setItem('pa_theme', nextTheme);
+            localStorage.setItem('pin_theme', nextTheme);
           }
           if (typeof document !== 'undefined') {
             if (this.isDark) {
