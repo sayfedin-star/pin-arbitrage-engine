@@ -2386,8 +2386,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   }
   const { env = null, forceRefresh = false } = opts;
 
-  // 1. Check Cloudflare Edge KV (`serp:comp:${kid}`) for sub-5ms response
-  if (env?.PIN_ENGINE_KV && !forceRefresh) {
+  // 1. Check Cloudflare Edge KV (`serp:comp:${kid}`) for sub-5ms response (disabled by default in Unified Single-DB mode)
+  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
       const kvCached = await env.PIN_ENGINE_KV.get(`serp:comp:${kid}`, { type: 'json' });
@@ -2400,7 +2400,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
   const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
     actualKeyword ? Promise.resolve([actualKeyword]) : sql`
-      SELECT id, keyword, category, is_active, last_crawled_at, updated_at, target_pin_count, avg_daily_velocity, metadata
+      SELECT id, keyword, category, is_active, last_crawled_at, updated_at, target_pin_count, crawl_pages_limit, avg_daily_velocity, metadata
       FROM tracked_keywords 
       WHERE id = ${kid};
     `,
@@ -2423,7 +2423,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     `.catch(() => []),
     // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
     Promise.resolve([]),
-    getKeywordDisplacedPins(sql, kid, { limit: 24, env, skipShardHydration: true }).catch(() => null),
+    getKeywordDisplacedPins(sql, kid, { limit: 500, env, skipShardHydration: true }).catch(() => null),
     getKeywordGuides(sql, kid).catch(() => []),
     sql`
       SELECT COUNT(*)::int AS total 
@@ -2575,12 +2575,12 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     }
   };
 
-  if (env?.PIN_ENGINE_KV && currentPins.length > 0) {
+  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && currentPins.length > 0) {
     try {
       await env.PIN_ENGINE_KV.put(`serp:comp:${kid}`, JSON.stringify(comparisonPayload), { expirationTtl: 1800 });
     } catch (_) {}
   }
-  if (env?.PIN_D1_DB && currentPins.length > 0) {
+  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && currentPins.length > 0) {
     syncPinsBatchToD1(env, currentPins).catch(() => {});
   }
 
@@ -2629,13 +2629,13 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict pagination <= 30 pins per page
-  const { status = 'ALL', limit = 24, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
-  const lim = Math.min(30, Math.max(1, Number(limit) || 24));
+  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] In Unified Single-DB mode, support up to 500 displaced pins in 1 query
+  const { status = 'ALL', limit = 500, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
+  const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 
   const kvKey = `displaced:kw:${kid}:${lim}:${off}`;
-  if (env?.PIN_ENGINE_KV && !forceRefresh) {
+  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
       const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
@@ -2645,42 +2645,47 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     } catch (_) {}
   }
 
-  // Query slim keyword_displaced_index (or fallback to keyword_serp_current WHERE is_displaced = TRUE)
-  // and hydrate creative fields from deterministic shards in parallel
+  // Query slim keyword_displaced_index joined with keyword_serp_current and Central Hub universal_master_pins
   let rawRows = await sql`
     SELECT
       kdi.keyword_id,
       kdi.pin_id,
-      ksc.title,
-      COALESCE(kdi.domain, ksc.domain) AS domain,
-      ksc.destination_url,
-      ksc.image_url,
-      ksc.creator_username,
-      ksc.board_name,
+      COALESCE(NULLIF(ksc.title, ''), NULLIF(ump.title, '')) AS title,
+      COALESCE(NULLIF(kdi.domain, ''), NULLIF(ksc.domain, ''), NULLIF(ump.domain, '')) AS domain,
+      COALESCE(NULLIF(ksc.destination_url, ''), NULLIF(ump.destination_url, '')) AS destination_url,
+      COALESCE(NULLIF(ksc.image_url, ''), NULLIF(ump.image_url, '')) AS image_url,
+      COALESCE(NULLIF(ksc.creator_username, ''), NULLIF(ump.creator_username, '')) AS creator_username,
+      COALESCE(NULLIF(ksc.board_name, ''), NULLIF(ump.board_name, '')) AS board_name,
       kdi.last_known_rank,
       kdi.displaced_date,
       'displaced_active' AS status,
-      kdi.save_count AS current_saves,
-      kdi.save_count,
-      kdi.repin_count AS current_repins,
-      kdi.repin_count,
-      kdi.comment_count AS current_comments,
-      kdi.comment_count,
-      kdi.share_count AS current_shares,
-      kdi.share_count,
+      COALESCE(NULLIF(kdi.save_count, 0), ump.save_count, 0) AS current_saves,
+      COALESCE(NULLIF(kdi.save_count, 0), ump.save_count, 0) AS save_count,
+      COALESCE(NULLIF(kdi.repin_count, 0), ump.repin_count, 0) AS current_repins,
+      COALESCE(NULLIF(kdi.repin_count, 0), ump.repin_count, 0) AS repin_count,
+      COALESCE(NULLIF(kdi.comment_count, 0), ump.comment_count, 0) AS current_comments,
+      COALESCE(NULLIF(kdi.comment_count, 0), ump.comment_count, 0) AS comment_count,
+      COALESCE(NULLIF(kdi.share_count, 0), ump.share_count, 0) AS current_shares,
+      COALESCE(NULLIF(kdi.share_count, 0), ump.share_count, 0) AS share_count,
       kdi.daily_save_velocity,
       kdi.daily_save_velocity AS calculated_velocity,
       kdi.vacuum_opportunity_score,
-      COALESCE(ksc.metadata->>'alt_text', '') AS seo_alt_text,
-      COALESCE(ksc.visual_annotations, '[]'::jsonb) AS annotations,
-      COALESCE(ksc.dominant_color, '#888888') AS dominant_color,
-      ksc.created_at_pinterest,
-      COALESCE(ksc.creation_method, 'pinterest_platform') AS creation_method,
-      COALESCE(ksc.metadata, '{}'::jsonb) AS metadata,
+      COALESCE(NULLIF(ksc.metadata->>'alt_text', ''), NULLIF(ump.alt_text, ''), '') AS seo_alt_text,
+      CASE
+        WHEN ksc.visual_annotations IS NOT NULL AND jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0 THEN ksc.visual_annotations
+        WHEN ump.visual_annotations IS NOT NULL AND jsonb_typeof(ump.visual_annotations) = 'array' AND jsonb_array_length(ump.visual_annotations) > 0 THEN ump.visual_annotations
+        ELSE '[]'::jsonb
+      END AS annotations,
+      COALESCE(NULLIF(ksc.dominant_color, ''), NULLIF(ump.dominant_color, ''), '#888888') AS dominant_color,
+      COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
+      COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
+      COALESCE(ksc.metadata, ump.metadata, '{}'::jsonb) AS metadata,
       kdi.updated_at AS created_at
     FROM keyword_displaced_index kdi
     LEFT JOIN keyword_serp_current ksc
       ON ksc.keyword_id = kdi.keyword_id AND ksc.pin_id = kdi.pin_id
+    LEFT JOIN universal_master_pins ump
+      ON ump.pin_id = kdi.pin_id
     WHERE kdi.keyword_id = ${kid}
       AND NOT EXISTS (
         SELECT 1 FROM keyword_ignored_pins kip

@@ -153,7 +153,7 @@ export function renderCampaignWorkspaceHeader({
           <i data-lucide="zap" class="w-4 h-4 ${isCrossover ? iconActive : iconInactive}"></i>
           <span>Crossover & Super-Pins</span>
           <span class="${isCrossover ? badgeActive : badgeInactive}"
-                x-text="(typeof activeFolder !== 'undefined' && activeFolder && (activeFolder?.unique_pins_count != null || activeFolder?.pin_count != null || activeFolder?.total_unique_pins != null)) ? (activeFolder.unique_pins_count ?? activeFolder.pin_count ?? activeFolder.total_unique_pins) : ((typeof crossoverData !== 'undefined' && crossoverData?.summary?.total_unique_pins != null) ? crossoverData.summary.total_unique_pins : '0')"></span>
+                x-text="(typeof crossoverData !== 'undefined' && crossoverData?.summary?.total_unique_pins != null) ? crossoverData.summary.total_unique_pins : ((typeof activeFolder !== 'undefined' && activeFolder && (activeFolder?.unique_pins_count != null || activeFolder?.pin_count != null || activeFolder?.total_unique_pins != null)) ? (activeFolder.unique_pins_count ?? activeFolder.pin_count ?? activeFolder.total_unique_pins) : '0')"></span>
         </a>
 
         <!-- Room 2: Keywords Fleet -->

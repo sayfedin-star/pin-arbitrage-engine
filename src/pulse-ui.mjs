@@ -222,7 +222,7 @@ export function getPulsePageHtml(folderId = '') {
           <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-400"></i>
         </div>
         <div class="mt-2 text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white" x-text="formatNumber(kpis.total_active_serp_pins || 0)">0</div>
-        <div class="mt-1 text-[10px] text-slate-400 font-mono">Ranked pins inventory</div>
+        <div class="mt-1 text-[10px] text-slate-400 font-mono" x-text="kpis.total_active_serp_slots ? ('Unique pins (' + formatNumber(kpis.total_active_serp_slots) + ' ranked slots)') : 'Unique ranked pins inventory'">Unique ranked pins inventory</div>
       </div>
 
       <!-- 2. Pins Gaining (24h) -->
@@ -1223,6 +1223,9 @@ export function getPulsePageHtml(folderId = '') {
         isSidebarCollapsed: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_sidebar_collapsed') === 'true') : false,
         isMobileMenuOpen: false,
         scopedFolderId: initialFolderId || '',
+        activeFolderId: initialFolderId || '',
+        activeFolder: null,
+        foldersList: [],
 
         // 3-Room Navigation State
         currentRoom: 'radar', // 'radar' | 'matrix' | 'creators_vacuums'
@@ -1301,6 +1304,9 @@ export function getPulsePageHtml(folderId = '') {
         toasts: [],
 
         init: function() {
+          if (this.scopedFolderId) {
+            this.loadFolderInfo();
+          }
           this.fetchPulseData(false);
 
           if (typeof document !== 'undefined') {
@@ -1310,6 +1316,21 @@ export function getPulsePageHtml(folderId = '') {
               }
             });
           }
+        },
+
+        loadFolderInfo: async function() {
+          try {
+            if (!this.scopedFolderId) return;
+            const res = await fetch('/api/keywords/folders');
+            const data = await res.json();
+            if (data && Array.isArray(data.folders)) {
+              this.foldersList = data.folders;
+              const found = data.folders.find(f => String(f.id) === String(this.scopedFolderId));
+              if (found) {
+                this.activeFolder = found;
+              }
+            }
+          } catch (_) {}
         },
 
         setRoom: function(room) {

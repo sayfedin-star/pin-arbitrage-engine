@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/worker.mjs",
   "scripts": {
+    "build": "node scripts/verify_all_syntax.mjs",
     "start": "node src/server.mjs",
     "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "crawl:creators": "node --use-system-ca scripts/crawler-engine.mjs",

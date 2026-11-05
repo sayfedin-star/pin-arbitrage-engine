@@ -703,7 +703,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         </button>
                         <button @click="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
                                 class="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                                :title="'Re-Crawl ' + (kw.target_pin_count || 250) + ' pins'">
+                                :title="'Re-Crawl ' + (kw.target_pin_count || 50) + ' pins'">
                           <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
                         </button>
                         <button @click="deleteKeyword(kw.id)"
@@ -1142,8 +1142,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </template>
 
               <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                    x-text="(selectedKeyword?.target_pin_count || 250) + ' Pins Target (' + (selectedKeyword?.crawl_pages_limit || 10) + ' Pages)'">
-                250 Pins Target
+                    x-text="(selectedKeyword?.target_pin_count || 50) + ' Pins Target (' + (selectedKeyword?.crawl_pages_limit || 2) + ' Pages)'">
+                50 Pins Target (2 Pages)
               </span>
               <template x-if="selectedKeyword?.last_crawled_at">
                 <span class="text-[11px] text-slate-400 font-mono tabular-nums flex items-center space-x-1">
@@ -1164,7 +1164,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   :disabled="isDetailsLoading || syncingKeywordId === selectedKeyword?.id"
                   class="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-2 shadow-md shadow-emerald-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(isDetailsLoading || syncingKeywordId === selectedKeyword?.id) ? 'animate-spin' : ''"></i>
-            <span x-text="'Re-Crawl ' + (selectedKeyword?.target_pin_count || 250) + ' Pins'"></span>
+            <span x-text="'Re-Crawl ' + (selectedKeyword?.target_pin_count || 50) + ' Pins'"></span>
           </button>
 
           <!-- Settings Button for this specific keyword -->
@@ -1290,7 +1290,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <i data-lucide="trending-up" class="w-3.5 h-3.5 text-purple-500"></i>
                     <span class="capitalize" x-text="sug"></span>
                   </div>
-                  <span class="text-[10px] text-purple-500 font-mono tabular-nums" x-text="'+ Index ' + (appSettings.default_max_pins || 250) + ' Pins'"></span>
+                  <span class="text-[10px] text-purple-500 font-mono tabular-nums" x-text="'+ Index ' + (appSettings.default_max_pins || 50) + ' Pins'"></span>
                 </div>
               </template>
             </div>
@@ -1337,7 +1337,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </div>
         <div class="flex items-center space-x-2">
           <span class="text-xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
-          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'/ ' + (selectedKeyword?.target_pin_count || 250) + ' Organic Pins'"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'/ ' + (selectedKeyword?.target_pin_count || 50) + ' Organic Pins'"></span>
         </div>
         <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-[#27272A]/80 text-center">
           <div class="p-1 rounded-lg bg-emerald-500/10 text-[10px] font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" title="Climbed">
@@ -6039,7 +6039,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           }
           try {
             const offset = append ? this.displacedOffset : 0;
-            const limit = 24;
+            const limit = 500;
             const statusParam = this.displacedStatusFilter !== 'ALL' ? '&status=' + encodeURIComponent(this.displacedStatusFilter) : '';
             const res = await fetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam));
             if (res.ok) {

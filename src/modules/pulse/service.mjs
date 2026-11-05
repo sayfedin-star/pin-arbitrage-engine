@@ -978,9 +978,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     pulseMemoryCache.delete(cacheKey);
   }
 
-  // 2. Cloudflare Workers KV Cache Check (for default summary view)
+  // 2. Cloudflare Workers KV Cache Check (disabled by default in Unified Single-DB mode)
   const isDefaultFilter = (!folderIdNum) && (windowParam === '24h') && (minAudience === 0);
-  if (!bypassCache && isDefaultFilter && !effectiveRefresh && env?.PIN_ENGINE_KV) {
+  if (!bypassCache && isDefaultFilter && !effectiveRefresh && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
     try {
       const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v3', { type: 'json' });
       if (kvCached) {
@@ -1072,7 +1072,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     // Merge Creator Viral Pins (top 150) into unified surge pool
     for (const cp of (creatorViralRows || [])) {
-      mergePinIntoMap(pinMap, cp, 'creator_feed', keywordFoldersMap);
+      const pid = String(cp.pin_id);
+      if (!folderIdNum || pinMap.has(pid)) {
+        mergePinIntoMap(pinMap, cp, 'creator_feed', keywordFoldersMap);
+      }
     }
 
     // Merge Top 100 Qualified PinArchive Winners into unified surge pool [Round 16 Gate 5.3]
@@ -1216,8 +1219,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Sort All Active Pins by Hydration Status, Unified 24h Gain then Momentum
     allActivePins.sort(activePinSortComparator);
 
-    // Single consolidated D1 edge metadata hydration for top 100 pins missing description/alt_text
-    if (env?.PIN_D1_DB && allActivePins.length > 0) {
+    // Single consolidated D1 edge metadata hydration for top 100 pins missing description/alt_text (disabled in Unified Single-DB mode)
+    if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && allActivePins.length > 0) {
       try {
         const topPinsNeedingHydration = allActivePins
           .slice(0, 100)
@@ -1444,7 +1447,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (candidateSeenCreative.has(cKey)) continue;
         candidateSeenCreative.add(cKey);
         candidatePins.push(p);
-        if (candidatePins.length >= 40) break;
+        if (candidatePins.length >= 500) break;
       }
     }
     const pairTagMap = new Map();
@@ -1501,7 +1504,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
               }
             }
           }
-          if (pt.matchingPins.length < 6) {
+          if (pt.matchingPins.length < 50) {
             let exists = false;
             for (let mpi = 0; mpi < pt.matchingPins.length; mpi++) {
               if (pt.matchingPins[mpi].pin_id === p.pin_id) { exists = true; break; }
@@ -1559,7 +1562,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
                 }
               }
             }
-            if (tt.matchingPins.length < 6) {
+            if (tt.matchingPins.length < 50) {
               let exists = false;
               for (let mpi = 0; mpi < tt.matchingPins.length; mpi++) {
                 if (tt.matchingPins[mpi].pin_id === p.pin_id) { exists = true; break; }
@@ -1766,12 +1769,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Section 3: Format N-Gram Crossovers with Slicing FIRST & Hard Support Floor (pin_count >= 2) [Round 16]
     const singleAnnotations = Array.from(singleTagMap.values())
       .sort(gainThenCountDescComparator)
-      .slice(0, 10)
+      .slice(0, 50)
       .map(t => {
         const sortedPins = [...(t.matchingPins || [])]
           .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
         const matchingPins = sortedPins
-          .slice(0, 3)
+          .slice(0, 50)
           .map(formatMatrixPinSummary);
         return {
           label: t.tag_display,
@@ -1791,19 +1794,19 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           total_repins_delta: t.total_repins_delta,
           total_saves: t.total_saves,
           matching_pins: matchingPins,
-          sample_pins: matchingPins.slice(0, 2)
+          sample_pins: matchingPins.slice(0, 4)
         };
       });
 
     const pairCrossovers = Array.from(pairTagMap.values())
       .filter(p => p.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
       .sort(gainThenCountDescComparator)
-      .slice(0, 12)
+      .slice(0, 50)
       .map(p => {
         const sortedPins = [...(p.matchingPins || [])]
           .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
         const matchingPins = sortedPins
-          .slice(0, 3)
+          .slice(0, 50)
           .map(formatMatrixPinSummary);
         return {
           label: p.crossover_label,
@@ -1826,19 +1829,19 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           total_repins_delta: p.total_repins_delta,
           total_saves: p.total_saves,
           matching_pins: matchingPins,
-          sample_pins: matchingPins.slice(0, 2)
+          sample_pins: matchingPins.slice(0, 4)
         };
       });
 
     const tripletCrossovers = Array.from(tripletTagMap.values())
       .filter(t => t.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
       .sort(gainThenCountDescComparator)
-      .slice(0, 8)
+      .slice(0, 50)
       .map(t => {
         const sortedPins = [...(t.matchingPins || [])]
           .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
         const matchingPins = sortedPins
-          .slice(0, 3)
+          .slice(0, 50)
           .map(formatMatrixPinSummary);
         return {
           label: t.crossover_label,
@@ -2163,7 +2166,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const vacuumHijackPins = vacuumHijackCandidates.map(formatPinSummary);
     const domainlessViralPins = domainlessViralCandidates.map(formatPinSummary);
 
-    const totalActivePinsCount = activeSerpRows[0]?.full_count || allActivePins.length;
+    const uniqueActiveSerpPinsCount = allActivePins.filter(p => p.sources && p.sources.includes('active_serp')).length;
+    const totalActiveSerpSlots = activeSerpRows[0]?.full_count || uniqueActiveSerpPinsCount;
+    const totalActivePinsCount = uniqueActiveSerpPinsCount || totalActiveSerpSlots;
     const creationMethodBreakdown = Array.from(creationMethodMap.values())
       .map(cm => ({
         method: cm.method,
@@ -2183,7 +2188,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         total_velocity: Number(c.total_velocity.toFixed(2)),
         avg_velocity: c.pin_count > 0 ? Number((c.total_velocity / c.pin_count).toFixed(2)) : 0,
         sample_pins: c.sample_pins || [],
-        matching_pins: (c.matchingPins || []).slice(0, 6).map(formatMatrixPinSummary)
+        matching_pins: (c.matchingPins || []).slice(0, 50).map(formatMatrixPinSummary)
       }))
       .sort((a, b) => b.total_velocity - a.total_velocity)
       .slice(0, 12);
@@ -2205,6 +2210,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Section 1: Executive KPI Ribbon
     const kpis = {
       total_active_serp_pins: totalActivePinsCount,
+      total_active_serp_slots: totalActiveSerpSlots,
       pins_gaining_24h_count: pinsGainingCount,
       total_24h_saves_velocity: Number(totalSavesVelocity.toFixed(2)),
       total_24h_repins_delta: totalRepinsDelta,
@@ -2264,8 +2270,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       pulseForceRefreshCooldown.set(cacheKey, Date.now());
     }
 
-    // Save into L2 Cloudflare Workers KV for default view
-    if (!bypassCache && isDefaultFilter && env?.PIN_ENGINE_KV) {
+    // Save into L2 Cloudflare Workers KV for default view (disabled by default in Unified Single-DB mode)
+    if (!bypassCache && isDefaultFilter && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
       const kvTask = env.PIN_ENGINE_KV.put(
         'pulse:global_24h:summary:v3',
         JSON.stringify(payload),

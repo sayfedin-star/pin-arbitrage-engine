@@ -984,7 +984,7 @@ async function run() {
       // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
       let wasAutoPromotedInThisRun = false;
       if (isPulseOnly) {
-        const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? true;
+        const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? false;
         const dynamicDelta24h = Number(creatorHubSettings?.auto_promote_delta_24h ?? AUTO_PROMOTE_PULSE_DELTA_24H);
         const dynamicDelta7d = Number(creatorHubSettings?.auto_promote_delta_7d ?? AUTO_PROMOTE_PULSE_DELTA_7D);
 

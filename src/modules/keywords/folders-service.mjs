@@ -2309,13 +2309,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     filtered_kdi AS (
       SELECT *
       FROM folder_kdi
-      WHERE in_active_serp = TRUE
-         OR kdi_keyword_count >= 2
-         OR daily_save_velocity > 0
-         OR save_count >= 50
-         OR rank_position <= 25
-      ORDER BY daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
-      LIMIT 2000
+      ORDER BY in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
+      LIMIT 15000
     )
     SELECT
       fk.keyword_id,
@@ -2615,8 +2610,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       });
     };
 
-    // Tier 1: Ultra-Fast Edge Hydration from Cloudflare D1 (edge_pins_metadata in < 3ms, 0 Bytes Neon Egress)
-    if (env?.PIN_D1_DB) {
+    // Tier 1: Ultra-Fast Edge Hydration from Cloudflare D1 (disabled in Unified Single-DB mode)
+    if (!isUnifiedPostgres(env) && env?.PIN_D1_DB) {
       try {
         const d1Map = await hydratePinsFromD1(env, missingPinIds);
         if (d1Map && typeof d1Map.get === 'function') {
@@ -2628,7 +2623,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       } catch (_) {}
     }
 
-    // Tier 2: Central Hub Fallback (100% Alias-Qualified Schema Parity across keyword_serp_current, competitor_pins, pa_pins)
+    // Tier 2: Central Hub Fallback (100% Alias-Qualified Schema Parity across universal_master_pins, keyword_serp_current, competitor_pins, pa_pins)
     const stillMissingAfterD1 = missingMetaPins.filter(p => {
       const e = enrichedMap.get(p.pin_id);
       const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
@@ -2640,6 +2635,18 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       const hubLookupIds = stillMissingAfterD1.map(p => p.pin_id);
       try {
         const hubMeta = await sql`
+          SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
+                 ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
+                 ump.alt_text,
+                 ump.description,
+                 (ump.metadata->>'seo_title') AS seo_title,
+                 ump.created_at_pinterest,
+                 (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+                 COALESCE(NULLIF(ump.metadata->>'creation_method', ''), NULLIF(ump.metadata->>'method', '')) AS creation_method
+          FROM universal_master_pins ump
+          WHERE ump.pin_id = ANY(${hubLookupIds}::text[])
+            AND (ump.title <> '' OR ump.image_url <> '')
+          UNION ALL
           SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
                  ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations,
                  (ksc.metadata->>'alt_text') AS alt_text,
@@ -2807,12 +2814,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
             pinsToWriteToD1.push(e);
           }
         }
-        if (env?.PIN_D1_DB && pinsToWriteToD1.length > 0) {
+        if (!isUnifiedPostgres(env) && env?.PIN_D1_DB && pinsToWriteToD1.length > 0) {
           safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'crossover_sync_priority_d1');
         }
 
         // Tier 4B: Background Tail Warming in waves of 2 for folders with > 350 displaced pins
-        if (env?.PIN_D1_DB && tailShardPins.length > 0) {
+        if (!isUnifiedPostgres(env) && env?.PIN_D1_DB && tailShardPins.length > 0) {
           const tailGroups = coalesceShardGroupsByPhysical(batchGroupByShard(tailShardPins, 99));
           const tailShardEntries = Array.from(tailGroups.entries());
           const maxTailShards = Math.min(tailShardEntries.length, 4);
@@ -2915,20 +2922,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   // [INVARIANT: FOLDER-CROSSOVER-CREATIVE-DEDUPLICATION]
   const creativePinMap = new Map();
   for (const p of allPins) {
-    let cKey = '';
-    if (p.image_url) {
-      const match = String(p.image_url).match(/([a-f0-9]{32})/i) || String(p.image_url).match(/\/([^/?#]+\.(?:jpg|jpeg|png|webp))/i);
-      if (match) cKey = `img:${match[1].toLowerCase()}`;
-    }
-    if (!cKey && p.title && !isSyntheticPinTitle(p.title) && p.save_count >= 100) {
-      const tNorm = String(p.title).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (tNorm.length >= 5) {
-        cKey = `ts:${tNorm}:${p.save_count}`;
-      }
-    }
-    if (!cKey) {
-      cKey = `pid:${p.pin_id}`;
-    }
+    const cKey = `pid:${p.pin_id}`;
 
     if (!creativePinMap.has(cKey)) {
       creativePinMap.set(cKey, p);
