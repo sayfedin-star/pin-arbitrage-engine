@@ -6404,22 +6404,34 @@ export function getDashboardHtml(folderId = '') {
         },
 
         get folderCompetitorTotals() {
+          const list = (this.filteredCompetitors && this.filteredCompetitors.length > 0)
+            ? this.filteredCompetitors
+            : (this.competitors || []);
+          if (list.length > 0) {
+            const combinedAudience = list.reduce((sum, c) => sum + (Number(c.monthly_reach) || 0), 0);
+            const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
+            const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
+            const delta24h = list.reduce((sum, c) => sum + Math.max(0, Number(c.delta_reach_24h || c.delta_24h || 0)), 0);
+            const avgCadence = list.length > 0
+              ? Number((list.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / list.length).toFixed(1))
+              : 0;
+            return {
+              combined_audience: combinedAudience,
+              combined_impressions: combinedImpressions,
+              combined_pins: combinedPins,
+              total_creators: list.length,
+              delta_24h: delta24h,
+              avg_pinning_cadence: avgCadence
+            };
+          }
           if (this.folderCompetitorTotalsData) return this.folderCompetitorTotalsData;
-          const list = this.filteredCompetitors || [];
-          const combinedAudience = list.reduce((sum, c) => sum + (Number(c.monthly_reach) || 0), 0);
-          const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
-          const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
-          const delta24h = list.reduce((sum, c) => sum + (Number(c.delta_reach_24h || c.delta_24h) || 0), 0);
-          const avgCadence = list.length > 0
-            ? Number((list.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / list.length).toFixed(1))
-            : 0;
           return {
-            combined_audience: combinedAudience,
-            combined_impressions: combinedImpressions,
-            combined_pins: combinedPins,
-            total_creators: list.length,
-            delta_24h: delta24h,
-            avg_pinning_cadence: avgCadence
+            combined_audience: 0,
+            combined_impressions: 0,
+            combined_pins: 0,
+            total_creators: 0,
+            delta_24h: 0,
+            avg_pinning_cadence: 0
           };
         },
 

@@ -21,6 +21,7 @@ trigger: always_on
 | **Round 6 (Milestone 6)** | Residual Defect Closure, Arbitrage Alpha Engines & 12-Lock Anti-Regression Shield | Migration 041, Invariants 38–41, Locks 8–12 | **SEALED** |
 | **Round 9 & 10 (Master Execution)** | Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM Sanitization & LND-801..824 Defusal | Migration 042, Invariant 42, Locks 13–14 | **SEALED** |
 | **Rounds 14–16 (Crawler Egress & Micro-Traps Defusal)** | Creator Fleet Egress Defense, Shard-Affine Partitioning Parity, CTE History Consolidation & 10M Ceiling Guard | Lock 3, Lock 7, Invariants 32–37 | **SEALED** |
+| **Round 23 (Phase 8 UI Parity)** | Room 5 Pruning Healing, Creator Combined Audience 24h Surge, Tag Bridge Gains & Crossover Velocity Alignment | Invariants 30, 31, 33, Locks 1, 4, 13 | **SEALED** |
 
 ---
 
@@ -367,3 +368,33 @@ trigger: always_on
   - `node tests/round15-pulse-v2.test.mjs` (21/21 PASS)
   - `node tests/round16-pulse-503-and-data-truth.test.mjs` (16/16 PASS)
   - Live Neon Hub verification: Pin #911134568440407967 velocity strictly 0; Room 3 ranks Sarah Scoop (+296k) at #1 with 3 driver pins; Folder #5 crossover velocity is strictly 0.
+
+---
+
+## Round 23: Phase 8 UI Parity — Room 5 Pruning Healing, Creator Combined Audience 24h Surge, Tag Bridge Gains & Crossover Velocity Alignment
+- **Round / Feature**: Phase 8 UI Parity — Room 5 Pruning Restoration, Creator Hub Combined Audience 24h Surge, Shared Annotation Tag Gains & Crossover Velocity Alignment
+- **Trap / Failure Mode**: 
+  1. Room 5 Smart Pin Pruning returned 0 candidates on Folder #5 (`high protein`), leaving `Execute Atomic Prune` permanently disabled.
+  2. Harvest Quota slider in Room 5 updated only `max_serp_pins`, leaving `max_pins` at the old value when saved. Opening `/folders/:id/settings` blocked for 30s executing visual crossover analysis.
+  3. Creator Hub `COMBINED AUDIENCE` displayed `+0 24h` despite active 24h creator gains (e.g. +160k, +118k, etc.).
+  4. Shared Annotations Hub displayed `+0 saves_gain` across all rows and fabricated velocity with `(pin_count * 2.4).toFixed(1)`.
+  5. Crossover Room 2 suppressed authentic 24h velocity on breakout pins appearing at top of 24h Pulse Radar and ignored `delta_repins_24h` on repin surges.
+  6. Stale D1/KV folder cache reads served old folder settings and empty `items: []` in `isUnifiedPostgres` mode.
+- **Root Cause & Technical Mechanism**:
+  1. In `getPruningCandidates`, line 1469 contained `AND (${resolvedMinPinAge === null})`. When the default `min_pin_age_days: 30` was sent, this evaluated to `AND FALSE`, completely disabling the `keyword_displaced_index` branch.
+  2. Range slider had `x-model="folderSettings.max_serp_pins"` without syncing `folderSettings.max_pins`.
+  3. `listFolderCreatorsWithDiscovery` calculated `combined_audience`, `combined_impressions`, `combined_pins`, but omitted `delta_24h`, `delta_reach_24h`, `delta_impressions_24h`, `delta_pins_24h` from `totals`. `get folderCompetitorTotals()` returned the backend object directly where `delta_24h` was undefined.
+  4. `tagMap` in `folders-service.mjs` Dimension B only accumulated `pin_count` and `total_saves`, omitting `saves_gain` and `velocity_gain`.
+  5. Legacy pre-Phase-8 `Math.abs((rowSaves - rowRepins) - vel)` zeroing check and `delta24h = Math.min(delta24h, rowGains7d)` clamped legitimate 24h breakouts where 7d gains were not yet backfilled.
+  6. KV and D1 caches lacked `!isUnifiedPostgres(env)` bypass in folder read routes.
+- **Verified Solution & Invariant Codification**:
+  1. In `getPruningCandidates`: Fixed age check `(${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR ump.created_at_pinterest IS NULL OR ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)` and joined `universal_master_pins` for title and date. Tested on Folder #5: returned 205 actual candidates (from 0).
+  2. In `src/campaign-folders-ui.mjs`: Added `@input="folderSettings.max_pins = folderSettings.max_serp_pins"`, added `Target Scope` dropdown (`Displaced Vault Pins`, `All Cluster Pins (Active + Vault)`, `Active SERP Only`), passed `scope` in `runPrunePreview` and `executePrune`, and bypassed crossover analysis when `currentRoom === 'settings'`.
+  3. In `listFolderCreatorsWithDiscovery`: Computed `totalDeltaAudience24h`, `totalDeltaImpressions24h`, `totalDeltaPins24h` and added them to `totals`. Tested on Folder #5: `totals.delta_24h = 5,462,227` matching sum of `delta_reach_24h`. In `src/dashboard-ui.mjs`, dynamically compute totals across filtered list.
+  4. In `folders-service.mjs`: Added `saves_gain` and `velocity_gain` accumulation to `tagMap` and exported in `tagBridges` and `metric_gains`.
+  5. In `folders-service.mjs`: Removed obsolete zeroing and clamping heuristics, computed `effective_velocity: vel > 0 ? vel : safeNum(row.delta_repins_24h, 0)` on `pinMap`, and aligned sorting.
+  6. In `src/routes/keywords.mjs`: Added `!isUnifiedPostgres(env)` guards to KV reads on folders and creators, added full KV eviction and epoch bump on folder patch and prune.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 106/106 files, 14 locks PASS)
+  - `npm test` (21 suites, 100% PASS)
+  - `node --env-file=.env scripts/verify_bug_fixes.mjs` (205 candidates for Folder #5, 5.46M 24h delta audience)

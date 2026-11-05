@@ -1354,7 +1354,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   <label class="text-xs font-semibold text-slate-900 dark:text-white">Max SERP Pins Harvest Quota</label>
                   <span class="text-xs font-mono font-bold text-rose-600 dark:text-rose-400" x-text="folderSettings.max_serp_pins + ' pins'"></span>
                 </div>
-                <input type="range" min="20" max="250" step="10" x-model="folderSettings.max_serp_pins" class="w-full accent-rose-600">
+                <input type="range" min="20" max="250" step="10" x-model="folderSettings.max_serp_pins" @input="folderSettings.max_pins = folderSettings.max_serp_pins" class="w-full accent-rose-600">
                 <div class="flex justify-between text-[10px] text-slate-400 font-mono">
                   <span>20 (Fast)</span>
                   <span>100 (Standard)</span>
@@ -1369,6 +1369,15 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   <div class="text-xs font-bold text-slate-900 dark:text-white">Smart Bulk Pin Pruning</div>
                 </div>
                 <p class="text-[11px] text-slate-500 dark:text-slate-400">Prune dead or low-traction pins across selected cluster keywords into the tombstone archive.</p>
+
+                <div>
+                  <label class="text-[10px] uppercase font-mono text-slate-500">Target Scope</label>
+                  <select x-model="pruneForm.scope" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs cursor-pointer">
+                    <option value="displaced">Displaced Vault Pins</option>
+                    <option value="all">All Cluster Pins (Active + Vault)</option>
+                    <option value="active">Active SERP Only</option>
+                  </select>
+                </div>
 
                 <div class="grid grid-cols-2 gap-2 text-xs">
                   <div>
@@ -1873,6 +1882,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         pruningLoading: false,
         prunePreviewResult: null,
         pruneForm: {
+          scope: 'displaced',
           min_pin_age_days: 30,
           max_saves: 5,
           keyword_ids: []
@@ -1974,6 +1984,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               body: JSON.stringify({
                 dry_run: true,
                 keyword_ids: kwIds,
+                scope: this.pruneForm.scope || 'displaced',
                 min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
                 max_saves: Number(this.pruneForm.max_saves) || 5
               })
@@ -2008,6 +2019,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               body: JSON.stringify({
                 dry_run: false,
                 keyword_ids: kwIds,
+                scope: this.pruneForm.scope || 'displaced',
                 min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
                 max_saves: Number(this.pruneForm.max_saves) || 5
               })
@@ -2016,7 +2028,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             if (res.ok) {
               this.showToast('Successfully pruned ' + (data.pruned_count || 0) + ' pins!', 'success');
               this.prunePreviewResult = null;
-              await this.loadActiveFolder();
+              await this.loadActiveFolder(true);
             } else {
               this.showToast(data.message || 'Pruning execution failed', 'error');
             }
@@ -2396,11 +2408,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           }
         },
 
-        async loadActiveFolder() {
+        async loadActiveFolder(forceRefresh = false) {
           const reqSeq = ++this._folderReqSeq;
           // Phase 1: Fast metadata hydration (< 50ms)
           try {
-            const folderRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId);
+            const shouldRefresh = forceRefresh === true || this.currentRoom === 'settings';
+            const folderUrl = '/api/folders/' + this.activeFolderId + (shouldRefresh ? '?refresh=true' : '');
+            const folderRes = await (window.safeApiFetch || fetch)(folderUrl);
             if (reqSeq !== this._folderReqSeq) return;
             if (folderRes.ok) {
               const data = await folderRes.json().catch(() => ({}));
@@ -2414,6 +2428,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           } catch (e) {
             if (reqSeq !== this._folderReqSeq) return;
             console.error('Error fetching folder metadata:', e);
+          }
+
+          // Unnecessary 30s Crossover fetch bypassed when in settings room
+          if (this.currentRoom === 'settings') {
+            this.crossoverLoading = false;
+            return;
           }
 
           // Phase 2: Crossover Matrix analysis (< 30s)
@@ -2524,7 +2544,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           if (!this.activeFolderId) return;
           this.settingsLoading = true;
           try {
-            let meta = this.activeFolder.metadata;
+            let meta = this.activeFolder?.metadata;
             if (typeof meta === 'string') {
               try {
                 meta = JSON.parse(meta);
@@ -2533,16 +2553,17 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             }
             if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
+            const maxPinsVal = String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins || '50');
             const payload = {
-              name: this.folderSettings.name.trim() || this.activeFolder.name,
-              description: this.folderSettings.description.trim(),
-              color: this.folderSettings.color,
+              name: (this.folderSettings.name || '').trim() || (this.activeFolder?.name || ''),
+              description: (this.folderSettings.description || '').trim(),
+              color: this.folderSettings.color || '#6366f1',
               metadata: {
                 ...meta,
                 enable_serp_harvest: Boolean(this.folderSettings.enable_serp_harvest),
-                max_pins: String(this.folderSettings.max_pins),
-                max_serp_pins: String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins),
-                crawl_scope: String(this.folderSettings.crawl_scope),
+                max_pins: maxPinsVal,
+                max_serp_pins: maxPinsVal,
+                crawl_scope: String(this.folderSettings.crawl_scope || 'all_pins'),
                 max_catalog_inspect: String(this.folderSettings.max_catalog_inspect || '0'),
                 pause_competitors: Boolean(this.folderSettings.pause_competitors),
                 pause_crawlers: Boolean(this.folderSettings.pause_crawlers),
@@ -3022,7 +3043,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
           // 4. Sorting
           if (this.sortBy === 'velocity_desc') {
-            list = list.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
+            list = list.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
           } else if (this.sortBy === 'saves_desc') {
             list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'saves_asc') {

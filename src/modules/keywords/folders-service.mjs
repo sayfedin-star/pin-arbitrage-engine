@@ -1049,6 +1049,10 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     ? Number((allRows.reduce((sum, r) => sum + (Number(r.total_pins || 0) / 365), 0) / allRows.length).toFixed(1))
     : 0;
 
+  const totalDeltaAudience24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_reach_24h || 0)), 0);
+  const totalDeltaImpressions24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_views_24h || 0)), 0);
+  const totalDeltaPins24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_pins_24h || 0)), 0);
+
   return {
     linked_creators: linked,
     discovered_creators: discovered,
@@ -1063,7 +1067,11 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       combined_audience: totalAudience,
       combined_impressions: totalImpressions,
       combined_pins: totalPins,
-      avg_pinning_cadence: avgCadence
+      avg_pinning_cadence: avgCadence,
+      delta_24h: totalDeltaAudience24h,
+      delta_reach_24h: totalDeltaAudience24h,
+      delta_impressions_24h: totalDeltaImpressions24h,
+      delta_pins_24h: totalDeltaPins24h
     }
   };
 }
@@ -1437,8 +1445,9 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
       AND (${resolvedMaxSaves === null} OR COALESCE(ksc.save_count, 0) <= ${resolvedMaxSaves})
       AND (${resolvedMaxRepins === null} OR COALESCE(ksc.repin_count, 0) <= ${resolvedMaxRepins})
       AND (
-        ${resolvedMinPinAge === null} OR
-        (ksc.created_at_pinterest IS NOT NULL AND ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
+        ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
+        ksc.created_at_pinterest IS NULL OR
+        ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
       )
       AND (
         ${resolvedMinFolderAge === null} OR
@@ -1450,23 +1459,28 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
     SELECT
       kdi.keyword_id,
       kdi.pin_id,
-      NULL::text AS title,
+      COALESCE(ump.title, NULL::text) AS title,
       kdi.save_count,
       kdi.repin_count,
       kdi.daily_save_velocity,
       TRUE AS is_displaced,
-      NULL::timestamptz AS created_at_pinterest,
+      ump.created_at_pinterest AS created_at_pinterest,
       tk.keyword,
       i.added_at AS folder_added_at
     FROM keyword_folder_items i
     JOIN tracked_keywords tk ON tk.id = i.keyword_id
     JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
     WHERE i.folder_id = ${fid}
       AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
       AND (${targetScope} IN ('all', 'displaced'))
       AND (${resolvedMaxSaves === null} OR COALESCE(kdi.save_count, 0) <= ${resolvedMaxSaves})
       AND (${resolvedMaxRepins === null} OR COALESCE(kdi.repin_count, 0) <= ${resolvedMaxRepins})
-      AND (${resolvedMinPinAge === null})
+      AND (
+        ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
+        ump.created_at_pinterest IS NULL OR
+        ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
+      )
       AND (
         ${resolvedMinFolderAge === null} OR
         (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
@@ -2392,13 +2406,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       ? Math.max(0, Math.floor((nowMs - folderAddedMs) / 86400000))
       : 0;
 
-    // Sanitize velocity: detect unhealed repin-to-save hydration gap
     let vel = safeNum(row.daily_save_velocity);
     const rowSaves = safeNum(row.save_count ?? meta.raw_saves ?? 0);
     const rowRepins = safeNum(row.repin_count);
-    if (rowSaves > 0 && rowRepins > 0 && Math.abs((rowSaves - rowRepins) - vel) <= Math.max(50, rowRepins * 0.03) && vel >= 100) {
-      vel = 0;
-    }
 
     const rowGains5d = safeNum(row.gains_5d, null);
     const rowGains7d = safeNum(row.gains_7d, null);
@@ -2406,17 +2416,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     const rowGains15d = safeNum(row.gains_15d, null);
     const rowGains24h = (row.gains_24h != null && Number.isFinite(Number(row.gains_24h))) ? Number(row.gains_24h) : null;
 
-    // Consistency check between 24h delta and 7d gains:
-    // If verified shard rolling gains exist (gains_7d > 0) and 24h delta exceeds gains_7d, clamp or use authentic gains_24h
-    let delta24h = (rowGains24h != null) ? Math.min(vel, rowGains24h) : vel;
-    if (rowGains7d !== null && delta24h > (rowGains7d || 0)) {
-      if (rowSaves > 0 && rowRepins > 0 && Math.abs((rowSaves - rowRepins) - delta24h) <= Math.max(50, rowRepins * 0.03)) {
-        delta24h = 0;
-        vel = 0;
-      } else if (rowGains7d > 0) {
-        delta24h = Math.min(delta24h, rowGains7d);
-      }
-    }
+    let delta24h = (rowGains24h != null) ? rowGains24h : vel;
+    const effectiveVel = vel > 0 ? vel : safeNum(row.delta_repins_24h, 0);
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
@@ -2446,6 +2447,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         repin_count: rowRepins,
         comment_count: safeNum(row.comment_count),
         daily_save_velocity: vel,
+        effective_velocity: effectiveVel,
         creator_username: row.creator_username || pinner.username || '',
         creator_name: pinner.full_name || row.creator_username || '',
         format: row.format || meta.format || (row.creation_method ? String(row.creation_method).toUpperCase() : 'ORGANIC PIN'),
@@ -2494,17 +2496,18 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       const existingCrawlMs = existingPin.crawled_at ? new Date(existingPin.crawled_at).getTime() : 0;
       const rowCrawlMs = row.crawled_at ? new Date(row.crawled_at).getTime() : 0;
       const isNewerCrawl = rowCrawlMs > existingCrawlMs;
-      const isExistingCorrupted = existingPin.save_count > 0 && existingPin.repin_count > 0 &&
-        Math.abs((existingPin.save_count - existingPin.repin_count) - existingPin.daily_save_velocity) <= Math.max(50, existingPin.repin_count * 0.03) &&
-        existingPin.daily_save_velocity >= 100;
-
-      if (isNewerCrawl || isExistingCorrupted || (!existingPin.daily_save_velocity && vel > 0)) {
+      if (isNewerCrawl || (!existingPin.daily_save_velocity && vel > 0)) {
         existingPin.daily_save_velocity = vel;
         existingPin.delta_saves_24h = delta24h;
         if (row.crawled_at) existingPin.crawled_at = row.crawled_at;
       }
 
       existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
+      existingPin.effective_velocity = Math.max(
+        existingPin.effective_velocity || 0,
+        effectiveVel,
+        existingPin.daily_save_velocity > 0 ? existingPin.daily_save_velocity : existingPin.delta_repins_24h
+      );
 
       // Preserve authentic database rolling gains without blowing up by multiplying corrupted velocity
       if (rowGains5d != null && (existingPin.gains_5d == null || rowGains5d > existingPin.gains_5d)) existingPin.gains_5d = rowGains5d;
@@ -2974,6 +2977,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       primary.save_count = Math.max(primary.save_count || 0, secondary.save_count || 0);
       primary.daily_save_velocity = Math.max(primary.daily_save_velocity || 0, secondary.daily_save_velocity || 0);
       primary.delta_saves_24h = Math.max(primary.delta_saves_24h || 0, secondary.delta_saves_24h || 0);
+      primary.delta_repins_24h = Math.max(primary.delta_repins_24h || 0, secondary.delta_repins_24h || 0);
+      primary.effective_velocity = Math.max(
+        primary.effective_velocity || 0,
+        secondary.effective_velocity || 0,
+        primary.daily_save_velocity > 0 ? primary.daily_save_velocity : (primary.delta_repins_24h || 0)
+      );
       primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
       if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
       if ((!primary.raw_title || isSyntheticPinTitle(primary.title)) && secondary.title && !isSyntheticPinTitle(secondary.title)) {
@@ -2996,8 +3005,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   const superPins = allPins
     .filter(p => p.overlap_count >= (totalKeywords > 1 ? 2 : 1) && p.rankings.length >= (totalKeywords > 1 ? 2 : 1) && p.rankings.every(r => r.rank_position >= 1))
     .sort((a, b) => {
-      if ((b.daily_save_velocity || 0) !== (a.daily_save_velocity || 0)) {
-        return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
+      const aVel = (a.effective_velocity != null) ? a.effective_velocity : (a.daily_save_velocity || 0);
+      const bVel = (b.effective_velocity != null) ? b.effective_velocity : (b.daily_save_velocity || 0);
+      if (bVel !== aVel) {
+        return bVel - aVel;
       }
       if (b.overlap_count !== a.overlap_count) {
         return b.overlap_count - a.overlap_count;
@@ -3007,7 +3018,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   // Top overall pins if no super pins or total keywords is 1
   const topRankedPins = allPins
-    .sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0))
+    .sort((a, b) => {
+      const aVel = (a.effective_velocity != null) ? a.effective_velocity : (a.daily_save_velocity || 0);
+      const bVel = (b.effective_velocity != null) ? b.effective_velocity : (b.daily_save_velocity || 0);
+      return (bVel - aVel) || (b.save_count || 0) - (a.save_count || 0);
+    })
     .slice(0, 30);
 
   // =========================================================================
@@ -3049,12 +3064,16 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           keywords_set: new Set(),
           pin_count: 0,
           total_saves: 0,
+          saves_gain: 0,
+          velocity_gain: 0,
           sample_pins: []
         });
       }
       const record = tagMap.get(t);
       record.pin_count++;
       record.total_saves += pin.save_count;
+      record.saves_gain += Math.max(0, Number(pin.delta_saves_24h || pin.daily_save_velocity || 0));
+      record.velocity_gain += Math.max(0, Number(pin.daily_save_velocity || pin.delta_repins_24h || 0));
       for (const kw of pinKeywords) {
         record.keywords_set.add(kw);
       }
@@ -3080,6 +3099,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       overlap_percentage: overlapPct,
       pin_count: t.pin_count,
       total_saves: t.total_saves,
+      saves_gain: Math.round(t.saves_gain),
+      velocity_gain: Number(t.velocity_gain.toFixed(1)),
+      metric_gains: {
+        saves: Math.round(t.saves_gain),
+        velocity: Number(t.velocity_gain.toFixed(1))
+      },
       is_universal: overlapPct >= 50,
       bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge',
       sample_pins: t.sample_pins
@@ -3588,7 +3613,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       }
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
-    all_pins: allPins.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)).slice(0, 1500),
+    all_pins: allPins.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)).slice(0, 1500),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,

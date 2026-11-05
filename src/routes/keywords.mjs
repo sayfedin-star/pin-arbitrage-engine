@@ -1237,6 +1237,19 @@ export async function handleKeywordsRoutes({
         max_repins,
         maxRepins
       }, { env, ctx });
+      const isDry = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
+      if (env?.PIN_ENGINE_KV && !isDry) {
+        safeWaitUntil(ctx, (async () => {
+          try {
+            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
+            const nextEpoch = String(Date.now());
+            await env.PIN_ENGINE_KV.put('fleet:cache_epoch', nextEpoch);
+          } catch (_) {}
+        })(), 'kv_prune_folder_cache_evict');
+      }
       return jsonResponse(result);
     }
 
@@ -1251,7 +1264,7 @@ export async function handleKeywordsRoutes({
         const vaultScope = searchParams.get('vault_scope') || 'high_signal';
 
         let epoch = '0';
-        if (!refresh && env?.PIN_ENGINE_KV) {
+        if (!refresh && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
           try {
             epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             const kvKey = `fep:${epoch}:folder:${folderId}:creators:v2:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
@@ -1405,7 +1418,7 @@ export async function handleKeywordsRoutes({
 
       if (folderId && parts.length === 1) {
         let epoch = '0';
-        if (!isRefreshRequested && env?.PIN_ENGINE_KV) {
+        if (!isRefreshRequested && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
           try {
             epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
             const detailKey = `fep:${epoch}:folder:${folderId}:detail`;
@@ -1469,7 +1482,7 @@ export async function handleKeywordsRoutes({
       }
 
       // [INVARIANT: KV-EDGE-FOLDERS-LIST] Check Workers KV first (< 2ms)
-      if (!isRefreshRequested && env?.PIN_ENGINE_KV) {
+      if (!isRefreshRequested && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
         try {
           const cachedList = await env.PIN_ENGINE_KV.get(`folders:list:v2:${projectId}`, { type: 'json' });
           if (cachedList && Array.isArray(cachedList) && cachedList.length > 0) {
@@ -1636,6 +1649,12 @@ export async function handleKeywordsRoutes({
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
             await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:with_disc:high_signal`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:no_disc:high_signal`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:with_disc:all`);
+            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:no_disc:all`);
+            const nextEpoch = String(Date.now());
+            await env.PIN_ENGINE_KV.put('fleet:cache_epoch', nextEpoch);
           } catch (_) {}
         })(), 'kv_del_folder_cache');
       }
