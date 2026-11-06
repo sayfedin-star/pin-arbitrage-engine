@@ -48,30 +48,34 @@ export function detectHydrationJump(params) {
   // 2. [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
 
   // 2B. Repin-Baseline Fingerprint Guard:
-  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100:
+  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100
+  // WHILE currentSaves diverged significantly above currentRepins (curSaves > targetRepins * 1.25):
   // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
-  const targetRepins = repinCount > 0 ? repinCount : (curRepins > 0 ? curRepins : prevRepins);
+  const targetRepins = curRepins > 0 ? curRepins : (repinCount > 0 ? repinCount : prevRepins);
   if (targetRepins > 0 && prevSaves > 0 && curSaves > prevSaves) {
     const repinDiff = Math.abs(prevSaves - targetRepins);
     const repinTolerance = Math.max(50, targetRepins * 0.03);
-    if (repinDiff <= repinTolerance && (curSaves - prevSaves) >= 100) {
+    const savesDivergedFromRepins = curSaves > targetRepins * 1.25 && (curSaves - targetRepins) >= 100;
+    if (repinDiff <= repinTolerance && (curSaves - prevSaves) >= 100 && savesDivergedFromRepins) {
       return true;
     }
   }
 
   // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
-  // while curSaves jumped by >= 15% (and rawDelta >= 50) above that repin baseline
+  // while curSaves jumped by >= 15% (and rawDelta >= 50) AND diverged above current repins
   const refRepins = prevRepins > 0 ? prevRepins : curRepins;
+  const effCurRepins = curRepins > 0 ? curRepins : refRepins;
   if (
     prevSaves > 0 &&
     refRepins > 0 &&
     Math.abs(prevSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03)) &&
     curSaves > prevSaves * 1.15 &&
-    (curSaves - prevSaves) >= 50
+    (curSaves - prevSaves) >= 50 &&
+    curSaves > effCurRepins * 1.25
   ) {
     return true;
   }
-  if (prevRepins > 0 && prevSaves === prevRepins && curSaves > prevRepins * 1.35) return true;
+  if (prevRepins > 0 && prevSaves === prevRepins && curSaves > effCurRepins * 1.35) return true;
 
   // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curSaves >= prevSaves * 2.5
   if (prevRepins === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5) return true;
@@ -148,22 +152,25 @@ export function calculateDailyVelocity(params) {
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
   // Repin-Baseline Fingerprint Guard:
-  // If baselineSaves matches repinCount (or within ±3% / ±5 saves of repinCount) AND currentSaves jumped by >= 15% (and >= 50 saves):
+  // If baselineSaves matches repinCount (or within ±3% / ±5 saves of repinCount) AND currentSaves jumped by >= 15% (and >= 50 saves)
+  // WHILE diverging above current repins (curSavesNum > effCurRepinsNum * 1.25):
   // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
   const refRepinsNum = baseRepinsNum > 0 ? baseRepinsNum : (curRepinsNum > 0 ? curRepinsNum : repinCountNum);
+  const effCurRepinsNum = curRepinsNum > 0 ? curRepinsNum : (repinCountNum > 0 ? repinCountNum : refRepinsNum);
   if (
     baseSavesNum > 0 &&
     refRepinsNum > 0 &&
     Math.abs(baseSavesNum - refRepinsNum) <= Math.max(5, Math.round(refRepinsNum * 0.03)) &&
     curSavesNum > baseSavesNum * 1.15 &&
-    (curSavesNum - baseSavesNum) >= 50
+    (curSavesNum - baseSavesNum) >= 50 &&
+    curSavesNum > effCurRepinsNum * 1.25
   ) {
     return 0;
   }
-  if (repinCountNum > 0 && baseSavesNum > 0 && curSavesNum > baseSavesNum) {
-    const repinDiff = Math.abs(baseSavesNum - repinCountNum);
-    const repinTolerance = Math.max(50, repinCountNum * 0.03);
-    if (repinDiff <= repinTolerance && (curSavesNum - baseSavesNum) >= 100) {
+  if (effCurRepinsNum > 0 && baseSavesNum > 0 && curSavesNum > baseSavesNum) {
+    const repinDiff = Math.abs(baseSavesNum - effCurRepinsNum);
+    const repinTolerance = Math.max(50, effCurRepinsNum * 0.03);
+    if (repinDiff <= repinTolerance && (curSavesNum - baseSavesNum) >= 100 && curSavesNum > effCurRepinsNum * 1.25 && (curSavesNum - effCurRepinsNum) >= 100) {
       return 0;
     }
   }

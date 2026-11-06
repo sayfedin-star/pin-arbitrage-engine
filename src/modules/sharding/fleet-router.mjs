@@ -1058,18 +1058,20 @@ export function isMultiStageHydrationJump(prev, curr) {
   // 2. [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
 
   // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
-  // while curSaves jumped by >= 15% (and rawDelta >= 50) above that repin baseline
+  // while curSaves jumped by >= 15% (and rawDelta >= 50) AND diverged above current repins (cSaves > effCurRepins * 1.25)
   const refRepins = pRepins > 0 ? pRepins : cRepins;
+  const effCurRepins = cRepins > 0 ? cRepins : refRepins;
   if (
     pSaves > 0 &&
     refRepins > 0 &&
     Math.abs(pSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03)) &&
     cSaves > pSaves * 1.15 &&
-    (cSaves - pSaves) >= 50
+    (cSaves - pSaves) >= 50 &&
+    cSaves > effCurRepins * 1.25
   ) {
     return true;
   }
-  if (pRepins > 0 && pSaves === pRepins && cSaves > cRepins * 1.35) return true;
+  if (pRepins > 0 && pSaves === pRepins && cSaves > effCurRepins * 1.35) return true;
 
   // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
   if (pRepins === 0 && cRepins >= 25 && cSaves >= pSaves * 2.5) return true;
@@ -1132,14 +1134,14 @@ export function sanitizeDossierTrajectory(dossier) {
       }
     } else {
       curr.is_hydration_jump = false;
-      if (!curr.velocity_mode) curr.velocity_mode = 'normal';
+      if (!curr.velocity_mode || curr.velocity_mode === 'hydration_amortized') curr.velocity_mode = 'normal';
       const currDate = new Date(curr.snapshot_date);
       const prevDate = new Date(prev.snapshot_date);
       const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
       const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
       if (diff <= 0) {
         curr.daily_save_velocity = 0;
-      } else if (curr.daily_save_velocity === undefined || curr.daily_save_velocity === null || curr.daily_save_velocity > 25000) {
+      } else {
         curr.daily_save_velocity = Math.round((diff / elapsed) * 10) / 10;
       }
     }

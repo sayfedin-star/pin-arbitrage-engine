@@ -63,6 +63,7 @@ const hubSql = process.env.DATABASE_URL ? neon(enforceNeonPoolerUrl(process.env.
 export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date()) {
   if (!Array.isArray(snapshots) || snapshots.length === 0) {
     return {
+      daily_save_velocity: 0,
       delta_repins_24h: 0,
       gains_5d: 0,
       gains_7d: 0,
@@ -77,17 +78,24 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   const currentSaves = Number(latest.save_count || 0);
   const currentRepins = Number(latest.repin_count || 0);
 
-  // 1. 24h repin delta
+  // 1. 24h save velocity & repin delta
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
   // Protect against unhydrated 0-repin baselines jumping to full lifetime repins
+  let daily_save_velocity = 0;
   let delta_repins_24h = 0;
   if (sorted.length >= 2) {
     const prevRepins = Number(sorted[1].repin_count || 0);
     const prevSaves = Number(sorted[1].save_count || 0);
     const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
+    const isJump = isMultiStageHydrationJump(sorted[1], latest);
+
+    if (prevSaves > 0 && currentSaves > prevSaves && !isJump && daysDiff <= 7) {
+      daily_save_velocity = Math.round(((currentSaves - prevSaves) / daysDiff) * 10) / 10;
+    }
+
     if (prevRepins <= 0 && currentRepins >= 10) {
       delta_repins_24h = 0;
-    } else if (isMultiStageHydrationJump(sorted[1], latest)) {
+    } else if (isJump) {
       delta_repins_24h = 0;
     } else if (prevRepins > 0 && (currentRepins / prevRepins) >= 4.0 && (currentRepins - prevRepins) >= 200) {
       delta_repins_24h = 0;
@@ -135,6 +143,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   }
 
   return {
+    daily_save_velocity,
     delta_repins_24h,
     gains_5d: getGainsForWindow(5),
     gains_7d: getGainsForWindow(7),
@@ -326,6 +335,7 @@ async function main() {
     await hubSql`
       UPDATE keyword_serp_current ksc
       SET
+        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ksc.daily_save_velocity END,
         delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ksc.delta_repins_24h),
         gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ksc.gains_5d),
         gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d),
@@ -334,6 +344,7 @@ async function main() {
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
+        daily_save_velocity numeric,
         delta_repins_24h int,
         gains_5d int,
         gains_7d int,
@@ -347,6 +358,7 @@ async function main() {
     await hubSql`
       UPDATE keyword_displaced_index kdi
       SET
+        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE kdi.daily_save_velocity END,
         delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), kdi.delta_repins_24h),
         gains_5d = COALESCE(NULLIF(u.gains_5d, 0), kdi.gains_5d),
         gains_7d = COALESCE(NULLIF(u.gains_7d, 0), kdi.gains_7d),
@@ -355,6 +367,7 @@ async function main() {
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
+        daily_save_velocity numeric,
         delta_repins_24h int,
         gains_5d int,
         gains_7d int,

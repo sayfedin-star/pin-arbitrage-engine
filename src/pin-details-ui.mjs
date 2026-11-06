@@ -273,7 +273,19 @@ export function getPinDetailPageHtml(pinId = '') {
             </template>
           </div>
         </template>
-        <template x-if="!isCreatorContext() && originSource !== 'folder' && originSource !== 'domain'">
+        <template x-if="!isCreatorContext() && originSource === 'pulse'">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-slate-600">/</span>
+            <a :href="originReturnUrl || '/pulse'" class="text-rose-400 hover:underline font-medium truncate">24h Pulse Studio</a>
+            <template x-if="originFolderId">
+              <span class="flex items-center gap-1.5 truncate">
+                <span class="text-slate-600">/</span>
+                <a :href="'/folders/' + encodeURIComponent(originFolderId) + '/pulse'" class="text-indigo-400 hover:underline truncate" x-text="originFolderName || ('Folder #' + originFolderId)"></a>
+              </span>
+            </template>
+          </div>
+        </template>
+        <template x-if="!isCreatorContext() && originSource !== 'folder' && originSource !== 'domain' && originSource !== 'pulse'">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
             <a href="/keywords" class="text-slate-400 hover:text-white">Keywords Radar</a>
@@ -1702,6 +1714,9 @@ export function getPinDetailPageHtml(pinId = '') {
 
         getBackUrl() {
           if (this.originReturnUrl) return this.originReturnUrl;
+          if (this.originSource === 'pulse') {
+            return this.originFolderId ? ('/folders/' + encodeURIComponent(this.originFolderId) + '/pulse') : '/pulse';
+          }
           if (this.originSource === 'folder' && this.originFolderId) {
             return '/folders/' + encodeURIComponent(this.originFolderId);
           }
@@ -1720,6 +1735,9 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         getBackButtonLabel() {
+          if (this.originSource === 'pulse') {
+            return '24h Pulse Radar';
+          }
           if (this.originSource === 'folder') {
             return this.originFolderName || (this.originFolderId ? ('Folder #' + this.originFolderId) : 'Folders');
           }
@@ -1736,6 +1754,9 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         getBackButtonTitle() {
+          if (this.originSource === 'pulse') {
+            return 'Back to 24h Pulse & Crossover Studio';
+          }
           if (this.originSource === 'folder') {
             return 'Back to ' + (this.originFolderName || ('Folder #' + this.originFolderId));
           }
@@ -1842,6 +1863,11 @@ export function getPinDetailPageHtml(pinId = '') {
                     this.originSource = 'domain';
                     this.originDomain = saved.domain || '';
                     this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                  } else if (saved.source === 'pulse') {
+                    this.originSource = 'pulse';
+                    this.originFolderId = saved.folderId || null;
+                    this.originFolderName = saved.folderName || '';
+                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '/pulse';
                   } else if (saved.source === 'keyword' || saved.keyword) {
                     this.originSource = 'keyword';
                     this.originKeyword = saved.keyword || '';
@@ -1861,11 +1887,21 @@ export function getPinDetailPageHtml(pinId = '') {
             try {
               const refUrl = new URL(document.referrer);
               if (typeof window !== 'undefined' && refUrl.origin === window.location.origin) {
-                if (refUrl.pathname.startsWith('/folders')) {
-                  this.originSource = 'folder';
+                if (refUrl.pathname.startsWith('/pulse') || refUrl.pathname.startsWith('/24h')) {
+                  this.originSource = 'pulse';
                   this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const qFolderId = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
+                  if (qFolderId) this.originFolderId = qFolderId;
+                } else if (refUrl.pathname.startsWith('/folders')) {
                   const fSegs = refUrl.pathname.split('/').filter(Boolean);
-                  if (fSegs.length > 1) this.originFolderId = fSegs[1];
+                  if (fSegs.length >= 3 && fSegs[2] === 'pulse') {
+                    this.originSource = 'pulse';
+                    this.originFolderId = fSegs[1];
+                  } else {
+                    this.originSource = 'folder';
+                    if (fSegs.length > 1) this.originFolderId = fSegs[1];
+                  }
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
                   const qFolderId = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
                   if (qFolderId) this.originFolderId = qFolderId;
                 } else if (refUrl.pathname.startsWith('/domains')) {
@@ -1884,7 +1920,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   if (refKid) this.originKeywordId = refKid.trim();
                 } else if (refUrl.pathname !== '/' && !refUrl.pathname.startsWith('/api') && !refUrl.pathname.startsWith('/pin')) {
                   const pathParts = refUrl.pathname.split('/').filter(Boolean);
-                  const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin']);
+                  const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin', 'pulse', '24h', 'accounts', 'clusters']);
                   const RESERVED_CREATOR_TABS = new Set(['all-pins', 'winning-pins', 'links', 'boards', 'topics', 'related-pins', 'pin']);
 
                   if (pathParts.length === 1 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {

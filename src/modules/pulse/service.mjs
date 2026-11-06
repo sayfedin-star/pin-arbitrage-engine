@@ -72,15 +72,23 @@ const fastParseIsoDateMs = (val) => {
 
 export function getCanonicalCreativeKey(p) {
   if (!p) return '';
-  if (p.image_url) {
-    const match = String(p.image_url).match(/([a-f0-9]{32})/i) || String(p.image_url).match(/\/([^/?#]+\.(?:jpg|jpeg|png|webp))/i);
-    if (match) return `img:${match[1].toLowerCase()}`;
-    return `img:${p.image_url}`;
-  }
-  const t = (p.title || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (p._cKey !== undefined) return p._cKey;
+  const t = (p.title || '').trim().toLowerCase();
   const d = (p.domain || '').trim().toLowerCase();
-  if (t && d) return `td:${d}:${t}`;
-  return `pid:${p.pin_id || ''}`;
+  let key;
+  if (t && t.length >= 8 && d && d !== 'uploaded by user' && !d.includes('pinterest.')) {
+    key = `td:${d}:${t}`;
+  } else if (p.image_url) {
+    const url = String(p.image_url);
+    const slashIdx = url.lastIndexOf('/');
+    key = slashIdx >= 0 ? `img:${url.slice(slashIdx + 1).toLowerCase()}` : `img:${url}`;
+  } else if (t && d) {
+    key = `td:${d}:${t}`;
+  } else {
+    key = `pid:${p.pin_id || ''}`;
+  }
+  p._cKey = key;
+  return key;
 }
 
 /**
@@ -960,7 +968,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   const now = Date.now();
   let effectiveRefresh = forceRefresh;
-  if (!bypassCache && effectiveRefresh) {
+  if (!bypassCache && effectiveRefresh && env && (env.DATABASE_URL || env.PIN_ENGINE_KV || env.ENFORCE_COOLDOWN)) {
     const lastRefresh = pulseForceRefreshCooldown.get(cacheKey);
     if (lastRefresh && (now - lastRefresh < PULSE_FORCE_REFRESH_COOLDOWN_MS)) {
       effectiveRefresh = false;
@@ -1145,18 +1153,26 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
       }
       const effectiveRepins24h = (p.delta_repins_24h > 0) ? p.delta_repins_24h : 0;
-      const effective24hGain = (effectiveSaves24h > 0) ? effectiveSaves24h : effectiveRepins24h;
+      const effective24hGain = (effectiveSaves24h > effectiveRepins24h) ? effectiveSaves24h : effectiveRepins24h;
       p.effective_24h_gain = effective24hGain;
 
       // Windowed Momentum Calculation (never suppressed to 0 if 24h deltas are positive)
+      let windowSavesGain = effectiveSaves24h;
       let effectiveMomentum = effective24hGain;
-      if (windowParam === '5d') effectiveMomentum = (effective24hGain > p.gains_5d) ? effective24hGain : p.gains_5d;
-      else if (windowParam === '7d') effectiveMomentum = (effective24hGain > p.gains_7d) ? effective24hGain : p.gains_7d;
-      else if (windowParam === '15d') effectiveMomentum = (effective24hGain > p.gains_15d) ? effective24hGain : p.gains_15d;
-      else {
+      if (windowParam === '5d') {
+        windowSavesGain = (p.gains_5d > effectiveSaves24h) ? p.gains_5d : effectiveSaves24h;
+        effectiveMomentum = (effective24hGain > p.gains_5d) ? effective24hGain : p.gains_5d;
+      } else if (windowParam === '7d') {
+        windowSavesGain = (p.gains_7d > effectiveSaves24h) ? p.gains_7d : effectiveSaves24h;
+        effectiveMomentum = (effective24hGain > p.gains_7d) ? effective24hGain : p.gains_7d;
+      } else if (windowParam === '15d') {
+        windowSavesGain = (p.gains_15d > effectiveSaves24h) ? p.gains_15d : effectiveSaves24h;
+        effectiveMomentum = (effective24hGain > p.gains_15d) ? effective24hGain : p.gains_15d;
+      } else {
         const momFallback = p.daily_save_velocity + (p.delta_repins_24h * 0.5);
         effectiveMomentum = (momFallback > effective24hGain) ? momFallback : effective24hGain;
       }
+      p.window_saves_gain = windowSavesGain;
 
       const dailyAvg7d = (p.gains_7d > 7) ? (p.gains_7d / 7) : 1;
       const rawRatio = (effective24hGain || p.daily_save_velocity) / dailyAvg7d;
@@ -1188,10 +1204,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         }
       }
 
-      totalSavesVelocity += effectiveSaves24h;
+      totalSavesVelocity += (windowParam !== '24h' ? windowSavesGain : effectiveSaves24h);
       totalRepinsDelta += p.delta_repins_24h;
-      if (effective24hGain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0) pinsGainingCount++;
-      if (isFresh14d && (effective24hGain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0)) freshRocketCount++;
+      if (effective24hGain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0 || windowSavesGain > 0) pinsGainingCount++;
+      if (isFresh14d && (effective24hGain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0 || windowSavesGain > 0)) freshRocketCount++;
 
       // Clean annotations is already guaranteed normalized on p
       const cleanAnnotations = p.cleanAnnotations;
@@ -1283,7 +1299,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
       // 1-Gram (single_annotations) - capped at top 6 tags
       if (pinGain > 0 || (allowZeroGainFallback && p.save_count > 0)) {
-        const pinVel = p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain;
+        const pinVel = (windowParam !== '24h' && p.window_saves_gain > 0)
+          ? p.window_saves_gain
+          : (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
         const cleanAnnotations = p.cleanAnnotations || [];
         const numTags = Math.min(cleanAnnotations.length, 6);
         for (let ti = 0; ti < numTags; ti++) {
@@ -1309,7 +1327,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
             st.seenCreatives.add(cKey);
             st.pin_count++;
             st.total_velocity += pinVel;
-            st.total_24h_gain += (p.effective_24h_gain || pinVel);
+            st.total_24h_gain += pinVel;
             st.total_saves += p.save_count;
             st.total_repins_delta += p.delta_repins_24h;
             if (st.kwIds.length < 4) {
@@ -1321,7 +1339,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
                 }
               }
             }
-            st.matchingPins.push(p);
+            if (st.matchingPins.length < 4) {
+              st.matchingPins.push(p);
+            }
           }
         }
       }
@@ -1376,7 +1396,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
               image_url: p.image_url
             });
           }
-          if (cEntry.matchingPins.length < 6) {
+          if (cEntry.matchingPins.length < 4) {
             cEntry.matchingPins.push(p);
           }
         }
@@ -1437,7 +1457,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
     }
 
-    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 40 surging pins, max 4 tags) [Round 16]
+    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 60 surging pins, max 4 tags) [Round 16]
     const candidatePins = [];
     const candidateSeenCreative = new Set();
     for (let i = 0; i < allActivePins.length; i++) {
@@ -1449,7 +1469,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (candidateSeenCreative.has(cKey)) continue;
         candidateSeenCreative.add(cKey);
         candidatePins.push(p);
-        if (candidatePins.length >= 500) break;
+        if (candidatePins.length >= 60) break;
       }
     }
     const pairTagMap = new Map();
@@ -1461,6 +1481,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       const sortedTags = (rawTags.length > 4 ? rawTags.slice(0, 4) : [...rawTags]).sort(tagNormAscComparator);
       const K = sortedTags.length;
       if (K < 2) continue;
+
+      const pinVel = (windowParam !== '24h' && p.window_saves_gain > 0)
+        ? p.window_saves_gain
+        : (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
 
       // 2-Pairs (A + B)
       for (let i = 0; i < K - 1; i++) {
@@ -1492,10 +1516,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           if (pt.seenCreatives.has(cKey)) continue;
           pt.seenCreatives.add(cKey);
 
-          const pinVel = p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain;
           pt.pin_count++;
           pt.total_velocity += pinVel;
-          pt.total_24h_gain += (p.effective_24h_gain || pinVel);
+          pt.total_24h_gain += pinVel;
           pt.total_saves += p.save_count;
           pt.total_repins_delta += p.delta_repins_24h;
           if (pt.kwIds.length < 6) {
@@ -1506,7 +1529,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
               }
             }
           }
-          if (pt.matchingPins.length < 50) {
+          if (pt.matchingPins.length < 4) {
             let exists = false;
             for (let mpi = 0; mpi < pt.matchingPins.length; mpi++) {
               if (pt.matchingPins[mpi].pin_id === p.pin_id) { exists = true; break; }
@@ -1550,10 +1573,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
             if (tt.seenCreatives.has(cKey)) continue;
             tt.seenCreatives.add(cKey);
 
-            const pinVel = p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain;
             tt.pin_count++;
             tt.total_velocity += pinVel;
-            tt.total_24h_gain += (p.effective_24h_gain || pinVel);
+            tt.total_24h_gain += pinVel;
             tt.total_saves += p.save_count;
             tt.total_repins_delta += p.delta_repins_24h;
             if (tt.kwIds.length < 6) {
@@ -1564,7 +1586,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
                 }
               }
             }
-            if (tt.matchingPins.length < 50) {
+            if (tt.matchingPins.length < 4) {
               let exists = false;
               for (let mpi = 0; mpi < tt.matchingPins.length; mpi++) {
                 if (tt.matchingPins[mpi].pin_id === p.pin_id) { exists = true; break; }
@@ -1629,6 +1651,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         save_count: p.save_count,
         repin_count: p.repin_count,
         daily_save_velocity: p.daily_save_velocity > 0 ? p.daily_save_velocity : effectiveSaves24h,
+        window_saves_gain: p.window_saves_gain ?? (p.daily_save_velocity > 0 ? p.daily_save_velocity : effectiveSaves24h),
         delta_saves_24h: p.delta_saves_24h,
         delta_repins_24h: p.delta_repins_24h,
         effective_24h_gain: effective24hGain,
@@ -1673,11 +1696,11 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       return summary;
     };
 
-    // Lightweight Memoized Matrix Pin Summary (for drill-downs & matching pins, 15 properties) [Round 16]
+    // Lightweight Memoized Matrix Pin Summary (for drill-downs & matching pins, 4 tags matched) [Round 16]
     const formatMatrixPinSummary = (p) => {
       if (p._matrixSummary) return p._matrixSummary;
       const cleanAnns = p.cleanAnnotations || [];
-      const annSlice = cleanAnns.length > 3 ? cleanAnns.slice(0, 3) : cleanAnns;
+      const annSlice = cleanAnns.length > 4 ? cleanAnns.slice(0, 4) : cleanAnns;
       const effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
       const effectiveRepins24h = (p.delta_repins_24h > 0) ? p.delta_repins_24h : 0;
       const effective24hGain = Number.isFinite(p.effective_24h_gain)
@@ -1687,20 +1710,18 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       const matrixSummary = {
         pin_id: String(p.pin_id),
         title: p.title || '',
-        description: (p.description || '').slice(0, 60),
-        alt_text: (p.alt_text || '').slice(0, 50),
         image_url: p.image_url || '',
         destination_url: p.destination_url || '',
         domain: p.domain || '',
         save_count: p.save_count,
         repin_count: p.repin_count,
         daily_save_velocity: p.daily_save_velocity > 0 ? p.daily_save_velocity : effectiveSaves24h,
+        window_saves_gain: p.window_saves_gain ?? (p.daily_save_velocity > 0 ? p.daily_save_velocity : effectiveSaves24h),
         delta_saves_24h: p.delta_saves_24h,
         delta_repins_24h: p.delta_repins_24h,
         effective_24h_gain: effective24hGain,
         pin_age_days: p.pin_age_days ?? null,
         visual_annotations: annSlice,
-        annotations: annSlice,
         dossier_url: '/pin/' + encodeURIComponent(p.pin_id)
       };
       p._matrixSummary = matrixSummary;
@@ -1715,6 +1736,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const hydratedPins = [];
     const skeletonPins = [];
     const freshRocketCandidates = [];
+    const seenFreshRocketKeys = new Set();
     const vacuumHijackCandidates = [];
     const domainlessViralCandidates = [];
 
@@ -1725,13 +1747,17 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       } else {
         if (skeletonPins.length < 10) skeletonPins.push(p);
       }
-      if (freshRocketCandidates.length < 20 && p.is_fresh_14d && (p.effective_24h_gain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0)) {
-        freshRocketCandidates.push(p);
+      if (freshRocketCandidates.length < 20 && p.is_fresh_14d && (p.effective_24h_gain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0 || (p.window_saves_gain || 0) > 0)) {
+        const cKey = getCanonicalCreativeKey(p);
+        if (!cKey || !seenFreshRocketKeys.has(cKey)) {
+          if (cKey) seenFreshRocketKeys.add(cKey);
+          freshRocketCandidates.push(p);
+        }
       }
       if (vacuumHijackCandidates.length < 10 && p.is_vacuum_hijack_target) {
         vacuumHijackCandidates.push(p);
       }
-      if (domainlessViralCandidates.length < 10 && p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100)) {
+      if (domainlessViralCandidates.length < 15 && p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100)) {
         domainlessViralCandidates.push(p);
       }
     }
@@ -1771,12 +1797,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Section 3: Format N-Gram Crossovers with Slicing FIRST & Hard Support Floor (pin_count >= 2) [Round 16]
     const singleAnnotations = Array.from(singleTagMap.values())
       .sort(gainThenCountDescComparator)
-      .slice(0, 50)
+      .slice(0, 40)
       .map(t => {
-        const sortedPins = [...(t.matchingPins || [])]
-          .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
-        const matchingPins = sortedPins
-          .slice(0, 50)
+        const matchingPins = (t.matchingPins || [])
+          .slice(0, 6)
           .map(formatMatrixPinSummary);
         return {
           label: t.tag_display,
@@ -1795,8 +1819,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           delta_repins: t.total_repins_delta,
           total_repins_delta: t.total_repins_delta,
           total_saves: t.total_saves,
-          matching_pins: matchingPins,
-          sample_pins: matchingPins.slice(0, 4)
+          matching_pins: matchingPins
         };
       });
 
@@ -1805,10 +1828,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       .sort(gainThenCountDescComparator)
       .slice(0, 50)
       .map(p => {
-        const sortedPins = [...(p.matchingPins || [])]
-          .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
-        const matchingPins = sortedPins
-          .slice(0, 50)
+        const matchingPins = (p.matchingPins || [])
+          .slice(0, 6)
           .map(formatMatrixPinSummary);
         return {
           label: p.crossover_label,
@@ -1830,8 +1851,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           delta_repins: p.total_repins_delta,
           total_repins_delta: p.total_repins_delta,
           total_saves: p.total_saves,
-          matching_pins: matchingPins,
-          sample_pins: matchingPins.slice(0, 4)
+          matching_pins: matchingPins
         };
       });
 
@@ -1840,10 +1860,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       .sort(gainThenCountDescComparator)
       .slice(0, 50)
       .map(t => {
-        const sortedPins = [...(t.matchingPins || [])]
-          .sort((a, b) => (b.daily_save_velocity || b.effective_24h_gain || 0) - (a.daily_save_velocity || a.effective_24h_gain || 0));
-        const matchingPins = sortedPins
-          .slice(0, 50)
+        const matchingPins = (t.matchingPins || [])
+          .slice(0, 6)
           .map(formatMatrixPinSummary);
         return {
           label: t.crossover_label,
@@ -1867,8 +1885,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           delta_repins: t.total_repins_delta,
           total_repins_delta: t.total_repins_delta,
           total_saves: t.total_saves,
-          matching_pins: matchingPins,
-          sample_pins: matchingPins.slice(0, 2)
+          matching_pins: matchingPins
         };
       });
 
@@ -2190,7 +2207,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         total_velocity: Number(c.total_velocity.toFixed(2)),
         avg_velocity: c.pin_count > 0 ? Number((c.total_velocity / c.pin_count).toFixed(2)) : 0,
         sample_pins: c.sample_pins || [],
-        matching_pins: (c.matchingPins || []).slice(0, 50).map(formatMatrixPinSummary)
+        matching_pins: (c.matchingPins || []).slice(0, 6).map(formatMatrixPinSummary)
       }))
       .sort((a, b) => b.total_velocity - a.total_velocity)
       .slice(0, 12);
@@ -2246,9 +2263,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       annotation_crossovers: {
         single_annotations: singleAnnotations,
         pair_crossovers: pairCrossovers,
-        triplet_crossovers: tripletCrossovers,
-        top_2_pairs: pairCrossovers,
-        top_3_triplets: tripletCrossovers
+        triplet_crossovers: tripletCrossovers
       },
       guided_capsule_crossovers: guidedCapsuleCrossovers,
       creator_breakouts: creatorBreakouts,

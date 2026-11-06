@@ -238,11 +238,11 @@ export function getPulsePageHtml(folderId = '') {
       <!-- 3. 24h Saves Velocity -->
       <div class="p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs flex flex-col justify-between">
         <div class="text-[10.5px] font-mono tabular-nums uppercase text-rose-600 dark:text-rose-400 font-bold flex items-center justify-between">
-          <span>24h Velocity</span>
+          <span x-text="((selectedWindow || '24h').toUpperCase()) + ' Velocity'">24h Velocity</span>
           <i data-lucide="zap" class="w-3.5 h-3.5 text-rose-500"></i>
         </div>
-        <div class="mt-2 text-2xl font-black font-mono tabular-nums text-rose-600 dark:text-rose-400" x-text="formatVelocity(kpis.total_24h_saves_velocity || 0)">0/d</div>
-        <div class="mt-1 text-[10px] text-slate-400 font-mono">Aggregate daily saves</div>
+        <div class="mt-2 text-2xl font-black font-mono tabular-nums text-rose-600 dark:text-rose-400" x-text="(selectedWindow && selectedWindow !== '24h') ? ('+' + formatNumber(kpis.total_24h_saves_velocity || 0)) : formatVelocity(kpis.total_24h_saves_velocity || 0)">0/d</div>
+        <div class="mt-1 text-[10px] text-slate-400 font-mono" x-text="(selectedWindow && selectedWindow !== '24h') ? ('Aggregate ' + selectedWindow + ' save gain') : 'Aggregate daily saves'">Aggregate daily saves</div>
       </div>
 
       <!-- 4. 24h Repins Delta -->
@@ -377,6 +377,7 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'domainless' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>💎 Domainless / Linkless Hijacks</span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (hidden_gems_telemetry.domainless_viral_pins || []).length + ')'"></span>
           </button>
           <button 
             type="button" 
@@ -419,7 +420,7 @@ export function getPulsePageHtml(folderId = '') {
                 <th class="py-2.5 px-3 w-20">Preview</th>
                 <th class="py-2.5 px-3 min-w-[280px]">Pin Title &amp; Context</th>
                 <th class="py-2.5 px-3 min-w-[130px]">Domain / Creator</th>
-                <th class="py-2.5 px-3 text-right min-w-[90px]">24H Gain</th>
+                <th class="py-2.5 px-3 text-right min-w-[90px]" x-text="((selectedWindow || '24h').toUpperCase()) + ' Gain'">24H Gain</th>
                 <th class="py-2.5 px-3 text-right min-w-[85px]">Total Saves</th>
                 <th class="py-2.5 px-3 text-right min-w-[85px]">24H Repins Δ</th>
                 <th class="py-2.5 px-3 text-right min-w-[65px]">Age</th>
@@ -525,14 +526,14 @@ export function getPulsePageHtml(folderId = '') {
                          x-text="pin.creator_username ? '@' + pin.creator_username : 'unknown'"></div>
                   </td>
 
-                  <!-- Unified 24H Gain Column -->
+                  <!-- Unified 24H / Window Gain Column -->
                   <td class="py-2.5 px-3 text-right">
                     <div class="font-mono tabular-nums font-bold text-xs"
-                         :class="(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'text-purple-600 dark:text-purple-400' : 'text-rose-600 dark:text-rose-400'"
-                         x-text="'+' + formatNumber(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) > 0 ? (Number(pin.daily_save_velocity || pin.delta_saves_24h || 0)) : (Number(pin.delta_repins_24h || 0))) + '/d'">
+                         :class="(Number(pin.window_saves_gain || pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'text-purple-600 dark:text-purple-400' : 'text-rose-600 dark:text-rose-400'"
+                         x-text="(selectedWindow && selectedWindow !== '24h') ? ('+' + formatNumber(Number(pin.window_saves_gain || pin.daily_save_velocity || pin.delta_saves_24h || 0) > 0 ? Number(pin.window_saves_gain || pin.daily_save_velocity || pin.delta_saves_24h || 0) : Number(pin.delta_repins_24h || 0))) : ('+' + formatNumber(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) > 0 ? (Number(pin.daily_save_velocity || pin.delta_saves_24h || 0)) : (Number(pin.delta_repins_24h || 0))) + '/d')">
                     </div>
                     <div class="text-[9px] font-mono text-slate-400 uppercase" 
-                         x-text="(Number(pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'Repin Surge' : 'Save Velocity'"></div>
+                         x-text="(Number(pin.window_saves_gain || pin.daily_save_velocity || pin.delta_saves_24h || 0) <= 0 && Number(pin.delta_repins_24h || 0) > 0) ? 'Repin Surge' : ((selectedWindow && selectedWindow !== '24h') ? (selectedWindow.toUpperCase() + ' Saves') : 'Save Velocity')"></div>
                   </td>
 
                   <!-- Total Saves -->
@@ -638,7 +639,7 @@ export function getPulsePageHtml(folderId = '') {
           </div>
 
           <div class="max-h-[640px] overflow-y-auto divide-y divide-slate-100 dark:divide-[#27272A]/50">
-            <template x-for="(item, idx) in getMatrixEntities().slice(0, displayLimits.matrix)" :key="idx">
+            <template x-for="(item, idx) in getMatrixEntities().slice(0, displayLimits.matrix)" :key="matrixSubFilter + ':' + (item.label || item.pair || item.triplet || item.display_label || item.term || item.color || idx)">
               <div 
                 @click="selectMatrixItem(item)" 
                 class="p-3 transition cursor-pointer flex items-center justify-between gap-3 text-xs"
@@ -751,7 +752,7 @@ export function getPulsePageHtml(folderId = '') {
                     
                     <div class="flex items-center gap-2 font-mono text-[11px] pt-0.5">
                       <span class="text-rose-600 dark:text-rose-400 font-bold" 
-                            x-text="formatVelocity(p.daily_save_velocity || p.delta_saves_24h || p.effective_24h_gain || 0)"></span>
+                            x-text="formatVelocity(p.window_saves_gain || p.daily_save_velocity || p.delta_saves_24h || 0)"></span>
                       <span class="text-purple-600 dark:text-purple-400 font-bold" 
                             x-text="'+' + formatNumber(p.delta_repins_24h || 0) + ' repins'"></span>
                       <span class="text-slate-400" x-text="(p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '') ? formatAge(p.pin_age_days) : '—'"></span>
@@ -762,9 +763,9 @@ export function getPulsePageHtml(folderId = '') {
                   </div>
                 </div>
 
-                <!-- Clickable Tag Badges (Highlight active match) [Bug 2 Fix] -->
+                <!-- Clickable Tag Badges (Highlight active match, up to 4 tags) [Bug 2 Fix] -->
                 <div class="flex items-center gap-1 flex-wrap pt-1 border-t border-slate-100 dark:border-[#27272A]/50">
-                  <template x-for="(t, tidx) in (p.visual_annotations || p.annotations || []).slice(0, 3)" :key="tidx">
+                  <template x-for="(t, tidx) in (p.visual_annotations || p.annotations || []).slice(0, 4)" :key="tidx">
                     <span 
                       class="px-1.5 py-0.5 rounded text-[9.5px] font-mono border"
                       :class="(getMatrixItemTag(selectedMatrixItem).toLowerCase().includes((t.display || t.norm || t).toLowerCase())) ? 'bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400 font-bold' : 'bg-slate-100 dark:bg-[#18181B] border-slate-200 dark:border-[#27272A] text-slate-500'"
@@ -1554,12 +1555,16 @@ export function getPulsePageHtml(folderId = '') {
             this.keyword_vacuums_and_bridges = data.keyword_vacuums_and_bridges || {};
             this.hidden_gems_telemetry = data.hidden_gems_telemetry || {};
 
-            // Auto-select initial matrix item if null
-            if (!this.selectedMatrixItem) {
-              var entities = this.getMatrixEntities();
-              if (entities && entities.length > 0) {
-                this.selectedMatrixItem = entities[0];
-              }
+            // Sync selectedMatrixItem with fresh payload entities
+            var entities = this.getMatrixEntities();
+            if (entities && entities.length > 0) {
+              var currentLabel = this.selectedMatrixItem ? this.getMatrixItemTag(this.selectedMatrixItem) : '';
+              var matchedEntity = currentLabel
+                ? entities.find(function(e) { return (e.display_label || e.term || e.display || e.norm || e.label || e.pair || e.triplet || e.color || '') === currentLabel; })
+                : null;
+              this.selectedMatrixItem = matchedEntity || entities[0];
+            } else {
+              this.selectedMatrixItem = null;
             }
 
             if (forceRefresh) {
@@ -1613,20 +1618,32 @@ export function getPulsePageHtml(folderId = '') {
             });
           }
 
-          // 1. Radar Filter Pills
+          // 1. Radar Filter Pills — Use dedicated backend pools first so pill badge counts match table rows 100%
           var rf = this.radarFilter;
           if (rf === 'fresh') {
-            list = list.filter(function(p) {
-              return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '' && Number(p.pin_age_days) >= 0 && Number(p.pin_age_days) <= 14));
-            });
+            if (this.breakout_pins.fresh_rockets && this.breakout_pins.fresh_rockets.length) {
+              list = this.breakout_pins.fresh_rockets.slice();
+            } else {
+              list = list.filter(function(p) {
+                return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '' && Number(p.pin_age_days) >= 0 && Number(p.pin_age_days) <= 14));
+              });
+            }
           } else if (rf === 'bridges') {
-            list = list.filter(function(p) {
-              return Boolean((p.overlap_count > 1) || (p.keywords && p.keywords.length > 1) || (p.keyword_count > 1));
-            });
+            if (this.keyword_vacuums_and_bridges.bridge_pins && this.keyword_vacuums_and_bridges.bridge_pins.length) {
+              list = this.keyword_vacuums_and_bridges.bridge_pins.slice();
+            } else {
+              list = list.filter(function(p) {
+                return Boolean((p.overlap_count > 1) || (p.keywords && p.keywords.length > 1) || (p.keyword_count > 1));
+              });
+            }
           } else if (rf === 'domainless') {
-            list = list.filter(function(p) {
-              return !p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url;
-            });
+            if (this.hidden_gems_telemetry.domainless_viral_pins && this.hidden_gems_telemetry.domainless_viral_pins.length) {
+              list = this.hidden_gems_telemetry.domainless_viral_pins.slice();
+            } else {
+              list = list.filter(function(p) {
+                return !p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url;
+              });
+            }
           } else if (rf === 'vault') {
             if (this.breakout_pins.vault_surge_pins && this.breakout_pins.vault_surge_pins.length) {
               list = this.breakout_pins.vault_surge_pins.slice();

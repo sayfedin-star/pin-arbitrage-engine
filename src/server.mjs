@@ -17,7 +17,12 @@ import worker from './worker.mjs';
 
 // Auto-load .env if present via built-in Node 20.12+/22+ API (zero node:fs import in src/)
 if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
+  try {
+    if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('your_password')) {
+      delete process.env.DATABASE_URL;
+    }
+    process.loadEnvFile();
+  } catch (_) {}
 }
 
 /**
