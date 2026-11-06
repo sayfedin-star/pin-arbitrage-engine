@@ -23,6 +23,7 @@ trigger: always_on
 | **Rounds 14–16 (Crawler Egress & Micro-Traps Defusal)** | Creator Fleet Egress Defense, Shard-Affine Partitioning Parity, CTE History Consolidation & 10M Ceiling Guard | Lock 3, Lock 7, Invariants 32–37 | **SEALED** |
 | **Round 23 (Phase 8 UI Parity)** | Room 5 Pruning Healing, Creator Combined Audience 24h Surge, Tag Bridge Gains & Crossover Velocity Alignment | Invariants 30, 31, 33, Locks 1, 4, 13 | **SEALED** |
 | **Round 24 (Phases 1–4 Forensic Single-DB Optimization)** | 80% Egress Row Deduplication, Legacy KV/D1/Hyperdrive Isolation, Room 1–6 Count/Velocity Parity, Domain Studio KPI Sync, Creator 10M+ Ceiling & Dossier Provenance Fix | Migration 047, Invariant 44, Locks 1–14 | **SEALED** |
+| **Round 25 (Visual Crossover Alignment)** | Complete Blueprint Eradication, Frequency-First Anchor Sorting & Joint Pins 24h Velocity Preview | Invariants 13, 22, 28, Locks 1, 5, 13 | **SEALED** |
 
 ---
 
@@ -420,3 +421,21 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings, 101/101 files, 14/14 locks PASS)
   - `npm test` & `npm run test:offline` (100% PASS)
 
+---
+
+## Round 25: Visual Annotations Crossover Hub Alignment & Algorithmic Blueprint Eradication
+- **Round / Feature**: Visual Annotations Crossover Hub UX/Data Upgrade & Complete Algorithmic Topic Cluster Blueprint Removal
+- **Trap / Failure Mode**:
+  1. *Repetitive 5-Pin Combinatorial Trap*: In Visual Annotations Crossover Hub, default sorting by `synergy_desc` (`lift * log2(support + 1)`) elevated dozens of 5-pin combinatorial permutations of identical pins sharing multiple tags, creating perceptual clutter and appearing redundant compared to the 24h Pulse Radar Intent Matrix.
+  2. *Obsolete Synthetic Blueprint Abstraction*: The "Algorithmic Topic Cluster Blueprint" (Section 2 in campaign folders and Dimension 6 in keywords) generated static synthetic spoke prompts and CSV content plans that had become redundant with the live 24h Pulse Radar and Visual Hub.
+  3. *Missing Visual Preview & Daily Velocity*: Power pair cards lacked direct visual evidence of the pins that constituted each semantic pairing, and offered no 24h save velocity signal for evaluating current momentum.
+- **Root Cause & Technical Mechanism**:
+  1. High lift on low-support pairs (`joint_count = 5`) mathematically rivaled high-support pairs under the logarithmic dampener, pushing high-frequency structural anchors (`joint_count >= 30`) down the list.
+  2. Spoke generation logic in `folders-service.mjs` was an early synthetic placeholder prior to the introduction of authentic SERP computer-vision visual annotation graphs.
+- **Verified Solution & Invariant Codification**:
+  1. *Complete Blueprint Removal*: Eradicated Section 2 from `src/campaign-folders-ui.mjs`, Dimension 6 from `src/keywords-ui.mjs`, and synthetic spoke generator from `src/modules/keywords/folders-service.mjs`. Updated UI buttons to directly target `#visual-crossover-hub`.
+  2. *Frequency-First Default Sort*: Set `powerPairsSort: 'freq_desc'` by default, ranking macro-pillars (48, 38, 37 pins) at the top and eliminating combinatorial repeats.
+  3. *Joint Pins Preview & 24h Velocity*: Updated `computePowerPairs()` to store matching pin summaries (`pairPinsMap`) and aggregate daily save velocity (`total_velocity`). Rendered a 4-pin thumbnail strip with individual `+X/d` velocity badges, top-bar `⚡ +X/d` aggregate badge, sortable `24h Velocity` column in Table view, and context-preserving pin navigation (`[INVARIANT-LOCK 5]`).
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 102/102 files, 14 locks PASS)
+  - `npm run test:offline` (13 suites, 100% PASS)

@@ -220,9 +220,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             <span>⚡</span>
             <span>24h Pulse Radar</span>
           </a>
-          <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
-            <span>🎯</span>
-            <span>Content Blueprint</span>
+          <button @click="scrollToSection('visual-crossover-hub')" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Jump to Visual Annotations & Power Pairs">
+            <span>✨</span>
+            <span>Visual Hub</span>
           </button>
           <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
             <span x-show="!crossoverLoading">⚡</span>
@@ -419,8 +419,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
             </div>
             
-            <a href="#blueprint-section" @click.prevent="scrollToSection('blueprint-section')" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 transition-colors flex items-center gap-1 ml-1">
-              <span>🎯 Blueprint Plan ↓</span>
+            <a href="#visual-crossover-hub" @click.prevent="scrollToSection('visual-crossover-hub')" class="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors flex items-center gap-1 ml-1" title="Jump to Visual Annotations & Power Pairs">
+              <span>✨ Visual Hub ↓</span>
             </a>
           </div>
         </div>
@@ -666,112 +666,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         </div>
       </div>
 
-      <!-- SECTION 2: 1-Click Algorithmic Topic Cluster Blueprint & Content Studio -->
-      <div id="blueprint-section" x-show="crossoverData?.topic_cluster_blueprint" class="bg-white dark:bg-[#121215] border border-indigo-200 dark:border-indigo-500/20 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors" x-cloak>
-        <!-- Blueprint Header with Quick Actions -->
-        <div class="p-4 border-b border-slate-200 dark:border-[#27272A] bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 flex items-center justify-between flex-wrap gap-4">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
-              🎯
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Algorithmic Topic Cluster Blueprint</h3>
-                <span class="text-[10px] uppercase font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-semibold">Auto-Synthesized</span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High-converting pillar concept and 5 spoke pins generated from verified SERP intersections.</p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 flex-wrap">
-            <button @click="copyAiPrompt()" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1.5 shadow-sm">
-              <span>🤖</span> Copy AI Prompt
-            </button>
-            <button @click="copyClusterSummary()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-[#27272A] transition-colors flex items-center gap-1.5 shadow-sm">
-              <span>📋</span> Copy Blueprint
-            </button>
-            <button @click="downloadClusterCsv()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-              <span>📥</span> Export CSV Content Plan
-            </button>
-            <button @click="showBlueprint = !showBlueprint" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors flex items-center gap-1 shadow-sm">
-              <span x-text="showBlueprint ? 'Collapse' : 'Expand'"></span>
-              <span class="inline-block transition-transform duration-200 text-[10px]" :class="showBlueprint ? 'rotate-180' : ''">▼</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Collapsible Content Body -->
-        <div x-show="showBlueprint" class="p-6 flex flex-col gap-6" x-cloak>
-          <!-- Pillar Concept & Seasonality Launch Window -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="md:col-span-2 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-              <div class="flex items-center justify-between">
-                <span class="text-[10px] font-mono tabular-nums uppercase text-indigo-600 dark:text-indigo-400 tracking-wider font-semibold">🏛️ Pillar Pin & Article Concept</span>
-                <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="(crossoverData?.topic_cluster_blueprint?.target_keywords?.length || 0) + ' keywords targeted'"></span>
-              </div>
-              <div class="text-sm font-bold text-slate-900 dark:text-white tracking-tight" x-text="crossoverData?.topic_cluster_blueprint?.pillar_concept"></div>
-              <div class="flex items-center gap-1.5 flex-wrap pt-1">
-                <span class="text-[11px] text-slate-500 dark:text-slate-400">Target Keywords:</span>
-                <template x-for="kw in (crossoverData?.topic_cluster_blueprint?.target_keywords || []).slice(0, 6)" :key="kw">
-                  <button @click="scopeFilter = kw; currentPage = 1; scrollToSection('pins-table-section')" 
-                          class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-white dark:bg-[#18181B] hover:bg-indigo-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 transition-colors shadow-sm" 
-                          x-text="kw"></button>
-                </template>
-              </div>
-            </div>
-
-            <div class="bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-              <span class="text-[10px] font-mono tabular-nums uppercase text-amber-600 dark:text-amber-400 tracking-wider font-semibold">📅 Seasonality & Launch Window</span>
-              <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="crossoverData?.seasonality?.recommended_launch_window || 'Year-round Evergreen'"></div>
-              <div class="flex items-center gap-1 flex-wrap pt-1">
-                <span class="text-[10px] text-slate-500 dark:text-slate-400">Peak Months:</span>
-                <template x-for="pm in (crossoverData?.seasonality?.peak_months || [])" :key="pm">
-                  <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20" x-text="pm"></span>
-                </template>
-              </div>
-            </div>
-          </div>
-
-          <!-- Spoke Pins Header -->
-          <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-[#27272A]">
-            <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase font-mono tabular-nums tracking-wider">📌 5 Spoke Content Blueprints (Actionable Pin Angles)</h4>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Click "Copy Angle" on any card to copy title, hook & directive</span>
-          </div>
-
-          <!-- Spoke Pins Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <template x-for="spoke in (crossoverData?.topic_cluster_blueprint?.spoke_angles || [])" :key="spoke.angle_number">
-              <div class="bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-sm hover:shadow transition-all">
-                <div class="flex flex-col gap-2">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400" x-text="'Spoke #' + spoke.angle_number"></span>
-                    <span class="text-[9px] font-mono tabular-nums px-2 py-0.5 rounded font-semibold"
-                          :class="spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'"
-                          x-text="spoke.recommended_format"></span>
-                  </div>
-                  <h4 class="text-xs font-bold text-slate-900 dark:text-white tracking-tight leading-snug" x-text="spoke.angle_title"></h4>
-                  <div class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
-                    <span class="font-semibold text-slate-800 dark:text-slate-200">🎬 Visual Hook: </span>
-                    <span x-text="spoke.hook_concept"></span>
-                  </div>
-                </div>
-
-                <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-2">
-                  <div class="flex flex-col gap-0.5 truncate text-[10px]">
-                    <span class="text-slate-400 dark:text-slate-500 font-mono tabular-nums">Target Kw:</span>
-                    <span class="text-slate-700 dark:text-slate-300 font-mono tabular-nums font-semibold truncate" x-text="spoke.target_keyword"></span>
-                  </div>
-                  <button @click="copySpoke(spoke)" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-50 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 transition-colors flex items-center gap-1 shadow-sm flex-shrink-0">
-                    <span>📋</span> Copy Angle
-                  </button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- SECTION 3: VISUAL ANNOTATIONS CROSSOVER HUB (Across 1,788 Unique Pins) -->
+      <!-- SECTION 2: VISUAL ANNOTATIONS CROSSOVER HUB (Across 1,788 Unique Pins) -->
       <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] space-y-6 shadow-sm dark:shadow-xl transition-colors">
         <!-- Hub Header -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#27272A]">
@@ -823,8 +718,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <div class="flex items-center gap-1.5 text-xs font-mono tabular-nums">
                 <span class="text-slate-400">Sort:</span>
                 <select x-model="powerPairsSort" @change="powerPairsPage = 1" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
-                  <option value="synergy_desc">⚡ Balanced Synergy (Default)</option>
-                  <option value="freq_desc">🔥 Pins Frequency (High → Low)</option>
+                  <option value="freq_desc">🔥 Pins Frequency (Default)</option>
+                  <option value="velocity_desc">⚡ 24h Save Velocity (High → Low)</option>
+                  <option value="synergy_desc">⚖️ Balanced Synergy</option>
                   <option value="lift_desc">🚀 Algorithmic Lift (High → Low)</option>
                   <option value="tag_asc">🏷️ Tag A (A → Z)</option>
                 </select>
@@ -854,10 +750,19 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <template x-for="(pair, idx) in filteredPowerPairs().slice(0, powerPairsLimit)" :key="idx">
                 <div class="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-[#27272A] flex flex-col justify-between gap-3 hover:border-purple-500/50 hover:shadow-md transition group shadow-sm">
                   <!-- Top Metrics Bar -->
-                  <div class="flex items-center justify-between">
-                    <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                          x-text="pair.lift + 'x Lift'"></span>
-                    <span class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                            x-text="pair.lift + 'x Lift'"></span>
+                      <template x-if="pair.total_velocity > 0">
+                        <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1"
+                              :title="'Aggregate 24h Daily Save Velocity: +' + formatNumber(pair.total_velocity) + '/day across joint pins'">
+                          <span>⚡</span>
+                          <span x-text="'+' + formatNumber(pair.total_velocity) + '/d'"></span>
+                        </span>
+                      </template>
+                    </div>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 font-semibold" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
                   </div>
 
                   <!-- Stacked Full-Width Tags (No Truncation) -->
@@ -893,6 +798,37 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                       <span class="text-[9px] font-mono tabular-nums text-purple-600 dark:text-purple-400 font-bold flex-shrink-0 uppercase">Tag B</span>
                     </div>
                   </div>
+
+                  <!-- Matching Joint Pins Preview Strip -->
+                  <template x-if="pair.pins && pair.pins.length > 0">
+                    <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/80 flex flex-col gap-1.5">
+                      <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400">
+                        <span class="uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Joint Pins Preview</span>
+                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-0.5 font-bold"
+                                title="Filter cluster pins table by this visual anchor">
+                          <span>All <span x-text="pair.joint_count"></span> pins in table →</span>
+                        </button>
+                      </div>
+                      <div class="grid grid-cols-4 gap-2">
+                        <template x-for="p in pair.pins.slice(0, 4)" :key="p.pin_id">
+                          <a :href="'/pins/' + p.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
+                             class="group/pin relative rounded-lg overflow-hidden border border-slate-200 dark:border-[#27272A] aspect-[2/3] bg-slate-100 dark:bg-[#18181B] block hover:ring-2 hover:ring-purple-500 transition-all shadow-2xs"
+                             :title="(p.title || 'Pin #' + p.pin_id) + (p.daily_save_velocity ? ' (+' + p.daily_save_velocity + '/d saves)' : '')">
+                            <img :src="p.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
+                                 class="w-full h-full object-cover group-hover/pin:scale-105 transition-transform duration-300" 
+                                 loading="lazy" 
+                                 onerror="window.handlePinImgError(this)">
+                            <template x-if="p.daily_save_velocity > 0">
+                              <span class="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/80 backdrop-blur-xs text-[8px] font-mono tabular-nums text-emerald-400 font-bold leading-tight">
+                                +<span x-text="formatNumber(p.daily_save_velocity)"></span>
+                              </span>
+                            </template>
+                          </a>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
 
                   <!-- Copy Blueprint Button -->
                   <button @click="copyVisualBlueprint(pair)"
@@ -948,6 +884,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                     <th @click="togglePowerPairsSort('freq')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Pins Frequency">
                       Pins Frequency <span x-show="powerPairsSort.startsWith('freq')" x-text="powerPairsSort === 'freq_desc' ? '↓' : '↑'"></span>
                     </th>
+                    <th @click="togglePowerPairsSort('velocity')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by 24h Velocity">
+                      24h Velocity <span x-show="powerPairsSort.startsWith('velocity')" x-text="powerPairsSort === 'velocity_desc' ? '↓' : '↑'"></span>
+                    </th>
+                    <th class="p-3">Matching Pins</th>
                     <th class="p-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -972,6 +912,29 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                       <td class="p-3 font-mono tabular-nums">
                         <span class="font-bold text-slate-900 dark:text-white" x-text="pair.joint_count + ' pins'"></span>
                         <span class="text-slate-400 text-[10px]" x-text="' (' + pair.support_pct + '%)'"></span>
+                      </td>
+                      <td class="p-3 font-mono tabular-nums">
+                        <template x-if="pair.total_velocity > 0">
+                          <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(pair.total_velocity) + '/d'"></span>
+                        </template>
+                        <template x-if="!pair.total_velocity || pair.total_velocity <= 0">
+                          <span class="text-slate-400 text-[10px]">—</span>
+                        </template>
+                      </td>
+                      <td class="p-3">
+                        <div class="flex items-center gap-1.5">
+                          <template x-for="p in (pair.pins || []).slice(0, 3)" :key="p.pin_id">
+                            <a :href="'/pins/' + p.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
+                               class="w-7 h-10 rounded border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0 hover:ring-2 hover:ring-purple-500 transition block bg-slate-100 dark:bg-[#18181B]"
+                               :title="(p.title || 'Pin #' + p.pin_id) + (p.daily_save_velocity ? ' (+' + p.daily_save_velocity + '/d)' : '')">
+                              <img :src="p.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
+                                   class="w-full h-full object-cover" 
+                                   loading="lazy" 
+                                   onerror="window.handlePinImgError(this)">
+                            </a>
+                          </template>
+                          <span x-show="(pair.pins || []).length > 3" class="text-[9px] text-slate-400 font-mono" x-text="'+' + ((pair.pins || []).length - 3)"></span>
+                        </div>
                       </td>
                       <td class="p-3 text-right">
                         <button @click="copyVisualBlueprint(pair)" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer">
@@ -2093,7 +2056,6 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         pageSize: 10,
         searchQuery: '',
         entityFilter: { type: null, value: null },
-        showBlueprint: true,
         onlyBreakoutBabyDomains: false,
         onlyVacuumPins: false,
         _pinsCacheKey: '',
@@ -2102,7 +2064,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         powerPairsView: 'cards',
         powerPairsLimit: 12,
         powerPairsSearch: '',
-        powerPairsSort: 'synergy_desc',
+        powerPairsSort: 'freq_desc',
         powerPairsPage: 1,
         powerPairsPageSize: 15,
 
@@ -2125,12 +2087,14 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         togglePowerPairsSort(col) {
           if (col === 'freq') {
             this.powerPairsSort = this.powerPairsSort === 'freq_desc' ? 'freq_asc' : 'freq_desc';
+          } else if (col === 'velocity') {
+            this.powerPairsSort = this.powerPairsSort === 'velocity_desc' ? 'velocity_asc' : 'velocity_desc';
           } else if (col === 'lift') {
             this.powerPairsSort = this.powerPairsSort === 'lift_desc' ? 'lift_asc' : 'lift_desc';
           } else if (col === 'tag') {
             this.powerPairsSort = this.powerPairsSort === 'tag_asc' ? 'tag_desc' : 'tag_asc';
           } else {
-            this.powerPairsSort = 'synergy_desc';
+            this.powerPairsSort = this.powerPairsSort === 'synergy_desc' ? 'freq_desc' : 'synergy_desc';
           }
           this.powerPairsPage = 1;
         },
@@ -2147,9 +2111,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           }
 
           if (this.powerPairsSort === 'freq_desc') {
-            list = list.slice().sort((a, b) => b.joint_count - a.joint_count || b.lift - a.lift);
+            list = list.slice().sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
           } else if (this.powerPairsSort === 'freq_asc') {
-            list = list.slice().sort((a, b) => a.joint_count - b.joint_count || b.lift - a.lift);
+            list = list.slice().sort((a, b) => a.joint_count - b.joint_count || (a.total_velocity || 0) - (b.total_velocity || 0) || a.lift - b.lift);
+          } else if (this.powerPairsSort === 'velocity_desc') {
+            list = list.slice().sort((a, b) => (b.total_velocity || 0) - (a.total_velocity || 0) || b.joint_count - a.joint_count);
+          } else if (this.powerPairsSort === 'velocity_asc') {
+            list = list.slice().sort((a, b) => (a.total_velocity || 0) - (b.total_velocity || 0) || a.joint_count - b.joint_count);
           } else if (this.powerPairsSort === 'lift_desc') {
             list = list.slice().sort((a, b) => b.lift - a.lift || b.joint_count - a.joint_count);
           } else if (this.powerPairsSort === 'lift_asc') {
@@ -2701,6 +2669,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           const N_total = pins.length;
           const tagFreq = new Map();
           const pairFreq = new Map();
+          const pairPins = new Map();
 
           // Stopwords filter for pairs
           const skipWords = new Set([
@@ -2740,6 +2709,20 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
                 const key = t1 < t2 ? (t1 + '|||' + t2) : (t2 + '|||' + t1);
                 pairFreq.set(key, (pairFreq.get(key) || 0) + 1);
+
+                let pList = pairPins.get(key);
+                if (!pList) {
+                  pList = [];
+                  pairPins.set(key, pList);
+                }
+                pList.push({
+                  pin_id: pin.pin_id,
+                  title: pin.title || 'Untitled Pin',
+                  image_url: pin.image_url,
+                  daily_save_velocity: Number(pin.daily_save_velocity || pin.delta_saves_24h || 0),
+                  save_count: Number(pin.save_count || 0),
+                  pin_age_days: pin.pin_age_days
+                });
               }
             }
           }
@@ -2763,6 +2746,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               // Balanced Synergy Score: Lift weighted by log2 support to prevent rare 2-pin anomalies
               const synergyScore = liftVal * Math.log2(jointCount + 1);
 
+              const matching = pairPins.get(key) || [];
+              matching.sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0));
+              const totalVelocity = matching.reduce((sum, p) => sum + (Number(p.daily_save_velocity) || 0), 0);
+
               pairs.push({
                 tag_a: toTitleCase(t1),
                 tag_b: toTitleCase(t2),
@@ -2770,19 +2757,21 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                 lift: liftVal,
                 confidence: confidence,
                 support_pct: supportPct,
-                synergy_score: synergyScore
+                synergy_score: synergyScore,
+                total_velocity: Math.round(totalVelocity * 10) / 10,
+                pins: matching.slice(0, 8)
               });
             }
           }
 
-          // Sort by balanced synergy score so high-frequency, high-lift pairs rank at the top
-          pairs.sort((a, b) => b.synergy_score - a.synergy_score || b.joint_count - a.joint_count);
+          // Default sort by pins frequency (high to low), with daily save velocity as secondary ranking
+          pairs.sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
           this.powerPairs = pairs;
         },
 
         copyVisualBlueprint(pair) {
           const folderName = String(this.activeFolder?.name || 'Topic Cluster').replace(/<[^>]*>/g, '').trim();
-          const pillar = String(this.crossoverData?.topic_cluster_blueprint?.pillar_concept || folderName).replace(/<[^>]*>/g, '').trim();
+          const pillar = String(folderName + ' Master Guide').replace(/<[^>]*>/g, '').trim();
           const launch = String(this.crossoverData?.seasonality?.recommended_launch_window || 'Evergreen').replace(/<[^>]*>/g, '').trim();
           const tagA = String(pair.tag_a || '').replace(/<[^>]*>/g, '').trim();
           const tagB = String(pair.tag_b || '').replace(/<[^>]*>/g, '').trim();
@@ -2811,102 +2800,11 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         },
 
         scrollToSection(id) {
-          if (id === 'blueprint-section') {
-            this.showBlueprint = true;
-          }
           this.$nextTick(() => {
             const el = document.getElementById(id);
             if (el) {
               el.scrollIntoView({ behavior: 'smooth' });
             }
-          });
-        },
-
-        copySpoke(spoke) {
-          if (!spoke) return;
-          const lines = [
-            '📌 PIN SPOKE #' + spoke.angle_number + ': ' + spoke.angle_title,
-            '--------------------------------------------------',
-            '🎯 Target Keyword: ' + spoke.target_keyword,
-            '💡 Modifier Pivot: ' + (spoke.modifier || 'N/A'),
-            '📐 Format & Ratio: ' + spoke.recommended_format + ' (' + spoke.recommended_aspect_ratio + ')',
-            '🎬 Visual Hook Directive: ' + spoke.hook_concept,
-            '🏷️ SEO Tags: ' + (spoke.target_tags || 'N/A')
-          ];
-
-          navigator.clipboard.writeText(lines.join('\\n')).then(() => {
-            this.showToast('Copied Spoke #' + spoke.angle_number + ' to clipboard!', 'success');
-          }).catch(() => {
-            this.showToast('Failed to copy spoke to clipboard', 'warning');
-          });
-        },
-
-        copyAiPrompt() {
-          const bp = this.crossoverData?.topic_cluster_blueprint;
-          if (!bp) return;
-
-          const lines = [
-            'You are an expert Pinterest SEO and content strategist. Create a comprehensive high-converting Pinterest campaign and blog post outline based on this algorithmic cluster blueprint:',
-            '',
-            'CLUSTER THEME: ' + (bp.folder_name || 'Campaign Cluster'),
-            'PILLAR CONCEPT: ' + bp.pillar_concept,
-            'RECOMMENDED LAUNCH: ' + (this.crossoverData?.seasonality?.recommended_launch_window || 'Evergreen'),
-            'UNIVERSAL VISUAL TAGS: ' + (bp.universal_tag_blueprint || ''),
-            'SEARCH CONNECTORS: ' + (bp.top_connectors || []).join(', '),
-            '',
-            '5 ACTIONABLE SPOKE PINS TO GENERATE:'
-          ];
-
-          for (const sp of (bp.spoke_angles || [])) {
-            lines.push(
-              '- Spoke #' + sp.angle_number + ' [' + sp.recommended_format + ' | ' + sp.recommended_aspect_ratio + ']: ' +
-              sp.angle_title + ' (Target Keyword: ' + sp.target_keyword + ')\\n  Visual Hook: ' + sp.hook_concept
-            );
-          }
-
-          lines.push('');
-          lines.push('FOR EACH SPOKE PIN, WRITE:');
-          lines.push('1. High-CTR Pin Title (under 100 chars, keyword front-loaded)');
-          lines.push('2. Engaging Pin Description (under 500 chars with natural keyword integration and call-to-action)');
-          lines.push('3. On-Pin Text Overlay Hook (3-6 punchy words for image overlay)');
-          lines.push('4. Visual Scene Directive for image/video generation');
-          lines.push('');
-          lines.push('THEN WRITE:');
-          lines.push('A 1,500-word comprehensive Pillar Blog Article outline interlinking all 5 spokes.');
-
-          navigator.clipboard.writeText(lines.join('\\n')).then(() => {
-            this.showToast('Copied ready-to-run AI Content Prompt!', 'success');
-          }).catch(() => {
-            this.showToast('Failed to copy AI prompt to clipboard', 'warning');
-          });
-        },
-
-        copyClusterSummary() {
-          const bp = this.crossoverData?.topic_cluster_blueprint;
-          if (!bp) return;
-
-          const lines = [
-            '🎯 TOPIC CLUSTER MASTER BLUEPRINT: ' + (bp.folder_name || 'Campaign Cluster'),
-            '==================================================================',
-            '🏛️ Pillar Concept: ' + bp.pillar_concept,
-            '📅 Recommended Launch: ' + (this.crossoverData?.seasonality?.recommended_launch_window || 'Evergreen'),
-            '🏷️ Universal Tag Blueprint: ' + bp.universal_tag_blueprint,
-            '🔗 Top Semantic Connectors: ' + bp.top_connectors.join(', '),
-            '',
-            '📌 SPOKE CONTENT BLUEPRINTS (5 ANGLES):'
-          ];
-
-          for (const sp of bp.spoke_angles) {
-            lines.push(
-              '  - Spoke #' + sp.angle_number + ' [' + sp.recommended_format + ' | ' + sp.recommended_aspect_ratio + ']: ' +
-              sp.angle_title + ' (Kw: ' + sp.target_keyword + ' | Mod: ' + sp.modifier + ')'
-            );
-          }
-
-          navigator.clipboard.writeText(lines.join('\\n')).then(() => {
-            this.showToast('Copied Topic Cluster Master Blueprint!', 'success');
-          }).catch(() => {
-            this.showToast('Failed to copy blueprint to clipboard', 'warning');
           });
         },
 

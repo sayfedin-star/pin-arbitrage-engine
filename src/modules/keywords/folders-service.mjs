@@ -3630,15 +3630,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     "Universal Folder Tags": topTagNames.join(' | ')
   }));
 
-  const topicClusterBlueprint = {
-    folder_name: folder.name,
-    pillar_concept: pillarTitle,
-    target_keywords: folderKeywords.map(k => k.keyword),
-    universal_tag_blueprint: topTagNames.join(', '),
-    top_connectors: topPivotTerms,
-    spoke_angles: spokeAngles,
-    csv_rows: csvRows
-  };
+  const topicClusterBlueprint = null;
 
   return {
     folder,

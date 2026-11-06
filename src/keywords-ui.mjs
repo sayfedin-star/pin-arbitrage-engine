@@ -3518,13 +3518,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                 <!-- Action Toolbar -->
                 <div class="flex flex-wrap items-center gap-2">
-                  <button @click="exportClusterBlueprintCsv()"
-                          :disabled="!crossoverData?.topic_cluster_blueprint?.csv_rows"
-                          class="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white transition flex items-center space-x-2 shadow-md shadow-pink-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
-                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                    <span>1-Click CSV Blueprint</span>
-                  </button>
-
                   <button @click="openAddKeywordsModal()"
                           class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-200 transition flex items-center space-x-1.5 cursor-pointer">
                     <i data-lucide="plus" class="w-3.5 h-3.5 text-pink-500"></i>
@@ -3817,75 +3810,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   </div>
                 </div>
 
-                <!-- DIMENSION 6: 🎯 1-CLICK TOPIC CLUSTER BLUEPRINT & CSV CONTENT GENERATOR -->
-                <template x-if="crossoverData.topic_cluster_blueprint">
-                  <div class="p-6 rounded-3xl bg-gradient-to-br from-white via-purple-50/20 to-pink-50/20 dark:from-[#0c1322] dark:via-slate-900 dark:to-[#111827] border border-purple-500/30 dark:border-purple-500/20 shadow-lg shadow-purple-950/10 space-y-5">
-                    
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-[#27272A]/80">
-                      <div>
-                        <div class="flex items-center space-x-2">
-                          <i data-lucide="target" class="w-4 h-4 text-purple-500"></i>
-                          <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Algorithmic Topic Cluster Blueprint</h3>
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-purple-500/20 text-purple-600 dark:text-purple-400">Ready to Deploy</span>
-                        </div>
-                        <p class="text-xs text-slate-500 mt-0.5">Automated Pillar + Spoke content architecture targeting maximum cluster authority on Pinterest.</p>
-                      </div>
-
-                      <button @click="exportClusterBlueprintCsv()"
-                              class="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white transition flex items-center space-x-2 shadow-md shadow-purple-950/20 active:scale-95 cursor-pointer">
-                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
-                        <span>Export CSV Blueprint</span>
-                      </button>
-                    </div>
-
-                    <!-- Pillar Concept -->
-                    <div class="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-purple-500/20 space-y-2">
-                      <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-purple-600 dark:text-purple-400">Pillar Content Angle</span>
-                        <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="'Anchor: ' + crossoverData.topic_cluster_blueprint.folder_name"></span>
-                      </div>
-                      <h4 class="text-base font-black text-slate-900 dark:text-white" x-text="crossoverData.topic_cluster_blueprint.pillar_concept"></h4>
-                      <p class="text-xs text-slate-400 font-mono tabular-nums">
-                        <strong class="text-slate-300">Universal Tags:</strong> 
-                        <span x-text="crossoverData.topic_cluster_blueprint.universal_tag_blueprint"></span>
-                      </p>
-                    </div>
-
-                    <!-- 5 Spoke Pin Angles -->
-                    <div class="space-y-3">
-                      <span class="text-xs font-bold text-slate-400 font-mono tabular-nums uppercase tracking-wider">5 High-Impact Spoke Pin Angles:</span>
-                      
-                      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <template x-for="spoke in crossoverData.topic_cluster_blueprint.spoke_angles" :key="spoke.angle_number">
-                          <div class="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A] space-y-2.5">
-                            <div class="flex items-center justify-between">
-                              <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
-                                    x-text="'Spoke #' + spoke.angle_number"></span>
-                              <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="spoke.recommended_aspect_ratio"></span>
-                            </div>
-
-                            <h5 class="text-xs font-bold text-slate-900 dark:text-white" x-text="spoke.angle_title"></h5>
-
-                            <div class="space-y-1 text-[11px] text-slate-500">
-                              <div class="flex items-center justify-between">
-                                <span>Target:</span>
-                                <strong class="font-mono tabular-nums text-pink-500 capitalize" x-text="spoke.target_keyword"></strong>
-                              </div>
-                              <div class="flex items-center justify-between">
-                                <span>Format:</span>
-                                <strong class="font-mono tabular-nums text-slate-700 dark:text-slate-300" x-text="spoke.recommended_format"></strong>
-                              </div>
-                            </div>
-
-                            <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/80 text-[10px] text-slate-400 font-mono tabular-nums line-clamp-1"
-                                 x-text="'Tags: ' + spoke.target_tags"></div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-
-                  </div>
-                </template>
 
               </div>
             </template>
@@ -7117,8 +7041,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         },
 
         copyAllUniversalTags() {
-          const tags = this.crossoverData?.topic_cluster_blueprint?.universal_tag_blueprint || 
-                       (this.crossoverData?.tag_bridges || []).slice(0, 15).map(t => t.tag).join(', ');
+          const tags = (this.crossoverData?.tag_bridges || []).slice(0, 15).map(t => t.tag).join(', ');
           if (!tags) return;
           this.copyToClipboard(tags, 'Copied Universal Tag Blueprint to clipboard!');
         },
