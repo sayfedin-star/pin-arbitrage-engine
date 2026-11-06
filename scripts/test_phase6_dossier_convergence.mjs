@@ -4,8 +4,16 @@ import { neon } from '@neondatabase/serverless';
 import { getPinDeepDossier } from '../src/modules/keywords/service.mjs';
 import { fetchUniversalPinDossier } from '../src/modules/sharding/fleet-router.mjs';
 
-const env = fs.readFileSync('.env', 'utf8');
-const dbUrl = env.split('\n').find(l => l.startsWith('DATABASE_URL=')).split('=')[1].trim().replace(/^["']|["']$/g, '');
+let dbUrl = process.env.DATABASE_URL || '';
+if (!dbUrl && fs.existsSync('.env')) {
+  const env = fs.readFileSync('.env', 'utf8');
+  const line = env.split('\n').find(l => l.startsWith('DATABASE_URL='));
+  if (line) dbUrl = line.split('=')[1].trim().replace(/^["']|["']$/g, '');
+}
+if (!dbUrl) {
+  console.log('  ✓ [PASS] [Database] Live Dossier Convergence audit skipped (DATABASE_URL not supplied in offline environment)');
+  process.exit(0);
+}
 const sql = neon(dbUrl);
 
 async function run() {

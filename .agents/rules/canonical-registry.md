@@ -11,11 +11,13 @@ trigger: always_on
 
 ## 1. Universal Shard Resolution & Routing
 
+> **Unified Single-DB Mode (`DATABASE_TOPOLOGY = "unified_postgres"`):** When `isUnifiedPostgres(env)` is true (default in production and local runtime), `resolveShardConnection` deterministically routes all 99 logical shard IDs directly to the unified Central Hub PostgreSQL database (`hubSql`) with zero external shard hops or KV/D1 lookups.
+
 | Entity | Canonical Routing Function | Primary Location | Authority / Schema |
 | :--- | :--- | :--- | :--- |
-| **Pin Records (`universal_master_pins`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
-| **Pin Daily Metrics (`pins_daily_metrics`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
-| **Pin SERP History (`pin_serp_positions`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
+| **Pin Records (`universal_master_pins`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
+| **Pin Daily Metrics (`pins_daily_metrics`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
+| **Pin SERP History (`pin_serp_positions`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
 | **Active SERP (`keyword_serp_current`)** | `keyword_id` direct index | `src/modules/keywords/service.mjs` | Central Neon Hub |
 | **Displaced Index (`keyword_displaced_index`)** | `(keyword_id, pin_id)` composite index | `src/modules/keywords/service.mjs` | Central Neon Hub (Numeric + Domain + Creator only) |
 | **Tracked Creators (`competitor_profiles`)** | `id` or `username` natural key | `src/modules/creators/service.mjs` | Central Neon Hub |

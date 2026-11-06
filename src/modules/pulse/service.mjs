@@ -18,6 +18,7 @@
  */
 
 import { hydratePinsFromD1 } from '../keywords/d1-metadata.mjs';
+import { isUnifiedPostgres } from '../sharding/fleet-router.mjs';
 
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)
 export const pulseMemoryCache = new Map();
@@ -981,7 +982,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   // 2. Cloudflare Workers KV Cache Check (disabled by default in Unified Single-DB mode)
   const isDefaultFilter = (!folderIdNum) && (windowParam === '24h') && (minAudience === 0);
-  if (!bypassCache && isDefaultFilter && !effectiveRefresh && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
+  if (!bypassCache && isDefaultFilter && !effectiveRefresh && !isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
     try {
       const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v3', { type: 'json' });
       if (kvCached) {
@@ -1221,7 +1222,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     allActivePins.sort(activePinSortComparator);
 
     // Single consolidated D1 edge metadata hydration for top 100 pins missing description/alt_text (disabled in Unified Single-DB mode)
-    if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && allActivePins.length > 0) {
+    if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && allActivePins.length > 0) {
       try {
         const topPinsNeedingHydration = allActivePins
           .slice(0, 100)
@@ -2272,7 +2273,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     }
 
     // Save into L2 Cloudflare Workers KV for default view (disabled by default in Unified Single-DB mode)
-    if (!bypassCache && isDefaultFilter && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
+    if (!bypassCache && isDefaultFilter && !isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
       const kvTask = env.PIN_ENGINE_KV.put(
         'pulse:global_24h:summary:v3',
         JSON.stringify(payload),

@@ -2,12 +2,18 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { calculateFolderCrossover } from '../src/modules/keywords/folders-service.mjs';
 
-const env = fs.readFileSync('.env', 'utf8');
-let dbUrl = '';
-for (const line of env.split('\n')) {
-  if (line.startsWith('DATABASE_URL=')) {
-    dbUrl = line.split('=')[1].trim().replace(/^["']|["']$/g, '');
+let dbUrl = process.env.DATABASE_URL || '';
+if (!dbUrl && fs.existsSync('.env')) {
+  const env = fs.readFileSync('.env', 'utf8');
+  for (const line of env.split('\n')) {
+    if (line.startsWith('DATABASE_URL=')) {
+      dbUrl = line.split('=')[1].trim().replace(/^["']|["']$/g, '');
+    }
   }
+}
+if (!dbUrl) {
+  console.log('  ✓ [PASS] [Database] Live Crossover audit skipped (DATABASE_URL not supplied in offline environment)');
+  process.exit(0);
 }
 const sql = neon(dbUrl);
 

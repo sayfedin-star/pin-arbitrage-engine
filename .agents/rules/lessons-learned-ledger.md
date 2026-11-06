@@ -22,6 +22,7 @@ trigger: always_on
 | **Round 9 & 10 (Master Execution)** | Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM Sanitization & LND-801..824 Defusal | Migration 042, Invariant 42, Locks 13–14 | **SEALED** |
 | **Rounds 14–16 (Crawler Egress & Micro-Traps Defusal)** | Creator Fleet Egress Defense, Shard-Affine Partitioning Parity, CTE History Consolidation & 10M Ceiling Guard | Lock 3, Lock 7, Invariants 32–37 | **SEALED** |
 | **Round 23 (Phase 8 UI Parity)** | Room 5 Pruning Healing, Creator Combined Audience 24h Surge, Tag Bridge Gains & Crossover Velocity Alignment | Invariants 30, 31, 33, Locks 1, 4, 13 | **SEALED** |
+| **Round 24 (Phases 1–4 Forensic Single-DB Optimization)** | 80% Egress Row Deduplication, Legacy KV/D1/Hyperdrive Isolation, Room 1–6 Count/Velocity Parity, Domain Studio KPI Sync, Creator 10M+ Ceiling & Dossier Provenance Fix | Migration 047, Invariant 44, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -398,3 +399,24 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings, 106/106 files, 14 locks PASS)
   - `npm test` (21 suites, 100% PASS)
   - `node --env-file=.env scripts/verify_bug_fixes.mjs` (205 candidates for Folder #5, 5.46M 24h delta audience)
+
+---
+
+## Round 24: Phases 1–4 — Forensic Single-DB Optimization, 80% Egress Deduplication & Cross-Studio Data Parity
+- **Round / Feature**: Phases 1–4 — Unified Single-DB Isolation, Folder Crossover SQL Row Deduplication (`pin_rn = 1`), Room 1 & Room 6 Count/Velocity Parity, Domain Studio KPI & Visual DNA Sync, Creator Hub 10M+ Ceiling & Cadence Outlier Guard, and Pin Dossier Provenance Fix
+- **Trap / Failure Mode**:
+  1. *Room 1 vs Room 6 Velocity & Count Discrepancy*: Displaced Vault pins (e.g., `#175077504261403628` and `#1098245059161615952`) displayed `+0/d` & `+0 (24h)` in Room 1 (`Crossover & Super-Pins`) while ranking at #2 (`+498/d`) and #5 (`+367/d`) in Room 6 (`24h Pulse Radar`). Meanwhile, Room 6 showed `596` Active SERP pins instead of `930` because `queryActiveSerp` capped rows at `LIMIT 1200` before deduplicating `pin_id`, and Room 1 silently truncated `all_pins` with `.slice(0, 1500)`.
+  2. *Domain Studio KPI Mismatch, Duplicate Article Thumbnails & `#888888` Visual DNA Pollution*: `makeourrecipes.com` showed `30` Money Articles in the top KPI card while the tab badge showed `44` because KPIs only counted `active_serp` while the tab defaulted to `All` (`Active + Displaced`). Pins that had both active and displaced rows appeared twice side-by-side inside the same article card, and `#888888` polluted 22% of the Visual DNA color palette.
+  3. *Pin Dossier Blank Creator Row, Hardcoded Global Pulse Link & Locked Dark Theme*: In `src/pin-details-ui.mjs`, `Provenance Ledger -> Creator` rendered completely blank because an outer `<template x-if>` contained two sibling `<template x-if>` elements without a single wrapper `<div>` (Alpine.js only mounts `content.firstElementChild`). The `24h Pulse Radar` header button hardcoded `/pulse` instead of `/folders/:id/pulse`, and no Light/Dark theme switcher existed.
+  4. *Creator Hub `10,000,001` Ceiling Clustering & `2791 Pins / Day` Cadence Skew*: Multiple creators tied at Pinterest's `10,000,001` API ceiling lacked a `10M+` badge and secondary tie-breaker sorting, and marketplace aggregators (`@etsy`, `@etsy_uk`, `@etsyca` with 380M–955M pins) skewed `AVG PINNING CADENCE` to `2791 Pins / Day`.
+  5. *Folder Crossover Network Egress Multiplication & Redundant 20-Shard Loop*: `_executeFolderCrossover` transmitted heavy creative strings and `visual_annotations` JSONB across the wire for every keyword appearance of a multi-ranking pin, and executed 20 sequential shard fallback queries against the same single database when `stillMissingAfterHub.length > 0`.
+- **Verified Solution & Invariant Codification**:
+  1. Unified velocity calculation across `folders-service.mjs` and `campaign-folders-ui.mjs` (`saves_24h` -> `daily_save_velocity` -> `delta_saves_24h` -> `Math.round(gains_7d / 7)`), raised `queryActiveSerp` to `LIMIT 5000` with `rank_position >= 1`, and removed `.slice(0, 1500)` truncation on `all_pins`.
+  2. Synchronized Domain Studio KPI cards (`RANKED PINS`, `MONEY ARTICLES`, `MULTIPLIER`, `TOTAL SAVES`) with `studioFilter`, deduplicated article pin cards by `pin_id`, added `Vault #<last_known_rank> · <primary_keyword>` badges, and purged placeholder colors (`#888888`, `#1e1e24`, etc.) from `visual_dna.dominant_colors` and pin rows.
+  3. Wrapped the Creator `Provenance Ledger` branches in a single `<div>` inside `<template x-if>`, added Light/Dark theme persistence (`pae_theme`), wired contextual `/folders/:id/pulse` routing, and updated topology labels to `UNIFIED HUB SSOT` / `Unified Central Hub`.
+  4. Added `10M+` badges and deterministic tie-breaker sorting in Creator Hub, excluded `>= 1,000,000` pin aggregators from `avg_pinning_cadence`, and synced the `Folder:` select dropdown with `activeFolderId`.
+  5. Partitioned `pinRows` and `displacedRows` in `_executeFolderCrossover` with `ROW_NUMBER() OVER (PARTITION BY pin_id ...) AS pin_rn` so heavy creative columns and `visual_annotations` are transmitted at most once per unique pin (`pin_rn = 1`), joined `universal_master_pins` directly in `pinRows`, guarded Tier 3 shard loops and legacy KV/D1 bindings with `!isUnifiedPostgres(env)`, and created `scripts/migrations/047_drop_unused_legacy_tables.sql`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 101/101 files, 14/14 locks PASS)
+  - `npm test` & `npm run test:offline` (100% PASS)
+

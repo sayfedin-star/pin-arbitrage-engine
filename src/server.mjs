@@ -15,6 +15,11 @@ import { fileURLToPath } from 'node:url';
 import { neon } from '@neondatabase/serverless';
 import worker from './worker.mjs';
 
+// Auto-load .env if present via built-in Node 20.12+/22+ API (zero node:fs import in src/)
+if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function') {
+  try { process.loadEnvFile(); } catch (_) {}
+}
+
 /**
  * Fallback SQL client for offline local dev and test harnesses
  */
@@ -39,7 +44,7 @@ export function createMemoryKV() {
         store.delete(String(key));
         return null;
       }
-      if (type === 'json') {
+      if (type === 'json' || (typeof type === 'object' && type?.type === 'json')) {
         try {
           return JSON.parse(entry.value);
         } catch (_) {
@@ -89,7 +94,7 @@ export function createRequestListener(customEnv = {}) {
 
   return async function requestListener(req, res) {
     try {
-      const host = req.headers.host || `127.0.0.1:${process.env.PORT || 3456}`;
+      const host = req.headers.host || `127.0.0.1:${process.env.PORT || 3000}`;
       const protocol = req.socket?.encrypted ? 'https' : 'http';
       const fullUrl = new URL(req.url, `${protocol}://${host}`);
 
@@ -126,6 +131,7 @@ export function createRequestListener(customEnv = {}) {
 
       const env = {
         ...process.env,
+        DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
         PIN_ENGINE_KV: localKv,
         SQL_CLIENT: sqlClient,
         DATABASE_URL: process.env.DATABASE_URL || '',

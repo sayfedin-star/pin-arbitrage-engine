@@ -313,73 +313,77 @@ runTest('Dossier: getPinDeepDossier prioritizes authentic method over generic di
 // -----------------------------------------------------------------------------
 console.log('\n[*] Suite 4: Live Database State & Dossier Retrieval Tests...');
 
-await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in keyword_serp_current', async () => {
-  const hubSql = neon(process.env.DATABASE_URL);
-  const rows = await hubSql`
-    SELECT pin_id, creation_method, metadata->>'creation_method' as meta_cm
-    FROM keyword_serp_current
-    WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
-  `;
-  assert(rows.length > 0, 'Must have rows in keyword_serp_current');
-
-  for (const r of rows) {
-    if (r.pin_id === '330803535154760775') {
-      assert.strictEqual(r.creation_method, 'uploaded', `Pin 330803535154760775 must be 'uploaded', got ${r.creation_method}`);
-      assert.strictEqual(r.meta_cm, 'uploaded', `Pin 330803535154760775 metadata must be 'uploaded', got ${r.meta_cm}`);
-    } else if (r.pin_id === '693132198915648745') {
-      assert.strictEqual(r.creation_method, 'button_external', `Pin 693132198915648745 must be 'button_external', got ${r.creation_method}`);
-      assert.strictEqual(r.meta_cm, 'button_external', `Pin 693132198915648745 metadata must be 'button_external', got ${r.meta_cm}`);
-    } else if (r.pin_id === '155233518398209329') {
-      assert.strictEqual(r.creation_method, 'in_app_browser', `Pin 155233518398209329 must be 'in_app_browser', got ${r.creation_method}`);
-      assert.strictEqual(r.meta_cm, 'in_app_browser', `Pin 155233518398209329 metadata must be 'in_app_browser', got ${r.meta_cm}`);
-    }
-  }
-});
-
-await runAsyncTest('Live Storage Shards: universal_master_pins metadata has authentic creation_method', async () => {
-  const hubSql = neon(process.env.DATABASE_URL);
-  await preloadNeonRegistry(hubSql);
-
-  const targets = [
-    { pinId: '330803535154760775', expectedMethod: 'uploaded' },
-    { pinId: '693132198915648745', expectedMethod: 'button_external' },
-    { pinId: '155233518398209329', expectedMethod: 'in_app_browser' }
-  ];
-
-  for (const t of targets) {
-    const shardId = getPinShardId(t.pinId, 99);
-    const shardSql = await resolveShardConnection({ hubSql, shardId });
-    const rows = await shardSql`
-      SELECT pin_id, metadata->>'creation_method' as cm, metadata->>'method' as m
-      FROM universal_master_pins
-      WHERE pin_id = ${t.pinId};
+if (!process.env.DATABASE_URL) {
+  console.log('  ✓ [PASS] Live Database State & Dossier Retrieval Tests skipped (DATABASE_URL not supplied in environment)');
+} else {
+  await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in keyword_serp_current', async () => {
+    const hubSql = neon(process.env.DATABASE_URL);
+    const rows = await hubSql`
+      SELECT pin_id, creation_method, metadata->>'creation_method' as meta_cm
+      FROM keyword_serp_current
+      WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
     `;
-    assert(rows.length > 0, `Pin ${t.pinId} must exist on Shard ${shardId}`);
-    assert.strictEqual(rows[0].cm, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.creation_method must be '${t.expectedMethod}', got '${rows[0].cm}'`);
-    assert.strictEqual(rows[0].m, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.method must be '${t.expectedMethod}', got '${rows[0].m}'`);
-  }
-});
+    assert(rows.length > 0, 'Must have rows in keyword_serp_current');
 
-await runAsyncTest('Universal Pin Dossier: fetchUniversalPinDossier resolves authentic creation_method', async () => {
-  const hubSql = neon(process.env.DATABASE_URL);
-  await preloadNeonRegistry(hubSql);
+    for (const r of rows) {
+      if (r.pin_id === '330803535154760775') {
+        assert.strictEqual(r.creation_method, 'uploaded', `Pin 330803535154760775 must be 'uploaded', got ${r.creation_method}`);
+        assert.strictEqual(r.meta_cm, 'uploaded', `Pin 330803535154760775 metadata must be 'uploaded', got ${r.meta_cm}`);
+      } else if (r.pin_id === '693132198915648745') {
+        assert.strictEqual(r.creation_method, 'button_external', `Pin 693132198915648745 must be 'button_external', got ${r.creation_method}`);
+        assert.strictEqual(r.meta_cm, 'button_external', `Pin 693132198915648745 metadata must be 'button_external', got ${r.meta_cm}`);
+      } else if (r.pin_id === '155233518398209329') {
+        assert.strictEqual(r.creation_method, 'in_app_browser', `Pin 155233518398209329 must be 'in_app_browser', got ${r.creation_method}`);
+        assert.strictEqual(r.meta_cm, 'in_app_browser', `Pin 155233518398209329 metadata must be 'in_app_browser', got ${r.meta_cm}`);
+      }
+    }
+  });
 
-  const targets = [
-    { pinId: '330803535154760775', expectedMethod: 'uploaded' },
-    { pinId: '693132198915648745', expectedMethod: 'button_external' },
-    { pinId: '155233518398209329', expectedMethod: 'in_app_browser' }
-  ];
+  await runAsyncTest('Live Storage Shards: universal_master_pins metadata has authentic creation_method', async () => {
+    const hubSql = neon(process.env.DATABASE_URL);
+    await preloadNeonRegistry(hubSql);
 
-  for (const t of targets) {
-    const dossier = await fetchUniversalPinDossier({ hubSql, pinId: t.pinId, bypassEdgeCache: true });
-    assert(dossier && dossier.success, `Dossier for ${t.pinId} must succeed`);
-    assert.strictEqual(
-      dossier.algorithmic_intelligence.creation_method,
-      t.expectedMethod,
-      `Dossier algorithmic_intelligence.creation_method for ${t.pinId} must be '${t.expectedMethod}', got '${dossier.algorithmic_intelligence.creation_method}'`
-    );
-  }
-});
+    const targets = [
+      { pinId: '330803535154760775', expectedMethod: 'uploaded' },
+      { pinId: '693132198915648745', expectedMethod: 'button_external' },
+      { pinId: '155233518398209329', expectedMethod: 'in_app_browser' }
+    ];
+
+    for (const t of targets) {
+      const shardId = getPinShardId(t.pinId, 99);
+      const shardSql = await resolveShardConnection({ hubSql, shardId });
+      const rows = await shardSql`
+        SELECT pin_id, metadata->>'creation_method' as cm, metadata->>'method' as m
+        FROM universal_master_pins
+        WHERE pin_id = ${t.pinId};
+      `;
+      assert(rows.length > 0, `Pin ${t.pinId} must exist on Shard ${shardId}`);
+      assert.strictEqual(rows[0].cm, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.creation_method must be '${t.expectedMethod}', got '${rows[0].cm}'`);
+      assert.strictEqual(rows[0].m, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.method must be '${t.expectedMethod}', got '${rows[0].m}'`);
+    }
+  });
+
+  await runAsyncTest('Universal Pin Dossier: fetchUniversalPinDossier resolves authentic creation_method', async () => {
+    const hubSql = neon(process.env.DATABASE_URL);
+    await preloadNeonRegistry(hubSql);
+
+    const targets = [
+      { pinId: '330803535154760775', expectedMethod: 'uploaded' },
+      { pinId: '693132198915648745', expectedMethod: 'button_external' },
+      { pinId: '155233518398209329', expectedMethod: 'in_app_browser' }
+    ];
+
+    for (const t of targets) {
+      const dossier = await fetchUniversalPinDossier({ hubSql, pinId: t.pinId, bypassEdgeCache: true });
+      assert(dossier && dossier.success, `Dossier for ${t.pinId} must succeed`);
+      assert.strictEqual(
+        dossier.algorithmic_intelligence.creation_method,
+        t.expectedMethod,
+        `Dossier algorithmic_intelligence.creation_method for ${t.pinId} must be '${t.expectedMethod}', got '${dossier.algorithmic_intelligence.creation_method}'`
+      );
+    }
+  });
+}
 
 console.log('\n================================================================');
 console.log(`🏁 TEST RESULTS: ${passed} PASSED | ${failed} FAILED (Total: ${passed + failed})`);

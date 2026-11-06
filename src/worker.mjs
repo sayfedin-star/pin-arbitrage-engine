@@ -17,7 +17,7 @@ import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handleCreatorsRoutes } from './routes/creators.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
-import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards } from './modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards, isUnifiedPostgres } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 
@@ -967,7 +967,7 @@ export async function invalidateEdgeCache(prefix = '') {
 
   const store = requestContextStorage?.getStore?.();
   const env = store?.env;
-  if ((!prefix || prefix.startsWith('keywords')) && env?.PIN_D1_DB) {
+  if ((!prefix || prefix.startsWith('keywords')) && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
     // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await D1 cache metadata invalidation synchronously
     await evictKeywordsCatalogFromD1(env).catch(() => {});
   }
@@ -1061,7 +1061,8 @@ export default {
       try {
         await sql`SELECT 1 as alive;`;
         let kvShardsCount = 0;
-        if (isKvConfigured) {
+        const unifiedMode = isUnifiedPostgres(env);
+        if (isKvConfigured && !unifiedMode) {
           try {
             let cachedMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
             if (!cachedMap || !Array.isArray(cachedMap) || cachedMap.length === 0 || cachedMap.some(r => !isValidShardDsn(r?.database_url))) {
@@ -1087,6 +1088,7 @@ export default {
         return jsonResponse({
           status: 'healthy',
           database: 'connected',
+          topology: unifiedMode ? 'unified_postgres' : 'sharded_neon',
           runtime: 'cloudflare_workers',
           hyperdrive_accelerated: hyperdriveAccelerated,
           hyperdrive: hyperdriveAccelerated ? 'active' : 'fallback',
@@ -1350,7 +1352,7 @@ export default {
       const cachedDsn = shardKeyToDsn.get(cleanKey);
       if (cachedDsn) {
         targetSql = getOrCreateShardSqlClient(cachedDsn);
-      } else {
+      } else if (!isUnifiedPostgres(env)) {
         try {
           let shardsMap = null;
           if (env?.PIN_ENGINE_KV) {

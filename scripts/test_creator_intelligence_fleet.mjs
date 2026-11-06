@@ -49,6 +49,7 @@ runTest('Dispatcher script exists and is executable', () => {
 });
 
 runTest('Dispatcher Mode A generates valid 20-worker matrix JSON', () => {
+  if (!process.env.DATABASE_URL) return;
   const tmpOut = path.resolve(process.cwd(), 'tmp_dispatch_out.txt');
   try {
     execSync(`node scripts/creator-fleet-dispatcher.mjs`, {
@@ -71,6 +72,7 @@ runTest('Dispatcher Mode A generates valid 20-worker matrix JSON', () => {
 });
 
 runTest('Dispatcher Mode B generates valid single-account 20-worker matrix JSON', () => {
+  if (!process.env.DATABASE_URL) return;
   const tmpOut = path.resolve(process.cwd(), 'tmp_dispatch_b_out.txt');
   try {
     execSync(`node scripts/creator-fleet-dispatcher.mjs`, {

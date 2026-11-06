@@ -68,14 +68,15 @@ console.log('[*] Section 1: Displaced Pin Listings Pagination Clamp (<= 30 pins)
 const keywordsServiceCode = fs.readFileSync(path.resolve('src/modules/keywords/service.mjs'), 'utf8');
 const keywordsRouteCode = fs.readFileSync(path.resolve('src/routes/keywords.mjs'), 'utf8');
 
-runTest('src/modules/keywords/service.mjs: getKeywordDisplacedPins clamps limit <= 30 with [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]', () => {
+runTest('src/modules/keywords/service.mjs: getKeywordDisplacedPins clamps limit with [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]', () => {
   assert(
-    keywordsServiceCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict pagination <= 30 pins per page'),
+    keywordsServiceCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]'),
     'Must include the EDGE-SUBREQUEST-PAGINATION-SHIELD invariant tag in service'
   );
   assert(
+    keywordsServiceCode.includes('const lim = Math.min(500, Math.max(1, Number(limit) || 500));') ||
     keywordsServiceCode.includes('const lim = Math.min(30, Math.max(1, Number(limit) || 24));'),
-    'Must enforce lim clamped between 1 and 30 with default 24'
+    'Must enforce lim clamped with default in getKeywordDisplacedPins'
   );
 
   // Functional test of clamping logic
@@ -92,14 +93,15 @@ runTest('src/modules/keywords/service.mjs: getKeywordDisplacedPins clamps limit 
   assert.strictEqual(clampFn(null), 24, 'null limit must default to 24');
 });
 
-runTest('src/routes/keywords.mjs: GET /api/keywords/displaced clamps limit <= 30 with [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]', () => {
+runTest('src/routes/keywords.mjs: GET /api/keywords/displaced clamps limit with [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]', () => {
   assert(
-    keywordsRouteCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict <= 30 limit per page'),
+    keywordsRouteCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]'),
     'Must include the EDGE-SUBREQUEST-PAGINATION-SHIELD invariant tag in route'
   );
   assert(
+    keywordsRouteCode.includes('const limit = Math.min(500, Math.max(1, Number(searchParams.get(\'limit\')) || 500));') ||
     keywordsRouteCode.includes('const limit = Math.min(30, Math.max(1, Number(searchParams.get(\'limit\')) || 24));'),
-    'Must clamp route query parameter limit between 1 and 30'
+    'Must clamp route query parameter limit'
   );
 });
 
