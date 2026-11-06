@@ -38,6 +38,7 @@ import {
 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
+import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -176,7 +177,20 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
  * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
  */
 function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  const crawlTime = pin.crawled_at || pin.metadata?.crawled_at || null;
+  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
+    return {
+      shouldFetch: false,
+      reason: 'ssot_freshness_gate_18h',
+      reuseTelemetry: {
+        save_count: Number(pin.save_count || 0),
+        repin_count: Number(pin.repin_count || 0),
+        comment_count: Number(pin.comment_count || 0),
+        share_count: Number(pin.share_count || 0),
+        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+      }
+    };
+  }
+  const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const isDeepHydrated = Boolean(
     pin.is_deep_hydrated === true ||
@@ -1100,6 +1114,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               const rawMeta = (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {});
               const methodVal = sp.creation_method || sp.method || rawMeta.creation_method || rawMeta.method || 'pinterest_platform';
               const enrichedShardMeta = sanitizeShardMeta({
+                ...buildRichPinMetadataPayload(sp, rawMeta),
                 ...rawMeta,
                 creation_method: methodVal,
                 method: methodVal
@@ -1127,6 +1142,18 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 comment_count: sp.comment_count != null ? Number(sp.comment_count) : null,
                 share_count: sp.share_count != null ? Number(sp.share_count) : null,
                 daily_save_velocity: sp.daily_save_velocity != null ? Number(sp.daily_save_velocity) : null,
+                delta_repins_24h: sp.delta_repins_24h != null ? Number(sp.delta_repins_24h) : null,
+                gains_5d: sp.gains_5d != null ? Number(sp.gains_5d) : null,
+                gains_7d: sp.gains_7d != null ? Number(sp.gains_7d) : null,
+                gains_10d: sp.gains_10d != null ? Number(sp.gains_10d) : null,
+                gains_15d: sp.gains_15d != null ? Number(sp.gains_15d) : null,
+                is_product: Boolean(sp.is_product || enrichedShardMeta.is_product),
+                is_video: Boolean(sp.is_video || enrichedShardMeta.is_video),
+                creation_method: String(methodVal),
+                image_signature: enrichedShardMeta.image_signature ? String(enrichedShardMeta.image_signature) : null,
+                seo_noindex_reason: enrichedShardMeta.seo_noindex_reason ? String(enrichedShardMeta.seo_noindex_reason) : null,
+                is_repin: Boolean(enrichedShardMeta.is_repin),
+                canonical_pin_id: enrichedShardMeta.canonical_pin_id ? String(enrichedShardMeta.canonical_pin_id) : null,
                 is_displaced: Boolean(sp.is_displaced),
                 last_known_rank: sp.last_known_rank ? Number(sp.last_known_rank) : null,
                 catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
@@ -1141,16 +1168,25 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
                 image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-                first_discovered_pillar, first_discovered_at, updated_at
+                save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+                delta_saves_24h, delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d,
+                is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+                last_scraped_at, first_discovered_pillar, first_discovered_at, updated_at
               )
               SELECT DISTINCT ON (u.pin_id)
                 u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain, u.destination_url,
                 u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations, NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
-                'keyword', NOW(), NOW()
+                COALESCE(u.save_count, 0), COALESCE(u.repin_count, 0), COALESCE(u.comment_count, 0), COALESCE(u.share_count, 0), COALESCE(u.reaction_count, 0), COALESCE(u.daily_save_velocity, 0),
+                COALESCE(u.daily_save_velocity, 0), COALESCE(u.delta_repins_24h, 0), COALESCE(u.gains_5d, 0), COALESCE(u.gains_7d, 0), COALESCE(u.gains_10d, 0), COALESCE(u.gains_15d, 0),
+                COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), COALESCE(NULLIF(u.creation_method, ''), 'pinterest_platform'), u.image_signature, u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
+                NOW(), 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, board_slug text, title text, domain text,
                 destination_url text, image_url text, description text, alt_text text, dominant_color text,
-                visual_annotations jsonb, created_at_pinterest text, metadata jsonb
+                visual_annotations jsonb, created_at_pinterest text, metadata jsonb,
+                save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric,
+                delta_repins_24h int, gains_5d int, gains_7d int, gains_10d int, gains_15d int,
+                is_product boolean, is_video boolean, creation_method text, image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
               )
               ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
               ON CONFLICT (pin_id) DO UPDATE SET
@@ -1189,6 +1225,26 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                        )
                        ELSE '{}'::jsonb
                      END,
+                save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+                repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+                comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+                share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+                reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+                daily_save_velocity = CASE WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity ELSE COALESCE(universal_master_pins.daily_save_velocity, 0) END,
+                delta_saves_24h = CASE WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h ELSE COALESCE(universal_master_pins.delta_saves_24h, 0) END,
+                delta_repins_24h = CASE WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h ELSE COALESCE(universal_master_pins.delta_repins_24h, 0) END,
+                gains_5d = CASE WHEN EXCLUDED.gains_5d > 0 THEN EXCLUDED.gains_5d ELSE COALESCE(universal_master_pins.gains_5d, 0) END,
+                gains_7d = CASE WHEN EXCLUDED.gains_7d > 0 THEN EXCLUDED.gains_7d ELSE COALESCE(universal_master_pins.gains_7d, 0) END,
+                gains_10d = CASE WHEN EXCLUDED.gains_10d > 0 THEN EXCLUDED.gains_10d ELSE COALESCE(universal_master_pins.gains_10d, 0) END,
+                gains_15d = CASE WHEN EXCLUDED.gains_15d > 0 THEN EXCLUDED.gains_15d ELSE COALESCE(universal_master_pins.gains_15d, 0) END,
+                is_product = (COALESCE(universal_master_pins.is_product, FALSE) OR COALESCE(EXCLUDED.is_product, FALSE)),
+                is_video = (COALESCE(universal_master_pins.is_video, FALSE) OR COALESCE(EXCLUDED.is_video, FALSE)),
+                creation_method = CASE WHEN EXCLUDED.creation_method IS NOT NULL AND EXCLUDED.creation_method <> 'pinterest_platform' THEN EXCLUDED.creation_method ELSE COALESCE(universal_master_pins.creation_method, 'pinterest_platform') END,
+                image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+                seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+                is_repin = (COALESCE(universal_master_pins.is_repin, FALSE) OR COALESCE(EXCLUDED.is_repin, FALSE)),
+                canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+                last_scraped_at = NOW(),
                 updated_at = NOW();
             `;
 

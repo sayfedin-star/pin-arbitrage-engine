@@ -27,7 +27,8 @@ import {
   batchGroupByShard,
   coalesceShardGroupsByPhysical,
   resolveShardConnection,
-  preloadNeonRegistry
+  preloadNeonRegistry,
+  isUnifiedPostgres
 } from '../src/modules/sharding/fleet-router.mjs';
 
 // Load .env
@@ -126,7 +127,7 @@ export async function optimizeHubStorage(sql) {
         await Promise.allSettled(chunk.map(async ([shardId, pins]) => {
           try {
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-            if (!shardSql || shardSql === sql) {
+            if (!shardSql || (!isUnifiedPostgres() && shardSql === sql)) {
               throw new Error(`Shard #${shardId} resolved to invalid or fallback Hub connection.`);
             }
 
@@ -393,8 +394,8 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Displaced archive warning:', err.message);
   }
 
-  // 2. Offload residual keyword_pins_snapshots to 99 Shards before pruning
-  try {
+  // 2. Offload residual keyword_pins_snapshots to 99 Shards before pruning (Skip in Unified DB where keyword_pins_snapshots is a VIEW)
+  if (!isUnifiedPostgres()) try {
     await preloadNeonRegistry(sql);
     let totalSnapshotsPruned = 0;
 

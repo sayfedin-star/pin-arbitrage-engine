@@ -26,6 +26,7 @@ import {
   isUnifiedPostgres
 } from '../sharding/fleet-router.mjs';
 import { hydratePinsFromD1, syncPinsBatchToD1 } from './d1-metadata.mjs';
+import { extractCanonicalAnnotations, normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 
 export const folderTrendsCache = new Map();
 export const FOLDER_TRENDS_CACHE_MAX = 100;
@@ -1990,7 +1991,7 @@ export function cleanExternalDomain(domainStr) {
 /**
  * Helper to extract title entities / stopword-filtered n-grams
  */
-function extractTitleKeywords(title = '') {
+export function extractTitleKeywords(title = '') {
   if (!title) return [];
   const tokens = String(title)
     .toLowerCase()
@@ -3082,24 +3083,15 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   for (const pin of allPins) {
     const rawTags = new Set();
-    // 1. From visual annotations (Pinterest Computer Vision labels)
-    for (const va of pin.visual_annotations) {
-      const rawTag = (typeof va === 'object' && va !== null)
-        ? String(va.name || va.tag || va.label || va.display_label || va.term || va.title || '')
-        : (typeof va === 'string' ? va : '');
-      const clean = rawTag.trim().toLowerCase();
+    // Strictly extract pure Pinterest Computer Vision & semantic visual_annotations (never mix single title words)
+    const canonicalTags = extractCanonicalAnnotations(pin.visual_annotations, { lemmatizeDedupe: true, titleCase: false, limit: 25 });
+    for (const rawTag of canonicalTags) {
+      const clean = normalizeAnnotationTag(rawTag, { lemmatize: true });
       if (clean && clean.length >= 3 && !STOPWORDS.has(clean)) {
         const lemma = normalizeTagLemma(clean);
         if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
           rawTags.add(lemma);
         }
-      }
-    }
-    // 2. From title entities (already lemmatized and stopword-filtered)
-    const titleTokens = extractTitleKeywords(pin.title);
-    for (const tt of titleTokens) {
-      if (tt && tt.length >= 3 && !STOPWORDS.has(tt.toLowerCase())) {
-        rawTags.add(tt);
       }
     }
 

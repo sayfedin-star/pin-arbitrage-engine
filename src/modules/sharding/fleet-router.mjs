@@ -22,6 +22,7 @@
 import { neon } from '@neondatabase/serverless';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import { ensureEdgePinsMetadataTable } from '../keywords/d1-metadata.mjs';
+import { buildRichPinMetadataPayload } from '../../domain/pin-intelligence.mjs';
 
 // Standard CRC32 table for deterministic hashing
 const CRC_TABLE = new Uint32Array(256);
@@ -896,11 +897,19 @@ export function coalesceShardGroupsByPhysical(batches) {
     entries = Object.entries(batches);
   }
 
+  // Single Unified Database fast-path: coalesce into 1 single batch when no separate shard DSNs exist
+  const singleUnifiedBatch = (
+    isUnifiedPostgres() &&
+    globalShardMap.size === 0 &&
+    shardSqlClients.size <= 1 &&
+    !(typeof process !== 'undefined' && process.env?.NEON_SHARD_DSN_TEMPLATE)
+  );
+
   for (const [vShardId, items] of entries) {
     if (!items) continue;
     const itemList = Array.isArray(items) ? items : [items];
     if (itemList.length === 0) continue;
-    const pShardId = getPhysicalShardId(vShardId);
+    const pShardId = singleUnifiedBatch ? 1 : getPhysicalShardId(vShardId);
     if (!physicalGroups.has(pShardId)) {
       physicalGroups.set(pShardId, []);
     }
@@ -1443,6 +1452,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
               pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
               image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
               first_discovered_pillar, first_discovered_at, updated_at,
+              save_count, repin_count, comment_count, share_count, reaction_count,
+              daily_save_velocity, delta_saves_24h, delta_repins_24h,
+              gains_5d, gains_7d, gains_10d, gains_15d,
+              is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id, last_scraped_at,
               COALESCE(metadata, '{}'::jsonb) AS metadata
             FROM universal_master_pins
             WHERE pin_id = ${cleanPinId}
@@ -3613,6 +3626,7 @@ export async function writeBatchToDeterministicShards(params = {}) {
     );
     const rawColor = p.dominant_color ? String(p.dominant_color).trim() : '';
     const cleanColor = (rawColor && !['', '#888888', '#1e1e24', '#000000', '#18181b'].includes(rawColor.toLowerCase())) ? rawColor : null;
+    const richMeta = buildRichPinMetadataPayload(p);
     return {
       pin_id: pid,
       creator_username: String(p.creator_username || p.account_username || ''),
@@ -3626,19 +3640,20 @@ export async function writeBatchToDeterministicShards(params = {}) {
       dominant_color: cleanColor,
       visual_annotations: Array.isArray(p.visual_annotations || p.annotations) ? (p.visual_annotations || p.annotations) : [],
       created_at_pinterest: safeIsoDate(p.created_at_pinterest),
-      metadata: {
-        is_product: Boolean(p.is_product),
-        is_video: Boolean(p.is_video),
-        reactions: reactions,
-        creation_method: p.creation_method || p.method || null,
-        method: p.creation_method || p.method || null
-      },
-      save_count: Math.max(0, Number(p.saves || p.save_count || 0)),
-      repin_count: Math.max(0, Number(p.repins || p.repin_count || 0)),
-      comment_count: Math.max(0, Number(p.comments || p.comment_count || 0)),
-      share_count: Math.max(0, Number(p.shares || p.share_count || 0)),
+      metadata: richMeta,
+      save_count: Math.max(0, Number(p.saves ?? p.save_count ?? 0)),
+      repin_count: Math.max(0, Number(p.repins ?? p.repin_count ?? 0)),
+      comment_count: Math.max(0, Number(p.comments ?? p.comment_count ?? 0)),
+      share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
       reaction_count: Math.max(0, Number(reactionCount || 0)),
-      daily_save_velocity: Number(p.velocity || p.daily_save_velocity || 0)
+      daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
+      is_product: Boolean(richMeta.is_product),
+      is_video: Boolean(richMeta.is_video),
+      creation_method: richMeta.creation_method || null,
+      image_signature: richMeta.image_signature || null,
+      seo_noindex_reason: richMeta.seo_noindex_reason || null,
+      is_repin: Boolean(richMeta.is_repin),
+      canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
     };
   };
 
@@ -3660,17 +3675,26 @@ export async function writeBatchToDeterministicShards(params = {}) {
         INSERT INTO universal_master_pins (
           pin_id, creator_username, board_name, title, domain, destination_url,
           image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-          first_discovered_pillar, first_discovered_at, updated_at
+          save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+          is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+          first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
         )
         SELECT DISTINCT ON (u.pin_id)
           u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
           u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
           NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
-          'batch_ingest', NOW(), NOW()
+          COALESCE(u.save_count, 0)::bigint, COALESCE(u.repin_count, 0)::int, COALESCE(u.comment_count, 0)::int,
+          COALESCE(u.share_count, 0)::int, COALESCE(u.reaction_count, 0)::int, COALESCE(u.daily_save_velocity, 0)::numeric,
+          COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), u.creation_method, u.image_signature,
+          u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
+          'batch_ingest', NOW(), NOW(), NOW()
         FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
           pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
           image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
-          created_at_pinterest text, metadata jsonb
+          created_at_pinterest text, metadata jsonb,
+          save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int,
+          daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
+          image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
         )
         ORDER BY u.pin_id ASC
         ON CONFLICT (pin_id) DO UPDATE SET
@@ -3697,7 +3721,24 @@ export async function writeBatchToDeterministicShards(params = {}) {
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
           metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-          updated_at = NOW();
+          save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+          repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+          comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+          share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+          reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+          daily_save_velocity = CASE
+            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+            ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+          END,
+          is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
+          is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
+          creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
+          image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+          seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+          is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
+          canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+          updated_at = NOW(),
+          last_scraped_at = NOW();
       `;
 
       await hubSql`

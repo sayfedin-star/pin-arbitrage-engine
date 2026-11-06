@@ -19,6 +19,7 @@
 
 import { hydratePinsFromD1 } from '../keywords/d1-metadata.mjs';
 import { isUnifiedPostgres } from '../sharding/fleet-router.mjs';
+import { normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)
 export const pulseMemoryCache = new Map();
@@ -36,7 +37,7 @@ const tagNormCache = new Map();
 function getNormalizedTag(label) {
   let norm = tagNormCache.get(label);
   if (norm === undefined) {
-    norm = label.toLowerCase().replace(/\s+/g, ' ');
+    norm = normalizeAnnotationTag(label, { lemmatize: true });
     if (tagNormCache.size < 2000) tagNormCache.set(label, norm);
   }
   return norm;
@@ -97,7 +98,7 @@ export function getCanonicalCreativeKey(p) {
  * - Object arrays: [{"name": "Summer Outfits", "idea_id": "123"}]
  * - Stringified JSON strings
  * - Wrapped objects: { tags: [...] }
- * Deduplicates intra-pin tags, filters labels < 2 chars, and omits hallucinated confidence scores.
+ * Deduplicates intra-pin tags via canonical lemmatization, filters stopwords/labels < 2 chars, and omits hallucinated confidence scores.
  */
 export function extractCleanAnnotations(raw) {
   if (!raw) return [];
@@ -126,6 +127,7 @@ export function extractCleanAnnotations(raw) {
       : String(item?.display || item?.name || item?.tag || item?.label || item?.display_label || item?.term || item?.norm || '').trim();
     if (!label || label.length < 2) continue;
     const norm = getNormalizedTag(label);
+    if (!norm || norm.length < 2) continue;
     let duplicate = false;
     for (let j = 0; j < result.length; j++) {
       if (result[j].norm === norm) { duplicate = true; break; }

@@ -54,6 +54,7 @@ import {
 } from '../src/modules/sharding/fleet-router.mjs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
+import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 
 // Setup optional Undici keep-alive agent
 let undiciAgent = null;
@@ -269,6 +270,7 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
       const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
         ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
         : (Number(p.reactions) || 0);
+      const richMeta = buildRichPinMetadataPayload(p);
 
       return {
         pin_id: String(p.pin_id),
@@ -283,19 +285,20 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
         dominant_color: String(p.dominant_color || '#888888'),
         visual_annotations: p.annotations || p.visual_annotations || [],
         created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-        metadata: {
-          is_product: Boolean(p.is_product),
-          is_video: Boolean(p.is_video),
-          reactions: p.reactions || {},
-          creation_method: p.creation_method || p.method || null,
-          method: p.creation_method || p.method || null
-        },
-        save_count: Math.max(0, Number(p.saves || p.save_count || 0)),
-        repin_count: Math.max(0, Number(p.repins || p.repin_count || 0)),
-        comment_count: Math.max(0, Number(p.comments || p.comment_count || 0)),
-        share_count: Math.max(0, Number(p.shares || p.share_count || 0)),
+        metadata: richMeta,
+        save_count: Math.max(0, Number(p.saves ?? p.save_count ?? 0)),
+        repin_count: Math.max(0, Number(p.repins ?? p.repin_count ?? 0)),
+        comment_count: Math.max(0, Number(p.comments ?? p.comment_count ?? 0)),
+        share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
         reaction_count: Math.max(0, Number(reactionCount || 0)),
-        daily_save_velocity: Number(p.velocity || p.daily_save_velocity || 0)
+        daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
+        is_product: Boolean(richMeta.is_product),
+        is_video: Boolean(richMeta.is_video),
+        creation_method: richMeta.creation_method || null,
+        image_signature: richMeta.image_signature || null,
+        seo_noindex_reason: richMeta.seo_noindex_reason || null,
+        is_repin: Boolean(richMeta.is_repin),
+        canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
       };
     });
 
@@ -304,12 +307,22 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
       const payload = JSON.stringify(chunk);
       await hubSql`
         INSERT INTO universal_master_pins (
-          pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata, first_discovered_pillar, first_discovered_at, updated_at
+          pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
+          save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+          is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+          first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
         )
         SELECT 
-          x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata, 'creator_hub', NOW(), NOW()
+          x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
+          COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
+          COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric,
+          COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
+          x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
+          'creator_hub', NOW(), NOW(), NOW()
         FROM jsonb_to_recordset(${payload}::jsonb) AS x(
-          pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB
+          pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
+          save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC,
+          is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id) DO UPDATE SET
@@ -324,8 +337,25 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
           dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
           visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-          metadata = universal_master_pins.metadata || EXCLUDED.metadata,
-          updated_at = NOW();
+          metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+          save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+          repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+          comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+          share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+          reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+          daily_save_velocity = CASE
+            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+            ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+          END,
+          is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
+          is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
+          creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
+          image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+          seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+          is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
+          canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+          updated_at = NOW(),
+          last_scraped_at = NOW();
       `;
       totalSynced += chunk.length;
     }
@@ -710,14 +740,18 @@ async function run() {
 
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
     const catalogPins = await sql`
-      SELECT id, pin_id, competitor_id, board_name, save_count, repin_count, comment_count,
-             enrichment_status, created_at_pinterest, updated_at AS last_updated_at,
-             COALESCE((metadata->>'daily_save_velocity')::numeric, (metadata->>'velocity')::numeric, 0) AS prev_velocity
-      FROM competitor_pins
-      WHERE competitor_id = ${targetId}
-        AND pin_id IS NOT NULL AND pin_id <> ''
-        AND shard_id = ANY(${assignedArray}::smallint[])
-      ORDER BY id ASC;
+      SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, cp.save_count, cp.repin_count, cp.comment_count,
+             cp.enrichment_status, cp.created_at_pinterest, cp.updated_at AS last_updated_at,
+             COALESCE((cp.metadata->>'daily_save_velocity')::numeric, (cp.metadata->>'velocity')::numeric, 0) AS prev_velocity,
+             ump.last_scraped_at, ump.save_count AS ump_saves, ump.repin_count AS ump_repins, ump.comment_count AS ump_comments,
+             ump.share_count AS ump_shares, ump.daily_save_velocity AS ump_velocity,
+             ump.visual_annotations, ump.image_signature, ump.creation_method, ump.metadata AS ump_metadata
+      FROM competitor_pins cp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+      WHERE cp.competitor_id = ${targetId}
+        AND cp.pin_id IS NOT NULL AND cp.pin_id <> ''
+        AND cp.shard_id = ANY(${assignedArray}::smallint[])
+      ORDER BY cp.id ASC;
     `;
 
     const myCatalogSlice = catalogPins;
@@ -733,10 +767,34 @@ async function run() {
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myCatalogSlice.map(p => sem.run(async () => {
-        const prevSaves = Math.max(0, Number(p.save_count || 0));
-        const prevRepins = Math.max(0, Number(p.repin_count || 0));
-        const prevComments = Math.max(0, Number(p.comment_count || 0));
-        const prevVelocity = Number(p.prev_velocity ?? p.metadata?.daily_save_velocity ?? p.metadata?.velocity ?? 0);
+        const prevSaves = Math.max(0, Number(p.save_count || 0), Number(p.ump_saves || 0));
+        const prevRepins = Math.max(0, Number(p.repin_count || 0), Number(p.ump_repins || 0));
+        const prevComments = Math.max(0, Number(p.comment_count || 0), Number(p.ump_comments || 0));
+        const prevVelocity = Number(p.prev_velocity ?? p.ump_velocity ?? 0);
+
+        // 18-Hour Shared Pin Freshness Gate: Skip duplicate HTTP call if pin was already scraped within 18h in universal_master_pins
+        const masterSnapshot = {
+          last_scraped_at: p.last_scraped_at,
+          save_count: prevSaves,
+          visual_annotations: p.visual_annotations,
+          image_signature: p.image_signature,
+          creation_method: p.creation_method,
+          metadata: p.ump_metadata
+        };
+        if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
+          refreshedPins.push({
+            pin_id: String(p.pin_id),
+            saves: prevSaves,
+            repins: prevRepins,
+            comments: prevComments,
+            share_count: Number(p.ump_shares || 0),
+            velocity: prevVelocity,
+            delta_saves: prevVelocity,
+            delta_repins: 0
+          });
+          refreshedCount++;
+          return;
+        }
 
         let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
         const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
