@@ -623,6 +623,14 @@ export function getPulsePageHtml(folderId = '') {
           >
             <span>🎨 Dominant Color Swatches</span>
           </button>
+          <button 
+            type="button" 
+            @click="setMatrixSubFilter('domains')" 
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            :class="matrixSubFilter === 'domains' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+          >
+            <span>🌐 Top Arbitrage Domains</span>
+          </button>
         </div>
 
         <div class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Showing ' + getMatrixEntities().length + ' active intent patterns'"></div>
@@ -639,7 +647,7 @@ export function getPulsePageHtml(folderId = '') {
           </div>
 
           <div class="max-h-[640px] overflow-y-auto divide-y divide-slate-100 dark:divide-[#27272A]/50">
-            <template x-for="(item, idx) in getMatrixEntities().slice(0, displayLimits.matrix)" :key="matrixSubFilter + ':' + (item.label || item.pair || item.triplet || item.display_label || item.term || item.color || idx)">
+            <template x-for="(item, idx) in getMatrixEntities().slice(0, displayLimits.matrix)" :key="matrixSubFilter + ':' + (item.domain || item.label || item.pair || item.triplet || item.display_label || item.term || item.color || idx)">
               <div 
                 @click="selectMatrixItem(item)" 
                 class="p-3 transition cursor-pointer flex items-center justify-between gap-3 text-xs"
@@ -668,8 +676,16 @@ export function getPulsePageHtml(folderId = '') {
                     </div>
                   </template>
 
+                  <!-- Domain Presentation -->
+                  <template x-if="matrixSubFilter === 'domains'">
+                    <div class="min-w-0">
+                      <div class="font-bold text-slate-900 dark:text-white truncate" x-text="item.domain || item.label"></div>
+                      <div class="text-[10px] text-slate-400 font-mono" x-text="((item.keywords_count || item.keyword_count) ? (item.keywords_count || item.keyword_count) + ' keywords · ' : '') + formatNumber(item.total_saves || 0) + ' saves'"></div>
+                    </div>
+                  </template>
+
                   <!-- Crossover (Pairs, Triplets, Single) -->
-                  <template x-if="matrixSubFilter !== 'colors' && matrixSubFilter !== 'capsules'">
+                  <template x-if="matrixSubFilter !== 'colors' && matrixSubFilter !== 'capsules' && matrixSubFilter !== 'domains'">
                     <div>
                       <div class="font-bold text-slate-900 dark:text-white truncate" x-text="item.label || item.pair || item.triplet || item.display || item.tag"></div>
                       <div class="text-[10px] text-slate-400 font-mono" x-text="((item.keywords_count || item.keyword_count) ? (item.keywords_count || item.keyword_count) + ' keywords' : '')"></div>
@@ -677,14 +693,18 @@ export function getPulsePageHtml(folderId = '') {
                   </template>
                 </div>
 
-                <!-- Occurrence Count & Velocity -->
+                <!-- Occurrence Count, Save Velocity & Repins Surge -->
                 <div class="text-right shrink-0">
                   <div class="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300">
-                    <span x-text="formatNumber(item.pin_count || item.count || (typeof col !== 'undefined' ? (col.pin_count || col.count) : 0) || item.frequency || 0)"></span>
+                    <span x-text="formatNumber(item.pin_count || item.count || item.total_pins || (typeof col !== 'undefined' ? (col.pin_count || col.count) : 0) || item.frequency || 0)"></span>
                     <span class="text-[10px] text-slate-400">pins</span>
                   </div>
                   <div class="font-mono tabular-nums text-[11px] text-rose-600 dark:text-rose-400 font-bold" 
                        x-text="matrixSubFilter === 'capsules' ? (item.cross_serp_velocity > 0 ? (formatVelocity(item.cross_serp_velocity) + ' · Score ' + Number(item.score || 0).toFixed(1)) : ('Score ' + Number(item.score || 0).toFixed(1))) : formatVelocity(item.total_velocity || item.total_24h_gain || item.velocity || item.avg_velocity || 0)"></div>
+                  <template x-if="Number(item.total_repins_delta || item.repins_surge || 0) > 0">
+                    <div class="font-mono tabular-nums text-[10px] text-purple-600 dark:text-purple-400 font-bold"
+                         x-text="'+' + formatNumber(item.total_repins_delta || item.repins_surge || 0) + ' repins'"></div>
+                  </template>
                 </div>
               </div>
             </template>
@@ -1424,12 +1444,15 @@ export function getPulsePageHtml(folderId = '') {
           if (sub === 'colors') {
             return (item.color || item.dominant_color) === (this.selectedMatrixItem.color || this.selectedMatrixItem.dominant_color);
           }
+          if (sub === 'domains') {
+            return (item.domain || item.label) === (this.selectedMatrixItem.domain || this.selectedMatrixItem.label);
+          }
           return false;
         },
 
         getMatrixItemTag: function(item) {
           if (!item) return '';
-          return item.display_label || item.term || item.display || item.norm || item.label || item.pair || item.triplet || item.color || '';
+          return item.domain || item.display_label || item.term || item.display || item.norm || item.label || item.pair || item.triplet || item.color || '';
         },
 
         setCreatorSubFilter: function(sub) {
@@ -1666,7 +1689,7 @@ export function getPulsePageHtml(folderId = '') {
               var tags = (p.visual_annotations || p.annotations || []).map(function(t) {
                 return (typeof t === 'string' ? t : (t.norm || t.display || t.tag || '')).toLowerCase();
               });
-              var text = ((p.title || '') + ' ' + (p.keyword_text || '')).toLowerCase();
+              var text = ((p.title || '') + ' ' + (p.keyword_text || '') + ' ' + (p.domain || '')).toLowerCase();
               return tags.some(function(t) { return t.includes(tagQuery) || tagQuery.includes(t); }) || text.includes(tagQuery);
             });
           }
@@ -1719,12 +1742,14 @@ export function getPulsePageHtml(folderId = '') {
             list = this.guided_capsule_crossovers || [];
           } else if (sub === 'colors') {
             list = this.hidden_gems_telemetry.dominant_color_palette || [];
+          } else if (sub === 'domains') {
+            list = this.hidden_gems_telemetry.top_arbitrage_domains || [];
           }
 
           var q = (this.searchQuery || '').trim().toLowerCase();
           if (q) {
             list = list.filter(function(item) {
-              var label = String(item.label || item.pair || item.triplet || item.display || item.display_label || item.term || item.color || item.dominant_color || '').toLowerCase();
+              var label = String(item.domain || item.label || item.pair || item.triplet || item.display || item.display_label || item.term || item.color || item.dominant_color || '').toLowerCase();
               return label.includes(q);
             });
           }
@@ -1826,6 +1851,11 @@ export function getPulsePageHtml(folderId = '') {
             var targetColor = String(item.color || item.dominant_color || '').toLowerCase();
             matched = allPins.filter(function(p) {
               return Boolean(p.image_url) && (p.dominant_color || '').toLowerCase() === targetColor;
+            });
+          } else if (sub === 'domains') {
+            var targetDomain = String(item.domain || item.label || '').toLowerCase();
+            matched = allPins.filter(function(p) {
+              return Boolean(p.image_url) && (p.domain || '').toLowerCase() === targetDomain;
             });
           }
 

@@ -271,16 +271,19 @@ async function queryActiveSerp(sql, folderIdNum) {
       ksc.pin_id,
       ksc.rank_position,
       ksc.prev_rank_position,
-      ksc.title,
-      ksc.domain,
-      ksc.destination_url,
-      ksc.image_url,
-      ksc.creator_username,
-      ksc.board_name,
-      COALESCE(ksc.save_count, 0) AS save_count,
-      COALESCE(ksc.repin_count, 0) AS repin_count,
-      COALESCE(ksc.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(ksc.delta_repins_24h, 0) AS delta_repins_24h,
+      COALESCE(NULLIF(ksc.title, ''), NULLIF(ump.title, ''), '') AS title,
+      COALESCE(NULLIF(ksc.domain, ''), NULLIF(ump.domain, ''), '') AS domain,
+      COALESCE(NULLIF(ksc.destination_url, ''), NULLIF(ump.destination_url, ''), '') AS destination_url,
+      COALESCE(NULLIF(ksc.image_url, ''), NULLIF(ump.image_url, ''), '') AS image_url,
+      COALESCE(NULLIF(ksc.creator_username, ''), NULLIF(ump.creator_username, ''), '') AS creator_username,
+      COALESCE(NULLIF(ksc.board_name, ''), NULLIF(ump.board_name, ''), '') AS board_name,
+      COALESCE(ump.description, '') AS description,
+      COALESCE(ump.alt_text, '') AS alt_text,
+      GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
+      GREATEST(COALESCE(ksc.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+      COALESCE(NULLIF(ksc.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(NULLIF(ksc.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS delta_saves_24h,
+      COALESCE(NULLIF(ksc.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
       COALESCE(ksc.gains_5d, 0) AS gains_5d,
       COALESCE(ksc.gains_7d, 0) AS gains_7d,
       COALESCE(ksc.gains_10d, 0) AS gains_10d,
@@ -306,16 +309,15 @@ async function queryActiveSerp(sql, folderIdNum) {
         SELECT 1 FROM keyword_folder_items fi 
         WHERE fi.keyword_id = ksc.keyword_id AND fi.folder_id = ${folderIdNum}::int
       ))
-    ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0)) DESC, ksc.save_count DESC
-    LIMIT 5000;
+    ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ump.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC, ksc.save_count DESC
+    LIMIT 15000;
   `;
 }
 
 /**
  * Query 2: Displaced Vault Surge & 24h SERP Vacuum (keyword_displaced_index)
  * Part 2A: Aggregates displaced counts per keyword.
- * Part 2B: Top 250 Vault Surge Sleepers hydrated from D1.
- * // [CRITICAL SCHEMA INVARIANT: keyword_displaced_index has NO delta_saves_24h column in Postgres DDL]
+ * Part 2B: Full Surging Displaced Vault Pins hydrated from universal_master_pins SSOT.
  */
 async function queryVaultAndVacuum(sql, folderIdNum, env) {
   const [vacuumRows, vaultPinsRaw] = await Promise.all([
@@ -344,10 +346,11 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         kdi.last_known_rank,
         kdi.vacuum_opportunity_score,
         kdi.displaced_date,
-        COALESCE(kdi.save_count, 0) AS save_count,
-        COALESCE(kdi.repin_count, 0) AS repin_count,
-        COALESCE(kdi.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(kdi.delta_repins_24h, 0) AS delta_repins_24h,
+        GREATEST(COALESCE(kdi.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
+        GREATEST(COALESCE(kdi.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+        COALESCE(NULLIF(kdi.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(NULLIF(kdi.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS delta_saves_24h,
+        COALESCE(NULLIF(kdi.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
         COALESCE(kdi.gains_5d, 0) AS gains_5d,
         COALESCE(kdi.gains_7d, 0) AS gains_7d,
         COALESCE(kdi.gains_10d, 0) AS gains_10d,
@@ -355,19 +358,19 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(NULLIF(kdi.domain, ''), NULLIF(ump.domain, ''), NULLIF(pa.domain, ''), NULLIF(cpin.link_domain, ''), '') AS domain,
         COALESCE(NULLIF(kdi.creator_username, ''), NULLIF(ump.creator_username, ''), NULLIF(pa.account_username, ''), '') AS creator_username,
         kdi.shard_id,
-        COALESCE(NULLIF(pa.title, ''), NULLIF(cpin.title, ''), NULLIF(ump.title, ''), '') AS title,
-        COALESCE(NULLIF(pa.description, ''), NULLIF(cpin.description, ''), NULLIF(ump.description, ''), '') AS description,
-        COALESCE(NULLIF(pa.alt_text, ''), NULLIF(cpin.alt_text, ''), NULLIF(ump.alt_text, ''), '') AS alt_text,
-        COALESCE(NULLIF(pa.image_url, ''), NULLIF(cpin.image_url, ''), NULLIF(ump.image_url, ''), '') AS image_url,
-        COALESCE(NULLIF(pa.link, ''), NULLIF(cpin.destination_url, ''), NULLIF(ump.destination_url, ''), '') AS destination_url,
-        COALESCE(NULLIF(pa.board_name, ''), NULLIF(cpin.board_name, ''), NULLIF(ump.board_name, ''), '') AS board_name,
+        COALESCE(NULLIF(ump.title, ''), NULLIF(pa.title, ''), NULLIF(cpin.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.description, ''), NULLIF(pa.description, ''), NULLIF(cpin.description, ''), '') AS description,
+        COALESCE(NULLIF(ump.alt_text, ''), NULLIF(pa.alt_text, ''), NULLIF(cpin.alt_text, ''), '') AS alt_text,
+        COALESCE(NULLIF(ump.image_url, ''), NULLIF(pa.image_url, ''), NULLIF(cpin.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.destination_url, ''), NULLIF(pa.link, ''), NULLIF(cpin.destination_url, ''), '') AS destination_url,
+        COALESCE(NULLIF(ump.board_name, ''), NULLIF(pa.board_name, ''), NULLIF(cpin.board_name, ''), '') AS board_name,
         COALESCE(
           CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
           CASE WHEN pa.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN pa.dominant_color ELSE NULL END,
           NULL
         ) AS dominant_color,
-        COALESCE(NULLIF(pa.annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
-        COALESCE(pa.created_at_pinterest, cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), NULLIF(pa.annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest, cpin.created_at_pinterest) AS created_at_pinterest
       FROM keyword_displaced_index kdi
       JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
       LEFT JOIN pa_pins pa ON pa.pin_id = kdi.pin_id
@@ -378,19 +381,15 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         WHERE cp.pin_id = kdi.pin_id AND cp.is_deleted = FALSE
         LIMIT 1
       ) cpin ON TRUE
-      WHERE (kdi.daily_save_velocity > 0 OR kdi.delta_repins_24h > 0)
+      WHERE (COALESCE(kdi.daily_save_velocity, 0) > 0 OR COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(kdi.delta_repins_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
         AND (${folderIdNum}::int IS NULL OR EXISTS (
           SELECT 1 FROM keyword_folder_items fi 
           WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
         ))
-      ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0)) DESC
-      LIMIT 150;
+      ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(ump.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC
+      LIMIT 15000;
     `
   ]);
-
-  for (let i = 0; i < vaultPinsRaw.length; i++) {
-    vaultPinsRaw[i].delta_saves_24h = 0; // [INVARIANT: ANTI-FABRICATION: do NOT set delta_saves_24h = dailyVel]
-  }
 
   return { vacuumRows, vaultPins: vaultPinsRaw };
 }
@@ -424,12 +423,12 @@ async function queryViralCreatorPins(sql, folderIdNum) {
     LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
     CROSS JOIN LATERAL (
       SELECT
-        COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
-        COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
-        COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h
+        COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
+        COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
+        COALESCE(NULLIF(ump.delta_repins_24h, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h
     ) m
     WHERE cpin.is_deleted = FALSE
-      AND (cpin.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'])
+      AND (cpin.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'] OR COALESCE(ump.daily_save_velocity, 0) > 0)
       AND (${folderIdNum}::int IS NULL OR cp.source_folder_id = ${folderIdNum}::int OR EXISTS (
         SELECT 1 FROM folder_competitor_items fci 
         WHERE fci.competitor_id = cpin.competitor_id AND fci.folder_id = ${folderIdNum}::int
@@ -737,17 +736,18 @@ async function queryWinnersAndDomains(sql) {
         pa.board_name,
         pa.image_url,
         COALESCE(pa.dominant_color, '#888888') AS dominant_color,
-        COALESCE(pa.saves, 0) AS saves,
-        COALESCE(pa.repins, 0) AS repins,
-        COALESCE(pa.comments, 0) AS comments,
-        COALESCE(pa.velocity, 0) AS velocity,
+        GREATEST(COALESCE(pa.saves, 0), COALESCE(ump.save_count, 0)) AS saves,
+        GREATEST(COALESCE(pa.repins, 0), COALESCE(ump.repin_count, 0)) AS repins,
+        GREATEST(COALESCE(pa.comments, 0), COALESCE(ump.comment_count, 0)) AS comments,
+        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) AS velocity,
         COALESCE(pa.annotations, '[]'::jsonb) AS annotations,
         pa.created_at_pinterest,
         pa.first_seen_at,
         pa.last_updated_at
       FROM pa_pins pa
-      WHERE (pa.velocity > 0 OR pa.saves >= 100)
-      ORDER BY pa.velocity DESC, pa.saves DESC
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
+      WHERE (COALESCE(ump.daily_save_velocity, pa.velocity, 0) > 0 OR COALESCE(pa.saves, 0) >= 100)
+      ORDER BY COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) DESC, GREATEST(COALESCE(pa.saves, 0), COALESCE(ump.save_count, 0)) DESC
       LIMIT 100;
     `,
     sql`
@@ -1120,7 +1120,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
     // Merge Top 100 Qualified PinArchive Winners into unified surge pool [Round 16 Gate 5.3]
     for (const pa of (paWinners || [])) {
-      mergePinIntoMap(pinMap, pa, 'pinarchive_winner', keywordFoldersMap);
+      const pid = String(pa.pin_id);
+      if (!folderIdNum || pinMap.has(pid)) {
+        mergePinIntoMap(pinMap, pa, 'pinarchive_winner', keywordFoldersMap);
+      }
     }
 
     // 6. Process Merged Pins, Compute Unified 24h Velocity & Extract N-Grams
@@ -1496,7 +1499,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
     }
 
-    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 90 surging pins, sorted before slicing)
+    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 400 surging pins, sorted before slicing)
     const candidatePins = [];
     const candidateSeenCreative = new Set();
     for (let i = 0; i < allActivePins.length; i++) {
@@ -1508,7 +1511,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (candidateSeenCreative.has(cKey)) continue;
         candidateSeenCreative.add(cKey);
         candidatePins.push(p);
-        if (candidatePins.length >= 90) break;
+        if (candidatePins.length >= 400) break;
       }
     }
     const pairTagMap = new Map();
@@ -1768,7 +1771,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       return matrixSummary;
     };
 
-    // Unified Breakout Pins Feed (Hydrated pins first up to 100, then unhydrated skeletons up to 10) [Round 16 Gate 5.2 & Gate 5.3]
+    // Unified Breakout Pins Feed (Full un-truncated surging feed with windowed UI pagination)
     const seenBreakoutIds = new Set();
     const seenCreativeKeys = new Set();
     const breakoutPinsTop250 = [];
@@ -1779,30 +1782,37 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const seenFreshRocketKeys = new Set();
     const vacuumHijackCandidates = [];
     const domainlessViralCandidates = [];
+    const vaultSurgeCandidates = [];
     let domainlessViralTotalCount = 0;
 
     for (let i = 0; i < allActivePins.length; i++) {
       const p = allActivePins[i];
+      const hasGain = (p.effective_24h_gain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0 || (p.window_saves_gain || 0) > 0);
       if (p.is_hydrated_int === 1) {
-        if (hydratedPins.length < 80) hydratedPins.push(p);
+        if ((hasGain || hydratedPins.length < 100) && hydratedPins.length < 3500) {
+          hydratedPins.push(p);
+        }
       } else {
-        if (skeletonPins.length < 10) skeletonPins.push(p);
+        if (skeletonPins.length < 15) skeletonPins.push(p);
       }
-      if (freshRocketCandidates.length < 20 && p.is_fresh_14d && (p.effective_24h_gain > 0 || p.daily_save_velocity > 0 || p.delta_repins_24h > 0 || (p.window_saves_gain || 0) > 0)) {
+      if (freshRocketCandidates.length < 1000 && p.is_fresh_14d && hasGain) {
         const cKey = getCanonicalCreativeKey(p);
         if (!cKey || !seenFreshRocketKeys.has(cKey)) {
           if (cKey) seenFreshRocketKeys.add(cKey);
           freshRocketCandidates.push(p);
         }
       }
-      if (vacuumHijackCandidates.length < 15 && p.is_vacuum_hijack_target) {
+      if (vacuumHijackCandidates.length < 1000 && p.is_vacuum_hijack_target) {
         vacuumHijackCandidates.push(p);
       }
-      if (p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100)) {
+      if (p.is_domainless_viral && (hasGain || p.save_count >= 100)) {
         domainlessViralTotalCount++;
-        if (domainlessViralCandidates.length < 15) {
+        if (domainlessViralCandidates.length < 1000) {
           domainlessViralCandidates.push(p);
         }
+      }
+      if (p.sources && p.sources.includes('vault_surge') && hasGain && vaultSurgeCandidates.length < 2500) {
+        vaultSurgeCandidates.push(p);
       }
     }
 
@@ -1822,7 +1832,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         seenBreakoutIds.add(p.pin_id);
         if (cKey) seenCreativeKeys.add(cKey);
         breakoutPinsTop250.push(formatPinSummary(p));
-        if (breakoutPinsTop250.length >= 100) break;
       }
     }
 
@@ -1837,6 +1846,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     }
 
     const freshRocketPinsTop50 = freshRocketCandidates.map(formatPinSummary);
+    const vaultSurgePinsFormatted = vaultSurgeCandidates.map(formatPinSummary);
 
     // Section 3: Format N-Gram Crossovers with Slicing FIRST & Hard Support Floor (pin_count >= 2) [Round 16]
     const singleAnnotations = Array.from(singleTagMap.values())
@@ -2212,7 +2222,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (bKwCount !== aKwCount) return bKwCount - aKwCount;
         return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
       })
-      .slice(0, 15)
+      .slice(0, 1500)
       .map(formatPinSummary);
 
     let totalVacuumTop10_24h = 0;
@@ -2311,19 +2321,85 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       })
       .slice(0, 12);
 
-    const topArbitrageDomains = domainRollups.map(d => ({
-      domain: d.domain,
-      total_pins: Number(d.total_pins || 0),
-      active_serp_pins: Number(d.active_serp_pins || 0),
-      top10_pins: Number(d.top10_pins || 0),
-      visibility_score: Number(d.visibility_score || 0),
-      total_saves: Number(d.total_saves || 0),
-      avg_velocity: Number(d.avg_velocity || 0),
-      ad_network: d.ad_network || 'unchecked',
-      age_days: Number(d.age_days || 0),
-      age_years: d.age_years != null ? Number(d.age_years) : null,
-      arbitrage_score: Number(d.arbitrage_score || 0)
-    }));
+    const domainRollupLookup = new Map();
+    for (const dr of (domainRollups || [])) {
+      if (dr && dr.domain) domainRollupLookup.set(String(dr.domain).toLowerCase(), dr);
+    }
+
+    const liveDomainMap = new Map();
+    for (let i = 0; i < allActivePins.length; i++) {
+      const p = allActivePins[i];
+      const dom = String(p.domain || '').trim().toLowerCase();
+      if (!dom || dom === 'uploaded by user' || dom.includes('pinterest.') || dom.includes('pinimg.')) continue;
+      let dEntry = liveDomainMap.get(dom);
+      if (!dEntry) {
+        dEntry = {
+          domain: dom,
+          total_pins: 0,
+          active_serp_pins: 0,
+          top10_pins: 0,
+          total_saves: 0,
+          total_velocity: 0,
+          total_repins_delta: 0,
+          kwSet: new Set(),
+          matchingPins: []
+        };
+        liveDomainMap.set(dom, dEntry);
+      }
+      dEntry.total_pins++;
+      if (p.sources && p.sources.includes('active_serp')) dEntry.active_serp_pins++;
+      if (p.best_rank != null && p.best_rank <= 10) dEntry.top10_pins++;
+      dEntry.total_saves += (p.save_count || 0);
+      const pinVel = (windowParam !== '24h' && p.window_saves_gain > 0)
+        ? p.window_saves_gain
+        : (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
+      dEntry.total_velocity += (pinVel || 0);
+      dEntry.total_repins_delta += (p.delta_repins_24h || 0);
+      for (let ki = 0; ki < (p.keywords || []).length; ki++) {
+        dEntry.kwSet.add(p.keywords[ki].keyword_id);
+      }
+      if (dEntry.matchingPins.length < 6 && p.image_url) {
+        dEntry.matchingPins.push(p);
+      }
+    }
+
+    const topArbitrageDomains = Array.from(liveDomainMap.values())
+      .map(d => {
+        const rollup = domainRollupLookup.get(d.domain) || {};
+        const totalVel = Number(d.total_velocity.toFixed(2));
+        const avgVel = d.total_pins > 0 ? Number((d.total_velocity / d.total_pins).toFixed(2)) : Number(rollup.avg_velocity || 0);
+        return {
+          domain: d.domain,
+          label: d.domain,
+          display_label: d.domain,
+          total_pins: d.total_pins,
+          pin_count: d.total_pins,
+          count: d.total_pins,
+          active_serp_pins: d.active_serp_pins,
+          top10_pins: d.top10_pins,
+          keywords_count: d.kwSet.size,
+          keyword_count: d.kwSet.size,
+          visibility_score: Number(rollup.visibility_score || (d.top10_pins * 10 + d.active_serp_pins * 2)),
+          total_saves: d.total_saves,
+          total_velocity: totalVel,
+          velocity: totalVel,
+          total_24h_gain: totalVel,
+          avg_velocity: avgVel,
+          total_repins_delta: d.total_repins_delta,
+          repins_surge: d.total_repins_delta,
+          ad_network: rollup.ad_network || 'unchecked',
+          age_days: Number(rollup.age_days || 0),
+          age_years: rollup.age_years != null ? Number(rollup.age_years) : null,
+          arbitrage_score: Number(rollup.arbitrage_score || totalVel),
+          matching_pins: d.matchingPins.slice(0, 6).map(formatMatrixPinSummary)
+        };
+      })
+      .sort((a, b) => {
+        if (b.total_velocity !== a.total_velocity) return b.total_velocity - a.total_velocity;
+        if (b.total_repins_delta !== a.total_repins_delta) return b.total_repins_delta - a.total_repins_delta;
+        return b.total_saves - a.total_saves;
+      })
+      .slice(0, 60);
 
     // Section 1: Executive KPI Ribbon
     const kpis = {
@@ -2338,7 +2414,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       shared_guided_capsules_count: sharedCapsulesCount,
       serp_vacuum_top10_24h_count: totalVacuumTop10_24h,
       domainless_viral_pins_count: domainlessViralTotalCount,
-      vault_surge_pins_count: vaultPins.length
+      vault_surge_pins_count: vaultSurgePinsFormatted.length
     };
 
     const payload = {
@@ -2352,7 +2428,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       kpis,
       breakout_pins: breakoutPinsTop250,
       fresh_rocket_pins: freshRocketPinsTop50,
-      vault_surge_pins: vaultPins.slice(0, 15).map(formatPinSummary),
+      vault_surge_pins: vaultSurgePinsFormatted,
       pinarchive_winners: paWinners.slice(0, 10).map(p => ({
         ...p,
         saves: Number(p.saves || 0),

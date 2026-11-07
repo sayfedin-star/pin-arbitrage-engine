@@ -2285,11 +2285,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         ELSE NULL
       END AS visual_annotations,
       ra.creation_method,
-      ra.save_count,
-      ra.repin_count,
-      ra.comment_count,
-      ra.daily_save_velocity,
-      ra.delta_repins_24h,
+      GREATEST(COALESCE(ra.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
+      GREATEST(COALESCE(ra.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+      GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
+      COALESCE(NULLIF(ra.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(NULLIF(ra.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
       ra.gains_5d,
       ra.gains_7d,
       ra.gains_10d,
@@ -2367,11 +2367,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       fk.rank_position,
       COALESCE(NULLIF(fk.domain, ''), ump.domain, '') AS domain,
       COALESCE(NULLIF(fk.creator_username, ''), ump.creator_username, '') AS creator_username,
-      fk.save_count,
-      fk.repin_count,
-      fk.comment_count,
-      fk.daily_save_velocity,
-      fk.delta_repins_24h,
+      GREATEST(COALESCE(fk.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
+      GREATEST(COALESCE(fk.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+      GREATEST(COALESCE(fk.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
+      COALESCE(NULLIF(fk.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(NULLIF(fk.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
       fk.gains_5d,
       fk.gains_7d,
       fk.gains_10d,
@@ -2390,7 +2390,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'aspect_ratio') ELSE NULL END AS aspect_ratio,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'seo_title') ELSE NULL END AS seo_title
     FROM filtered_kdi fk
-    LEFT JOIN universal_master_pins ump ON fk.pin_rn = 1 AND NOT fk.in_active_serp AND ump.pin_id = fk.pin_id
+    LEFT JOIN universal_master_pins ump ON fk.pin_rn = 1 AND ump.pin_id = fk.pin_id
     ORDER BY fk.pin_rn ASC;
   `;
   if (!displacedRows) displacedRows = [];
@@ -2501,7 +2501,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         pin_age_days: pinAgeDays,
         folder_age_days: folderAgeDays,
         delta_saves_24h: delta24h,
-        delta_repins_24h: safeNum(row.delta_repins_24h, Math.round(vel * 0.1)),
+        delta_repins_24h: safeNum(row.delta_repins_24h, 0),
         gains_5d: safeNum(row.gains_5d, Math.round(vel * 5)),
         // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Authentic Multi-Window Gains
         gains_7d: safeNum(row.gains_7d, Math.round(vel * 7)),
@@ -2538,14 +2538,15 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
 
-      // Latest-Crawl Authority: prefer the velocity and 24h delta from the most recently crawled row
+      // Ratchet velocity and 24h delta to highest SSOT value across active + displaced rows
       const existingCrawlMs = existingPin.crawled_at ? new Date(existingPin.crawled_at).getTime() : 0;
       const rowCrawlMs = row.crawled_at ? new Date(row.crawled_at).getTime() : 0;
-      const isNewerCrawl = rowCrawlMs > existingCrawlMs;
-      if (isNewerCrawl || (!existingPin.daily_save_velocity && vel > 0)) {
+      if (vel > (existingPin.daily_save_velocity || 0)) {
         existingPin.daily_save_velocity = vel;
-        existingPin.delta_saves_24h = delta24h;
-        if (row.crawled_at) existingPin.crawled_at = row.crawled_at;
+        existingPin.delta_saves_24h = Math.max(existingPin.delta_saves_24h || 0, delta24h);
+      }
+      if (rowCrawlMs > existingCrawlMs && row.crawled_at) {
+        existingPin.crawled_at = row.crawled_at;
       }
 
       existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));

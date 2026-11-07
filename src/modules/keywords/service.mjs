@@ -95,6 +95,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       comment_count: Number(p.comment_count || 0),
       share_count: Number(p.metadata?.share_count || 0),
       daily_save_velocity: Number(p.daily_save_velocity || 0),
+      delta_repins_24h: Number(p.delta_repins_24h || 0),
       metadata: {
         ...(p.metadata || {}),
         creation_method: p.creation_method || p.metadata?.creation_method || null
@@ -128,7 +129,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       reaction_count: Number(dp.reaction_count || dp.metadata?.reaction_count || 0),
       comment_count: Number(dp.comment_count || 0),
       share_count: Number(dp.metadata?.share_count || 0),
-      daily_save_velocity: 0,
+      daily_save_velocity: Number(dp.daily_save_velocity || 0),
+      delta_repins_24h: Number(dp.delta_repins_24h || 0),
       metadata: {
         ...(dp.metadata || {}),
         creation_method: dp.creation_method || dp.metadata?.creation_method || null
@@ -179,16 +181,21 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
             image_url, description, alt_text, dominant_color, visual_annotations,
+            save_count, repin_count, comment_count, daily_save_velocity, delta_repins_24h,
             created_at_pinterest, first_discovered_pillar, first_discovered_at, metadata, updated_at
           )
           SELECT DISTINCT ON (u.pin_id)
             u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
             u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+            COALESCE(u.save_count, 0), COALESCE(u.repin_count, 0), COALESCE(u.comment_count, 0),
+            COALESCE(u.daily_save_velocity, 0), COALESCE(u.delta_repins_24h, 0),
             u.created_at_pinterest::timestamptz, 'keyword', NOW(), COALESCE(u.metadata, '{}'::jsonb), NOW()
           FROM jsonb_to_recordset(${payload}::jsonb) AS u(
             pin_id text, creator_username text, board_name text, title text, domain text,
             destination_url text, image_url text, description text, alt_text text,
-            dominant_color text, visual_annotations jsonb, created_at_pinterest text, metadata jsonb
+            dominant_color text, visual_annotations jsonb,
+            save_count bigint, repin_count int, comment_count int, daily_save_velocity numeric, delta_repins_24h int,
+            created_at_pinterest text, metadata jsonb
           )
           ORDER BY u.pin_id ASC
           ON CONFLICT (pin_id) DO UPDATE SET
@@ -212,6 +219,25 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
               THEN EXCLUDED.visual_annotations
               ELSE universal_master_pins.visual_annotations
+            END,
+            save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+            repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+            comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+            daily_save_velocity = CASE
+              WHEN (universal_master_pins.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+                AND COALESCE(universal_master_pins.daily_save_velocity, 0) > 0
+                AND (COALESCE(EXCLUDED.daily_save_velocity, 0) <= 1 OR EXCLUDED.daily_save_velocity < universal_master_pins.daily_save_velocity)
+              THEN universal_master_pins.daily_save_velocity
+              WHEN COALESCE(EXCLUDED.daily_save_velocity, 0) > 0 THEN EXCLUDED.daily_save_velocity
+              ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+            END,
+            delta_repins_24h = CASE
+              WHEN (universal_master_pins.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+                AND COALESCE(universal_master_pins.delta_repins_24h, 0) > 0
+                AND COALESCE(EXCLUDED.delta_repins_24h, 0) < universal_master_pins.delta_repins_24h
+              THEN universal_master_pins.delta_repins_24h
+              WHEN COALESCE(EXCLUDED.delta_repins_24h, 0) > 0 THEN EXCLUDED.delta_repins_24h
+              ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
             END,
             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
             metadata = CASE 
@@ -259,6 +285,9 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
               share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
               daily_save_velocity = CASE 
+                WHEN COALESCE(pins_daily_metrics.daily_save_velocity, 0) > 0
+                  AND (EXCLUDED.daily_save_velocity IS NULL OR EXCLUDED.daily_save_velocity <= 1 OR EXCLUDED.daily_save_velocity < pins_daily_metrics.daily_save_velocity)
+                THEN pins_daily_metrics.daily_save_velocity
                 WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
                 ELSE pins_daily_metrics.daily_save_velocity 
               END,
@@ -332,7 +361,7 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       }
     }
 
-    // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
+    // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (universal_master_pins, keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
     const missingAfterD1 = needsHydration.filter(r => {
       const m = masterMap.get(String(r.pin_id));
       return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
@@ -341,6 +370,10 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       const missingIds = missingAfterD1.map(r => String(r.pin_id));
       try {
         const hubRows = await hubSql`
+          SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
+          FROM universal_master_pins ump
+          WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
+          UNION ALL
           SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url, ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest
           FROM keyword_serp_current ksc
           WHERE ksc.pin_id = ANY(${missingIds}) AND (ksc.title <> '' OR ksc.image_url <> '')
@@ -352,7 +385,7 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
           SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url, pa.account_username AS creator_username, pa.board_name, pa.dominant_color, COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations, pa.created_at_pinterest
           FROM pa_pins pa
           WHERE pa.pin_id = ANY(${missingIds}) AND (pa.title <> '' OR pa.image_url <> '')
-          LIMIT 100;
+          LIMIT 2000;
         `.catch(() => []);
         for (const hr of (hubRows || [])) {
           if (hr && (hr.title || hr.image_url)) {
@@ -1248,7 +1281,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       if (snapDateStr && snapDateStr < todayIsoDate) {
         baselineMap.set(pid, { saves: Number(s.save_count || 0), repins: Number(s.repin_count || 0), date: snapDateStr });
         if (!baselineSnapshotDate) baselineSnapshotDate = new Date(snapDateStr);
-      } else if (s.baseline_day_saves !== null && s.baseline_day_saves !== undefined && baseDateStr) {
+      } else if (s.baseline_day_saves !== null && s.baseline_day_saves !== undefined && baseDateStr && baseDateStr < todayIsoDate) {
         baselineMap.set(pid, { saves: Number(s.baseline_day_saves || 0), repins: Number(s.repin_count || 0), date: baseDateStr });
         if (!baselineSnapshotDate) baselineSnapshotDate = new Date(baseDateStr);
       }
@@ -1266,12 +1299,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
     const resurgedPins = [];
 
-    // System-wide maximum confirmed saves lookup across all keywords and unified catalog
+    // System-wide maximum confirmed saves + authoritative prior-day baseline from pins_daily_metrics
     const discoveredPids = Array.from(seenPagingIds);
     const globalSavesMap = new Map();
     const globalRepinsMap = new Map();
     if (discoveredPids.length > 0) {
-      const [histRows, dispRows] = await Promise.all([
+      const [histRows, dispRows, priorMetricRows, masterRows] = await Promise.all([
         sql`
           SELECT pin_id, save_count AS max_saves, repin_count AS max_repins
           FROM keyword_displaced_index
@@ -1280,6 +1313,22 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         sql`
           SELECT pin_id, save_count AS current_saves, repin_count AS current_repins
           FROM keyword_serp_current
+          WHERE pin_id = ANY(${discoveredPids});
+        `.catch(() => []),
+        sql`
+          SELECT DISTINCT ON (pin_id)
+            pin_id,
+            snapshot_date::text AS snapshot_date,
+            save_count,
+            repin_count
+          FROM pins_daily_metrics
+          WHERE pin_id = ANY(${discoveredPids})
+            AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+          ORDER BY pin_id, snapshot_date DESC;
+        `.catch(() => []),
+        sql`
+          SELECT pin_id, save_count, repin_count
+          FROM universal_master_pins
           WHERE pin_id = ANY(${discoveredPids});
         `.catch(() => [])
       ]);
@@ -1296,6 +1345,26 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         const rep = Number(r.current_repins || 0);
         if (s > (globalSavesMap.get(pid) || 0)) globalSavesMap.set(pid, s);
         if (rep > (globalRepinsMap.get(pid) || 0)) globalRepinsMap.set(pid, rep);
+      }
+      for (const r of masterRows) {
+        const pid = String(r.pin_id);
+        const s = Number(r.save_count || 0);
+        const rep = Number(r.repin_count || 0);
+        if (s > (globalSavesMap.get(pid) || 0)) globalSavesMap.set(pid, s);
+        if (rep > (globalRepinsMap.get(pid) || 0)) globalRepinsMap.set(pid, rep);
+      }
+      for (const pm of priorMetricRows) {
+        const pid = String(pm.pin_id);
+        const pmDateStr = String(pm.snapshot_date || '').slice(0, 10);
+        if (pmDateStr && pmDateStr < todayIsoDate) {
+          baselineMap.set(pid, {
+            saves: Number(pm.save_count || 0),
+            repins: Number(pm.repin_count || 0),
+            date: pmDateStr,
+            fromDailyMetrics: true
+          });
+          if (!baselineSnapshotDate) baselineSnapshotDate = new Date(pmDateStr);
+        }
       }
     }
 
@@ -1527,6 +1596,16 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       const finalTitle = derivePinTitle(title, destinationUrl, keywordRow.keyword, boardName, visualAnnotations, description, altText, item.seo_title || '');
 
+      const baseRepinsForPin = (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null)
+        ? Number(baseEntryForPin.repins)
+        : (immediateData ? Number(immediateData.repins || 0) : confirmedRepins);
+      const deltaRepins24h = Math.max(0, confirmedRepins - baseRepinsForPin);
+      const resolvedBaselineDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.date)
+        ? String(baseEntryForPin.date).slice(0, 10)
+        : (immediateData?.snapshotDate
+          ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10))
+          : null);
+
       preparedPins.push({
         pin_id: pinId,
         rank_position: rank,
@@ -1540,6 +1619,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         repin_count: confirmedRepins,
         comment_count: confirmedComments,
         daily_save_velocity: velocity,
+        delta_repins_24h: deltaRepins24h,
         created_at_pinterest: createdAt,
         creation_method: method,
         dominant_color: item.dominant_color || '#888888',
@@ -1551,7 +1631,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           prev_rank: prevRank,
           rank_delta: rankDelta,
           baseline_snapshot_id: immediateData?.snapshotId ?? null,
-          baseline_date: immediateData?.snapshotDate ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10)) : null,
+          baseline_date: resolvedBaselineDateStr,
+          baseline_repins: baseRepinsForPin,
           is_new: isNew,
           prev_save_count: baselineMap.has(pinId) ? baseSavesForPin : (immediateData ? immediateData.saves : confirmedSaves),
           format,
@@ -1614,17 +1695,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (baseEntry !== undefined && baseEntry !== null) {
                 const baseSavesNum = (typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
                 const baseDateRaw = (typeof baseEntry === 'object' && baseEntry.date) ? new Date(baseEntry.date) : baselineSnapshotDate;
+                const baseRepinsNum = (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0);
                 const newVel = calculateDailyVelocity({
                   currentSaves: p.save_count,
                   baselineSaves: baseSavesNum,
                   currentRepins: p.repin_count,
-                  baselineRepins: (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0),
+                  baselineRepins: baseRepinsNum,
                   currentDate: new Date(),
                   baselineDate: baseDateRaw,
                   createdAt: p.created_at_pinterest || null,
                   maxCap: 25000
                 });
                 p.daily_save_velocity = newVel;
+                if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
+                  p.delta_repins_24h = Math.max(0, p.repin_count - baseRepinsNum);
+                }
                 const pIdxInPrepared = preparedPins.indexOf(p);
                 if (pIdxInPrepared !== -1) {
                   pinVelocities[pIdxInPrepared] = newVel;
@@ -1730,11 +1815,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             if (baseEntry !== undefined && baseEntry !== null) {
               const baseSavesNum = (typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
               const baseDateRaw = (typeof baseEntry === 'object' && baseEntry.date) ? new Date(baseEntry.date) : baselineSnapshotDate;
+              const baseRepinsNum = (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0);
               const newVel = calculateDailyVelocity({
                 currentSaves: p.save_count,
                 baselineSaves: baseSavesNum,
                 currentRepins: p.repin_count,
-                baselineRepins: (baseEntry && typeof baseEntry === 'object' && baseEntry.repins != null) ? Number(baseEntry.repins) : Number(p.metadata?.baseline_repins || 0),
+                baselineRepins: baseRepinsNum,
                 repinCount: p.repin_count,
                 currentDate: new Date(),
                 baselineDate: baseDateRaw,
@@ -1742,6 +1828,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 maxCap: 25000
               });
               p.daily_save_velocity = newVel;
+              if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
+                p.delta_repins_24h = Math.max(0, p.repin_count - baseRepinsNum);
+              }
               const pIdxInPrepared = preparedPins.indexOf(p);
               if (pIdxInPrepared !== -1) {
                 pinVelocities[pIdxInPrepared] = newVel;
@@ -1897,6 +1986,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       repin_count: p.repin_count,
       comment_count: p.comment_count,
       daily_save_velocity: p.daily_save_velocity,
+      delta_repins_24h: Number(p.delta_repins_24h || 0),
       dominant_color: p.dominant_color || '#888888',
       visual_annotations: p.visual_annotations || [],
       created_at_pinterest: p.created_at_pinterest,
@@ -1949,6 +2039,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count,
           comment_count,
           daily_save_velocity,
+          delta_repins_24h,
           dominant_color,
           visual_annotations,
           created_at_pinterest,
@@ -1973,6 +2064,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           u.repin_count,
           u.comment_count,
           u.daily_save_velocity,
+          COALESCE(u.delta_repins_24h, 0),
           COALESCE(NULLIF(u.dominant_color, ''), '#888888'),
           COALESCE(u.visual_annotations, '[]'::jsonb),
           u.created_at_pinterest::timestamptz,
@@ -1995,6 +2087,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count int,
           comment_count int,
           daily_save_velocity numeric,
+          delta_repins_24h int,
           dominant_color text,
           visual_annotations jsonb,
           created_at_pinterest text,
@@ -2017,13 +2110,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
              AND ABS(keyword_serp_current.baseline_day_saves - keyword_serp_current.repin_count) <= GREATEST(50, keyword_serp_current.repin_count * 0.03)
              AND EXCLUDED.save_count > keyword_serp_current.repin_count
             THEN EXCLUDED.save_count
-            WHEN COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date
+            -- If EXCLUDED carries an authoritative prior-day baseline from pins_daily_metrics, preserve it against same-day resets
+            WHEN EXCLUDED.baseline_day_date < (NOW() AT TIME ZONE 'UTC')::date
+             AND EXCLUDED.baseline_day_saves IS NOT NULL
+             AND EXCLUDED.baseline_day_saves > 0
+            THEN EXCLUDED.baseline_day_saves
+            -- Only rotate baseline_day_saves when crossing into a new UTC day (never on a second crawl on the same day!)
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
             THEN keyword_serp_current.save_count
             ELSE COALESCE(NULLIF(keyword_serp_current.baseline_day_saves, 0), EXCLUDED.baseline_day_saves)
           END,
           baseline_day_date = CASE
-            WHEN COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date
-            THEN (NOW() AT TIME ZONE 'UTC')::date
+            WHEN EXCLUDED.baseline_day_date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN EXCLUDED.baseline_day_date
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date
             ELSE COALESCE(keyword_serp_current.baseline_day_date, EXCLUDED.baseline_day_date)
           END,
           is_displaced = FALSE,
@@ -2038,15 +2139,23 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count = GREATEST(COALESCE(keyword_serp_current.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
           comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           daily_save_velocity = CASE 
-            -- Accept EXCLUDED velocity if current row holds a repin-to-save artifact or if EXCLUDED has fresh computation
+            -- Accept EXCLUDED velocity if current row holds a repin-to-save artifact
             WHEN keyword_serp_current.repin_count > 0 
              AND ABS((keyword_serp_current.save_count - keyword_serp_current.repin_count) - keyword_serp_current.daily_save_velocity) <= GREATEST(50, keyword_serp_current.repin_count * 0.03)
              AND keyword_serp_current.daily_save_velocity >= 100
             THEN COALESCE(EXCLUDED.daily_save_velocity, 0)
+            -- Same-day second crawl protection: NEVER overwrite a higher daily_save_velocity with a tiny intraday +1/d delta!
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(keyword_serp_current.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
             WHEN EXCLUDED.daily_save_velocity IS NOT NULL 
              AND (EXCLUDED.daily_save_velocity > 0 OR COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
             THEN EXCLUDED.daily_save_velocity 
             ELSE COALESCE(keyword_serp_current.daily_save_velocity, 0) 
+          END,
+          delta_repins_24h = CASE
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(keyword_serp_current.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
+            ELSE COALESCE(EXCLUDED.delta_repins_24h, keyword_serp_current.delta_repins_24h, 0)
           END,
           dominant_color = CASE 
             WHEN EXCLUDED.dominant_color IS NOT NULL AND EXCLUDED.dominant_color != '#888888' 
@@ -2250,7 +2359,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
     let confirmedPinIds = [];
-    if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+    if ((!options?.skip_shard_offload || isUnifiedPostgres(envObj)) && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
         console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
         return null;
@@ -2260,12 +2369,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
 
-    if (confirmedPinIds.length > 0) {
+    if (confirmedPinIds.length > 0 || isUnifiedPostgres(envObj)) {
       await sql`
         DELETE FROM keyword_serp_current
         WHERE keyword_id = ${kid}
-          AND is_displaced = TRUE
-          AND pin_id = ANY(${confirmedPinIds}::text[]);
+          AND (is_displaced = TRUE OR rank_position IS NULL);
       `.catch(() => {});
     }
 

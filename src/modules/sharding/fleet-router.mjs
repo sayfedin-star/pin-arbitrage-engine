@@ -3188,9 +3188,11 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     SELECT
       keyword_id, rank_position, is_displaced, save_count, repin_count,
       comment_count, share_count, baseline_day_saves, baseline_day_date,
-      daily_save_velocity, crawled_at, last_known_rank
+      daily_save_velocity, delta_repins_24h, crawled_at, last_known_rank
     FROM keyword_serp_current
-    WHERE pin_id = ${cleanPinId};
+    WHERE pin_id = ${cleanPinId}
+      AND COALESCE(is_displaced, FALSE) = FALSE
+      AND rank_position IS NOT NULL;
   `;
 
   // 5B. Displaced / Competitor / Archive Fallback: Query keyword_displaced_index and Shard pins_daily_metrics
@@ -3199,7 +3201,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     displacedRows = await hubSql`
       SELECT
         keyword_id, last_known_rank, displaced_date, save_count, repin_count,
-        comment_count, share_count, daily_save_velocity, domain, updated_at
+        comment_count, share_count, daily_save_velocity, delta_repins_24h, domain, updated_at
       FROM keyword_displaced_index
       WHERE pin_id = ${cleanPinId};
     `;
@@ -3214,7 +3216,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       FROM pins_daily_metrics
       WHERE pin_id = ${cleanPinId}
       ORDER BY snapshot_date DESC
-      LIMIT 2;
+      LIMIT 3;
     `;
   } catch (metricLookupErr) {
     console.warn(`[syncPinAcrossAllFourPillars] Shard pins_daily_metrics baseline lookup note: ${metricLookupErr.message}`);
@@ -3240,8 +3242,20 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   let baselineSaves = 0;
   let baselineDate = null;
 
-  if (targetRows.length > 0) {
-    const r0 = targetRows[0];
+  // Always prioritize the latest prior-day snapshot in pins_daily_metrics (distinct UTC date < today)
+  if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count)) && Number(priorDayShardRow.save_count) > 0) {
+    baselineSaves = Number(priorDayShardRow.save_count);
+    baselineDate = priorDayShardRow.snapshot_date;
+  } else if (targetRows.length > 0) {
+    const priorBaseRow = targetRows.find(r => {
+      const bIso = toIsoDateStr(r.baseline_day_date);
+      return bIso && bIso < todayUtcStr && r.baseline_day_saves != null && Number(r.baseline_day_saves) > 0;
+    });
+    const priorCrawlRow = targetRows.find(r => {
+      const cIso = toIsoDateStr(r.crawled_at);
+      return cIso && cIso < todayUtcStr && Number.isFinite(Number(r.save_count));
+    });
+    const r0 = priorBaseRow || priorCrawlRow || targetRows[0];
     const baseDateIso = toIsoDateStr(r0.baseline_day_date);
     const crawlDateIso = toIsoDateStr(r0.crawled_at);
 
@@ -3251,9 +3265,6 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     } else if (crawlDateIso && crawlDateIso < todayUtcStr && Number.isFinite(Number(r0.save_count))) {
       baselineSaves = Number(r0.save_count);
       baselineDate = r0.crawled_at;
-    } else if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count))) {
-      baselineSaves = Number(priorDayShardRow.save_count);
-      baselineDate = priorDayShardRow.snapshot_date;
     } else if (r0.baseline_day_date && r0.baseline_day_saves != null && Number(r0.baseline_day_saves) > 0) {
       baselineSaves = Number(r0.baseline_day_saves);
       baselineDate = r0.baseline_day_date;
@@ -3261,9 +3272,6 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       baselineSaves = Number.isFinite(Number(r0.save_count)) ? Number(r0.save_count) : 0;
       baselineDate = r0.crawled_at ? new Date(r0.crawled_at) : null;
     }
-  } else if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count))) {
-    baselineSaves = Number(priorDayShardRow.save_count);
-    baselineDate = priorDayShardRow.snapshot_date;
   } else if (displacedRows.length > 0) {
     const d0 = displacedRows[0];
     baselineSaves = Number.isFinite(Number(d0.save_count)) ? Number(d0.save_count) : 0;
@@ -3273,9 +3281,11 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     baselineDate = todayShardRow.snapshot_date;
   }
 
-  const targetBaselineRepins = (targetRows.length > 0 && targetRows[0].repin_count != null)
-    ? Number(targetRows[0].repin_count)
-    : ((displacedRows.length > 0 && displacedRows[0].repin_count != null) ? Number(displacedRows[0].repin_count) : Number(todayShardRow?.repin_count || 0));
+  const targetBaselineRepins = (priorDayShardRow && priorDayShardRow.repin_count != null && Number(priorDayShardRow.repin_count) > 0)
+    ? Number(priorDayShardRow.repin_count)
+    : ((targetRows.length > 0 && targetRows[0].repin_count != null)
+      ? Number(targetRows[0].repin_count)
+      : ((displacedRows.length > 0 && displacedRows[0].repin_count != null) ? Number(displacedRows[0].repin_count) : Number(todayShardRow?.repin_count || 0)));
 
   const jumpDetected = isMultiStageHydrationJump(
     { save_count: baselineSaves, repin_count: targetBaselineRepins },
@@ -3316,16 +3326,25 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     ...displacedRows.map(r => Number(r.daily_save_velocity) || 0),
     Number(todayShardRow?.daily_save_velocity || 0)
   );
+  const existingPositiveRepinDelta = Math.max(
+    0,
+    ...targetRows.map(r => Number(r.delta_repins_24h) || 0),
+    ...displacedRows.map(r => Number(r.delta_repins_24h) || 0)
+  );
 
   const baselineDateIso = toIsoDateStr(baselineDate);
   const rawDelta = Math.max(0, newSaves - baselineSaves);
+  const rawRepinDelta = Math.max(0, newRepins - targetBaselineRepins);
 
   // Intraday Ratchet Protection:
-  // If rawDelta === 0 on the same UTC calendar day as baselineDate (or when re-syncing today with no new save delta),
-  // preserve the existing positive daily_save_velocity rather than overwriting with 0.
-  const syncVelocity = (rawDelta === 0 && existingPositiveVelocity > 0 && (!baselineDateIso || baselineDateIso === todayUtcStr))
-    ? existingPositiveVelocity
-    : computedVelocity;
+  // If baselineDateIso === todayUtcStr (same-day second crawl without prior-day snapshot),
+  // NEVER overwrite existing positive velocity with a smaller intraday +1/d delta or 0.
+  const syncVelocity = (!baselineDateIso || baselineDateIso === todayUtcStr)
+    ? Math.max(existingPositiveVelocity, computedVelocity)
+    : (rawDelta === 0 && existingPositiveVelocity > 0 ? existingPositiveVelocity : computedVelocity);
+  const syncRepinsDelta = (!baselineDateIso || baselineDateIso === todayUtcStr)
+    ? Math.max(existingPositiveRepinDelta, rawRepinDelta)
+    : rawRepinDelta;
 
   // 7. Shard: Upsert two-tier modern snapshot metrics (pins_daily_metrics)
   // [INVARIANT: TWO-TIER-MODERN-SHARDING]
@@ -3343,12 +3362,18 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-      daily_save_velocity = CASE
-        WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-        ELSE pins_daily_metrics.daily_save_velocity
-      END,
+      daily_save_velocity = GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0)),
       updated_at = NOW();
   `;
+  await shardSql`
+    UPDATE universal_master_pins
+    SET
+      daily_save_velocity = GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0)),
+      delta_saves_24h = GREATEST(COALESCE(delta_saves_24h, 0), COALESCE(${syncVelocity}::numeric, 0)),
+      delta_repins_24h = GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0)),
+      updated_at = NOW()
+    WHERE pin_id = ${cleanPinId};
+  `.catch(() => {});
 
   // 8. Shard: Upsert SERP positions (pin_serp_positions) for each associated active or displaced keyword
   // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]
@@ -3446,9 +3471,16 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         comment_count = GREATEST(comment_count, ${newComments}),
         share_count = GREATEST(share_count, ${newShares}),
         daily_save_velocity = CASE
+          WHEN (crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0))
           WHEN ${syncVelocity} IS NOT NULL AND (${syncVelocity} > 0 OR COALESCE((crawled_at AT TIME ZONE 'UTC')::date, baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
           THEN ${syncVelocity}
           ELSE daily_save_velocity
+        END,
+        delta_repins_24h = CASE
+          WHEN (crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0))
+          ELSE COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0)
         END,
         metadata = ((CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
           || ${JSON.stringify(rawMetaToStore)}::jsonb
@@ -3482,10 +3514,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         repin_count = GREATEST(COALESCE(repin_count, 0), ${newRepins}),
         comment_count = GREATEST(COALESCE(comment_count, 0), ${newComments}),
         share_count = GREATEST(COALESCE(share_count, 0), ${newShares}),
-        daily_save_velocity = CASE
-          WHEN ${syncVelocity} IS NOT NULL THEN ${syncVelocity}
-          ELSE daily_save_velocity
-        END,
+        daily_save_velocity = GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0)),
+        delta_repins_24h = GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0)),
         domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
         updated_at = NOW()
       WHERE pin_id = ${cleanPinId};
@@ -3676,6 +3706,7 @@ export async function writeBatchToDeterministicShards(params = {}) {
           pin_id, creator_username, board_name, title, domain, destination_url,
           image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
           save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+          delta_saves_24h, delta_repins_24h,
           is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
           first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
         )
@@ -3684,7 +3715,33 @@ export async function writeBatchToDeterministicShards(params = {}) {
           u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
           NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
           COALESCE(u.save_count, 0)::bigint, COALESCE(u.repin_count, 0)::int, COALESCE(u.comment_count, 0)::int,
-          COALESCE(u.share_count, 0)::int, COALESCE(u.reaction_count, 0)::int, COALESCE(u.daily_save_velocity, 0)::numeric,
+          COALESCE(u.share_count, 0)::int, COALESCE(u.reaction_count, 0)::int,
+          COALESCE(
+            CASE
+              WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+              THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+              ELSE NULL
+            END,
+            u.daily_save_velocity,
+            0
+          )::numeric,
+          COALESCE(
+            CASE
+              WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+              THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+              ELSE NULL
+            END,
+            u.daily_save_velocity,
+            0
+          )::numeric,
+          COALESCE(
+            CASE
+              WHEN prev.repin_count IS NOT NULL AND prev.repin_count > 0
+              THEN GREATEST(0, COALESCE(u.repin_count, 0) - prev.repin_count)::int
+              ELSE 0
+            END,
+            0
+          )::int,
           COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), u.creation_method, u.image_signature,
           u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
           'batch_ingest', NOW(), NOW(), NOW()
@@ -3696,6 +3753,14 @@ export async function writeBatchToDeterministicShards(params = {}) {
           daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
           image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
         )
+        LEFT JOIN LATERAL (
+          SELECT pm.save_count, pm.repin_count, pm.snapshot_date
+          FROM pins_daily_metrics pm
+          WHERE pm.pin_id = u.pin_id
+            AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+          ORDER BY pm.snapshot_date DESC
+          LIMIT 1
+        ) prev ON TRUE
         ORDER BY u.pin_id ASC
         ON CONFLICT (pin_id) DO UPDATE SET
           creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
@@ -3727,8 +3792,22 @@ export async function writeBatchToDeterministicShards(params = {}) {
           share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
           reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
           daily_save_velocity = CASE
+            WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(universal_master_pins.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
             WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
             ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+          END,
+          delta_saves_24h = CASE
+            WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(universal_master_pins.delta_saves_24h, 0), COALESCE(EXCLUDED.delta_saves_24h, 0))
+            WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h
+            ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
+          END,
+          delta_repins_24h = CASE
+            WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(universal_master_pins.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
+            WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h
+            ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
           END,
           is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
           is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
@@ -3753,11 +3832,27 @@ export async function writeBatchToDeterministicShards(params = {}) {
           COALESCE(u.comment_count, 0)::int,
           COALESCE(u.share_count, 0)::int,
           COALESCE(u.reaction_count, 0)::int,
-          COALESCE(u.daily_save_velocity, 0)::numeric,
+          COALESCE(
+            CASE
+              WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+              THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+              ELSE NULL
+            END,
+            u.daily_save_velocity,
+            0
+          )::numeric,
           NOW()
         FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
           pin_id text, save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric
         )
+        LEFT JOIN LATERAL (
+          SELECT pm.save_count, pm.snapshot_date
+          FROM pins_daily_metrics pm
+          WHERE pm.pin_id = u.pin_id
+            AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+          ORDER BY pm.snapshot_date DESC
+          LIMIT 1
+        ) prev ON TRUE
         ORDER BY u.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
           save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
@@ -3766,6 +3861,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
           share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
           reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
           daily_save_velocity = CASE
+            WHEN (pins_daily_metrics.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+            THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
             WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
             ELSE pins_daily_metrics.daily_save_velocity
           END,

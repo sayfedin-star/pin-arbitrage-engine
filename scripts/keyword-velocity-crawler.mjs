@@ -665,13 +665,20 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
-        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        delta_repins_24h = CASE
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
+          WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
+          ELSE ksc.delta_repins_24h
+        END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
         gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
@@ -791,13 +798,20 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
-        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        delta_repins_24h = CASE
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
+          WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
+          ELSE ksc.delta_repins_24h
+        END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
         gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
@@ -921,13 +935,20 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
           THEN u.daily_save_velocity::numeric
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
-        delta_repins_24h = CASE WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h ELSE ksc.delta_repins_24h END,
+        delta_repins_24h = CASE
+          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
+          WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
+          ELSE ksc.delta_repins_24h
+        END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
         gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ksc.gains_10d END,
@@ -1082,7 +1103,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               pinSnapshotsMap.get(snap.pin_id).push(snap);
             }
 
-            // 2. Compute authentic rolling deltas in-memory and attach to pin objects
+            // 2. Compute authentic rolling deltas in-memory from distinct-date snapshots in pins_daily_metrics
             for (const sp of sortedPins) {
               const priorSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
               const currentSnap = {
@@ -1091,6 +1112,9 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
               };
               const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorSnaps]);
+              if (gains.delta_saves_24h != null && gains.delta_saves_24h > 0) {
+                sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.delta_saves_24h));
+              }
               sp.delta_repins_24h = gains.delta_repins_24h;
               sp.gains_5d = gains.gains_5d;
               sp.gains_7d = gains.gains_7d;
