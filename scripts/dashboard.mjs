@@ -1939,15 +1939,21 @@ const server = http.createServer(async (req, res) => {
       if (!idOrUser) return sendJson(res, 400, { error: 'id or username is required' });
       try {
         const data = await listCompetitorAccountPins(targetSql, idOrUser, {
+          username: searchParams.get('username') || searchParams.get('account') || '',
           search: searchParams.get('search') || '',
-          board: searchParams.get('board') || '',
+          board: searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug') || '',
           min_saves: Number(searchParams.get('min_saves') || 0),
           sort: searchParams.get('sort') || 'saves_desc',
           page: Number(searchParams.get('page') || 1),
           limit: Number(searchParams.get('limit') || 50),
           qualified_only: searchParams.get('qualified_only') === 'true',
           product_only: searchParams.get('product_only') === 'true',
-          articles_only: searchParams.get('articles_only') === 'true'
+          articles_only: searchParams.get('articles_only') === 'true',
+          ranked_only: searchParams.get('ranked_only') === 'true',
+          stage: searchParams.get('stage') || '',
+          high_velocity: searchParams.get('high_velocity') === 'true',
+          changed_only: searchParams.get('changed_only') === 'true',
+          scope: searchParams.get('scope') || 'official'
         });
         return sendJson(res, 200, { success: true, ...data });
       } catch (err) {
@@ -1964,7 +1970,8 @@ const server = http.createServer(async (req, res) => {
           page: Number(searchParams.get('page') || 1),
           search: searchParams.get('search') || '',
           sort: searchParams.get('sort') || 'saves_desc',
-          filter_type: searchParams.get('filter_type') || 'all'
+          filter_type: searchParams.get('filter_type') || 'all',
+          scope: searchParams.get('scope') || 'ecosystem'
         });
         return sendJson(res, 200, { success: true, ...result });
       } catch (err) {

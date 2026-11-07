@@ -29,7 +29,7 @@ export function renderCampaignWorkspaceHeader({
   const tabInactive = `${tabBase} border-transparent text-slate-500 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] hover:border-slate-300 dark:hover:border-[#27272A]`;
   const tabActive = `${tabBase} border-rose-600 text-rose-600 dark:text-rose-400 dark:border-rose-500 bg-rose-50/50 dark:bg-rose-950/20 font-semibold`;
 
-  const isCrossover = activeRoom === 'crossover';
+  const isCrossover = activeRoom === 'crossover' || activeRoom === 'pulse' || activeRoom === '24h';
   const isKeywords = activeRoom === 'keywords';
   const isCreators = activeRoom === 'creators';
   const isDomains = activeRoom === 'domains';
@@ -40,7 +40,6 @@ export function renderCampaignWorkspaceHeader({
   const keywordsClass = isKeywords ? tabActive : tabInactive;
   const creatorsClass = isCreators ? tabActive : tabInactive;
   const domainsClass = isDomains ? tabActive : tabInactive;
-  const pulseClass = isPulse ? tabActive : tabInactive;
   const settingsClass = isSettings ? tabActive : tabInactive;
 
   const iconActive = 'text-rose-600 dark:text-rose-400 shrink-0';
@@ -147,11 +146,11 @@ export function renderCampaignWorkspaceHeader({
     <!-- SSR Navigation Tabs & Live Telemetry Counters -->
     <div class="flex items-center justify-between px-3 bg-slate-50/60 dark:bg-[#09090B]/60 rounded-b-2xl border-t border-slate-100 dark:border-[#27272A] overflow-x-auto">
       <nav class="flex items-center space-x-1 shrink-0">
-        <!-- Room 1: Crossover & Super-Pins -->
+        <!-- Room 1: Unified Crossover & 24h Pulse Studio -->
         <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}'))"
            href="/folders/${cleanFolderId}" class="${crossoverClass}">
           <i data-lucide="zap" class="w-4 h-4 ${isCrossover ? iconActive : iconInactive}"></i>
-          <span>Crossover & Super-Pins</span>
+          <span>Crossover &amp; 24h Pulse Studio</span>
           <span class="${isCrossover ? badgeActive : badgeInactive}"
                 x-text="(typeof crossoverData !== 'undefined' && crossoverData?.summary?.total_unique_pins != null) ? crossoverData.summary.total_unique_pins : ((typeof activeFolder !== 'undefined' && activeFolder && (activeFolder?.unique_pins_count != null || activeFolder?.pin_count != null || activeFolder?.total_unique_pins != null)) ? (activeFolder.unique_pins_count ?? activeFolder.pin_count ?? activeFolder.total_unique_pins) : '0')"></span>
         </a>
@@ -185,19 +184,11 @@ export function renderCampaignWorkspaceHeader({
                 x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' 📌)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
         </a>
 
-        <!-- Room 6: 24h Pulse Radar -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/pulse'"
-           href="/folders/${cleanFolderId}/pulse" class="${pulseClass}">
-          <i data-lucide="activity" class="w-4 h-4 ${isPulse ? iconActive : iconInactive}"></i>
-          <span>24h Pulse Radar</span>
-          <span class="${isPulse ? badgeActive : badgeInactive}">Live</span>
-        </a>
-
         <!-- Room 5: Settings & Pruning -->
         <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/settings'"
            href="/folders/${cleanFolderId}/settings" class="${settingsClass}">
           <i data-lucide="sliders" class="w-4 h-4 ${isSettings ? iconActive : iconInactive}"></i>
-          <span>Settings & Pruning</span>
+          <span>Settings &amp; Pruning</span>
         </a>
       </nav>
 

@@ -4555,6 +4555,42 @@ export function getDashboardHtml(folderId = '') {
                 >
                   <span>📰 Articles Only</span>
                 </button>
+
+                <!-- Domain Ecosystem Attribution Scope Pills -->
+                <template x-if="(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0) > 0">
+                  <div class="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 dark:border-[#27272A]">
+                    <button
+                      type="button"
+                      @click="creatorAllPinScope = 'official'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap shrink-0"
+                      :class="creatorAllPinScope === 'official' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
+                      title="Direct pins uploaded or saved onto this creator's own boards"
+                    >
+                      <span>👤 Official Account</span>
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums bg-black/10 dark:bg-white/15" x-text="formatNumber(activeCreatorCatalogTotal || 0)"></span>
+                    </button>
+                    <button
+                      type="button"
+                      @click="creatorAllPinScope = 'ecosystem'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap shrink-0"
+                      :class="creatorAllPinScope === 'ecosystem' ? 'bg-violet-600 text-white border-violet-700 shadow-xs' : 'bg-violet-50/70 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/60'"
+                      title="Includes all SERP & Vault pins linking to this creator's primary website domain across all Pinterest users"
+                    >
+                      <span>🌐 Full Domain Ecosystem</span>
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'ecosystem' ? 'bg-white/20 text-white' : 'bg-violet-500/15 text-violet-700 dark:text-violet-300'" x-text="formatNumber(activeCreatorEcosystemTotal || (activeCreatorCatalogTotal + activeCreatorCuratorPinsTotal) || 0)"></span>
+                    </button>
+                    <button
+                      type="button"
+                      @click="creatorAllPinScope = 'curators'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap shrink-0"
+                      :class="creatorAllPinScope === 'curators' ? 'bg-fuchsia-600 text-white border-fuchsia-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
+                      title="Third-party community curator pins linking to this creator's website domain"
+                    >
+                      <span>🤝 Community Curators</span>
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'curators' ? 'bg-white/20 text-white' : 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400'" x-text="formatNumber(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0)"></span>
+                    </button>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -4739,8 +4775,13 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Title & Destination -->
                       <td x-show="visibleMasterColumns.title" class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
                         <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
-                        <div class="flex items-center gap-2 mt-1 font-mono tabular-nums text-[10.5px] font-normal">
+                        <div class="flex items-center gap-2 mt-1 font-mono tabular-nums text-[10.5px] font-normal flex-wrap">
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
+                          <template x-if="p.attribution_source === 'curator' && p.curator_username">
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 font-semibold" :title="'Saved onto board by third-party curator @' + p.curator_username">
+                              <span>🤝 @<span x-text="String(p.curator_username).replace(/^@/, '')"></span></span>
+                            </span>
+                          </template>
                           <template x-if="p.destination_url">
                             <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[200px]" :title="p.destination_url">
                               <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
@@ -4866,6 +4907,13 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- Search & Filter Controls -->
               <div class="flex items-center gap-3 flex-wrap">
+                <!-- Ecosystem vs Official Scope Toggle -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorTopUrlScope = 'ecosystem'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'ecosystem' ? 'bg-violet-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="All URLs discovered across official pins and third-party curator pins for this domain">🌐 Full Domain URLs</button>
+                  <button @click="creatorTopUrlScope = 'official'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'official' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Only URLs from pins directly on this account's boards">👤 Official Only</button>
+                  <button @click="creatorTopUrlScope = 'curators'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'curators' ? 'bg-fuchsia-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="URLs amplified by community curators">🤝 Curators</button>
+                </div>
+
                 <!-- Filter Type Segmented Control -->
                 <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <button @click="creatorTopUrlFilterType = 'all'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
@@ -5906,6 +5954,8 @@ export function getDashboardHtml(folderId = '') {
         activeCreatorAllPins: [],
         activeCreatorAllPinsTotal: 0,
         activeCreatorCatalogTotal: 0,
+        activeCreatorCuratorPinsTotal: 0,
+        activeCreatorEcosystemTotal: 0,
         activeCreatorWinningPinsTotal: 0,
         activeCreatorRankedTotal: 0,
         activeCreatorHighVelocityTotal: 0,
@@ -5924,6 +5974,8 @@ export function getDashboardHtml(folderId = '') {
         creatorAllPinStage: '',
         creatorAllPinHighVelocity: false,
         creatorAllPinChangedOnly: false,
+        creatorAllPinScope: 'official',
+        creatorTopUrlScope: 'ecosystem',
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
         isDispatchingGitHubCrawl: false,
@@ -9542,6 +9594,23 @@ export function getDashboardHtml(folderId = '') {
           this.creatorBoardPage = 1;
           this.activeCreatorSelectedTopic = '';
           this.creatorTopicSearch = '';
+          // Reset active Master Pin Ledger & Top URL filters to prevent cross-account filter leak
+          this.creatorAllPinSearch = '';
+          this.creatorAllPinBoard = '';
+          this.creatorAllPinMinSaves = 0;
+          this.creatorAllPinSort = 'saves_desc';
+          this.creatorAllPinQualifiedOnly = (tab === 'pins' || tab === 'winning-pins');
+          this.creatorAllPinArticlesOnly = false;
+          this.creatorAllPinRankedOnly = false;
+          this.creatorAllPinStage = '';
+          this.creatorAllPinHighVelocity = false;
+          this.creatorAllPinChangedOnly = false;
+          this.creatorAllPinScope = 'official';
+          this.activeCreatorAllPinsPage = 1;
+          this.creatorTopUrlSearch = '';
+          this.creatorTopUrlFilterType = 'all';
+          this.creatorTopUrlScope = 'ecosystem';
+          this.creatorTopUrlsPage = 1;
 
           const handle = (creator.username || '').replace(/^@+/, '').trim().toLowerCase();
           const compId = creator.id || handle;
@@ -9563,6 +9632,8 @@ export function getDashboardHtml(folderId = '') {
             this.activeCreatorAllPins = [];
             this.activeCreatorAllPinsTotal = 0;
             this.activeCreatorCatalogTotal = 0;
+            this.activeCreatorCuratorPinsTotal = 0;
+            this.activeCreatorEcosystemTotal = 0;
             this.activeCreatorWinningPinsTotal = 0;
             this.activeCreatorRankedTotal = 0;
             this.activeCreatorHighVelocityTotal = 0;
@@ -9904,6 +9975,7 @@ export function getDashboardHtml(folderId = '') {
             if (this.creatorAllPinStage) p.set('stage', this.creatorAllPinStage);
             if (this.creatorAllPinHighVelocity) p.set('high_velocity', 'true');
             if (this.creatorAllPinChangedOnly) p.set('changed_only', 'true');
+            if (this.creatorAllPinScope) p.set('scope', this.creatorAllPinScope);
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 
@@ -9918,6 +9990,8 @@ export function getDashboardHtml(folderId = '') {
               this.creatorAllPinsLimit = 100;
               this.activeCreatorAllPinsTotal = data.total || 0;
               this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
+              this.activeCreatorCuratorPinsTotal = data.curator_pins_total ?? 0;
+              this.activeCreatorEcosystemTotal = data.ecosystem_catalog_total ?? ((data.catalog_total || 0) + (data.curator_pins_total || 0));
               this.activeCreatorWinningPinsTotal = data.qualified_total ?? 0;
               this.activeCreatorRankedTotal = data.ranked_total ?? 0;
               this.activeCreatorHighVelocityTotal = data.high_velocity_total ?? 0;
@@ -10085,6 +10159,7 @@ export function getDashboardHtml(folderId = '') {
             if (this.creatorTopUrlSearch) p.set('search', this.creatorTopUrlSearch.trim());
             if (this.creatorTopUrlSort) p.set('sort', this.creatorTopUrlSort);
             if (this.creatorTopUrlFilterType) p.set('filter_type', this.creatorTopUrlFilterType);
+            if (this.creatorTopUrlScope) p.set('scope', this.creatorTopUrlScope);
             p.set('page', this.creatorTopUrlsPage || 1);
             p.set('limit', 50);
 

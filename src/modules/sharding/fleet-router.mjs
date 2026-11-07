@@ -3736,6 +3736,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
           )::numeric,
           COALESCE(
             CASE
+              WHEN prev.repin_count IS NOT NULL AND prev.repin_count > 0 AND prev.snapshot_date IS NOT NULL
+              THEN ROUND(GREATEST(0, COALESCE(u.repin_count, 0) - prev.repin_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)))::int
               WHEN prev.repin_count IS NOT NULL AND prev.repin_count > 0
               THEN GREATEST(0, COALESCE(u.repin_count, 0) - prev.repin_count)::int
               ELSE 0

@@ -1599,12 +1599,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const baseRepinsForPin = (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null)
         ? Number(baseEntryForPin.repins)
         : (immediateData ? Number(immediateData.repins || 0) : confirmedRepins);
-      const deltaRepins24h = Math.max(0, confirmedRepins - baseRepinsForPin);
       const resolvedBaselineDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.date)
         ? String(baseEntryForPin.date).slice(0, 10)
         : (immediateData?.snapshotDate
           ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10))
           : null);
+      const repinDaysElapsed = resolvedBaselineDateStr
+        ? Math.max(1, Math.round((new Date(crawlNowIso.slice(0, 10) + 'T00:00:00Z').getTime() - new Date(resolvedBaselineDateStr + 'T00:00:00Z').getTime()) / 86400000))
+        : 1;
+      const deltaRepins24h = Math.round(Math.max(0, confirmedRepins - baseRepinsForPin) / repinDaysElapsed);
 
       preparedPins.push({
         pin_id: pinId,
@@ -1708,7 +1711,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 });
                 p.daily_save_velocity = newVel;
                 if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
-                  p.delta_repins_24h = Math.max(0, p.repin_count - baseRepinsNum);
+                  const baseDateStr = baseDateRaw instanceof Date && !isNaN(baseDateRaw) ? baseDateRaw.toISOString().slice(0, 10) : null;
+                  const gapDays = baseDateStr ? Math.max(1, Math.round((new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime() - new Date(baseDateStr + 'T00:00:00Z').getTime()) / 86400000)) : 1;
+                  p.delta_repins_24h = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
                 }
                 const pIdxInPrepared = preparedPins.indexOf(p);
                 if (pIdxInPrepared !== -1) {
@@ -1829,7 +1834,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               });
               p.daily_save_velocity = newVel;
               if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
-                p.delta_repins_24h = Math.max(0, p.repin_count - baseRepinsNum);
+                const baseDateStr = baseDateRaw instanceof Date && !isNaN(baseDateRaw) ? baseDateRaw.toISOString().slice(0, 10) : null;
+                const gapDays = baseDateStr ? Math.max(1, Math.round((new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime() - new Date(baseDateStr + 'T00:00:00Z').getTime()) / 86400000)) : 1;
+                p.delta_repins_24h = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
               }
               const pIdxInPrepared = preparedPins.indexOf(p);
               if (pIdxInPrepared !== -1) {

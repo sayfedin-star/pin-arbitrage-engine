@@ -448,7 +448,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         ranked_only: searchParams.get('ranked_only') === 'true',
         stage: searchParams.get('stage') || '',
         high_velocity: searchParams.get('high_velocity') === 'true',
-        changed_only: searchParams.get('changed_only') === 'true'
+        changed_only: searchParams.get('changed_only') === 'true',
+        scope: searchParams.get('scope') || 'official'
       };
       const cacheKey = buildCanonicalCacheKey(`competitors:all-pins:${shardKey}`, cacheParams);
       const allPinsData = await getCachedOrFetch(cacheKey, async () => {
@@ -473,7 +474,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         search: searchParams.get('search') || '',
         sort: searchParams.get('sort') || 'saves_desc',
-        filter_type: searchParams.get('filter_type') || 'all'
+        filter_type: searchParams.get('filter_type') || 'all',
+        scope: searchParams.get('scope') || 'ecosystem'
       };
       const cacheKey = buildCanonicalCacheKey(`competitors:top-urls:${shardKey}`, cacheParams);
       const topUrlsData = await getCachedOrFetch(cacheKey, async () => {

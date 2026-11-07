@@ -1598,6 +1598,41 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   })();
 
+  // Auto-sync any newly discovered direct creator pins from universal_master_pins into competitor_pins
+  const cleanUserNorm = (cleanUsername || profile.username || '').replace(/^@/, '').trim().toLowerCase();
+  if (cleanUserNorm) {
+    await sql`
+      INSERT INTO competitor_pins (
+        competitor_id, pin_id, title, description, link_domain, destination_url,
+        board_name, board_slug, image_url, save_count, repin_count, comment_count,
+        is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
+      )
+      SELECT
+        ${compId}, ump.pin_id, COALESCE(ump.title, ''), COALESCE(ump.description, ''),
+        COALESCE(ump.domain, ''), COALESCE(ump.destination_url, ''), COALESCE(ump.board_name, ''),
+        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(ump.board_name, ''), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')), ''),
+        COALESCE(ump.image_url, ''), COALESCE(ump.save_count, 0), COALESCE(ump.repin_count, 0),
+        COALESCE(ump.comment_count, 0), COALESCE(ump.is_product, false), ump.created_at_pinterest,
+        NOW(), NOW(), 'completed'
+      FROM universal_master_pins ump
+      WHERE LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) = ${cleanUserNorm}
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        save_count = GREATEST(COALESCE(competitor_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+        repin_count = GREATEST(COALESCE(competitor_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+        destination_url = COALESCE(NULLIF(competitor_pins.destination_url, ''), EXCLUDED.destination_url),
+        link_domain = COALESCE(NULLIF(competitor_pins.link_domain, ''), EXCLUDED.link_domain),
+        board_name = COALESCE(NULLIF(competitor_pins.board_name, ''), EXCLUDED.board_name),
+        image_url = COALESCE(NULLIF(competitor_pins.image_url, ''), EXCLUDED.image_url);
+    `.catch(() => {});
+  }
+
+  let resolvedPrimaryDomain = profile.website_url
+    ? profile.website_url.toLowerCase().trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '')
+    : '';
+  if (resolvedPrimaryDomain && (resolvedPrimaryDomain.includes('pinterest.') || resolvedPrimaryDomain.includes('pin.it'))) {
+    resolvedPrimaryDomain = '';
+  }
+
   const aggregatesPromise = (async () => {
     try {
       const [agg] = await sql`
@@ -1610,6 +1645,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           COUNT(*) FILTER (WHERE COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
           COUNT(*) FILTER (WHERE COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) IS NOT NULL)::int AS dated_pins_count,
           COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS winning_pins_count,
+          COUNT(DISTINCT NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '')) FILTER (WHERE COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') NOT LIKE '%pinterest.%')::int AS official_urls_count,
           GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(COALESCE(cp.created_at_pinterest, ump.created_at_pinterest)) - MIN(COALESCE(cp.created_at_pinterest, ump.created_at_pinterest)))) / 86400.0) AS span_days
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -1627,6 +1663,96 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     snapshotsPromise,
     aggregatesPromise
   ]);
+
+  if (!resolvedPrimaryDomain) {
+    try {
+      const [domRow] = await sql`
+        SELECT LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) AS clean_dom
+        FROM competitor_pins cp
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+        WHERE cp.competitor_id = ${compId}
+          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') <> ''
+          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
+          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
+          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%amazon.%'
+          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%etsy.%'
+        GROUP BY clean_dom
+        ORDER BY COUNT(*) DESC, SUM(GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0))) DESC
+        LIMIT 1;
+      `;
+      if (domRow?.clean_dom) {
+        resolvedPrimaryDomain = domRow.clean_dom;
+        profile.website_url = resolvedPrimaryDomain;
+        await sql`UPDATE competitor_profiles SET website_url = ${resolvedPrimaryDomain}, updated_at = NOW() WHERE id = ${compId};`.catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  let domainEcosystem = {
+    primary_domain: resolvedPrimaryDomain || null,
+    official_pins: Number(aggStats.total_catalog_pins || 0),
+    official_saves: Number(aggStats.total_saves || 0),
+    official_urls: Number(aggStats.official_urls_count || 0),
+    curator_pins: 0,
+    curator_saves: 0,
+    ecosystem_total_pins: Number(aggStats.total_catalog_pins || 0),
+    ecosystem_total_saves: Number(aggStats.total_saves || 0),
+    ecosystem_unique_urls: Number(aggStats.official_urls_count || 0)
+  };
+
+  if (resolvedPrimaryDomain) {
+    try {
+      const [ecoRow] = await sql`
+        WITH official_set AS (
+          SELECT
+            cp.pin_id,
+            GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0), COALESCE(pa.saves, 0))::bigint AS saves,
+            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
+          FROM competitor_pins cp
+          LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+          LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+          WHERE cp.competitor_id = ${compId}
+        ),
+        curator_set AS (
+          SELECT
+            ump.pin_id,
+            COALESCE(ump.save_count, 0)::bigint AS saves,
+            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
+          FROM universal_master_pins ump
+          WHERE LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) = ${resolvedPrimaryDomain}
+            AND NOT EXISTS (
+              SELECT 1 FROM competitor_pins cp_ex
+              WHERE cp_ex.competitor_id = ${compId} AND cp_ex.pin_id = ump.pin_id
+            )
+        ),
+        combined AS (
+          SELECT pin_id, saves, slug, 'official' AS src FROM official_set
+          UNION ALL
+          SELECT pin_id, saves, slug, 'curator' AS src FROM curator_set
+        )
+        SELECT
+          COUNT(*) FILTER (WHERE src = 'curator')::int AS curator_pins,
+          COALESCE(SUM(saves) FILTER (WHERE src = 'curator'), 0)::bigint AS curator_saves,
+          COUNT(*)::int AS ecosystem_total_pins,
+          COALESCE(SUM(saves), 0)::bigint AS ecosystem_total_saves,
+          COUNT(DISTINCT slug) FILTER (WHERE slug IS NOT NULL AND slug <> '')::int AS ecosystem_unique_urls
+        FROM combined;
+      `;
+      if (ecoRow) {
+        domainEcosystem = {
+          primary_domain: resolvedPrimaryDomain,
+          official_pins: Number(aggStats.total_catalog_pins || 0),
+          official_saves: Number(aggStats.total_saves || 0),
+          official_urls: Number(aggStats.official_urls_count || 0),
+          curator_pins: Number(ecoRow.curator_pins || 0),
+          curator_saves: Number(ecoRow.curator_saves || 0),
+          ecosystem_total_pins: Number(ecoRow.ecosystem_total_pins || aggStats.total_catalog_pins || 0),
+          ecosystem_total_saves: Number(ecoRow.ecosystem_total_saves || aggStats.total_saves || 0),
+          ecosystem_unique_urls: Number(ecoRow.ecosystem_unique_urls || aggStats.official_urls_count || 0)
+        };
+      }
+    } catch (_) {}
+  }
 
   // Monotonic 10M+ ceiling guard for snapshots so unauthenticated 10,000,001 dips never corrupt trajectory charts or deltas
   let runningMaxReach = 0;
@@ -1885,13 +2011,14 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       monthly_reach: resolvedMonthlyReach,
       profile_views: resolvedProfileViews,
       follower_count: Number(profile.follower_count || 0),
-      total_pins: Number(profile.total_pins || boards.reduce((acc, b) => acc + (b.pin_count || 0), 0) || 0),
+      total_pins: Number(profile.total_pins || boards.reduce((acc, b) => acc + (b.pin_count || 0), 0) || aggStats.total_catalog_pins || 0),
       total_boards: boards.length > 0 ? boards.length : Number(profile.total_boards || 0),
-      website_domain: profile.website_url ? profile.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
-      verified_domain: Boolean(profile.website_url),
+      website_domain: resolvedPrimaryDomain || (profile.website_url ? profile.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null),
+      verified_domain: Boolean(resolvedPrimaryDomain || profile.website_url),
       notes: profile.bio || profileMeta?.notes || 'No internal notes set for this competitor.',
       last_pin_date: latestPinDateStr
     },
+    domain_ecosystem: domainEcosystem,
     account_age: {
       days: accountAgeDays,
       created_at: accountCreatedDateStr
@@ -2099,6 +2226,7 @@ export async function autoHydrateCompetitorPinsFromArchive(sql, competitorId, us
 
 /**
  * List all creator pins from competitor_pins inventory with rich filtering, sorting, and pagination
+ * Supports scope: 'official' (default direct account pins), 'ecosystem' (official + third-party curator pins linking to primary domain), or 'curators' (third-party curator pins only).
  */
 export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   username = '',
@@ -2114,10 +2242,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   ranked_only = false,
   stage = '',
   high_velocity = false,
-  changed_only = false
+  changed_only = false,
+  scope = 'official'
 } = {}) {
   let cleanUsername = username ? normalizePinterestUsername(username) : null;
   let numericId = parseInt(competitorIdOrUsername, 10);
+  let primaryDomain = '';
   if (!cleanUsername && (isNaN(numericId) || !numericId)) {
     cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
     numericId = null;
@@ -2127,28 +2257,34 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   if (cleanUsername) {
     try {
       const [c] = await sql`
-        SELECT id, username FROM competitor_profiles 
+        SELECT id, username, website_url FROM competitor_profiles 
         WHERE LOWER(username) = ${cleanUsername} 
         LIMIT 1;
       `;
       if (c) {
         numericId = c.id;
         cleanUsername = c.username;
+        primaryDomain = c.website_url ? c.website_url.toLowerCase().trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '') : '';
       }
     } catch (_) {}
   } else if (!isNaN(numericId) && numericId) {
     try {
       const [c] = await sql`
-        SELECT id, username FROM competitor_profiles 
+        SELECT id, username, website_url FROM competitor_profiles 
         WHERE id = ${numericId} 
         LIMIT 1;
       `;
       if (c) {
         cleanUsername = c.username;
+        primaryDomain = c.website_url ? c.website_url.toLowerCase().trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '') : '';
       } else {
         numericId = null;
       }
     } catch (_) {}
+  }
+
+  if (primaryDomain && (primaryDomain.includes('pinterest.') || primaryDomain.includes('pin.it'))) {
+    primaryDomain = '';
   }
 
   if (!numericId) {
@@ -2170,6 +2306,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const stageFilter = (stage && typeof stage === 'string' && stage.trim()) ? stage.trim().toUpperCase() : null;
   const isHighVelocity = Boolean(high_velocity);
   const isChangedOnly = Boolean(changed_only);
+  const activeScope = (scope === 'ecosystem' || scope === 'curators') && primaryDomain ? scope : 'official';
 
   const boardsPromise = sql`
     SELECT DISTINCT board_name, COUNT(*)::int as count
@@ -2180,11 +2317,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   `;
 
   // [OPTIMIZED SARGABLE: Instant B-Tree seek via cp.board_slug + LEFT JOIN LATERAL + single-pass window count]
-  const rowsPromise = sql`
+  const rowsPromise = activeScope === 'official'
+    ? sql`
     SELECT 
       cp.id,
       cp.competitor_id,
       cp.pin_id,
+      'official'::text AS attribution_source,
+      ${cleanUsername || ''}::text AS curator_username,
       COALESCE(NULLIF(cp.title, ''), ump.title, '') AS title,
       COALESCE(NULLIF(cp.description, ''), ump.description, '') AS description,
       COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
@@ -2272,22 +2412,28 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(NULLIF(cp.title, ''), ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(NULLIF(cp.description, ''), ump.description, '')) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
-      AND (${isHighVelocity} = FALSE OR COALESCE(
-        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE
-          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
-          ELSE COALESCE(pa.velocity, 0)::numeric
-        END
-      )::numeric >= 10)
-      AND (${isChangedOnly} = FALSE OR COALESCE(
-        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE
-          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
-          ELSE COALESCE(pa.velocity, 0)::numeric
-        END
-      )::numeric > 0)
+      AND (${isHighVelocity} = FALSE OR GREATEST(
+        COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        ),
+        COALESCE(ump.daily_save_velocity, 0)::numeric
+      ) >= 10)
+      AND (${isChangedOnly} = FALSE OR GREATEST(
+        COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        ),
+        COALESCE(ump.daily_save_velocity, 0)::numeric
+      ) > 0)
       AND (
         ${stageFilter}::text IS NULL OR
         (${stageFilter} = 'DORMANT' AND COALESCE(
@@ -2373,6 +2519,116 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'oldest' OR ${sort} = 'created_asc' THEN COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) END ASC NULLS LAST,
       GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0), COALESCE(pa.saves, 0)) DESC
+    LIMIT ${pLim} OFFSET ${offset};
+  `
+    : sql`
+    WITH eco_pool AS (
+      SELECT
+        cp.id,
+        cp.competitor_id,
+        cp.pin_id,
+        'official'::text AS attribution_source,
+        ${cleanUsername || ''}::text AS curator_username,
+        COALESCE(NULLIF(cp.title, ''), ump.title, '') AS title,
+        COALESCE(NULLIF(cp.description, ''), ump.description, '') AS description,
+        COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
+        COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
+        COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
+        cp.board_slug,
+        COALESCE(NULLIF(cp.image_url, ''), ump.image_url, '') AS image_url,
+        GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0))::bigint AS save_count,
+        GREATEST(COALESCE(cp.repin_count, 0), COALESCE(ump.repin_count, 0))::bigint AS repin_count,
+        GREATEST(COALESCE(cp.comment_count, 0), COALESCE(ump.comment_count, 0))::int AS comment_count,
+        COALESCE(ump.share_count, 0)::bigint AS share_count,
+        GREATEST(COALESCE((cp.metadata->>'delta_saves_24h')::numeric, (cp.metadata->>'daily_save_velocity')::numeric, 0), COALESCE(ump.daily_save_velocity, 0))::numeric AS velocity,
+        GREATEST(COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0), COALESCE(ump.delta_saves_24h, ump.daily_save_velocity, 0))::numeric AS delta_saves_24h,
+        GREATEST(COALESCE((cp.metadata->>'delta_repins_24h')::numeric, 0), COALESCE(ump.delta_repins_24h, 0))::numeric AS delta_repins_24h,
+        COALESCE(NULLIF(ump.dominant_color, '#888888'), '#888888') AS dominant_color,
+        COALESCE(CASE WHEN jsonb_typeof(ump.visual_annotations) = 'array' AND jsonb_array_length(ump.visual_annotations) > 0 THEN ump.visual_annotations ELSE NULL END, cp.metadata->'annotations', '[]'::jsonb) AS annotations,
+        '{}'::jsonb AS reactions,
+        COALESCE(NULLIF(cp.alt_text, ''), NULLIF(ump.alt_text, ''), '') AS alt_text,
+        COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
+        cp.first_seen_at,
+        cp.last_seen_at,
+        (COALESCE(cp.is_product, false) OR COALESCE(ump.is_product, false)) AS is_product
+      FROM competitor_pins cp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+      WHERE cp.competitor_id = ${numericId}
+        AND ${activeScope} = 'ecosystem'
+      UNION ALL
+      SELECT
+        0::int AS id,
+        ${numericId}::int AS competitor_id,
+        ump.pin_id,
+        'curator'::text AS attribution_source,
+        COALESCE(NULLIF(ump.creator_username, ''), 'community_curator') AS curator_username,
+        COALESCE(ump.title, '') AS title,
+        COALESCE(ump.description, '') AS description,
+        COALESCE(ump.domain, '') AS link_domain,
+        COALESCE(ump.destination_url, '') AS destination_url,
+        COALESCE(ump.board_name, '') AS board_name,
+        LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(ump.board_name, ''), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) AS board_slug,
+        COALESCE(ump.image_url, '') AS image_url,
+        COALESCE(ump.save_count, 0)::bigint AS save_count,
+        COALESCE(ump.repin_count, 0)::bigint AS repin_count,
+        COALESCE(ump.comment_count, 0)::int AS comment_count,
+        COALESCE(ump.share_count, 0)::bigint AS share_count,
+        COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
+        COALESCE(ump.delta_saves_24h, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(ump.delta_repins_24h, 0)::numeric AS delta_repins_24h,
+        COALESCE(NULLIF(ump.dominant_color, '#888888'), '#888888') AS dominant_color,
+        COALESCE(CASE WHEN jsonb_typeof(ump.visual_annotations) = 'array' AND jsonb_array_length(ump.visual_annotations) > 0 THEN ump.visual_annotations ELSE NULL END, '[]'::jsonb) AS annotations,
+        '{}'::jsonb AS reactions,
+        COALESCE(ump.alt_text, '') AS alt_text,
+        ump.created_at_pinterest,
+        ump.first_discovered_at AS first_seen_at,
+        ump.updated_at AS last_seen_at,
+        COALESCE(ump.is_product, false) AS is_product
+      FROM universal_master_pins ump
+      WHERE LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) = ${primaryDomain}
+        AND NOT EXISTS (
+          SELECT 1 FROM competitor_pins cp_ex
+          WHERE cp_ex.competitor_id = ${numericId} AND cp_ex.pin_id = ump.pin_id
+        )
+    )
+    SELECT
+      ep.*,
+      (pa.pin_id IS NOT NULL OR ep.save_count >= 100 OR ep.repin_count >= 100) AS is_qualified,
+      (ksc.rank_position IS NOT NULL OR kdi.last_known_rank IS NOT NULL) AS is_ranked,
+      COALESCE(ksc.rank_position, kdi.last_known_rank) AS rank_position,
+      ksc.rank_position AS active_serp_rank,
+      ksc.active_keyword,
+      COUNT(*) OVER()::int AS full_count
+    FROM eco_pool ep
+    LEFT JOIN pa_pins pa ON pa.pin_id = ep.pin_id
+    LEFT JOIN LATERAL (
+      SELECT ksc_sub.rank_position, k.keyword AS active_keyword
+      FROM keyword_serp_current ksc_sub
+      LEFT JOIN tracked_keywords k ON k.id = ksc_sub.keyword_id
+      WHERE ksc_sub.pin_id = ep.pin_id AND ksc_sub.rank_position IS NOT NULL
+      ORDER BY ksc_sub.rank_position ASC
+      LIMIT 1
+    ) ksc ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT kdi_sub.last_known_rank
+      FROM keyword_displaced_index kdi_sub
+      WHERE kdi_sub.pin_id = ep.pin_id AND kdi_sub.last_known_rank IS NOT NULL
+      ORDER BY kdi_sub.last_known_rank ASC
+      LIMIT 1
+    ) kdi ON TRUE
+    WHERE (${ranked_only} = FALSE OR (ksc.rank_position IS NOT NULL OR kdi.last_known_rank IS NOT NULL))
+      AND (${minSavesNum} = 0 OR ep.save_count >= ${minSavesNum})
+      AND (${searchPattern}::text IS NULL OR LOWER(ep.title) LIKE ${searchPattern} OR LOWER(ep.description) LIKE ${searchPattern} OR LOWER(ep.curator_username) LIKE ${searchPattern})
+      AND (${cleanBoardSlug}::text IS NULL OR ep.board_slug = ${cleanBoardSlug})
+      AND (${qualified_only} = FALSE OR (pa.pin_id IS NOT NULL OR ep.save_count >= 100 OR ep.repin_count >= 100))
+      AND (${isHighVelocity} = FALSE OR ep.velocity >= 10)
+      AND (${isChangedOnly} = FALSE OR ep.velocity > 0)
+    ORDER BY
+      CASE WHEN ${sort} = 'saves_desc' THEN ep.save_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'repins_desc' THEN ep.repin_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN ep.velocity END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN ep.created_at_pinterest END DESC NULLS LAST,
+      ep.save_count DESC
     LIMIT ${pLim} OFFSET ${offset};
   `;
 
@@ -2492,15 +2748,19 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       COUNT(*)::int AS catalog_total,
       COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS qualified_total,
       COUNT(*) FILTER (WHERE ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL)::int AS ranked_total,
-      COUNT(*) FILTER (WHERE COALESCE(
-        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE
-          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
-          ELSE COALESCE(pa.velocity, 0)::numeric
-        END
-      )::numeric >= 10)::int AS high_velocity_total
+      COUNT(*) FILTER (WHERE GREATEST(
+        COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        ),
+        COALESCE(ump.daily_save_velocity, 0)::numeric
+      ) >= 10)::int AS high_velocity_total
     FROM competitor_pins cp
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
     LEFT JOIN (
       SELECT DISTINCT pin_id FROM keyword_serp_current WHERE rank_position IS NOT NULL
@@ -2511,10 +2771,23 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId};
   `;
 
-  const [boardsRows, rows, [unfilteredRow]] = await Promise.all([
+  const curatorTotalsPromise = primaryDomain
+    ? sql`
+        SELECT COUNT(*)::int AS curator_pins_total
+        FROM universal_master_pins ump
+        WHERE LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) = ${primaryDomain}
+          AND NOT EXISTS (
+            SELECT 1 FROM competitor_pins cp_ex
+            WHERE cp_ex.competitor_id = ${numericId} AND cp_ex.pin_id = ump.pin_id
+          );
+      `.catch(() => [{ curator_pins_total: 0 }])
+    : Promise.resolve([{ curator_pins_total: 0 }]);
+
+  const [boardsRows, rows, [unfilteredRow], [curatorRow]] = await Promise.all([
     boardsPromise,
     rowsPromise,
-    unfilteredTotalsPromise
+    unfilteredTotalsPromise,
+    curatorTotalsPromise
   ]);
 
   const now = Date.now();
@@ -2522,6 +2795,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ? Number(rows[0].full_count || 0) 
     : (offset === 0 ? 0 : await getCountFallback());
   const catalog_total = unfilteredRow ? (unfilteredRow.catalog_total ?? total) : total;
+  const curator_pins_total = Number(curatorRow?.curator_pins_total || 0);
+  const ecosystem_catalog_total = catalog_total + curator_pins_total;
   const qualified_total = unfilteredRow ? (unfilteredRow.qualified_total || 0) : 0;
   const ranked_total = unfilteredRow ? (unfilteredRow.ranked_total || 0) : 0;
   const high_velocity_total = unfilteredRow ? (unfilteredRow.high_velocity_total || 0) : 0;
@@ -2536,6 +2811,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
       return {
         ...r,
+        attribution_source: r.attribution_source || 'official',
+        curator_username: r.curator_username || cleanUsername || '',
         saves: Number(r.save_count || 0),
         repins: Number(r.repin_count || 0),
         comments: Number(r.comment_count || 0),
@@ -2554,6 +2831,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     }),
     total,
     catalog_total,
+    curator_pins_total,
+    ecosystem_catalog_total,
+    primary_domain: primaryDomain || null,
+    scope: activeScope,
     qualified_total,
     ranked_total,
     high_velocity_total,
@@ -2566,40 +2847,44 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
 /**
  * Top Destination URLs Intelligence:
- * Aggregates pins by normalized article slug, stripping protocol, www, query params, and anchors.
- * Supports filtering by articles only (is_product = false) vs products only vs all.
+ * Aggregates pins by normalized article slug, stripping protocol, www, query params, anchors, and trailing slashes.
+ * Supports filtering by articles only (is_product = false) vs products only vs all, and scope ('ecosystem' | 'official' | 'curators').
  */
 export async function getTopDestinationUrls(sql, competitorId, {
   limit = 50,
   page = 1,
   search = '',
   sort = 'saves_desc',
-  filter_type = 'all'
+  filter_type = 'all',
+  scope = 'ecosystem'
 } = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   // [INVARIANT: ONE-WAY-PROMOTION] Zero auto-hydration from archive.
 
+  let primaryDomain = '';
+  try {
+    const [c] = await sql`SELECT website_url FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+    if (c?.website_url) {
+      primaryDomain = c.website_url.toLowerCase().trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '');
+      if (primaryDomain.includes('pinterest.') || primaryDomain.includes('pin.it')) primaryDomain = '';
+    }
+  } catch (_) {}
+
   const pLim = Math.max(1, Math.min(Number(limit) || 50, 200));
   const pNum = Math.max(1, Number(page) || 1);
   const offset = (pNum - 1) * pLim;
   const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
   const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
+  const activeScope = (scope === 'official' || scope === 'curators' || scope === 'ecosystem') ? scope : 'ecosystem';
 
   // Double escaped for Neon template literals: \\1, \\., \\?
   const rows = await sql`
-    WITH base AS (
-      SELECT 
-        LOWER(
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(
-              REGEXP_REPLACE(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, ''), 'https?://(www\\.)?[^/]+', ''),
-              '\\?.*$', ''
-            ),
-            '#.*$', ''
-          )
-        ) AS clean_slug,
+    WITH raw_pins AS (
+      SELECT
+        cp.pin_id,
+        'official'::text AS attribution_source,
         COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
         COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
         GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
@@ -2609,8 +2894,52 @@ export async function getTopDestinationUrls(sql, competitorId, {
       FROM competitor_pins cp
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
       WHERE cp.competitor_id = ${numericId}
+        AND ${activeScope} <> 'curators'
         AND COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') != ''
         AND COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') NOT LIKE '%pinterest.com%'
+      UNION ALL
+      SELECT
+        ump.pin_id,
+        'curator'::text AS attribution_source,
+        COALESCE(ump.destination_url, '') AS destination_url,
+        COALESCE(ump.domain, '') AS link_domain,
+        COALESCE(ump.save_count, 0) AS save_count,
+        COALESCE(ump.repin_count, 0) AS repin_count,
+        ump.created_at_pinterest,
+        COALESCE(ump.is_product, false) AS is_product
+      FROM universal_master_pins ump
+      WHERE ${primaryDomain} <> ''
+        AND ${activeScope} <> 'official'
+        AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) = ${primaryDomain}
+        AND COALESCE(ump.destination_url, '') != ''
+        AND COALESCE(ump.destination_url, '') NOT LIKE '%pinterest.com%'
+        AND NOT EXISTS (
+          SELECT 1 FROM competitor_pins cp_ex
+          WHERE cp_ex.competitor_id = ${numericId} AND cp_ex.pin_id = ump.pin_id
+        )
+    ),
+    base AS (
+      SELECT 
+        REGEXP_REPLACE(
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(destination_url, 'https?://(www\\.)?[^/]+', ''),
+                '\\?.*$', ''
+              ),
+              '#.*$', ''
+            )
+          ),
+          '/+$', ''
+        ) AS clean_slug,
+        attribution_source,
+        destination_url,
+        link_domain,
+        save_count,
+        repin_count,
+        created_at_pinterest,
+        is_product
+      FROM raw_pins
     ),
     aggregated AS (
       SELECT 
@@ -2618,6 +2947,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
         MIN(destination_url) AS sample_url,
         MIN(link_domain) AS domain,
         COUNT(*)::int AS pin_count,
+        COUNT(*) FILTER (WHERE attribution_source = 'official')::int AS official_pin_count,
+        COUNT(*) FILTER (WHERE attribution_source = 'curator')::int AS curator_pin_count,
         SUM(COALESCE(save_count, 0))::bigint AS total_saves,
         ROUND(AVG(COALESCE(save_count, 0)))::int AS avg_saves,
         SUM(COALESCE(repin_count, 0))::bigint AS total_repins,
@@ -2661,6 +2992,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
       sample_url: r.sample_url,
       domain: r.domain,
       pin_count: Number(r.pin_count || 0),
+      official_pin_count: Number(r.official_pin_count || 0),
+      curator_pin_count: Number(r.curator_pin_count || 0),
       total_saves: Number(r.total_saves || 0),
       avg_saves: Number(r.avg_saves || 0),
       total_repins: Number(r.total_repins || 0),
@@ -2670,6 +3003,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
       is_affiliate: Boolean(r.is_affiliate)
     })),
     total,
+    primary_domain: primaryDomain || null,
+    scope: activeScope,
     page: pNum,
     limit: pLim,
     total_pages

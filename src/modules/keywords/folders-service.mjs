@@ -3625,6 +3625,29 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   const topicClusterBlueprint = null;
 
+  // Aggregate Dominant Color Swatches across all cluster pins
+  const colorMap = new Map();
+  for (const p of allPins) {
+    const hex = String(p.dominant_color || '').trim().toUpperCase();
+    if (/^#[0-9A-F]{6}$/.test(hex) && hex !== '#888888' && hex !== '#000000') {
+      let cEntry = colorMap.get(hex);
+      if (!cEntry) {
+        cEntry = { hex, pin_count: 0, total_saves: 0, total_velocity: 0 };
+        colorMap.set(hex, cEntry);
+      }
+      cEntry.pin_count += 1;
+      cEntry.total_saves += Number(p.save_count || 0);
+      cEntry.total_velocity += Number(p.effective_velocity ?? p.daily_save_velocity ?? 0);
+    }
+  }
+  const dominantColors = Array.from(colorMap.values())
+    .map(c => ({ ...c, total_velocity: Math.round(c.total_velocity * 10) / 10 }))
+    .sort((a, b) => b.pin_count - a.pin_count || b.total_velocity - a.total_velocity)
+    .slice(0, 24);
+
+  const rocketsCount = allPins.filter(p => p.pin_age_days != null && Number(p.pin_age_days) <= 14 && (Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0)).length;
+  const surging24hCount = allPins.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0).length;
+
   return {
     folder,
     summary: {
@@ -3635,6 +3658,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
       vacuum_pins_count: vacuumPinsCount,
+      rockets_count: rocketsCount,
+      surging_24h_count: surging24hCount,
       universal_tags_count: tagBridges.filter(t => t.is_universal).length,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: domainMonopoly.length,
@@ -3653,6 +3678,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,
+    dominant_colors: dominantColors,
     domain_monopoly: domainMonopoly,
     creator_monopoly: creatorMonopoly,
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Top Creators Rollup Wiring

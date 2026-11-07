@@ -209,20 +209,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
       <!-- Studio Action Shortcuts -->
       <div class="flex items-center justify-between flex-wrap gap-3 -mt-2 mb-1">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Room 1: Crossover & Super-Pins</span>
+          <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Room 1: Crossover &amp; 24h Pulse Studio</span>
           <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'(' + (activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster)'"></span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-          <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${safeFolderId}') + '/pulse'"
-             href="/folders/${safeFolderId}/pulse"
-             class="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-             title="View Scoped 24h Algorithmic Pulse & Crossover Radar">
-            <span>⚡</span>
-            <span>24h Pulse Radar</span>
-          </a>
-          <button @click="scrollToSection('visual-crossover-hub')" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Jump to Visual Annotations & Power Pairs">
+          <button @click="scrollToSection('visual-crossover-hub')" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Jump to Visual Annotations, 3-Tag Triplets, Guided Capsules &amp; Color Swatches">
             <span>✨</span>
-            <span>Visual Hub</span>
+            <span>Visual &amp; Intent Matrix</span>
           </button>
           <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
             <span x-show="!crossoverLoading">⚡</span>
@@ -382,6 +375,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                     :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
             </button>
+            <button type="button" @click="onlySurging24h = !onlySurging24h; currentPage = 1" :class="onlySurging24h ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>⚡</span><span>24h Surges</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="formatNumber(crossoverData?.summary?.surging_24h_count || 0)"></span></button>
+            <button type="button" @click="onlyFreshRockets = !onlyFreshRockets; currentPage = 1" :class="onlyFreshRockets ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🚀</span><span>Rockets (≤14d)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300" x-text="formatNumber(crossoverData?.summary?.rockets_count || 0)"></span></button>
             <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'" class="px-2.5 py-1 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🐣</span><span>Breakout Baby Domains (<2y + 7d Gains)</span></button>
             <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'" class="px-2.5 py-1 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🎯</span><span>Linkless Vacuums</span><span x-show="crossoverData?.summary?.vacuum_pins_count" class="px-1.5 py-0.2 text-[10px] rounded-full bg-rose-500/30 text-rose-200" x-text="crossoverData?.summary?.vacuum_pins_count"></span></button>
             <template x-if="activeFolder?.items?.length">
@@ -400,6 +395,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <span class="text-slate-500 dark:text-slate-400">Sort:</span>
               <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
                 <option value="velocity_desc">Daily Velocity (Fastest)</option>
+                <option value="repins_24h_desc">24h Repins Surge (Highest)</option>
                 <option value="saves_desc">Total Saves (High → Low)</option>
                 <option value="saves_asc">Total Saves (Low → High)</option>
                 <option value="pin_age_asc">Pin Age (Youngest First)</option>
@@ -593,9 +589,15 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   </td>
 
                   <td class="p-3.5 text-right font-sans">
-                    <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
-                      View Dossier →
-                    </a>
+                    <div class="flex items-center justify-end gap-1.5">
+                      <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
+                        <span>⚡</span>
+                        <span>Blueprint</span>
+                      </button>
+                      <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
+                        View Dossier →
+                      </a>
+                    </div>
                   </td>
                 </tr>
               </template>
@@ -675,12 +677,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               ✨
             </div>
             <div>
-              <div class="flex items-center space-x-2">
-                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations Crossover Hub</h3>
+              <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations, Intent Matrix &amp; Color Studio</h3>
                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                      x-text="powerPairs.length + ' Power Pairs Computed'"></span>
+                      x-text="powerPairs.length + ' Pairs • ' + powerTriplets.length + ' Triplets'"></span>
               </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Computer-vision tag co-occurrences, intra-SERP algorithmic lift, and visual prompt blueprint combinations across 1,788 unique pins.</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">2-Tag Power Pairs, 3-Tag Co-Occurrence Triplets, Guided Search Capsules, Dominant Color Swatches &amp; Cross-SERP Bridges.</p>
             </div>
           </div>
 
@@ -692,8 +694,18 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           </template>
         </div>
 
+        <!-- Unified Visual Intelligence Quick-Jump Sub-Nav -->
+        <div class="flex items-center gap-2 flex-wrap p-2 rounded-2xl bg-slate-50 dark:bg-[#18181B]/70 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
+          <button type="button" @click="visualHubTab = 'all'" :class="visualHubTab === 'all' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">All Matrix Panels</button>
+          <button type="button" @click="visualHubTab = 'pairs'" :class="visualHubTab === 'pairs' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">⚡ 2-Tag Power Pairs (<span x-text="powerPairs.length"></span>)</button>
+          <button type="button" @click="visualHubTab = 'triplets'" :class="visualHubTab === 'triplets' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🔺 3-Tag Triplets (<span x-text="powerTriplets.length"></span>)</button>
+          <button type="button" @click="visualHubTab = 'guided'" :class="visualHubTab === 'guided' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🎯 Guided Search Capsules (<span x-text="(crossoverData?.guided_pivots || []).length"></span>)</button>
+          <button type="button" @click="visualHubTab = 'colors'" :class="visualHubTab === 'colors' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🎨 Dominant Color Swatches (<span x-text="(crossoverData?.dominant_colors || []).length"></span>)</button>
+          <button type="button" @click="visualHubTab = 'anchors'" :class="visualHubTab === 'anchors' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🏷️ 1-Tag Power Leaders (<span x-text="coreAnchorsList.length"></span>)</button>
+        </div>
+
         <!-- Subsection A: Co-Occurring Power Pairs Grid & Table -->
-        <div class="space-y-4">
+        <div class="space-y-4" x-show="visualHubTab === 'all' || visualHubTab === 'pairs'">
           <!-- Sub-header & Controls Bar -->
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             <div class="flex items-center gap-2.5 flex-wrap">
@@ -965,8 +977,72 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           </div>
         </div>
 
+        <!-- Subsection A2: 3-Tag Co-Occurrence Triplets -->
+        <div class="space-y-3 pt-2" x-show="(visualHubTab === 'all' || visualHubTab === 'triplets') && powerTriplets.length > 0">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🔺 3-Tag Co-Occurrence Triplets (High-Intent Visual Hook Recipes)</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30" x-text="powerTriplets.length + ' Triplets'"></span>
+            </div>
+            <span class="text-[10px] text-slate-400 font-mono tabular-nums">Click any triplet tag to filter cluster pins table</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <template x-for="(tr, tIdx) in powerTriplets.slice(0, 12)" :key="tIdx">
+              <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/70 border border-slate-200 dark:border-[#27272A] flex flex-col justify-between gap-2.5 hover:border-rose-500/40 transition shadow-2xs">
+                <div class="flex items-center justify-between text-[10px] font-mono tabular-nums">
+                  <span class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/30" x-text="tr.joint_count + ' Joint Pins'"></span>
+                  <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'⚡ +' + formatNumber(tr.total_velocity) + '/d'"></span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="tg in tr.tags" :key="tg">
+                    <button type="button" @click="searchQuery = tg; currentPage = 1; scrollToSection('pins-table-section')" class="px-2 py-1 rounded-lg bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-xs font-bold text-slate-800 dark:text-slate-200 hover:border-rose-500 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer" x-text="'#' + tg"></button>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Subsection A3: Guided Search Capsules & Dominant Color Swatches -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2" x-show="visualHubTab === 'all' || visualHubTab === 'guided' || visualHubTab === 'colors'">
+          <!-- Guided Search Capsules -->
+          <div class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3" x-show="(visualHubTab === 'all' || visualHubTab === 'guided') && (crossoverData?.guided_pivots || []).length > 0">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🎯 Guided Search Capsules (SERP Modifiers)</h4>
+              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" x-text="(crossoverData?.guided_pivots || []).length + ' Modifiers'"></span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
+              <template x-for="gp in (crossoverData?.guided_pivots || []).slice(0, 40)" :key="gp.term">
+                <button type="button" @click="searchQuery = gp.display_label || gp.term; currentPage = 1; scrollToSection('pins-table-section')" class="px-2.5 py-1 rounded-xl text-xs font-semibold bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] hover:border-amber-500 text-slate-800 dark:text-slate-200 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
+                  <span x-text="gp.display_label || gp.term"></span>
+                  <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400" x-text="(gp.keyword_count || 1) + ' KW'"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Dominant Color Swatches -->
+          <div class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3" x-show="(visualHubTab === 'all' || visualHubTab === 'colors') && (crossoverData?.dominant_colors || []).length > 0">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🎨 Dominant Color Swatches (Visual Aesthetics)</h4>
+              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="(crossoverData?.dominant_colors || []).length + ' Swatches'"></span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+              <template x-for="sw in (crossoverData?.dominant_colors || []).slice(0, 18)" :key="sw.hex">
+                <button type="button" @click="copyAnnotation(sw.hex)" class="p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] hover:border-emerald-500 transition flex items-center gap-2.5 text-left cursor-pointer shadow-2xs" :title="'Click to copy HEX ' + sw.hex">
+                  <span class="w-7 h-7 rounded-lg border border-black/10 dark:border-white/15 shrink-0 shadow-inner" :style="'background-color: ' + sw.hex"></span>
+                  <div class="flex flex-col min-w-0 font-mono tabular-nums">
+                    <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="sw.hex"></span>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="sw.pin_count + ' pins • +' + formatNumber(sw.total_velocity) + '/d'"></span>
+                  </div>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+
         <!-- Subsection B: Core Visual Anchors Matrix -->
-        <div class="space-y-4 pt-2">
+        <div class="space-y-4 pt-2" x-show="visualHubTab === 'all' || visualHubTab === 'anchors'">
           <!-- Controls Bar -->
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             <div class="flex items-center gap-2.5 flex-wrap">
@@ -2058,9 +2134,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         entityFilter: { type: null, value: null },
         onlyBreakoutBabyDomains: false,
         onlyVacuumPins: false,
+        onlyFreshRockets: false,
+        onlySurging24h: false,
+        visualHubTab: 'all',
         _pinsCacheKey: '',
         _cachedFilteredPins: null,
         powerPairs: [],
+        powerTriplets: [],
         powerPairsView: 'cards',
         powerPairsLimit: 12,
         powerPairsSearch: '',
@@ -2767,6 +2847,69 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           // Default sort by pins frequency (high to low), with daily save velocity as secondary ranking
           pairs.sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
           this.powerPairs = pairs;
+
+          // Compute 3-Tag Co-Occurrence Triplets across cluster pins
+          const tripletFreq = new Map();
+          const tripletVel = new Map();
+          for (const pin of pins) {
+            const rawSet = new Set();
+            for (const rawVa of (pin.visual_annotations || [])) {
+              const va = typeof rawVa === 'object' && rawVa !== null ? (rawVa.name || rawVa.tag || rawVa.label || rawVa.term || '') : (typeof rawVa === 'string' ? rawVa : '');
+              if (va) {
+                const clean = va.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
+                if (clean.length >= 3 && clean.length <= 35 && !skipWords.has(clean)) {
+                  rawSet.add(clean);
+                }
+              }
+            }
+            const tArr = Array.from(rawSet).slice(0, 6).sort();
+            const pVel = Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0);
+            for (let i = 0; i < tArr.length; i++) {
+              for (let j = i + 1; j < tArr.length; j++) {
+                if (tArr[i].includes(tArr[j]) || tArr[j].includes(tArr[i])) continue;
+                for (let k = j + 1; k < tArr.length; k++) {
+                  if (tArr[k].includes(tArr[i]) || tArr[i].includes(tArr[k]) || tArr[k].includes(tArr[j]) || tArr[j].includes(tArr[k])) continue;
+                  const tKey = tArr[i] + '|||' + tArr[j] + '|||' + tArr[k];
+                  tripletFreq.set(tKey, (tripletFreq.get(tKey) || 0) + 1);
+                  tripletVel.set(tKey, (tripletVel.get(tKey) || 0) + pVel);
+                }
+              }
+            }
+          }
+          const triplets = [];
+          for (const [tKey, count] of tripletFreq.entries()) {
+            if (count >= 2) {
+              triplets.push({
+                tags: tKey.split('|||').map(toTitleCase),
+                joint_count: count,
+                total_velocity: Math.round((tripletVel.get(tKey) || 0) * 10) / 10
+              });
+            }
+          }
+          triplets.sort((a, b) => b.joint_count - a.joint_count || b.total_velocity - a.total_velocity);
+          this.powerTriplets = triplets.slice(0, 36);
+        },
+
+        copyPinBlueprint(sp) {
+          if (!sp) return;
+          const title = String(sp.title || ('Pin #' + sp.pin_id)).trim();
+          const tags = (sp.visual_annotations || []).map(v => typeof v === 'object' && v !== null ? (v.name || v.tag || '') : String(v || '')).filter(Boolean).slice(0, 8);
+          const kws = (sp.rankings || []).map(r => r.keyword + ' (#' + r.rank_position + ')').slice(0, 5);
+          const vel = Number(sp.effective_velocity ?? sp.daily_save_velocity ?? 0);
+          const blueprint = [
+            '⚡ SCIENTIFIC PIN ARBITRAGE BLUEPRINT',
+            '====================================',
+            'Reference Pin: ' + title + ' (#' + sp.pin_id + ')',
+            'Total Saves: ' + this.formatNumber(sp.save_count || 0) + ' | 24h Save Velocity: +' + vel + '/d | 24h Repins: +' + (sp.delta_repins_24h || 0),
+            'Ranked Keywords: ' + (kws.join(', ') || 'Cluster Discovery'),
+            'Visual CV Hooks: ' + (tags.join(', ') || 'Clean Focal Composition'),
+            'Dominant Color: ' + (sp.dominant_color || '#E11D48') + ' | Aspect Ratio: ' + (sp.aspect_ratio || '2:3')
+          ].join('\\n');
+          navigator.clipboard.writeText(blueprint).then(() => {
+            this.showToast('Copied Scientific Blueprint for Pin #' + sp.pin_id + '!', 'success');
+          }).catch(() => {
+            this.showToast('Clipboard access denied', 'warning');
+          });
         },
 
         copyVisualBlueprint(pair) {
@@ -2874,7 +3017,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         filteredPinsList() {
           const allCount = (this.crossoverData?.all_pins?.length || 0);
           const superCount = (this.crossoverData?.super_pins?.length || 0);
-          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + allCount + ':' + superCount;
+          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + (this.onlyFreshRockets ? '1' : '0') + '|' + (this.onlySurging24h ? '1' : '0') + '|' + allCount + ':' + superCount;
 
           if (this._pinsCacheKey === currentKey && this._cachedFilteredPins) {
             return this._cachedFilteredPins;
@@ -2943,9 +3086,21 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             list = list.filter(p => Boolean(p.is_vacuum_pin || ((!p.domain || p.domain === 'Uploaded by user') && Number(p.save_count || 0) >= 100)));
           }
 
+          // 3D. Fresh Rockets Filter (<= 14d age with positive 24h momentum)
+          if (this.onlyFreshRockets) {
+            list = list.filter(p => p.pin_age_days != null && Number(p.pin_age_days) <= 14 && (Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0));
+          }
+
+          // 3E. 24h Surges Filter (Pins actively gaining saves or repins in last 24h)
+          if (this.onlySurging24h) {
+            list = list.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0);
+          }
+
           // 4. Sorting
           if (this.sortBy === 'velocity_desc') {
             list = list.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
+          } else if (this.sortBy === 'repins_24h_desc') {
+            list = list.slice().sort((a, b) => (Number(b.delta_repins_24h || 0) - Number(a.delta_repins_24h || 0)) || ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)));
           } else if (this.sortBy === 'saves_desc') {
             list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'saves_asc') {
