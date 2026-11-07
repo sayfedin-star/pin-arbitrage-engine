@@ -37,7 +37,7 @@ const tagNormCache = new Map();
 function getNormalizedTag(label) {
   let norm = tagNormCache.get(label);
   if (norm === undefined) {
-    norm = normalizeAnnotationTag(label, { lemmatize: true });
+    norm = label.toLowerCase().replace(/\s+/g, ' ');
     if (tagNormCache.size < 2000) tagNormCache.set(label, norm);
   }
   return norm;
@@ -286,7 +286,11 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ksc.gains_10d, 0) AS gains_10d,
       COALESCE(ksc.gains_15d, 0) AS gains_15d,
       COALESCE(ksc.url_global_saves, 0) AS url_global_saves,
-      COALESCE(ksc.dominant_color, '#888888') AS dominant_color,
+      COALESCE(
+        CASE WHEN ksc.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ksc.dominant_color ELSE NULL END,
+        CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
+        '#888888'
+      ) AS dominant_color,
       COALESCE(NULLIF(ksc.visual_annotations, '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
       COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
       COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
@@ -576,7 +580,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         pa.link AS destination_url,
         COALESCE(pa.saves, 0)::bigint AS save_count,
         COALESCE(pa.repins, 0)::int AS repin_count,
-        0::numeric AS delta_saves_24h,
+        COALESCE(pa.velocity, 0)::numeric AS delta_saves_24h,
         COALESCE(pa.velocity, 0)::numeric AS daily_save_velocity,
         pa.created_at_pinterest
       FROM pa_pins pa
@@ -588,19 +592,40 @@ async function queryBreakoutCreators(sql, folderIdNum) {
       SELECT
         tc.id AS competitor_id,
         ksc.pin_id,
-        ksc.title,
-        ksc.image_url,
-        ksc.board_name,
-        ksc.domain AS link_domain,
-        ksc.destination_url,
+        COALESCE(NULLIF(ksc.title, ''), ump.title, '') AS title,
+        COALESCE(NULLIF(ksc.image_url, ''), ump.image_url, '') AS image_url,
+        COALESCE(NULLIF(ksc.board_name, ''), ump.board_name, '') AS board_name,
+        COALESCE(NULLIF(ksc.domain, ''), ump.domain, '') AS link_domain,
+        COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '') AS destination_url,
         COALESCE(ksc.save_count, 0)::bigint AS save_count,
         COALESCE(ksc.repin_count, 0)::int AS repin_count,
-        0::numeric AS delta_saves_24h,
-        COALESCE(ksc.daily_save_velocity, 0)::numeric AS daily_save_velocity,
-        ksc.created_at_pinterest
+        GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS delta_saves_24h,
+        GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS daily_save_velocity,
+        COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
       FROM keyword_serp_current ksc
-      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(ksc.creator_username, '@', '')))
-      WHERE ksc.image_url IS NOT NULL AND ksc.image_url <> ''
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username), '@', '')))
+      WHERE COALESCE(NULLIF(ksc.image_url, ''), ump.image_url, '') <> ''
+
+      UNION ALL
+
+      SELECT
+        tc.id AS competitor_id,
+        kdi.pin_id,
+        COALESCE(ump.title, '') AS title,
+        COALESCE(ump.image_url, '') AS image_url,
+        COALESCE(ump.board_name, '') AS board_name,
+        COALESCE(NULLIF(kdi.domain, ''), ump.domain, '') AS link_domain,
+        COALESCE(ump.destination_url, '') AS destination_url,
+        COALESCE(kdi.save_count, 0)::bigint AS save_count,
+        COALESCE(kdi.repin_count, 0)::int AS repin_count,
+        GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0))::numeric AS delta_saves_24h,
+        GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0))::numeric AS daily_save_velocity,
+        ump.created_at_pinterest
+      FROM keyword_displaced_index kdi
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username), '@', '')))
+      WHERE COALESCE(ump.image_url, '') <> ''
     ),
     deduped_creator_pins AS (
       SELECT DISTINCT ON (ccp.competitor_id, ccp.pin_id)
@@ -635,9 +660,12 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         dcp.created_at_pinterest,
         ROW_NUMBER() OVER (
           PARTITION BY dcp.competitor_id
-          ORDER BY GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) DESC, dcp.save_count DESC
+          ORDER BY (CASE WHEN GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) > 0 THEN 1 ELSE 0 END) DESC,
+                   GREATEST(dcp.delta_saves_24h, dcp.daily_save_velocity) DESC,
+                   dcp.save_count DESC
         ) AS rn
       FROM deduped_creator_pins dcp
+      WHERE dcp.daily_save_velocity > 0 OR dcp.delta_saves_24h > 0 OR dcp.save_count > 0
     ),
     driver_pins_agg AS (
       SELECT
@@ -1379,13 +1407,22 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         }
       }
 
-      // Dominant Color Telemetry (Exclude placeholders)
+      // Dominant Color Telemetry (Exclude placeholders, group by perceptual RGB bucket so shades coalesce)
       if (p.dominant_color && !isPlaceholderColor(p.dominant_color)) {
         const colorHex = String(p.dominant_color).trim();
-        let cEntry = colorStatsMap.get(colorHex);
+        let bucketKey = colorHex.toLowerCase();
+        if (colorHex.length === 7 && colorHex.charCodeAt(0) === 35) {
+          const r = parseInt(colorHex.slice(1, 3), 16);
+          const g = parseInt(colorHex.slice(3, 5), 16);
+          const b = parseInt(colorHex.slice(5, 7), 16);
+          if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+            bucketKey = `rgb:${r >> 5}:${g >> 5}:${b >> 5}`;
+          }
+        }
+        let cEntry = colorStatsMap.get(bucketKey);
         if (!cEntry) {
           cEntry = { color: colorHex, pin_count: 0, total_velocity: 0, sample_pins: [], matchingPins: [], seenCreatives: new Set() };
-          colorStatsMap.set(colorHex, cEntry);
+          colorStatsMap.set(bucketKey, cEntry);
         }
         if (!cEntry.seenCreatives.has(cKey)) {
           cEntry.seenCreatives.add(cKey);
@@ -1398,7 +1435,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
               image_url: p.image_url
             });
           }
-          if (cEntry.matchingPins.length < 4) {
+          if (cEntry.matchingPins.length < 6) {
             cEntry.matchingPins.push(p);
           }
         }
@@ -1415,12 +1452,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       cmEntry.total_velocity += (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
     }
 
-    // Build inverted index maps from sorted allActivePins for O(1) matching_pins lookup
+    // Build inverted index maps from sorted allActivePins for O(1) matching_pins lookup & deduplicated capsule metrics
     const keywordIdToPinsMap = new Map();
     const tagNormToPinsMap = new Map();
     const kwSeenCreative = new Map();
     const tagSeenCreative = new Map();
-    const topPinsForIndex = Math.min(allActivePins.length, 300);
+    const topPinsForIndex = Math.min(allActivePins.length, 350);
     for (let pi = 0; pi < topPinsForIndex; pi++) {
       const p = allActivePins[pi];
       const pinGain = p.effective_24h_gain > 0 ? p.effective_24h_gain : p.daily_save_velocity;
@@ -1436,12 +1473,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           seenSet = new Set();
           kwSeenCreative.set(kw.keyword_id, seenSet);
         }
-        if (kwPins.length < 4 && !seenSet.has(cKey)) {
+        if (kwPins.length < 12 && !seenSet.has(cKey)) {
           seenSet.add(cKey);
           kwPins.push(p);
         }
       }
-      const numAnns = Math.min(p.cleanAnnotations.length, 4);
+      const numAnns = Math.min(p.cleanAnnotations.length, 6);
       for (let ti = 0; ti < numAnns; ti++) {
         const tag = p.cleanAnnotations[ti];
         let tagPins = tagNormToPinsMap.get(tag.norm);
@@ -1452,14 +1489,14 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           seenSet = new Set();
           tagSeenCreative.set(tag.norm, seenSet);
         }
-        if (tagPins.length < 4 && !seenSet.has(cKey)) {
+        if (tagPins.length < 6 && !seenSet.has(cKey)) {
           seenSet.add(cKey);
           tagPins.push(p);
         }
       }
     }
 
-    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 60 surging pins, max 4 tags) [Round 16]
+    // High-Momentum Candidate Pins for 2-Pair and 3-Triplet Crossover Mining (top 90 surging pins, sorted before slicing)
     const candidatePins = [];
     const candidateSeenCreative = new Set();
     for (let i = 0; i < allActivePins.length; i++) {
@@ -1471,7 +1508,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         if (candidateSeenCreative.has(cKey)) continue;
         candidateSeenCreative.add(cKey);
         candidatePins.push(p);
-        if (candidatePins.length >= 60) break;
+        if (candidatePins.length >= 90) break;
       }
     }
     const pairTagMap = new Map();
@@ -1480,7 +1517,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     for (const p of candidatePins) {
       const rawTags = p.cleanAnnotations;
       if (!rawTags || rawTags.length < 2) continue;
-      const sortedTags = (rawTags.length > 4 ? rawTags.slice(0, 4) : [...rawTags]).sort(tagNormAscComparator);
+      // Sort alphabetically FIRST, then slice to 5 tags so shared tags are never dropped by pre-sort truncation
+      const sortedTags = [...rawTags].sort(tagNormAscComparator).slice(0, 5);
       const K = sortedTags.length;
       if (K < 2) continue;
 
@@ -1741,6 +1779,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const seenFreshRocketKeys = new Set();
     const vacuumHijackCandidates = [];
     const domainlessViralCandidates = [];
+    let domainlessViralTotalCount = 0;
 
     for (let i = 0; i < allActivePins.length; i++) {
       const p = allActivePins[i];
@@ -1756,11 +1795,14 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
           freshRocketCandidates.push(p);
         }
       }
-      if (vacuumHijackCandidates.length < 10 && p.is_vacuum_hijack_target) {
+      if (vacuumHijackCandidates.length < 15 && p.is_vacuum_hijack_target) {
         vacuumHijackCandidates.push(p);
       }
-      if (domainlessViralCandidates.length < 15 && p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100)) {
-        domainlessViralCandidates.push(p);
+      if (p.is_domainless_viral && (p.effective_24h_gain > 0 || p.save_count >= 100)) {
+        domainlessViralTotalCount++;
+        if (domainlessViralCandidates.length < 15) {
+          domainlessViralCandidates.push(p);
+        }
       }
     }
 
@@ -1799,10 +1841,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Section 3: Format N-Gram Crossovers with Slicing FIRST & Hard Support Floor (pin_count >= 2) [Round 16]
     const singleAnnotations = Array.from(singleTagMap.values())
       .sort(gainThenCountDescComparator)
-      .slice(0, 40)
+      .slice(0, 30)
       .map(t => {
         const matchingPins = (t.matchingPins || [])
-          .slice(0, 6)
+          .slice(0, 4)
           .map(formatMatrixPinSummary);
         return {
           label: t.tag_display,
@@ -1828,10 +1870,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const pairCrossovers = Array.from(pairTagMap.values())
       .filter(p => p.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
       .sort(gainThenCountDescComparator)
-      .slice(0, 50)
+      .slice(0, 30)
       .map(p => {
         const matchingPins = (p.matchingPins || [])
-          .slice(0, 6)
+          .slice(0, 4)
           .map(formatMatrixPinSummary);
         return {
           label: p.crossover_label,
@@ -1860,10 +1902,10 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     const tripletCrossovers = Array.from(tripletTagMap.values())
       .filter(t => t.pin_count >= 2) // [INVARIANT: HARD-SUPPORT-FLOOR-MIN-2: eliminate all count=1 rows]
       .sort(gainThenCountDescComparator)
-      .slice(0, 50)
+      .slice(0, 25)
       .map(t => {
         const matchingPins = (t.matchingPins || [])
-          .slice(0, 6)
+          .slice(0, 4)
           .map(formatMatrixPinSummary);
         return {
           label: t.crossover_label,
@@ -1901,6 +1943,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         cg = {
           term: c.term || c.display_label,
           display_label: c.display_label || c.term,
+          label_norm: labelNorm,
           dominant_color: c.dominant_color || '#3b82f6',
           max_score: Number(c.score || 0),
           kwIds: [],
@@ -1925,20 +1968,23 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     }
 
     let sharedCapsulesCount = 0;
-    // Precompute metrics on all capsule groups
+    // Fast initial pass across all capsule groups (bounded to avoid O(N*M) string scans)
+    const maxSystemVel = totalSavesVelocity > 0 ? totalSavesVelocity : Infinity;
+    const maxSystemPins = allActivePins.length > 0 ? allActivePins.length : Infinity;
     for (const cg of capsuleGroupMap.values()) {
-      let crossSerpVelocity = 0;
-      let crossSerpPins = 0;
-      for (let i = 0; i < cg.kwIds.length; i++) {
+      let rawVel = 0;
+      let rawPins = 0;
+      const kwCap = Math.min(cg.kwIds.length, 15);
+      for (let i = 0; i < kwCap; i++) {
         const stats = keywordPinStats.get(cg.kwIds[i]);
         if (stats) {
-          crossSerpVelocity += stats.total_velocity;
-          crossSerpPins += stats.active_pins_count;
+          rawVel += stats.total_velocity;
+          rawPins += stats.active_pins_count;
         }
       }
       cg.keyword_count = cg.kwIds.length;
-      cg.cross_serp_velocity = Math.round(crossSerpVelocity * 100) / 100;
-      cg.cross_serp_pins = crossSerpPins;
+      cg.cross_serp_velocity = Math.round(Math.min(rawVel, maxSystemVel) * 100) / 100;
+      cg.cross_serp_pins = Math.min(rawPins, maxSystemPins);
       if (cg.keyword_count >= 2) sharedCapsulesCount++;
     }
 
@@ -1947,51 +1993,82 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       .sort(capsuleGroupSortComparator)
       .slice(0, 12);
 
-    // Gather matching pins ONLY for top 12 in O(1) time via inverted indexes
+    // Compute exact deduplicated pin count/velocity and gather semantically matching pins ONLY for top 12 in O(1) time
     const guidedCapsuleCrossovers = topCapsuleGroups.map(cg => {
+      const targetLabelNorm = (cg.label_norm || cg.display_label || cg.term || '').toLowerCase();
       const matchingPinsRaw = [];
+      const fallbackPinsRaw = [];
       const seenCapsuleCreative = new Set();
+      const seenPinIds = new Set();
+      let dedupedVel = 0;
+      let dedupedPinCount = 0;
 
-      // 1. O(1) keyword index lookup
+      // 1. O(1) tag index lookup first (exact visual tag match)
+      const tagPins = tagNormToPinsMap.get(targetLabelNorm);
+      if (tagPins) {
+        for (let pi = 0; pi < tagPins.length; pi++) {
+          const p = tagPins[pi];
+          if (!seenPinIds.has(p.pin_id)) {
+            seenPinIds.add(p.pin_id);
+            dedupedPinCount++;
+            dedupedVel += (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
+          }
+          const cKey = getCanonicalCreativeKey(p);
+          if (!seenCapsuleCreative.has(cKey) && matchingPinsRaw.length < 6) {
+            seenCapsuleCreative.add(cKey);
+            matchingPinsRaw.push(p);
+          }
+        }
+      }
+
+      // 2. Scan indexed keyword pins for semantic match & deduplicated stats across cg.kwIds
       for (let ki = 0; ki < cg.kwIds.length; ki++) {
         const kid = cg.kwIds[ki];
         const kwPins = keywordIdToPinsMap.get(kid);
-        if (kwPins) {
-          for (let pi = 0; pi < kwPins.length; pi++) {
-            const p = kwPins[pi];
-            const cKey = getCanonicalCreativeKey(p);
-            if (!seenCapsuleCreative.has(cKey)) {
-              seenCapsuleCreative.add(cKey);
-              matchingPinsRaw.push(p);
-              if (matchingPinsRaw.length >= 3) break;
-            }
+        if (!kwPins) continue;
+        for (let pi = 0; pi < kwPins.length; pi++) {
+          const p = kwPins[pi];
+          const isNewPin = !seenPinIds.has(p.pin_id);
+          if (isNewPin) {
+            seenPinIds.add(p.pin_id);
+            dedupedPinCount++;
+            dedupedVel += (p.daily_save_velocity > 0 ? p.daily_save_velocity : p.effective_24h_gain);
           }
-        }
-        if (matchingPinsRaw.length >= 3) break;
-      }
-
-      // 2. O(1) tag index fallback if < 3
-      if (matchingPinsRaw.length < 3) {
-        const targetLabelNorm = (cg.display_label || cg.term || '').toLowerCase();
-        const tagPins = tagNormToPinsMap.get(targetLabelNorm);
-        if (tagPins) {
-          for (let pi = 0; pi < tagPins.length; pi++) {
-            const p = tagPins[pi];
-            const cKey = getCanonicalCreativeKey(p);
-            if (!seenCapsuleCreative.has(cKey)) {
+          if (!p.image_url) continue;
+          const cKey = getCanonicalCreativeKey(p);
+          if (seenCapsuleCreative.has(cKey)) continue;
+          if (matchingPinsRaw.length < 6) {
+            const titleLower = (p.title || '').toLowerCase();
+            const kwLower = (p.keyword_text || '').toLowerCase();
+            if (titleLower.includes(targetLabelNorm) || kwLower.includes(targetLabelNorm)) {
               seenCapsuleCreative.add(cKey);
               matchingPinsRaw.push(p);
-              if (matchingPinsRaw.length >= 3) break;
+            } else if (fallbackPinsRaw.length < 6) {
+              fallbackPinsRaw.push(p);
             }
           }
         }
       }
 
-      const matchingPins = matchingPinsRaw.map(formatMatrixPinSummary);
-      const effectivePinCount = cg.cross_serp_pins > 0 ? cg.cross_serp_pins : matchingPins.length;
+      // 3. Fill remaining slots up to 6 from fallbackPinsRaw if needed
+      if (matchingPinsRaw.length < 6 && fallbackPinsRaw.length > 0) {
+        for (let fi = 0; fi < fallbackPinsRaw.length; fi++) {
+          const p = fallbackPinsRaw[fi];
+          const cKey = getCanonicalCreativeKey(p);
+          if (!seenCapsuleCreative.has(cKey)) {
+            seenCapsuleCreative.add(cKey);
+            matchingPinsRaw.push(p);
+            if (matchingPinsRaw.length >= 6) break;
+          }
+        }
+      }
+
+      const matchingPins = matchingPinsRaw.slice(0, 6).map(formatMatrixPinSummary);
+      const effectivePinCount = dedupedPinCount > 0 ? dedupedPinCount : (cg.cross_serp_pins > 0 ? cg.cross_serp_pins : matchingPins.length);
+      const effectiveVelocity = dedupedVel > 0 ? Number(dedupedVel.toFixed(2)) : cg.cross_serp_velocity;
       const effectiveScore = cg.max_score > 0
         ? Number(safeNum(cg.max_score).toFixed(2))
-        : Number(safeNum(cg.cross_serp_velocity > 0 ? cg.cross_serp_velocity : (cg.keyword_count * 10 + effectivePinCount)).toFixed(2));
+        : Number(safeNum(effectiveVelocity > 0 ? effectiveVelocity : (cg.keyword_count * 10 + effectivePinCount)).toFixed(2));
 
       return {
         term: cg.term,
@@ -2001,14 +2078,14 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         count: effectivePinCount,
         score: effectiveScore,
         max_score: effectiveScore,
-        velocity: cg.cross_serp_velocity,
-        total_velocity: cg.cross_serp_velocity,
-        avg_velocity: effectivePinCount > 0 ? Number((cg.cross_serp_velocity / effectivePinCount).toFixed(2)) : cg.cross_serp_velocity,
+        velocity: effectiveVelocity,
+        total_velocity: effectiveVelocity,
+        avg_velocity: effectivePinCount > 0 ? Number((effectiveVelocity / effectivePinCount).toFixed(2)) : effectiveVelocity,
         keyword_text: cg.keywords[0]?.keyword_text || '',
         distinct_keywords: cg.keyword_count,
         keyword_count: cg.keyword_count,
-        cross_serp_velocity: cg.cross_serp_velocity,
-        cross_serp_pins: cg.cross_serp_pins,
+        cross_serp_velocity: effectiveVelocity,
+        cross_serp_pins: effectivePinCount,
         keywords: cg.keywords.slice(0, 2),
         matching_pins: matchingPins,
         sample_pins: matchingPins.slice(0, 2)
@@ -2043,17 +2120,31 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
         if (deltaReach > 0 || deltaViews > 0) breakoutCreatorsCount++;
 
-        // Filter driver pins for valid non-empty images
-        const rawDriverPins = (Array.isArray(cp.driver_pins) ? cp.driver_pins : [])
+        // Filter driver pins for valid non-empty images and compute age-based velocity fallback if 24h delta is 0
+        const mappedDriverPins = (Array.isArray(cp.driver_pins) ? cp.driver_pins : [])
           .filter(dp => dp && dp.image_url && typeof dp.image_url === 'string' && dp.image_url.trim().length > 0)
-          .map(dp => ({
-            ...dp,
-            dossier_url: '/pin/' + encodeURIComponent(dp.pin_id),
-            daily_save_velocity: Number(dp.daily_save_velocity || 0),
-            delta_saves_24h: Number(dp.delta_saves_24h || 0),
-            save_count: Number(dp.save_count || 0),
-            repin_count: Number(dp.repin_count || 0)
-          }));
+          .map(dp => {
+            const saves = Number(dp.save_count || 0);
+            let vel = Number(dp.daily_save_velocity || 0);
+            let dSaves = Number(dp.delta_saves_24h || 0);
+            if (vel <= 0 && dSaves <= 0 && saves > 0 && dp.created_at_pinterest) {
+              const createdMs = fastParseIsoDateMs(dp.created_at_pinterest);
+              if (Number.isFinite(createdMs) && createdMs < nowMs) {
+                const ageDays = Math.max(1, Math.floor((nowMs - createdMs) / 86400000));
+                vel = Number((saves / ageDays).toFixed(1));
+              }
+            }
+            return {
+              ...dp,
+              dossier_url: '/pin/' + encodeURIComponent(dp.pin_id),
+              daily_save_velocity: vel > 0 ? vel : dSaves,
+              delta_saves_24h: dSaves > 0 ? dSaves : vel,
+              save_count: saves,
+              repin_count: Number(dp.repin_count || 0)
+            };
+          });
+        const positiveDriverPins = mappedDriverPins.filter(dp => dp.daily_save_velocity > 0 || dp.delta_saves_24h > 0);
+        const rawDriverPins = positiveDriverPins.length > 0 ? positiveDriverPins : mappedDriverPins;
 
         const maxPinVel = rawDriverPins.reduce((max, dp) => Math.max(max, dp.daily_save_velocity || dp.delta_saves_24h || 0), 0);
         const audiencePerPin = totalPins > 0 ? Math.round(reach / totalPins) : 0;
@@ -2211,7 +2302,13 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         sample_pins: c.sample_pins || [],
         matching_pins: (c.matchingPins || []).slice(0, 6).map(formatMatrixPinSummary)
       }))
-      .sort((a, b) => b.total_velocity - a.total_velocity)
+      .sort((a, b) => {
+        const aMulti = a.pin_count >= 2 ? 1 : 0;
+        const bMulti = b.pin_count >= 2 ? 1 : 0;
+        if (bMulti !== aMulti) return bMulti - aMulti;
+        if (b.total_velocity !== a.total_velocity) return b.total_velocity - a.total_velocity;
+        return b.pin_count - a.pin_count;
+      })
       .slice(0, 12);
 
     const topArbitrageDomains = domainRollups.map(d => ({
@@ -2239,7 +2336,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       breakout_creators_count: breakoutCreatorsCount,
       multi_keyword_bridge_pins_count: bridgePinsCount,
       shared_guided_capsules_count: sharedCapsulesCount,
-      serp_vacuum_top10_24h_count: totalVacuumTop10_24h
+      serp_vacuum_top10_24h_count: totalVacuumTop10_24h,
+      domainless_viral_pins_count: domainlessViralTotalCount,
+      vault_surge_pins_count: vaultPins.length
     };
 
     const payload = {

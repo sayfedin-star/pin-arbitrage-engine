@@ -350,7 +350,7 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'all' ? 'bg-white dark:bg-[#121215] text-rose-600 dark:text-rose-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>All 24h Surges</span>
-            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (breakout_pins.top_breakouts || []).length + ')'"></span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.pins_gaining_24h_count || (breakout_pins.top_breakouts || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
@@ -359,7 +359,7 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'fresh' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>⚡ Fresh Breakouts (≤14d)</span>
-            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (breakout_pins.fresh_rockets || []).length + ')'"></span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.fresh_rocket_pins_14d_count || (breakout_pins.fresh_rockets || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
@@ -368,7 +368,7 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'bridges' ? 'bg-white dark:bg-[#121215] text-indigo-600 dark:text-indigo-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>🌉 Multi-Keyword Pixie Bridges</span>
-            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (keyword_vacuums_and_bridges.bridge_pins || []).length + ')'"></span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.multi_keyword_bridge_pins_count || (keyword_vacuums_and_bridges.bridge_pins || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
@@ -377,7 +377,7 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'domainless' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>💎 Domainless / Linkless Hijacks</span>
-            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (hidden_gems_telemetry.domainless_viral_pins || []).length + ')'"></span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.domainless_viral_pins_count || (hidden_gems_telemetry.domainless_viral_pins || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
@@ -386,11 +386,11 @@ export function getPulsePageHtml(folderId = '') {
             :class="radarFilter === 'vault' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <span>📦 Vault Surges (Displaced Index)</span>
-            <span class="ml-1 font-mono text-[10px]" x-text="'(' + (breakout_pins.vault_surge_pins || []).length + ')'"></span>
+            <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.vault_surge_pins_count || (breakout_pins.vault_surge_pins || []).length) + ')'"></span>
           </button>
         </div>
 
-        <div class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Showing top ' + Math.min(displayLimits.radar, getFilteredRadarPins().length) + ' of ' + getFilteredRadarPins().length + ' surging pins'"></div>
+        <div class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Showing top ' + Math.min(displayLimits.radar, getFilteredRadarPins().length) + ' of ' + getFilteredRadarPins().length + ' loaded surging pins'"></div>
       </div>
 
       <!-- Active Tag / Capsule Filter Banner -->
@@ -1618,38 +1618,45 @@ export function getPulsePageHtml(folderId = '') {
             });
           }
 
-          // 1. Radar Filter Pills — Use dedicated backend pools first so pill badge counts match table rows 100%
+          // 1. Radar Filter Pills — Merge dedicated backend pools with any matching pins in top_breakouts (deduplicated by pin_id)
           var rf = this.radarFilter;
+          var mergeUnique = function(primaryPool, secondaryMatched) {
+            var merged = [];
+            var seenIds = new Set();
+            var a = primaryPool || [];
+            var b = secondaryMatched || [];
+            for (var i = 0; i < a.length; i++) {
+              if (a[i] && a[i].pin_id && !seenIds.has(a[i].pin_id)) {
+                seenIds.add(a[i].pin_id);
+                merged.push(a[i]);
+              }
+            }
+            for (var k = 0; k < b.length; k++) {
+              if (b[k] && b[k].pin_id && !seenIds.has(b[k].pin_id)) {
+                seenIds.add(b[k].pin_id);
+                merged.push(b[k]);
+              }
+            }
+            return merged;
+          };
           if (rf === 'fresh') {
-            if (this.breakout_pins.fresh_rockets && this.breakout_pins.fresh_rockets.length) {
-              list = this.breakout_pins.fresh_rockets.slice();
-            } else {
-              list = list.filter(function(p) {
-                return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '' && Number(p.pin_age_days) >= 0 && Number(p.pin_age_days) <= 14));
-              });
-            }
+            var matchedFresh = list.filter(function(p) {
+              return Boolean(p.is_fresh_14d || p.is_fresh_breakout || (p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '' && Number(p.pin_age_days) >= 0 && Number(p.pin_age_days) <= 14));
+            });
+            list = mergeUnique(this.breakout_pins.fresh_rockets, matchedFresh);
           } else if (rf === 'bridges') {
-            if (this.keyword_vacuums_and_bridges.bridge_pins && this.keyword_vacuums_and_bridges.bridge_pins.length) {
-              list = this.keyword_vacuums_and_bridges.bridge_pins.slice();
-            } else {
-              list = list.filter(function(p) {
-                return Boolean((p.overlap_count > 1) || (p.keywords && p.keywords.length > 1) || (p.keyword_count > 1));
-              });
-            }
+            var matchedBridges = list.filter(function(p) {
+              return Boolean((p.overlap_count > 1) || (p.keywords && p.keywords.length > 1) || (p.keyword_count > 1));
+            });
+            list = mergeUnique(this.keyword_vacuums_and_bridges.bridge_pins, matchedBridges);
           } else if (rf === 'domainless') {
-            if (this.hidden_gems_telemetry.domainless_viral_pins && this.hidden_gems_telemetry.domainless_viral_pins.length) {
-              list = this.hidden_gems_telemetry.domainless_viral_pins.slice();
-            } else {
-              list = list.filter(function(p) {
-                return !p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url;
-              });
-            }
+            var matchedDomainless = list.filter(function(p) {
+              return !p.domain || p.domain === 'Uploaded by user' || p.domain.includes('pinterest.') || !p.destination_url;
+            });
+            list = mergeUnique(this.hidden_gems_telemetry.domainless_viral_pins, matchedDomainless);
           } else if (rf === 'vault') {
-            if (this.breakout_pins.vault_surge_pins && this.breakout_pins.vault_surge_pins.length) {
-              list = this.breakout_pins.vault_surge_pins.slice();
-            } else {
-              list = list.filter(function(p) { return Boolean(p.is_vault_surge || p.is_displaced); });
-            }
+            var matchedVault = list.filter(function(p) { return Boolean(p.is_vault_surge || p.is_displaced); });
+            list = mergeUnique(this.breakout_pins.vault_surge_pins, matchedVault);
           }
 
           // 2. Active Tag Filter (Clickable Tag Banner)
