@@ -895,11 +895,7 @@ export async function listDomainsIntelligence(sql, {
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
       FROM pa_pins pa
-      WHERE (${includeArchiveAndComp} = TRUE OR (${fId}::int IS NOT NULL AND pa.account_username IN (
-          SELECT prof.username FROM folder_competitor_items fci
-          JOIN competitor_profiles prof ON prof.id = fci.competitor_id
-          WHERE fci.folder_id = ${fId}
-        )))
+      WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'archive'))
         AND pa.domain IS NOT NULL AND pa.domain <> ''
 
@@ -927,9 +923,7 @@ export async function listDomainsIntelligence(sql, {
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-      WHERE (${includeArchiveAndComp} = TRUE OR (${fId}::int IS NOT NULL AND cp.competitor_id IN (
-          SELECT competitor_id FROM folder_competitor_items WHERE folder_id = ${fId}
-        )))
+      WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'competitors'))
         AND cp.link_domain IS NOT NULL AND cp.link_domain <> ''
 
@@ -1032,27 +1026,37 @@ export async function listDomainsIntelligence(sql, {
     domain_agg AS (
       SELECT
         dp.clean_domain AS domain,
-        -- [INVARIANT: UNIFIED-DOMAIN-SSOT-PARITY]
-        -- Aggregate 100% of unique discovered pins, URLs, and saves across SERP, Vault, Competitor Catalog, and Master Pins
+        -- [INVARIANT: SERP-ONLY-RANKED-PINS-COUNTING]
+        -- Only count pins and URLs that actually ranked in SERP or Displaced SERP Vault (is_serp_ranked = TRUE),
+        -- falling back to catalog pins only for catalog-only domains that have 0 SERP/Vault occurrences.
         COALESCE(
+          NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
           NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
           1
         )::int AS total_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = FALSE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS catalog_only_pins,
         CASE
           WHEN dp.clean_domain = 'Uploaded by user' THEN 0
           ELSE GREATEST(
             1,
-            COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+            COALESCE(
+              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+              COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+            )
           )::int
         END AS unique_urls,
         ROUND(
           COALESCE(
+            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
             NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
             1
           )::numeric /
           GREATEST(
             1,
-            COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+            COALESCE(
+              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+              COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+            )
           ),
           2
         ) AS pins_per_url,
@@ -1071,12 +1075,34 @@ export async function listDomainsIntelligence(sql, {
           )::numeric,
           1
         ) AS visibility_score,
-        COALESCE(SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint AS total_saves,
-        ROUND(COALESCE(AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0))::bigint AS avg_saves,
-        COALESCE(SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint AS total_repins,
-        ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0), 1) AS avg_velocity,
-        COUNT(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> '')::int AS accounts_count,
-        (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> ''))[1:5] AS sample_accounts
+        COALESCE(
+          NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+          SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          0
+        )::bigint AS total_saves,
+        ROUND(COALESCE(
+          NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+          AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          0
+        ))::bigint AS avg_saves,
+        COALESCE(
+          NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+          SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          0
+        )::bigint AS total_repins,
+        ROUND(COALESCE(
+          NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0),
+          SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0),
+          0
+        ), 1) AS avg_velocity,
+        COALESCE(
+          NULLIF(COUNT(DISTINCT dp.username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''), 0),
+          COUNT(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> '')
+        )::int AS accounts_count,
+        COALESCE(
+          (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''))[1:5],
+          (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> ''))[1:5]
+        ) AS sample_accounts
       FROM deduped_pins dp
       GROUP BY dp.clean_domain
       HAVING COUNT(DISTINCT dp.pin_id) >= ${minP}
@@ -1252,6 +1278,7 @@ export async function listDomainsIntelligence(sql, {
     domains: rows.map(r => ({
       domain: r.domain,
       total_pins: Number(r.total_pins || 0),
+      catalog_only_pins: Number(r.catalog_only_pins || 0),
       unique_urls: Number(r.unique_urls || 1),
       pins_per_url: Number(r.pins_per_url || 1),
       active_serp_pins: Number(r.active_serp_pins || 0),
@@ -1452,21 +1479,34 @@ export async function refreshDomainIntelligenceRollup(sql) {
       domain_agg AS (
         SELECT
           dp.clean_domain AS domain,
-          -- [INVARIANT: UNIFIED-DOMAIN-SSOT-PARITY]
-          -- Count 100% of unique discovered pins, URLs, and saves across all tables
-          COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%'))::int AS total_pins,
+          -- [INVARIANT: SERP-ONLY-RANKED-PINS-COUNTING]
+          -- Count SERP + Displaced Vault pins & URLs first, falling back to catalog only when 0 SERP/Vault pins exist
+          COALESCE(
+            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+            COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%'))
+          )::int AS total_pins,
           CASE
             WHEN dp.clean_domain = 'Uploaded by user' THEN 0
-            ELSE GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'))::int
+            ELSE GREATEST(
+              1,
+              COALESCE(
+                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+                COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+              )
+            )::int
           END AS unique_urls,
           ROUND(
             COALESCE(
+              NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
               NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
               1
             )::numeric / 
             GREATEST(
               1,
-              COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+              COALESCE(
+                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+                COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+              )
             ), 
             2
           ) AS pins_per_url,
@@ -1485,13 +1525,35 @@ export async function refreshDomainIntelligenceRollup(sql) {
             )::numeric,
             1
           ) AS visibility_score,
-          COALESCE(SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint AS total_saves,
-          ROUND(COALESCE(AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0), 1) AS avg_saves,
-          COALESCE(SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint AS total_repins,
+          COALESCE(
+            NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+            SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            0
+          )::bigint AS total_saves,
+          ROUND(COALESCE(
+            NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+            AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            0
+          ), 1) AS avg_saves,
+          COALESCE(
+            NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+            SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            0
+          )::bigint AS total_repins,
           -- [INVARIANT: DUAL-DOMAIN-VELOCITY] Non-diluted active pin aggregate daily velocity
-          ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0), 1) AS avg_velocity,
-          COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> '')::int AS accounts_count,
-          (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5] AS sample_accounts
+          ROUND(COALESCE(
+            NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0),
+            SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0),
+            0
+          ), 1) AS avg_velocity,
+          COALESCE(
+            NULLIF(COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.sample_username IS NOT NULL AND dp.sample_username <> ''), 0),
+            COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> '')
+          )::int AS accounts_count,
+          COALESCE(
+            (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5],
+            (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5]
+          ) AS sample_accounts
         FROM dedup_pins dp
         GROUP BY dp.clean_domain
       ),
@@ -2074,12 +2136,6 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.created_at_pinterest
       FROM pa_pins pa
       WHERE (LOWER(TRIM(pa.domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(pa.domain)) = 'uploaded by user'))
-        AND (${fId}::int IS NULL OR pa.account_username IN (
-          SELECT prof.username FROM folder_competitor_items fci
-          JOIN competitor_profiles prof ON prof.id = fci.competitor_id
-          WHERE fci.folder_id = ${fId}
-        ))
-        AND (${kId}::int IS NULL)
       ORDER BY pa.saves DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'pa_pins')),
@@ -2105,8 +2161,6 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
       WHERE (LOWER(TRIM(cp.link_domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(cp.link_domain)) = 'uploaded by user'))
-        AND (${fId}::int IS NULL OR cp.competitor_id IN (SELECT competitor_id FROM folder_competitor_items WHERE folder_id = ${fId}))
-        AND (${kId}::int IS NULL)
       ORDER BY GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0)) DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'competitor_pins')),
@@ -2430,10 +2484,67 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 
   for (const r of displacedPins) registerPin(r, 'displaced');
 
-  // [INVARIANT: UNIFIED-DOMAIN-SSOT-PARITY] Register all discovered pins for the domain across Competitor Catalog, PinArchive, and Master Pins
-  for (const r of compPins) registerPin(r, 'competitor');
-  for (const r of archivePins) registerPin(r, 'archive');
-  for (const r of (umpPins || [])) registerPin(r, 'master');
+  // [INVARIANT: SERP-ONLY-RANKED-PINS-COUNTING]
+  // Enrich SERP & Displaced Vault pins from Competitor Catalog, PinArchive, and Master Pins without polluting pinsMap or moneyUrls.
+  // Keep unranked catalog-only pins in a separate catalogOnlyMap (when viewing global scope) so Ranked Pins & Money Articles stay 100% pure.
+  const catalogOnlyMap = new Map();
+  const enrichOrCollectCatalogRow = (row, sourcePillar) => {
+    const pid = String(row.pin_id || '').trim();
+    if (!pid) return;
+    if (pinsMap.has(pid)) {
+      registerPin(row, sourcePillar);
+      return;
+    }
+    if (fId === null && kId === null && !catalogOnlyMap.has(pid)) {
+      const rawUser = String(row.creator_username || '').replace(/^@+/, '').trim().toLowerCase();
+      let cleanSlug = '/';
+      if (isOrganicVault) {
+        cleanSlug = row.board_name ? `/${row.board_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '/direct-uploads';
+      } else if (row.destination_url) {
+        try {
+          const u = new URL(row.destination_url.startsWith('http') ? row.destination_url : `https://${row.destination_url}`);
+          cleanSlug = (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+        } catch (_) {}
+      }
+      catalogOnlyMap.set(pid, {
+        pin_id: pid,
+        title: row.title || `Pin #${pid}`,
+        destination_url: row.destination_url || '',
+        clean_slug: cleanSlug,
+        image_url: row.image_url || '',
+        creator_username: rawUser,
+        board_name: row.board_name || '',
+        saves: Number(row.saves || 0),
+        repins: Number(row.repins || 0),
+        velocity: Number(row.velocity || 0),
+        dominant_color: row.dominant_color || '#888888',
+        visual_annotations: Array.isArray(row.visual_annotations) ? row.visual_annotations : [],
+        created_at_pinterest: row.created_at_pinterest || null,
+        best_rank: null,
+        is_displaced: false,
+        is_catalog_only: true,
+        is_vulnerable: false,
+        vulnerability_score: 0,
+        serp_appearances: [],
+        pillars: [sourcePillar]
+      });
+    }
+  };
+
+  if (pinsMap.size > 0 || fId !== null || kId !== null) {
+    for (const r of compPins) enrichOrCollectCatalogRow(r, 'competitor');
+    for (const r of archivePins) enrichOrCollectCatalogRow(r, 'archive');
+    for (const r of (umpPins || [])) enrichOrCollectCatalogRow(r, 'master');
+  } else {
+    // Fallback only for catalog-only domains that have 0 SERP/Vault occurrences globally
+    for (const r of compPins) registerPin(r, 'competitor');
+    for (const r of archivePins) registerPin(r, 'archive');
+    for (const r of (umpPins || [])) registerPin(r, 'master');
+  }
+
+  const catalogOnlyVisualPins = Array.from(catalogOnlyMap.values())
+    .filter(p => Boolean(p.image_url && p.image_url.trim()))
+    .sort((a, b) => b.saves - a.saves);
 
   // 2. Finalize Pins & Group by Money Article URLs (Pillar 2: Creative Multiplier)
   const urlGroupsMap = new Map();
@@ -2573,7 +2684,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       }
 
       const sortedSlots = k.slots_detail.sort((a, b) => (a.rank_position || 999) - (b.rank_position || 999) || b.saves - a.saves);
-      const topSlot = sortedSlots.reduce((max, s) => s.saves > (max?.saves || 0) ? s : max, sortedSlots[0] || null);
+      const activeSlotsPool = sortedSlots.filter(s => !s.is_displaced && s.rank_position != null);
+      const candidatePool = activeSlotsPool.length > 0 ? activeSlotsPool : sortedSlots;
+      const topSlot = candidatePool.reduce((max, s) => s.saves > (max?.saves || 0) ? s : max, candidatePool[0] || null);
 
       return {
         keyword_id: k.keyword_id,
@@ -2720,11 +2833,20 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   };
 
   // [INVARIANT: FOLDER-SCOPED-LEADERBOARD-DOSSIER-PARITY]
-  // Align total_pins, unique_urls and total_saves across all discovered pins (Active + Vault) so opening a domain inside a folder never drops metrics
+  // Align total_pins, unique_urls and total_saves across all SERP + Displaced Vault pins so Leaderboard and Dossier match 1:1
   const activePins = allPins.filter(p => p.best_rank !== null);
-  const activePinsCount = activePins.length;
-  const activeUniqueUrls = isOrganicVault ? 0 : new Set(activePins.filter(p => p.clean_slug && p.clean_slug !== '/').map(p => p.clean_slug)).size;
+  const activeUniqueUrlsSet = isOrganicVault ? new Set() : new Set(activePins.filter(p => p.clean_slug && p.clean_slug !== '/').map(p => p.clean_slug));
+  const activeUniqueUrls = activeUniqueUrlsSet.size;
   const activeTotalSaves = activePins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0);
+
+  const vaultUniqueUrlsSet = isOrganicVault
+    ? new Set()
+    : new Set(
+        allPins
+          .filter(p => p.best_rank === null && p.is_displaced && p.clean_slug && p.clean_slug !== '/' && !activeUniqueUrlsSet.has(p.clean_slug))
+          .map(p => p.clean_slug)
+      );
+  const vaultUniqueUrlsCount = vaultUniqueUrlsSet.size;
 
   const totalPinsCount = allPins.length;
   const summaryUniqueUrls = isOrganicVault ? 0 : Math.max(1, moneyUrls.length);
@@ -2740,7 +2862,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
       total_pins: totalPinsCount,
-      all_catalog_pins_count: allPins.length,
+      all_catalog_pins_count: allPins.length + catalogOnlyVisualPins.length,
+      catalog_only_pins_count: catalogOnlyVisualPins.length,
       visual_pins_count: visualPins.length,
       active_pins_count: visualPins.filter(p => p.best_rank !== null).length,
       active_total_saves: activeTotalSaves,
@@ -2753,7 +2876,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       unique_urls: summaryUniqueUrls,
       all_unique_urls_count: isOrganicVault ? 0 : moneyUrls.length,
       active_unique_urls_count: activeUniqueUrls,
-      vault_unique_urls_count: Math.max(0, (isOrganicVault ? 0 : moneyUrls.length) - activeUniqueUrls),
+      vault_unique_urls_count: vaultUniqueUrlsCount,
       pins_per_url: summaryPinsPerUrl,
       ranked_keywords_count: keywordMonopoly.length,
       total_saves: summaryTotalSaves,
@@ -2773,6 +2896,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       is_organic_vault: isOrganicVault
     },
     ranked_pins: visualPins,
+    catalog_pins: catalogOnlyVisualPins,
     money_urls: moneyUrls,
     keyword_monopoly: keywordMonopoly,
     accounts: accountsList,

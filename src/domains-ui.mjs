@@ -1246,7 +1246,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             </template>
           </div>
 
-          <!-- Status Filter: All / Active SERP / Displaced -->
+          <!-- Status Filter: All / Active SERP / Displaced / Catalog Only -->
           <div class="inline-flex rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] p-0.5 text-xs font-mono tabular-nums">
             <button @click="dossierStatusFilter = 'all'; dossierPinsPage = 1; dossierArticlesPage = 1"
                     class="px-2.5 py-1 rounded-md transition font-medium"
@@ -1263,6 +1263,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     :class="dossierStatusFilter === 'displaced' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
               Displaced
             </button>
+            <template x-if="(dossierData?.summary?.catalog_only_pins_count || 0) > 0">
+              <button @click="dossierTab = 'pins'; dossierStatusFilter = 'catalog'; dossierPinsPage = 1"
+                      class="px-2.5 py-1 rounded-md transition font-medium"
+                      :class="dossierStatusFilter === 'catalog' ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                      title="Unranked profile catalog pins that have not yet entered SERP or Displaced Vault">
+                <span x-text="'Catalog Only (' + formatNumber(dossierData?.summary?.catalog_only_pins_count || 0) + ')'"></span>
+              </button>
+            </template>
           </div>
 
           <!-- Contextual Sort Dropdown -->
@@ -1687,7 +1695,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] text-[11px] font-mono tabular-nums text-slate-500 flex items-center justify-between flex-wrap gap-2">
                         <div class="flex items-center gap-1.5 min-w-0">
                           <span class="font-bold text-amber-600 dark:text-amber-400">🏆 Top Slot Driver:</span>
-                          <span class="font-bold text-slate-800 dark:text-slate-200" x-text="'Rank #' + kw.top_slot_attribution.rank_position"></span>
+                          <span class="font-bold text-slate-800 dark:text-slate-200" x-text="kw.top_slot_attribution.rank_position != null ? ('Rank #' + kw.top_slot_attribution.rank_position) : (kw.top_slot_attribution.last_known_rank != null ? ('Vault #' + kw.top_slot_attribution.last_known_rank) : 'Vault Pin')"></span>
                           <button @click="filterToArticle(kw.top_slot_attribution.clean_slug || kw.top_slot_attribution.title)"
                                   class="text-sky-600 dark:text-sky-400 hover:underline truncate max-w-[280px] flex items-center gap-1"
                                   :title="'Jump to Article: ' + kw.top_slot_attribution.title">
@@ -2938,12 +2946,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         },
 
         filteredDossierPins() {
-          let list = Array.isArray(this.dossierData?.ranked_pins) ? [...this.dossierData.ranked_pins] : [];
+          let list = this.dossierStatusFilter === 'catalog'
+            ? (Array.isArray(this.dossierData?.catalog_pins) ? [...this.dossierData.catalog_pins] : [])
+            : (Array.isArray(this.dossierData?.ranked_pins) ? [...this.dossierData.ranked_pins] : []);
 
           // [INVARIANT: STRICT-VISUAL-PIN-FIDELITY] Every displayed pin must have an authentic image
           list = list.filter(p => Boolean(p.image_url && p.image_url.trim()));
 
-          // Status filter: all | active | displaced
+          // Status filter: all | active | displaced | catalog
           if (this.dossierStatusFilter === 'active') {
             list = list.filter(p => !p.is_displaced && p.best_rank !== null);
           } else if (this.dossierStatusFilter === 'displaced') {

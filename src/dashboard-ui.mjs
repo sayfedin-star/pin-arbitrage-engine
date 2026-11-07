@@ -4557,14 +4557,14 @@ export function getDashboardHtml(folderId = '') {
                 </button>
 
                 <!-- Domain Ecosystem Attribution Scope Pills -->
-                <template x-if="(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0) > 0">
+                <template x-if="(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0) > 0 || (activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0) > 0">
                   <div class="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 dark:border-[#27272A]">
                     <button
                       type="button"
                       @click="creatorAllPinScope = 'official'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                       class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap shrink-0"
                       :class="creatorAllPinScope === 'official' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
-                      title="Direct pins uploaded or saved onto this creator's own boards"
+                      title="Direct pins linking to this creator's own primary website domain"
                     >
                       <span>👤 Official Account</span>
                       <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums bg-black/10 dark:bg-white/15" x-text="formatNumber(activeCreatorCatalogTotal || 0)"></span>
@@ -4589,6 +4589,18 @@ export function getDashboardHtml(folderId = '') {
                       <span>🤝 Community Curators</span>
                       <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'curators' ? 'bg-white/20 text-white' : 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400'" x-text="formatNumber(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0)"></span>
                     </button>
+                    <template x-if="(activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0) > 0">
+                      <button
+                        type="button"
+                        @click="creatorAllPinScope = 'external'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                        class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap shrink-0"
+                        :class="creatorAllPinScope === 'external' ? 'bg-amber-600 text-white border-amber-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
+                        title="Third-party pins from external domains saved onto this account's boards (excluded from official creator stats)"
+                      >
+                        <span>📌 External Repins</span>
+                        <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'external' ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0)"></span>
+                      </button>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -4910,8 +4922,9 @@ export function getDashboardHtml(folderId = '') {
                 <!-- Ecosystem vs Official Scope Toggle -->
                 <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <button @click="creatorTopUrlScope = 'ecosystem'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'ecosystem' ? 'bg-violet-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="All URLs discovered across official pins and third-party curator pins for this domain">🌐 Full Domain URLs</button>
-                  <button @click="creatorTopUrlScope = 'official'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'official' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Only URLs from pins directly on this account's boards">👤 Official Only</button>
+                  <button @click="creatorTopUrlScope = 'official'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'official' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Only URLs from pins directly on this account's boards linking to primary domain">👤 Official Only</button>
                   <button @click="creatorTopUrlScope = 'curators'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'curators' ? 'bg-fuchsia-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="URLs amplified by community curators">🤝 Curators</button>
+                  <button @click="creatorTopUrlScope = 'external'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'external' ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Third-party domain URLs repinned onto this account's boards">📌 External Repins</button>
                 </div>
 
                 <!-- Filter Type Segmented Control -->
@@ -5954,6 +5967,7 @@ export function getDashboardHtml(folderId = '') {
         activeCreatorAllPins: [],
         activeCreatorAllPinsTotal: 0,
         activeCreatorCatalogTotal: 0,
+        activeCreatorExternalPinsTotal: 0,
         activeCreatorCuratorPinsTotal: 0,
         activeCreatorEcosystemTotal: 0,
         activeCreatorWinningPinsTotal: 0,
@@ -9990,6 +10004,7 @@ export function getDashboardHtml(folderId = '') {
               this.creatorAllPinsLimit = 100;
               this.activeCreatorAllPinsTotal = data.total || 0;
               this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
+              this.activeCreatorExternalPinsTotal = data.external_pins_total ?? 0;
               this.activeCreatorCuratorPinsTotal = data.curator_pins_total ?? 0;
               this.activeCreatorEcosystemTotal = data.ecosystem_catalog_total ?? ((data.catalog_total || 0) + (data.curator_pins_total || 0));
               this.activeCreatorWinningPinsTotal = data.qualified_total ?? 0;
