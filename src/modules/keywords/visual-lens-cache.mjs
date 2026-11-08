@@ -1,8 +1,7 @@
 /**
  * Edge-First & Sharded TTL-Backed Visual Lens Cache Service
  *
- * Tier 1: Cloudflare Edge KV (`PIN_ENGINE_KV` with key `visual:pin:${pinId}`, 7-day TTL = 604800s)
- * Tier 2: Persistent PostgreSQL storage (`pin_visual_search_cache` table, 7-day TTL)
+ * Pure Architecture: Persistent PostgreSQL storage (`pin_visual_search_cache` table, 7-day TTL)
  *
  * Features:
  * - Sub-5ms Edge KV reads across all Cloudflare PoPs without waking Neon compute
@@ -18,24 +17,7 @@ export async function getCachedVisualSearchMatches(sql, pinId, env = null) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) return null;
 
-  // 1. Tier 1: Cloudflare Edge KV (`PIN_ENGINE_KV`)
-  if (env?.PIN_ENGINE_KV) {
-    try {
-      const kvData = await env.PIN_ENGINE_KV.get(`visual:pin:${cleanPin}`, { type: 'json', cacheTtl: 3600 });
-      if (kvData && Array.isArray(kvData.matches) && kvData.matches.length > 0) {
-        return {
-          cached: true,
-          source: 'kv_edge',
-          matches: kvData.matches,
-          seed_pin: kvData.seed_pin || null,
-          cached_at: kvData.cached_at || null,
-          expires_at: kvData.expires_at || null
-        };
-      }
-    } catch (_) {}
-  }
-
-  // 2. Tier 2: PostgreSQL `pin_visual_search_cache` fallback
+  // Pure PostgreSQL `pin_visual_search_cache` storage
   if (!sql) return null;
   try {
     const [row] = await sql`
@@ -47,18 +29,6 @@ export async function getCachedVisualSearchMatches(sql, pinId, env = null) {
     `;
 
     if (row && Array.isArray(row.matches) && row.matches.length > 0) {
-      // Backfill Edge KV if available
-      if (env?.PIN_ENGINE_KV) {
-        env.PIN_ENGINE_KV.put(
-          `visual:pin:${cleanPin}`,
-          JSON.stringify({
-            matches: row.matches,
-            cached_at: row.created_at,
-            expires_at: row.expires_at
-          }),
-          { expirationTtl: VISUAL_KV_TTL_SECONDS }
-        ).catch(() => {});
-      }
       return {
         cached: true,
         source: 'postgres_hub',
@@ -107,25 +77,7 @@ export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays 
 
   const ttlSeconds = Math.max(3600, Math.round(Number(ttlDays || 7) * 86400));
 
-  // 1. Write to Cloudflare Edge KV (`PIN_ENGINE_KV`)
-  if (env?.PIN_ENGINE_KV) {
-    try {
-      await env.PIN_ENGINE_KV.put(
-        `visual:pin:${cleanPin}`,
-        JSON.stringify({
-          matches,
-          seed_pin: seedPin || null,
-          cached_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + ttlSeconds * 1000).toISOString()
-        }),
-        { expirationTtl: ttlSeconds }
-      );
-    } catch (kvErr) {
-      console.warn(`[visual-lens-cache] Edge KV write warning for pin ${cleanPin}:`, kvErr.message);
-    }
-  }
-
-  // 2. Write to Postgres fallback
+  // Write to Postgres
   if (!sql) return true;
   try {
     await sql`

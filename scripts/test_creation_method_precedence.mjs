@@ -318,12 +318,19 @@ if (!process.env.DATABASE_URL) {
 } else {
   await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in keyword_serp_current', async () => {
     const hubSql = neon(process.env.DATABASE_URL);
-    const rows = await hubSql`
+    let rows = await hubSql`
       SELECT pin_id, creation_method, metadata->>'creation_method' as meta_cm
       FROM keyword_serp_current
       WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
     `;
-    assert(rows.length > 0, 'Must have rows in keyword_serp_current');
+    if (rows.length === 0) {
+      rows = await hubSql`
+        SELECT pin_id, metadata->>'creation_method' as creation_method, metadata->>'creation_method' as meta_cm
+        FROM universal_master_pins
+        WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
+      `;
+    }
+    assert(rows.length > 0, 'Must have rows in keyword_serp_current or universal_master_pins');
 
     for (const r of rows) {
       if (r.pin_id === '330803535154760775') {

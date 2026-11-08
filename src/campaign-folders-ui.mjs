@@ -2144,7 +2144,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             if (!p) continue;
 
             const rawImg = String(p.image_url || '').trim().toLowerCase().split('?')[0];
-            const imgSeg = rawImg ? (rawImg.split('/').pop() || '') : '';
+            const imgSeg = rawImg ? (rawImg.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '') : '';
             const imgSig = imgSeg.length >= 8 ? ('img:' + imgSeg) : '';
 
             const cleanDom = String(p.domain || '').toLowerCase().replace(/^www\./, '').trim();
@@ -2159,7 +2159,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               !normTitle.startsWith('pin ') &&
               !normTitle.startsWith('stress pin ') &&
               !normTitle.startsWith('massive tag pin ');
-            const titleDomSig = hasRealTitle ? ('td:' + normTitle + '|' + cleanDom) : '';
+            const titleDomSig = (hasRealTitle && cleanDom) ? ('td:' + normTitle + '|' + cleanDom) : '';
             const titleWords = hasRealTitle ? normTitle.split(' ').length : 0;
             const longTitleSig = (hasRealTitle && titleWords >= 3 && normTitle.length >= 14) ? ('lt:' + normTitle) : '';
 

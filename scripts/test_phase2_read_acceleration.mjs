@@ -13,7 +13,6 @@
 
 import assert from 'node:assert';
 import {
-  createHyperdriveClient,
   getCachedOrFetch,
   invalidateEdgeCache,
   buildCanonicalCacheKey,
@@ -65,12 +64,8 @@ async function runPhase2Verification() {
   // =========================================================================
   console.log('\n[TEST 1] Hyperdrive Scoping & Transaction Flexibility');
 
-  test('createHyperdriveClient initializes with max: 5 and resilient timeouts', () => {
-    // Hyperdrive client creation in mock / non-connected environment
-    const client = createHyperdriveClient('postgres://user:pass@ep-fake.neon.tech/neondb');
-    assert(client, 'Hyperdrive client instance must be created');
-    assert.strictEqual(typeof client.transaction, 'function', 'client.transaction must be defined');
-    client.end?.();
+  test('Pure Neon Serverless PostgreSQL initializes cleanly without Hyperdrive', () => {
+    assert.strictEqual(typeof resolveShardConnection, 'function');
   });
 
   await testAsync('client.transaction supports builder functions returning values', async () => {

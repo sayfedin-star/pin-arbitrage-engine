@@ -130,24 +130,12 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!boardId) {
       return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'boardId is required' }, 400);
     }
-    const kvKey = `board:sections:${boardId}`;
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
-        if (cached && Array.isArray(cached.sections)) {
-          return jsonResponse({ ok: true, board_id: boardId, sections: cached.sections, count: cached.sections.length, cached: true }, 200, 21600);
-        }
-      } catch (_) {}
-    }
+
     try {
       const username = searchParams.get('username') || '';
       const boardSlug = searchParams.get('slug') || searchParams.get('board') || '';
       const res = await fetchBoardSectionsResource(boardId, username, boardSlug);
-      if (res.ok && env?.PIN_ENGINE_KV) {
-        if (typeof safeWaitUntil === 'function') {
-          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(res), { expirationTtl: 21600 }).catch(() => {}), 'kv_cache_board_sections');
-        }
-      }
+
       return jsonResponse({
         ok: res.ok,
         board_id: boardId,

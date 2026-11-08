@@ -25,7 +25,6 @@ import {
   preloadNeonRegistry,
   isUnifiedPostgres
 } from '../sharding/fleet-router.mjs';
-import { hydratePinsFromD1, syncPinsBatchToD1 } from './d1-metadata.mjs';
 import { extractCanonicalAnnotations, normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 
 export const folderTrendsCache = new Map();
@@ -1503,7 +1502,7 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
  */
 export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } = {}) {
   // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT]
-  // Pruning execution tombstones candidate pins to keyword_ignored_pins and evicts D1 edge_pins_metadata and PIN_ENGINE_KV
+  // Pruning execution tombstones candidate pins to keyword_ignored_pins
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
@@ -1634,45 +1633,7 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
     `;
   }
 
-  // C. Evict Edge Caches (Cloudflare D1 edge_pins_metadata and PIN_ENGINE_KV)
-  if (env?.DB || env?.PIN_D1_DB) {
-    const d1 = env.DB || env.PIN_D1_DB;
-    try {
-      if (typeof d1.batch === 'function') {
-        const statements = uniquePinIds.map(pid =>
-          d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid)
-        );
-        for (let i = 0; i < statements.length; i += 50) {
-          await d1.batch(statements.slice(i, i + 50));
-        }
-      } else {
-        for (const pid of uniquePinIds) {
-          await d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid).run().catch(() => {});
-        }
-      }
-    } catch (d1Err) {
-      console.warn(`[pruneFolderPins] D1 edge cache eviction warning: ${d1Err.message}`);
-    }
-  }
-
-  if (env?.PIN_ENGINE_KV) {
-    try {
-      // [LND-805 FIX] Replace unbounded 18-key-per-pin loop (~3,600 subrequests)
-      // with epoch bump (fleet:cache_epoch) + bounded primary key eviction (<= 30 keys via safeWaitUntil)
-      const newEpoch = String(Date.now());
-      if (typeof env.PIN_ENGINE_KV.put === 'function') {
-        safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch), 'kv_bump_epoch');
-      }
-      const primaryKeys = Array.from(new Set([
-        ...uniquePairs.map(p => `dossier:pin:${p.pid}`),
-        ...uniquePairs.map(p => `pin:dossier:v3?pin_id=${p.pid}`),
-        ...uniqueKeywordIds.map(kid => `serp:comp:${kid}`)
-      ])).slice(0, 30);
-      safeWaitUntil(ctx, Promise.all(primaryKeys.map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}))), 'kv_prune_primary');
-    } catch (kvErr) {
-      console.warn(`[pruneFolderPins] KV eviction warning: ${kvErr.message}`);
-    }
-  }
+  // C. Pure Unified Architecture: Edge KV and D1 caches eliminated
 
   // D. Invalidate in-memory crossover cache
   invalidateFolderCache(fid);
@@ -2091,33 +2052,13 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   }
 
   if (!effectiveRefresh) {
+    // [INVARIANT: FOLDER-CROSSOVER-SCHEMA-VERSION] :crossover:v5
     const cached = crossoverCache.get(fid);
     const ttl = cached?.ttlMs || CROSSOVER_TTL_MS;
     if (cached && (now - cached.timestamp < ttl) && cached.data?._crossover_schema_v === 6) {
       return cached.data;
     }
-    if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
-      try {
-        const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-        // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v5`;
-        const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
-        const isKvPoisoned = Boolean(
-          kvData?._crossover_schema_v !== 6 ||
-          kvData?._has_unhydrated_priority_pins ||
-          !kvData?.summary?.active_pins_count ||
-          (Array.isArray(kvData?.super_pins) && kvData.super_pins.slice(0, 25).some(p => !p.image_url || p.pin_age_days == null))
-        );
-        if (kvData && !isKvPoisoned) {
-          if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
-            const oldest = crossoverCache.keys().next().value;
-            if (oldest) crossoverCache.delete(oldest);
-          }
-          crossoverCache.set(fid, { timestamp: now, ttlMs: CROSSOVER_TTL_MS, data: kvData });
-          return kvData;
-        }
-      } catch (_) {}
-    }
+
   }
 
   const flightKey = `${fid}:${effectiveRefresh ? 'refresh' : 'standard'}`;
@@ -2145,14 +2086,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       const kvTtlSec = hasUnhydrated ? 60 : 86400;
 
       crossoverCache.set(fid, { timestamp: Date.now(), data: result, ttlMs: memTtlMs });
-      if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
-        try {
-          const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-          // [INVARIANT-LOCK: :crossover:v4 upgraded to :crossover:v5 in Phase 8]
-        const kvKey = `fep:${epoch}:folder:${fid}:crossover:v5`;
-          await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(result), { expirationTtl: kvTtlSec });
-        } catch (_) {}
-      }
+
       return result;
     } catch (err) {
       if (effectiveRefresh) {
@@ -2307,7 +2241,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       ra.keyword_text,
       ra.folder_added_at
     FROM ranked_active ra
-    LEFT JOIN universal_master_pins ump ON ra.pin_rn = 1 AND ump.pin_id = ra.pin_id
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = ra.pin_id
     ORDER BY ra.pin_rn ASC, ra.save_count DESC, ra.daily_save_velocity DESC;
   `;
 
@@ -2672,29 +2606,16 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       });
     };
 
-    // Tier 1: Ultra-Fast Edge Hydration from Cloudflare D1 (disabled in Unified Single-DB mode)
-    if (!isUnifiedPostgres(env) && env?.PIN_D1_DB) {
-      try {
-        const d1Map = await hydratePinsFromD1(env, missingPinIds);
-        if (d1Map && typeof d1Map.get === 'function') {
-          for (const pid of missingPinIds) {
-            const d1Row = d1Map.get(String(pid));
-            if (d1Row) mergeEnrichedRow(d1Row);
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Tier 2: Central Hub Fallback (100% Alias-Qualified Schema Parity across universal_master_pins, keyword_serp_current, competitor_pins, pa_pins)
-    const stillMissingAfterD1 = missingMetaPins.filter(p => {
+    // Central Hub Fallback: 100% Pure Unified PostgreSQL (universal_master_pins, keyword_serp_current, competitor_pins, pa_pins)
+    const stillMissingFromHub = missingMetaPins.filter(p => {
       const e = enrichedMap.get(p.pin_id);
       const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
       const hasImg = Boolean(p.image_url || (e && e.image_url));
       return !hasTitle || !hasImg;
     });
 
-    if (sql && stillMissingAfterD1.length > 0) {
-      const hubLookupIds = stillMissingAfterD1.map(p => p.pin_id);
+    if (sql && stillMissingFromHub.length > 0) {
+      const hubLookupIds = stillMissingFromHub.map(p => p.pin_id);
       try {
         const hubMeta = await sql`
           SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
@@ -2876,33 +2797,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
             pinsToWriteToD1.push(e);
           }
         }
-        if (!isUnifiedPostgres(env) && env?.PIN_D1_DB && pinsToWriteToD1.length > 0) {
-          safeWaitUntil(ctx, syncPinsBatchToD1(env, pinsToWriteToD1), 'crossover_sync_priority_d1');
-        }
-
-        // Tier 4B: Background Tail Warming in waves of 2 for folders with > 350 displaced pins
-        if (!isUnifiedPostgres(env) && env?.PIN_D1_DB && tailShardPins.length > 0) {
-          const tailGroups = coalesceShardGroupsByPhysical(batchGroupByShard(tailShardPins, 99));
-          const tailShardEntries = Array.from(tailGroups.entries());
-          const maxTailShards = Math.min(tailShardEntries.length, 4);
-          const budgetedTailEntries = tailShardEntries.slice(0, maxTailShards);
-
-          if (budgetedTailEntries.length > 0) {
-            safeWaitUntil(
-              ctx,
-              (async () => {
-                // Ensure in-flight priority shard queries settle before opening tail shard sockets
-                // so total simultaneous origin connections NEVER exceed 6
-                await priorityTask.catch(() => {});
-                const tailHydrated = await hydrateShardBatch(budgetedTailEntries, 3000, 2);
-                if (tailHydrated.length > 0) {
-                  await syncPinsBatchToD1(env, tailHydrated);
-                }
-              })(),
-              'crossover_warm_tail_shards_to_d1'
-            );
-          }
-        }
+// Pure Unified Architecture: Edge D1 sync and tail warming omitted
       } catch (_) {}
     }
 
@@ -3123,7 +3018,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
     for (const p of sorted) {
       const rawImg = String(p.image_url || '').trim().toLowerCase().split('?')[0];
-      const imgSeg = rawImg ? (rawImg.split('/').pop() || '') : '';
+      const imgSeg = rawImg ? (rawImg.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '') : '';
       const imgSig = imgSeg.length >= 8 ? `img:${imgSeg}` : '';
 
       const cleanDom = cleanExternalDomain(p.domain) || String(p.domain || '').toLowerCase().replace(/^www\./, '').trim();
@@ -3133,7 +3028,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         .replace(/\s+/g, ' ')
         .trim();
       const hasRealTitle = normTitle.length >= 4 && normTitle !== 'untitled' && normTitle !== 'untitled pin' && !isSyntheticPinTitle(normTitle);
-      const titleDomSig = hasRealTitle ? `td:${normTitle}|${cleanDom}` : '';
+      const titleDomSig = (hasRealTitle && cleanDom) ? `td:${normTitle}|${cleanDom}` : '';
       const titleWordCount = hasRealTitle ? normTitle.split(' ').length : 0;
       const longTitleSig = (hasRealTitle && titleWordCount >= 3 && normTitle.length >= 14) ? `lt:${normTitle}` : '';
 
@@ -3329,12 +3224,26 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     folderUmbrellaTerms.add(cleanFolderNameNorm);
     const fnLemma = normalizeTagLemma(cleanFolderNameNorm);
     if (fnLemma) folderUmbrellaTerms.add(fnLemma);
+    for (const w of cleanFolderNameNorm.split(' ')) {
+      if (w.length >= 3 && !STOPWORDS.has(w)) {
+        folderUmbrellaTerms.add(w);
+        const wLemma = normalizeTagLemma(w);
+        if (wLemma) folderUmbrellaTerms.add(wLemma);
+      }
+    }
   }
   for (const fkw of allFolderKeywordStrings) {
     const fkwNorm = fkw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (fkwNorm) folderUmbrellaTerms.add(fkwNorm);
     const fkwLemma = normalizeTagLemma(fkw);
     if (fkwLemma) folderUmbrellaTerms.add(fkwLemma);
+    for (const w of fkwNorm.split(' ')) {
+      if (w.length >= 3 && !STOPWORDS.has(w)) {
+        folderUmbrellaTerms.add(w);
+        const wLemma = normalizeTagLemma(w);
+        if (wLemma) folderUmbrellaTerms.add(wLemma);
+      }
+    }
   }
 
   const pivotMap = new Map(); // cleanKey -> { term, display_label, keywords_map: Map, total_score: float, dominant_color }

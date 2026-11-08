@@ -50,19 +50,6 @@ import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
  * (universal_master_pins, pins_daily_metrics, pin_serp_positions, and pins_daily_snapshots)
  * partitioned strictly by Shard_ID = (CRC32(pin_id) % 99) + 1.
  */
-// [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
-// Modular D1 Edge Metadata Operations
-export {
-  isEdgePinsMetadataReady,
-  ensureEdgePinsMetadataTable,
-  syncPinsBatchToD1,
-  hydratePinsFromD1
-} from './d1-metadata.mjs';
-import {
-  ensureEdgePinsMetadataTable,
-  syncPinsBatchToD1,
-  hydratePinsFromD1
-} from './d1-metadata.mjs';
 
 export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = [], env = null, ctx = null) {
   const kid = Number(keywordId);
@@ -144,10 +131,6 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
     await preloadNeonRegistry(hubSql, env);
   } catch (_) {}
 
-  if (env?.PIN_D1_DB) {
-    const d1Promise = syncPinsBatchToD1(env, combined).catch(() => {});
-    safeWaitUntil(ctx, d1Promise, 'sync_pins_batch_to_d1');
-  }
 
   const confirmedPinIds = new Set();
   // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
@@ -351,15 +334,6 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
   try {
     const masterMap = new Map();
 
-    // 1. Tier-1 Ultra-Fast Edge Hydration from Cloudflare D1 (`edge_pins_metadata` in < 3ms)
-    if (env?.PIN_D1_DB) {
-      const d1Map = await hydratePinsFromD1(env, needsHydration.map(r => String(r.pin_id)));
-      for (const [pid, d1Row] of d1Map.entries()) {
-        if (d1Row.title || d1Row.image_url) {
-          masterMap.set(pid, d1Row);
-        }
-      }
-    }
 
     // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (universal_master_pins, keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
     const missingAfterD1 = needsHydration.filter(r => {
@@ -470,10 +444,6 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
         if (deadlineTimerId) clearTimeout(deadlineTimerId);
       });
 
-      // Backfill Cloudflare D1 asynchronously so subsequent requests hit D1 in < 3ms with 0 Shard HTTP calls
-      if (env?.PIN_D1_DB && newlyHydratedFromShards.length > 0) {
-        safeWaitUntil(ctx, syncPinsBatchToD1(env, newlyHydratedFromShards), 'sync_pins_batch_to_d1');
-      }
     }
 
     return indexRows.map(row => {
@@ -2201,23 +2171,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const shouldApplyDisplacement = !isSuspectedIncompleteCrawl && pinIds.length >= minRequiredForEviction;
 
       if (shouldApplyDisplacement) {
-        if (env?.PIN_D1_DB) {
-          // [INVARIANT: WRITE-TIME-D1-PRESERVATION]
-          // Preserve creative metadata of displaced pins in Cloudflare D1 before deletion from keyword_serp_current
-          try {
-            const displacedToPreserve = await sql`
-              SELECT pin_id, title, domain, destination_url, image_url,
-                     dominant_color, visual_annotations, description, created_at_pinterest
-              FROM keyword_serp_current
-              WHERE keyword_id = ${kid}
-                AND NOT (pin_id = ANY(${pinIds}))
-                AND (title <> '' OR image_url <> '');
-            `.catch(() => []);
-            if (displacedToPreserve && displacedToPreserve.length > 0) {
-              syncPinsBatchToD1(env, displacedToPreserve).catch(() => {});
-            }
-          } catch (_) {}
-        }
 
         // Remove any resurged pins from keyword_displaced_index
         txBatch.push((db) => db`
@@ -2384,15 +2337,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       `.catch(() => {});
     }
 
-    // Invalidate stale Edge KV caches for this keyword immediately upon successful crawl
-    if (envObj?.PIN_ENGINE_KV) {
-      Promise.allSettled([
-        envObj.PIN_ENGINE_KV.delete(`serp:comp:${kid}`),
-        envObj.PIN_ENGINE_KV.delete(`displaced:kw:${kid}:150:0`),
-        envObj.PIN_ENGINE_KV.delete(`displaced:kw:${kid}:100:0`),
-        envObj.PIN_ENGINE_KV.delete(`displaced:kw:${kid}:250:0`)
-      ]).catch(() => {});
-    }
 
     // Invalidate Global 24h Pulse Cache upon crawl completion
     invalidateGlobalPulseCache(envObj, ctxObj).catch(() => {});
@@ -2501,16 +2445,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   }
   const { env = null, forceRefresh = false } = opts;
 
-  // 1. Check Cloudflare Edge KV (`serp:comp:${kid}`) for sub-5ms response (disabled by default in Unified Single-DB mode)
-  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && !forceRefresh) {
-    try {
-      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-      const kvCached = await env.PIN_ENGINE_KV.get(`serp:comp:${kid}`, { type: 'json' });
-      if (kvCached && kvCached.status === 'active' && Array.isArray(kvCached.current_pins) && kvCached.current_pins.length > 0 && kvCached.total_displaced_count !== undefined) {
-        return { ...kvCached, source: 'kv_edge' };
-      }
-    } catch (_) {}
-  }
 
   // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
   const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
@@ -2690,14 +2624,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     }
   };
 
-  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && currentPins.length > 0) {
-    try {
-      await env.PIN_ENGINE_KV.put(`serp:comp:${kid}`, JSON.stringify(comparisonPayload), { expirationTtl: 1800 });
-    } catch (_) {}
-  }
-  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && currentPins.length > 0) {
-    syncPinsBatchToD1(env, currentPins).catch(() => {});
-  }
 
   return comparisonPayload;
 }
@@ -2749,16 +2675,6 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 
-  const kvKey = `displaced:kw:${kid}:${lim}:${off}`;
-  if (env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && !forceRefresh) {
-    try {
-      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-      const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
-      if (kvCached && Array.isArray(kvCached.pins) && kvCached.pins.length > 0) {
-        return { ...kvCached, source: 'kv_edge' };
-      }
-    } catch (_) {}
-  }
 
   // Query slim keyword_displaced_index joined with keyword_serp_current and Central Hub universal_master_pins
   let rawRows = await sql`
@@ -2913,12 +2829,6 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     displaced_pins: rows
   };
 
-  // [INVARIANT: ZERO-SKELETON-KV-POISONING] Only cache in KV when 100% of rows are hydrated
-  if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV && rows.length > 0 && rows.every(r => Boolean(r.title || r.image_url))) {
-    try {
-      await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(displacedResult), { expirationTtl: 1800 });
-    } catch (_) {}
-  }
 
   return displacedResult;
 }
@@ -2956,16 +2866,6 @@ export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId,
 
   if (!cleanPin) throw new Error('pin_id is required');
 
-  const trajKvKey = `traj:pin:${cleanPin}:${cleanRange}`;
-  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && !forceRefresh) {
-    try {
-      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-      const kvCached = await env.PIN_ENGINE_KV.get(trajKvKey, { type: 'json' });
-      if (kvCached && Array.isArray(kvCached.snapshots)) {
-        return { ...kvCached, source: 'kv_edge' };
-      }
-    } catch (_) {}
-  }
 
   const rawTraj = await fetchPinTrajectoryFromShard({
     hubSql,
@@ -3019,11 +2919,6 @@ export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId,
     trajectory: snapshots
   };
 
-  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && snapshots.length > 0) {
-    try {
-      await env.PIN_ENGINE_KV.put(trajKvKey, JSON.stringify(trajResult), { expirationTtl: 21600 });
-    } catch (_) {}
-  }
 
   return trajResult;
 }
@@ -3039,24 +2934,6 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   if (!cleanPin) throw new Error('pin_id is required');
   const kid = keywordId ? Number(keywordId) : null;
 
-  const dossierKvKey = `dossier:v3:pin:${cleanPin}:${kid || 0}`;
-  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && !forceRefresh) {
-    try {
-      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-      let kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json' });
-      if (!kvCached) {
-        kvCached = await env.PIN_ENGINE_KV.get(`dossier:pin:${cleanPin}:${kid || 0}`, { type: 'json' });
-      }
-      if (kvCached && kvCached.success && kvCached.pin_id === cleanPin) {
-        sanitizeDossierTrajectory(kvCached);
-        // Re-hydrate dual trajectory contract after JSON deserialization from KV
-        if (Array.isArray(kvCached.trajectory) && !kvCached.trajectory.snapshots) {
-          kvCached.trajectory.snapshots = kvCached.trajectory;
-        }
-        return { ...kvCached, source: 'kv_edge' };
-      }
-    } catch (_) {}
-  }
 
   // [INVARIANT: READ-ONLY-GET-SAFE] Live scraping and 4-pillar sync are restricted to explicit POST endpoints (POST /api/pins/:id/sync)
   // GET requests with ?refresh=true strictly bypass the edge cache without initiating external Pinterest scraping storms
@@ -3182,15 +3059,6 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     trajectory
   };
 
-  if (!isUnifiedPostgres(env) && env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {
-    try {
-      const payloadStr = JSON.stringify(projectedDossier);
-      await Promise.all([
-        env.PIN_ENGINE_KV.put(dossierKvKey, payloadStr, { expirationTtl: 21600 }),
-        env.PIN_ENGINE_KV.put(`dossier:pin:${cleanPin}:${kid || 0}`, payloadStr, { expirationTtl: 21600 })
-      ]);
-    } catch (_) {}
-  }
 
   return projectedDossier;
 }

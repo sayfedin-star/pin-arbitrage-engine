@@ -17,7 +17,6 @@
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
 
-import { hydratePinsFromD1 } from '../keywords/d1-metadata.mjs';
 import { isUnifiedPostgres } from '../sharding/fleet-router.mjs';
 import { normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 
@@ -148,20 +147,7 @@ export async function invalidateGlobalPulseCache(env = null, ctx = null) {
   pulseForceRefreshCooldown.clear();
   inflightPulse.clear();
 
-  if (env?.PIN_ENGINE_KV) {
-    const p = Promise.all([
-      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary').catch(() => {}),
-      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v2').catch(() => {}),
-      env.PIN_ENGINE_KV.delete('pulse:global_24h:summary:v3').catch(() => {})
-    ]);
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      try {
-        ctx.waitUntil(p);
-      } catch (_) {}
-    } else {
-      await p;
-    }
-  }
+
 }
 
 /**
@@ -998,7 +984,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   const now = Date.now();
   let effectiveRefresh = forceRefresh;
-  if (!bypassCache && effectiveRefresh && env && (env.DATABASE_URL || env.PIN_ENGINE_KV || env.ENFORCE_COOLDOWN)) {
+  if (!bypassCache && effectiveRefresh && env && (env.DATABASE_URL || env.ENFORCE_COOLDOWN)) {
     const lastRefresh = pulseForceRefreshCooldown.get(cacheKey);
     if (lastRefresh && (now - lastRefresh < PULSE_FORCE_REFRESH_COOLDOWN_MS)) {
       effectiveRefresh = false;
@@ -1016,18 +1002,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   if (!bypassCache && effectiveRefresh) {
     pulseForceRefreshCooldown.set(cacheKey, now);
     pulseMemoryCache.delete(cacheKey);
-  }
-
-  // 2. Cloudflare Workers KV Cache Check (disabled by default in Unified Single-DB mode)
-  const isDefaultFilter = (!folderIdNum) && (windowParam === '24h') && (minAudience === 0);
-  if (!bypassCache && isDefaultFilter && !effectiveRefresh && !isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
-    try {
-      const kvCached = await env.PIN_ENGINE_KV.get('pulse:global_24h:summary:v3', { type: 'json' });
-      if (kvCached) {
-        setPulseMemoryCache(cacheKey, kvCached);
-        return kvCached;
-      }
-    } catch (_) {}
   }
 
   // 3. In-Flight Stampede Guard
@@ -1270,48 +1244,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     // Sort All Active Pins by Hydration Status, Unified 24h Gain then Momentum
     allActivePins.sort(activePinSortComparator);
 
-    // Single consolidated D1 edge metadata hydration for top 100 pins missing description/alt_text (disabled in Unified Single-DB mode)
-    if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_D1_DB && allActivePins.length > 0) {
-      try {
-        const topPinsNeedingHydration = allActivePins
-          .slice(0, 100)
-          .filter(p => !p.description || !p.alt_text)
-          .map(p => p.pin_id);
-        if (topPinsNeedingHydration.length > 0) {
-          const d1Map = await hydratePinsFromD1(env, topPinsNeedingHydration);
-          if (d1Map && typeof d1Map.get === 'function') {
-            for (const p of allActivePins.slice(0, 100)) {
-              const d1 = d1Map.get(p.pin_id);
-              if (d1) {
-                if (!p.title && d1.title) p.title = d1.title;
-                if (!p.image_url && d1.image_url) p.image_url = d1.image_url;
-                if (!p.description && d1.description) p.description = d1.description;
-                if (!p.alt_text && (d1.alt_text || d1.seo_alt_text)) p.alt_text = d1.alt_text || d1.seo_alt_text;
-                if ((!p.cleanAnnotations || p.cleanAnnotations.length === 0) && d1.visual_annotations) {
-                  p.cleanAnnotations = extractCleanAnnotations(d1.visual_annotations);
-                }
-                if ((!p.dominant_color || isPlaceholderColor(p.dominant_color)) && d1.dominant_color && !isPlaceholderColor(d1.dominant_color)) {
-                  p.dominant_color = d1.dominant_color;
-                }
-                if (!p.created_at_pinterest && d1.created_at_pinterest) {
-                  p.created_at_pinterest = d1.created_at_pinterest;
-                  const createdMs = fastParseIsoDateMs(p.created_at_pinterest);
-                  if (Number.isFinite(createdMs) && createdMs <= nowMs) {
-                    p.pin_age_days = Math.floor((nowMs - createdMs) / 86400000);
-                    p.is_fresh_14d = p.pin_age_days <= 14;
-                    p.is_fresh_30d = p.pin_age_days <= 30;
-                  }
-                }
-                if (!p.domain && d1.domain) p.domain = d1.domain;
-                if (!p.destination_url && d1.destination_url) p.destination_url = d1.destination_url;
-                if (!p.creator_username && d1.creator_username) p.creator_username = d1.creator_username;
-                if (!p.board_name && d1.board_name) p.board_name = d1.board_name;
-              }
-            }
-          }
-        }
-      } catch (_) {}
-    }
 
     // Determine if dataset has positive gain pins, or enable fallback for minimal unit-test fixtures
     let positiveGainPinsCount = 0;
@@ -2462,20 +2394,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     if (!bypassCache) {
       setPulseMemoryCache(cacheKey, payload);
       pulseForceRefreshCooldown.set(cacheKey, Date.now());
-    }
-
-    // Save into L2 Cloudflare Workers KV for default view (disabled by default in Unified Single-DB mode)
-    if (!bypassCache && isDefaultFilter && !isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
-      const kvTask = env.PIN_ENGINE_KV.put(
-        'pulse:global_24h:summary:v3',
-        JSON.stringify(payload),
-        { expirationTtl: 600 }
-      ).catch(() => {});
-      if (ctx && typeof ctx.waitUntil === 'function') {
-        try {
-          ctx.waitUntil(kvTask);
-        } catch (_) {}
-      }
     }
 
     return payload;

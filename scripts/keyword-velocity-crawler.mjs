@@ -666,7 +666,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
+          THEN COALESCE(u.daily_save_velocity::numeric, ksc.daily_save_velocity, 0)
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
@@ -799,7 +799,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
+          THEN COALESCE(u.daily_save_velocity::numeric, ksc.daily_save_velocity, 0)
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
@@ -936,7 +936,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(u.daily_save_velocity::numeric, 0))
+          THEN COALESCE(u.daily_save_velocity::numeric, ksc.daily_save_velocity, 0)
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity IS NOT NULL 
            AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)

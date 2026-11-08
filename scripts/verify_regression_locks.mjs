@@ -13,7 +13,7 @@
  * - Lock 3: Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
  * - Lock 4: Authentic Rolling Multi-Window Gains vs Fake Multiplier
  * - Lock 5: Context-Preserving Pin Navigation & Untracked Creator Shield
- * - Lock 6: Defensive D1 Coalescence & Epoch Cache Coherency
+ * - Lock 6: Pure Neon PostgreSQL Architecture & Zero Cloudflare Footprint
  * - Lock 7: Room 3 Creator Hub Discovery & Lightweight SERP Creator Pulse
  * - Lock 8: Daily Rolling Gains Workflow Automation
  * - Lock 9: Window-Aware Competitor Audience Gains
@@ -272,28 +272,33 @@ try {
   check('Lock 5', !hasDeadPlaceholder, 'src/campaign-folders-ui.mjs contains dead via.placeholder.com URL');
 
   // =========================================================================
-  // LOCK 6: D1 Non-Zeroing & Schema Parity
+  // LOCK 6: Pure Neon PostgreSQL Architecture & Zero Cloudflare Footprint
   // =========================================================================
-  console.log('\n[Lock 6] Verifying D1 Non-Zeroing Defensive Coalescence & Schema Parity...');
-  const workerContent = readFile('src/worker.mjs');
-  const d1MetadataContent = readFile('src/modules/keywords/d1-metadata.mjs');
+  console.log('\n[Lock 6] Verifying Pure Neon Architecture & Zero Cloudflare Footprint in src/...');
+  const d1MetadataExists = fs.existsSync(path.join(ROOT_DIR, 'src/modules/keywords/d1-metadata.mjs'));
+  check('Lock 6', !d1MetadataExists, 'src/modules/keywords/d1-metadata.mjs must be permanently deleted');
 
-  // 6A. syncFolderToD1 must use COALESCE for creator_count & unique_pins_count
-  const usesCoalesceCreator = /creator_count\s*=\s*COALESCE\s*\(\s*excluded\.creator_count/i.test(workerContent);
-  const usesCoalesceUniquePins = /unique_pins_count\s*=\s*COALESCE\s*\(\s*excluded\.unique_pins_count/i.test(workerContent);
-  check('Lock 6', usesCoalesceCreator && usesCoalesceUniquePins, 'src/worker.mjs (syncFolderToD1) lacks COALESCE protection on creator_count or unique_pins_count');
-
-  // 6B. isFullCatalog must not default to keywords.length >= 20
-  const hasDangerousFullCatalogDefault = /isFullCatalog\s*=\s*options\.isFullCatalog\s*\?\?\s*\(keywords\.length\s*>=\s*20\)/.test(workerContent);
-  check('Lock 6', !hasDangerousFullCatalogDefault, 'src/worker.mjs has dangerous isFullCatalog default (keywords.length >= 20), risking catalog wipes');
-
-  // 6C. getPinKvKeysToEvict must include v3 keys
-  const hasV3Keys = workerContent.includes('pin:dossier:v3?pin_id=${pid}') && workerContent.includes('dossier:v3:pin:${pid}');
-  check('Lock 6', hasV3Keys, 'src/worker.mjs (getPinKvKeysToEvict) omits v3 cache eviction keys');
-
-  // 6D. d1-metadata.mjs must contain ALTER TABLE edge_pins_metadata ADD COLUMN metadata
-  const hasAlterMetadata = /ALTER TABLE edge_pins_metadata ADD COLUMN metadata\b/i.test(d1MetadataContent);
-  check('Lock 6', hasAlterMetadata, 'src/modules/keywords/d1-metadata.mjs lacks ALTER TABLE edge_pins_metadata ADD COLUMN metadata');
+  // 6B. Verify zero references to PIN_ENGINE_KV, PIN_D1_DB, createHyperdriveClient, or getPinKvKeysToEvict in src/
+  const srcFilesToCheck = [
+    'src/worker.mjs',
+    'src/server.mjs',
+    'src/modules/sharding/fleet-router.mjs',
+    'src/modules/keywords/service.mjs',
+    'src/modules/keywords/folders-service.mjs',
+    'src/modules/keywords/visual-lens-cache.mjs',
+    'src/modules/pulse/service.mjs',
+    'src/routes/keywords.mjs',
+    'src/routes/pins.mjs',
+    'src/routes/cluster.mjs',
+    'src/routes/creators.mjs',
+    'src/routes/domains.mjs',
+    'src/routes/fleet.mjs'
+  ];
+  for (const relFile of srcFilesToCheck) {
+    const fileText = readFile(relFile);
+    const hasBannedCf = /PIN_ENGINE_KV|PIN_D1_DB|createHyperdriveClient|getPinKvKeysToEvict|d1-metadata/.test(fileText);
+    check('Lock 6', !hasBannedCf, `${relFile} contains banned Cloudflare references (PIN_ENGINE_KV/PIN_D1_DB/createHyperdriveClient/getPinKvKeysToEvict/d1-metadata)`);
+  }
 
   // =========================================================================
   // LOCK 7: Room 3 Creator Hub & Lightweight Pulse

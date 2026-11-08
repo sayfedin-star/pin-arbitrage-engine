@@ -21,7 +21,6 @@
 
 import { neon } from '@neondatabase/serverless';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
-import { ensureEdgePinsMetadataTable } from '../keywords/d1-metadata.mjs';
 import { buildRichPinMetadataPayload } from '../../domain/pin-intelligence.mjs';
 
 // Standard CRC32 table for deterministic hashing
@@ -418,12 +417,6 @@ export function getDatabaseTopology(env = null) {
   if (raw === 'sharded_neon') return 'sharded_neon';
   if (raw === 'unified_postgres') return 'unified_postgres';
 
-  // If env has a mock PIN_D1_DB or PIN_ENGINE_KV and env.DATABASE_TOPOLOGY is not explicitly set,
-  // return 'sharded_neon' to preserve unit test mock compatibility
-  if (env && (env.PIN_D1_DB || env.PIN_ENGINE_KV) && !env.DATABASE_TOPOLOGY) {
-    return 'sharded_neon';
-  }
-
   return 'unified_postgres';
 }
 
@@ -446,7 +439,7 @@ export function isUnifiedPostgres(env = null) {
  * @param {number} options.shardId - Target Shard Number (1-99)
  * @param {string} [options.dsnTemplate] - Optional template DSN e.g. postgres://user:pass@ep-shard-{SHARD_NUM}-pooler.neon.tech/neondb
  * @param {string} [options.prefix] - Project name prefix (default: 'pin-arbitrage-shard')
- * @param {object} [options.env] - Cloudflare Workers environment bindings (PIN_ENGINE_KV)
+ * @param {object} [options.env] - Environment bindings
  * @returns {Promise<Function>} Neon SQL client instance
  */
 export async function resolveShardConnection(optionsOrShardId, envFallback = null) {
@@ -502,22 +495,6 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     }
   }
 
-  // 4. Workers KV Fast Shard Routing (if explicitly in sharded mode or testing with KV)
-  if (env?.PIN_ENGINE_KV && env?.DATABASE_TOPOLOGY !== 'unified_postgres') {
-    const kvRows = await getFleetShardsMap(env, hubSql);
-    if (Array.isArray(kvRows)) {
-      const match = kvRows.find(r => 
-        (r.project_name === physicalShardName) ||
-        (r.project_name === shardName) ||
-        normalizeAssignedShards(r.assigned_shards).includes(cleanId) ||
-        normalizeAssignedShards(r.assigned_shards).includes(physicalShardId)
-      );
-      if (isValidShardDsn(match?.database_url)) {
-        const pooledDsn = enforceNeonPoolerUrl(match.database_url);
-        return getOrCreateShardSqlClient(pooledDsn);
-      }
-    }
-  }
 
   // 5. In-Memory Lookup for Sharded Neon Mode
   const now = Date.now();
@@ -541,25 +518,6 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     }
   }
 
-  // 7. Workers KV Fast Shard Routing fallback
-  if (env?.PIN_ENGINE_KV) {
-    const kvRows = await getFleetShardsMap(env, hubSql);
-    if (Array.isArray(kvRows)) {
-      const match = kvRows.find(r => 
-        (r.project_name === physicalShardName) ||
-        (r.project_name === shardName) ||
-        normalizeAssignedShards(r.assigned_shards).includes(cleanId) ||
-        normalizeAssignedShards(r.assigned_shards).includes(physicalShardId)
-      );
-      if (isValidShardDsn(match?.database_url)) {
-        globalShardMap.set(cleanId, { ...match, cachedAt: now });
-        globalShardMap.set(physicalShardId, { ...match, cachedAt: now });
-        globalShardMapLastFetched = now;
-        const pooledDsn = enforceNeonPoolerUrl(match.database_url);
-        return getOrCreateShardSqlClient(pooledDsn);
-      }
-    }
-  }
 
   // 5. Final fallback: Refresh registry from Central Hub single row query
   if (!hubSql) {
@@ -595,21 +553,6 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
  * @returns {Promise<Array<object>|null>}
  */
 export async function getFleetShardsMap(env = null, hubSql = null) {
-  if (env?.PIN_ENGINE_KV) {
-    try {
-      const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
-      if (Array.isArray(kvData) && kvData.length > 0) {
-        // [INVARIANT: ANTI-POISONING-KV-GUARD]
-        // Evict immediately if poisoned with UI bullets or non-postgres URLs
-        const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
-        if (!isPoisoned) {
-          return kvData;
-        }
-        console.warn('[fleet-router] Poisoned or masked database_url detected in fleet:shards_map KV! Evicting...');
-        env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
-      }
-    } catch (_) {}
-  }
 
   if (hubSql) {
     try {
@@ -618,9 +561,6 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
         FROM neon_projects_registry
         WHERE status = 'active';
       `;
-      if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
-        env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
-      }
       return rows;
     } catch (err) {
       console.warn('[fleet-router] getFleetShardsMap query failed:', err.message);
@@ -635,7 +575,7 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
  * into memory in a single query. Eliminates N+1 registry roundtrips.
  *
  * @param {Function} hubSql - Central Metadata Hub Neon client
- * @param {object} [env] - Cloudflare Workers environment bindings (PIN_ENGINE_KV)
+ * @param {object} [env] - Environment bindings
  * @returns {Promise<number>} Number of shard mappings loaded
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
@@ -649,20 +589,6 @@ export async function preloadNeonRegistry(hubSql, env = null) {
     const now = Date.now();
     try {
       let rows = null;
-      if (env?.PIN_ENGINE_KV) {
-        try {
-          const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
-          if (Array.isArray(kvData) && kvData.length > 0) {
-            const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
-            if (!isPoisoned) {
-              rows = kvData;
-            } else {
-              console.warn('[preloadNeonRegistry] Evicting poisoned fleet:shards_map KV...');
-              env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
-            }
-          }
-        } catch (_) {}
-      }
 
       if (!rows && hubSql) {
         rows = await hubSql`
@@ -670,9 +596,6 @@ export async function preloadNeonRegistry(hubSql, env = null) {
           FROM neon_projects_registry
           WHERE status = 'active';
         `;
-        if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
-          env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
-        }
       }
 
       if (!rows) return 0;
@@ -1207,57 +1130,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const shardId = getPinShardId(cleanPinId, 99);
   const effectiveBypassEdgeCache = bypassEdgeCache || isUnifiedPostgres(env);
 
-  // L1.5 Tier: Check Cloudflare Workers KV dossier cache (< 1.5ms) before touching any databases
-  if (env?.PIN_ENGINE_KV && !effectiveBypassEdgeCache) {
-    try {
-      const currentEpoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch').catch(() => null)) || '0';
-      const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier:v3?pin_id=${cleanPinId}`, { type: 'json' });
-      if (kvCached && kvCached.success && kvCached.creative && Array.isArray(kvCached.daily_trajectory)) {
-        if (!kvCached._epoch || Number(kvCached._epoch) >= Number(currentEpoch)) {
-          sanitizeDossierTrajectory(kvCached);
-          return { ...kvCached, source: 'edge_kv', topology: getDatabaseTopology(env) };
-        }
-      }
-    } catch (_) {}
-  }
-
-  // Tier 1: Check Cloudflare D1 edge database (3.4ms latency) with 12h TTL freshness guard
-  // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
-  let d1Record = null;
-  if (env?.PIN_D1_DB && !effectiveBypassEdgeCache) {
-    try {
-      await ensureEdgePinsMetadataTable(env);
-      const row = await env.PIN_D1_DB.prepare(
-        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
-      ).bind(cleanPinId).first().catch(async () => {
-        return await env.PIN_D1_DB.prepare(
-          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
-        ).bind(cleanPinId).first().catch(() => null);
-      });
-      if (row) {
-        let parsedAnnotations = [];
-        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
-        let parsedMeta = {};
-        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
-        let parsedTrajectory = [];
-        if (row.daily_trajectory) {
-          try {
-            parsedTrajectory = typeof row.daily_trajectory === 'string'
-              ? JSON.parse(row.daily_trajectory)
-              : (Array.isArray(row.daily_trajectory) ? row.daily_trajectory : []);
-          } catch (_) {}
-        }
-        d1Record = {
-          ...row,
-          metadata: parsedMeta,
-          visual_annotations: parsedAnnotations,
-          daily_trajectory: parsedTrajectory,
-          alt_text: row.seo_alt_text || '',
-          creation_method: parsedMeta.creation_method || parsedMeta.method || null
-        };
-      }
-    } catch (_) {}
-  }
+  const d1Record = null;
 
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
   let shardErrorReason = null, shardErrorMessage = null;
@@ -1714,28 +1587,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
-  // On-demand D1 last-resort fallback for legacy sharded mode or pruned pins
-  if (!masterRecord && !isUnifiedPostgres(env) && env?.PIN_D1_DB) {
-    try {
-      await ensureEdgePinsMetadataTable(env);
-      const row = await env.PIN_D1_DB.prepare(
-        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
-      ).bind(cleanPinId).first().catch(() => null);
-      if (row && (row.title || row.image_url)) {
-        let parsedAnnotations = [];
-        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
-        let parsedMeta = {};
-        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
-        masterRecord = {
-          ...row,
-          metadata: parsedMeta,
-          visual_annotations: parsedAnnotations,
-          alt_text: row.seo_alt_text || '',
-          creation_method: parsedMeta.creation_method || parsedMeta.method || null
-        };
-      }
-    } catch (_) {}
-  } else {
+  {
     // Shard record exists: enrich missing alt_text, description, or created_at_pinterest if recovered from Hub
     if (!masterRecord.alt_text) {
       masterRecord.alt_text = shardMetaObj.alt_text || topHubMeta.alt_text || snapMetaObj.alt_text || '';
@@ -2699,83 +2551,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     (Array.isArray(dailyTrajectory) && dailyTrajectory.length > 2)
   );
 
-  if (!isUnifiedPostgres(env) && (env?.PIN_D1_DB || env?.PIN_ENGINE_KV) && masterRecord && (!hasValidTrajectoryFromD1 || bypassEdgeCache)) {
-    const edgeWriteThroughPromise = (async () => {
-      const fullMetaObj = {
-        ...snapMeta,
-        ...cleanMeta(masterRecord.metadata),
-        ...(resolvedCreationMethod ? { creation_method: resolvedCreationMethod, method: resolvedCreationMethod } : {})
-      };
-      if (canMirrorTrajectoryToD1) {
-        fullMetaObj.has_shard_trajectory = true;
-      }
-      // 1. Write to Cloudflare D1 edge_pins_metadata
-      if (env?.PIN_D1_DB) {
-        try {
-          await ensureEdgePinsMetadataTable(env);
-          await env.PIN_D1_DB.prepare(`
-            INSERT INTO edge_pins_metadata (
-              pin_id, title, domain, destination_url, image_url,
-              creator_username, board_name, dominant_color, visual_annotations,
-              seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(pin_id) DO UPDATE SET
-              title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
-              domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
-              destination_url = CASE WHEN excluded.destination_url <> '' THEN excluded.destination_url ELSE edge_pins_metadata.destination_url END,
-              image_url = CASE WHEN excluded.image_url <> '' THEN excluded.image_url ELSE edge_pins_metadata.image_url END,
-              creator_username = CASE WHEN excluded.creator_username <> '' THEN excluded.creator_username ELSE edge_pins_metadata.creator_username END,
-              board_name = CASE WHEN excluded.board_name <> '' THEN excluded.board_name ELSE edge_pins_metadata.board_name END,
-              dominant_color = CASE WHEN excluded.dominant_color <> '#888888' THEN excluded.dominant_color ELSE edge_pins_metadata.dominant_color END,
-              visual_annotations = CASE WHEN excluded.visual_annotations <> '[]' THEN excluded.visual_annotations ELSE edge_pins_metadata.visual_annotations END,
-              seo_alt_text = CASE WHEN excluded.seo_alt_text <> '' THEN excluded.seo_alt_text ELSE edge_pins_metadata.seo_alt_text END,
-              description = CASE WHEN excluded.description <> '' THEN excluded.description ELSE edge_pins_metadata.description END,
-              metadata = CASE WHEN excluded.metadata <> '{}' AND excluded.metadata <> '' THEN excluded.metadata ELSE edge_pins_metadata.metadata END,
-              daily_trajectory = CASE WHEN excluded.daily_trajectory <> '[]' AND excluded.daily_trajectory <> '' THEN excluded.daily_trajectory ELSE edge_pins_metadata.daily_trajectory END,
-              created_at_pinterest = COALESCE(excluded.created_at_pinterest, edge_pins_metadata.created_at_pinterest),
-              updated_at = excluded.updated_at
-          `).bind(
-            String(masterRecord.pin_id),
-            String(masterRecord.title || ''),
-            String(masterRecord.domain || ''),
-            String(masterRecord.destination_url || ''),
-            String(masterRecord.image_url || ''),
-            String(masterRecord.creator_username || ''),
-            String(masterRecord.board_name || ''),
-            String(masterRecord.dominant_color || '#888888'),
-            JSON.stringify(finalVisualAnnotations),
-            String(masterRecord.alt_text || ''),
-            String(masterRecord.description || ''),
-            JSON.stringify(fullMetaObj),
-            canMirrorTrajectoryToD1 ? JSON.stringify(dailyTrajectory || []) : (d1Record?.daily_trajectory ? JSON.stringify(d1Record.daily_trajectory) : '[]'),
-            masterRecord.created_at_pinterest ? new Date(masterRecord.created_at_pinterest).toISOString() : null
-          ).run();
-        } catch (_) {}
-      }
-
-      // 2. Write to Cloudflare Workers KV (only if healthy and verified from shard)
-      // [INVARIANT: CANONICAL-KV-KEY-V3] (LND-816) Write exclusively to canonical key
-      if (env?.PIN_ENGINE_KV && !isDegraded) {
-        try {
-          const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch').catch(() => null)) || '0';
-          const kvPayload = JSON.stringify({ ...dossierResult, _epoch: epoch });
-          await env.PIN_ENGINE_KV.put(`pin:dossier:v3?pin_id=${cleanPinId}`, kvPayload, { expirationTtl: 43200 });
-        } catch (_) {}
-      }
-    })();
-
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      safeWaitUntil(ctx, edgeWriteThroughPromise, `edge_sync_${cleanPinId}`);
-    } else {
-      try {
-        let timerId;
-        const timeoutPromise = new Promise(r => { timerId = setTimeout(r, 1500); });
-        await Promise.race([edgeWriteThroughPromise, timeoutPromise]).finally(() => {
-          if (timerId) clearTimeout(timerId);
-        });
-      } catch (_) {}
-    }
-  }
 
   sanitizeDossierTrajectory(dossierResult);
   return dossierResult;
@@ -2796,97 +2571,6 @@ export async function getFastEdgeDossier(pinId, env) {
   if (!cleanPinId) {
     return { success: false, error: 'INVALID_PIN_ID', message: 'Pin ID is required' };
   }
-
-  // 1. Try KV Cache first (< 1ms)
-  if (env?.PIN_ENGINE_KV) {
-    try {
-      const kvKey = `pin:dossier:v3?pin_id=${cleanPinId}`;
-      let kvData = await env.PIN_ENGINE_KV.get(kvKey, 'json');
-      if (!kvData) {
-        kvData = await env.PIN_ENGINE_KV.get(`pin:dossier?pin_id=${cleanPinId}`, 'json');
-      }
-      if (kvData) {
-        sanitizeDossierTrajectory(kvData);
-        return { ...kvData, source: 'edge_kv' };
-      }
-    } catch (_) {}
-  }
-
-  // 2. Try Cloudflare D1 edge mirror (< 3.5ms)
-  // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
-  if (env?.PIN_D1_DB) {
-    try {
-      await ensureEdgePinsMetadataTable(env);
-      let row = await env.PIN_D1_DB.prepare(
-        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
-      ).bind(cleanPinId).first().catch(async () => {
-        return await env.PIN_D1_DB.prepare(
-          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
-        ).bind(cleanPinId).first().catch(() => null);
-      });
-      // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
-      // Only serve edge prefetch if D1 record contains rich creative attributes (not a hollow shell)
-      const isRichD1 = Boolean(
-        row && (row.title || row.image_url) &&
-        (row.description && row.description.length > 5) &&
-        row.created_at_pinterest
-      );
-      if (isRichD1) {
-        let parsedAnnotations = [];
-        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
-        let parsedMeta = {};
-        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
-        let parsedTrajectory = [];
-        if (row.daily_trajectory) {
-          try {
-            parsedTrajectory = typeof row.daily_trajectory === 'string'
-              ? JSON.parse(row.daily_trajectory)
-              : (Array.isArray(row.daily_trajectory) ? row.daily_trajectory : []);
-          } catch (_) {}
-        }
-
-        const d1Result = {
-          success: true,
-          pin_id: cleanPinId,
-          source: 'edge_d1',
-          creative: {
-            title: row.title || `Pin ${cleanPinId}`,
-            description: row.description || '',
-            alt_text: row.seo_alt_text || '',
-            destination_url: row.destination_url || '',
-            domain: row.domain || 'pinterest.com',
-            image_url: row.image_url || '',
-            dominant_color: row.dominant_color || '#888888',
-            visual_annotations: parsedAnnotations,
-            created_at_pinterest: row.created_at_pinterest || null,
-            canonical_pin_id: parsedMeta.canonical_pin_id || null,
-            canonical_pin_url: parsedMeta.canonical_pin_url || null,
-            save_count: Number(parsedTrajectory[0]?.save_count || parsedMeta.save_count || 0),
-            repin_count: Number(parsedTrajectory[0]?.repin_count || parsedMeta.repin_count || 0),
-            comment_count: Number(parsedTrajectory[0]?.comment_count || 0),
-            share_count: Number(parsedTrajectory[0]?.share_count || 0),
-            daily_save_velocity: Number(parsedTrajectory[0]?.daily_save_velocity || 0),
-            creation_method: parsedMeta.creation_method || parsedMeta.method || 'pinterest_platform'
-          },
-          algorithmic_intelligence: {
-            creation_method: parsedMeta.creation_method || parsedMeta.method || 'pinterest_platform',
-            canonical_pin_id: parsedMeta.canonical_pin_id || null,
-            canonical_pin_url: parsedMeta.canonical_pin_url || null,
-            seo_related_interests: Array.isArray(parsedMeta.seo_related_interests) ? parsedMeta.seo_related_interests : []
-          },
-          pillar_1_creator_context: {
-            creator_username: row.creator_username || '',
-            board_name: row.board_name || ''
-          },
-          daily_trajectory: parsedTrajectory,
-          snapshots: parsedTrajectory
-        };
-        sanitizeDossierTrajectory(d1Result);
-        return d1Result;
-      }
-    } catch (_) {}
-  }
-
   return {
     success: false,
     not_cached: true,
@@ -3559,40 +3243,6 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     WHERE pin_id = ${cleanPinId};
   `;
 
-  // 12. Synchronous Cache Invalidation Protocol (Anti-Stale & Anti-Race Guard)
-  // [INVARIANT: EDGE-EVICTION-TANDEM]
-  // Step A: Evict Cloudflare D1 immediately to ensure subsequent reads fetch fresh data
-  if (env?.PIN_D1_DB) {
-    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run().catch(() => {});
-  }
-
-  // Step B: Evict stale KV keys capped strictly to <= 12 operations (subrequest budget shield)
-  if (env?.PIN_ENGINE_KV) {
-    const associatedKids = [
-      ...new Set([
-        ...targetRows.map(r => Number(r.keyword_id)),
-        ...displacedRows.map(r => Number(r.keyword_id))
-      ].filter(kid => Number.isFinite(kid) && kid > 0))
-    ];
-    const serpKeys = associatedKids.map(kid => `serp:comp:${kid}`);
-    const candidateKeys = [
-      `pin:dossier:v3?pin_id=${cleanPinId}`,
-      `dossier:v3:pin:${cleanPinId}`,
-      `dossier:pin:${cleanPinId}`,
-      `pin:dossier:${cleanPinId}`,
-      `pin:dossier?pin_id=${cleanPinId}`,
-      `traj:pin:${cleanPinId}`,
-      `traj:pin:${cleanPinId}:all`,
-      `pin:trajectory?pin_id=${cleanPinId}`,
-      ...serpKeys,
-      `dossier:pin:${cleanPinId}:0`,
-      `traj:pin:${cleanPinId}:0`,
-      `traj:pin:${cleanPinId}:7d`
-    ];
-    const keysToEvict = [...new Set(candidateKeys)].slice(0, 12);
-    const evictions = keysToEvict.map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-    await Promise.all(evictions);
-  }
 
   // Step C: Fetch fresh universal dossier with edge cache bypassed
   const refreshedDossier = await fetchUniversalPinDossier({ hubSql, pinId: cleanPinId, ctx, env, bypassEdgeCache: true });

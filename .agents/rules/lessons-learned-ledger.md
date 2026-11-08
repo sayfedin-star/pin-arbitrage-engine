@@ -24,6 +24,7 @@ trigger: always_on
 | **Round 23 (Phase 8 UI Parity)** | Room 5 Pruning Healing, Creator Combined Audience 24h Surge, Tag Bridge Gains & Crossover Velocity Alignment | Invariants 30, 31, 33, Locks 1, 4, 13 | **SEALED** |
 | **Round 24 (Phases 1–4 Forensic Single-DB Optimization)** | 80% Egress Row Deduplication, Legacy KV/D1/Hyperdrive Isolation, Room 1–6 Count/Velocity Parity, Domain Studio KPI Sync, Creator 10M+ Ceiling & Dossier Provenance Fix | Migration 047, Invariant 44, Locks 1–14 | **SEALED** |
 | **Round 25 (Visual Crossover Alignment)** | Complete Blueprint Eradication, Frequency-First Anchor Sorting & Joint Pins 24h Velocity Preview | Invariants 13, 22, 28, Locks 1, 5, 13 | **SEALED** |
+| **Round 26 (Pure Neon & VPS/Coolify Readiness)** | Complete Cloudflare (KV/D1/Hyperdrive) Purge, Pure Neon Serverless Postgres Architecture & Test Modernization | Invariant 2, Invariant 6, Locks 6, 13 | **SEALED** |
 
 ---
 
@@ -439,3 +440,24 @@ trigger: always_on
 - **Verification Command**:
   - `npm run check` (0 errors, 0 warnings, 102/102 files, 14 locks PASS)
   - `npm run test:offline` (13 suites, 100% PASS)
+
+
+---
+
+## Round 26: Complete Cloudflare (KV, D1, Hyperdrive) Architectural Purge & Pure Neon / Coolify Readiness
+- **Round / Feature**: Architectural Purge of Cloudflare Layers (`PIN_ENGINE_KV`, `PIN_D1_DB`, `createHyperdriveClient`, `edge_pins_metadata`, `d1-metadata.mjs`) & Complete Node.js / Coolify VPS Portability
+- **Trap / Failure Mode**:
+  1. *Dual Runtime Entanglement*: The codebase contained legacy Cloudflare edge wrappers (`PIN_ENGINE_KV`, `PIN_D1_DB`, `Hyperdrive`, `d1-metadata.mjs`, socket drain loops) that complicated standalone Node.js execution on a VPS container (Coolify / Docker).
+  2. *Legacy Tests Breakage*: 5 test suites (`test_cloudflare_edge_modernization.mjs`, `test_phase2_read_acceleration.mjs`, `test_p3_cleanup.mjs`, `test_jit_warming_and_d1_trajectory.mjs`, `test_domain_dossier_benchmark.mjs`) were hardcoded to expect deleted Cloudflare layers.
+  3. *Folder Matrix Deficiencies*: Guided Search Capsules suffered from keyword bleeding, syndicated repin clones polluted triplets and color palettes, and `dominant_color` was missing in `ranked_active` queries.
+- **Root Cause & Technical Mechanism**:
+  1. Cloudflare Workers KV and D1 edge caches were remnants of the early edge deployment before consolidating onto Neon Serverless PostgreSQL with in-memory L0 caching (`getCachedOrFetch`).
+  2. Legacy tests had explicit imports of deleted functions (`createHyperdriveClient`, `ensureEdgePinsMetadataTable`, `deleteFolderFromD1`).
+- **Verified Solution & Invariant Codification**:
+  1. *Complete Codebase Purge*: Purged all references to `PIN_ENGINE_KV`, `PIN_D1_DB`, `createHyperdriveClient`, `getPinKvKeysToEvict`, and `d1-metadata` across `src/` (0 occurrences remain, verified by Lock 6). Deleted `src/modules/keywords/d1-metadata.mjs`.
+  2. *Pure Neon Architecture*: `server.mjs` and `worker.mjs` operate on standard HTTP + pure Neon Serverless PostgreSQL (`topology: unified_postgres`).
+  3. *Folder Matrix Upgrades*: Fixed whole-word matching and folder umbrella term exclusion in Guided Search Capsules; unified syndicated duplicate repin clones via normalized image signature and domain; joined `universal_master_pins` for `dominant_color` in `ranked_active`.
+  4. *Test Modernization*: Modernized all 5 legacy test suites to test pure Neon architecture.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 103 files, 14/14 locks PASS)
+  - `npm test` (All 21 test suites, 100% PASS, exit code 0)

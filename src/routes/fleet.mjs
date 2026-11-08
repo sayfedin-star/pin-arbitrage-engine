@@ -45,31 +45,14 @@ export async function handleFleetRoutes(routeCtx) {
 
   // 1. Neon Multi-Project Fleet API & Shards Map (KV Accelerated)
   if (method === 'GET' && (pathname === '/api/fleet/projects' || pathname === '/api/fleet/shards')) {
-    let rawShards = null;
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        rawShards = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
-        // Anti-Poisoning Check: Ensure cached KV data does not contain masked bullet URLs
-        if (Array.isArray(rawShards) && rawShards.some(r => !isValidShardDsn(r?.database_url))) {
-          rawShards = null; // Discard poisoned data
-          safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_poisoned_shards_map');
-        }
-      } catch (_) {}
-    }
-    if (!rawShards || !Array.isArray(rawShards) || rawShards.length === 0) {
-      // Query raw unmasked projects directly from Central Hub
-      rawShards = await sql`
-        SELECT 
-          id, project_id, project_name, region_id, database_url,
-          status, is_hub, assigned_shards, stats, created_at, updated_at
-        FROM neon_projects_registry
-        ORDER BY is_hub DESC, id ASC;
-      `;
-      if (env?.PIN_ENGINE_KV && Array.isArray(rawShards) && rawShards.length > 0) {
-        // ALWAYS store RAW unmasked connection strings in the internal routing key 'fleet:shards_map'
-        safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rawShards), { expirationTtl: 86400 }), 'kv_cache_shards_map');
-      }
-    }
+    // Query raw unmasked projects directly from Central Hub
+    const rawShards = await sql`
+      SELECT 
+        id, project_id, project_name, region_id, database_url,
+        status, is_hub, assigned_shards, stats, created_at, updated_at
+      FROM neon_projects_registry
+      ORDER BY is_hub DESC, id ASC;
+    `;
 
     // Security: Mask database credentials before transmitting to client
     const clientProjects = (Array.isArray(rawShards) ? rawShards : []).map(p => {
@@ -86,14 +69,13 @@ export async function handleFleetRoutes(routeCtx) {
       success: true,
       projects: clientProjects,
       shards: clientProjects,
-      source: env?.PIN_ENGINE_KV ? 'kv_edge' : 'neon_hub'
+      source: 'neon_hub'
     }, 200, 10);
   }
 
   // 2. Register New Project
   if (method === 'POST' && pathname === '/api/fleet/projects') {
     invalidateEdgeCache('fleet_projects');
-    if (env?.PIN_ENGINE_KV) safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
     const body = await request.json().catch(() => ({}));
     const row = await registerNewProject(sql, body);
     return jsonResponse({ success: true, project: row });
@@ -102,7 +84,6 @@ export async function handleFleetRoutes(routeCtx) {
   // 3. Sync Fleet Databases
   if (method === 'POST' && pathname === '/api/fleet/sync') {
     invalidateEdgeCache('fleet_projects');
-    if (env?.PIN_ENGINE_KV) safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
     const body = await request.json().catch(() => ({}));
     const targetProj = body?.project_id || searchParams.get('project_id');
     const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
@@ -126,20 +107,7 @@ export async function handleFleetRoutes(routeCtx) {
     }
     const body = await request.json().catch(() => ({}));
     const newEpoch = String(Date.now());
-    if (env?.PIN_ENGINE_KV) {
-      await env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch);
-      // [INVARIANT: FLEET-SHARDS-MAP-PURGE] Purge cached shard connection strings on invalidation
-      await env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
-    }
-    if (env?.PIN_D1_DB) {
-      await env.PIN_D1_DB.prepare(`
-        INSERT INTO edge_keywords_meta (key, value, updated_at)
-        VALUES (?, ?, datetime('now'))
-        ON CONFLICT(key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = excluded.updated_at
-      `).bind('catalog_status', JSON.stringify({ is_warmed: false, stale: true, invalidated_at: new Date().toISOString() })).run().catch(() => {});
-    }
+
     invalidateFolderCache();
     await invalidateEdgeCache('fleet_projects');
     await invalidateEdgeCache('domains:leaderboard');

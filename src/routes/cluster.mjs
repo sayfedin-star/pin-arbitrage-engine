@@ -75,7 +75,6 @@ export async function handleClusterRoutes({
   getCachedOrFetch,
   invalidateEdgeCache,
   safeWaitUntil,
-  getPinKvKeysToEvict,
   redactSecrets
 }) {
   // 0. /api/pulse/24h (Global 24-Hour Algorithmic Pulse & Crossover Matrix)
@@ -216,12 +215,7 @@ export async function handleClusterRoutes({
     invalidateEdgeCache('api:recgpt-playbook');
     invalidateEdgeCache('api:cluster-telemetry');
     invalidateEdgeCache('api:guided-search');
-    if (env?.PIN_ENGINE_KV && pinIds.length > 0) {
-      const evictions = pinIds.flatMap(pid => 
-        getPinKvKeysToEvict(pid).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}))
-      );
-      safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seeds_cache');
-    }
+
     return jsonResponse({
       success: true,
       deleted_count: pinIds.length,
@@ -311,10 +305,7 @@ export async function handleClusterRoutes({
       invalidateEdgeCache('api:recgpt-playbook');
       invalidateEdgeCache('api:cluster-telemetry');
       invalidateEdgeCache('api:guided-search');
-      if (env?.PIN_ENGINE_KV && pinId) {
-        const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-        safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seed_cache');
-      }
+
       return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
     }
   }

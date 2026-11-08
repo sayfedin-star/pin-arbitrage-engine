@@ -25,9 +25,6 @@ import {
   resolveShardConnection
 } from '../src/modules/sharding/fleet-router.mjs';
 import {
-  ensureEdgePinsMetadataTable,
-  syncPinsBatchToD1,
-  hydratePinsFromD1,
   safeNormalizeMetadata,
   winsorize,
   extractPinTitle,
@@ -325,15 +322,12 @@ runTest('src/keywords-ui.mjs eliminates redundant triggerWorkflow after sync', (
 console.log('\n[*] Section 5: God-File Deconstruction & Parity Contracts...');
 
 runTest('src/modules/keywords/ submodules exist and have valid exports', () => {
-  assert(fs.existsSync(path.resolve('src/modules/keywords/d1-metadata.mjs')), 'd1-metadata.mjs must exist');
+  assert(!fs.existsSync(path.resolve('src/modules/keywords/d1-metadata.mjs')), 'd1-metadata.mjs must be permanently purged in pure Neon architecture');
   assert(fs.existsSync(path.resolve('src/modules/keywords/analytics.mjs')), 'analytics.mjs must exist');
   assert(fs.existsSync(path.resolve('src/modules/keywords/settings.mjs')), 'settings.mjs must exist');
   assert(fs.existsSync(path.resolve('src/modules/keywords/typeahead.mjs')), 'typeahead.mjs must exist');
 
   // Verify functions are exported and callable
-  assert.strictEqual(typeof ensureEdgePinsMetadataTable, 'function');
-  assert.strictEqual(typeof syncPinsBatchToD1, 'function');
-  assert.strictEqual(typeof hydratePinsFromD1, 'function');
   assert.strictEqual(typeof safeNormalizeMetadata, 'function');
   assert.strictEqual(typeof winsorize, 'function');
   assert.strictEqual(typeof extractPinTitle, 'function');

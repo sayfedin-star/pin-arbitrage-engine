@@ -66,11 +66,6 @@ import {
 
 import { escapeSqlWildcards } from '../utils.mjs';
 import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../../scripts/lib/pinterest.mjs';
-import {
-  readKeywordsFromD1 as d1ReadKeywords,
-  syncKeywordsCatalogToD1 as d1SyncKeywordsCatalogToD1,
-  evictKeywordsCatalogFromD1 as d1EvictKeywordsCatalog
-} from '../modules/keywords/d1-metadata.mjs';
 
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 
@@ -78,11 +73,6 @@ import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
  * Bumps the global fleet cache epoch in Workers KV to invalidate edge caches across all PoPs
  */
 export async function bumpFleetCacheEpoch(env) {
-  if (env?.PIN_ENGINE_KV) {
-    const newEpoch = String(Date.now());
-    await env.PIN_ENGINE_KV.put('fleet:cache_epoch', newEpoch).catch(() => {});
-    return newEpoch;
-  }
   return '0';
 }
 
@@ -129,7 +119,6 @@ export async function handleKeywordsRoutes({
   evictKeywordsCatalogFromD1,
   syncFolderToD1,
   deleteFolderFromD1,
-  getPinKvKeysToEvict,
   isValidPinId,
   tripPinterestCircuitBreaker,
   redactSecrets
@@ -149,28 +138,11 @@ export async function handleKeywordsRoutes({
     }
     const kvKey = `url_saves:${cleanUrl}`;
 
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
-        if (cached && typeof cached.count === 'number') {
-          return jsonResponse({
-            ok: true,
-            url: cleanUrl,
-            count: cached.count,
-            global_saves: cached.count,
-            cached: true
-          }, 200, 86400);
-        }
-      } catch (_) {}
-    }
 
     try {
       const fetchRes = await fetchUrlGlobalSaves(cleanUrl);
       const count = Number(fetchRes?.count || 0);
       if (fetchRes && fetchRes.ok) {
-        if (env?.PIN_ENGINE_KV) {
-          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify({ url: cleanUrl, count }), { expirationTtl: 86400 }).catch(() => {}), 'kv_put_url_saves');
-        }
         if (sql && count > 0) {
           safeWaitUntil(ctx, (async () => {
             await sql`
@@ -222,27 +194,7 @@ export async function handleKeywordsRoutes({
     const results = {};
     const uncached = [];
 
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        const kvResults = await Promise.all(
-          cleanUrls.map(async (u) => {
-            const cached = await env.PIN_ENGINE_KV.get(`url_saves:${u}`, 'json').catch(() => null);
-            return { url: u, cached };
-          })
-        );
-        for (const item of kvResults) {
-          if (item?.cached && typeof item.cached.count === 'number') {
-            results[item.url] = item.cached.count;
-          } else {
-            uncached.push(item.url);
-          }
-        }
-      } catch (_) {
-        uncached.push(...cleanUrls);
-      }
-    } else {
-      uncached.push(...cleanUrls);
-    }
+    uncached.push(...cleanUrls);
 
     const writeBackEntries = [];
     if (uncached.length > 0) {
@@ -257,13 +209,6 @@ export async function handleKeywordsRoutes({
           const count = Number(res.value.count || 0);
           results[targetUrl] = count;
           writeBackEntries.push({ url: targetUrl, count });
-          if (env?.PIN_ENGINE_KV) {
-            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(
-              `url_saves:${targetUrl}`,
-              JSON.stringify({ url: targetUrl, count }),
-              { expirationTtl: 86400 }
-            ).catch(() => {}), 'kv_batch_url_saves');
-          }
         } else {
           results[targetUrl] = 0;
         }
@@ -303,26 +248,8 @@ export async function handleKeywordsRoutes({
     const forceRefresh = searchParams.get('refresh') === 'true';
     const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
 
-    // Check D1 Edge Keywords Catalog first (Sub-5ms Edge Reads)
-    // [INVARIANT: D1-FOLDER-SCOPED-READ] Supports folder-scoped filtering via D1 edge_keywords_catalog.folders JSON
-    const effectiveReadKeywordsFromD1 = d1ReadKeywords;
-    const effectiveSyncKeywordsCatalogToD1 = d1SyncKeywordsCatalogToD1;
-    if (!forceRefresh && env?.PIN_D1_DB && effectiveReadKeywordsFromD1 && !isUnifiedPostgres(env)) {
-      try {
-        const d1Keywords = await effectiveReadKeywordsFromD1(env, { search, limit, offset, folderId });
-        if (Array.isArray(d1Keywords) && (d1Keywords.length > 0 || folderId != null || search)) {
-          return jsonResponse({
-            success: true,
-            keywords: d1Keywords,
-            source: 'd1_edge'
-          }, 200, 15);
-        }
-      } catch (d1Err) {
-        console.warn('[D1 Keywords Read Error]', redactSecrets ? redactSecrets(d1Err.message) : d1Err.message);
-      }
-    }
 
-    const epoch = env?.PIN_ENGINE_KV ? ((await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0') : '0';
+    const epoch = '0';
     const cacheKey = buildCanonicalCacheKey(`keywords:hub:ep:${epoch}`, {
       search,
       limit,
@@ -352,21 +279,6 @@ export async function handleKeywordsRoutes({
         });
       }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh, epoch });
 
-      if (!folderId && Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
-        if (!search && limit >= 1000) {
-          safeWaitUntil(ctx, effectiveSyncKeywordsCatalogToD1(env, keywords, { isFullCatalog: true }), 'syncKeywordsCatalogToD1');
-        } else if (!search) {
-          safeWaitUntil(ctx, (async () => {
-            try {
-              const fullCatalog = await listKeywords(sql, { limit: 1000 });
-              await effectiveSyncKeywordsCatalogToD1(env, fullCatalog, { isFullCatalog: true });
-            } catch (_) {}
-          })(), 'warmFullKeywordsCatalogToD1');
-        } else {
-          safeWaitUntil(ctx, effectiveSyncKeywordsCatalogToD1(env, keywords, { isFullCatalog: false }), 'syncKeywordsCatalogToD1');
-        }
-        safeWaitUntil(ctx, syncKeywordsBatchToD1(env, keywords), 'syncKeywordsBatchToD1');
-      }
 
       return jsonResponse({
         success: true,
@@ -382,16 +294,8 @@ export async function handleKeywordsRoutes({
   // 2. POST /api/keywords
   if (method === 'POST' && pathname === '/api/keywords') {
     invalidateEdgeCache('keywords');
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
     const body = await request.json().catch(() => ({}));
     const row = await addKeyword(sql, body);
-    if (row && syncKeywordToD1) {
-      safeWaitUntil(ctx, syncKeywordToD1(env, row), 'syncKeywordToD1');
-    }
     return jsonResponse({ success: true, keyword: row });
   }
 
@@ -538,11 +442,6 @@ export async function handleKeywordsRoutes({
   // 8. POST /api/keywords/status || /api/keywords/toggle
   if (method === 'POST' && (pathname === '/api/keywords/status' || pathname === '/api/keywords/toggle')) {
     invalidateEdgeCache('keywords');
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
     const body = await request.json().catch(() => ({}));
     const id = Number(body.id || body.keyword_id);
     const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
@@ -589,11 +488,6 @@ export async function handleKeywordsRoutes({
   // 9. DELETE /api/keywords
   if (method === 'DELETE' && pathname === '/api/keywords') {
     invalidateEdgeCache('keywords');
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
     let id = searchParams.get('id');
     let keyword = searchParams.get('keyword');
     let body = {};
@@ -700,15 +594,6 @@ export async function handleKeywordsRoutes({
         WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
       `.catch(() => {});
 
-      if (env?.PIN_ENGINE_KV) {
-        const evictions = getPinKvKeysToEvict(pinId, [keywordId]).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-        evictions.push(
-          env.PIN_ENGINE_KV.delete(`serp:comp:${keywordId}`).catch(() => {}),
-          env.PIN_ENGINE_KV.delete(`displaced:kw:${keywordId}:50:0`).catch(() => {}),
-          env.PIN_ENGINE_KV.delete(`displaced:kw:${keywordId}:100:0`).catch(() => {})
-        );
-        safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_keyword_pin_cache');
-      }
 
       return jsonResponse({
         success: true,
@@ -751,21 +636,6 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ success: true, results: [] });
     }
 
-    // 1. Primary Edge Query: Cloudflare D1 Database
-    if (env?.PIN_D1_DB) {
-      try {
-        const stmt = env.PIN_D1_DB.prepare(
-          "SELECT keyword, search_volume, pin_count FROM search_autocomplete_index WHERE keyword LIKE ? LIMIT 10"
-        ).bind(`${q}%`);
-        const d1Res = await stmt.all();
-        const rows = d1Res?.results || [];
-        if (rows.length > 0) {
-          return jsonResponse({ success: true, source: 'd1_edge', results: rows }, 200, 30);
-        }
-      } catch (err) {
-        console.warn('[D1 Autocomplete] Non-fatal D1 query error:', redactSecrets ? redactSecrets(err.message) : err.message);
-      }
-    }
 
     // 2. Graceful Fallback: Neon Postgres Central Hub
     try {
@@ -778,9 +648,6 @@ export async function handleKeywordsRoutes({
         ORDER BY keyword ASC
         LIMIT 10;
       ` : [];
-      if (Array.isArray(rows) && rows.length > 0 && env?.PIN_D1_DB && syncKeywordToD1) {
-        safeWaitUntil(ctx, Promise.all(rows.map(r => syncKeywordToD1(env, r))), 'syncFallbackKeywordsToD1');
-      }
       return jsonResponse({ success: true, source: 'neon_hub', results: rows }, 200, 15);
     } catch (_) {
       return jsonResponse({ success: true, source: 'empty_fallback', results: [], degraded: true }, 200, 0);
@@ -1083,12 +950,6 @@ export async function handleKeywordsRoutes({
       }
     }
 
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-
     const safeImported = Array.isArray(imported) ? imported : [];
     return jsonResponse({
       success: true,
@@ -1203,7 +1064,7 @@ export async function handleKeywordsRoutes({
 
     // A0. Sub-route: /api/folders/:id/prune-pins (POST)
     if (parts.length >= 2 && parts[1] === 'prune-pins') {
-      // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT] Pruning tombstones to keyword_ignored_pins and evicts edge_pins_metadata and PIN_ENGINE_KV
+      // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT] Pruning tombstones to keyword_ignored_pins
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
       if (method !== 'POST') return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
       const body = await request.json().catch(() => ({}));
@@ -1238,18 +1099,6 @@ export async function handleKeywordsRoutes({
         maxRepins
       }, { env, ctx });
       const isDry = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
-      if (env?.PIN_ENGINE_KV && !isDry) {
-        safeWaitUntil(ctx, (async () => {
-          try {
-            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
-            const nextEpoch = String(Date.now());
-            await env.PIN_ENGINE_KV.put('fleet:cache_epoch', nextEpoch);
-          } catch (_) {}
-        })(), 'kv_prune_folder_cache_evict');
-      }
       return jsonResponse(result);
     }
 
@@ -1264,16 +1113,6 @@ export async function handleKeywordsRoutes({
         const vaultScope = searchParams.get('vault_scope') || 'high_signal';
 
         let epoch = '0';
-        if (!refresh && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
-          try {
-            epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:v2:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
-            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
-            if (kvCached) {
-              return jsonResponse({ ...kvCached, source: 'kv_edge' }, 200, 30);
-            }
-          } catch (_) {}
-        }
 
         let payload;
         if (withDiscovery) {
@@ -1291,15 +1130,6 @@ export async function handleKeywordsRoutes({
           payload = { success: true, creators, folder_id: folderId, vault_scope: vaultScope };
         }
 
-        if (env?.PIN_ENGINE_KV && payload) {
-          try {
-            if (!epoch || epoch === '0') {
-              epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            }
-            const kvKey = `fep:${epoch}:folder:${folderId}:creators:v2:${withDiscovery ? 'with_disc' : 'no_disc'}:${vaultScope}`;
-            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(payload), { expirationTtl: 86400 }), 'kv_put_folder_creators');
-          } catch (_) {}
-        }
 
         return jsonResponse(payload, 200, refresh ? 0 : 30);
       }
@@ -1418,45 +1248,6 @@ export async function handleKeywordsRoutes({
 
       if (folderId && parts.length === 1) {
         let epoch = '0';
-        if (!isRefreshRequested && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
-          try {
-            epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            const detailKey = `fep:${epoch}:folder:${folderId}:detail`;
-            const cachedDetail = await env.PIN_ENGINE_KV.get(detailKey, { type: 'json' });
-            if (cachedDetail) {
-              return jsonResponse({ success: true, folder: cachedDetail, source: 'kv_edge' }, 200, 15);
-            }
-          } catch (_) {}
-        }
-
-        // [INVARIANT: D1-EDGE-CACHE-FIRST] Check D1 edge database first if fresh (< 60m) before hitting Neon Hub
-        if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
-          try {
-            const d1Folder = await env.PIN_D1_DB.prepare(
-              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
-            ).bind(String(folderId)).first();
-            if (d1Folder) {
-              const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
-              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 60 * 60 * 1000);
-              if (isFresh) {
-                const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
-                const normalizedD1Folder = {
-                  ...d1Folder,
-                  keyword_count: count,
-                  item_count: count,
-                  unique_pins_count: Number(d1Folder.unique_pins_count || 0),
-                  creator_count: Number(d1Folder.creator_count || 0),
-                  discovered_creator_count: Number(d1Folder.discovered_creator_count || d1Folder.creator_count || 0),
-                  domain_count: Number(d1Folder.domain_count || 0),
-                  pinned_domain_count: Number(d1Folder.pinned_domain_count || 0),
-                  metadata: typeof d1Folder.metadata === 'string' ? JSON.parse(d1Folder.metadata || '{}') : (d1Folder.metadata || {}),
-                  items: []
-                };
-                return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
-              }
-            }
-          } catch (_) {}
-        }
 
         // [INVARIANT: FOLDER-SSOT-LOOKUP] Serve authoritative live data from Central Hub getFolder(sql, folderId) (< 5ms)
         let folder = null;
@@ -1466,81 +1257,9 @@ export async function handleKeywordsRoutes({
           } catch (_) {}
         }
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
-        if (syncFolderToD1) {
-          safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
-        }
-        if (env?.PIN_ENGINE_KV && folder) {
-          try {
-            if (!epoch || epoch === '0') {
-              epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            }
-            const detailKey = `fep:${epoch}:folder:${folderId}:detail`;
-            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(detailKey, JSON.stringify(folder), { expirationTtl: 3600 }), 'kv_put_folder_detail');
-          } catch (_) {}
-        }
         return jsonResponse({ success: true, folder }, 200, 15);
       }
 
-      // [INVARIANT: KV-EDGE-FOLDERS-LIST] Check Workers KV first (< 2ms)
-      if (!isRefreshRequested && env?.PIN_ENGINE_KV && !isUnifiedPostgres(env)) {
-        try {
-          const cachedList = await env.PIN_ENGINE_KV.get(`folders:list:v2:${projectId}`, { type: 'json' });
-          if (cachedList && Array.isArray(cachedList) && cachedList.length > 0) {
-            return jsonResponse({ success: true, folders: cachedList, source: 'kv_edge' }, 200, 10);
-          }
-        } catch (_) {}
-      }
-
-      // [INVARIANT: SWR-D1-EDGE-FOLDERS] Query ALL cached rows from D1 immediately (< 5ms)
-      if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
-        try {
-          const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
-          ).all();
-          if (d1Folders?.results?.length > 0) {
-            const normalizedList = d1Folders.results.map(f => ({
-              ...f,
-              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0),
-              item_count: Number(f.keyword_count ?? f.item_count ?? 0),
-              unique_pins_count: Number(f.unique_pins_count || 0),
-              creator_count: Number(f.creator_count || 0),
-              discovered_creator_count: Number(f.discovered_creator_count || f.creator_count || 0),
-              domain_count: Number(f.domain_count || 0),
-              pinned_domain_count: Number(f.pinned_domain_count || 0),
-              metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})
-            }));
-
-            // Check if oldest row is older than 60 minutes for SWR background refresh
-            const sixtyMinutesAgo = Date.now() - 60 * 60 * 1000;
-            const hasStaleRow = d1Folders.results.some(f => {
-              const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
-              return isNaN(t) || t < sixtyMinutesAgo;
-            });
-            if (hasStaleRow && !isLite && syncFolderToD1 && sql) {
-              safeWaitUntil(ctx, (async () => {
-                try {
-                  const fresh = await listFolders(sql, { projectId });
-                  if (Array.isArray(fresh) && fresh.length > 0) {
-                    await Promise.all(fresh.map(f => syncFolderToD1(env, f)));
-                    if (env?.PIN_ENGINE_KV) {
-                      await env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(fresh), { expirationTtl: 1800 });
-                    }
-                  }
-                } catch (e) {
-                  console.warn('[SWR] Background folders refresh failed:', e.message);
-                }
-              })(), 'swrRefreshFoldersD1');
-            }
-
-            // Populate KV cache in background if missing
-            if (env?.PIN_ENGINE_KV) {
-              safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(normalizedList), { expirationTtl: 1800 }), 'kv_put_folders_list');
-            }
-
-            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
-          }
-        } catch (_) {}
-      }
 
       let folders = [];
       let foldersDegraded = false;
@@ -1560,14 +1279,6 @@ export async function handleKeywordsRoutes({
           folders = [];
           foldersDegraded = true;
         }
-        if (Array.isArray(folders) && folders.length > 0) {
-          if (syncFolderToD1) {
-            safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
-          }
-          if (env?.PIN_ENGINE_KV && !isRefreshRequested) {
-            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(`folders:list:v2:${projectId}`, JSON.stringify(folders), { expirationTtl: 1800 }), 'kv_put_folders_list');
-          }
-        }
       }
 
       return jsonResponse({
@@ -1583,110 +1294,13 @@ export async function handleKeywordsRoutes({
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
       }
       const created = await createFolder(sql, body);
-      if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-        await evictKeywordsCatalogFromD1(env);
-      } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-        await d1EvictKeywordsCatalog(env);
-      }
-      if (syncFolderToD1) {
-        safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
-      }
-      if (env?.PIN_ENGINE_KV) {
-        safeWaitUntil(ctx, (async () => {
-          try {
-            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-          } catch (_) {}
-        })(), 'kv_del_folders_list');
-      }
       return jsonResponse({ success: true, folder: created });
-    }
-
-    if ((method === 'PUT' || method === 'PATCH') && folderId && parts.length === 1) {
-      const body = await request.json().catch(() => ({}));
-      if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
-        return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
-      }
-      // Explicitly support folder settings controls: pause_competitors, pause_crawlers, block_fleet, max_serp_pins, crawl_scope, auto_discover_creators
-      const {
-        pause_competitors,
-        pause_crawlers,
-        block_fleet,
-        max_serp_pins,
-        crawl_scope,
-        auto_discover_creators
-      } = body;
-      const updatedMetadata = {
-        ...(body.metadata || {}),
-        ...(pause_competitors !== undefined ? { pause_competitors: Boolean(pause_competitors) } : {}),
-        ...(pause_crawlers !== undefined ? { pause_crawlers: Boolean(pause_crawlers), is_crawler_paused: Boolean(pause_crawlers) } : {}),
-        ...(block_fleet !== undefined ? { block_fleet: Boolean(block_fleet), block_gha_fleet: Boolean(block_fleet) } : {}),
-        ...(max_serp_pins !== undefined ? { max_serp_pins: Number(max_serp_pins) } : {}),
-        ...(crawl_scope !== undefined ? { crawl_scope: String(crawl_scope) } : {}),
-        ...(auto_discover_creators !== undefined ? { auto_discover_creators: Boolean(auto_discover_creators) } : {})
-      };
-      const updatePayload = {
-        ...body,
-        metadata: updatedMetadata
-      };
-      const updated = await updateFolder(sql, folderId, updatePayload);
-      if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-        await evictKeywordsCatalogFromD1(env);
-      } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-        await d1EvictKeywordsCatalog(env);
-      }
-      if (syncFolderToD1) {
-        safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
-      }
-      if (env?.PIN_ENGINE_KV) {
-        safeWaitUntil(ctx, (async () => {
-          try {
-            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:with_disc:high_signal`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:no_disc:high_signal`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:with_disc:all`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:creators:v2:no_disc:all`);
-            const nextEpoch = String(Date.now());
-            await env.PIN_ENGINE_KV.put('fleet:cache_epoch', nextEpoch);
-          } catch (_) {}
-        })(), 'kv_del_folder_cache');
-      }
-      return jsonResponse({ success: true, folder: updated });
     }
 
     // [INVARIANT: GUARD-ACCIDENTAL-FOLDER-DELETION] Strictly guard folder deletion:
     // parts.length MUST equal 1 (e.g. DELETE /api/folders/5). Sub-route unpin/unlink operations MUST NEVER delete the folder!
     if (method === 'DELETE' && folderId && parts.length === 1) {
       const deleted = await deleteFolder(sql, folderId);
-      if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-        await evictKeywordsCatalogFromD1(env);
-      } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-        await d1EvictKeywordsCatalog(env);
-      }
-      if (deleteFolderFromD1) {
-        safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
-      }
-      if (env?.PIN_ENGINE_KV) {
-        safeWaitUntil(ctx, (async () => {
-          try {
-            await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-            await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-            const epoch = (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:detail`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v2`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v3`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v4`);
-            await env.PIN_ENGINE_KV.delete(`fep:${epoch}:folder:${folderId}:crossover:v5`);
-          } catch (_) {}
-        })(), 'kv_del_folder_cache_del');
-      }
       return jsonResponse({ success: true, deleted });
     }
   }
@@ -1765,65 +1379,13 @@ export async function handleKeywordsRoutes({
     const isRefreshRequested = searchParams.get('refresh') === 'true';
     const folderId = searchParams.get('id') || searchParams.get('folder_id');
     if (folderId) {
-      if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
-        try {
-          const d1Folder = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
-          ).bind(String(folderId)).first();
-          if (d1Folder) {
-            const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
-            const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
-            const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
-            if (isFresh && count > 0) {
-              const normalizedD1Folder = {
-                ...d1Folder,
-                keyword_count: count,
-                item_count: count,
-                items: []
-              };
-              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' });
-            }
-          }
-        } catch (_) {}
-      }
       const folder = await getFolder(sql, folderId);
       if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
-      if (syncFolderToD1) {
-        safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
-      }
       return jsonResponse({ success: true, folder });
-    }
-    if (!isRefreshRequested && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
-      try {
-        const d1Folders = await env.PIN_D1_DB.prepare(
-          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
-        ).all();
-        if (d1Folders?.results?.length > 0) {
-          const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-          const allFresh = d1Folders.results.every(f => {
-            const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
-            return !isNaN(t) && t >= tenMinutesAgo;
-          });
-          const totalItems = d1Folders.results.reduce(
-            (sum, f) => sum + Number(f.keyword_count ?? f.item_count ?? 0),
-            0
-          );
-          if (allFresh && totalItems > 0) {
-            const normalizedList = d1Folders.results.map(f => ({
-              ...f,
-              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
-            }));
-            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' });
-          }
-        }
-      } catch (_) {}
     }
     const folders = await listFolders(sql, {
       projectId: searchParams.get('project_id') || 'default'
     });
-    if (Array.isArray(folders) && folders.length > 0 && syncFolderToD1) {
-      safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
-    }
     return jsonResponse({ success: true, folders }, 200, 8);
   }
 
@@ -1833,14 +1395,6 @@ export async function handleKeywordsRoutes({
     await invalidateEdgeCache('folders');
     const body = await request.json().catch(() => ({}));
     const created = await createFolder(sql, body);
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-    if (syncFolderToD1) {
-      safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
-    }
     return jsonResponse({ success: true, folder: created });
   }
 
@@ -1852,14 +1406,6 @@ export async function handleKeywordsRoutes({
     const folderId = body.id || searchParams.get('id');
     if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
     const updated = await updateFolder(sql, folderId, body);
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-    if (syncFolderToD1) {
-      safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
-    }
     return jsonResponse({ success: true, folder: updated });
   }
 
@@ -1876,14 +1422,6 @@ export async function handleKeywordsRoutes({
     }
     if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
     const deleted = await deleteFolder(sql, folderId);
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-    if (deleteFolderFromD1) {
-      safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
-    }
     return jsonResponse({ success: true, deleted });
   }
 
@@ -1898,42 +1436,12 @@ export async function handleKeywordsRoutes({
     
     if (Array.isArray(body.keyword_ids)) {
       const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
-      if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-        await evictKeywordsCatalogFromD1(env);
-      } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-        await d1EvictKeywordsCatalog(env);
-      }
-      if (env?.PIN_ENGINE_KV) {
-        try {
-          await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-          await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-        } catch (_) {}
-      }
-      await bumpFleetCacheEpoch(env);
-      if (syncFolderToD1) {
-        safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
-      }
       return jsonResponse({ success: true, ...result });
     }
     
     const keywordId = body.keyword_id || searchParams.get('keyword_id');
     if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
     const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-        await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-      } catch (_) {}
-    }
-    await bumpFleetCacheEpoch(env);
-    if (syncFolderToD1) {
-      safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
-    }
     return jsonResponse({ success: true, item });
   }
 
@@ -1952,21 +1460,6 @@ export async function handleKeywordsRoutes({
     if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
     const projectId = searchParams.get('project_id') || body.project_id || 'default';
     const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
-    if (evictKeywordsCatalogFromD1 && env?.PIN_D1_DB) {
-      await evictKeywordsCatalogFromD1(env);
-    } else if (d1EvictKeywordsCatalog && env?.PIN_D1_DB) {
-      await d1EvictKeywordsCatalog(env);
-    }
-    if (env?.PIN_ENGINE_KV) {
-      try {
-        await env.PIN_ENGINE_KV.delete(`folders:list:v2:${projectId}`);
-        await env.PIN_ENGINE_KV.delete('folders:list:v2:default');
-      } catch (_) {}
-    }
-    await bumpFleetCacheEpoch(env);
-    if (syncFolderToD1) {
-      safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
-    }
     return jsonResponse({ success: true, deleted });
   }
 

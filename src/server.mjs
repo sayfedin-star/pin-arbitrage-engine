@@ -36,67 +36,9 @@ export function createMockSql() {
 }
 
 /**
- * High-performance in-memory KV store implementing Cloudflare Workers KV API
- * for local development and offline test harnesses.
- */
-export function createMemoryKV() {
-  const store = new Map();
-  return {
-    async get(key, type = 'text') {
-      const entry = store.get(String(key));
-      if (!entry) return null;
-      if (entry.expiresAt && Date.now() > entry.expiresAt) {
-        store.delete(String(key));
-        return null;
-      }
-      if (type === 'json' || (typeof type === 'object' && type?.type === 'json')) {
-        try {
-          return JSON.parse(entry.value);
-        } catch (_) {
-          return null;
-        }
-      }
-      return entry.value;
-    },
-
-    async put(key, value, options = {}) {
-      const ttlSec = options.expirationTtl ? Number(options.expirationTtl) : null;
-      store.set(String(key), {
-        value: typeof value === 'string' ? value : JSON.stringify(value),
-        expiresAt: ttlSec ? Date.now() + ttlSec * 1000 : null
-      });
-    },
-
-    async delete(key) {
-      store.delete(String(key));
-    },
-
-    async list(options = {}) {
-      const prefix = options.prefix || '';
-      const now = Date.now();
-      const keys = [];
-      for (const [k, v] of store.entries()) {
-        if (v.expiresAt && now > v.expiresAt) {
-          store.delete(k);
-          continue;
-        }
-        if (!prefix || k.startsWith(prefix)) {
-          keys.push({ name: k });
-        }
-      }
-      return { keys, list_complete: true };
-    }
-  };
-}
-
-const defaultKvStore = createMemoryKV();
-
-/**
  * Creates an HTTP request listener that forwards requests to worker.fetch
  */
 export function createRequestListener(customEnv = {}) {
-  const localKv = customEnv.PIN_ENGINE_KV || defaultKvStore;
-
   return async function requestListener(req, res) {
     try {
       const host = req.headers.host || `127.0.0.1:${process.env.PORT || 3000}`;
@@ -137,7 +79,6 @@ export function createRequestListener(customEnv = {}) {
       const env = {
         ...process.env,
         DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
-        PIN_ENGINE_KV: localKv,
         SQL_CLIENT: sqlClient,
         DATABASE_URL: process.env.DATABASE_URL || '',
         ENVIRONMENT: process.env.ENVIRONMENT || 'development',
@@ -156,62 +97,75 @@ export function createRequestListener(customEnv = {}) {
         }
       };
 
-      const webResponse = await worker.fetch(webRequest, env, ctx);
+      // Delegate request processing directly to Cloudflare Worker entrypoint
+      const response = await worker.fetch(webRequest, env, ctx);
 
-      // Write response status and headers
-      const resHeaders = {};
-      webResponse.headers.forEach((val, key) => {
-        resHeaders[key] = val;
-      });
-
-      res.writeHead(webResponse.status, resHeaders);
-
-      if (method === 'HEAD') {
-        res.end();
-        return;
+      // Drain background execution tasks before closing the HTTP response
+      if (bgPromises.length > 0) {
+        await Promise.allSettled(bgPromises);
       }
 
-      // Stream response body
-      if (webResponse.body) {
-        const arrayBuf = await webResponse.arrayBuffer();
-        res.end(Buffer.from(arrayBuf));
+      // Send status code
+      res.statusCode = response.status;
+
+      // Transfer response headers to Node response
+      response.headers.forEach((val, key) => {
+        res.setHeader(key, val);
+      });
+
+      // Stream response body back to Node client
+      if (response.body) {
+        const reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+      }
+      res.end();
+    } catch (err) {
+      console.error('[PAE Server Error]', err);
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: 'INTERNAL_SERVER_ERROR',
+          message: err.message
+        }));
       } else {
         res.end();
       }
-    } catch (err) {
-      console.error('[server.mjs unhandled error]:', err);
-      if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json' });
-      }
-      res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
     }
   };
 }
 
 /**
- * Creates and configures the HTTP server instance
+ * Creates Node.js HTTP server instance
  */
 export function createServer(customEnv = {}) {
-  const handler = createRequestListener(customEnv);
-  return http.createServer(handler);
+  return http.createServer(createRequestListener(customEnv));
 }
 
 /**
- * Starts the server on specified port and host
+ * Boots the HTTP server
  */
-export function startServer(port = Number(process.env.PORT || 3000), host = process.env.HOST || '0.0.0.0') {
-  const server = createServer();
+export async function startServer(port = 3456, host = '0.0.0.0', customEnv = {}) {
+  const server = createServer(customEnv);
   return new Promise((resolve, reject) => {
-    server.on('error', reject);
     server.listen(port, host, () => {
-      console.log(`[PAE Server] Running at http://${host}:${port}`);
+      console.log(`[PAE Server] Running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
       resolve(server);
     });
+    server.on('error', reject);
   });
 }
 
-// Auto-start when executed directly via node src/server.mjs
-const isDirectExecution = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+// Standalone execution entrypoint
+const isDirectExecution = process.argv[1] && (
+  fileURLToPath(import.meta.url) === process.argv[1] ||
+  process.argv[1].endsWith('server.mjs')
+);
+
 if (isDirectExecution) {
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '0.0.0.0';
@@ -224,6 +178,5 @@ if (isDirectExecution) {
 export default {
   createServer,
   createRequestListener,
-  createMemoryKV,
   startServer
 };

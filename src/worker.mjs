@@ -3,7 +3,6 @@
  * Cloudflare Worker Edge Entrypoint
  *
  * Runs on Cloudflare Workers edge runtime with Neon Serverless Postgres
- * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
@@ -11,7 +10,6 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { neon } from '@neondatabase/serverless';
-import postgres from 'postgres';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handleCreatorsRoutes } from './routes/creators.mjs';
@@ -185,274 +183,24 @@ export async function checkPinterestCircuitBreaker(env) {
       triggered_at: l0PinterestCircuit.triggered_at
     };
   }
-  if (!env?.PIN_ENGINE_KV) return null;
-  try {
-    const raw = await env.PIN_ENGINE_KV.get('circuit:pinterest:429', { type: 'json', cacheTtl: 30 });
-    if (!raw) return null;
-    const triggeredAt = Number(raw.triggered_at) || 0;
-    const cooldownSec = Number(raw.cooldown_seconds) || 900;
-    const expiresAt = triggeredAt + (cooldownSec * 1000);
-    if (expiresAt > now) {
-      l0PinterestCircuit = { triggered_at: triggeredAt, cooldown_seconds: cooldownSec, reason: raw.reason || 'HTTP 429/403' };
-      return {
-        active: true,
-        remaining_seconds: Math.max(1, Math.ceil((expiresAt - now) / 1000)),
-        reason: l0PinterestCircuit.reason,
-        triggered_at: triggeredAt
-      };
-    }
-  } catch (_) {}
   return null;
 }
 
 export async function tripPinterestCircuitBreaker(env, reason = 'HTTP 429/403 Rate Limit', cooldownSeconds = 900) {
   const now = Date.now();
   l0PinterestCircuit = { triggered_at: now, cooldown_seconds: cooldownSeconds, reason };
-  if (!env?.PIN_ENGINE_KV) return;
-  try {
-    await env.PIN_ENGINE_KV.put(
-      'circuit:pinterest:429',
-      JSON.stringify(l0PinterestCircuit),
-      { expirationTtl: cooldownSeconds }
-    );
-  } catch (err) {
-    console.warn('[circuit:pinterest:429] Failed to trip KV circuit breaker:', redactSecrets(err.message));
-  }
 }
 
 /**
  * Derives comprehensive Cloudflare KV cache keys for a given pin to guarantee zero stale reads across ranges and keyword scopes.
  */
-export function getPinKvKeysToEvict(pinId, associatedKids = []) {
-  const pid = String(pinId || '').trim();
-  if (!pid) return [];
-  const keys = new Set([
-    `dossier:pin:${pid}`,
-    `dossier:pin:${pid}:0`,
-    `pin:dossier:${pid}`,
-    `pin:dossier?pin_id=${pid}`,
-    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: KV Edge Dossier v3 Keys
-    `pin:dossier:v3?pin_id=${pid}`,
-    `dossier:v3:pin:${pid}`,
-    `traj:pin:${pid}`,
-    `traj:pin:${pid}:0`,
-    `traj:pin:${pid}:all`,
-    `traj:pin:${pid}:7d`,
-    `traj:pin:${pid}:14d`,
-    `traj:pin:${pid}:30d`,
-    `pin:trajectory?pin_id=${pid}`
-  ]);
-  for (const kid of associatedKids) {
-    if (kid != null && kid !== 0) {
-      keys.add(`dossier:pin:${pid}:${kid}`);
-      keys.add(`traj:pin:${pid}:${kid}`);
-      keys.add(`serp:comp:${kid}`);
-    }
-  }
-  return [...keys];
-}
-
 export async function getFleetCacheEpoch(env) {
-  if (!env?.PIN_ENGINE_KV) return '0';
-  try {
-    return (await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0';
-  } catch (_) {
-    return '0';
-  }
+  return '0';
 }
 
 export async function isFleetCacheValid(env, cachedEpoch = '0') {
-  const currentEpoch = await getFleetCacheEpoch(env);
-  return Number(cachedEpoch || 0) >= Number(currentEpoch || 0);
+  return true;
 }
-
-let isEdgeFoldersTableReady = false;
-
-export async function ensureEdgeFoldersTable(env) {
-  if (isEdgeFoldersTableReady || !env?.PIN_D1_DB) return;
-  try {
-    await env.PIN_D1_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS edge_campaign_folders (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        color TEXT DEFAULT '#e60023',
-        description TEXT,
-        item_count INTEGER DEFAULT 0,
-        keyword_count INTEGER DEFAULT 0,
-        creator_count INTEGER DEFAULT 0,
-        domain_count INTEGER DEFAULT 0,
-        pinned_domain_count INTEGER DEFAULT 0,
-        unique_pins_count INTEGER DEFAULT 0,
-        discovered_creator_count INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'active',
-        metadata TEXT DEFAULT '{}',
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `).run().catch(() => {});
-
-    // [INVARIANT: D1-SCHEMA-MIGRATION-IDEMPOTENT] Guarded ALTER TABLE column migrations for existing D1 databases
-    const migrations = [
-      'ALTER TABLE edge_campaign_folders ADD COLUMN keyword_count INTEGER DEFAULT 0',
-      'ALTER TABLE edge_campaign_folders ADD COLUMN creator_count INTEGER DEFAULT 0',
-      'ALTER TABLE edge_campaign_folders ADD COLUMN domain_count INTEGER DEFAULT 0',
-      'ALTER TABLE edge_campaign_folders ADD COLUMN pinned_domain_count INTEGER DEFAULT 0',
-      'ALTER TABLE edge_campaign_folders ADD COLUMN unique_pins_count INTEGER DEFAULT 0',
-      'ALTER TABLE edge_campaign_folders ADD COLUMN discovered_creator_count INTEGER DEFAULT 0',
-      "ALTER TABLE edge_campaign_folders ADD COLUMN status TEXT DEFAULT 'active'",
-      "ALTER TABLE edge_campaign_folders ADD COLUMN metadata TEXT DEFAULT '{}'"
-    ];
-    for (const sql of migrations) {
-      await env.PIN_D1_DB.prepare(sql).run().catch(() => {});
-    }
-
-    isEdgeFoldersTableReady = true;
-  } catch (err) {
-    console.warn('[ensureEdgeFoldersTable] Non-fatal init error:', redactSecrets(err.message));
-  }
-}
-
-// Edge D1 Database Synchronization Helpers
-export async function syncFolderToD1(env, folder) {
-  if (!env?.PIN_D1_DB || !folder?.id) return;
-  if (!isEdgeFoldersTableReady) {
-    await ensureEdgeFoldersTable(env);
-  }
-  try {
-    const id = String(folder.id);
-    const name = String(folder.name || 'Untitled');
-    const color = String(folder.color || '#e60023');
-    const description = folder.description || null;
-    const keywordCount = folder.keyword_count != null
-      ? Number(folder.keyword_count)
-      : (folder.item_count != null
-        ? Number(folder.item_count)
-        : (Array.isArray(folder.items) ? folder.items.length : null));
-    const itemCount = keywordCount;
-    const creatorCount = folder.creator_count != null ? Number(folder.creator_count) : null;
-    const domainCount = folder.domain_count != null ? Number(folder.domain_count) : null;
-    const pinnedDomainCount = folder.pinned_domain_count != null ? Number(folder.pinned_domain_count) : null;
-    const uniquePinsCount = folder.unique_pins_count != null
-      ? Number(folder.unique_pins_count)
-      : (folder.pin_count != null ? Number(folder.pin_count) : null);
-    const discoveredCreatorCount = folder.discovered_creator_count != null ? Number(folder.discovered_creator_count) : null;
-    const status = String(folder.status || 'active');
-    const metadata = typeof folder.metadata === 'object' && folder.metadata !== null
-      ? JSON.stringify(folder.metadata)
-      : (typeof folder.metadata === 'string' ? folder.metadata : '{}');
-    const updatedAt = new Date().toISOString();
-
-    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 6: D1 Non-Zeroing Defensive Coalescence
-    await env.PIN_D1_DB.prepare(`
-      INSERT INTO edge_campaign_folders (
-        id, name, color, description, item_count, keyword_count,
-        creator_count, domain_count, pinned_domain_count, unique_pins_count, discovered_creator_count, status, metadata, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        name = COALESCE(excluded.name, edge_campaign_folders.name),
-        color = COALESCE(excluded.color, edge_campaign_folders.color),
-        description = COALESCE(excluded.description, edge_campaign_folders.description),
-        item_count = COALESCE(excluded.item_count, edge_campaign_folders.item_count),
-        keyword_count = COALESCE(excluded.keyword_count, edge_campaign_folders.keyword_count),
-        creator_count = COALESCE(excluded.creator_count, edge_campaign_folders.creator_count),
-        domain_count = COALESCE(excluded.domain_count, edge_campaign_folders.domain_count),
-        pinned_domain_count = COALESCE(excluded.pinned_domain_count, edge_campaign_folders.pinned_domain_count),
-        unique_pins_count = COALESCE(excluded.unique_pins_count, edge_campaign_folders.unique_pins_count),
-        discovered_creator_count = COALESCE(excluded.discovered_creator_count, edge_campaign_folders.discovered_creator_count),
-        status = COALESCE(excluded.status, edge_campaign_folders.status),
-        metadata = COALESCE(excluded.metadata, edge_campaign_folders.metadata),
-        updated_at = excluded.updated_at
-    `).bind(
-      id, name, color, description, itemCount, keywordCount,
-      creatorCount, domainCount, pinnedDomainCount, uniquePinsCount, discoveredCreatorCount, status, metadata, updatedAt
-    ).run();
-  } catch (err) {
-    console.warn('[syncFolderToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
-  }
-}
-
-export async function deleteFolderFromD1(env, folderId) {
-  if (!env?.PIN_D1_DB || !folderId) return;
-  if (!isEdgeFoldersTableReady) {
-    await ensureEdgeFoldersTable(env);
-  }
-  try {
-    await env.PIN_D1_DB.prepare("DELETE FROM edge_campaign_folders WHERE id = ?").bind(String(folderId)).run();
-  } catch (err) {
-    console.warn('[deleteFolderFromD1] Non-fatal D1 delete error:', redactSecrets(err.message));
-  }
-}
-
-export async function syncKeywordToD1(env, keywordObj) {
-  if (!env?.PIN_D1_DB || !keywordObj?.keyword) return;
-  try {
-    const kw = String(keywordObj.keyword).trim();
-    if (!kw) return;
-    const searchVolume = Number(keywordObj.search_volume || keywordObj.monthly_search_volume || 0);
-    const monthlyGrowth = Number(keywordObj.monthly_growth || keywordObj.velocity_score || 0);
-    const pinCount = Number(keywordObj.pin_count || 0);
-    const lastSyncedAt = new Date().toISOString();
-
-    await env.PIN_D1_DB.prepare(`
-      INSERT INTO search_autocomplete_index (keyword, search_volume, monthly_growth, pin_count, last_synced_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(keyword) DO UPDATE SET
-        search_volume = excluded.search_volume,
-        monthly_growth = excluded.monthly_growth,
-        pin_count = excluded.pin_count,
-        last_synced_at = excluded.last_synced_at
-    `).bind(kw, searchVolume, monthlyGrowth, pinCount, lastSyncedAt).run();
-  } catch (err) {
-    console.warn('[syncKeywordToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
-  }
-}
-
-export async function syncKeywordsBatchToD1(env, keywords) {
-  if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
-  try {
-    const lastSyncedAt = new Date().toISOString();
-    const stmts = [];
-    for (const k of keywords) {
-      if (!k?.keyword) continue;
-      const kw = String(k.keyword).trim();
-      if (!kw) continue;
-      const searchVolume = Number(k.search_volume || k.monthly_search_volume || 0);
-      const monthlyGrowth = Number(k.monthly_growth || k.velocity_score || 0);
-      const pinCount = Number(k.pin_count || k.total_pins_count || 0);
-      stmts.push(
-        env.PIN_D1_DB.prepare(`
-          INSERT INTO search_autocomplete_index (keyword, search_volume, monthly_growth, pin_count, last_synced_at)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(keyword) DO UPDATE SET
-            search_volume = excluded.search_volume,
-            monthly_growth = excluded.monthly_growth,
-            pin_count = excluded.pin_count,
-            last_synced_at = excluded.last_synced_at
-        `).bind(kw, searchVolume, monthlyGrowth, pinCount, lastSyncedAt)
-      );
-      if (stmts.length >= 100) break; // bounded batch size per subrequest limit
-    }
-    if (stmts.length > 0) {
-      await env.PIN_D1_DB.batch(stmts);
-    }
-  } catch (err) {
-    console.warn('[syncKeywordsBatchToD1] Non-fatal batch D1 sync error:', redactSecrets(err.message));
-  }
-}
-
-import {
-  readKeywordsFromD1,
-  syncKeywordsCatalogToD1,
-  evictKeywordsCatalogFromD1
-} from './modules/keywords/d1-metadata.mjs';
-
-export {
-  ensureEdgeKeywordsCatalogTable,
-  readKeywordsFromD1,
-  syncKeywordsCatalogToD1,
-  evictKeywordsCatalogFromD1
-} from './modules/keywords/d1-metadata.mjs';
-
 
 export function clampLimit(val, fallback = 50, max = 1000) {
   const n = parseInt(val, 10);
@@ -708,58 +456,6 @@ export function getCachedShardSql(key, factory) {
   return null;
 }
 
-export function createHyperdriveClient(connectionString, customOpts = {}) {
-  // [INVARIANT: HYPERDRIVE-BOUNDED-POOL-4] Unlock concurrent Promise.all subqueries while preserving headroom for outbound fetch
-  const pSql = postgres(connectionString, {
-    max: 4,
-    fetch_types: false,
-    prepare: false,
-    idle_timeout: 5,
-    connect_timeout: 3,
-    ...customOpts
-  });
-  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-  pSql.transaction = async (queriesOrFn) => {
-    if (typeof queriesOrFn === 'function') {
-      return await pSql.begin(async (tx) => {
-        const res = await queriesOrFn(tx);
-        if (Array.isArray(res)) {
-          const results = [];
-          for (const item of res) {
-            if (typeof item === 'function') {
-              results.push(await item(tx));
-            } else {
-              results.push(await item);
-            }
-          }
-          return results;
-        }
-        return res;
-      });
-    }
-    if (Array.isArray(queriesOrFn)) {
-      if (queriesOrFn.length === 0) return [];
-      const hasNonFunction = queriesOrFn.some(q => typeof q !== 'function');
-      if (hasNonFunction) {
-        throw new TypeError(
-          '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] pSql.transaction() strictly requires lazy query builder functions `(db) => db`...``. Passing pre-instantiated query promises is forbidden.'
-        );
-      }
-      return await pSql.begin(async (tx) => {
-        const results = [];
-        for (const builder of queriesOrFn) {
-          results.push(await builder(tx));
-        }
-        return results;
-      });
-    }
-    throw new TypeError(
-      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] pSql.transaction() strictly requires a callback `(tx) => ...` or an array of lazy query builders `[(db) => db`...`]`. Raw pre-instantiated promises are forbidden.'
-    );
-  };
-  pSql.__atomicBuilderWrapped = true;
-  return pSql;
-}
 
 // Edge Data Cache & Single-Flight Request Coalescing (Anti-Thundering Herd & SWR)
 export const edgeCache = new Map();
@@ -965,12 +661,6 @@ export async function invalidateEdgeCache(prefix = '') {
     } catch (_) {}
   }
 
-  const store = requestContextStorage?.getStore?.();
-  const env = store?.env;
-  if ((!prefix || prefix.startsWith('keywords')) && env?.PIN_D1_DB && !isUnifiedPostgres(env)) {
-    // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await D1 cache metadata invalidation synchronously
-    await evictKeywordsCatalogFromD1(env).catch(() => {});
-  }
 
   return Promise.resolve();
 }
@@ -1017,123 +707,37 @@ export default {
 
     // Health check endpoint
     if (pathname === '/api/health') {
-      const isHyperdriveConfigured = Boolean(env?.HYPERDRIVE?.connectionString);
-      const isKvConfigured = Boolean(env?.PIN_ENGINE_KV);
-      const isD1Configured = Boolean(env?.PIN_D1_DB);
       const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
-
       let sql = env?.SQL_CLIENT;
-      let usedHyperdrive = false;
-
-      if (!sql) {
-        if (isHyperdriveConfigured) {
-          try {
-            const store = requestContextStorage.getStore();
-            let hyperdriveSql = store?.hyperdriveSql;
-            if (!hyperdriveSql) {
-              hyperdriveSql = createHyperdriveClient(env.HYPERDRIVE.connectionString);
-              if (store) store.hyperdriveSql = hyperdriveSql;
-            }
-            sql = hyperdriveSql;
-            usedHyperdrive = true;
-          } catch (_) {}
-        }
-        if (!sql && directNeonUrl) {
-          sql = neon(enforceNeonPoolerUrl(directNeonUrl));
-        }
+      if (!sql && directNeonUrl) {
+        sql = neon(enforceNeonPoolerUrl(directNeonUrl));
       }
 
       if (!sql) {
         return jsonResponse({
           status: 'degraded',
           database: 'missing_database_url',
-          error: 'DATABASE_URL or HYPERDRIVE secret is not set in Cloudflare Workers settings.',
-          hyperdrive_accelerated: false,
-          hyperdrive: isHyperdriveConfigured ? 'failed' : 'fallback',
+          error: 'DATABASE_URL is not set in environment settings.',
           neon: 'unconfigured',
-          kv: isKvConfigured ? 'connected' : 'unconfigured',
-          kv_configured: isKvConfigured,
-          d1: isD1Configured ? 'connected' : 'unconfigured',
-          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
         }, 503);
       }
       try {
         await sql`SELECT 1 as alive;`;
-        let kvShardsCount = 0;
-        const unifiedMode = isUnifiedPostgres(env);
-        if (isKvConfigured && !unifiedMode) {
-          try {
-            let cachedMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
-            if (!cachedMap || !Array.isArray(cachedMap) || cachedMap.length === 0 || cachedMap.some(r => !isValidShardDsn(r?.database_url))) {
-              const rows = await sql`
-                SELECT id, project_id, project_name, database_url, status, assigned_shards
-                FROM neon_projects_registry 
-                WHERE status = 'active';
-              `;
-              if (Array.isArray(rows) && rows.length > 0) {
-                await env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 });
-                cachedMap = rows;
-              }
-            }
-            kvShardsCount = Array.isArray(cachedMap) ? cachedMap.length : 0;
-            await env.PIN_ENGINE_KV.put('fleet:health', JSON.stringify({
-              status: 'healthy',
-              shards_count: kvShardsCount,
-              updated_at: new Date().toISOString()
-            }), { expirationTtl: 86400 });
-          } catch (_) {}
-        }
-        const hyperdriveAccelerated = Boolean(isHyperdriveConfigured && (usedHyperdrive || env?.SQL_CLIENT));
         return jsonResponse({
           status: 'healthy',
           database: 'connected',
-          topology: unifiedMode ? 'unified_postgres' : 'sharded_neon',
-          runtime: 'cloudflare_workers',
-          hyperdrive_accelerated: hyperdriveAccelerated,
-          hyperdrive: hyperdriveAccelerated ? 'active' : 'fallback',
+          topology: 'unified_postgres',
           neon: 'connected',
           direct_neon_configured: Boolean(directNeonUrl),
-          kv: isKvConfigured ? 'connected' : 'unconfigured',
-          kv_configured: isKvConfigured,
-          kv_shards_cached: kvShardsCount,
-          d1: isD1Configured ? 'connected' : 'unconfigured',
-          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
         }, 200);
       } catch (err) {
-        // Fallback: If Hyperdrive TCP check threw an error and directNeonUrl is available, try direct Neon HTTP
-        if (usedHyperdrive && directNeonUrl) {
-          try {
-            const fallbackSql = neon(enforceNeonPoolerUrl(directNeonUrl));
-            await fallbackSql`SELECT 1 as alive;`;
-            return jsonResponse({
-              status: 'healthy',
-              database: 'connected',
-              runtime: 'cloudflare_workers',
-              hyperdrive_accelerated: false,
-              hyperdrive: 'fallback',
-              neon: 'connected',
-              kv: isKvConfigured ? 'connected' : 'unconfigured',
-              kv_configured: isKvConfigured,
-              d1: isD1Configured ? 'connected' : 'unconfigured',
-              d1_configured: isD1Configured,
-              hyperdrive_error: redactSecrets(err.message),
-              timestamp: new Date().toISOString()
-            }, 200);
-          } catch (_) {}
-        }
         return jsonResponse({
           status: 'error',
           database: 'disconnected',
           error: redactSecrets(err.message),
-          hyperdrive_accelerated: isHyperdriveConfigured,
-          hyperdrive: isHyperdriveConfigured ? 'active' : 'fallback',
           neon: 'disconnected',
-          kv: isKvConfigured ? 'connected' : 'unconfigured',
-          kv_configured: isKvConfigured,
-          d1: isD1Configured ? 'connected' : 'unconfigured',
-          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
         }, 500);
       }
@@ -1226,7 +830,7 @@ export default {
       });
     }
 
-    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY] Return immediately before instantiating Hyperdrive TCP
+    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY] Return immediately if cached
     if (method === 'GET' && searchParams.get('prefetch') === 'true' && isPinsRoute(pathname)) {
       const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
       if (parts.length === 1) {
@@ -1243,88 +847,8 @@ export default {
 
     let sql = env?.SQL_CLIENT;
     if (!sql) {
-      const isHyperdriveConfigured = Boolean(env?.HYPERDRIVE?.connectionString);
       const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
-
-      if (isHyperdriveConfigured) {
-        const hyperdriveConn = env.HYPERDRIVE.connectionString;
-        const store = requestContextStorage.getStore();
-        let hyperdriveSql = store?.hyperdriveSql;
-        if (!hyperdriveSql) {
-          hyperdriveSql = createHyperdriveClient(hyperdriveConn);
-          if (store) store.hyperdriveSql = hyperdriveSql;
-        }
-        if (directNeonUrl) {
-          const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
-          let directSql = null;
-          const getDirectSql = () => {
-            if (!directSql) {
-              directSql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
-            }
-            return directSql;
-          };
-          sql = new Proxy(hyperdriveSql, {
-            apply(target, thisArg, argArray) {
-              try {
-                const res = Reflect.apply(target, thisArg, argArray);
-                if (res && typeof res.catch === 'function') {
-                  return res.catch(err => {
-                    console.warn(`[Hyperdrive Fallback] Query failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP.`);
-                    return Reflect.apply(getDirectSql(), thisArg, argArray);
-                  });
-                }
-                return res;
-              } catch (syncErr) {
-                console.warn(`[Hyperdrive Sync Fallback] Query failed synchronously (${redactSecrets(syncErr.message)}). Degrading to direct Neon HTTP.`);
-                return Reflect.apply(getDirectSql(), thisArg, argArray);
-              }
-            },
-            get(target, prop, receiver) {
-              if (prop === '__atomicBuilderWrapped') {
-                return true;
-              }
-              if (prop === 'begin') {
-                // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] Force all transactional callers through the managed .transaction() trap
-                return undefined;
-              }
-              if (prop === 'transaction') {
-                return async (queriesOrFn) => {
-                  try {
-                    return await target.transaction(queriesOrFn);
-                  } catch (err) {
-                    if (err instanceof TypeError && err.message.includes('HYPERDRIVE-ATOMIC-BUILDER')) {
-                      throw err;
-                    }
-                    console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
-                    if (typeof queriesOrFn === 'function') {
-                      return await getDirectSql().transaction(queriesOrFn);
-                    }
-                    if (Array.isArray(queriesOrFn)) {
-                      if (queriesOrFn.length === 0) return [];
-                      if (queriesOrFn.some(q => typeof q !== 'function')) {
-                        throw new TypeError(
-                          '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builder functions `(db) => db`...``.'
-                        );
-                      }
-                      return await getDirectSql().transaction(queriesOrFn);
-                    }
-                    throw new TypeError(
-                      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builders.'
-                    );
-                  }
-                };
-              }
-              const val = Reflect.get(target, prop, receiver);
-              if (typeof val === 'function') {
-                return val.bind(target);
-              }
-              return val;
-            }
-          });
-        } else {
-          sql = hyperdriveSql;
-        }
-      } else if (directNeonUrl) {
+      if (directNeonUrl) {
         const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
         sql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
       }
@@ -1354,26 +878,11 @@ export default {
         targetSql = getOrCreateShardSqlClient(cachedDsn);
       } else if (!isUnifiedPostgres(env)) {
         try {
-          let shardsMap = null;
-          if (env?.PIN_ENGINE_KV) {
-            try {
-              shardsMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
-              if (Array.isArray(shardsMap) && shardsMap.some(r => !isValidShardDsn(r?.database_url))) {
-                shardsMap = null;
-                safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
-              }
-            } catch (_) {}
-          }
-          if (!shardsMap) {
-            shardsMap = await sql`
-              SELECT id, project_id, project_name, database_url, status, assigned_shards
-              FROM neon_projects_registry 
-              WHERE status = 'active';
-            `;
-            if (env?.PIN_ENGINE_KV && Array.isArray(shardsMap) && shardsMap.length > 0) {
-              safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(shardsMap), { expirationTtl: 86400 }), 'kv_cache_shards_map');
-            }
-          }
+          const shardsMap = await sql`
+            SELECT id, project_id, project_name, database_url, status, assigned_shards
+            FROM neon_projects_registry 
+            WHERE status = 'active';
+          `;
           let proj = null;
           if (Array.isArray(shardsMap)) {
             proj = shardsMap.find(p => 
@@ -1421,7 +930,6 @@ export default {
           getCachedOrFetch,
           invalidateEdgeCache,
           safeWaitUntil,
-          getPinKvKeysToEvict,
           redactSecrets
         });
         if (clusterRes) return clusterRes;
@@ -1469,14 +977,6 @@ export default {
           getCachedOrFetch,
           invalidateEdgeCache,
           safeWaitUntil,
-          readKeywordsFromD1,
-          syncKeywordsCatalogToD1,
-          syncKeywordsBatchToD1,
-          syncKeywordToD1,
-          evictKeywordsCatalogFromD1,
-          syncFolderToD1,
-          deleteFolderFromD1,
-          getPinKvKeysToEvict,
           isValidPinId,
           tripPinterestCircuitBreaker,
           redactSecrets
@@ -1501,7 +1001,6 @@ export default {
           getCachedOrFetch,
           invalidateEdgeCache,
           safeWaitUntil,
-          getPinKvKeysToEvict,
           isValidPinId,
           redactSecrets
         });
@@ -1572,13 +1071,9 @@ export default {
       }, status);
     } finally {
       const store = requestContextStorage.getStore();
-      if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
-        const hyperdriveClient = store.hyperdriveSql;
-
+      if (store?.bgPromises?.length) {
         // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
-        // [INVARIANT: SAFE-DRAIN-BEFORE-SOCKET-CLOSE]
-        // Drain in-flight background promises iteratively with a 26-second ceiling
-        // before safely closing the Hyperdrive TCP socket. Offloaded completely to ctx.waitUntil
+        // Drain in-flight background promises iteratively with a 26-second ceiling. Offloaded completely to ctx.waitUntil
         // so the HTTP response stream is returned immediately to the client without stalling.
         const closePromise = (async () => {
           let drainTimerId = null;
@@ -1613,17 +1108,11 @@ export default {
               }
             }
           } catch (drainErr) {
-            console.warn('[Hyperdrive Drain] Background tasks drain warning:', redactSecrets(drainErr?.message || String(drainErr)));
+            console.warn('[Drain] Background tasks drain warning:', redactSecrets(drainErr?.message || String(drainErr)));
           } finally {
             if (drainTimerId !== null) {
               clearTimeout(drainTimerId);
               drainTimerId = null;
-            }
-            store.hyperdriveSql = null;
-            try {
-              await hyperdriveClient.end({ timeout: 3 });
-            } catch (closeErr) {
-              console.warn('[Hyperdrive Socket Close] Non-fatal teardown note:', redactSecrets(closeErr?.message || String(closeErr)));
             }
           }
         })();

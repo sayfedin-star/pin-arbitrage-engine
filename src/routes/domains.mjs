@@ -91,7 +91,7 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
-      const epoch = env?.PIN_ENGINE_KV ? ((await env.PIN_ENGINE_KV.get('fleet:cache_epoch')) || '0') : '0';
+      const epoch = '0';
       const cacheKey = buildCanonicalCacheKey(`domains:leaderboard:ep:${epoch}`, cacheParams);
       // [INVARIANT: 6H-EPOCH-BACKED-EDGE-TTL]
       // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms) backed by fleet:cache_epoch
@@ -150,25 +150,11 @@ export async function handleDomainsRoutes(routeCtx) {
           await invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
           await invalidateEdgeCache('domains:leaderboard');
         }
-        if (env?.PIN_ENGINE_KV) {
-          safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(kvKey).catch(() => {}), 'kv_evict_domain_dossier');
-          if (kvKey !== `dossier:domain:${cleanDomain}`) {
-            safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(`dossier:domain:${cleanDomain}`).catch(() => {}), 'kv_evict_domain_dossier_base');
-          }
-        }
+
       }
 
       const fetchDossier = async () => {
-        // [INVARIANT: EDGE-KV-CACHE-FIRST] Check Workers KV first for sub-5ms response
-        if (env?.PIN_ENGINE_KV && !isForceRefresh) {
-          try {
-            // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
-            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
-            if (kvCached) {
-              return kvCached;
-            }
-          } catch (_) {}
-        }
+
 
         const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true, displacedLimit });
 
@@ -178,16 +164,7 @@ export async function handleDomainsRoutes(routeCtx) {
           safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
         }
 
-        // Cache in Workers KV: 900s (15 min) for full dossier, or short 30s TTL if enrichment is pending
-        if (env?.PIN_ENGINE_KV && freshDossier?.success) {
-          const isPending = Boolean(freshDossier?.needs_age_enrichment || freshDossier?.needs_ad_enrichment);
-          const expirationTtl = isPending ? 30 : 900;
-          safeWaitUntil(
-            ctx,
-            env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(freshDossier), { expirationTtl }).catch(() => {}),
-            'kv_cache_domain_dossier'
-          );
-        }
+
 
         return freshDossier;
       };
@@ -211,13 +188,7 @@ export async function handleDomainsRoutes(routeCtx) {
             }
             await Promise.all(tasks);
 
-            // Once background enrichment completes in Postgres, purge pending dossier from KV and edge cache
-            if (env?.PIN_ENGINE_KV) {
-              await env.PIN_ENGINE_KV.delete(kvKey).catch(() => {});
-              if (kvKey !== `dossier:domain:${cleanDomain}`) {
-                await env.PIN_ENGINE_KV.delete(`dossier:domain:${cleanDomain}`).catch(() => {});
-              }
-            }
+
             if (typeof invalidateEdgeCache === 'function') {
               invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
             }

@@ -10,22 +10,6 @@ mode = "smart"
 PORT = "3456"
 DATABASE_TOPOLOGY = "unified_postgres"
 
-# Unified Single-DB Mode (Neon Postgres via DATABASE_URL):
-# Legacy Cloudflare KV, D1, and Hyperdrive bindings are disabled by default.
-# [[kv_namespaces]]
-# binding = "PIN_ENGINE_KV"
-# id = "5ef158495b3a4b8b800e50c3242fb92d"
-#
-# [[d1_databases]]
-# binding = "PIN_D1_DB"
-# database_name = "pin-engine-edge"
-# database_id = "b0e9c924-4190-436f-909b-a7142696680b"
-#
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "66ba4dc750fc464b991eb52558a8c026"
-
 [env.preview.vars]
 PORT = "3456"
 DATABASE_TOPOLOGY = "unified_postgres"
-

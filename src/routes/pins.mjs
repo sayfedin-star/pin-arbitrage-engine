@@ -79,7 +79,6 @@ export async function handlePinsRoutes({
   getCachedOrFetch,
   invalidateEdgeCache,
   safeWaitUntil,
-  getPinKvKeysToEvict,
   isValidPinId,
   redactSecrets
 }) {
@@ -99,29 +98,9 @@ export async function handlePinsRoutes({
     const cleanSlug = slugMatch ? slugMatch[1] : String(rawUrl).replace(/^https?:\/\//i, '').replace(/^pin\.it\//i, '').split('/')[0].split('?')[0].trim();
     const kvKey = `shortlink:${cleanSlug || rawUrl}`;
 
-    if (env?.PIN_ENGINE_KV && cleanSlug) {
-      try {
-        const cached = await env.PIN_ENGINE_KV.get(kvKey, 'json');
-        if (cached && cached.pin_id) {
-          return jsonResponse({
-            ok: true,
-            pin_id: cached.pin_id,
-            resolved_url: cached.resolved_url,
-            cached: true
-          }, 200, 2592000);
-        }
-      } catch (_) {}
-    }
-
     try {
       const res = await resolvePinterestShortlink(rawUrl);
       if (res && res.ok && res.pin_id) {
-        if (env?.PIN_ENGINE_KV && cleanSlug) {
-          safeWaitUntil(ctx, env.PIN_ENGINE_KV.put(kvKey, JSON.stringify({
-            pin_id: res.pin_id,
-            resolved_url: res.resolved_url
-          }), { expirationTtl: 2592000 }).catch(() => {}), 'kv_cache_shortlink');
-        }
         return jsonResponse({
           ok: true,
           pin_id: res.pin_id,
@@ -216,14 +195,7 @@ export async function handlePinsRoutes({
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
-    if (env?.PIN_D1_DB) {
-      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
-    }
-    if (env?.PIN_ENGINE_KV) {
-      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation (L-12)
-      const evictions = getPinKvKeysToEvict(pinId, targetKwId ? [targetKwId] : []).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      await Promise.all(evictions);
-    }
+
     return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
   }
 
@@ -281,14 +253,7 @@ export async function handlePinsRoutes({
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
-    if (env?.PIN_D1_DB) {
-      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
-    }
-    if (env?.PIN_ENGINE_KV) {
-      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation
-      const evictions = getPinKvKeysToEvict(pinId, [kwId]).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      await Promise.all(evictions);
-    }
+
     return jsonResponse({
       success: true,
       pin_id: pinId,
@@ -338,14 +303,7 @@ export async function handlePinsRoutes({
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
-    if (env?.PIN_D1_DB) {
-      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
-    }
-    if (env?.PIN_ENGINE_KV) {
-      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation
-      const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      await Promise.all(evictions);
-    }
+
     return jsonResponse({
       success: true,
       pin_id: pinId,
@@ -438,13 +396,7 @@ export async function handlePinsRoutes({
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
       await invalidateEdgeCache('keywords:pin-dossier');
-      if (env?.PIN_D1_DB) {
-        await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
-      }
-      if (env?.PIN_ENGINE_KV) {
-        const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-        await Promise.all(evictions);
-      }
+
       return jsonResponse({ success: true, purged: true, pin_id: pinId });
     }
 
