@@ -2093,7 +2093,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   if (!effectiveRefresh) {
     const cached = crossoverCache.get(fid);
     const ttl = cached?.ttlMs || CROSSOVER_TTL_MS;
-    if (cached && (now - cached.timestamp < ttl)) {
+    if (cached && (now - cached.timestamp < ttl) && cached.data?._crossover_schema_v === 6) {
       return cached.data;
     }
     if (!isUnifiedPostgres(env) && env?.ENABLE_LEGACY_EDGE_CACHE && env?.PIN_ENGINE_KV) {
@@ -2103,6 +2103,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
         const kvKey = `fep:${epoch}:folder:${fid}:crossover:v5`;
         const kvData = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
         const isKvPoisoned = Boolean(
+          kvData?._crossover_schema_v !== 6 ||
           kvData?._has_unhydrated_priority_pins ||
           !kvData?.summary?.active_pins_count ||
           (Array.isArray(kvData?.super_pins) && kvData.super_pins.slice(0, 25).some(p => !p.image_url || p.pin_age_days == null))
@@ -2237,6 +2238,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         c.image_url,
         c.creator_username,
         c.board_name,
+        c.dominant_color,
         c.visual_annotations,
         c.creation_method,
         c.save_count,
@@ -2276,6 +2278,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.image_url, ''), ump.image_url, '') ELSE NULL END AS image_url,
       COALESCE(NULLIF(ra.creator_username, ''), ump.creator_username, '') AS creator_username,
       CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.board_name, ''), ump.board_name, '') ELSE NULL END AS board_name,
+      COALESCE(NULLIF(NULLIF(ra.dominant_color, ''), '#888888'), NULLIF(ump.dominant_color, '#888888'), NULLIF(ra.dominant_color, ''), ump.dominant_color) AS dominant_color,
       CASE
         WHEN ra.pin_rn = 1 THEN
           CASE
@@ -2384,7 +2387,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.image_url ELSE NULL END AS image_url,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.destination_url ELSE NULL END AS destination_url,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.board_name ELSE NULL END AS board_name,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.dominant_color ELSE NULL END AS dominant_color,
+      CASE WHEN fk.pin_rn = 1 THEN ump.dominant_color ELSE NULL END AS dominant_color,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.visual_annotations ELSE NULL END AS visual_annotations,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.created_at_pinterest ELSE NULL END AS created_at_pinterest,
       CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'aspect_ratio') ELSE NULL END AS aspect_ratio,
@@ -2533,6 +2536,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       }
       if (!existingPin.description && (row.description || meta.description)) {
         existingPin.description = row.description || meta.description;
+      }
+      const incomingColor = row.dominant_color || meta.dominant_color || null;
+      if (incomingColor && (!existingPin.dominant_color || existingPin.dominant_color === '#888888' || existingPin.dominant_color === '#000000' || existingPin.dominant_color === '#1e1e24')) {
+        existingPin.dominant_color = incomingColor;
       }
       existingPin.save_count = Math.max(existingPin.save_count, rowSaves);
       existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
@@ -2916,7 +2923,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           if (!p.creator_name) p.creator_name = meta.creator_username;
         }
         if (!p.board_name && meta.board_name) p.board_name = meta.board_name;
-        if ((!p.dominant_color || p.dominant_color === '#1e1e24') && meta.dominant_color) {
+        if ((!p.dominant_color || p.dominant_color === '#1e1e24' || p.dominant_color === '#888888' || p.dominant_color === '#000000') && meta.dominant_color && meta.dominant_color !== '#888888') {
           p.dominant_color = meta.dominant_color;
         }
         if ((!p.visual_annotations || p.visual_annotations.length === 0) && Array.isArray(meta.visual_annotations) && meta.visual_annotations.length > 0) {
@@ -3037,6 +3044,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         : ((primary.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
       primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
       if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
+      if ((!primary.dominant_color || primary.dominant_color === '#888888' || primary.dominant_color === '#000000') && secondary.dominant_color && secondary.dominant_color !== '#888888') {
+        primary.dominant_color = secondary.dominant_color;
+      }
       if ((!primary.raw_title || isSyntheticPinTitle(primary.title)) && secondary.title && !isSyntheticPinTitle(secondary.title)) {
         primary.title = secondary.title;
         primary.raw_title = secondary.raw_title;
@@ -3078,6 +3088,102 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     .slice(0, 30);
 
   // =========================================================================
+  // CREATIVE SIGNATURE DEDUPLICATION FOR MATRIX PATTERNS
+  // Collapses syndicated repin clones sharing the same image signature or (normalized_title + '|' + clean_domain)
+  // so 1 single creative pin repinned by 6-10 accounts counts as 1 unique creative pin (+X repin clones).
+  // =========================================================================
+  for (const pin of allPins) {
+    const rawTags = new Set();
+    const canonicalTags = extractCanonicalAnnotations(pin.visual_annotations, { lemmatizeDedupe: true, titleCase: false, limit: 25 });
+    for (const rawTag of canonicalTags) {
+      const clean = normalizeAnnotationTag(rawTag, { lemmatize: true });
+      if (clean && clean.length >= 3 && !STOPWORDS.has(clean)) {
+        const lemma = normalizeTagLemma(clean);
+        if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
+          rawTags.add(lemma);
+        }
+      }
+    }
+    pin._canonical_tags = Array.from(rawTags);
+  }
+
+  const deduplicateCreativeClusterPins = (pinsList) => {
+    const sorted = (pinsList || []).slice().sort((a, b) => {
+      const aVel = Number(a.effective_velocity ?? a.daily_save_velocity ?? 0);
+      const bVel = Number(b.effective_velocity ?? b.daily_save_velocity ?? 0);
+      if (bVel !== aVel) return bVel - aVel;
+      if ((b.save_count || 0) !== (a.save_count || 0)) return (b.save_count || 0) - (a.save_count || 0);
+      return (b.overlap_count || 0) - (a.overlap_count || 0);
+    });
+
+    const byImg = new Map();
+    const byTitleDom = new Map();
+    const byLongTitle = new Map();
+    const uniqueList = [];
+
+    for (const p of sorted) {
+      const rawImg = String(p.image_url || '').trim().toLowerCase().split('?')[0];
+      const imgSeg = rawImg ? (rawImg.split('/').pop() || '') : '';
+      const imgSig = imgSeg.length >= 8 ? `img:${imgSeg}` : '';
+
+      const cleanDom = cleanExternalDomain(p.domain) || String(p.domain || '').toLowerCase().replace(/^www\./, '').trim();
+      const normTitle = String(p.raw_title || p.title || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const hasRealTitle = normTitle.length >= 4 && normTitle !== 'untitled' && normTitle !== 'untitled pin' && !isSyntheticPinTitle(normTitle);
+      const titleDomSig = hasRealTitle ? `td:${normTitle}|${cleanDom}` : '';
+      const titleWordCount = hasRealTitle ? normTitle.split(' ').length : 0;
+      const longTitleSig = (hasRealTitle && titleWordCount >= 3 && normTitle.length >= 14) ? `lt:${normTitle}` : '';
+
+      const existing = (imgSig && byImg.get(imgSig)) ||
+                       (titleDomSig && byTitleDom.get(titleDomSig)) ||
+                       (longTitleSig && byLongTitle.get(longTitleSig)) ||
+                       null;
+
+      if (existing) {
+        existing.repin_clones_count = (existing.repin_clones_count || 0) + 1;
+        if (imgSig && !byImg.has(imgSig)) byImg.set(imgSig, existing);
+        if (titleDomSig && !byTitleDom.has(titleDomSig)) byTitleDom.set(titleDomSig, existing);
+        if (longTitleSig && !byLongTitle.has(longTitleSig)) byLongTitle.set(longTitleSig, existing);
+
+        const seenKw = new Set((existing.rankings || []).map(r => r.keyword));
+        for (const r of (p.rankings || [])) {
+          if (r.keyword && !seenKw.has(r.keyword)) {
+            seenKw.add(r.keyword);
+            existing.rankings.push(r);
+          }
+        }
+        if ((!existing.dominant_color || existing.dominant_color === '#888888' || existing.dominant_color === '#000000') && p.dominant_color && p.dominant_color !== '#888888') {
+          existing.dominant_color = p.dominant_color;
+        }
+        if (Array.isArray(p._canonical_tags) && p._canonical_tags.length > 0) {
+          const mergedTags = new Set(existing._canonical_tags || []);
+          for (const ct of p._canonical_tags) mergedTags.add(ct);
+          existing._canonical_tags = Array.from(mergedTags);
+        }
+        continue;
+      }
+
+      const cloned = {
+        ...p,
+        repin_clones_count: 0,
+        rankings: Array.isArray(p.rankings) ? p.rankings.slice() : [],
+        _canonical_tags: Array.isArray(p._canonical_tags) ? p._canonical_tags.slice() : []
+      };
+      if (imgSig) byImg.set(imgSig, cloned);
+      if (titleDomSig) byTitleDom.set(titleDomSig, cloned);
+      if (longTitleSig) byLongTitle.set(longTitleSig, cloned);
+      uniqueList.push(cloned);
+    }
+
+    return uniqueList;
+  };
+
+  const uniqueCreativePins = deduplicateCreativeClusterPins(allPins);
+
+  // =========================================================================
   // DIMENSION B: UNIVERSAL TAG BRIDGES & 1-TAG POWER LEADERS (Unified SSOT)
   // =========================================================================
   const formatMatrixPin = (pin) => ({
@@ -3088,6 +3194,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     creator_username: pin.creator_username || '',
     save_count: Number(pin.save_count || 0),
     repin_count: Number(pin.repin_count || 0),
+    repin_clones_count: Number(pin.repin_clones_count || 0),
     daily_save_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
     effective_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
     delta_saves_24h: Number(pin.delta_saves_24h || 0),
@@ -3104,21 +3211,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   const tagMap = new Map(); // cleanTag -> { tag, display_name, keywords_set: Set, pin_count: int, total_saves: int, saves_gain: float, velocity_gain: float, repins_gain: float, matching_pins: [] }
 
-  for (const pin of allPins) {
-    const rawTags = new Set();
-    // Strictly extract pure Pinterest Computer Vision & semantic visual_annotations (never mix single title words)
-    const canonicalTags = extractCanonicalAnnotations(pin.visual_annotations, { lemmatizeDedupe: true, titleCase: false, limit: 25 });
-    for (const rawTag of canonicalTags) {
-      const clean = normalizeAnnotationTag(rawTag, { lemmatize: true });
-      if (clean && clean.length >= 3 && !STOPWORDS.has(clean)) {
-        const lemma = normalizeTagLemma(clean);
-        if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
-          rawTags.add(lemma);
-        }
-      }
-    }
-
-    pin._canonical_tags = Array.from(rawTags);
+  for (const pin of uniqueCreativePins) {
+    const rawTags = pin._canonical_tags || [];
     const pinKeywords = pin.rankings.map(r => r.keyword).filter(Boolean);
     const pinVel = Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0));
     const pinSavesGain = Math.max(0, Number(pin.delta_saves_24h || pin.daily_save_velocity || 0));
@@ -3219,16 +3313,56 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   }
 
   // =========================================================================
-  // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS (Cross-Pin & SERP)
+  // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS (True Modifiers)
   // =========================================================================
+  const allFolderKeywordStrings = folderKeywords.map(k => String(k.keyword || '').trim()).filter(Boolean);
+  const GENERIC_CAPSULE_TERMS = new Set([
+    'recipe', 'recipes', 'meal', 'meals', 'meal prep', 'prep', 'protein',
+    'high protein', 'high protein meal', 'high protein meals',
+    'high protein recipe', 'high protein recipes', 'high protein meal prep',
+    'food', 'foods', 'idea', 'ideas', 'dish', 'dishes', 'dinner', 'dinners',
+    'guide', 'diy', 'best', 'good', 'great', 'make', 'making', 'cook', 'cooking'
+  ]);
+  const folderUmbrellaTerms = new Set();
+  const cleanFolderNameNorm = String(folder.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanFolderNameNorm) {
+    folderUmbrellaTerms.add(cleanFolderNameNorm);
+    const fnLemma = normalizeTagLemma(cleanFolderNameNorm);
+    if (fnLemma) folderUmbrellaTerms.add(fnLemma);
+  }
+  for (const fkw of allFolderKeywordStrings) {
+    const fkwNorm = fkw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (fkwNorm) folderUmbrellaTerms.add(fkwNorm);
+    const fkwLemma = normalizeTagLemma(fkw);
+    if (fkwLemma) folderUmbrellaTerms.add(fkwLemma);
+  }
+
   const pivotMap = new Map(); // cleanKey -> { term, display_label, keywords_map: Map, total_score: float, dominant_color }
   for (const c of capsuleRows) {
     const label = String(c.display_label || '').trim();
     const rawKey = label ? normalizeTagLemma(label) : normalizeTagLemma(c.term);
+    const rawLower = String(label || c.term || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!rawKey || rawKey.length < 2) continue;
 
+    const parentKwNorm = String(c.keyword_text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const parentKwLemma = normalizeTagLemma(c.keyword_text || '');
+
+    // Exclude generic umbrella terms, stopwords, or capsules identical to a tracked folder keyword
+    if (
+      STOPWORDS.has(rawKey) ||
+      STOPWORDS.has(rawLower) ||
+      GENERIC_CAPSULE_TERMS.has(rawKey) ||
+      GENERIC_CAPSULE_TERMS.has(rawLower) ||
+      folderUmbrellaTerms.has(rawKey) ||
+      folderUmbrellaTerms.has(rawLower) ||
+      rawKey === parentKwLemma ||
+      rawLower === parentKwNorm
+    ) {
+      continue;
+    }
+
     if (!pivotMap.has(rawKey)) {
-      const displayLabel = label 
+      const displayLabel = label
         ? toTitleCase(label)
         : toTitleCase(c.term || rawKey);
 
@@ -3252,64 +3386,60 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
   }
 
-  // Pre-index allPins for fast cross-keyword & cross-pin Guided Capsule matching
-  const indexedPinsForCapsules = allPins.map(pin => {
+  // Pre-index deduplicated creative pins for whole-word modifier matching on tags, title, and description/alt_text
+  const indexedPinsForCapsules = uniqueCreativePins.map(pin => {
     const normTitle = ` ${String(pin.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+    const normDesc = ` ${String((pin.description || '') + ' ' + (pin.alt_text || '') + ' ' + (pin.seo_title || '')).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
     const normTags = new Set(pin._canonical_tags || []);
-    const rankedKws = (pin.rankings || []).map(r => String(r.keyword || '').trim()).filter(Boolean);
     return {
       pin,
       normTitle,
-      normTags,
-      rankedKws
+      normDesc,
+      normTags
     };
   });
 
-  const allFolderKeywordStrings = folderKeywords.map(k => String(k.keyword || '').trim()).filter(Boolean);
-
   const guidedPivots = Array.from(pivotMap.values()).map(p => {
     const termNorm = p.term.toLowerCase().trim();
+    const displayNorm = String(p.display_label || p.term || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     const paddedTerm = ` ${termNorm} `;
-    const matchedKeywordsSet = new Set(p.keywords_map.keys());
+    const paddedDisplay = displayNorm ? ` ${displayNorm} ` : paddedTerm;
 
-    // 1. Match folder keywords that directly contain this modifier term as a whole word
-    for (const fkw of allFolderKeywordStrings) {
-      const normFkw = ` ${fkw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
-      if (normFkw.includes(paddedTerm)) {
-        matchedKeywordsSet.add(fkw);
+    // 1. Keyword count strictly represents folder keywords where Pinterest recommended this capsule in keyword_guided_capsules
+    // (or folder keywords containing this true sub-modifier if keywords_map is empty)
+    const matchedKeywordsSet = new Set(p.keywords_map.keys());
+    if (matchedKeywordsSet.size === 0) {
+      for (const fkw of allFolderKeywordStrings) {
+        const normFkw = ` ${fkw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+        if (normFkw.includes(paddedTerm) || normFkw.includes(paddedDisplay)) {
+          matchedKeywordsSet.add(fkw);
+        }
       }
     }
 
-    // 2. Match cluster pins where visual annotations, title, or ranked keyword match the capsule
+    // 2. A creative pin matches ONLY if the capsule modifier appears as a whole word in its visual annotations, title, or description/alt_text
     const matchingPinsRaw = [];
     for (const item of indexedPinsForCapsules) {
       let pinMatched = false;
-      if (item.normTags.has(termNorm)) {
+      if (item.normTags.has(termNorm) || (displayNorm && item.normTags.has(displayNorm))) {
         pinMatched = true;
       } else {
         for (const t of item.normTags) {
-          if (` ${t} `.includes(paddedTerm)) {
+          const paddedTag = ` ${t} `;
+          if (paddedTag.includes(paddedTerm) || paddedTag.includes(paddedDisplay)) {
             pinMatched = true;
             break;
           }
         }
       }
-      if (!pinMatched && item.normTitle.includes(paddedTerm)) {
+      if (!pinMatched && (item.normTitle.includes(paddedTerm) || item.normTitle.includes(paddedDisplay))) {
         pinMatched = true;
       }
-      if (!pinMatched) {
-        for (const rkw of item.rankedKws) {
-          if (p.keywords_map.has(rkw) || ` ${rkw.toLowerCase()} `.includes(paddedTerm)) {
-            pinMatched = true;
-            break;
-          }
-        }
+      if (!pinMatched && (item.normDesc.includes(paddedTerm) || item.normDesc.includes(paddedDisplay))) {
+        pinMatched = true;
       }
       if (pinMatched) {
         matchingPinsRaw.push(item.pin);
-        for (const rkw of item.rankedKws) {
-          matchedKeywordsSet.add(rkw);
-        }
       }
     }
 
@@ -3320,7 +3450,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     const totalSaves = matchingPinsRaw.reduce((sum, pin) => sum + Number(pin.save_count || 0), 0);
 
     const kwList = Array.from(matchedKeywordsSet).map(kw => p.keywords_map.get(kw) || { keyword: kw, display_order: 99, score: 1 });
-    const kwCount = matchedKeywordsSet.size || Math.max(1, p.keywords_map.size);
+    const kwCount = Math.max(1, matchedKeywordsSet.size);
     const overlapPct = Math.round((kwCount / totalKeywords) * 100);
 
     return {
@@ -3346,6 +3476,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       pins: topMatchingPins
     };
   })
+  .filter(gp => gp.pin_count >= 1)
   .sort((a, b) => {
     if (b.keyword_count !== a.keyword_count) {
       return b.keyword_count - a.keyword_count;
@@ -3736,11 +3867,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   const topicClusterBlueprint = null;
 
-  // Aggregate Dominant Color Swatches across all cluster pins with matching pins & keyword coverage
+  // Aggregate Dominant Color Swatches across deduplicated creative pins with matching pins & keyword coverage
   const colorMap = new Map();
-  for (const p of allPins) {
+  for (const p of uniqueCreativePins) {
     const hex = String(p.dominant_color || '').trim().toUpperCase();
-    if (/^#[0-9A-F]{6}$/.test(hex) && hex !== '#888888' && hex !== '#000000') {
+    if (/^#[0-9A-F]{6}$/.test(hex) && hex !== '#888888' && hex !== '#000000' && hex !== '#1E1E24') {
       let cEntry = colorMap.get(hex);
       if (!cEntry) {
         cEntry = {
@@ -3788,7 +3919,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       };
     })
     .sort((a, b) => b.pin_count - a.pin_count || b.total_velocity - a.total_velocity)
-    .slice(0, 36);
+    .slice(0, 48);
 
   const rocketsCount = allPins.filter(p => p.pin_age_days != null && Number(p.pin_age_days) <= 14 && (Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0)).length;
   const surging24hCount = allPins.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0).length;
@@ -3799,10 +3930,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   }
 
   return {
+    _crossover_schema_v: 6,
     folder,
     summary: {
       total_keywords: totalKeywords,
       total_unique_pins: allPins.length,
+      unique_creative_pins_count: uniqueCreativePins.length,
       active_pins_count: allPins.filter(p => p.has_active_rank).length,
       active_serp_slots_count: pinRows.length,
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,

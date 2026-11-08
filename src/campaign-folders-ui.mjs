@@ -968,6 +968,10 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                               <span class="px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-600 dark:text-sky-400 font-bold"
                                     x-text="'+' + formatNumber(mp.delta_repins_24h) + ' repins'"></span>
                             </template>
+                            <template x-if="(mp.repin_clones_count || 0) > 0">
+                              <span class="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-bold"
+                                    x-text="'+' + mp.repin_clones_count + ' repin clone' + (mp.repin_clones_count > 1 ? 's' : '')"></span>
+                            </template>
                             <span class="text-slate-500 dark:text-slate-400 font-semibold" x-text="formatNumber(mp.save_count || 0) + ' saves'"></span>
                             <span class="text-slate-400" x-text="'⏳ ' + formatUniversalAge(mp.pin_age_days)"></span>
                           </div>
@@ -2100,15 +2104,19 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           }
           if (tab === 'guided' || tab === 'capsule') {
             const term = this.normalizeClientTagLemma(item.term || item.display_label);
+            const displayNorm = String(item.display_label || item.term || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
             if (!term) return false;
             const padded = ' ' + term + ' ';
-            if (pinLemmas.has(term)) return true;
+            const paddedDisplay = displayNorm ? (' ' + displayNorm + ' ') : padded;
+            if (pinLemmas.has(term) || (displayNorm && pinLemmas.has(displayNorm))) return true;
             for (const pl of pinLemmas) {
-              if ((' ' + pl + ' ').includes(padded)) return true;
+              const paddedLemma = ' ' + pl + ' ';
+              if (paddedLemma.includes(padded) || paddedLemma.includes(paddedDisplay)) return true;
             }
             const normTitle = ' ' + String(pin.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim() + ' ';
-            if (normTitle.includes(padded)) return true;
-            return (pin.rankings || []).some(r => (' ' + String(r.keyword || '').toLowerCase() + ' ').includes(padded));
+            if (normTitle.includes(padded) || normTitle.includes(paddedDisplay)) return true;
+            const normDesc = ' ' + String((pin.description || '') + ' ' + (pin.alt_text || '') + ' ' + (pin.seo_title || '')).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim() + ' ';
+            return normDesc.includes(padded) || normDesc.includes(paddedDisplay);
           }
           if (tab === 'colors' || tab === 'color') {
             const targetHex = String(item.hex || '').trim().toUpperCase();
@@ -2117,22 +2125,88 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           return false;
         },
 
+        deduplicateCreativePins(pinsList) {
+          if (!Array.isArray(pinsList) || pinsList.length <= 1) return pinsList || [];
+          const sorted = pinsList.slice().sort((a, b) => {
+            const aVel = Number(a.effective_velocity ?? a.daily_save_velocity ?? 0);
+            const bVel = Number(b.effective_velocity ?? b.daily_save_velocity ?? 0);
+            if (bVel !== aVel) return bVel - aVel;
+            return Number(b.save_count || 0) - Number(a.save_count || 0);
+          });
+
+          const byImg = new Map();
+          const byTitleDom = new Map();
+          const byLongTitle = new Map();
+          const uniqueList = [];
+
+          for (let i = 0; i < sorted.length; i++) {
+            const p = sorted[i];
+            if (!p) continue;
+
+            const rawImg = String(p.image_url || '').trim().toLowerCase().split('?')[0];
+            const imgSeg = rawImg ? (rawImg.split('/').pop() || '') : '';
+            const imgSig = imgSeg.length >= 8 ? ('img:' + imgSeg) : '';
+
+            const cleanDom = String(p.domain || '').toLowerCase().replace(/^www\./, '').trim();
+            const normTitle = String(p.raw_title || p.title || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9 ]/g, ' ')
+              .replace(/  +/g, ' ')
+              .trim();
+            const hasRealTitle = normTitle.length >= 4 &&
+              normTitle !== 'untitled' &&
+              normTitle !== 'untitled pin' &&
+              !normTitle.startsWith('pin ') &&
+              !normTitle.startsWith('stress pin ') &&
+              !normTitle.startsWith('massive tag pin ');
+            const titleDomSig = hasRealTitle ? ('td:' + normTitle + '|' + cleanDom) : '';
+            const titleWords = hasRealTitle ? normTitle.split(' ').length : 0;
+            const longTitleSig = (hasRealTitle && titleWords >= 3 && normTitle.length >= 14) ? ('lt:' + normTitle) : '';
+
+            if (!imgSig && !titleDomSig && !longTitleSig) {
+              uniqueList.push(p);
+              continue;
+            }
+
+            const existing = (imgSig && byImg.get(imgSig)) ||
+                             (titleDomSig && byTitleDom.get(titleDomSig)) ||
+                             (longTitleSig && byLongTitle.get(longTitleSig)) ||
+                             null;
+
+            if (existing) {
+              existing.repin_clones_count = Number(existing.repin_clones_count || 0) + 1;
+              if (imgSig && !byImg.has(imgSig)) byImg.set(imgSig, existing);
+              if (titleDomSig && !byTitleDom.has(titleDomSig)) byTitleDom.set(titleDomSig, existing);
+              if (longTitleSig && !byLongTitle.has(longTitleSig)) byLongTitle.set(longTitleSig, existing);
+              continue;
+            }
+
+            if (p._base_clones === undefined) {
+              p._base_clones = Number(p.repin_clones_count || 0);
+            }
+            p.repin_clones_count = p._base_clones;
+            if (imgSig) byImg.set(imgSig, p);
+            if (titleDomSig) byTitleDom.set(titleDomSig, p);
+            if (longTitleSig) byLongTitle.set(longTitleSig, p);
+            uniqueList.push(p);
+          }
+
+          return uniqueList;
+        },
+
         getMatchingPinsForMatrixItem(item, tabOverride = null) {
           if (!item) return [];
           const allPins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
             ? this.crossoverData.all_pins
             : (this.crossoverData?.super_pins || []);
           if (!allPins.length) {
-            return item.matching_pins || item.pins || [];
+            return this.deduplicateCreativePins(item.matching_pins || item.pins || []);
           }
           const matched = allPins.filter(p => this.pinMatchesMatrixItem(p, item, tabOverride));
           if (!matched.length && (item.matching_pins?.length || item.pins?.length)) {
-            return item.matching_pins || item.pins || [];
+            return this.deduplicateCreativePins(item.matching_pins || item.pins || []);
           }
-          return matched.slice().sort((a, b) =>
-            ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) ||
-            ((b.save_count || 0) - (a.save_count || 0))
-          );
+          return this.deduplicateCreativePins(matched);
         },
 
         applyMatrixFilter(item, tabOverride = null) {
@@ -2740,10 +2814,11 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             }));
           }
 
-          const pins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+          const rawPins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
             ? this.crossoverData.all_pins
             : (this.crossoverData?.super_pins || []);
-          if (!pins || pins.length === 0) return [];
+          if (!rawPins || rawPins.length === 0) return [];
+          const pins = this.deduplicateCreativePins(rawPins);
 
           const totalKws = Math.max(1, Number(this.crossoverData?.summary?.total_keywords || this.totalKeywordsCount || 1));
           const toTitleCase = (str) => str ? str.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
@@ -2808,17 +2883,17 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         },
 
         computePowerPairs() {
-          // Compute across all cluster pins (or super-pins)
+          // Compute across deduplicated creative pins so syndicated repin clones cannot qualify a Pair or Triplet alone
           const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
             ? this.crossoverData.all_pins
             : (this.crossoverData?.super_pins || []);
-          if (!source || source.length < 2) {
+          const pins = this.deduplicateCreativePins(source);
+          if (!pins || pins.length < 2) {
             this.powerPairs = [];
             this.powerTriplets = [];
             return;
           }
 
-          const pins = source;
           const N_total = pins.length;
           const tagFreq = new Map();
           const pairFreq = new Map();
