@@ -415,192 +415,218 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
             </div>
             
-            <a href="#visual-crossover-hub" @click.prevent="scrollToSection('visual-crossover-hub')" class="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors flex items-center gap-1 ml-1" title="Jump to Visual Annotations & Power Pairs">
-              <span>✨ Visual Hub ↓</span>
-            </a>
-          </div>
-        </div>
+             <a href="#visual-crossover-hub" @click.prevent="scrollToSection('visual-crossover-hub')" class="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors flex items-center gap-1 ml-1" title="Jump to Visual Annotations & Power Pairs">
+               <span>✨ Visual Hub ↓</span>
+             </a>
+           </div>
+         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs font-mono tabular-nums">
-            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-              <tr>
-                <th class="p-3.5 w-12 text-center">#</th>
-                <th class="p-3.5">Pin Image & Dossier</th>
-                <th class="p-3.5">Cross-SERP Overlap & Ranks</th>
-                <th class="p-3.5">Domain & Creator</th>
-                <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('pin_age')">
-                  Pin Age &amp; Tenure <span x-text="sortBy === 'pin_age_asc' ? '↑' : (sortBy === 'pin_age_desc' ? '↓' : '↕')"></span>
-                </th>
-                <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('saves')">
-                  Total Saves <span x-text="sortBy === 'saves_desc' ? '↓' : (sortBy === 'saves_asc' ? '↑' : '↕')"></span>
-                </th>
-                <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('velocity')">
-                  Daily Velocity <span x-text="sortBy === 'velocity_desc' ? '↓' : '↕'"></span>
-                </th>
-                <th class="p-3.5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-              <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
-                <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors">
-                  <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
-                  <td class="p-3.5">
-                    <div class="flex items-center gap-3">
-                      <div class="w-10 h-14 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0">
-                        <img :src="sp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
-                             class="w-full h-full object-cover"
-                             loading="lazy"
-                             onerror="window.handlePinImgError(this)">
-                      </div>
-                      <div class="flex flex-col gap-1 max-w-xs">
-                        <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->
-                        <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" 
-                           class="font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate block" 
-                           x-text="sp.title || ('Pin #' + sp.pin_id)"></a>
-                        <div class="flex items-center gap-1.5 flex-wrap">
-                          <span class="text-[9px] font-mono tabular-nums px-1 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" 
-                                x-text="sp.format || 'ORGANIC PIN'"></span>
-                          <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
-                          <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] font-semibold"
-                                :title="'Created: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
-                            ⏳ <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
-                          </span>
-                          <template x-if="sp.folder_age_days != null">
-                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold"
-                                  :title="'In folder: ' + sp.folder_age_days + ' days'">
-                              📁 <span x-text="sp.folder_age_days + 'd in folder'"></span>
-                            </span>
-                          </template>
-                          <!-- Breakout Baby Domain Badge -->
-                          <template x-if="(Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && (Number(sp.gains_7d || (sp.daily_save_velocity ? sp.daily_save_velocity * 7 : 0)) >= 15)">
-                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
-                                  title="Breakout Baby Domain (<2y + 7d Gains >= 15)">
-                              🐣 Baby Breakout
-                            </span>
-                          </template>
-                          <!-- Linkless Vacuum Pin Badge -->
-                          <template x-if="sp.is_vacuum_pin || ((!sp.domain || sp.domain === 'Uploaded by user') && Number(sp.save_count || 0) >= 100)">
-                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold"
-                                  title="Linkless SERP Vacuum (High Saves, No Outbound Domain)">
-                              🎯 Vacuum
-                            </span>
-                          </template>
-                        </div>
+         <!-- Active Structural Pattern / Entity Filter Bar -->
+         <div x-show="activeMatrixFilter || entityFilter.type" x-cloak class="px-4 py-2.5 bg-purple-500/10 dark:bg-purple-950/40 border-b border-purple-500/20 flex items-center justify-between flex-wrap gap-2 text-xs font-mono tabular-nums">
+           <div class="flex items-center gap-2 flex-wrap">
+             <template x-if="activeMatrixFilter">
+               <div class="flex items-center gap-2">
+                 <span class="px-2 py-0.5 rounded bg-purple-600 text-white text-[10px] font-bold uppercase" x-text="activeMatrixFilter.badge || 'Matrix Pattern'"></span>
+                 <span class="font-bold text-purple-900 dark:text-purple-200" x-text="activeMatrixFilter.label"></span>
+                 <span class="text-purple-600 dark:text-purple-400 text-[11px]" x-text="'(' + formatNumber(filteredPinsList().length) + ' matching pins)'"></span>
+               </div>
+             </template>
+             <template x-if="entityFilter.type">
+               <div class="flex items-center gap-2">
+                 <span class="px-2 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-bold uppercase" x-text="entityFilter.type"></span>
+                 <span class="font-bold text-indigo-900 dark:text-indigo-200" x-text="entityFilter.value"></span>
+               </div>
+             </template>
+           </div>
+           <div class="flex items-center gap-2">
+             <template x-if="activeMatrixFilter">
+               <button type="button" @click="clearMatrixFilter()" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-600 dark:text-rose-300 font-bold transition cursor-pointer flex items-center gap-1">
+                 <span>✕</span>
+                 <span>Clear Pattern Filter</span>
+               </button>
+             </template>
+             <template x-if="entityFilter.type">
+               <button type="button" @click="clearEntityFilter()" class="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-[#27272A] text-slate-700 dark:text-slate-200 font-bold transition cursor-pointer flex items-center gap-1">
+                 <span>✕</span>
+                 <span>Clear Entity</span>
+               </button>
+             </template>
+           </div>
+         </div>
 
-                        <!-- Pinterest Computer Vision Visual Annotations -->
-                        <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
-                          <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va">
-                            <button @click="searchQuery = (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va); currentPage = 1" 
-                                    class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left" 
-                                    :title="'Filter cluster pins by visual tag: ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"
-                                    x-text="'👁️ ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></button>
-                          </template>
-                          <span x-show="sp.visual_annotations?.length > 3" 
-                                class="text-[9px] font-mono tabular-nums text-slate-400 dark:text-slate-500 cursor-help"
-                                :title="(sp.visual_annotations || []).slice(3).map(tag => typeof tag === 'object' && tag !== null ? (tag.name || tag.tag || tag.label || tag.term || '') : tag).join(', ')"
-                                x-text="'+' + (sp.visual_annotations.length - 3) + ' more'"></span>
-                        </div>
-                      </div>
-                    </div>
-                  </td>
+         <div class="overflow-x-auto">
+           <table class="w-full text-left text-xs font-mono tabular-nums">
+             <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+               <tr>
+                 <th class="p-3.5 w-12 text-center">#</th>
+                 <th class="p-3.5">Pin Image & Dossier</th>
+                 <th class="p-3.5">Cross-SERP Overlap & Ranks</th>
+                 <th class="p-3.5">Domain & Creator</th>
+                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('pin_age')">
+                   Pin Age &amp; Tenure <span x-text="sortBy === 'pin_age_asc' ? '↑' : (sortBy === 'pin_age_desc' ? '↓' : '↕')"></span>
+                 </th>
+                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('saves')">
+                   Total Saves <span x-text="sortBy === 'saves_desc' ? '↓' : (sortBy === 'saves_asc' ? '↑' : '↕')"></span>
+                 </th>
+                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('velocity')">
+                   Daily Velocity <span x-text="sortBy === 'velocity_desc' ? '↓' : '↕'"></span>
+                 </th>
+                 <th class="p-3.5 text-right">Actions</th>
+               </tr>
+             </thead>
+             <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+               <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
+                 <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors">
+                   <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
+                   <td class="p-3.5">
+                     <div class="flex items-center gap-3">
+                       <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="w-10 h-14 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0 block hover:ring-2 hover:ring-indigo-500 transition">
+                         <img :src="sp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
+                              class="w-full h-full object-cover"
+                              loading="lazy"
+                              onerror="window.handlePinImgError(this)">
+                       </a>
+                       <div class="flex flex-col gap-1 max-w-xs">
+                         <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->
+                         <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" 
+                            class="font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate block" 
+                            x-text="sp.title || ('Pin #' + sp.pin_id)"></a>
+                         <div class="flex items-center gap-1.5 flex-wrap">
+                           <span class="text-[9px] font-mono tabular-nums px-1 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" 
+                                 x-text="sp.format || 'ORGANIC PIN'"></span>
+                           <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
+                           <!-- Breakout Baby Domain Badge -->
+                           <template x-if="(Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && (Number(sp.gains_7d || (sp.daily_save_velocity ? sp.daily_save_velocity * 7 : 0)) >= 15)">
+                             <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
+                                   title="Breakout Baby Domain (<2y + 7d Gains >= 15)">
+                               🐣 Baby Breakout
+                             </span>
+                           </template>
+                           <!-- Linkless Vacuum Pin Badge -->
+                           <template x-if="sp.is_vacuum_pin || ((!sp.domain || sp.domain === 'Uploaded by user') && Number(sp.save_count || 0) >= 100)">
+                             <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold"
+                                   title="Linkless SERP Vacuum (High Saves, No Outbound Domain)">
+                               🎯 Vacuum
+                             </span>
+                           </template>
+                         </div>
 
-                  <td class="p-3.5">
-                    <div class="flex flex-col gap-1.5">
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <template x-for="rk in (sp.rankings || [])" :key="rk.keyword_id || rk.keyword">
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
-                                :class="rk.is_displaced
-                                  ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30'
-                                  : rk.rank_position <= 3 
-                                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' 
-                                  : rk.rank_position <= 10 
-                                  ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
-                                  : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
-                            <span x-show="rk.is_displaced" class="text-[9px]">🟣</span>
-                            <span x-text="rk.keyword"></span>
-                            <span class="font-bold" x-text="'#' + rk.rank_position"></span>
-                            <span x-show="rk.is_displaced" class="text-[9px] font-normal opacity-80">(Vault)</span>
-                          </span>
-                        </template>
-                      </div>
-                      <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
-                        <template x-if="sp.bridge_tags && sp.bridge_tags.length">
-                          <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
-                                :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"
-                                x-text="'🌉 ' + sp.bridge_tags.length + ' Bridges'"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </td>
+                         <!-- Pinterest Computer Vision Visual Annotations -->
+                         <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
+                           <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va">
+                             <button @click="applyMatrixFilter({ tag: (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va), raw_tag: (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va) }, 'anchors')" 
+                                     class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left cursor-pointer" 
+                                     :title="'Filter cluster pins by visual tag: ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"
+                                     x-text="'👁️ ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></button>
+                           </template>
+                           <span x-show="sp.visual_annotations?.length > 3" 
+                                 class="text-[9px] font-mono tabular-nums text-slate-400 dark:text-slate-500 cursor-help"
+                                 :title="(sp.visual_annotations || []).slice(3).map(tag => typeof tag === 'object' && tag !== null ? (tag.name || tag.tag || tag.label || tag.term || '') : tag).join(', ')"
+                                 x-text="'+' + (sp.visual_annotations.length - 3) + ' more'"></span>
+                         </div>
+                       </div>
+                     </div>
+                   </td>
 
-                  <td class="p-3.5 font-sans">
-                    <div class="flex flex-col gap-0.5">
-                      <button @click="setEntityFilter('domain', sp.domain)" 
-                              class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition-colors truncate max-w-[140px]" 
-                              x-text="sp.domain || 'direct'"></button>
-                      <div class="flex items-center gap-1.5">
-                        <button @click="setEntityFilter('creator', sp.creator_username)" 
-                                class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition-colors truncate max-w-[120px]" 
-                                x-text="'@' + (sp.creator_username || 'anonymous')"></button>
-                        <template x-if="sp.creator_username">
-                          <button @click.stop="openCreatorVisualFeed(sp.creator_username)"
-                                  class="p-0.5 rounded text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
-                                  title="⚡ Instant 50-Pin Visual Feed (<350ms)">
-                            <i data-lucide="layout-grid" class="w-3 h-3 text-emerald-500"></i>
-                          </button>
-                        </template>
-                      </div>
-                    </div>
-                  </td>
+                   <td class="p-3.5">
+                     <div class="flex flex-col gap-1.5">
+                       <div class="flex items-center gap-1.5 flex-wrap">
+                         <template x-for="rk in (expandedPinRanks[sp.pin_id] ? getSortedPinRankings(sp) : getSortedPinRankings(sp).slice(0, 4))" :key="rk.keyword_id || rk.keyword">
+                           <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
+                                 :class="rk.is_displaced
+                                   ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30'
+                                   : rk.rank_position <= 3 
+                                   ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' 
+                                   : rk.rank_position <= 10 
+                                   ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
+                                   : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
+                             <span x-show="rk.is_displaced" class="text-[9px]">🟣</span>
+                             <span x-text="rk.keyword"></span>
+                             <span class="font-bold" x-text="'#' + rk.rank_position"></span>
+                             <span x-show="rk.is_displaced" class="text-[9px] font-normal opacity-80">(Vault)</span>
+                           </span>
+                         </template>
+                         <template x-if="(sp.rankings || []).length > 4">
+                           <button type="button"
+                                   @click="expandedPinRanks[sp.pin_id] = !expandedPinRanks[sp.pin_id]"
+                                   class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition cursor-pointer"
+                                   x-text="expandedPinRanks[sp.pin_id] ? 'Show less ↑' : ('+' + ((sp.rankings || []).length - 4) + ' more keywords')"></button>
+                         </template>
+                       </div>
+                       <div class="flex items-center gap-2 flex-wrap">
+                         <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
+                         <template x-if="sp.bridge_tags && sp.bridge_tags.length">
+                           <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
+                                 :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"
+                                 x-text="'🌉 ' + sp.bridge_tags.length + ' Bridges'"></span>
+                         </template>
+                       </div>
+                     </div>
+                   </td>
 
-                  <td class="p-3.5 font-mono tabular-nums">
-                    <div class="flex flex-col gap-1">
-                      <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 w-fit"
-                            :title="'Created on Pinterest: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
-                        <span>⏳</span>
-                        <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
-                      </span>
-                      <template x-if="sp.folder_age_days != null">
-                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1 w-fit"
-                              :title="'Added to folder: ' + sp.folder_age_days + ' days ago'">
-                          <span>📁</span>
-                          <span x-text="sp.folder_age_days + 'd in folder'"></span>
-                        </span>
-                      </template>
-                    </div>
-                  </td>
+                   <td class="p-3.5 font-sans">
+                     <div class="flex flex-col gap-0.5">
+                       <button @click="setEntityFilter('domain', sp.domain)" 
+                               class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition-colors truncate max-w-[140px]" 
+                               x-text="sp.domain || 'direct'"></button>
+                       <div class="flex items-center gap-1.5">
+                         <button @click="setEntityFilter('creator', sp.creator_username)" 
+                                 class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition-colors truncate max-w-[120px]" 
+                                 x-text="'@' + (sp.creator_username || 'anonymous')"></button>
+                         <template x-if="sp.creator_username">
+                           <button @click.stop="openCreatorVisualFeed(sp.creator_username)"
+                                   class="p-0.5 rounded text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
+                                   title="⚡ Instant 50-Pin Visual Feed (<350ms)">
+                             <i data-lucide="layout-grid" class="w-3 h-3 text-emerald-500"></i>
+                           </button>
+                         </template>
+                       </div>
+                     </div>
+                   </td>
 
-                  <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
-                  <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
-                    <div class="flex flex-col gap-0.5">
-                      <span x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d'"></span>
-                      <template x-if="(sp.delta_saves_24h || 0) > 0 || (sp.delta_repins_24h || 0) <= 0">
-                        <span class="text-[10px] text-emerald-500 font-semibold" x-text="'+' + formatNumber(sp.delta_saves_24h || 0) + ' (24h)'"></span>
-                      </template>
-                      <template x-if="!(sp.delta_saves_24h > 0) && (sp.delta_repins_24h || 0) > 0">
-                        <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(sp.delta_repins_24h) + ' repins (24h)'"></span>
-                      </template>
-                      <template x-if="sp.gains_7d != null">
-                        <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
-                      </template>
-                    </div>
-                  </td>
+                   <td class="p-3.5 font-mono tabular-nums">
+                     <div class="flex flex-col gap-1">
+                       <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 w-fit"
+                             :title="'Created on Pinterest: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
+                         <span>⏳</span>
+                         <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
+                       </span>
+                       <template x-if="sp.folder_age_days != null">
+                         <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1 w-fit"
+                               :title="'Added to folder: ' + sp.folder_age_days + ' days ago'">
+                           <span>📁</span>
+                           <span x-text="sp.folder_age_days + 'd in folder'"></span>
+                         </span>
+                       </template>
+                     </div>
+                   </td>
 
-                  <td class="p-3.5 text-right font-sans">
-                    <div class="flex items-center justify-end gap-1.5">
-                      <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
-                        <span>⚡</span>
-                        <span>Blueprint</span>
-                      </button>
-                      <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
-                        View Dossier →
-                      </a>
-                    </div>
-                  </td>
-                </tr>
-              </template>
+                   <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
+                   <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
+                     <div class="flex flex-col gap-0.5">
+                       <span class="font-bold" x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d'"></span>
+                       <template x-if="(sp.delta_repins_24h || 0) > 0">
+                         <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(sp.delta_repins_24h) + ' repins (24h)'"></span>
+                       </template>
+                       <template x-if="sp.gains_7d != null">
+                         <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
+                       </template>
+                     </div>
+                   </td>
+
+                   <td class="p-3.5 text-right font-sans">
+                     <div class="flex items-center justify-end gap-1.5">
+                       <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
+                         <span>⚡</span>
+                         <span>Blueprint</span>
+                       </button>
+                       <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors inline-flex items-center gap-1 shadow-2xs" title="Open Full Pin Dossier">
+                         <span>↗</span>
+                       </a>
+                     </div>
+                   </td>
+                 </tr>
+               </template>
 
               <tr x-show="crossoverLoading">
                 <td colspan="8" class="p-10 text-center text-slate-500 font-sans">
@@ -668,8 +694,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         </div>
       </div>
 
-      <!-- SECTION 2: VISUAL ANNOTATIONS CROSSOVER HUB (Across 1,788 Unique Pins) -->
-      <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] space-y-6 shadow-sm dark:shadow-xl transition-colors">
+      <!-- SECTION 2: VISUAL ANNOTATIONS, INTENT MATRIX & COLOR STUDIO (Cluster-Scoped Mirror of /pulse Master-Detail Split View) -->
+      <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] space-y-5 shadow-sm dark:shadow-xl transition-colors shared-annotations-hub">
         <!-- Hub Header -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#27272A]">
           <div class="flex items-center space-x-3">
@@ -680,635 +706,309 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <div class="flex items-center space-x-2 flex-wrap gap-y-1">
                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations, Intent Matrix &amp; Color Studio</h3>
                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                      x-text="powerPairs.length + ' Pairs • ' + powerTriplets.length + ' Triplets'"></span>
+                      x-text="powerPairs.length + ' Pairs • ' + powerTriplets.length + ' Triplets • ' + coreAnchorsList.length + ' Bridges'"></span>
               </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">2-Tag Power Pairs, 3-Tag Co-Occurrence Triplets, Guided Search Capsules, Dominant Color Swatches &amp; Cross-SERP Bridges.</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Click any N-gram pair, triplet, visual bridge, guided search capsule, or color swatch on the left to inspect its surging cluster pins on the right.</p>
             </div>
           </div>
 
-          <template x-if="searchQuery">
-            <button @click="searchQuery = ''; currentPage = 1" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition flex items-center space-x-1.5 cursor-pointer">
-              <span>✕</span>
-              <span x-text="'Clear Tag #' + searchQuery"></span>
+          <div class="flex items-center gap-2 flex-wrap">
+            <template x-if="activeMatrixFilter">
+              <button type="button" @click="clearMatrixFilter()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition flex items-center space-x-1.5 cursor-pointer">
+                <span>✕</span>
+                <span x-text="'Clear Table Filter: ' + activeMatrixFilter.label"></span>
+              </button>
+            </template>
+            <button type="button" @click="copyAnnotations()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1.5 cursor-pointer">
+              <span>📋</span>
+              <span>Copy All Annotations</span>
             </button>
-          </template>
+          </div>
         </div>
 
-        <!-- Unified Visual Intelligence Quick-Jump Sub-Nav -->
-        <div class="flex items-center gap-2 flex-wrap p-2 rounded-2xl bg-slate-50 dark:bg-[#18181B]/70 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
-          <button type="button" @click="visualHubTab = 'all'" :class="visualHubTab === 'all' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">All Matrix Panels</button>
-          <button type="button" @click="visualHubTab = 'pairs'" :class="visualHubTab === 'pairs' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">⚡ 2-Tag Power Pairs (<span x-text="powerPairs.length"></span>)</button>
-          <button type="button" @click="visualHubTab = 'triplets'" :class="visualHubTab === 'triplets' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🔺 3-Tag Triplets (<span x-text="powerTriplets.length"></span>)</button>
-          <button type="button" @click="visualHubTab = 'guided'" :class="visualHubTab === 'guided' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🎯 Guided Search Capsules (<span x-text="(crossoverData?.guided_pivots || []).length"></span>)</button>
-          <button type="button" @click="visualHubTab = 'colors'" :class="visualHubTab === 'colors' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🎨 Dominant Color Swatches (<span x-text="(crossoverData?.dominant_colors || []).length"></span>)</button>
-          <button type="button" @click="visualHubTab = 'anchors'" :class="visualHubTab === 'anchors' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">🏷️ 1-Tag Power Leaders (<span x-text="coreAnchorsList.length"></span>)</button>
-        </div>
-
-        <!-- Subsection A: Co-Occurring Power Pairs Grid & Table -->
-        <div class="space-y-4" x-show="visualHubTab === 'all' || visualHubTab === 'pairs'">
-          <!-- Sub-header & Controls Bar -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
-            <div class="flex items-center gap-2.5 flex-wrap">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">Co-Occurring Visual Power Pairs</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                    x-text="powerPairs.length + ' Pairs Computed'"></span>
-            </div>
-
-            <div class="flex items-center gap-2.5 flex-wrap">
-              <!-- Search within pairs -->
-              <div class="relative">
-                <input type="text" 
-                       x-model="powerPairsSearch" 
-                       @input="powerPairsPage = 1"
-                       placeholder="Filter pairs (e.g. Steak, Chicken)..." 
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
-                <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
-                <button x-show="powerPairsSearch" @click="powerPairsSearch = ''; powerPairsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
-              </div>
-
-              <!-- Sort Selector (Pins Frequency, Lift, Synergy) -->
-              <div class="flex items-center gap-1.5 text-xs font-mono tabular-nums">
-                <span class="text-slate-400">Sort:</span>
-                <select x-model="powerPairsSort" @change="powerPairsPage = 1" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
-                  <option value="freq_desc">🔥 Pins Frequency (Default)</option>
-                  <option value="velocity_desc">⚡ 24h Save Velocity (High → Low)</option>
-                  <option value="synergy_desc">⚖️ Balanced Synergy</option>
-                  <option value="lift_desc">🚀 Algorithmic Lift (High → Low)</option>
-                  <option value="tag_asc">🏷️ Tag A (A → Z)</option>
-                </select>
-              </div>
-
-              <!-- View Switcher -->
-              <div class="flex items-center rounded-xl bg-white dark:bg-[#121215] p-0.5 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
-                <button @click="powerPairsView = 'cards'" 
-                        :class="powerPairsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer">
-                  <span>🎴</span>
-                  <span>Cards</span>
-                </button>
-                <button @click="powerPairsView = 'table'" 
-                        :class="powerPairsView === 'table' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer">
-                  <span>📊</span>
-                  <span>Table</span>
-                </button>
-              </div>
-            </div>
+        <!-- Unified 5-Tab Matrix Navigation Bar -->
+        <div class="flex items-center justify-between gap-3 flex-wrap p-2 rounded-2xl bg-slate-50 dark:bg-[#18181B]/70 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
+          <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" @click="switchMatrixTab('pairs')" :class="(visualHubTab === 'pairs' || visualHubTab === 'all') ? 'bg-purple-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
+              ⚡ 2-Tag Power Pairs (<span x-text="powerPairs.length"></span>)
+            </button>
+            <button type="button" @click="switchMatrixTab('triplets')" :class="visualHubTab === 'triplets' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
+              🔺 3-Tag Triplets (<span x-text="powerTriplets.length"></span>)
+            </button>
+            <button type="button" @click="switchMatrixTab('anchors')" :class="visualHubTab === 'anchors' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-sky-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
+              🏷️ 1-Tag Power Leaders &amp; Bridges (<span x-text="coreAnchorsList.length"></span>)
+            </button>
+            <button type="button" @click="switchMatrixTab('guided')" :class="visualHubTab === 'guided' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-amber-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
+              🎯 Guided Search Capsules (<span x-text="(crossoverData?.guided_pivots || []).length"></span>)
+            </button>
+            <button type="button" @click="switchMatrixTab('colors')" :class="visualHubTab === 'colors' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-emerald-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
+              🎨 Dominant Color Swatches (<span x-text="(crossoverData?.dominant_colors || []).length"></span>)
+            </button>
           </div>
 
-          <!-- 1. CARDS VIEW -->
-          <div x-show="powerPairsView === 'cards' && filteredPowerPairs().length > 0" class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              <template x-for="(pair, idx) in filteredPowerPairs().slice(0, powerPairsLimit)" :key="idx">
-                <div class="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-[#27272A] flex flex-col justify-between gap-3 hover:border-purple-500/50 hover:shadow-md transition group shadow-sm">
-                  <!-- Top Metrics Bar -->
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                            x-text="pair.lift + 'x Lift'"></span>
-                      <template x-if="pair.total_velocity > 0">
-                        <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1"
-                              :title="'Aggregate 24h Daily Save Velocity: +' + formatNumber(pair.total_velocity) + '/day across joint pins'">
-                          <span>⚡</span>
-                          <span x-text="'+' + formatNumber(pair.total_velocity) + '/d'"></span>
-                        </span>
+          <!-- Search & Sort Controls for Active Matrix Tab -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <template x-if="visualHubTab === 'anchors'">
+              <div class="flex items-center gap-1 text-[11px]">
+                <button type="button" @click="anchorsTier = 'all'; selectedMatrixIndex = 0" :class="anchorsTier === 'all' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer">All</button>
+                <button type="button" @click="anchorsTier = 'universal'; selectedMatrixIndex = 0" :class="anchorsTier === 'universal' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer" title="Tags bridging >= 50% of cluster keywords">🌉 Bridges (≥50%)</button>
+                <button type="button" @click="anchorsTier = 'whales'; selectedMatrixIndex = 0" :class="anchorsTier === 'whales' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer" title="Tags appearing on >= 25 pins">💎 Whales (≥25)</button>
+              </div>
+            </template>
+
+            <div class="relative">
+              <input type="text"
+                     x-model="matrixSearch"
+                     @input="selectedMatrixIndex = 0"
+                     placeholder="Filter patterns or keywords..."
+                     class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
+              <span class="absolute left-2.5 top-1.5 text-xs text-slate-400">🔍</span>
+              <button x-show="matrixSearch" @click="matrixSearch = ''; selectedMatrixIndex = 0" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <select x-model="matrixSort" @change="selectedMatrixIndex = 0" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
+              <option value="velocity_desc">⚡ Sort: 24h Velocity (Fastest)</option>
+              <option value="freq_desc">🔥 Sort: Pin Count (Most Pins)</option>
+              <option value="keywords_desc">🌉 Sort: Keyword Coverage (Most KWs)</option>
+              <option value="lift_desc">🚀 Sort: Synergy Lift / Score</option>
+              <option value="saves_desc">💎 Sort: Combined Saves</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- MASTER-DETAIL SPLIT VIEW (12 Columns: 5 Cols Left Master List + 7 Cols Right Matching Surging Pins) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          <!-- LEFT PANEL (5 Cols): Master Pattern List -->
+          <div class="lg:col-span-5 rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-950/60 overflow-hidden flex flex-col">
+            <div class="px-4 py-3 border-b border-slate-200 dark:border-[#27272A] bg-slate-100/70 dark:bg-[#18181B]/80 flex items-center justify-between text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
+              <span x-text="getActiveMatrixTitle()"></span>
+              <span x-text="getActiveMatrixItems().length + ' items'"></span>
+            </div>
+
+            <div class="divide-y divide-slate-200/80 dark:divide-[#27272A]/70 max-h-[680px] overflow-y-auto">
+              <template x-for="(item, mIdx) in getActiveMatrixItems().slice(0, matrixListLimit)" :key="item._key || mIdx">
+                <div @click="selectMatrixItem(item, mIdx)"
+                     :class="isMatrixItemSelected(item, mIdx)
+                       ? 'bg-purple-500/10 dark:bg-purple-500/15 border-l-4 border-l-purple-500'
+                       : 'hover:bg-white dark:hover:bg-[#18181B]/70 border-l-4 border-l-transparent'"
+                     class="p-3.5 transition-all cursor-pointer flex flex-col gap-2">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                      <span class="text-[10px] font-mono tabular-nums text-slate-400 font-bold" x-text="'#' + (mIdx + 1)"></span>
+
+                      <!-- 2-Tag Power Pair Label -->
+                      <template x-if="visualHubTab === 'pairs' || visualHubTab === 'all'">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 text-xs font-bold" x-text="item.tag_a"></span>
+                          <span class="text-purple-500 font-bold text-xs">+</span>
+                          <span class="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/25 text-xs font-bold" x-text="item.tag_b"></span>
+                        </div>
+                      </template>
+
+                      <!-- 3-Tag Triplet Label -->
+                      <template x-if="visualHubTab === 'triplets'">
+                        <div class="flex items-center gap-1 flex-wrap">
+                          <template x-for="(tg, tIdx) in (item.tags || [])" :key="tg">
+                            <div class="flex items-center gap-1">
+                              <span x-show="tIdx > 0" class="text-rose-500 font-bold text-[10px]">+</span>
+                              <span class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/25 text-[11px] font-bold" x-text="tg"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+
+                      <!-- 1-Tag Power Leader / Bridge Label -->
+                      <template x-if="visualHubTab === 'anchors'">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span x-text="item.is_universal ? '🌉' : '🏷️'" class="text-xs"></span>
+                          <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="item.tag"></span>
+                          <template x-if="item.overlap_percentage >= 50">
+                            <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30" x-text="item.overlap_percentage + '% SERPs'"></span>
+                          </template>
+                        </div>
+                      </template>
+
+                      <!-- Guided Search Capsule Label -->
+                      <template x-if="visualHubTab === 'guided'">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <span class="w-3 h-3 rounded-full shrink-0 border border-black/10 dark:border-white/20" :style="'background-color: ' + (item.dominant_color || '#f59e0b')"></span>
+                          <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="item.display_label || item.term"></span>
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-bold" x-text="'Score ' + (item.composite_score || 0)"></span>
+                        </div>
+                      </template>
+
+                      <!-- Dominant Color Swatch Label -->
+                      <template x-if="visualHubTab === 'colors'">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                          <span class="w-6 h-6 rounded-lg shrink-0 border border-black/15 dark:border-white/20 shadow-inner" :style="'background-color: ' + item.hex"></span>
+                          <span class="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="item.hex"></span>
+                        </div>
                       </template>
                     </div>
-                    <span class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 font-semibold" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
-                  </div>
 
-                  <!-- Stacked Full-Width Tags (No Truncation) -->
-                  <div class="flex flex-col gap-2">
-                    <div class="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/25 flex items-start justify-between gap-2">
-                      <div class="flex items-start gap-1.5 min-w-0">
-                        <span class="text-xs mt-0.5">🏷️</span>
-                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline text-left leading-snug cursor-pointer break-words" 
-                                :title="'Filter Pins: #' + pair.tag_a" 
-                                x-text="pair.tag_a"></button>
-                      </div>
-                      <span class="text-[9px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold flex-shrink-0 uppercase">Tag A</span>
-                    </div>
-
-                    <!-- Synergy Connector -->
-                    <div class="flex items-center justify-center -my-1">
-                      <span class="text-[9px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-purple-600 dark:text-purple-400 flex items-center gap-1 shadow-2xs">
-                        <span>⚡</span>
-                        <span>High Synergy With</span>
-                      </span>
-                    </div>
-
-                    <!-- Tag B Block -->
-                    <div class="p-2.5 rounded-xl bg-purple-500/10 dark:bg-purple-500/15 border border-purple-500/25 flex items-start justify-between gap-2">
-                      <div class="flex items-start gap-1.5 min-w-0">
-                        <span class="text-xs mt-0.5">🏷️</span>
-                        <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="text-xs font-bold text-purple-700 dark:text-purple-300 hover:underline text-left leading-snug cursor-pointer break-words" 
-                                :title="'Filter Pins: #' + pair.tag_b" 
-                                x-text="pair.tag_b"></button>
-                      </div>
-                      <span class="text-[9px] font-mono tabular-nums text-purple-600 dark:text-purple-400 font-bold flex-shrink-0 uppercase">Tag B</span>
+                    <!-- Right-side Velocity Badge -->
+                    <div class="flex items-center gap-1.5 shrink-0 font-mono tabular-nums">
+                      <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                            x-text="'⚡ +' + formatNumber(item.total_velocity ?? item.velocity_gain ?? 0) + '/d'"></span>
                     </div>
                   </div>
 
-                  <!-- Matching Joint Pins Preview Strip -->
-                  <template x-if="pair.pins && pair.pins.length > 0">
-                    <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/80 flex flex-col gap-1.5">
-                      <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400">
-                        <span class="uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Joint Pins Preview</span>
-                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-0.5 font-bold"
-                                title="Filter cluster pins table by this visual anchor">
-                          <span>All <span x-text="pair.joint_count"></span> pins in table →</span>
-                        </button>
-                      </div>
-                      <div class="grid grid-cols-4 gap-2">
-                        <template x-for="p in pair.pins.slice(0, 4)" :key="p.pin_id">
-                          <a :href="'/pins/' + p.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
-                             class="group/pin relative rounded-lg overflow-hidden border border-slate-200 dark:border-[#27272A] aspect-[2/3] bg-slate-100 dark:bg-[#18181B] block hover:ring-2 hover:ring-purple-500 transition-all shadow-2xs"
-                             :title="(p.title || 'Pin #' + p.pin_id) + (p.daily_save_velocity ? ' (+' + p.daily_save_velocity + '/d saves)' : '')">
-                            <img :src="p.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
-                                 class="w-full h-full object-cover group-hover/pin:scale-105 transition-transform duration-300" 
-                                 loading="lazy" 
-                                 onerror="window.handlePinImgError(this)">
-                            <template x-if="p.daily_save_velocity > 0">
-                              <span class="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/80 backdrop-blur-xs text-[8px] font-mono tabular-nums text-emerald-400 font-bold leading-tight">
-                                +<span x-text="formatNumber(p.daily_save_velocity)"></span>
-                              </span>
-                            </template>
-                          </a>
-                        </template>
-                      </div>
+                  <!-- Bottom Metrics Sub-bar -->
+                  <div class="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-semibold text-indigo-600 dark:text-indigo-400"
+                            x-text="(item.keywords_count || item.keyword_count || item.shared_count || item.keyword_overlap_count || 1) + ' keywords'"></span>
+                      <span>•</span>
+                      <span class="font-bold text-slate-700 dark:text-slate-200"
+                            x-text="(item.joint_count || item.pin_count || item.count || 0) + ' pins'"></span>
+                      <template x-if="item.lift">
+                        <span class="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-bold"
+                              x-text="item.lift + 'x Lift'"></span>
+                      </template>
+                      <template x-if="(item.total_repins_delta || 0) > 0">
+                        <span class="text-sky-600 dark:text-sky-400 text-[10px]" x-text="'+' + formatNumber(item.total_repins_delta) + ' repins'"></span>
+                      </template>
                     </div>
-                  </template>
-
-                  <!-- Copy Blueprint Button -->
-                  <button @click="copyVisualBlueprint(pair)"
-                          class="w-full py-2 rounded-xl bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-[#121215] dark:hover:bg-purple-600 text-slate-700 dark:text-slate-300 text-xs font-bold font-mono tabular-nums transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-[#27272A] cursor-pointer shadow-2xs group-hover:border-purple-500/40">
-                    <span>📋</span>
-                    <span>Copy Visual Blueprint</span>
-                  </button>
+                    <template x-if="(item.total_saves || 0) > 0">
+                      <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold" x-text="formatNumber(item.total_saves) + ' saves'"></span>
+                    </template>
+                  </div>
                 </div>
               </template>
-            </div>
 
-            <!-- Cards Expansion Controls -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs">
-              <span class="font-mono tabular-nums text-slate-500 dark:text-slate-400" 
-                    x-text="'Showing ' + Math.min(powerPairsLimit, filteredPowerPairs().length) + ' of ' + filteredPowerPairs().length + ' Power Pairs'"></span>
-              <div class="flex items-center gap-2">
-                <button x-show="powerPairsLimit < filteredPowerPairs().length" 
-                        @click="powerPairsLimit += 12" 
-                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold font-mono tabular-nums transition cursor-pointer">
-                  <span>↓ Show More (+12)</span>
-                </button>
-                <button x-show="powerPairsLimit < filteredPowerPairs().length" 
-                        @click="powerPairsLimit = filteredPowerPairs().length" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 font-bold font-mono tabular-nums transition cursor-pointer">
-                  <span>Show All (<span x-text="filteredPowerPairs().length"></span>)</span>
-                </button>
-                <button x-show="powerPairsLimit > 12" 
-                        @click="powerPairsLimit = 12" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 font-bold font-mono tabular-nums transition cursor-pointer">
-                  <span>↑ Collapse to 12</span>
-                </button>
+              <div x-show="getActiveMatrixItems().length === 0" class="p-8 text-center text-xs text-slate-400 font-mono tabular-nums">
+                No visual patterns match your current search filter.
               </div>
             </div>
-          </div>
 
-          <!-- 2. TABLE VIEW -->
-          <div x-show="powerPairsView === 'table' && filteredPowerPairs().length > 0" class="space-y-3">
-            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950">
-              <table class="w-full text-left text-xs font-mono tabular-nums">
-                <thead class="bg-slate-50 dark:bg-[#121215] border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                  <tr>
-                    <th @click="togglePowerPairsSort('synergy')" class="p-3 w-12 text-center cursor-pointer hover:text-indigo-600 select-none" title="Sort by Balanced Synergy">
-                      # <span x-show="powerPairsSort === 'synergy_desc'">⚡</span>
-                    </th>
-                    <th @click="togglePowerPairsSort('tag')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Tag Name">
-                      Visual Anchor (Tag A) <span x-show="powerPairsSort.startsWith('tag')" x-text="powerPairsSort === 'tag_asc' ? '↑' : '↓'"></span>
-                    </th>
-                    <th class="p-3 w-8 text-center"></th>
-                    <th class="p-3">Synergy Partner (Tag B)</th>
-                    <th @click="togglePowerPairsSort('lift')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Algorithmic Lift">
-                      Algorithmic Lift <span x-show="powerPairsSort.startsWith('lift')" x-text="powerPairsSort === 'lift_desc' ? '↓' : '↑'"></span>
-                    </th>
-                    <th @click="togglePowerPairsSort('freq')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Pins Frequency">
-                      Pins Frequency <span x-show="powerPairsSort.startsWith('freq')" x-text="powerPairsSort === 'freq_desc' ? '↓' : '↑'"></span>
-                    </th>
-                    <th @click="togglePowerPairsSort('velocity')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by 24h Velocity">
-                      24h Velocity <span x-show="powerPairsSort.startsWith('velocity')" x-text="powerPairsSort === 'velocity_desc' ? '↓' : '↑'"></span>
-                    </th>
-                    <th class="p-3">Matching Pins</th>
-                    <th class="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                  <template x-for="(pair, idx) in paginatedPowerPairsTable()" :key="idx">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
-                      <td class="p-3 text-center text-slate-400 font-mono tabular-nums" x-text="((powerPairsPage - 1) * powerPairsPageSize) + idx + 1"></td>
-                      <td class="p-3">
-                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer border border-emerald-500/20 text-left inline-block" 
-                                x-text="'🏷️ ' + pair.tag_a"></button>
-                      </td>
-                      <td class="p-3 text-center text-purple-500 font-bold">⚡</td>
-                      <td class="p-3">
-                        <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold hover:underline cursor-pointer border border-purple-500/20 text-left inline-block" 
-                                x-text="'🏷️ ' + pair.tag_b"></button>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="pair.lift + 'x Lift'"></span>
-                      </td>
-                      <td class="p-3 font-mono tabular-nums">
-                        <span class="font-bold text-slate-900 dark:text-white" x-text="pair.joint_count + ' pins'"></span>
-                        <span class="text-slate-400 text-[10px]" x-text="' (' + pair.support_pct + '%)'"></span>
-                      </td>
-                      <td class="p-3 font-mono tabular-nums">
-                        <template x-if="pair.total_velocity > 0">
-                          <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(pair.total_velocity) + '/d'"></span>
-                        </template>
-                        <template x-if="!pair.total_velocity || pair.total_velocity <= 0">
-                          <span class="text-slate-400 text-[10px]">—</span>
-                        </template>
-                      </td>
-                      <td class="p-3">
-                        <div class="flex items-center gap-1.5">
-                          <template x-for="p in (pair.pins || []).slice(0, 3)" :key="p.pin_id">
-                            <a :href="'/pins/' + p.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
-                               class="w-7 h-10 rounded border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0 hover:ring-2 hover:ring-purple-500 transition block bg-slate-100 dark:bg-[#18181B]"
-                               :title="(p.title || 'Pin #' + p.pin_id) + (p.daily_save_velocity ? ' (+' + p.daily_save_velocity + '/d)' : '')">
-                              <img :src="p.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
-                                   class="w-full h-full object-cover" 
-                                   loading="lazy" 
-                                   onerror="window.handlePinImgError(this)">
-                            </a>
-                          </template>
-                          <span x-show="(pair.pins || []).length > 3" class="text-[9px] text-slate-400 font-mono" x-text="'+' + ((pair.pins || []).length - 3)"></span>
-                        </div>
-                      </td>
-                      <td class="p-3 text-right">
-                        <button @click="copyVisualBlueprint(pair)" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer">
-                          <span>📋</span>
-                          <span>Blueprint</span>
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Table Pagination -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
-              <span class="text-slate-500 dark:text-slate-400" 
-                    x-text="'Page ' + powerPairsPage + ' of ' + totalPowerPairsPages() + ' (' + filteredPowerPairs().length + ' pairs)'"></span>
+            <!-- Show More / Collapse Footer in Left Master Panel -->
+            <div x-show="getActiveMatrixItems().length > 25" class="p-2.5 border-t border-slate-200 dark:border-[#27272A] bg-slate-100/60 dark:bg-[#18181B]/60 flex items-center justify-between text-[11px] font-mono tabular-nums">
+              <span class="text-slate-500" x-text="'Showing ' + Math.min(matrixListLimit, getActiveMatrixItems().length) + ' of ' + getActiveMatrixItems().length"></span>
               <div class="flex items-center gap-1.5">
-                <button :disabled="powerPairsPage <= 1" @click="powerPairsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">← Prev</button>
-                <button :disabled="powerPairsPage >= totalPowerPairsPages()" @click="powerPairsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">Next →</button>
+                <button type="button" x-show="matrixListLimit < getActiveMatrixItems().length" @click="matrixListLimit += 30" class="px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-600 dark:text-purple-400 font-bold hover:bg-purple-500/25 transition cursor-pointer">+30 More</button>
+                <button type="button" x-show="matrixListLimit > 30" @click="matrixListLimit = 30" class="px-2 py-1 rounded-lg bg-slate-200 dark:bg-[#27272A] text-slate-600 dark:text-slate-300 font-bold cursor-pointer">Collapse</button>
               </div>
             </div>
           </div>
 
-          <!-- Empty state when searching -->
-          <div x-show="filteredPowerPairs().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
-            No visual power pairs match "<span x-text="powerPairsSearch"></span>".
-          </div>
-        </div>
+          <!-- RIGHT PANEL (7 Cols): MATCHING SURGING PINS INSPECTOR -->
+          <div class="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950/80 overflow-hidden flex flex-col">
+            <template x-if="getSelectedMatrixItem()">
+              <div class="flex flex-col">
+                <!-- Selected Pattern Inspector Header -->
+                <div class="p-4 border-b border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#18181B]/70 space-y-3">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                      <span class="px-2 py-0.5 rounded bg-purple-600 text-white text-[10px] font-mono tabular-nums font-bold uppercase">Matching Cluster Pins</span>
+                      <h4 class="text-sm font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="getMatrixItemLabel(getSelectedMatrixItem())"></h4>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <button type="button"
+                              @click="applyMatrixFilter(getSelectedMatrixItem(), visualHubTab)"
+                              class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono tabular-nums transition flex items-center gap-1.5 cursor-pointer shadow-xs">
+                        <span>🎯</span>
+                        <span>Filter Cluster Table (<span x-text="getMatchingPinsForMatrixItem(getSelectedMatrixItem(), visualHubTab).length"></span> pins) ↑</span>
+                      </button>
+                      <button type="button"
+                              @click="copyMatrixItemBlueprint(getSelectedMatrixItem(), visualHubTab)"
+                              class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] text-xs font-bold font-mono tabular-nums transition flex items-center gap-1 cursor-pointer">
+                        <span>📋</span>
+                        <span>Blueprint</span>
+                      </button>
+                    </div>
+                  </div>
 
-        <!-- Subsection A2: 3-Tag Co-Occurrence Triplets -->
-        <div class="space-y-3 pt-2" x-show="(visualHubTab === 'all' || visualHubTab === 'triplets') && powerTriplets.length > 0">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🔺 3-Tag Co-Occurrence Triplets (High-Intent Visual Hook Recipes)</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30" x-text="powerTriplets.length + ' Triplets'"></span>
-            </div>
-            <span class="text-[10px] text-slate-400 font-mono tabular-nums">Click any triplet tag to filter cluster pins table</span>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <template x-for="(tr, tIdx) in powerTriplets.slice(0, 12)" :key="tIdx">
-              <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/70 border border-slate-200 dark:border-[#27272A] flex flex-col justify-between gap-2.5 hover:border-rose-500/40 transition shadow-2xs">
-                <div class="flex items-center justify-between text-[10px] font-mono tabular-nums">
-                  <span class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/30" x-text="tr.joint_count + ' Joint Pins'"></span>
-                  <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'⚡ +' + formatNumber(tr.total_velocity) + '/d'"></span>
+                  <!-- Pattern Summary KPIs & Connected Keywords Strip -->
+                  <div class="flex items-center gap-2 flex-wrap text-[11px] font-mono tabular-nums">
+                    <span class="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-bold"
+                          x-text="(getSelectedMatrixItem().keywords_count || getSelectedMatrixItem().keyword_count || getSelectedMatrixItem().shared_count || 1) + ' Cluster Keywords'"></span>
+                    <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold"
+                          x-text="'⚡ +' + formatNumber(getSelectedMatrixItem().total_velocity ?? getSelectedMatrixItem().velocity_gain ?? 0) + '/d save velocity'"></span>
+                    <template x-if="(getSelectedMatrixItem().total_saves || 0) > 0">
+                      <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] font-semibold"
+                            x-text="formatNumber(getSelectedMatrixItem().total_saves) + ' combined saves'"></span>
+                    </template>
+                    <template x-if="getSelectedMatrixItem().lift">
+                      <span class="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-bold"
+                            x-text="getSelectedMatrixItem().lift + 'x Synergy Lift'"></span>
+                    </template>
+                  </div>
+
+                  <template x-if="(getSelectedMatrixItem().keywords || []).length > 0">
+                    <div class="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <span class="text-[10px] font-mono tabular-nums uppercase text-slate-400">SERPs:</span>
+                      <template x-for="kw in (getSelectedMatrixItem().keywords || []).slice(0, 8)" :key="kw">
+                        <button type="button" @click="scopeFilter = kw; currentPage = 1; scrollToSection('pins-table-section')" class="px-2 py-0.5 rounded bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-indigo-500 text-[10px] font-mono tabular-nums transition cursor-pointer" x-text="kw"></button>
+                      </template>
+                      <span x-show="(getSelectedMatrixItem().keywords || []).length > 8" class="text-[10px] font-mono tabular-nums text-slate-400" x-text="'+' + ((getSelectedMatrixItem().keywords || []).length - 8) + ' more'"></span>
+                    </div>
+                  </template>
                 </div>
-                <div class="flex flex-wrap gap-1.5">
-                  <template x-for="tg in tr.tags" :key="tg">
-                    <button type="button" @click="searchQuery = tg; currentPage = 1; scrollToSection('pins-table-section')" class="px-2 py-1 rounded-lg bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-xs font-bold text-slate-800 dark:text-slate-200 hover:border-rose-500 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer" x-text="'#' + tg"></button>
+
+                <!-- 2-Column Grid of Matching Surging Cluster Pins -->
+                <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5 max-h-[600px] overflow-y-auto">
+                  <template x-for="mp in getMatchingPinsForMatrixItem(getSelectedMatrixItem(), visualHubTab).slice(0, 24)" :key="mp.pin_id">
+                    <div class="p-3 rounded-2xl bg-slate-50/70 dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] hover:border-purple-500/50 transition flex flex-col justify-between gap-2.5 shadow-2xs">
+                      <div class="flex items-start gap-3">
+                        <a :href="'/pins/' + mp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="w-16 h-24 rounded-xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#18181B] shrink-0 block hover:ring-2 hover:ring-purple-500 transition">
+                          <img :src="mp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'"
+                               class="w-full h-full object-cover"
+                               loading="lazy"
+                               onerror="window.handlePinImgError(this)">
+                        </a>
+                        <div class="flex flex-col gap-1 min-w-0 flex-1">
+                          <a :href="'/pins/' + mp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
+                             class="text-xs font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 transition line-clamp-2 leading-snug"
+                             x-text="mp.title || ('Pin #' + mp.pin_id)"></a>
+
+                          <div class="flex items-center gap-1.5 flex-wrap font-mono tabular-nums text-[10px]">
+                            <span class="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/25"
+                                  x-text="'+' + formatNumber(mp.effective_velocity ?? mp.daily_save_velocity ?? 0) + '/d'"></span>
+                            <template x-if="(mp.delta_repins_24h || 0) > 0">
+                              <span class="px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-600 dark:text-sky-400 font-bold"
+                                    x-text="'+' + formatNumber(mp.delta_repins_24h) + ' repins'"></span>
+                            </template>
+                            <span class="text-slate-500 dark:text-slate-400 font-semibold" x-text="formatNumber(mp.save_count || 0) + ' saves'"></span>
+                            <span class="text-slate-400" x-text="'⏳ ' + formatUniversalAge(mp.pin_age_days)"></span>
+                          </div>
+
+                          <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                            <span class="font-semibold text-slate-700 dark:text-slate-300 truncate" x-text="mp.domain || 'Uploaded by user'"></span>
+                            <template x-if="mp.creator_username">
+                              <span class="truncate" x-text="'• @' + mp.creator_username"></span>
+                            </template>
+                          </div>
+
+                          <!-- Visual Annotations on Matching Pin -->
+                          <div class="flex items-center gap-1 flex-wrap pt-0.5" x-show="mp.visual_annotations && mp.visual_annotations.length">
+                            <template x-for="va in (mp.visual_annotations || []).slice(0, 4)" :key="typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va">
+                              <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums border truncate max-w-[125px]"
+                                    :class="isTagHighlightedInSelectedPattern(typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)
+                                      ? 'bg-purple-500/20 text-purple-700 dark:text-purple-200 border-purple-500/40 font-bold'
+                                      : 'bg-white dark:bg-[#18181B] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
+                                    x-text="'#' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></span>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="pt-2 border-t border-slate-200/70 dark:border-[#27272A]/80 flex items-center justify-between gap-2 font-mono tabular-nums text-[10px]">
+                        <button type="button" @click="copyPinBlueprint(mp)" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 transition cursor-pointer">
+                          ⚡ Blueprint
+                        </button>
+                        <a :href="'/pins/' + mp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="text-indigo-600 dark:text-indigo-400 hover:underline font-bold">
+                          Full Dossier ↗
+                        </a>
+                      </div>
+                    </div>
                   </template>
                 </div>
               </div>
             </template>
-          </div>
-        </div>
 
-        <!-- Subsection A3: Guided Search Capsules & Dominant Color Swatches -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2" x-show="visualHubTab === 'all' || visualHubTab === 'guided' || visualHubTab === 'colors'">
-          <!-- Guided Search Capsules -->
-          <div class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3" x-show="(visualHubTab === 'all' || visualHubTab === 'guided') && (crossoverData?.guided_pivots || []).length > 0">
-            <div class="flex items-center justify-between">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🎯 Guided Search Capsules (SERP Modifiers)</h4>
-              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" x-text="(crossoverData?.guided_pivots || []).length + ' Modifiers'"></span>
+            <div x-show="!getSelectedMatrixItem()" class="p-12 text-center text-xs text-slate-400 font-mono tabular-nums">
+              Select any visual pattern on the left to inspect its matching cluster pins.
             </div>
-            <div class="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
-              <template x-for="gp in (crossoverData?.guided_pivots || []).slice(0, 40)" :key="gp.term">
-                <button type="button" @click="searchQuery = gp.display_label || gp.term; currentPage = 1; scrollToSection('pins-table-section')" class="px-2.5 py-1 rounded-xl text-xs font-semibold bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] hover:border-amber-500 text-slate-800 dark:text-slate-200 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
-                  <span x-text="gp.display_label || gp.term"></span>
-                  <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400" x-text="(gp.keyword_count || 1) + ' KW'"></span>
-                </button>
-              </template>
-            </div>
-          </div>
-
-          <!-- Dominant Color Swatches -->
-          <div class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3" x-show="(visualHubTab === 'all' || visualHubTab === 'colors') && (crossoverData?.dominant_colors || []).length > 0">
-            <div class="flex items-center justify-between">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">🎨 Dominant Color Swatches (Visual Aesthetics)</h4>
-              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="(crossoverData?.dominant_colors || []).length + ' Swatches'"></span>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
-              <template x-for="sw in (crossoverData?.dominant_colors || []).slice(0, 18)" :key="sw.hex">
-                <button type="button" @click="copyAnnotation(sw.hex)" class="p-2 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] hover:border-emerald-500 transition flex items-center gap-2.5 text-left cursor-pointer shadow-2xs" :title="'Click to copy HEX ' + sw.hex">
-                  <span class="w-7 h-7 rounded-lg border border-black/10 dark:border-white/15 shrink-0 shadow-inner" :style="'background-color: ' + sw.hex"></span>
-                  <div class="flex flex-col min-w-0 font-mono tabular-nums">
-                    <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="sw.hex"></span>
-                    <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="sw.pin_count + ' pins • +' + formatNumber(sw.total_velocity) + '/d'"></span>
-                  </div>
-                </button>
-              </template>
-            </div>
-          </div>
-        </div>
-
-        <!-- Subsection B: Core Visual Anchors Matrix -->
-        <div class="space-y-4 pt-2" x-show="visualHubTab === 'all' || visualHubTab === 'anchors'">
-          <!-- Controls Bar -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
-            <div class="flex items-center gap-2.5 flex-wrap">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">Core Visual Anchors</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                    x-text="filteredAnchorsList().length + ' / ' + coreAnchorsList.length + ' Anchors'"></span>
-            </div>
-
-            <!-- Tier Filter Pills -->
-            <div class="flex items-center gap-1.5 flex-wrap text-xs font-mono tabular-nums">
-              <button @click="anchorsTier = 'all'; anchorsPage = 1" 
-                      :class="anchorsTier === 'all' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
-                      class="px-2.5 py-1 rounded-lg transition cursor-pointer">
-                All
-              </button>
-              <button @click="anchorsTier = 'whales'; anchorsPage = 1" 
-                      :class="anchorsTier === 'whales' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
-                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 25 Pins">
-                💎 Whales (≥25)
-              </button>
-              <button @click="anchorsTier = 'high'; anchorsPage = 1" 
-                      :class="anchorsTier === 'high' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
-                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 10 Pins">
-                🔥 High (≥10)
-              </button>
-              <button @click="anchorsTier = 'core'; anchorsPage = 1" 
-                      :class="anchorsTier === 'core' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
-                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 5 Pins">
-                ⚡ Core (≥5)
-              </button>
-            </div>
-
-            <div class="flex items-center gap-2.5 flex-wrap">
-              <!-- Search within Anchors -->
-              <div class="relative">
-                <input type="text" 
-                       x-model="anchorsSearch" 
-                       @input="anchorsPage = 1"
-                       placeholder="Filter anchors (e.g. Steak, Pasta)..." 
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
-                <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
-                <button x-show="anchorsSearch" @click="anchorsSearch = ''; anchorsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
-              </div>
-
-              <!-- View Switcher -->
-              <div class="flex items-center rounded-xl bg-white dark:bg-[#121215] p-0.5 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
-                <button @click="anchorsView = 'cards'" 
-                        :class="anchorsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Cards Grid">
-                  <span>🎴</span>
-                  <span>Cards</span>
-                </button>
-                <button @click="anchorsView = 'cloud'" 
-                        :class="anchorsView === 'cloud' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Semantic Tag Cloud">
-                  <span>☁️</span>
-                  <span>Cloud</span>
-                </button>
-                <button @click="anchorsView = 'table'" 
-                        :class="anchorsView === 'table' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Full Paginated Table">
-                  <span>📊</span>
-                  <span>Table</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 1. CARDS GRID VIEW -->
-          <div x-show="anchorsView === 'cards' && filteredAnchorsList().length > 0" class="space-y-4">
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-              <template x-for="(anchor, idx) in filteredAnchorsList().slice(0, anchorsLimit)" :key="anchor.tag">
-                <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
-                        class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
-                        :class="searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
-                  <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400 mb-1">
-                    <span x-text="'#' + (idx + 1)"></span>
-                    <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
-                  </div>
-                  <div class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="anchor.tag"></div>
-                </button>
-              </template>
-            </div>
-
-            <!-- Cards Expansion Controls -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs">
-              <span class="font-mono tabular-nums text-slate-500 dark:text-slate-400" 
-                    x-text="'Showing ' + Math.min(anchorsLimit, filteredAnchorsList().length) + ' of ' + filteredAnchorsList().length + ' Visual Anchors'"></span>
-              <div class="flex items-center gap-2 font-mono tabular-nums">
-                <button x-show="anchorsLimit < filteredAnchorsList().length" 
-                        @click="anchorsLimit += 36" 
-                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold transition cursor-pointer">
-                  <span>↓ Show More (+36)</span>
-                </button>
-                <button x-show="anchorsLimit < filteredAnchorsList().length" 
-                        @click="anchorsLimit = filteredAnchorsList().length" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 font-bold transition cursor-pointer">
-                  <span>Show All (<span x-text="filteredAnchorsList().length"></span>)</span>
-                </button>
-                <button x-show="anchorsLimit > 24" 
-                        @click="anchorsLimit = 24" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 font-bold transition cursor-pointer">
-                  <span>↑ Collapse to 24</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. SEMANTIC TAG CLOUD VIEW -->
-          <div x-show="anchorsView === 'cloud' && filteredAnchorsList().length > 0" class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3">
-            <div class="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums pb-2 border-b border-slate-200 dark:border-[#27272A]">
-              <span>Dynamic Tag Cloud (Size & Glow scaled by Pin Frequency across cluster)</span>
-              <span>Click any tag to filter 1,788 pins</span>
-            </div>
-            <div class="flex flex-wrap gap-2 items-center justify-center py-4">
-              <template x-for="anchor in filteredAnchorsList().slice(0, 120)" :key="anchor.tag">
-                <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
-                        class="rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                        :class="[
-                          searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white' : '',
-                          anchor.count >= 40 
-                            ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' 
-                            : (anchor.count >= 15 
-                              ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' 
-                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-400')
-                        ]">
-                  <span x-text="anchor.tag"></span>
-                  <span class="text-[9px] font-mono tabular-nums opacity-70 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
-                </button>
-              </template>
-            </div>
-          </div>
-
-          <!-- 3. TABLE VIEW -->
-          <div x-show="anchorsView === 'table' && filteredAnchorsList().length > 0" class="space-y-3">
-            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950">
-              <table class="w-full text-left text-xs font-mono tabular-nums">
-                <thead class="bg-slate-50 dark:bg-[#121215] border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                  <tr>
-                    <th class="p-3 w-16 text-center">Rank #</th>
-                    <th class="p-3">Visual Anchor Tag</th>
-                    <th class="p-3">Pins Frequency</th>
-                    <th class="p-3">Cluster Share (SOV %)</th>
-                    <th class="p-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                  <template x-for="(anchor, idx) in paginatedAnchorsTable()" :key="anchor.tag">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
-                      <td class="p-3 text-center text-slate-400 font-mono tabular-nums" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
-                      <td class="p-3">
-                        <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer flex items-center gap-1.5 text-left">
-                          <span>🏷️</span>
-                          <span x-text="anchor.tag"></span>
-                        </button>
-                      </td>
-                      <td class="p-3">
-                        <div class="flex items-center gap-2">
-                          <div class="w-24 bg-slate-100 dark:bg-[#18181B] rounded-full h-1.5 overflow-hidden">
-                            <div class="h-full rounded-full bg-purple-500" :style="'width: ' + Math.min(100, Math.round((anchor.count / (coreAnchorsList[0]?.count || 1)) * 100)) + '%'"></div>
-                          </div>
-                          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="anchor.count + ' pins'"></span>
-                        </div>
-                      </td>
-                      <td class="p-3 text-slate-500 dark:text-slate-400 font-mono tabular-nums" 
-                          x-text="((anchor.count / (crossoverData?.all_pins?.length || 1788)) * 100).toFixed(1) + '%'"></td>
-                      <td class="p-3 text-right">
-                        <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-[#121215] dark:hover:bg-purple-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors shadow-2xs">
-                          Filter Pins →
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Anchors Table Pagination -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
-              <span class="text-slate-500 dark:text-slate-400" 
-                    x-text="'Page ' + anchorsPage + ' of ' + totalAnchorsPages() + ' (' + filteredAnchorsList().length + ' anchors)'"></span>
-              <div class="flex items-center gap-1.5">
-                <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">← Prev</button>
-                <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">Next →</button>
-              </div>
-            </div>
-          </div>
-
-          <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
-            No visual anchors match current filter.
-          </div>
-        </div>
-
-        <!-- Subsection C: Shared Annotations Hub (Cross-Keyword Frequency & Metric Gains) -->
-        <div class="shared-annotations-hub space-y-3 pt-2" x-show="filteredTagBridges().length">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Shared Annotations Hub (Cross-Keyword Frequency &amp; Metric Gains)</h4>
-              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Annotations'"></span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] text-slate-400 font-mono tabular-nums">Tags bridging multiple search queries across cluster</span>
-              <button type="button" @click="copyAnnotations()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1 cursor-pointer">
-                <span>📋</span>
-                <span>Copy All Annotations</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A]">
-            <table class="w-full text-left text-xs font-mono tabular-nums">
-              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                <tr>
-                  <th class="p-3">Bridge Visual Tag</th>
-                  <th class="p-3">Cluster Overlap %</th>
-                  <th class="p-3">Connected Keywords</th>
-                  <th class="p-3">Pin Frequency</th>
-                  <th class="p-3">Metric Gains (Saves &amp; Velocity)</th>
-                  <th class="p-3 text-right">Combined Saves</th>
-                  <th class="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                <template x-for="tb in filteredTagBridges().slice(0, 15)" :key="tb.raw_tag || tb.tag">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
-                    <td class="p-3 font-bold text-slate-900 dark:text-white">
-                      <button @click="searchQuery = tb.raw_tag || tb.tag; currentPage = 1; scrollToSection('pins-table-section')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline flex items-center gap-1.5 cursor-pointer text-left">
-                        <span>🌉</span>
-                        <span x-text="tb.tag"></span>
-                      </button>
-                    </td>
-                    <td class="p-3">
-                      <div class="flex items-center gap-2">
-                        <div class="w-16 bg-slate-200 dark:bg-[#18181B] rounded-full h-1.5 overflow-hidden">
-                          <div class="h-full rounded-full bg-indigo-500" :style="'width: ' + tb.overlap_percentage + '%'"></div>
-                        </div>
-                        <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400" x-text="tb.overlap_percentage + '%'"></span>
-                      </div>
-                    </td>
-                    <td class="p-3">
-                      <div class="flex items-center gap-1 flex-wrap">
-                        <template x-for="kw in (tb.keywords || []).slice(0, 4)" :key="kw">
-                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] text-[9px]" x-text="kw"></span>
-                        </template>
-                        <span x-show="(tb.keywords || []).length > 4" class="text-[9px] text-slate-400 font-mono tabular-nums" x-text="'+' + ((tb.keywords || []).length - 4)"></span>
-                      </div>
-                    </td>
-                    <td class="p-3 font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
-                    <td class="p-3">
-                      <div class="flex flex-col gap-0.5">
-                        <span class="font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(tb.saves_gain || tb.metric_gains?.saves || 0) + ' saves_gain'"></span>
-                        <span class="text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + (tb.velocity_gain || tb.metric_gains?.velocity || ((tb.pin_count || 1) * 2.4).toFixed(1)) + ' vel/d'"></span>
-                      </div>
-                    </td>
-                    <td class="p-3 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 text-right" x-text="formatNumber(tb.total_saves)"></td>
-                    <td class="p-3 text-right">
-                      <button type="button" @click.stop="copyAnnotation(tb.tag)" class="px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 hover:bg-indigo-600 hover:text-white dark:bg-[#18181B] dark:hover:bg-indigo-600 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] transition cursor-pointer" title="Copy Annotation Tag">
-                        Copy Tag
-                      </button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
           </div>
         </div>
       </div>
@@ -2132,11 +1832,18 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         pageSize: 10,
         searchQuery: '',
         entityFilter: { type: null, value: null },
+        activeMatrixFilter: null,
+        expandedPinRanks: {},
         onlyBreakoutBabyDomains: false,
         onlyVacuumPins: false,
         onlyFreshRockets: false,
         onlySurging24h: false,
-        visualHubTab: 'all',
+        visualHubTab: 'pairs',
+        selectedMatrixIndex: 0,
+        selectedMatrixItem: null,
+        matrixSearch: '',
+        matrixSort: 'velocity_desc',
+        matrixListLimit: 30,
         _pinsCacheKey: '',
         _cachedFilteredPins: null,
         powerPairs: [],
@@ -2163,6 +1870,322 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         domainPageSize: 10,
         _domainCacheKey: '',
         _cachedFilteredDomains: null,
+
+        getSortedPinRankings(sp) {
+          const list = Array.isArray(sp?.rankings) ? sp.rankings.slice() : [];
+          return list.sort((a, b) => {
+            const aDisp = a.is_displaced ? 1 : 0;
+            const bDisp = b.is_displaced ? 1 : 0;
+            if (aDisp !== bDisp) return aDisp - bDisp;
+            return (Number(a.rank_position) || 999) - (Number(b.rank_position) || 999);
+          });
+        },
+
+        normalizeClientTagLemma(raw) {
+          if (!raw) return '';
+          const str = typeof raw === 'object' && raw !== null
+            ? String(raw.name || raw.tag || raw.label || raw.term || raw.display_label || '')
+            : String(raw || '');
+          const clean = str.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
+          if (!clean) return '';
+          const words = clean.split(' ').filter(Boolean).map(w => {
+            if (w.length <= 3) return w;
+            if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
+            if (w.endsWith('ches') || w.endsWith('shes') || w.endsWith('xes') || w.endsWith('zes')) return w.slice(0, -2);
+            if (w.endsWith('ves') && w.length > 4) return w.slice(0, -3) + 'f';
+            if (w.endsWith('s') && !w.endsWith('ss') && !w.endsWith('us') && !w.endsWith('is')) return w.slice(0, -1);
+            return w;
+          });
+          return words.join(' ');
+        },
+
+        switchMatrixTab(tab) {
+          this.visualHubTab = tab;
+          this.selectedMatrixIndex = 0;
+          this.selectedMatrixItem = null;
+          this.matrixListLimit = 30;
+        },
+
+        getActiveMatrixTitle() {
+          const tab = this.visualHubTab;
+          if (tab === 'triplets') return '3-Tag Co-Occurrence Triplets';
+          if (tab === 'anchors') return '1-Tag Power Leaders & Bridges';
+          if (tab === 'guided') return 'Guided Search Capsules (SERP Modifiers)';
+          if (tab === 'colors') return 'Dominant Color Swatches';
+          return '2-Tag Visual Power Pairs';
+        },
+
+        getActiveMatrixItems() {
+          const tab = this.visualHubTab;
+          const q = (this.matrixSearch || '').toLowerCase().trim();
+          const sort = this.matrixSort || 'velocity_desc';
+          let items = [];
+
+          if (tab === 'triplets') {
+            items = (this.powerTriplets || []).map((tr, i) => ({
+              ...tr,
+              _type: 'triplet',
+              _key: 'tr_' + (tr.tags || []).join('|') + '_' + i
+            }));
+            if (q) {
+              items = items.filter(tr =>
+                (tr.tags || []).some(t => t.toLowerCase().includes(q)) ||
+                (tr.keywords || []).some(k => k.toLowerCase().includes(q))
+              );
+            }
+          } else if (tab === 'anchors') {
+            items = (this.coreAnchorsList || []).map((a, i) => ({
+              ...a,
+              _type: 'anchor',
+              _key: 'anc_' + (a.raw_tag || a.tag || i)
+            }));
+            if (this.anchorsTier === 'universal') {
+              items = items.filter(a => (a.overlap_percentage || 0) >= 50 || a.is_universal);
+            } else if (this.anchorsTier === 'whales') {
+              items = items.filter(a => (a.pin_count || a.count || 0) >= 25);
+            } else if (this.anchorsTier === 'high') {
+              items = items.filter(a => (a.pin_count || a.count || 0) >= 10);
+            }
+            if (q) {
+              items = items.filter(a =>
+                String(a.tag || '').toLowerCase().includes(q) ||
+                (a.keywords || []).some(k => k.toLowerCase().includes(q))
+              );
+            }
+          } else if (tab === 'guided') {
+            items = (this.crossoverData?.guided_pivots || []).map((gp, i) => ({
+              ...gp,
+              _type: 'capsule',
+              _key: 'gp_' + (gp.term || i)
+            }));
+            if (q) {
+              items = items.filter(gp =>
+                String(gp.display_label || gp.term || '').toLowerCase().includes(q) ||
+                (gp.keywords || []).some(k => k.toLowerCase().includes(q))
+              );
+            }
+          } else if (tab === 'colors') {
+            items = (this.crossoverData?.dominant_colors || []).map((sw, i) => ({
+              ...sw,
+              _type: 'color',
+              _key: 'sw_' + (sw.hex || i)
+            }));
+            if (q) {
+              items = items.filter(sw =>
+                String(sw.hex || '').toLowerCase().includes(q) ||
+                (sw.keywords || []).some(k => k.toLowerCase().includes(q))
+              );
+            }
+          } else {
+            items = (this.powerPairs || []).map((p, i) => ({
+              ...p,
+              _type: 'pair',
+              _key: 'pr_' + p.tag_a + '|' + p.tag_b + '_' + i
+            }));
+            if (q) {
+              items = items.filter(p =>
+                String(p.tag_a || '').toLowerCase().includes(q) ||
+                String(p.tag_b || '').toLowerCase().includes(q) ||
+                (p.keywords || []).some(k => k.toLowerCase().includes(q))
+              );
+            }
+          }
+
+          items = items.slice().sort((a, b) => {
+            const aVel = Number(a.total_velocity ?? a.velocity_gain ?? 0);
+            const bVel = Number(b.total_velocity ?? b.velocity_gain ?? 0);
+            const aPins = Number(a.joint_count ?? a.pin_count ?? a.count ?? 0);
+            const bPins = Number(b.joint_count ?? b.pin_count ?? b.count ?? 0);
+            const aKws = Number(a.keywords_count ?? a.keyword_count ?? a.shared_count ?? a.keyword_overlap_count ?? 1);
+            const bKws = Number(b.keywords_count ?? b.keyword_count ?? b.shared_count ?? b.keyword_overlap_count ?? 1);
+            const aLift = Number(a.lift ?? a.composite_score ?? a.overlap_percentage ?? 0);
+            const bLift = Number(b.lift ?? b.composite_score ?? b.overlap_percentage ?? 0);
+            const aSaves = Number(a.total_saves ?? 0);
+            const bSaves = Number(b.total_saves ?? 0);
+
+            if (sort === 'freq_desc') return bPins - aPins || bVel - aVel || bKws - aKws;
+            if (sort === 'keywords_desc') return bKws - aKws || bVel - aVel || bPins - aPins;
+            if (sort === 'lift_desc') return bLift - aLift || bVel - aVel || bPins - aPins;
+            if (sort === 'saves_desc') return bSaves - aSaves || bVel - aVel || bPins - aPins;
+            return bVel - aVel || bPins - aPins || bKws - aKws;
+          });
+
+          return items;
+        },
+
+        selectMatrixItem(item, idx = 0) {
+          this.selectedMatrixIndex = idx;
+          this.selectedMatrixItem = item;
+        },
+
+        isMatrixItemSelected(item, idx) {
+          const current = this.getSelectedMatrixItem();
+          if (!current || !item) return idx === 0;
+          if (current._key && item._key) return current._key === item._key;
+          return this.selectedMatrixIndex === idx;
+        },
+
+        getSelectedMatrixItem() {
+          const list = this.getActiveMatrixItems();
+          if (!list.length) return null;
+          if (this.selectedMatrixItem) {
+            const found = list.find(x => x._key && x._key === this.selectedMatrixItem._key);
+            if (found) return found;
+          }
+          const idx = Math.min(Math.max(0, this.selectedMatrixIndex || 0), list.length - 1);
+          return list[idx] || list[0];
+        },
+
+        getMatrixItemLabel(item) {
+          if (!item) return '';
+          const tab = this.visualHubTab;
+          if (tab === 'triplets' || item._type === 'triplet') {
+            return (item.tags || []).map(t => '#' + t).join(' + ');
+          }
+          if (tab === 'anchors' || item._type === 'anchor') {
+            return '#' + (item.tag || item.raw_tag || '');
+          }
+          if (tab === 'guided' || item._type === 'capsule') {
+            return '🎯 Capsule: ' + (item.display_label || item.term || '');
+          }
+          if (tab === 'colors' || item._type === 'color') {
+            return '🎨 Palette: ' + (item.hex || '');
+          }
+          return '#' + (item.tag_a || '') + ' + #' + (item.tag_b || '');
+        },
+
+        isTagHighlightedInSelectedPattern(rawTag) {
+          const item = this.getSelectedMatrixItem();
+          if (!item || !rawTag) return false;
+          const lemma = this.normalizeClientTagLemma(rawTag);
+          if (!lemma) return false;
+          const tab = this.visualHubTab;
+          if (tab === 'pairs' || tab === 'all' || item._type === 'pair') {
+            return lemma === this.normalizeClientTagLemma(item.tag_a) || lemma === this.normalizeClientTagLemma(item.tag_b);
+          }
+          if (tab === 'triplets' || item._type === 'triplet') {
+            return (item.tags || []).some(t => this.normalizeClientTagLemma(t) === lemma);
+          }
+          if (tab === 'anchors' || item._type === 'anchor') {
+            return lemma === this.normalizeClientTagLemma(item.raw_tag || item.tag);
+          }
+          if (tab === 'guided' || item._type === 'capsule') {
+            const term = this.normalizeClientTagLemma(item.term || item.display_label);
+            return Boolean(term && (' ' + lemma + ' ').includes(' ' + term + ' '));
+          }
+          return false;
+        },
+
+        pinMatchesMatrixItem(pin, item, tabOverride = null) {
+          if (!pin || !item) return false;
+          const tab = tabOverride || item._type || this.visualHubTab;
+          const pinLemmas = new Set();
+          for (const va of (pin.visual_annotations || [])) {
+            const l = this.normalizeClientTagLemma(va);
+            if (l) pinLemmas.add(l);
+          }
+
+          if (tab === 'pairs' || tab === 'all' || tab === 'pair') {
+            const lA = this.normalizeClientTagLemma(item.tag_a);
+            const lB = this.normalizeClientTagLemma(item.tag_b);
+            return Boolean(lA && lB && pinLemmas.has(lA) && pinLemmas.has(lB));
+          }
+          if (tab === 'triplets' || tab === 'triplet') {
+            const required = (item.tags || []).map(t => this.normalizeClientTagLemma(t)).filter(Boolean);
+            return required.length > 0 && required.every(req => pinLemmas.has(req));
+          }
+          if (tab === 'anchors' || tab === 'anchor') {
+            const target = this.normalizeClientTagLemma(item.raw_tag || item.tag);
+            return Boolean(target && pinLemmas.has(target));
+          }
+          if (tab === 'guided' || tab === 'capsule') {
+            const term = this.normalizeClientTagLemma(item.term || item.display_label);
+            if (!term) return false;
+            const padded = ' ' + term + ' ';
+            if (pinLemmas.has(term)) return true;
+            for (const pl of pinLemmas) {
+              if ((' ' + pl + ' ').includes(padded)) return true;
+            }
+            const normTitle = ' ' + String(pin.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim() + ' ';
+            if (normTitle.includes(padded)) return true;
+            return (pin.rankings || []).some(r => (' ' + String(r.keyword || '').toLowerCase() + ' ').includes(padded));
+          }
+          if (tab === 'colors' || tab === 'color') {
+            const targetHex = String(item.hex || '').trim().toUpperCase();
+            return Boolean(targetHex && String(pin.dominant_color || '').trim().toUpperCase() === targetHex);
+          }
+          return false;
+        },
+
+        getMatchingPinsForMatrixItem(item, tabOverride = null) {
+          if (!item) return [];
+          const allPins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+            ? this.crossoverData.all_pins
+            : (this.crossoverData?.super_pins || []);
+          if (!allPins.length) {
+            return item.matching_pins || item.pins || [];
+          }
+          const matched = allPins.filter(p => this.pinMatchesMatrixItem(p, item, tabOverride));
+          if (!matched.length && (item.matching_pins?.length || item.pins?.length)) {
+            return item.matching_pins || item.pins || [];
+          }
+          return matched.slice().sort((a, b) =>
+            ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) ||
+            ((b.save_count || 0) - (a.save_count || 0))
+          );
+        },
+
+        applyMatrixFilter(item, tabOverride = null) {
+          if (!item) return;
+          const tab = tabOverride || item._type || this.visualHubTab;
+          let badge = 'Matrix Pattern';
+          if (tab === 'pairs' || tab === 'all' || tab === 'pair') badge = '2-Tag Power Pair';
+          else if (tab === 'triplets' || tab === 'triplet') badge = '3-Tag Triplet';
+          else if (tab === 'anchors' || tab === 'anchor') badge = '1-Tag Visual Bridge';
+          else if (tab === 'guided' || tab === 'capsule') badge = 'Guided Search Capsule';
+          else if (tab === 'colors' || tab === 'color') badge = 'Color Swatch';
+
+          const label = this.getMatrixItemLabel(item);
+          this.activeMatrixFilter = {
+            type: tab,
+            badge,
+            label,
+            item
+          };
+          this.currentPage = 1;
+          this._pinsCacheKey = '';
+          this.showToast('Filtered cluster pins by ' + badge + ': ' + label, 'info');
+          this.scrollToSection('pins-table-section');
+        },
+
+        clearMatrixFilter() {
+          this.activeMatrixFilter = null;
+          this.currentPage = 1;
+          this._pinsCacheKey = '';
+          this.showToast('Cleared matrix pattern filter', 'info');
+        },
+
+        copyMatrixItemBlueprint(item, tabOverride = null) {
+          if (!item) return;
+          const tab = tabOverride || item._type || this.visualHubTab;
+          if (tab === 'pairs' || tab === 'all' || tab === 'pair') {
+            this.copyVisualBlueprint(item);
+            return;
+          }
+          const label = this.getMatrixItemLabel(item);
+          const kws = (item.keywords || []).slice(0, 6).join(', ');
+          const text = [
+            '📌 CLUSTER VISUAL PATTERN BLUEPRINT',
+            '===================================',
+            'Pattern: ' + label,
+            'Joint Cluster Pins: ' + (item.joint_count || item.pin_count || item.count || 0),
+            '24h Save Velocity: +' + (item.total_velocity ?? item.velocity_gain ?? 0) + '/d',
+            'Target SERP Keywords: ' + (kws || 'Cluster Terms')
+          ].join('\\n');
+          navigator.clipboard.writeText(text).then(() => {
+            this.showToast('Copied pattern blueprint: ' + label, 'success');
+          }).catch(() => {});
+        },
 
         togglePowerPairsSort(col) {
           if (col === 'freq') {
@@ -2704,44 +2727,94 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         },
 
         get coreAnchorsList() {
+          // Single Source of Truth: Use backend canonical lemmatized tag_bridges when present
+          if (Array.isArray(this.crossoverData?.tag_bridges) && this.crossoverData.tag_bridges.length > 0) {
+            return this.crossoverData.tag_bridges.map(tb => ({
+              ...tb,
+              tag: tb.tag || tb.raw_tag,
+              raw_tag: tb.raw_tag || tb.tag,
+              count: tb.pin_count ?? tb.count ?? 0,
+              pin_count: tb.pin_count ?? tb.count ?? 0,
+              keywords_count: tb.keyword_overlap_count ?? tb.keywords_count ?? (tb.keywords ? tb.keywords.length : 1),
+              total_velocity: tb.total_velocity ?? tb.velocity_gain ?? 0
+            }));
+          }
+
           const pins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
             ? this.crossoverData.all_pins
             : (this.crossoverData?.super_pins || []);
           if (!pins || pins.length === 0) return [];
-          
+
+          const totalKws = Math.max(1, Number(this.crossoverData?.summary?.total_keywords || this.totalKeywordsCount || 1));
+          const toTitleCase = (str) => str ? str.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
           const freqMap = new Map();
+
           for (const pin of pins) {
             const tags = Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [];
             const seen = new Set();
             for (const t of tags) {
-              const str = typeof t === 'object' && t !== null ? (t.name || t.tag || t.label || t.term || '') : (typeof t === 'string' ? t : '');
-              if (str && str.trim().length >= 3) {
-                const clean = str.trim();
-                const key = clean.toLowerCase();
-                if (!seen.has(key)) {
-                  seen.add(key);
-                  freqMap.set(clean, (freqMap.get(clean) || 0) + 1);
+              const lemma = this.normalizeClientTagLemma(t);
+              if (lemma && lemma.length >= 3 && !seen.has(lemma)) {
+                seen.add(lemma);
+                let rec = freqMap.get(lemma);
+                if (!rec) {
+                  rec = {
+                    tag: toTitleCase(lemma),
+                    raw_tag: lemma,
+                    count: 0,
+                    pin_count: 0,
+                    total_saves: 0,
+                    total_velocity: 0,
+                    total_repins_delta: 0,
+                    keywords_set: new Set()
+                  };
+                  freqMap.set(lemma, rec);
+                }
+                rec.count += 1;
+                rec.pin_count += 1;
+                rec.total_saves += Number(pin.save_count || 0);
+                rec.total_velocity += Number(pin.effective_velocity ?? pin.daily_save_velocity ?? 0);
+                rec.total_repins_delta += Math.max(0, Number(pin.delta_repins_24h || 0));
+                for (const r of (pin.rankings || [])) {
+                  if (r.keyword) rec.keywords_set.add(r.keyword);
                 }
               }
             }
           }
 
           const list = [];
-          for (const [tag, count] of freqMap.entries()) {
-            if (count >= 2) {
-              list.push({ tag, count });
+          for (const rec of freqMap.values()) {
+            if (rec.count >= 2) {
+              const kwCount = rec.keywords_set.size || 1;
+              const overlapPct = Math.round((kwCount / totalKws) * 100);
+              list.push({
+                tag: rec.tag,
+                raw_tag: rec.raw_tag,
+                count: rec.count,
+                pin_count: rec.pin_count,
+                keywords_count: kwCount,
+                keyword_overlap_count: kwCount,
+                overlap_percentage: overlapPct,
+                is_universal: overlapPct >= 50,
+                keywords: Array.from(rec.keywords_set),
+                total_saves: rec.total_saves,
+                total_velocity: Math.round(rec.total_velocity * 10) / 10,
+                velocity_gain: Math.round(rec.total_velocity * 10) / 10,
+                total_repins_delta: Math.round(rec.total_repins_delta)
+              });
             }
           }
-          return list.sort((a, b) => b.count - a.count);
+          return list.sort((a, b) => b.count - a.count || b.total_velocity - a.total_velocity);
         },
 
         computePowerPairs() {
-          // Compute across all 1,788 cluster pins (or super-pins)
+          // Compute across all cluster pins (or super-pins)
           const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
             ? this.crossoverData.all_pins
             : (this.crossoverData?.super_pins || []);
           if (!source || source.length < 2) {
             this.powerPairs = [];
+            this.powerTriplets = [];
             return;
           }
 
@@ -2749,7 +2822,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           const N_total = pins.length;
           const tagFreq = new Map();
           const pairFreq = new Map();
-          const pairPins = new Map();
+          const tripletFreq = new Map();
 
           // Stopwords filter for pairs
           const skipWords = new Set([
@@ -2763,107 +2836,41 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             return str.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           };
 
-          for (const pin of pins) {
+          // Pass 1: Extract normalized tags per pin once and count frequencies using primitive integers only
+          const extractedPinMeta = new Array(N_total);
+          for (let pIdx = 0; pIdx < N_total; pIdx++) {
+            const pin = pins[pIdx];
             const rawSet = new Set();
+            const lemmaSet = new Set();
             for (const rawVa of (pin.visual_annotations || [])) {
               const va = typeof rawVa === 'object' && rawVa !== null ? (rawVa.name || rawVa.tag || rawVa.label || rawVa.term || '') : (typeof rawVa === 'string' ? rawVa : '');
               if (va) {
-                // Preserve spaces between words, strip punctuation without template-string regex hazards
                 const clean = va.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
                 if (clean.length >= 3 && clean.length <= 35 && !skipWords.has(clean)) {
                   rawSet.add(clean);
+                }
+                const lemma = this.normalizeClientTagLemma(va);
+                if (lemma && lemma.length >= 3 && lemma.length <= 35 && !skipWords.has(lemma)) {
+                  lemmaSet.add(lemma);
                 }
               }
             }
 
             const pinTags = Array.from(rawSet).slice(0, 10);
+            const tArr = Array.from(lemmaSet).slice(0, 8).sort();
+            extractedPinMeta[pIdx] = { pinTags, tArr };
 
             for (let i = 0; i < pinTags.length; i++) {
               const t1 = pinTags[i];
               tagFreq.set(t1, (tagFreq.get(t1) || 0) + 1);
-
               for (let j = i + 1; j < pinTags.length; j++) {
                 const t2 = pinTags[j];
-                // Filter redundant pairs where one tag is contained within the other
                 if (t1.includes(t2) || t2.includes(t1)) continue;
-
                 const key = t1 < t2 ? (t1 + '|||' + t2) : (t2 + '|||' + t1);
                 pairFreq.set(key, (pairFreq.get(key) || 0) + 1);
-
-                let pList = pairPins.get(key);
-                if (!pList) {
-                  pList = [];
-                  pairPins.set(key, pList);
-                }
-                pList.push({
-                  pin_id: pin.pin_id,
-                  title: pin.title || 'Untitled Pin',
-                  image_url: pin.image_url,
-                  daily_save_velocity: Number(pin.daily_save_velocity || pin.delta_saves_24h || 0),
-                  save_count: Number(pin.save_count || 0),
-                  pin_age_days: pin.pin_age_days
-                });
               }
             }
-          }
 
-          // Dynamic min support threshold: 2 for small subsets, at least 5 for 1,000+ pins
-          const minSupport = N_total > 500 ? 5 : (N_total > 100 ? 3 : 2);
-
-          const pairs = [];
-          for (const [key, jointCount] of pairFreq.entries()) {
-            if (jointCount >= minSupport) {
-              const [t1, t2] = key.split('|||');
-              const n1 = tagFreq.get(t1) || 1;
-              const n2 = tagFreq.get(t2) || 1;
-              const liftRaw = ((jointCount + 1) * (N_total + 4)) / ((n1 + 2) * (n2 + 2));
-              const confRaw = (jointCount + 1) / (n1 + 2);
-
-              const liftVal = Number.isFinite(liftRaw) ? Number(liftRaw.toFixed(2)) : 1.0;
-              const confidence = Number.isFinite(confRaw) ? Number(confRaw.toFixed(2)) : 0.0;
-              const supportPct = Number(((jointCount / N_total) * 100).toFixed(1));
-
-              // Balanced Synergy Score: Lift weighted by log2 support to prevent rare 2-pin anomalies
-              const synergyScore = liftVal * Math.log2(jointCount + 1);
-
-              const matching = pairPins.get(key) || [];
-              matching.sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0));
-              const totalVelocity = matching.reduce((sum, p) => sum + (Number(p.daily_save_velocity) || 0), 0);
-
-              pairs.push({
-                tag_a: toTitleCase(t1),
-                tag_b: toTitleCase(t2),
-                joint_count: jointCount,
-                lift: liftVal,
-                confidence: confidence,
-                support_pct: supportPct,
-                synergy_score: synergyScore,
-                total_velocity: Math.round(totalVelocity * 10) / 10,
-                pins: matching.slice(0, 8)
-              });
-            }
-          }
-
-          // Default sort by pins frequency (high to low), with daily save velocity as secondary ranking
-          pairs.sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
-          this.powerPairs = pairs;
-
-          // Compute 3-Tag Co-Occurrence Triplets across cluster pins
-          const tripletFreq = new Map();
-          const tripletVel = new Map();
-          for (const pin of pins) {
-            const rawSet = new Set();
-            for (const rawVa of (pin.visual_annotations || [])) {
-              const va = typeof rawVa === 'object' && rawVa !== null ? (rawVa.name || rawVa.tag || rawVa.label || rawVa.term || '') : (typeof rawVa === 'string' ? rawVa : '');
-              if (va) {
-                const clean = va.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
-                if (clean.length >= 3 && clean.length <= 35 && !skipWords.has(clean)) {
-                  rawSet.add(clean);
-                }
-              }
-            }
-            const tArr = Array.from(rawSet).slice(0, 6).sort();
-            const pVel = Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0);
             for (let i = 0; i < tArr.length; i++) {
               for (let j = i + 1; j < tArr.length; j++) {
                 if (tArr[i].includes(tArr[j]) || tArr[j].includes(tArr[i])) continue;
@@ -2871,23 +2878,159 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
                   if (tArr[k].includes(tArr[i]) || tArr[i].includes(tArr[k]) || tArr[k].includes(tArr[j]) || tArr[j].includes(tArr[k])) continue;
                   const tKey = tArr[i] + '|||' + tArr[j] + '|||' + tArr[k];
                   tripletFreq.set(tKey, (tripletFreq.get(tKey) || 0) + 1);
-                  tripletVel.set(tKey, (tripletVel.get(tKey) || 0) + pVel);
                 }
               }
             }
           }
-          const triplets = [];
-          for (const [tKey, count] of tripletFreq.entries()) {
-            if (count >= 2) {
-              triplets.push({
-                tags: tKey.split('|||').map(toTitleCase),
-                joint_count: count,
-                total_velocity: Math.round((tripletVel.get(tKey) || 0) * 10) / 10
-              });
+
+          // Dynamic min support threshold: 2 for small subsets, at least 5 for 1,000+ pins
+          const minSupport = N_total > 500 ? 5 : (N_total > 100 ? 3 : 2);
+
+          // Collect only qualifying pairs and triplets before allocating metadata structures
+          const pairStats = new Map();
+          for (const [key, jointCount] of pairFreq.entries()) {
+            if (jointCount >= minSupport) {
+              pairStats.set(key, { jointCount, vel: 0, repins: 0, saves: 0, kws: new Set(), pins: [] });
             }
           }
-          triplets.sort((a, b) => b.joint_count - a.joint_count || b.total_velocity - a.total_velocity);
-          this.powerTriplets = triplets.slice(0, 36);
+
+          const tripletStats = new Map();
+          for (const [tKey, jointCount] of tripletFreq.entries()) {
+            if (jointCount >= 2) {
+              tripletStats.set(tKey, { jointCount, vel: 0, repins: 0, saves: 0, kws: new Set(), pinIds: [], pins: [] });
+            }
+          }
+
+          // Pass 2: Hydrate metrics and pin references ONLY for surviving pairs & triplets
+          for (let pIdx = 0; pIdx < N_total; pIdx++) {
+            const pin = pins[pIdx];
+            const { pinTags, tArr } = extractedPinMeta[pIdx];
+            const pVel = Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0);
+            const pRepins = Math.max(0, Number(pin.delta_repins_24h || 0));
+            const pSaves = Number(pin.save_count || 0);
+            const pinKws = (pin.rankings || []).map(r => r.keyword).filter(Boolean);
+
+            for (let i = 0; i < pinTags.length; i++) {
+              const t1 = pinTags[i];
+              for (let j = i + 1; j < pinTags.length; j++) {
+                const t2 = pinTags[j];
+                if (t1.includes(t2) || t2.includes(t1)) continue;
+                const key = t1 < t2 ? (t1 + '|||' + t2) : (t2 + '|||' + t1);
+                const st = pairStats.get(key);
+                if (st) {
+                  st.vel += pVel;
+                  st.repins += pRepins;
+                  st.saves += pSaves;
+                  for (const kw of pinKws) st.kws.add(kw);
+                  if (st.pins.length < 16) st.pins.push(pin);
+                }
+              }
+            }
+
+            for (let i = 0; i < tArr.length; i++) {
+              for (let j = i + 1; j < tArr.length; j++) {
+                if (tArr[i].includes(tArr[j]) || tArr[j].includes(tArr[i])) continue;
+                for (let k = j + 1; k < tArr.length; k++) {
+                  if (tArr[k].includes(tArr[i]) || tArr[i].includes(tArr[k]) || tArr[k].includes(tArr[j]) || tArr[j].includes(tArr[k])) continue;
+                  const tKey = tArr[i] + '|||' + tArr[j] + '|||' + tArr[k];
+                  const tst = tripletStats.get(tKey);
+                  if (tst) {
+                    tst.vel += pVel;
+                    tst.repins += pRepins;
+                    tst.saves += pSaves;
+                    tst.pinIds.push(String(pin.pin_id || pIdx));
+                    for (const kw of pinKws) tst.kws.add(kw);
+                    if (tst.pins.length < 16) tst.pins.push(pin);
+                  }
+                }
+              }
+            }
+          }
+
+          const pairs = [];
+          for (const [key, st] of pairStats.entries()) {
+            const jointCount = st.jointCount;
+            const [t1, t2] = key.split('|||');
+            const n1 = tagFreq.get(t1) || 1;
+            const n2 = tagFreq.get(t2) || 1;
+            const liftRaw = ((jointCount + 1) * (N_total + 4)) / ((n1 + 2) * (n2 + 2));
+            const confRaw = (jointCount + 1) / (n1 + 2);
+
+            const liftVal = Number.isFinite(liftRaw) ? Number(liftRaw.toFixed(2)) : 1.0;
+            const confidence = Number.isFinite(confRaw) ? Number(confRaw.toFixed(2)) : 0.0;
+            const supportPct = Number(((jointCount / N_total) * 100).toFixed(1));
+            const synergyScore = liftVal * Math.log2(jointCount + 1);
+
+            const topPins = st.pins.slice().sort((a, b) => (Number(b.effective_velocity ?? b.daily_save_velocity ?? 0) - Number(a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (Number(b.save_count || 0) - Number(a.save_count || 0))).slice(0, 12);
+
+            pairs.push({
+              tag_a: toTitleCase(t1),
+              tag_b: toTitleCase(t2),
+              joint_count: jointCount,
+              keywords_count: st.kws.size || 1,
+              keywords: Array.from(st.kws),
+              lift: liftVal,
+              confidence: confidence,
+              support_pct: supportPct,
+              synergy_score: synergyScore,
+              total_velocity: Math.round(st.vel * 10) / 10,
+              total_repins_delta: Math.round(st.repins),
+              total_saves: st.saves,
+              pins: topPins,
+              matching_pins: topPins
+            });
+          }
+
+          // Default sort by pins frequency (high to low), with daily save velocity as secondary ranking
+          pairs.sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
+          this.powerPairs = pairs;
+
+          const rawTriplets = [];
+          for (const [tKey, tst] of tripletStats.entries()) {
+            const rawTags = tKey.split('|||');
+            const topPins = tst.pins.slice().sort((a, b) => (Number(b.effective_velocity ?? b.daily_save_velocity ?? 0) - Number(a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (Number(b.save_count || 0) - Number(a.save_count || 0))).slice(0, 12);
+            const pinSetSig = tst.pinIds.slice().sort().join(',');
+            const tagSupportSum = rawTags.reduce((s, tg) => s + (tagFreq.get(tg) || 1), 0);
+            rawTriplets.push({
+              tags: rawTags.map(toTitleCase),
+              raw_tags: rawTags,
+              joint_count: tst.jointCount,
+              keywords_count: tst.kws.size || 1,
+              keywords: Array.from(tst.kws),
+              total_velocity: Math.round(tst.vel * 10) / 10,
+              total_repins_delta: Math.round(tst.repins),
+              total_saves: tst.saves,
+              pins: topPins,
+              matching_pins: topPins,
+              _pin_set_sig: pinSetSig,
+              _tag_support_sum: tagSupportSum
+            });
+          }
+
+          // Sort candidates so the strongest multi-keyword, highest-velocity, highest-support triplet comes first
+          rawTriplets.sort((a, b) =>
+            ((b.keywords_count >= 2 ? 1 : 0) - (a.keywords_count >= 2 ? 1 : 0)) ||
+            (b.total_velocity - a.total_velocity) ||
+            (b.joint_count - a.joint_count) ||
+            (b._tag_support_sum - a._tag_support_sum)
+          );
+
+          // Deduplicate cloned pin-set combinations (prevents 11 identical syndicated pins with 6 tags from spawning C(6,3)=20 identical triplet rows)
+          const seenPinSets = new Set();
+          const dedupedTriplets = [];
+          for (const tr of rawTriplets) {
+            if (tr._pin_set_sig && seenPinSets.has(tr._pin_set_sig)) {
+              continue;
+            }
+            if (tr._pin_set_sig) {
+              seenPinSets.add(tr._pin_set_sig);
+            }
+            delete tr._pin_set_sig;
+            delete tr._tag_support_sum;
+            dedupedTriplets.push(tr);
+          }
+
+          this.powerTriplets = dedupedTriplets.slice(0, 60);
         },
 
         copyPinBlueprint(sp) {
@@ -3017,7 +3160,8 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         filteredPinsList() {
           const allCount = (this.crossoverData?.all_pins?.length || 0);
           const superCount = (this.crossoverData?.super_pins?.length || 0);
-          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + (this.onlyFreshRockets ? '1' : '0') + '|' + (this.onlySurging24h ? '1' : '0') + '|' + allCount + ':' + superCount;
+          const matrixKey = this.activeMatrixFilter ? (this.activeMatrixFilter.type + ':' + this.activeMatrixFilter.label) : '';
+          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + matrixKey + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + (this.onlyFreshRockets ? '1' : '0') + '|' + (this.onlySurging24h ? '1' : '0') + '|' + allCount + ':' + superCount;
 
           if (this._pinsCacheKey === currentKey && this._cachedFilteredPins) {
             return this._cachedFilteredPins;
@@ -3056,6 +3200,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
           } else if (this.entityFilter.type === 'creator') {
             const c = (this.entityFilter.value || '').toLowerCase().trim();
             list = list.filter(p => (p.creator_username || 'anonymous').toLowerCase() === c);
+          }
+
+          // 2B. Structural Visual Matrix Pattern Filter (AND-logic for pairs/triplets, canonical lemma for anchors, capsule/color matching)
+          if (this.activeMatrixFilter && this.activeMatrixFilter.item) {
+            const mf = this.activeMatrixFilter;
+            list = list.filter(p => this.pinMatchesMatrixItem(p, mf.item, mf.type));
           }
 
           // 3. Search query

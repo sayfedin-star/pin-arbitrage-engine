@@ -3078,9 +3078,31 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     .slice(0, 30);
 
   // =========================================================================
-  // DIMENSION B: UNIVERSAL TAG BRIDGES (CV & Semantic Annotations Overlap)
+  // DIMENSION B: UNIVERSAL TAG BRIDGES & 1-TAG POWER LEADERS (Unified SSOT)
   // =========================================================================
-  const tagMap = new Map(); // cleanTag -> { tag, display_name, keywords: Set, count: int, saves: int, sample_pins: [] }
+  const formatMatrixPin = (pin) => ({
+    pin_id: pin.pin_id,
+    title: pin.title || 'Untitled Pin',
+    image_url: pin.image_url,
+    domain: pin.domain || '',
+    creator_username: pin.creator_username || '',
+    save_count: Number(pin.save_count || 0),
+    repin_count: Number(pin.repin_count || 0),
+    daily_save_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
+    effective_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
+    delta_saves_24h: Number(pin.delta_saves_24h || 0),
+    delta_repins_24h: Number(pin.delta_repins_24h || 0),
+    gains_7d: pin.gains_7d != null ? Number(pin.gains_7d) : null,
+    pin_age_days: pin.pin_age_days,
+    folder_age_days: pin.folder_age_days,
+    dominant_color: pin.dominant_color || null,
+    aspect_ratio: pin.aspect_ratio || '2:3',
+    overlap_count: pin.overlap_count || (pin.rankings ? pin.rankings.length : 1),
+    rankings: (pin.rankings || []).slice(0, 6),
+    visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations.slice(0, 12) : []
+  });
+
+  const tagMap = new Map(); // cleanTag -> { tag, display_name, keywords_set: Set, pin_count: int, total_saves: int, saves_gain: float, velocity_gain: float, repins_gain: float, matching_pins: [] }
 
   for (const pin of allPins) {
     const rawTags = new Set();
@@ -3096,73 +3118,87 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       }
     }
 
-    const pinKeywords = pin.rankings.map(r => r.keyword);
+    pin._canonical_tags = Array.from(rawTags);
+    const pinKeywords = pin.rankings.map(r => r.keyword).filter(Boolean);
+    const pinVel = Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0));
+    const pinSavesGain = Math.max(0, Number(pin.delta_saves_24h || pin.daily_save_velocity || 0));
+    const pinRepinsGain = Math.max(0, Number(pin.delta_repins_24h || 0));
 
     for (const t of rawTags) {
       if (!t || t.length < 3 || STOPWORDS.has(t.toLowerCase())) continue;
       if (!tagMap.has(t)) {
         tagMap.set(t, {
           tag: t,
-          display_name: t.charAt(0).toUpperCase() + t.slice(1),
+          display_name: toTitleCase(t),
           keywords_set: new Set(),
           pin_count: 0,
           total_saves: 0,
           saves_gain: 0,
           velocity_gain: 0,
-          sample_pins: []
+          repins_gain: 0,
+          matching_pins: []
         });
       }
       const record = tagMap.get(t);
       record.pin_count++;
-      record.total_saves += pin.save_count;
-      record.saves_gain += Math.max(0, Number(pin.delta_saves_24h || pin.daily_save_velocity || 0));
-      record.velocity_gain += Math.max(0, Number(pin.daily_save_velocity || pin.delta_repins_24h || 0));
+      record.total_saves += Number(pin.save_count || 0);
+      record.saves_gain += pinSavesGain;
+      record.velocity_gain += pinVel;
+      record.repins_gain += pinRepinsGain;
       for (const kw of pinKeywords) {
         record.keywords_set.add(kw);
       }
-      if (record.sample_pins.length < 3) {
-        record.sample_pins.push({
-          pin_id: pin.pin_id,
-          title: pin.title,
-          image_url: pin.image_url,
-          save_count: pin.save_count
-        });
-      }
+      record.matching_pins.push(pin);
     }
   }
 
   const tagBridges = Array.from(tagMap.values()).map(t => {
     const kwCount = t.keywords_set.size;
     const overlapPct = Math.round((kwCount / totalKeywords) * 100);
+    const sortedPins = t.matching_pins
+      .slice()
+      .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
+      .slice(0, 12)
+      .map(formatMatrixPin);
+    const velGain = Number(t.velocity_gain.toFixed(1));
+    const savesGain = Math.round(t.saves_gain);
+    const repinsGain = Math.round(t.repins_gain);
     return {
       tag: t.display_name,
       raw_tag: t.tag,
       keywords: Array.from(t.keywords_set),
       keyword_overlap_count: kwCount,
+      keywords_count: kwCount,
       overlap_percentage: overlapPct,
       pin_count: t.pin_count,
+      count: t.pin_count,
       total_saves: t.total_saves,
-      saves_gain: Math.round(t.saves_gain),
-      velocity_gain: Number(t.velocity_gain.toFixed(1)),
+      saves_gain: savesGain,
+      velocity_gain: velGain,
+      total_velocity: velGain,
+      total_repins_delta: repinsGain,
       metric_gains: {
-        saves: Math.round(t.saves_gain),
-        velocity: Number(t.velocity_gain.toFixed(1))
+        saves: savesGain,
+        velocity: velGain,
+        repins: repinsGain
       },
       is_universal: overlapPct >= 50,
       bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge',
-      sample_pins: t.sample_pins
+      sample_pins: sortedPins.slice(0, 3),
+      matching_pins: sortedPins,
+      pins: sortedPins
     };
   })
   .sort((a, b) => {
-    if (b.keyword_overlap_count !== a.keyword_overlap_count) {
-      return b.keyword_overlap_count - a.keyword_overlap_count;
-    }
     if (b.pin_count !== a.pin_count) {
       return b.pin_count - a.pin_count;
     }
-    return b.total_saves - a.total_saves;
+    if (b.keyword_overlap_count !== a.keyword_overlap_count) {
+      return b.keyword_overlap_count - a.keyword_overlap_count;
+    }
+    return b.total_velocity - a.total_velocity || b.total_saves - a.total_saves;
   })
-  .slice(0, 50);
+  .slice(0, 500);
 
   // Link universal bridge visual tags back to each pin record for inline display
   const bridgeTagMap = new Map();
@@ -3174,23 +3210,16 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   for (const pin of allPins) {
     const matchedBridges = [];
-    for (const va of pin.visual_annotations) {
-      const rawTag = (typeof va === 'object' && va !== null)
-        ? String(va.name || va.tag || va.label || va.display_label || va.term || va.title || '')
-        : (typeof va === 'string' ? va : '');
-      const clean = rawTag.trim().toLowerCase();
-      const lemma = clean ? normalizeTagLemma(clean) : '';
+    for (const lemma of (pin._canonical_tags || [])) {
       if (lemma && bridgeTagMap.has(lemma)) {
         matchedBridges.push(bridgeTagMap.get(lemma).tag);
-      } else if (clean && bridgeTagMap.has(clean)) {
-        matchedBridges.push(bridgeTagMap.get(clean).tag);
       }
     }
     pin.bridge_tags = Array.from(new Set(matchedBridges));
   }
 
   // =========================================================================
-  // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS
+  // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS (Cross-Pin & SERP)
   // =========================================================================
   const pivotMap = new Map(); // cleanKey -> { term, display_label, keywords_map: Map, total_score: float, dominant_color }
   for (const c of capsuleRows) {
@@ -3200,8 +3229,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
     if (!pivotMap.has(rawKey)) {
       const displayLabel = label 
-        ? (label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()) 
-        : (c.term.charAt(0).toUpperCase() + c.term.slice(1).toLowerCase());
+        ? toTitleCase(label)
+        : toTitleCase(c.term || rawKey);
 
       pivotMap.set(rawKey, {
         term: rawKey,
@@ -3214,7 +3243,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
     const rec = pivotMap.get(rawKey);
     rec.total_score += Number(c.score || 0);
-    if (!rec.keywords_map.has(c.keyword_text)) {
+    if (c.keyword_text && !rec.keywords_map.has(c.keyword_text)) {
       rec.keywords_map.set(c.keyword_text, {
         keyword: c.keyword_text,
         display_order: c.display_order,
@@ -3223,28 +3252,110 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
   }
 
+  // Pre-index allPins for fast cross-keyword & cross-pin Guided Capsule matching
+  const indexedPinsForCapsules = allPins.map(pin => {
+    const normTitle = ` ${String(pin.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+    const normTags = new Set(pin._canonical_tags || []);
+    const rankedKws = (pin.rankings || []).map(r => String(r.keyword || '').trim()).filter(Boolean);
+    return {
+      pin,
+      normTitle,
+      normTags,
+      rankedKws
+    };
+  });
+
+  const allFolderKeywordStrings = folderKeywords.map(k => String(k.keyword || '').trim()).filter(Boolean);
+
   const guidedPivots = Array.from(pivotMap.values()).map(p => {
-    const kwList = Array.from(p.keywords_map.values());
-    const count = kwList.length;
-    const overlapPct = Math.round((count / totalKeywords) * 100);
+    const termNorm = p.term.toLowerCase().trim();
+    const paddedTerm = ` ${termNorm} `;
+    const matchedKeywordsSet = new Set(p.keywords_map.keys());
+
+    // 1. Match folder keywords that directly contain this modifier term as a whole word
+    for (const fkw of allFolderKeywordStrings) {
+      const normFkw = ` ${fkw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+      if (normFkw.includes(paddedTerm)) {
+        matchedKeywordsSet.add(fkw);
+      }
+    }
+
+    // 2. Match cluster pins where visual annotations, title, or ranked keyword match the capsule
+    const matchingPinsRaw = [];
+    for (const item of indexedPinsForCapsules) {
+      let pinMatched = false;
+      if (item.normTags.has(termNorm)) {
+        pinMatched = true;
+      } else {
+        for (const t of item.normTags) {
+          if (` ${t} `.includes(paddedTerm)) {
+            pinMatched = true;
+            break;
+          }
+        }
+      }
+      if (!pinMatched && item.normTitle.includes(paddedTerm)) {
+        pinMatched = true;
+      }
+      if (!pinMatched) {
+        for (const rkw of item.rankedKws) {
+          if (p.keywords_map.has(rkw) || ` ${rkw.toLowerCase()} `.includes(paddedTerm)) {
+            pinMatched = true;
+            break;
+          }
+        }
+      }
+      if (pinMatched) {
+        matchingPinsRaw.push(item.pin);
+        for (const rkw of item.rankedKws) {
+          matchedKeywordsSet.add(rkw);
+        }
+      }
+    }
+
+    matchingPinsRaw.sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0));
+    const topMatchingPins = matchingPinsRaw.slice(0, 12).map(formatMatrixPin);
+    const totalVel = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? 0)), 0) * 10) / 10;
+    const totalRepins = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.delta_repins_24h || 0)), 0));
+    const totalSaves = matchingPinsRaw.reduce((sum, pin) => sum + Number(pin.save_count || 0), 0);
+
+    const kwList = Array.from(matchedKeywordsSet).map(kw => p.keywords_map.get(kw) || { keyword: kw, display_order: 99, score: 1 });
+    const kwCount = matchedKeywordsSet.size || Math.max(1, p.keywords_map.size);
+    const overlapPct = Math.round((kwCount / totalKeywords) * 100);
+
     return {
       term: p.term,
       display_label: p.display_label,
       shared_keywords: kwList,
-      shared_count: count,
+      keywords: Array.from(matchedKeywordsSet),
+      shared_count: kwCount,
+      keyword_count: kwCount,
+      distinct_keywords: kwCount,
+      keywords_count: kwCount,
+      pin_count: matchingPinsRaw.length,
+      count: matchingPinsRaw.length,
+      total_velocity: totalVel,
+      cross_serp_velocity: totalVel,
+      total_repins_delta: totalRepins,
+      total_saves: totalSaves,
       overlap_percentage: overlapPct,
       composite_score: Number(p.total_score.toFixed(4)),
       dominant_color: p.dominant_color,
-      is_connector: count >= 2
+      is_connector: kwCount >= 2,
+      matching_pins: topMatchingPins,
+      pins: topMatchingPins
     };
   })
   .sort((a, b) => {
-    if (b.shared_count !== a.shared_count) {
-      return b.shared_count - a.shared_count;
+    if (b.keyword_count !== a.keyword_count) {
+      return b.keyword_count - a.keyword_count;
     }
-    return b.composite_score - a.composite_score;
+    if (b.total_velocity !== a.total_velocity) {
+      return b.total_velocity - a.total_velocity;
+    }
+    return b.pin_count - a.pin_count || b.composite_score - a.composite_score;
   })
-  .slice(0, 40);
+  .slice(0, 60);
 
   // =========================================================================
   // DIMENSION D: DOMAIN & CREATOR MONOPOLY OVERLAP
@@ -3625,28 +3736,67 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
 
   const topicClusterBlueprint = null;
 
-  // Aggregate Dominant Color Swatches across all cluster pins
+  // Aggregate Dominant Color Swatches across all cluster pins with matching pins & keyword coverage
   const colorMap = new Map();
   for (const p of allPins) {
     const hex = String(p.dominant_color || '').trim().toUpperCase();
     if (/^#[0-9A-F]{6}$/.test(hex) && hex !== '#888888' && hex !== '#000000') {
       let cEntry = colorMap.get(hex);
       if (!cEntry) {
-        cEntry = { hex, pin_count: 0, total_saves: 0, total_velocity: 0 };
+        cEntry = {
+          hex,
+          pin_count: 0,
+          total_saves: 0,
+          total_velocity: 0,
+          total_repins_delta: 0,
+          keywords_set: new Set(),
+          matching_pins_raw: []
+        };
         colorMap.set(hex, cEntry);
       }
       cEntry.pin_count += 1;
       cEntry.total_saves += Number(p.save_count || 0);
       cEntry.total_velocity += Number(p.effective_velocity ?? p.daily_save_velocity ?? 0);
+      cEntry.total_repins_delta += Math.max(0, Number(p.delta_repins_24h || 0));
+      for (const r of (p.rankings || [])) {
+        if (r.keyword) cEntry.keywords_set.add(r.keyword);
+      }
+      cEntry.matching_pins_raw.push(p);
     }
   }
   const dominantColors = Array.from(colorMap.values())
-    .map(c => ({ ...c, total_velocity: Math.round(c.total_velocity * 10) / 10 }))
+    .map(c => {
+      const sortedPins = c.matching_pins_raw
+        .slice()
+        .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
+        .slice(0, 12)
+        .map(formatMatrixPin);
+      const kwCount = c.keywords_set.size;
+      return {
+        hex: c.hex,
+        pin_count: c.pin_count,
+        count: c.pin_count,
+        keywords_count: kwCount,
+        keyword_overlap_count: kwCount,
+        overlap_percentage: Math.round((kwCount / totalKeywords) * 100),
+        keywords: Array.from(c.keywords_set),
+        total_saves: c.total_saves,
+        total_velocity: Math.round(c.total_velocity * 10) / 10,
+        total_repins_delta: Math.round(c.total_repins_delta),
+        matching_pins: sortedPins,
+        pins: sortedPins
+      };
+    })
     .sort((a, b) => b.pin_count - a.pin_count || b.total_velocity - a.total_velocity)
-    .slice(0, 24);
+    .slice(0, 36);
 
   const rocketsCount = allPins.filter(p => p.pin_age_days != null && Number(p.pin_age_days) <= 14 && (Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0)).length;
   const surging24hCount = allPins.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0).length;
+
+  // Clean up internal temporary property before returning
+  for (const p of allPins) {
+    delete p._canonical_tags;
+  }
 
   return {
     folder,
