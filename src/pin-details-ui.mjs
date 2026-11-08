@@ -66,52 +66,168 @@ export function getPinDetailPageHtml(pinId = '') {
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
 
-    /* Unified Light Theme Overrides for Pin Dossier */
-    html.light body,
-    html:not(.dark) body {
+    /* ======================================================== */
+    /* UNIFIED LIGHT THEME OVERRIDES (100% PURE WHITE SAAS)    */
+    /* ======================================================== */
+    html:not(.dark),
+    html.light {
+      color-scheme: light;
+    }
+    html:not(.dark) body,
+    html.light body {
       background-color: #f8fafc !important;
       color: #0f172a !important;
     }
-    html:not(.dark) .bg-\[\#09090B\],
-    html:not(.dark) .bg-slate-950,
-    html:not(.dark) .bg-slate-950\/50,
-    html:not(.dark) .bg-slate-950\/80 {
-      background-color: #f8fafc !important;
-    }
-    html:not(.dark) .bg-\[\#121215\],
-    html:not(.dark) .bg-\[\#121215\]\/95,
-    html:not(.dark) .bg-slate-900,
-    html:not(.dark) .bg-slate-900\/80 {
-      background-color: #ffffff !important;
-    }
-    html:not(.dark) .bg-\[\#18181B\],
-    html:not(.dark) .bg-\[\#18181B\]\/60,
-    html:not(.dark) .bg-\[\#18181B\]\/80,
-    html:not(.dark) .bg-slate-800\/50 {
-      background-color: #f1f5f9 !important;
-    }
-    html:not(.dark) .border-\[\#27272A\],
-    html:not(.dark) .border-slate-800,
-    html:not(.dark) .border-slate-800\/80,
-    html:not(.dark) .divide-\[\#27272A\] > :not([hidden]) ~ :not([hidden]) {
+
+    /* Primary Backgrounds & Canvas */
+    html:not(.dark) [class*="bg-[#09090B]"],
+    html.light [class*="bg-[#09090B]"],
+    html:not(.dark) header,
+    html.light header {
+      background-color: rgba(255, 255, 255, 0.95) !important;
       border-color: #e2e8f0 !important;
     }
-    html:not(.dark) .text-\[\#FAFAFA\],
-    html:not(.dark) .text-white,
-    html:not(.dark) .text-slate-100,
-    html:not(.dark) .text-slate-200 {
+
+    /* Card Elevation 1 (Containers, Panels, Cards) -> Pure Crisp White */
+    html:not(.dark) [class*="bg-[#121215]"],
+    html.light [class*="bg-[#121215]"] {
+      background-color: #ffffff !important;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04) !important;
+    }
+
+    /* Card Elevation 2 & Sub-surfaces (Buttons, Pills, Inputs, Sub-cards) */
+    html:not(.dark) [class*="bg-[#18181B]"],
+    html.light [class*="bg-[#18181B]"] {
+      background-color: #f8fafc !important;
+    }
+
+    /* Interactive Highlight & Hover States */
+    html:not(.dark) [class*="bg-[#27272A]"],
+    html.light [class*="bg-[#27272A]"] {
+      background-color: #e2e8f0 !important;
+    }
+    html:not(.dark) [class*="hover:bg-[#18181B]"]:hover,
+    html:not(.dark) [class*="hover:bg-[#27272A]"]:hover {
+      background-color: #f1f5f9 !important;
+    }
+
+    /* Structural Borders & Dividers */
+    html:not(.dark) [class*="border-[#27272A]"],
+    html.light [class*="border-[#27272A]"],
+    html:not(.dark) [class*="divide-[#27272A]"] > :not([hidden]) ~ :not([hidden]) {
+      border-color: #e2e8f0 !important;
+    }
+    html:not(.dark) [class*="border-[#1E1E22]"],
+    html.light [class*="border-[#1E1E22]"],
+    html:not(.dark) [class*="divide-[#1E1E22]"] > :not([hidden]) ~ :not([hidden]) {
+      border-color: #f1f5f9 !important;
+    }
+
+    /* High-Contrast Crisp Typography for Light Mode */
+    html:not(.dark) [class*="text-[#FAFAFA]"],
+    html.light [class*="text-[#FAFAFA]"] {
       color: #0f172a !important;
+    }
+    html:not(.dark) .text-white:not(.text-white-keep) {
+      color: #0f172a !important;
+    }
+    html:not(.dark) .text-slate-100,
+    html:not(.dark) .text-slate-200,
+    html:not(.dark) .text-zinc-200 {
+      color: #334155 !important;
+    }
+    html:not(.dark) .text-zinc-300 {
+      color: #475569 !important;
     }
     html:not(.dark) .text-slate-300 {
       color: #334155 !important;
     }
     html:not(.dark) .text-slate-400 {
-      color: #475569 !important;
+      color: #64748b !important;
     }
-    html:not(.dark) .bg-rose-600.text-white,
-    html:not(.dark) .bg-indigo-600.text-white,
-    html:not(.dark) .bg-emerald-600.text-white {
+    html:not(.dark) .text-slate-500 {
+      color: #94a3b8 !important;
+    }
+
+    /* Preserve Crisp White Text on Primary & Accent Buttons */
+    html:not(.dark) .bg-rose-600,
+    html:not(.dark) .bg-rose-600 *,
+    html:not(.dark) .bg-red-600,
+    html:not(.dark) .bg-red-600 *,
+    html:not(.dark) .bg-emerald-600,
+    html:not(.dark) .bg-emerald-600 *,
+    html:not(.dark) .bg-indigo-600,
+    html:not(.dark) .bg-indigo-600 * {
       color: #ffffff !important;
+    }
+
+    /* Light Theme Tab Navigation & Badges */
+    html:not(.dark) button.border-rose-500 {
+      color: #0f172a !important;
+      border-color: #e11d48 !important;
+    }
+    html:not(.dark) [class*="bg-rose-500/20"] {
+      background-color: #ffe4e6 !important;
+      color: #be123c !important;
+    }
+
+    /* SVG Trajectory Chart Grid in Light Mode */
+    html:not(.dark) svg line[stroke="#27272A"] {
+      stroke: #e2e8f0 !important;
+    }
+
+    /* Light Theme Badges & Semantics (No Muddy Dark Rectangles) */
+    html:not(.dark) [class*="bg-emerald-950"] {
+      background-color: #ecfdf5 !important;
+      color: #065f46 !important;
+      border-color: #a7f3d0 !important;
+    }
+    html:not(.dark) [class*="text-emerald-300"] {
+      color: #047857 !important;
+    }
+    html:not(.dark) [class*="bg-amber-950"] {
+      background-color: #fffbeb !important;
+      color: #92400e !important;
+      border-color: #fde68a !important;
+    }
+    html:not(.dark) [class*="text-amber-300"] {
+      color: #b45309 !important;
+    }
+    html:not(.dark) [class*="bg-red-950"],
+    html:not(.dark) [class*="bg-rose-950"] {
+      background-color: #fff1f2 !important;
+      color: #9f1239 !important;
+      border-color: #fecdd3 !important;
+    }
+    html:not(.dark) [class*="text-red-300"],
+    html:not(.dark) [class*="text-rose-300"] {
+      color: #be123c !important;
+    }
+    html:not(.dark) [class*="bg-sky-950"] {
+      background-color: #f0f9ff !important;
+      color: #075985 !important;
+      border-color: #bae6fd !important;
+    }
+    html:not(.dark) [class*="bg-indigo-950"] {
+      background-color: #eef2ff !important;
+      color: #3730a3 !important;
+      border-color: #c7d2fe !important;
+    }
+    html:not(.dark) [class*="bg-slate-800"] {
+      background-color: #f1f5f9 !important;
+      border-color: #cbd5e1 !important;
+      color: #334155 !important;
+    }
+
+    /* Inputs, Selects & Tables in Light Mode */
+    html:not(.dark) select,
+    html:not(.dark) input {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+      border-color: #cbd5e1 !important;
+    }
+    html:not(.dark) tr:hover {
+      background-color: #f8fafc !important;
     }
   </style>
   <script>
@@ -200,7 +316,7 @@ export function getPinDetailPageHtml(pinId = '') {
     })();
   </script>
 </head>
-<body class="bg-[#09090B] text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${safePinId}')">
+<body class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-200" x-data="pinDetailApp('${safePinId}')">
 
   <!-- Toast Notification Container -->
   <div 
@@ -329,8 +445,8 @@ export function getPinDetailPageHtml(pinId = '') {
     <div class="flex items-center gap-2 shrink-0">
       <!-- Silent Background Warming Indicator -->
       <template x-if="isSilentRefreshing">
-        <div class="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800">
-          <span class="animate-spin text-xs">⏳</span>
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800 shadow-xs">
+          <svg class="w-3.5 h-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
           <span class="hidden sm:inline">Warming shard...</span>
         </div>
       </template>
@@ -340,10 +456,10 @@ export function getPinDetailPageHtml(pinId = '') {
         type="button"
         @click="triggerLiveDeepSync()" 
         :disabled="isSyncing"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-all shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
         title="Live deep scrape on Pinterest (strictly unauthenticated guest session) and sync across all 4 pillars"
       >
-        <span :class="isSyncing ? 'animate-spin' : ''">⚡</span>
+        <svg :class="isSyncing ? 'animate-spin' : ''" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         <span x-text="isSyncing ? 'Syncing...' : 'Live Deep Sync'"></span>
       </button>
 
@@ -351,20 +467,20 @@ export function getPinDetailPageHtml(pinId = '') {
       <button 
         type="button"
         @click="requestPurgePin()"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-900/60 bg-red-950/30 hover:bg-red-900/50 text-red-400 text-xs font-semibold transition cursor-pointer"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-900/60 bg-red-950/30 hover:bg-red-900/50 text-red-400 text-xs font-semibold transition-all active:scale-95 cursor-pointer"
         title="Permanently delete this pin from target Shard, Central Hub, and Edge Caches"
       >
-        <span>🗑️</span>
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         <span class="hidden sm:inline">Purge Pin</span>
       </button>
 
       <!-- 24h Pulse Radar Quick Link -->
       <a 
         :href="originFolderId ? ('/folders/' + encodeURIComponent(originFolderId) + '/pulse') : '/pulse'" 
-        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold transition"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold transition"
         :title="originFolderId ? ('Open Folder #' + originFolderId + ' 24h Algorithmic Pulse Radar') : 'Open 24h Algorithmic Pulse & Crossover Radar'"
       >
-        <span>⚡</span>
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         <span class="hidden sm:inline">24h Pulse Radar</span>
       </a>
 
@@ -373,21 +489,22 @@ export function getPinDetailPageHtml(pinId = '') {
         :href="'https://www.pinterest.com/pin/' + pinId + '/'" 
         target="_blank" 
         rel="noopener noreferrer" 
-        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs font-medium transition"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white text-xs font-medium transition"
         title="Open pin page on Pinterest in new tab"
       >
         <span>Open on Pinterest</span>
-        <span class="text-slate-500">↗</span>
+        <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
       </a>
 
       <!-- Theme Switcher (Dark/Light Mode) -->
       <button 
         type="button" 
         @click="toggleTheme()" 
-        class="p-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer"
+        class="p-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
         :title="isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
       >
-        <span x-text="isDark ? '🌙' : '☀️'"></span>
+        <svg x-show="isDark" class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        <svg x-show="!isDark" class="w-4 h-4 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
       </button>
 
       <!-- Refresh Button -->
@@ -395,10 +512,10 @@ export function getPinDetailPageHtml(pinId = '') {
         type="button"
         @click="loadDossier(true)" 
         :disabled="loading"
-        class="p-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer"
+        class="p-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
         :title="dossier?.topology === 'unified_postgres' ? 'Reload dossier from Unified Central Hub' : 'Reload dossier from Edge & Shard'"
       >
-        <span class="inline-block" :class="loading ? 'animate-spin' : ''">🔄</span>
+        <svg :class="loading ? 'animate-spin' : ''" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
       </button>
     </div>
   </header>
@@ -427,7 +544,7 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
       <div class="flex items-center gap-3 pt-2">
         <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer">
-          <span>🔄</span>
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
           <span x-text="isShardWarming ? 'Retry Shard Fetch' : 'Try Force Refresh'"></span>
         </button>
         <a href="/keywords" class="px-4 py-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs font-medium transition">
@@ -438,16 +555,16 @@ export function getPinDetailPageHtml(pinId = '') {
   </div>
 
   <!-- MAIN DOSSIER: Two-Column Forensic Workspace -->
-  <main x-show="dossier && dossier.success" class="flex-1 max-w-[1720px] w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-6" x-cloak>
+  <main x-show="dossier && dossier.success" class="flex-1 max-w-[1720px] w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col md:flex-row gap-6" x-cloak>
     
     <!-- ======================================================== -->
     <!-- LEFT RAIL: Visual Asset Preview & Provenance Ledger (~340px) -->
     <!-- ======================================================== -->
-    <div class="w-full lg:w-[340px] shrink-0 space-y-4">
+    <div class="w-full md:w-[300px] lg:w-[340px] max-w-sm mx-auto md:mx-0 shrink-0 space-y-4 md:sticky md:top-20 self-start">
       
       <!-- Creative Image Canvas with Natural Aspect Ratio Shield -->
       <div class="rounded-xl border border-[#27272A] bg-[#121215] overflow-hidden shadow-sm flex flex-col">
-        <div class="relative w-full aspect-[2/3] overflow-hidden flex items-center justify-center" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)">
+        <div class="relative w-full aspect-[2/3] max-h-[500px] overflow-hidden flex items-center justify-center" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)">
           <img 
             :src="resolveHdImageUrl(dossier?.creative?.image_hd_url || dossier?.creative?.image_url)" 
             :alt="dossier?.creative?.alt_text || dossier?.creative?.title"
@@ -461,15 +578,15 @@ export function getPinDetailPageHtml(pinId = '') {
         <!-- Clean Media Strip directly beneath the image -->
         <div class="p-3 border-t border-[#27272A] bg-[#18181B] space-y-2">
           <!-- 3-Tier HD Asset Download Action -->
-          <div class="pb-1 border-b border-[#27272A]">
+          <div class="pb-1.5 border-b border-[#27272A]">
             <button
               type="button"
               @click="downloadHdAsset(dossier?.creative?.image_url, pinId)"
-              class="w-full py-1.5 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+              class="w-full py-2 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold transition flex items-center justify-center gap-2 shadow-xs active:scale-95 cursor-pointer"
               title="Download lossless original asset (with 1200x fallback)"
             >
               <i data-lucide="download" class="w-3.5 h-3.5"></i>
-              <span>⬇️ Download HD Asset</span>
+              <span>Download HD Asset</span>
             </button>
           </div>
 
@@ -498,7 +615,7 @@ export function getPinDetailPageHtml(pinId = '') {
                 title="Click to copy 64-bit perceptual hash"
               >
                 <span x-text="(dossier?.creative?.image_signature || dossier?.algorithmic_intelligence?.image_signature || '').slice(0, 12) + '...'"></span>
-                <span class="text-[10px]">📋</span>
+                <svg class="w-3 h-3 text-slate-400 hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
               </button>
             </div>
           </template>
@@ -522,7 +639,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   <a :href="'/' + encodeURIComponent(dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)" class="font-bold text-rose-400 hover:underline flex items-center justify-end gap-1">
                     <span>@</span><span x-text="dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username"></span>
                     <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
-                      <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                      <span class="inline-flex items-center text-sky-400 ml-0.5" title="Verified Merchant"><svg class="w-3 h-3 text-sky-400 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
                     </template>
                   </a>
                 </template>
@@ -542,7 +659,7 @@ export function getPinDetailPageHtml(pinId = '') {
                       <span x-text="isTrackingCreator ? 'Tracking...' : '+ Track Creator (Pulse)'"></span>
                     </button>
                     <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
-                      <span class="text-sky-400 text-[10px]" title="Verified Merchant">✓</span>
+                      <span class="inline-flex items-center text-sky-400 ml-0.5" title="Verified Merchant"><svg class="w-3 h-3 text-sky-400 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
                     </template>
                   </div>
                 </template>
@@ -591,12 +708,12 @@ export function getPinDetailPageHtml(pinId = '') {
                 title="Copy Destination URL"
               >
                 <span>Copy link</span>
-                <span class="text-[9px]">📋</span>
+                <svg class="w-2.5 h-2.5 text-slate-400 hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
               </button>
             </template>
             <template x-if="dossier?.creative?.url_global_saves != null || dossier?.url_global_saves != null">
               <div class="text-[10px] text-emerald-400 font-mono tabular-nums font-bold mt-1 flex items-center justify-end gap-1">
-                <span>🌐 Article Saves:</span>
+                <span class="inline-flex items-center gap-1"><svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>Article Saves:</span></span>
                 <span x-text="formatNumber(dossier?.creative?.url_global_saves ?? dossier?.url_global_saves ?? 0)"></span>
               </div>
             </template>
@@ -650,13 +767,13 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Status 1: Original Creator Upload vs Repin -->
           <template x-if="!dossier?.algorithmic_intelligence?.is_repin">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-semibold">
-              <span>🛡️</span>
+              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               <span>100% Original Creator Upload</span>
             </span>
           </template>
           <template x-if="dossier?.algorithmic_intelligence?.is_repin">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-[#27272A] font-medium">
-              <span>🔄</span>
+              <svg class="w-3 h-3 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
               <span>Curated Repin</span>
             </span>
           </template>
@@ -664,7 +781,7 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Status 2: Direct Destination Link vs Linkless -->
           <template x-if="dossier?.creative?.destination_url && !dossier?.algorithmic_intelligence?.is_go_linkless">
             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-950/60 text-sky-300 border border-sky-800/80 font-medium">
-              <span>🔗</span>
+              <svg class="w-3 h-3 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               <span>Direct Destination Link</span>
             </span>
           </template>
@@ -678,13 +795,13 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Status 3: Google Indexed vs Noindex -->
           <template x-if="!dossier?.algorithmic_intelligence?.seo_noindex_reason">
             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-medium">
-              <span>🌐</span>
+              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
               <span>Indexed in Google</span>
             </span>
           </template>
           <template x-if="dossier?.algorithmic_intelligence?.seo_noindex_reason">
             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-950/60 text-red-300 border border-red-800/80 font-medium">
-              <span>🚫</span>
+              <svg class="w-3 h-3 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
               <span x-text="'Noindex: ' + dossier.algorithmic_intelligence.seo_noindex_reason"></span>
             </span>
           </template>
@@ -692,7 +809,7 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Status 4: Canonical Root Source -->
           <template x-if="dossier?.algorithmic_intelligence?.canonical_pin_id">
             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-950/60 text-purple-300 border border-purple-800/80 font-mono tabular-nums">
-              <span>👑</span>
+              <svg class="w-3 h-3 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>
               <span x-text="'Canonical #' + dossier.algorithmic_intelligence.canonical_pin_id"></span>
             </span>
           </template>
@@ -702,23 +819,27 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="space-y-2">
           <h1 class="text-xl sm:text-2xl font-black text-[#FAFAFA] leading-tight" x-text="dossier?.creative?.title || ('Pin #' + pinId)"></h1>
           <template x-if="dossier?.creative?.description">
-            <p class="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans" x-text="dossier.creative.description"></p>
+            <p class="text-sm text-slate-700 dark:text-zinc-200 leading-relaxed font-sans font-normal" x-text="dossier.creative.description"></p>
           </template>
         </div>
 
         <!-- SEO Alt-Text Row -->
         <template x-if="dossier?.creative?.alt_text">
-          <div class="p-3 rounded-lg border border-[#27272A] bg-[#18181B] flex items-start justify-between gap-3 text-xs">
-            <div class="space-y-0.5 min-w-0">
-              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Image Alt-Text (Accessibility & Image SEO)</span>
-              <p class="text-slate-300 italic font-serif leading-relaxed" x-text="'“' + dossier.creative.alt_text + '”'"></p>
+          <div class="p-3.5 rounded-xl border border-[#27272A] bg-[#18181B]/80 flex items-start justify-between gap-3 text-xs">
+            <div class="space-y-1 min-w-0">
+              <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <i data-lucide="sparkles" class="w-3 h-3 text-rose-400"></i>
+                <span>Image Alt-Text (Accessibility & Image SEO)</span>
+              </div>
+              <p class="text-slate-200 font-sans leading-relaxed text-xs select-all" x-text="dossier.creative.alt_text"></p>
             </div>
             <button 
               type="button" 
               @click="copyAltText()" 
-              class="px-2 py-1 rounded border border-[#27272A] hover:bg-[#27272A] text-slate-300 text-[11px] font-medium shrink-0 cursor-pointer"
+              class="px-2.5 py-1 rounded-md border border-[#27272A] bg-[#121215] hover:bg-[#27272A] text-slate-200 hover:text-white text-[11px] font-medium shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
             >
-              Copy
+              <i data-lucide="copy" class="w-3 h-3"></i>
+              <span>Copy</span>
             </button>
           </div>
         </template>
@@ -739,15 +860,17 @@ export function getPinDetailPageHtml(pinId = '') {
       <!-- ======================================================== -->
       <!-- 5-CELL TELEMETRY RIBBON (Dual-Track Velocity Engine)     -->
       <!-- ======================================================== -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-6 xl:grid-cols-5 gap-3">
         <!-- Cell 1: Total Saves -->
-        <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col justify-between shadow-xs">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Saves</span>
-            <span class="text-rose-500">📌</span>
+            <div class="p-1.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+            </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white" x-text="formatNumber(dossier?.creative?.save_count || 0)"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-rose-100 transition-colors" x-text="formatNumber(dossier?.creative?.save_count || 0)"></div>
             <div class="text-[11px] text-emerald-400 font-mono tabular-nums font-semibold mt-0.5">
               <span x-text="format24hSaveDelta()"></span>
             </div>
@@ -755,52 +878,60 @@ export function getPinDetailPageHtml(pinId = '') {
         </div>
 
         <!-- Cell 2: Save Velocity Engine (24h Live Delta vs Lifetime Amortized) [L-02 Resolved] -->
-        <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col justify-between shadow-xs">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Daily Velocity</span>
-            <span class="text-emerald-400">⚡</span>
+            <div class="p-1.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
           </div>
           <div class="mt-2">
             <div class="flex items-baseline gap-1">
               <span class="text-2xl font-black font-mono tabular-nums text-emerald-400" x-text="formatLive24hVelocity()"></span>
-              <span class="text-[10px] text-slate-400 uppercase">live 24h</span>
+              <span class="text-[10px] text-slate-400 uppercase font-mono">live 24h</span>
             </div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="formatLifetimeVelocityCaption()"></div>
           </div>
         </div>
 
         <!-- Cell 3: Total Repins & Engagement -->
-        <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col justify-between shadow-xs">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Repins</span>
-            <span class="text-indigo-400">🔁</span>
+            <div class="p-1.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white" x-text="formatNumber(dossier?.creative?.repin_count || 0)"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-indigo-100 transition-colors" x-text="formatNumber(dossier?.creative?.repin_count || 0)"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5" x-text="formatViralityRatio()"></div>
           </div>
         </div>
 
         <!-- Cell 4: SERP Footprint & Best Rank -->
-        <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col justify-between shadow-xs">
+        <div class="col-span-1 sm:col-span-3 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Best SERP Rank</span>
-            <span class="text-amber-400">🏆</span>
+            <div class="p-1.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white" x-text="getBestRankDisplay()"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-amber-100 transition-colors" x-text="getBestRankDisplay()"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="getSerpFootprintSummary()"></div>
           </div>
         </div>
 
         <!-- Cell 5: Total Engagement Score -->
-        <div class="col-span-2 sm:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col justify-between shadow-xs">
+        <div class="col-span-2 sm:col-span-3 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Engagement</span>
-            <span class="text-sky-400">💬</span>
+            <div class="p-1.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white" x-text="formatNumber(totalEngagementScore())"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5">
               <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
               <span x-text="totalShares()"></span> shares
@@ -872,8 +1003,11 @@ export function getPinDetailPageHtml(pinId = '') {
           </template>
 
           <template x-if="computeChartPoints().length < 2">
-            <div class="text-xs text-slate-500 font-mono text-center space-y-1">
-              <div>📊 Single Snapshot Registered</div>
+            <div class="text-xs text-slate-500 font-mono text-center space-y-1.5 py-6">
+              <div class="flex items-center justify-center gap-1.5 font-bold text-slate-400">
+                <svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                <span>Single Snapshot Registered</span>
+              </div>
               <div class="text-[11px] text-slate-600">Trajectory curve activates as subsequent daily crawls record progression.</div>
             </div>
           </template>
@@ -907,9 +1041,9 @@ export function getPinDetailPageHtml(pinId = '') {
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
               :class="activeTab === 'ledger' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
             >
-              <span>📅</span>
+              <svg class="w-3.5 h-3.5" :class="activeTab === 'ledger' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
               <span>Historical Snapshot Audit Log</span>
-              <span class="px-1.5 py-0.2 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'ledger' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="filteredDays().length"></span>
+              <span class="px-2 py-0.5 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'ledger' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="filteredDays().length"></span>
             </button>
 
             <!-- Tab 2: Keyword SERP Rankings -->
@@ -919,9 +1053,9 @@ export function getPinDetailPageHtml(pinId = '') {
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
               :class="activeTab === 'rankings' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
             >
-              <span>🔑</span>
+              <svg class="w-3.5 h-3.5" :class="activeTab === 'rankings' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
               <span>Keyword SERP Rankings</span>
-              <span class="px-1.5 py-0.2 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'rankings' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
+              <span class="px-2 py-0.5 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'rankings' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
             </button>
 
             <!-- Tab 3: Algorithmic DNA & Cross-Pillar Suite -->
@@ -931,7 +1065,7 @@ export function getPinDetailPageHtml(pinId = '') {
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
               :class="activeTab === 'forensics' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
             >
-              <span>🧬</span>
+              <svg class="w-3.5 h-3.5" :class="activeTab === 'forensics' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m17 6-2.5-2.5"/><path d="m14 8-1-1"/><path d="m7 18 2.5 2.5"/><path d="m3.5 14.5.5.5"/><path d="m20 9.5-.5-.5"/><path d="m6.5 12.5 1 1"/><path d="m16.5 10.5 1 1"/><path d="m10 16 1 1"/></svg>
               <span>Cross-Pillar Intelligence Suite</span>
             </button>
           </div>
@@ -999,7 +1133,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   <tr class="hover:bg-[#18181B]/80 transition group">
                     <!-- Expand chevron -->
                     <td class="py-3 px-4 text-center cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
-                      <span class="text-slate-500 group-hover:text-white transition-transform inline-block" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90' : ''">▶</span>
+                      <svg class="w-4 h-4 text-slate-500 group-hover:text-slate-200 transition-transform duration-200 inline-block" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-rose-400' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </td>
 
                     <!-- Date -->
@@ -1051,10 +1185,10 @@ export function getPinDetailPageHtml(pinId = '') {
                       <button 
                         type="button" 
                         @click="requestDeleteDay(day.snapshot_date)" 
-                        class="p-1.5 rounded hover:bg-red-950/50 text-slate-500 hover:text-red-400 transition cursor-pointer"
+                        class="p-1.5 rounded-md hover:bg-red-950/50 text-slate-500 hover:text-red-400 transition cursor-pointer"
                         title="Delete telemetry for this date"
                       >
-                        🗑️
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                       </button>
                     </td>
                   </tr>
@@ -1124,7 +1258,7 @@ export function getPinDetailPageHtml(pinId = '') {
                                           class="text-slate-500 hover:text-red-400 transition cursor-pointer text-[10px] font-mono px-1 py-0.5 rounded border border-transparent hover:border-red-900/50"
                                           title="Delete single snapshot record"
                                         >
-                                          🗑️
+                                          <svg class="w-3 h-3 text-slate-500 hover:text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                                         </button>
                                       </template>
                                       <button 
@@ -1363,7 +1497,7 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="text-slate-400">Image Hash Signature</span>
                     <div class="flex items-center gap-1">
                       <span class="font-mono text-[10px] text-slate-300 max-w-[140px] truncate" x-text="dossier.algorithmic_intelligence.image_signature"></span>
-                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.image_signature, 'Image Signature')" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.image_signature, 'Image Signature')" class="p-1 rounded hover:bg-[#27272A] text-slate-400 hover:text-white cursor-pointer transition" title="Copy Image Signature"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
                     </div>
                   </div>
                 </template>
@@ -1405,7 +1539,7 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="text-slate-400 shrink-0">Destination URL</span>
                     <div class="flex items-center gap-1 truncate">
                       <a :href="safeUrl(dossier.creative.destination_url)" target="_blank" rel="noopener noreferrer" class="font-mono text-sky-400 hover:underline truncate max-w-[180px]" x-text="dossier.creative.destination_url"></a>
-                      <button type="button" @click="copyUrl(dossier.creative.destination_url)" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                      <button type="button" @click="copyUrl(dossier.creative.destination_url)" class="p-1 rounded hover:bg-[#27272A] text-slate-400 hover:text-white cursor-pointer transition" title="Copy Destination URL"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
                     </div>
                   </div>
                 </template>
@@ -1414,7 +1548,7 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="text-slate-400 shrink-0">Affiliate Tracking URL</span>
                     <div class="flex items-center gap-1 truncate">
                       <span class="font-mono text-[11px] text-amber-300 truncate max-w-[180px]" x-text="dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link"></span>
-                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link, 'Tracked Link')" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link, 'Tracked Link')" class="p-1 rounded hover:bg-[#27272A] text-slate-400 hover:text-white cursor-pointer transition" title="Copy Tracked Link"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
                     </div>
                   </div>
                 </template>
@@ -1481,8 +1615,9 @@ export function getPinDetailPageHtml(pinId = '') {
 
           <!-- Card 7: Collapsible Raw JSON Forensic Inspector -->
           <details class="p-4 rounded-xl border border-[#27272A] bg-[#121215] text-xs">
-            <summary class="font-bold text-slate-400 hover:text-white cursor-pointer select-none">
-              🔬 Deep Forensic JSON Dossier (Raw Telemetry Blob)
+            <summary class="font-bold text-slate-400 hover:text-white cursor-pointer select-none flex items-center gap-2">
+              <svg class="w-4 h-4 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 2 4 4-4 4"/><circle cx="6" cy="18" r="4"/><circle cx="18" cy="18" r="4"/><path d="m14 14-8-8"/></svg>
+              <span>Deep Forensic JSON Dossier (Raw Telemetry Blob)</span>
             </summary>
             <div class="mt-3 pt-3 border-t border-[#27272A] space-y-2">
               <div class="flex items-center justify-end">
@@ -1506,7 +1641,9 @@ export function getPinDetailPageHtml(pinId = '') {
   <div x-show="deleteModalOpen" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
     <div @click.away="deleteModalOpen = false" class="bg-[#121215] border border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4">
       <div class="flex items-center gap-3 text-red-500">
-        <span class="text-xl">🗑️</span>
+        <div class="w-9 h-9 rounded-xl bg-red-950/60 border border-red-800/80 flex items-center justify-center shrink-0">
+          <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </div>
         <h3 class="text-sm font-bold text-white">
           <span x-show="deleteType === 'DAY'">Confirm Delete Day</span>
           <span x-show="deleteType === 'SERP_BADGE'">Remove Keyword Rank</span>
@@ -1600,11 +1737,11 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         getMediaFormatLabel() {
-          if (this.dossier?.algorithmic_intelligence?.is_video) return 'Video Pin 🎥';
-          if (this.dossier?.algorithmic_intelligence?.is_product) return 'Product Pin 🛒';
+          if (this.dossier?.algorithmic_intelligence?.is_video) return 'Video Pin';
+          if (this.dossier?.algorithmic_intelligence?.is_product) return 'Product Pin';
           const m = String(this.dossier?.algorithmic_intelligence?.creation_method || '').toLowerCase();
-          if (m.includes('carousel')) return 'Carousel 🎠';
-          return 'Standard Image 🖼️';
+          if (m.includes('carousel')) return 'Carousel';
+          return 'Standard Image';
         },
 
         getCreationMethodBadgeClass() {
@@ -2723,6 +2860,20 @@ export function getPinDetailPageHtml(pinId = '') {
           }
         }
       };
+    }
+  </script>
+  <script>
+    const initLucide = () => {
+      if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLucide);
+      } else {
+        initLucide();
+      }
     }
   </script>
 </body>
