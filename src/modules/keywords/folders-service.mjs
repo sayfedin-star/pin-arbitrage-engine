@@ -2980,9 +2980,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     const rawTags = new Set();
     const canonicalTags = extractCanonicalAnnotations(pin.visual_annotations, { lemmatizeDedupe: true, titleCase: false, limit: 25 });
     for (const rawTag of canonicalTags) {
-      const clean = normalizeAnnotationTag(rawTag, { lemmatize: true });
-      if (clean && clean.length >= 3 && !STOPWORDS.has(clean)) {
-        const lemma = normalizeTagLemma(clean);
+      if (rawTag && rawTag.length >= 3 && !STOPWORDS.has(rawTag)) {
+        const lemma = normalizeTagLemma(rawTag);
         if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
           rawTags.add(lemma);
         }
@@ -3283,24 +3282,38 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
   }
 
-  // Pre-index deduplicated creative pins for whole-word modifier matching on tags, title, and description/alt_text
-  const indexedPinsForCapsules = uniqueCreativePins.map(pin => {
-    const normTitle = ` ${String(pin.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
-    const normDesc = ` ${String((pin.description || '') + ' ' + (pin.alt_text || '') + ' ' + (pin.seo_title || '')).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()} `;
-    const normTags = new Set(pin._canonical_tags || []);
-    return {
-      pin,
-      normTitle,
-      normDesc,
-      normTags
-    };
-  });
+  // Pre-index deduplicated creative pins via an O(1) Inverted Word Index for whole-word/phrase modifier matching
+  const wordToCapsuleItems = new Map();
+  for (let idx = 0; idx < uniqueCreativePins.length; idx++) {
+    const pin = uniqueCreativePins[idx];
+    const tagsStr = (pin._canonical_tags || []).join('  ');
+    const titleStr = String(pin.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const descStr = String((pin.description || '') + '  ' + (pin.alt_text || '') + '  ' + (pin.seo_title || '')).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const searchBlob = ` ${tagsStr}  ${titleStr}  ${descStr} `;
+    const item = { pin, idx, searchBlob };
+
+    const words = searchBlob.trim().split(/\s+/);
+    const seenWords = new Set();
+    for (let wIdx = 0; wIdx < words.length; wIdx++) {
+      const w = words[wIdx];
+      if (w.length >= 2 && !seenWords.has(w)) {
+        seenWords.add(w);
+        let bucket = wordToCapsuleItems.get(w);
+        if (!bucket) {
+          bucket = [];
+          wordToCapsuleItems.set(w, bucket);
+        }
+        bucket.push(item);
+      }
+    }
+  }
 
   const guidedPivots = Array.from(pivotMap.values()).map(p => {
     const termNorm = p.term.toLowerCase().trim();
     const displayNorm = String(p.display_label || p.term || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     const paddedTerm = ` ${termNorm} `;
     const paddedDisplay = displayNorm ? ` ${displayNorm} ` : paddedTerm;
+    const hasDistinctDisplay = Boolean(displayNorm && displayNorm !== termNorm);
 
     // 1. Keyword count strictly represents folder keywords where Pinterest recommended this capsule in keyword_guided_capsules
     // (or folder keywords containing this true sub-modifier if keywords_map is empty)
@@ -3314,29 +3327,43 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       }
     }
 
-    // 2. A creative pin matches ONLY if the capsule modifier appears as a whole word in its visual annotations, title, or description/alt_text
+    // 2. Fast O(1) Inverted Word Index lookup + whole-phrase verification for multi-word capsules
     const matchingPinsRaw = [];
-    for (const item of indexedPinsForCapsules) {
-      let pinMatched = false;
-      if (item.normTags.has(termNorm) || (displayNorm && item.normTags.has(displayNorm))) {
-        pinMatched = true;
+    const termFirstWord = termNorm.split(' ')[0];
+    const isSingleWordTerm = !termNorm.includes(' ');
+    const termBucket = termFirstWord ? (wordToCapsuleItems.get(termFirstWord) || []) : [];
+
+    if (!hasDistinctDisplay) {
+      if (isSingleWordTerm) {
+        for (let i = 0; i < termBucket.length; i++) {
+          matchingPinsRaw.push(termBucket[i].pin);
+        }
       } else {
-        for (const t of item.normTags) {
-          const paddedTag = ` ${t} `;
-          if (paddedTag.includes(paddedTerm) || paddedTag.includes(paddedDisplay)) {
-            pinMatched = true;
-            break;
+        for (let i = 0; i < termBucket.length; i++) {
+          const item = termBucket[i];
+          if (item.searchBlob.includes(paddedTerm)) {
+            matchingPinsRaw.push(item.pin);
           }
         }
       }
-      if (!pinMatched && (item.normTitle.includes(paddedTerm) || item.normTitle.includes(paddedDisplay))) {
-        pinMatched = true;
+    } else {
+      const seenPinIdx = new Set();
+      for (let i = 0; i < termBucket.length; i++) {
+        const item = termBucket[i];
+        if (isSingleWordTerm || item.searchBlob.includes(paddedTerm)) {
+          seenPinIdx.add(item.idx);
+          matchingPinsRaw.push(item.pin);
+        }
       }
-      if (!pinMatched && (item.normDesc.includes(paddedTerm) || item.normDesc.includes(paddedDisplay))) {
-        pinMatched = true;
-      }
-      if (pinMatched) {
-        matchingPinsRaw.push(item.pin);
+      const dispFirstWord = displayNorm.split(' ')[0];
+      const isSingleWordDisp = !displayNorm.includes(' ');
+      const dispBucket = dispFirstWord ? (wordToCapsuleItems.get(dispFirstWord) || []) : [];
+      for (let i = 0; i < dispBucket.length; i++) {
+        const item = dispBucket[i];
+        if (!seenPinIdx.has(item.idx) && (isSingleWordDisp || item.searchBlob.includes(paddedDisplay))) {
+          seenPinIdx.add(item.idx);
+          matchingPinsRaw.push(item.pin);
+        }
       }
     }
 
