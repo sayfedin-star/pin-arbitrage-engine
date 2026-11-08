@@ -1780,85 +1780,105 @@ export function derivePinTitle(title, destinationUrl = '', keyword = '', boardNa
  * Robust English Lemmatizer / Stemmer for Pinterest Visual Tags & Search Capsules
  * Unifies singular/plural variants while strictly protecting non-plural suffixes (-ous, -us, -is, -ss, -ness, -ics)
  */
+const TAG_LEMMA_CACHE = new Map();
+const IRREGULAR_TAG_LEMMAS = {
+  'potatoes': 'potato',
+  'tomatoes': 'tomato',
+  'dishes': 'dish',
+  'fries': 'fry',
+  'berries': 'berry',
+  'strawberries': 'strawberry',
+  'blueberries': 'blueberry',
+  'raspberries': 'raspberry',
+  'cherries': 'cherry',
+  'cookies': 'cookie',
+  'brownies': 'brownie',
+  'smoothies': 'smoothie',
+  'bites': 'bite',
+  'steaks': 'steak',
+  'chickens': 'chicken',
+  'noodles': 'noodle',
+  'sauces': 'sauce',
+  'onions': 'onion',
+  'garlics': 'garlic',
+  'peppers': 'pepper',
+  'mushrooms': 'mushroom',
+  'casseroles': 'casserole',
+  'dinners': 'dinner',
+  'soups': 'soup',
+  'salads': 'salad',
+  'desserts': 'dessert',
+  'recipes': 'recipe',
+  'ideas': 'idea',
+  'skillets': 'skillet',
+  'crockpots': 'crockpot',
+  'veggies': 'veggie',
+  'vegetables': 'vegetable',
+  'carrots': 'carrot',
+  'beans': 'bean',
+  'cheeses': 'cheese',
+  'pastas': 'pasta',
+  'breads': 'bread',
+  'rolls': 'roll',
+  'pies': 'pie',
+  'cakes': 'cake',
+  'muffins': 'muffin',
+  'ribs': 'rib',
+  'wings': 'wing',
+  'burgers': 'burger',
+  'sandwiches': 'sandwich',
+  'tacos': 'taco',
+  'bowls': 'bowl',
+  'pizzas': 'pizza',
+  'spices': 'spice',
+  'herbs': 'herb',
+  'dips': 'dip',
+  'leaves': 'leaf',
+  'halves': 'half',
+  'loaves': 'loaf',
+  'knives': 'knife'
+};
+
 export function normalizeTagLemma(tag) {
-  let t = String(tag || '').trim().toLowerCase();
-  if (!t || t.length < 3) return '';
+  if (!tag) return '';
+  const rawKey = String(tag);
+  const cached = TAG_LEMMA_CACHE.get(rawKey);
+  if (cached !== undefined) return cached;
+
+  let t = rawKey.trim().toLowerCase();
+  if (!t || t.length < 3) {
+    if (TAG_LEMMA_CACHE.size < 30000) TAG_LEMMA_CACHE.set(rawKey, '');
+    return '';
+  }
   // Unicode NFKD normalization decomposes combined characters (e.g. é -> e + ́), then strip combining marks
   t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
   // Retain Unicode letters, numbers, and spaces while stripping punctuation/symbols
   t = t.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-  if (!t || t.length < 3) return '';
-
-  const irregulars = {
-    'potatoes': 'potato',
-    'tomatoes': 'tomato',
-    'dishes': 'dish',
-    'fries': 'fry',
-    'berries': 'berry',
-    'strawberries': 'strawberry',
-    'blueberries': 'blueberry',
-    'raspberries': 'raspberry',
-    'cherries': 'cherry',
-    'cookies': 'cookie',
-    'brownies': 'brownie',
-    'smoothies': 'smoothie',
-    'bites': 'bite',
-    'steaks': 'steak',
-    'chickens': 'chicken',
-    'noodles': 'noodle',
-    'sauces': 'sauce',
-    'onions': 'onion',
-    'garlics': 'garlic',
-    'peppers': 'pepper',
-    'mushrooms': 'mushroom',
-    'casseroles': 'casserole',
-    'dinners': 'dinner',
-    'soups': 'soup',
-    'salads': 'salad',
-    'desserts': 'dessert',
-    'recipes': 'recipe',
-    'ideas': 'idea',
-    'skillets': 'skillet',
-    'crockpots': 'crockpot',
-    'veggies': 'veggie',
-    'vegetables': 'vegetable',
-    'carrots': 'carrot',
-    'beans': 'bean',
-    'cheeses': 'cheese',
-    'pastas': 'pasta',
-    'breads': 'bread',
-    'rolls': 'roll',
-    'pies': 'pie',
-    'cakes': 'cake',
-    'muffins': 'muffin',
-    'ribs': 'rib',
-    'wings': 'wing',
-    'burgers': 'burger',
-    'sandwiches': 'sandwich',
-    'tacos': 'taco',
-    'bowls': 'bowl',
-    'pizzas': 'pizza',
-    'spices': 'spice',
-    'herbs': 'herb',
-    'dips': 'dip',
-    'leaves': 'leaf',
-    'halves': 'half',
-    'loaves': 'loaf',
-    'knives': 'knife'
-  };
-  if (irregulars[t]) return irregulars[t];
-
-  // Protected non-plural suffixes: do NOT strip 's' (e.g. delicious, hummus, citrus, grass)
-  if (/(ous|us|is|ss|ness|ics)$/.test(t)) {
-    return t;
+  if (!t || t.length < 3) {
+    if (TAG_LEMMA_CACHE.size < 30000) TAG_LEMMA_CACHE.set(rawKey, '');
+    return '';
   }
 
-  // Safe plural rules
-  if (t.endsWith('ies') && t.length > 5) return t.slice(0, -3) + 'y';
-  if (t.endsWith('ves') && t.length > 4) return t.slice(0, -3) + 'f';
-  if (t.endsWith('es') && t.length > 4 && /(s|ch|sh|x|z)es$/.test(t)) return t.slice(0, -2);
-  if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) return t.slice(0, -1);
-  return t;
+  let result = t;
+  if (IRREGULAR_TAG_LEMMAS[t]) {
+    result = IRREGULAR_TAG_LEMMAS[t];
+  } else if (/(ous|us|is|ss|ness|ics)$/.test(t)) {
+    // Protected non-plural suffixes: do NOT strip 's' (e.g. delicious, hummus, citrus, grass)
+    result = t;
+  } else if (t.endsWith('ies') && t.length > 5) {
+    result = t.slice(0, -3) + 'y';
+  } else if (t.endsWith('ves') && t.length > 4) {
+    result = t.slice(0, -3) + 'f';
+  } else if (t.endsWith('es') && t.length > 4 && /(s|ch|sh|x|z)es$/.test(t)) {
+    result = t.slice(0, -2);
+  } else if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) {
+    result = t.slice(0, -1);
+  }
+
+  if (TAG_LEMMA_CACHE.size < 30000) {
+    TAG_LEMMA_CACHE.set(rawKey, result);
+  }
+  return result;
 }
 
 /**
@@ -2160,196 +2180,178 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
   // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
   // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
-  let pinRows = await sql`
-    WITH ranked_active AS (
+  let [pinRows, displacedRows, capsuleRows] = await Promise.all([
+    sql`
+      WITH ranked_active AS (
+        SELECT
+          c.keyword_id,
+          c.pin_id,
+          c.rank_position,
+          c.title,
+          c.domain,
+          c.destination_url,
+          c.image_url,
+          c.creator_username,
+          c.board_name,
+          c.dominant_color,
+          c.visual_annotations,
+          c.creation_method,
+          c.save_count,
+          c.repin_count,
+          c.comment_count,
+          c.daily_save_velocity,
+          c.delta_repins_24h,
+          c.gains_5d,
+          c.gains_7d,
+          c.gains_10d,
+          c.gains_15d,
+          c.created_at_pinterest,
+          c.crawled_at,
+          c.baseline_day_saves,
+          c.updated_at AS snapshot_date,
+          (c.metadata->>'aspect_ratio') AS aspect_ratio,
+          (c.metadata->>'format') AS format,
+          (c.metadata->>'seo_title') AS seo_title,
+          tk.keyword AS keyword_text,
+          i.added_at AS folder_added_at,
+          ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY c.save_count DESC NULLS LAST, c.daily_save_velocity DESC NULLS LAST) AS pin_rn
+        FROM keyword_folder_items i
+        JOIN tracked_keywords tk ON tk.id = i.keyword_id
+        JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+          AND c.is_displaced IS FALSE
+          AND c.rank_position IS NOT NULL
+          AND c.rank_position >= 1
+      )
       SELECT
-        c.keyword_id,
-        c.pin_id,
-        c.rank_position,
-        c.title,
-        c.domain,
-        c.destination_url,
-        c.image_url,
-        c.creator_username,
-        c.board_name,
-        c.dominant_color,
-        c.visual_annotations,
-        c.creation_method,
-        c.save_count,
-        c.repin_count,
-        c.comment_count,
-        c.daily_save_velocity,
-        c.delta_repins_24h,
-        c.gains_5d,
-        c.gains_7d,
-        c.gains_10d,
-        c.gains_15d,
-        c.created_at_pinterest,
-        c.crawled_at,
-        c.baseline_day_saves,
-        c.updated_at AS snapshot_date,
-        (c.metadata->>'aspect_ratio') AS aspect_ratio,
-        (c.metadata->>'format') AS format,
-        (c.metadata->>'seo_title') AS seo_title,
-        tk.keyword AS keyword_text,
-        i.added_at AS folder_added_at,
-        ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY c.save_count DESC NULLS LAST, c.daily_save_velocity DESC NULLS LAST) AS pin_rn
-      FROM keyword_folder_items i
-      JOIN tracked_keywords tk ON tk.id = i.keyword_id
-      JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
-      WHERE i.folder_id = ${fid}
-        AND c.is_displaced IS FALSE
-        AND c.rank_position IS NOT NULL
-        AND c.rank_position >= 1
-    )
-    SELECT
-      ra.keyword_id,
-      ra.pin_id,
-      ra.rank_position,
-      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.title, ''), ump.title, '') ELSE NULL END AS title,
-      COALESCE(NULLIF(ra.domain, ''), ump.domain, '') AS domain,
-      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.destination_url, ''), ump.destination_url, '') ELSE NULL END AS destination_url,
-      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.image_url, ''), ump.image_url, '') ELSE NULL END AS image_url,
-      COALESCE(NULLIF(ra.creator_username, ''), ump.creator_username, '') AS creator_username,
-      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.board_name, ''), ump.board_name, '') ELSE NULL END AS board_name,
-      COALESCE(NULLIF(NULLIF(ra.dominant_color, ''), '#888888'), NULLIF(ump.dominant_color, '#888888'), NULLIF(ra.dominant_color, ''), ump.dominant_color) AS dominant_color,
-      CASE
-        WHEN ra.pin_rn = 1 THEN
-          CASE
-            WHEN ra.visual_annotations IS NOT NULL AND jsonb_typeof(ra.visual_annotations) = 'array' AND jsonb_array_length(ra.visual_annotations) > 0 THEN ra.visual_annotations
-            ELSE ump.visual_annotations
-          END
-        ELSE NULL
-      END AS visual_annotations,
-      ra.creation_method,
-      GREATEST(COALESCE(ra.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
-      GREATEST(COALESCE(ra.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
-      GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
-      COALESCE(NULLIF(ra.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(NULLIF(ra.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
-      ra.gains_5d,
-      ra.gains_7d,
-      ra.gains_10d,
-      ra.gains_15d,
-      COALESCE(ra.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-      ra.crawled_at,
-      ra.baseline_day_saves,
-      ra.snapshot_date,
-      COALESCE(NULLIF(ra.aspect_ratio, ''), (ump.metadata->>'aspect_ratio')) AS aspect_ratio,
-      ra.format,
-      CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.seo_title, ''), (ump.metadata->>'seo_title')) ELSE NULL END AS seo_title,
-      ra.keyword_text,
-      ra.folder_added_at
-    FROM ranked_active ra
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = ra.pin_id
-    ORDER BY ra.pin_rn ASC, ra.save_count DESC, ra.daily_save_velocity DESC;
-  `;
-
-  if (!pinRows) {
-    pinRows = [];
-  }
-
-  // 2B. High-Signal Vault Union from keyword_displaced_index (Deduplicated heavy payload per pin_id)
-  let displacedRows = await sql`
-    WITH active_pin_ids AS (
-      SELECT DISTINCT c.pin_id
-      FROM keyword_folder_items i
-      JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
-      WHERE i.folder_id = ${fid}
-        AND c.is_displaced IS FALSE
-        AND c.rank_position IS NOT NULL
-        AND c.rank_position >= 1
-    ),
-    folder_kdi AS (
+        ra.keyword_id,
+        ra.pin_id,
+        ra.rank_position,
+        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.title, ''), ump.title, '') ELSE NULL END AS title,
+        COALESCE(NULLIF(ra.domain, ''), ump.domain, '') AS domain,
+        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.destination_url, ''), ump.destination_url, '') ELSE NULL END AS destination_url,
+        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.image_url, ''), ump.image_url, '') ELSE NULL END AS image_url,
+        COALESCE(NULLIF(ra.creator_username, ''), ump.creator_username, '') AS creator_username,
+        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.board_name, ''), ump.board_name, '') ELSE NULL END AS board_name,
+        COALESCE(NULLIF(NULLIF(ra.dominant_color, ''), '#888888'), NULLIF(ump.dominant_color, '#888888'), NULLIF(ra.dominant_color, ''), ump.dominant_color) AS dominant_color,
+        CASE
+          WHEN ra.pin_rn = 1 THEN
+            CASE
+              WHEN ra.visual_annotations IS NOT NULL AND jsonb_typeof(ra.visual_annotations) = 'array' AND jsonb_array_length(ra.visual_annotations) > 0 THEN ra.visual_annotations
+              ELSE ump.visual_annotations
+            END
+          ELSE NULL
+        END AS visual_annotations,
+        ra.creation_method,
+        GREATEST(COALESCE(ra.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
+        GREATEST(COALESCE(ra.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+        GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
+        COALESCE(NULLIF(ra.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(NULLIF(ra.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
+        ra.gains_5d,
+        ra.gains_7d,
+        ra.gains_10d,
+        ra.gains_15d,
+        COALESCE(ra.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
+        ra.crawled_at,
+        ra.baseline_day_saves,
+        ra.snapshot_date,
+        COALESCE(NULLIF(ra.aspect_ratio, ''), (ump.metadata->>'aspect_ratio')) AS aspect_ratio,
+        ra.format,
+        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.seo_title, ''), (ump.metadata->>'seo_title')) ELSE NULL END AS seo_title,
+        ra.keyword_text,
+        ra.folder_added_at
+      FROM ranked_active ra
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ra.pin_id
+      ORDER BY ra.pin_rn ASC, ra.save_count DESC, ra.daily_save_velocity DESC;
+    `,
+    sql`
+      WITH active_pin_ids AS (
+        SELECT DISTINCT c.pin_id
+        FROM keyword_folder_items i
+        JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+          AND c.is_displaced IS FALSE
+          AND c.rank_position IS NOT NULL
+          AND c.rank_position >= 1
+      ),
+      folder_kdi AS (
+        SELECT
+          kdi.keyword_id,
+          kdi.pin_id,
+          kdi.last_known_rank AS rank_position,
+          COALESCE(kdi.domain, '') AS domain,
+          COALESCE(kdi.creator_username, '') AS creator_username,
+          COALESCE(kdi.save_count, 0) AS save_count,
+          COALESCE(kdi.repin_count, 0) AS repin_count,
+          COALESCE(kdi.comment_count, 0) AS comment_count,
+          COALESCE(kdi.daily_save_velocity, 0) AS daily_save_velocity,
+          COALESCE(kdi.delta_repins_24h, 0) AS delta_repins_24h,
+          kdi.gains_5d,
+          kdi.gains_7d,
+          kdi.gains_10d,
+          kdi.gains_15d,
+          kdi.updated_at AS snapshot_date,
+          tk.keyword AS keyword_text,
+          i.added_at AS folder_added_at,
+          TRUE AS is_displaced,
+          (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
+          ROW_NUMBER() OVER (
+            PARTITION BY kdi.pin_id
+            ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, kdi.daily_save_velocity DESC NULLS LAST, kdi.save_count DESC NULLS LAST
+          ) AS pin_rn
+        FROM keyword_folder_items i
+        JOIN tracked_keywords tk ON tk.id = i.keyword_id
+        JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+          AND kdi.last_known_rank IS NOT NULL
+          AND kdi.last_known_rank >= 1
+      )
       SELECT
-        kdi.keyword_id,
-        kdi.pin_id,
-        kdi.last_known_rank AS rank_position,
-        kdi.domain,
-        kdi.creator_username,
-        kdi.save_count,
-        kdi.repin_count,
-        kdi.comment_count,
-        kdi.daily_save_velocity,
-        kdi.delta_repins_24h,
-        kdi.gains_5d,
-        kdi.gains_7d,
-        kdi.gains_10d,
-        kdi.gains_15d,
-        kdi.updated_at AS snapshot_date,
-        tk.keyword AS keyword_text,
-        i.added_at AS folder_added_at,
-        TRUE AS is_displaced,
-        (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
-        ROW_NUMBER() OVER (
-          PARTITION BY kdi.pin_id
-          ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, kdi.daily_save_velocity DESC NULLS LAST, kdi.save_count DESC NULLS LAST
-        ) AS pin_rn
-      FROM keyword_folder_items i
-      JOIN tracked_keywords tk ON tk.id = i.keyword_id
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
-      WHERE i.folder_id = ${fid}
-        AND kdi.last_known_rank IS NOT NULL
-        AND kdi.last_known_rank >= 1
-    ),
-    filtered_kdi AS (
-      SELECT *
+        keyword_id,
+        pin_id,
+        rank_position,
+        domain,
+        creator_username,
+        save_count,
+        repin_count,
+        comment_count,
+        daily_save_velocity,
+        delta_repins_24h,
+        gains_5d,
+        gains_7d,
+        gains_10d,
+        gains_15d,
+        snapshot_date,
+        keyword_text,
+        folder_added_at,
+        is_displaced
       FROM folder_kdi
       ORDER BY pin_rn ASC, in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
-      LIMIT 15000
-    )
-    SELECT
-      fk.keyword_id,
-      fk.pin_id,
-      fk.rank_position,
-      COALESCE(NULLIF(fk.domain, ''), ump.domain, '') AS domain,
-      COALESCE(NULLIF(fk.creator_username, ''), ump.creator_username, '') AS creator_username,
-      GREATEST(COALESCE(fk.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
-      GREATEST(COALESCE(fk.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
-      GREATEST(COALESCE(fk.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
-      COALESCE(NULLIF(fk.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(NULLIF(fk.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
-      fk.gains_5d,
-      fk.gains_7d,
-      fk.gains_10d,
-      fk.gains_15d,
-      fk.snapshot_date,
-      fk.keyword_text,
-      fk.folder_added_at,
-      fk.is_displaced,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.title ELSE NULL END AS title,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.image_url ELSE NULL END AS image_url,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.destination_url ELSE NULL END AS destination_url,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.board_name ELSE NULL END AS board_name,
-      CASE WHEN fk.pin_rn = 1 THEN ump.dominant_color ELSE NULL END AS dominant_color,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.visual_annotations ELSE NULL END AS visual_annotations,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN ump.created_at_pinterest ELSE NULL END AS created_at_pinterest,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'aspect_ratio') ELSE NULL END AS aspect_ratio,
-      CASE WHEN fk.pin_rn = 1 AND NOT fk.in_active_serp THEN (ump.metadata->>'seo_title') ELSE NULL END AS seo_title
-    FROM filtered_kdi fk
-    LEFT JOIN universal_master_pins ump ON fk.pin_rn = 1 AND ump.pin_id = fk.pin_id
-    ORDER BY fk.pin_rn ASC;
-  `;
+      LIMIT 15000;
+    `,
+    sql`
+      SELECT 
+        c.id,
+        c.keyword_id,
+        c.term,
+        c.display_label,
+        c.score,
+        c.dominant_color,
+        c.display_order,
+        tk.keyword as keyword_text
+      FROM keyword_guided_capsules c
+      JOIN tracked_keywords tk ON tk.id = c.keyword_id
+      WHERE c.keyword_id = ANY(${keywordIds})
+      ORDER BY c.score DESC, c.display_order ASC;
+    `
+  ]);
+
+  if (!pinRows) pinRows = [];
   if (!displacedRows) displacedRows = [];
+  if (!capsuleRows) capsuleRows = [];
 
   const combinedCatalogRows = [...pinRows, ...displacedRows];
-
-  // 3. Query Guided Search Capsules for all folder keywords
-  const capsuleRows = await sql`
-    SELECT 
-      c.id,
-      c.keyword_id,
-      c.term,
-      c.display_label,
-      c.score,
-      c.dominant_color,
-      c.display_order,
-      tk.keyword as keyword_text
-    FROM keyword_guided_capsules c
-    JOIN tracked_keywords tk ON tk.id = c.keyword_id
-    WHERE c.keyword_id = ANY(${keywordIds})
-    ORDER BY c.score DESC, c.display_order ASC;
-  `;
 
   // =========================================================================
   // DIMENSION A: MULTI-RANKING SUPER-PINS OVERLAP
@@ -2527,8 +2529,6 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       keyword_id: row.keyword_id,
       keyword: row.keyword_text,
       rank_position: rankNum,
-      daily_save_velocity: vel,
-      snapshot_date: row.snapshot_date,
       is_displaced: Boolean(row.is_displaced)
     });
   }
@@ -2602,7 +2602,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         description: existing.description || r.description || '',
         created_at_pinterest: existing.created_at_pinterest || r.created_at_pinterest || null,
         aspect_ratio: existing.aspect_ratio || r.aspect_ratio || null,
-        creation_method: existing.creation_method || r.creation_method || null
+        creation_method: existing.creation_method || r.creation_method || null,
+        save_count: Math.max(Number(existing.save_count || 0), Number(r.save_count || 0)),
+        repin_count: Math.max(Number(existing.repin_count || 0), Number(r.repin_count || 0)),
+        comment_count: Math.max(Number(existing.comment_count || 0), Number(r.comment_count || 0)),
+        daily_save_velocity: Math.max(Number(existing.daily_save_velocity || 0), Number(r.daily_save_velocity || 0)),
+        delta_repins_24h: Math.max(Number(existing.delta_repins_24h || 0), Number(r.delta_repins_24h || 0))
       });
     };
 
@@ -2625,48 +2630,15 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
                  (ump.metadata->>'seo_title') AS seo_title,
                  ump.created_at_pinterest,
                  (ump.metadata->>'aspect_ratio') AS aspect_ratio,
-                 COALESCE(NULLIF(ump.metadata->>'creation_method', ''), NULLIF(ump.metadata->>'method', '')) AS creation_method
+                 COALESCE(NULLIF(ump.metadata->>'creation_method', ''), NULLIF(ump.metadata->>'method', '')) AS creation_method,
+                 ump.save_count,
+                 ump.repin_count,
+                 ump.comment_count,
+                 ump.daily_save_velocity,
+                 ump.delta_repins_24h
           FROM universal_master_pins ump
           WHERE ump.pin_id = ANY(${hubLookupIds}::text[])
-            AND (ump.title <> '' OR ump.image_url <> '')
-          UNION ALL
-          SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
-                 ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations,
-                 (ksc.metadata->>'alt_text') AS alt_text,
-                 (ksc.metadata->>'description') AS description,
-                 (ksc.metadata->>'seo_title') AS seo_title,
-                 ksc.created_at_pinterest,
-                 (ksc.metadata->>'aspect_ratio') AS aspect_ratio,
-                 COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), NULLIF(ksc.metadata->>'method', '')) AS creation_method
-          FROM keyword_serp_current ksc
-          WHERE ksc.pin_id = ANY(${hubLookupIds}::text[])
-            AND (ksc.title <> '' OR ksc.image_url <> '')
-          UNION ALL
-          SELECT cp.pin_id, cp.title, cp.link_domain AS domain, cp.destination_url, cp.image_url,
-                 '' AS creator_username, cp.board_name, '#888888' AS dominant_color,
-                 COALESCE(cp.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
-                 cp.alt_text,
-                 cp.description,
-                 (cp.metadata->>'seo_title') AS seo_title,
-                 cp.created_at_pinterest,
-                 (cp.metadata->>'aspect_ratio') AS aspect_ratio,
-                 COALESCE(NULLIF(cp.metadata->>'creation_method', ''), NULLIF(cp.metadata->>'method', '')) AS creation_method
-          FROM competitor_pins cp
-          WHERE cp.pin_id = ANY(${hubLookupIds}::text[])
-            AND (cp.title <> '' OR cp.image_url <> '')
-          UNION ALL
-          SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url,
-                 pa.account_username AS creator_username, pa.board_name, pa.dominant_color,
-                 COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations,
-                 pa.alt_text,
-                 pa.description,
-                 NULL AS seo_title,
-                 pa.created_at_pinterest,
-                 NULL AS aspect_ratio,
-                 NULL AS creation_method
-          FROM pa_pins pa
-          WHERE pa.pin_id = ANY(${hubLookupIds}::text[])
-            AND (pa.title <> '' OR pa.image_url <> '');
+            AND (ump.title <> '' OR ump.image_url <> '');
         `.catch(() => []);
 
         for (const row of (hubMeta || [])) {
@@ -2839,6 +2811,23 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         if ((!p.format || p.format === 'ORGANIC PIN') && meta.creation_method) {
           p.format = String(meta.creation_method).toUpperCase();
         }
+        if (meta.save_count) p.save_count = Math.max(p.save_count || 0, Number(meta.save_count));
+        if (meta.repin_count) p.repin_count = Math.max(p.repin_count || 0, Number(meta.repin_count));
+        if (meta.comment_count) p.comment_count = Math.max(p.comment_count || 0, Number(meta.comment_count));
+        if (meta.daily_save_velocity && Number(meta.daily_save_velocity) > (p.daily_save_velocity || 0)) {
+          p.daily_save_velocity = Number(meta.daily_save_velocity);
+          p.delta_saves_24h = Math.max(p.delta_saves_24h || 0, Number(meta.daily_save_velocity));
+        }
+        if (meta.delta_repins_24h && Number(meta.delta_repins_24h) > (p.delta_repins_24h || 0)) {
+          p.delta_repins_24h = Number(meta.delta_repins_24h);
+        }
+        p.effective_velocity = Math.max(
+          p.effective_velocity || 0,
+          p.daily_save_velocity > 0 ? p.daily_save_velocity : (p.delta_repins_24h || 0)
+        );
+        p.velocity_source = p.daily_save_velocity > 0
+          ? 'saves'
+          : ((p.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
       }
     }
   }
@@ -3099,9 +3088,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     folder_age_days: pin.folder_age_days,
     dominant_color: pin.dominant_color || null,
     aspect_ratio: pin.aspect_ratio || '2:3',
-    overlap_count: pin.overlap_count || (pin.rankings ? pin.rankings.length : 1),
-    rankings: (pin.rankings || []).slice(0, 6),
-    visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations.slice(0, 12) : []
+    overlap_count: pin.overlap_count || (pin.rankings ? pin.rankings.length : 1)
   });
 
   const tagMap = new Map(); // cleanTag -> { tag, display_name, keywords_set: Set, pin_count: int, total_saves: int, saves_gain: float, velocity_gain: float, repins_gain: float, matching_pins: [] }
@@ -3141,13 +3128,13 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
   }
 
-  const tagBridges = Array.from(tagMap.values()).map(t => {
+  const allTagBridges = Array.from(tagMap.values()).map(t => {
     const kwCount = t.keywords_set.size;
     const overlapPct = Math.round((kwCount / totalKeywords) * 100);
     const sortedPins = t.matching_pins
       .slice()
       .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
-      .slice(0, 12)
+      .slice(0, 6)
       .map(formatMatrixPin);
     const velGain = Number(t.velocity_gain.toFixed(1));
     const savesGain = Math.round(t.saves_gain);
@@ -3174,8 +3161,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       is_universal: overlapPct >= 50,
       bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge',
       sample_pins: sortedPins.slice(0, 3),
-      matching_pins: sortedPins,
-      pins: sortedPins
+      matching_pins: sortedPins
     };
   })
   .sort((a, b) => {
@@ -3186,16 +3172,18 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       return b.keyword_overlap_count - a.keyword_overlap_count;
     }
     return b.total_velocity - a.total_velocity || b.total_saves - a.total_saves;
-  })
-  .slice(0, 500);
+  });
 
-  // Link universal bridge visual tags back to each pin record for inline display
+  // Compute universalTagsCount and link universal bridge visual tags BEFORE slicing tagBridges to 150
+  const universalTagsCount = allTagBridges.slice(0, 500).filter(t => t.is_universal).length;
   const bridgeTagMap = new Map();
-  for (const tb of tagBridges) {
+  for (const tb of allTagBridges.slice(0, 500)) {
     if (tb.is_universal) {
       bridgeTagMap.set(tb.raw_tag.toLowerCase(), tb);
     }
   }
+
+  const tagBridges = allTagBridges.slice(0, 150);
 
   for (const pin of allPins) {
     const matchedBridges = [];
@@ -3353,7 +3341,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     }
 
     matchingPinsRaw.sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0));
-    const topMatchingPins = matchingPinsRaw.slice(0, 12).map(formatMatrixPin);
+    const topMatchingPins = matchingPinsRaw.slice(0, 6).map(formatMatrixPin);
     const totalVel = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? 0)), 0) * 10) / 10;
     const totalRepins = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.delta_repins_24h || 0)), 0));
     const totalSaves = matchingPinsRaw.reduce((sum, pin) => sum + Number(pin.save_count || 0), 0);
@@ -3381,8 +3369,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       composite_score: Number(p.total_score.toFixed(4)),
       dominant_color: p.dominant_color,
       is_connector: kwCount >= 2,
-      matching_pins: topMatchingPins,
-      pins: topMatchingPins
+      matching_pins: topMatchingPins
     };
   })
   .filter(gp => gp.pin_count >= 1)
@@ -3463,20 +3450,43 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     return b.total_saves - a.total_saves;
   });
 
-  // Enrich domain age & monetization from domain_intelligence_rollup
+  // Enrich domain age & monetization from domain_intelligence_rollup and creator metrics in parallel
   const domainNames = Array.from(domainMap.keys()).filter(Boolean);
+  const creatorUsernames = Array.from(creatorMap.keys()).filter(Boolean);
   const domainRollupMap = new Map();
-  if (domainNames.length > 0) {
-    const domainRows = await sql`
-      SELECT domain, age_days, age_years, ad_network
-      FROM domain_intelligence_rollup
-      WHERE domain = ANY(${domainNames})
-    `.catch(() => []);
-    for (const dr of (domainRows || [])) {
-      if (dr.domain) domainRollupMap.set(dr.domain.toLowerCase(), dr);
-    }
-  }
+  const creatorProfilesMap = new Map();
 
+  const [domainRows, creatorRows] = await Promise.all([
+    domainNames.length > 0
+      ? sql`
+          SELECT domain, age_days, age_years, ad_network
+          FROM domain_intelligence_rollup
+          WHERE domain = ANY(${domainNames})
+        `.catch(() => [])
+      : Promise.resolve([]),
+    creatorUsernames.length > 0
+      ? sql`
+          SELECT 
+            LOWER(username) AS username,
+            monthly_reach,
+            profile_views,
+            delta_reach_24h,
+            reach_delta_7d,
+            delta_views_24h,
+            views_delta_7d,
+            delta_pins_24h,
+            pins_delta_7d,
+            delta_boards_24h,
+            boards_delta_7d
+          FROM competitor_profiles
+          WHERE LOWER(username) = ANY(${creatorUsernames})
+        `.catch(() => [])
+      : Promise.resolve([])
+  ]);
+
+  for (const dr of (domainRows || [])) {
+    if (dr.domain) domainRollupMap.set(dr.domain.toLowerCase(), dr);
+  }
   for (const p of allPins) {
     const dom = cleanExternalDomain(p.domain);
     const dr = dom ? domainRollupMap.get(dom.toLowerCase()) : null;
@@ -3484,29 +3494,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     p.domain_age_years = dr?.age_years != null ? Number(dr.age_years) : null;
     p.ad_network = dr?.ad_network || null;
   }
-
-  const creatorUsernames = Array.from(creatorMap.keys()).filter(Boolean);
-  const creatorProfilesMap = new Map();
-  if (creatorUsernames.length > 0) {
-    const creatorRows = await sql`
-      SELECT 
-        LOWER(username) AS username,
-        monthly_reach,
-        profile_views,
-        delta_reach_24h,
-        reach_delta_7d,
-        delta_views_24h,
-        views_delta_7d,
-        delta_pins_24h,
-        pins_delta_7d,
-        delta_boards_24h,
-        boards_delta_7d
-      FROM competitor_profiles
-      WHERE LOWER(username) = ANY(${creatorUsernames})
-    `;
-    for (const cp of (creatorRows || [])) {
-      if (cp.username) creatorProfilesMap.set(cp.username.toLowerCase(), cp);
-    }
+  for (const cp of (creatorRows || [])) {
+    if (cp.username) creatorProfilesMap.set(cp.username.toLowerCase(), cp);
   }
 
   const creatorMonopoly = Array.from(creatorMap.values()).map(c => {
@@ -3809,7 +3798,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       const sortedPins = c.matching_pins_raw
         .slice()
         .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
-        .slice(0, 12)
+        .slice(0, 6)
         .map(formatMatrixPin);
       const kwCount = c.keywords_set.size;
       return {
@@ -3823,8 +3812,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         total_saves: c.total_saves,
         total_velocity: Math.round(c.total_velocity * 10) / 10,
         total_repins_delta: Math.round(c.total_repins_delta),
-        matching_pins: sortedPins,
-        pins: sortedPins
+        matching_pins: sortedPins
       };
     })
     .sort((a, b) => b.pin_count - a.pin_count || b.total_velocity - a.total_velocity)
@@ -3852,7 +3840,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       vacuum_pins_count: vacuumPinsCount,
       rockets_count: rocketsCount,
       surging_24h_count: surging24hCount,
-      universal_tags_count: tagBridges.filter(t => t.is_universal).length,
+      universal_tags_count: universalTagsCount,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: domainMonopoly.length,
       monopoly_creator_count: creatorMonopoly.length,
@@ -3865,7 +3853,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         'all': { saves: allPins.reduce((sum, p) => sum + (p.save_count || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.repin_count || 0), 0) }
       }
     },
-    super_pins: superPins.length > 0 ? superPins : topRankedPins,
+    super_pins: (superPins.length > 0 ? superPins : topRankedPins).slice(0, 20),
     all_pins: allPins.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0)),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,

@@ -24,7 +24,7 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,11 +65,6 @@ export const VPS_JOBS = [
         cmd: process.execPath,
         args: ['--use-system-ca', 'scripts/creator-velocity-crawler.mjs'],
         env: { WORKER_INDEX: '0', WORKER_TOTAL: '1', MODE: 'creator_sweep' }
-      },
-      {
-        cmd: process.execPath,
-        args: ['scripts/backfill_creator_gains_and_top_pins.mjs'],
-        env: {}
       }
     ]
   },
@@ -210,7 +205,11 @@ async function main() {
   }, 30_000);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isMainModule = Boolean(
+  process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+);
+
+if (isMainModule) {
   main().catch((err) => {
     console.error('[VPS-Scheduler] Fatal error:', err);
     process.exit(1);

@@ -96,6 +96,9 @@ const KEEP_S_WORDS = new Set([
   'oats', 'grits', 'greens', 'beans', 'lentils', 'noodles', 'tacos', 'nachos', 'tapas'
 ]);
 
+const WORD_LEMMA_CACHE = new Map();
+const ANNOTATION_TAG_CACHE = new Map();
+
 /**
  * Normalizes a single lowercase English word token to its singular lemma.
  * @param {string} word
@@ -103,31 +106,38 @@ const KEEP_S_WORDS = new Set([
  */
 export function normalizeWordLemma(word) {
   if (!word || typeof word !== 'string') return '';
-  const clean = word.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
-  if (clean.length <= 2) return clean;
-  if (IRREGULAR_LEMMAS.has(clean)) return IRREGULAR_LEMMAS.get(clean);
-  if (KEEP_S_WORDS.has(clean)) return clean;
+  const cached = WORD_LEMMA_CACHE.get(word);
+  if (cached !== undefined) return cached;
 
-  if (clean.endsWith('ies') && clean.length > 4) {
-    return clean.slice(0, -3) + 'y';
-  }
-  if (clean.endsWith('ves') && clean.length > 4) {
+  const clean = word.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+  let result = clean;
+  if (clean.length <= 2) {
+    result = clean;
+  } else if (IRREGULAR_LEMMAS.has(clean)) {
+    result = IRREGULAR_LEMMAS.get(clean);
+  } else if (KEEP_S_WORDS.has(clean)) {
+    result = clean;
+  } else if (clean.endsWith('ies') && clean.length > 4) {
+    result = clean.slice(0, -3) + 'y';
+  } else if (clean.endsWith('ves') && clean.length > 4) {
     const stem = clean.slice(0, -3);
     if (stem.endsWith('kni') || stem.endsWith('wi') || stem.endsWith('li')) {
-      return stem + 'fe';
+      result = stem + 'fe';
+    } else {
+      result = stem + 'f';
     }
-    return stem + 'f';
+  } else if (clean.endsWith('oes') && clean.length > 4) {
+    result = clean.slice(0, -2);
+  } else if ((clean.endsWith('ches') || clean.endsWith('shes') || clean.endsWith('xes') || clean.endsWith('zes') || clean.endsWith('sses')) && clean.length > 4) {
+    result = clean.slice(0, -2);
+  } else if (clean.endsWith('s') && !clean.endsWith('ss') && !clean.endsWith('us') && !clean.endsWith('is') && clean.length > 3) {
+    result = clean.slice(0, -1);
   }
-  if (clean.endsWith('oes') && clean.length > 4) {
-    return clean.slice(0, -2);
+
+  if (WORD_LEMMA_CACHE.size < 25000) {
+    WORD_LEMMA_CACHE.set(word, result);
   }
-  if ((clean.endsWith('ches') || clean.endsWith('shes') || clean.endsWith('xes') || clean.endsWith('zes') || clean.endsWith('sses')) && clean.length > 4) {
-    return clean.slice(0, -2);
-  }
-  if (clean.endsWith('s') && !clean.endsWith('ss') && !clean.endsWith('us') && !clean.endsWith('is') && clean.length > 3) {
-    return clean.slice(0, -1);
-  }
-  return clean;
+  return result;
 }
 
 /**
@@ -145,6 +155,10 @@ export function normalizeAnnotationTag(rawTag, { lemmatize = false } = {}) {
     : (rawTag?.name || rawTag?.label || rawTag?.term || '');
   if (!str || typeof str !== 'string') return '';
 
+  const cacheKey = `${lemmatize ? '1' : '0'}:${str}`;
+  const cached = ANNOTATION_TAG_CACHE.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const cleaned = str
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/[#@!$%^&*()_+={}[\]|\\:;"'<>,.?/~`]+/g, ' ')
@@ -152,21 +166,31 @@ export function normalizeAnnotationTag(rawTag, { lemmatize = false } = {}) {
     .trim()
     .toLowerCase();
 
-  if (!cleaned || cleaned.length < 2 || cleaned.length > 65) return '';
-  if (/^\d+$/.test(cleaned)) return '';
-  if (ANNOTATION_STOPWORDS.has(cleaned)) return '';
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 65 || /^\d+$/.test(cleaned) || ANNOTATION_STOPWORDS.has(cleaned)) {
+    if (ANNOTATION_TAG_CACHE.size < 30000) ANNOTATION_TAG_CACHE.set(cacheKey, '');
+    return '';
+  }
 
   const tokens = cleaned.split(' ').filter(Boolean);
-  if (tokens.length === 0 || tokens.length > 6) return '';
+  if (tokens.length === 0 || tokens.length > 6) {
+    if (ANNOTATION_TAG_CACHE.size < 30000) ANNOTATION_TAG_CACHE.set(cacheKey, '');
+    return '';
+  }
 
+  let result;
   if (lemmatize) {
     const lemmas = tokens
       .map(t => normalizeWordLemma(t))
       .filter(t => t.length >= 2 && !ANNOTATION_STOPWORDS.has(t));
-    return lemmas.join(' ').trim();
+    result = lemmas.join(' ').trim();
+  } else {
+    result = tokens.join(' ').trim();
   }
 
-  return tokens.join(' ').trim();
+  if (ANNOTATION_TAG_CACHE.size < 30000) {
+    ANNOTATION_TAG_CACHE.set(cacheKey, result);
+  }
+  return result;
 }
 
 /**

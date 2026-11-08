@@ -20,6 +20,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
+import postgres from 'postgres';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import { buildRichPinMetadataPayload } from '../../domain/pin-intelligence.mjs';
 
@@ -272,7 +273,38 @@ export function setCachedShardSqlClient(dsn, client) {
 }
 
 export function wrapShardNeonTransaction(client) {
-  if (!client || typeof client.transaction !== 'function' || client.__atomicBuilderWrapped) {
+  if (!client || client.__atomicBuilderWrapped) {
+    return client;
+  }
+  // Native TCP postgres.js client: bridge .transaction() onto .begin()
+  if (typeof client.transaction !== 'function' && typeof client.begin === 'function') {
+    client.transaction = async (queriesOrFn) => {
+      return await client.begin(async (tx) => {
+        if (typeof queriesOrFn === 'function') {
+          const res = await queriesOrFn(tx);
+          if (Array.isArray(res)) {
+            const out = [];
+            for (const item of res) {
+              out.push(typeof item === 'function' ? await item(tx) : await item);
+            }
+            return out;
+          }
+          return res;
+        }
+        if (Array.isArray(queriesOrFn)) {
+          const out = [];
+          for (const q of queriesOrFn) {
+            out.push(typeof q === 'function' ? await q(tx) : await q);
+          }
+          return out;
+        }
+        return [];
+      });
+    };
+    client.__atomicBuilderWrapped = true;
+    return client;
+  }
+  if (typeof client.transaction !== 'function') {
     return client;
   }
   const origTransaction = client.transaction.bind(client);
@@ -300,10 +332,41 @@ export function wrapShardNeonTransaction(client) {
   return client;
 }
 
+/**
+ * Dual-Driver Universal PostgreSQL Connector (Neon HTTP Serverless + Coolify/VPS TCP postgres.js)
+ * Automatically uses @neondatabase/serverless for *.neon.tech endpoints (or Edge Workers without TCP override)
+ * and standard TCP postgres.js for self-hosted PostgreSQL on Coolify / VPS.
+ */
+export function createUniversalSqlClient(dsn, options = {}) {
+  if (!dsn || typeof dsn !== 'string') {
+    throw new Error('createUniversalSqlClient requires a valid PostgreSQL connection string');
+  }
+  const cleanDsn = dsn.trim();
+  const driverOverride = (
+    options.driver ||
+    (typeof process !== 'undefined' ? process.env?.DB_DRIVER : '') ||
+    ''
+  ).toLowerCase().trim();
+  const isNeonHost = /\.neon\.tech\b/i.test(cleanDsn);
+  const usePostgresTcp = driverOverride === 'postgres' || driverOverride === 'tcp' || (!isNeonHost && driverOverride !== 'neon');
+
+  if (usePostgresTcp) {
+    const pgClient = postgres(cleanDsn, {
+      max: Number(options.max || (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 15) || 15),
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false
+    });
+    return wrapShardNeonTransaction(pgClient);
+  }
+
+  return wrapShardNeonTransaction(neon(enforceNeonPoolerUrl(cleanDsn)));
+}
+
 export function getOrCreateShardSqlClient(pooledDsn) {
   let client = getCachedShardSqlClient(pooledDsn);
   if (!client) {
-    client = wrapShardNeonTransaction(neon(pooledDsn));
+    client = createUniversalSqlClient(pooledDsn);
     setCachedShardSqlClient(pooledDsn, client);
   }
   return client;
@@ -906,65 +969,15 @@ export async function prewarmFleetShards({
  * @param {number} folderId - Keyword folder ID
  * @param {object} synopsisData - Computed crossover intelligence data
  */
-export async function storeFolderCrossoverSynopsis(hubSql, folderId, synopsisData) {
+export async function storeFolderCrossoverSynopsis(_hubSql, folderId, _synopsisData) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folderId');
-
-  await hubSql`
-    INSERT INTO keyword_folder_synopses (
-      folder_id,
-      synopsis_data,
-      total_keywords,
-      super_pins_count,
-      universal_tags_count,
-      shared_pivots_count,
-      calculated_at,
-      updated_at
-    ) VALUES (
-      ${fid},
-      ${JSON.stringify(synopsisData)}::jsonb,
-      ${synopsisData.summary?.total_keywords || 0},
-      ${synopsisData.summary?.super_pins_count || 0},
-      ${synopsisData.summary?.universal_tags_count || 0},
-      ${synopsisData.summary?.shared_pivots_count || 0},
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT (folder_id) DO UPDATE SET
-      synopsis_data = EXCLUDED.synopsis_data,
-      total_keywords = EXCLUDED.total_keywords,
-      super_pins_count = EXCLUDED.super_pins_count,
-      universal_tags_count = EXCLUDED.universal_tags_count,
-      shared_pivots_count = EXCLUDED.shared_pivots_count,
-      calculated_at = NOW(),
-      updated_at = NOW();
-  `;
+  // No-op: keyword_folder_synopses was retired in Migration 047 in favor of unified in-memory + live SSOT crossover calculation.
+  return { stored: false, folder_id: fid };
 }
 
-/**
- * Fetches pre-aggregated crossover summary from Central Hub in < 15ms flat.
- *
- * @param {Function} hubSql - Central Hub database client
- * @param {number} folderId - Keyword folder ID
- * @returns {Promise<object|null>}
- */
-export async function getFolderCrossoverSynopsis(hubSql, folderId) {
-  const fid = Number(folderId);
-  if (!fid) return null;
-
-  const [row] = await hubSql`
-    SELECT synopsis_data, calculated_at, updated_at
-    FROM keyword_folder_synopses
-    WHERE folder_id = ${fid}
-    LIMIT 1;
-  `;
-
-  if (!row) return null;
-  return {
-    ...row.synopsis_data,
-    cached: true,
-    calculated_at: row.calculated_at
-  };
+export async function getFolderCrossoverSynopsis(_hubSql, _folderId) {
+  return null;
 }
 
 /**

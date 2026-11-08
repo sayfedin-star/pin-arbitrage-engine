@@ -12,7 +12,7 @@
 
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from './modules/sharding/fleet-router.mjs';
 import worker from './worker.mjs';
 
 // Auto-load .env if present via built-in Node 20.12+/22+ API (zero node:fs import in src/)
@@ -23,6 +23,19 @@ if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function')
     }
     process.loadEnvFile();
   } catch (_) {}
+}
+
+let cachedServerSqlClient = null;
+let cachedServerDsn = '';
+
+function getServerSqlClient(dsn) {
+  if (!dsn) return createMockSql();
+  if (cachedServerSqlClient && cachedServerDsn === dsn) {
+    return cachedServerSqlClient;
+  }
+  cachedServerDsn = dsn;
+  cachedServerSqlClient = createUniversalSqlClient(dsn);
+  return cachedServerSqlClient;
 }
 
 /**
@@ -74,7 +87,7 @@ export function createRequestListener(customEnv = {}) {
         body
       });
 
-      const sqlClient = customEnv.SQL_CLIENT || (process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : createMockSql());
+      const sqlClient = customEnv.SQL_CLIENT || getServerSqlClient(process.env.DATABASE_URL);
 
       const env = {
         ...process.env,

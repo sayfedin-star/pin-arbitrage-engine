@@ -3242,10 +3242,12 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
             return this._cachedFilteredPins;
           }
 
-          // Source pins array: if scope is 'super_only', use super_pins; otherwise use full all_pins dataset
+          // Source pins array: if scope is 'super_only', derive from all_pins when present; otherwise use super_pins fallback
           let list = [];
           if (this.scopeFilter === 'super_only') {
-            list = this.crossoverData?.super_pins || [];
+            list = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+              ? this.crossoverData.all_pins.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)
+              : (this.crossoverData?.super_pins || []);
           } else if (this.scopeFilter === 'active_only') {
             const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
               ? this.crossoverData.all_pins

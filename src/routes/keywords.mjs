@@ -112,13 +112,6 @@ export async function handleKeywordsRoutes({
   getCachedOrFetch,
   invalidateEdgeCache,
   safeWaitUntil,
-  readKeywordsFromD1,
-  syncKeywordsCatalogToD1,
-  syncKeywordsBatchToD1,
-  syncKeywordToD1,
-  evictKeywordsCatalogFromD1,
-  syncFolderToD1,
-  deleteFolderFromD1,
   isValidPinId,
   tripPinterestCircuitBreaker,
   redactSecrets
@@ -307,9 +300,6 @@ export async function handleKeywordsRoutes({
     const autoCreate = searchParams.get('auto_create') === 'true';
     const row = await resolveKeywordBySlug(sql, slug, autoCreate);
     if (!row) return jsonResponse({ error: 'Keyword not found and could not be resolved' }, 404);
-    if (row && syncKeywordToD1) {
-      safeWaitUntil(ctx, syncKeywordToD1(env, row), 'syncKeywordToD1');
-    }
     return jsonResponse({ success: true, keyword: row });
   }
 
@@ -384,17 +374,7 @@ export async function handleKeywordsRoutes({
       safeWaitUntil(ctx, dispatchPromise, 'github_workflow_dispatch');
     }
 
-    // Asynchronously sync keyword autocomplete to D1 database
-    if (res?.success && (res?.keyword || slug)) {
-      if (syncKeywordToD1) {
-        safeWaitUntil(ctx, syncKeywordToD1(env, {
-          keyword: res.keyword || slug,
-          search_volume: res.search_volume || 0,
-          monthly_growth: res.monthly_growth || 0,
-          pin_count: res.pins_collected || res.pin_count || 0
-        }), 'syncKeywordToD1');
-      }
-    } else if (res?.status === 429 || res?.status === 403 || (res?.error && typeof res.error === 'string' && (res.error.includes('429') || res.error.includes('403')))) {
+    if (res?.status === 429 || res?.status === 403 || (res?.error && typeof res.error === 'string' && (res.error.includes('429') || res.error.includes('403')))) {
       if (tripPinterestCircuitBreaker) {
         safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, `HTTP ${res?.status || 429} Rate Limit/Block in /api/keywords/sync`, 900), 'tripPinterestCircuitBreaker');
       }

@@ -38,6 +38,7 @@ import {
   fetchUniversalPinDossier,
   fetchPinTrajectoryFromShard,
   isUnifiedPostgres,
+  globalShardMap,
   isMultiStageHydrationJump,
   sanitizeDossierTrajectory,
   safeWaitUntil
@@ -135,7 +136,9 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
   const confirmedPinIds = new Set();
   // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
   const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(combined, 99));
-  const shardEntries = Array.from(shardGroups.entries());
+  const shardEntries = (isUnifiedPostgres(env) && globalShardMap.size === 0)
+    ? [[1, combined]]
+    : Array.from(shardGroups.entries());
   let shardsSynced = 0;
   // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
   const CONCURRENCY = 4;
@@ -347,18 +350,6 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
           SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
           FROM universal_master_pins ump
           WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
-          UNION ALL
-          SELECT ksc.pin_id, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url, ksc.creator_username, ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest
-          FROM keyword_serp_current ksc
-          WHERE ksc.pin_id = ANY(${missingIds}) AND (ksc.title <> '' OR ksc.image_url <> '')
-          UNION ALL
-          SELECT cp.pin_id, cp.title, cp.link_domain AS domain, cp.destination_url, cp.image_url, '' AS creator_username, cp.board_name, '#888888' AS dominant_color, COALESCE(cp.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations, cp.created_at_pinterest
-          FROM competitor_pins cp
-          WHERE cp.pin_id = ANY(${missingIds}) AND (cp.title <> '' OR cp.image_url <> '')
-          UNION ALL
-          SELECT pa.pin_id, pa.title, pa.domain, pa.link AS destination_url, pa.image_url, pa.account_username AS creator_username, pa.board_name, pa.dominant_color, COALESCE(pa.annotations, '[]'::jsonb) AS visual_annotations, pa.created_at_pinterest
-          FROM pa_pins pa
-          WHERE pa.pin_id = ANY(${missingIds}) AND (pa.title <> '' OR pa.image_url <> '')
           LIMIT 2000;
         `.catch(() => []);
         for (const hr of (hubRows || [])) {
@@ -375,12 +366,12 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       } catch (_) {}
     }
 
-    // 2. Only query Neon Shards for pins that were not found in Cloudflare D1 or Hub
+    // 2. Only query Neon Shards for pins that were not found in Central Hub (when running in multi-shard topology)
     const stillMissing = needsHydration.filter(r => {
       const m = masterMap.get(String(r.pin_id));
       return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
     });
-    if (!skipShardHydration && stillMissing.length > 0) {
+    if (!skipShardHydration && stillMissing.length > 0 && (!isUnifiedPostgres(env) || globalShardMap.size > 0)) {
       await preloadNeonRegistry(hubSql, env);
       // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING]
       const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(stillMissing, 99));

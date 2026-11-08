@@ -13,3 +13,7 @@ DATABASE_TOPOLOGY = "unified_postgres"
 [env.preview.vars]
 PORT = "3456"
 DATABASE_TOPOLOGY = "unified_postgres"
+
+[limits]
+cpu_ms = 30000
+

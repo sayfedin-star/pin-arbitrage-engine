@@ -891,7 +891,12 @@ export async function listDomainsIntelligence(sql, {
         COALESCE(pa.saves, 0)::bigint AS saves,
         COALESCE(pa.repins, 0)::bigint AS repins,
         COALESCE(pa.velocity, 0)::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')) AS username,
+        CASE
+          WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          WHEN RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          ELSE ''
+        END AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
       FROM pa_pins pa
@@ -917,7 +922,12 @@ export async function listDomainsIntelligence(sql, {
           COALESCE(NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0), NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0), 0::numeric),
           COALESCE(ump.daily_save_velocity, 0)::numeric
         ) AS velocity,
-        LOWER(COALESCE(prof.username, '')) AS username,
+        CASE
+          WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(COALESCE(prof.username, ''))
+          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || LOWER(TRIM(cp.link_domain)) || '%' THEN LOWER(COALESCE(prof.username, ''))
+          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(cp.link_domain)), '-', ''), '.', 1) THEN LOWER(COALESCE(prof.username, ''))
+          ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
+        END AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
       FROM competitor_pins cp
@@ -969,7 +979,14 @@ export async function listDomainsIntelligence(sql, {
         COALESCE(ump.save_count, 0)::bigint AS saves,
         COALESCE(ump.repin_count, 0)::bigint AS repins,
         COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')) AS username,
+        CASE
+          WHEN ump.first_discovered_pillar = 'creator'
+            AND LOWER(TRIM(ump.domain)) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
+            AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1)
+            AND RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
+          THEN ''
+          ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
+        END AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
       FROM universal_master_pins ump
@@ -1099,10 +1116,42 @@ export async function listDomainsIntelligence(sql, {
           NULLIF(COUNT(DISTINCT dp.username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''), 0),
           COUNT(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> '')
         )::int AS accounts_count,
-        COALESCE(
-          (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''))[1:5],
-          (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL AND dp.username <> ''))[1:5]
-        ) AS sample_accounts
+        (
+          ARRAY_REMOVE(
+            ARRAY[
+              MIN(dp.username) FILTER (
+                WHERE dp.username IS NOT NULL AND dp.username <> ''
+                  AND dp.username NOT LIKE 'preview_%'
+                  AND (
+                    REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                    OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
+                    OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                  )
+              )
+            ],
+            NULL
+          ) || COALESCE(
+            (ARRAY_AGG(DISTINCT dp.username) FILTER (
+              WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''
+                AND dp.username NOT LIKE 'preview_%'
+                AND NOT (
+                  REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
+                  OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                )
+            ))[1:5],
+            (ARRAY_AGG(DISTINCT dp.username) FILTER (
+              WHERE dp.username IS NOT NULL AND dp.username <> ''
+                AND dp.username NOT LIKE 'preview_%'
+                AND NOT (
+                  REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
+                  OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                )
+            ))[1:5],
+            ARRAY[]::text[]
+          )
+        )[1:5] AS sample_accounts
       FROM deduped_pins dp
       GROUP BY dp.clean_domain
       HAVING COUNT(DISTINCT dp.pin_id) >= ${minP}
@@ -1364,7 +1413,12 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(pa.saves, 0)::bigint AS saves,
           COALESCE(pa.repins, 0)::bigint AS repins,
           COALESCE(pa.velocity, 0)::numeric AS velocity,
-          LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')) AS username,
+          CASE
+            WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            WHEN RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            ELSE ''
+          END AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
         FROM pa_pins pa
@@ -1389,7 +1443,12 @@ export async function refreshDomainIntelligenceRollup(sql) {
             COALESCE(NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0), NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0), 0::numeric),
             COALESCE(ump.daily_save_velocity, 0)::numeric
           ) AS velocity,
-          LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')) AS username,
+          CASE
+            WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            WHEN cprof.website_url IS NOT NULL AND cprof.website_url <> '' AND LOWER(cprof.website_url) LIKE '%' || LOWER(TRIM(cp.link_domain)) || '%' THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            WHEN REPLACE(LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(cp.link_domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
+          END AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
         FROM competitor_pins cp
@@ -1435,7 +1494,14 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(ump.save_count, 0)::bigint AS saves,
           COALESCE(ump.repin_count, 0)::bigint AS repins,
           COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
-          LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')) AS username,
+          CASE
+            WHEN ump.first_discovered_pillar = 'creator'
+              AND LOWER(TRIM(ump.domain)) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
+              AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1)
+              AND RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
+            THEN ''
+            ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
+          END AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
         FROM universal_master_pins ump
@@ -1550,10 +1616,42 @@ export async function refreshDomainIntelligenceRollup(sql) {
             NULLIF(COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.sample_username IS NOT NULL AND dp.sample_username <> ''), 0),
             COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> '')
           )::int AS accounts_count,
-          COALESCE(
-            (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5],
-            (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5]
-          ) AS sample_accounts
+          (
+            ARRAY_REMOVE(
+              ARRAY[
+                MIN(dp.sample_username) FILTER (
+                  WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''
+                    AND dp.sample_username NOT LIKE 'preview_%'
+                    AND (
+                      REPLACE(dp.sample_username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                      OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.sample_username, '_', '') || '%'
+                      OR REPLACE(dp.sample_username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                    )
+                )
+              ],
+              NULL
+            ) || COALESCE(
+              (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (
+                WHERE dp.is_serp_ranked = TRUE AND dp.sample_username IS NOT NULL AND dp.sample_username <> ''
+                  AND dp.sample_username NOT LIKE 'preview_%'
+                  AND NOT (
+                    REPLACE(dp.sample_username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                    OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.sample_username, '_', '') || '%'
+                    OR REPLACE(dp.sample_username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                  )
+              ))[1:5],
+              (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (
+                WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''
+                  AND dp.sample_username NOT LIKE 'preview_%'
+                  AND NOT (
+                    REPLACE(dp.sample_username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
+                    OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.sample_username, '_', '') || '%'
+                    OR REPLACE(dp.sample_username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                  )
+              ))[1:5],
+              ARRAY[]::text[]
+            )
+          )[1:5] AS sample_accounts
         FROM dedup_pins dp
         GROUP BY dp.clean_domain
       ),
@@ -2126,7 +2224,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.title,
         pa.link AS destination_url,
         pa.image_url,
-        pa.account_username AS creator_username,
+        CASE
+          WHEN ${isOrganicVault}::boolean THEN pa.account_username
+          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1) THEN pa.account_username
+          WHEN RTRIM(SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN pa.account_username
+          ELSE NULL
+        END AS creator_username,
         pa.board_name,
         COALESCE(pa.saves, 0)::bigint AS saves,
         COALESCE(pa.repins, 0)::bigint AS repins,
@@ -2145,7 +2248,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(NULLIF(cp.title, ''), ump.title, '') AS title,
         COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
         COALESCE(NULLIF(cp.image_url, ''), ump.image_url, '') AS image_url,
-        prof.username AS creator_username,
+        CASE
+          WHEN ${isOrganicVault}::boolean THEN prof.username
+          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || ${cleanDomain} || '%' THEN prof.username
+          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1) THEN prof.username
+          ELSE NULLIF(ump.creator_username, '')
+        END AS creator_username,
         COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
         GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0))::bigint AS saves,
         GREATEST(COALESCE(cp.repin_count, 0), COALESCE(ump.repin_count, 0))::bigint AS repins,
@@ -2226,7 +2334,15 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     if (!pid) return;
     const rawUser = String(row.creator_username || '').replace(/^@+/, '').trim();
     const cleanUser = rawUser.toLowerCase();
-    if (cleanUser) {
+    const existingPinEntry = pinsMap.get(pid);
+    const shouldRegisterAccount = cleanUser && (
+      sourcePillar === 'serp' ||
+      sourcePillar === 'displaced' ||
+      !existingPinEntry ||
+      !existingPinEntry.creator_username ||
+      existingPinEntry.creator_username === cleanUser
+    );
+    if (shouldRegisterAccount) {
       if (!accountsMap.has(cleanUser)) {
         accountsMap.set(cleanUser, {
           username: cleanUser,
@@ -2848,7 +2964,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       );
   const vaultUniqueUrlsCount = vaultUniqueUrlsSet.size;
 
-  const totalPinsCount = allPins.length + catalogOnlyVisualPins.length;
+  const totalPinsCount = visualPins.length || allPins.length;
   const summaryUniqueUrls = isOrganicVault ? 0 : Math.max(1, moneyUrls.length);
   const summaryPinsPerUrl = summaryUniqueUrls > 0 ? Number((totalPinsCount / summaryUniqueUrls).toFixed(2)) : 1;
   const summaryTotalSaves = allPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0);

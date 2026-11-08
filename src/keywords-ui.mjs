@@ -3613,7 +3613,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i>
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Multi-Ranking Super-Pins</h3>
                         <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                              x-text="crossoverData.super_pins?.length + ' Pins'"></span>
+                              x-text="(crossoverData?.summary?.super_pins_count ?? crossoverData.super_pins?.length ?? 0) + ' Pins'"></span>
                       </div>
                       <p class="text-xs text-slate-500">Pins ranking across multiple search queries simultaneously in this cluster. Analyze their visual layouts for winning templates.</p>
                     </div>
