@@ -11261,6 +11261,13 @@ export function getDashboardHtml(folderId = '') {
           this.openDeleteModal({ pin_id: pinId, label: label });
         },
 
+        safeUrl(url) {
+          if (!url) return '#';
+          const s = String(url).trim();
+          if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) return s;
+          return '#';
+        },
+
         sanitizeCsvCell(val) {
           let str = String(val == null ? '' : val);
           const code = str.charCodeAt(0);
