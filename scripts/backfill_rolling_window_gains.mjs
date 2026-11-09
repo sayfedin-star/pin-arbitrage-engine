@@ -330,6 +330,7 @@ async function main() {
   for (let i = 0; i < deltaList.length; i += BATCH_SIZE) {
     const chunk = deltaList.slice(i, i + BATCH_SIZE);
     const payloadJson = JSON.stringify(chunk);
+    const jsonParam = typeof hubSql.json === "function" ? hubSql.json(chunk) : payloadJson;
 
     // Update keyword_serp_current
     await hubSql`
@@ -342,7 +343,7 @@ async function main() {
         gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ksc.gains_10d),
         gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ksc.gains_15d),
         updated_at = NOW()
-      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+      FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
         pin_id text,
         daily_save_velocity numeric,
         delta_repins_24h int,
@@ -365,7 +366,7 @@ async function main() {
         gains_10d = COALESCE(NULLIF(u.gains_10d, 0), kdi.gains_10d),
         gains_15d = COALESCE(NULLIF(u.gains_15d, 0), kdi.gains_15d),
         updated_at = NOW()
-      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+      FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
         pin_id text,
         daily_save_velocity numeric,
         delta_repins_24h int,
