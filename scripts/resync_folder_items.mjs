@@ -8,20 +8,27 @@ const neonSql = neon(NEON_URL);
 const pgSql = postgres(INSTABOX_URL, { max: 10, idle_timeout: 20 });
 
 async function run() {
-  console.log('Re-syncing folder_competitor_items from Neon...');
-  const cols = await pgSql`
-    SELECT column_name, is_generated 
-    FROM information_schema.columns 
-    WHERE table_schema = 'public' AND table_name = 'folder_competitor_items'
-    ORDER BY ordinal_position;
-  `;
-  const targetCols = cols
-    .filter(c => c.is_generated === 'NEVER' && c.column_name !== 'shard_id')
-    .map(c => c.column_name);
+  console.log('Re-syncing folder_competitor_items with valid FKs...');
+  
+  // Truncate any partial rows
+  await pgSql`TRUNCATE TABLE folder_competitor_items;`;
 
-  const colListSql = targetCols.map(c => `"${c}"`).join(', ');
-  const sourceRows = await neonSql(`SELECT ${colListSql} FROM folder_competitor_items`);
-  console.log(`Fetched ${sourceRows.length} rows from Neon.`);
+  // Fetch only rows where competitor_id exists in competitor_profiles and folder_id exists in keyword_folders
+  const sourceRows = await neonSql`
+    SELECT fci.*
+    FROM folder_competitor_items fci
+    JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+    JOIN keyword_folders kf ON kf.id = fci.folder_id;
+  `;
+  console.log(`Fetched ${sourceRows.length} valid FK rows from Neon.`);
+
+  const targetCols = [
+    'folder_id',
+    'competitor_id',
+    'created_at',
+    'added_by',
+    'metadata'
+  ];
 
   const batchSize = 500;
   for (let i = 0; i < sourceRows.length; i += batchSize) {
@@ -31,7 +38,7 @@ async function run() {
   }
   console.log('\nfolder_competitor_items synced successfully!');
   const [{ count }] = await pgSql`SELECT COUNT(*) FROM folder_competitor_items`;
-  console.log(`Verified count: ${count}`);
+  console.log(`Verified count on InstaBox: ${count}`);
   await pgSql.end();
 }
 
