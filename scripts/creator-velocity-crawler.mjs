@@ -661,10 +661,12 @@ async function run() {
         const [hb] = await sql`
           SELECT status, updated_at
           FROM crawler_shard_heartbeats
-          WHERE competitor_id = ${targetId} AND shard_number = 0;
+          WHERE competitor_id = ${targetId}
+            AND shard_number = 0
+            AND updated_at > NOW() - INTERVAL '10 minutes';
         `.catch(() => [null]);
 
-        if (hb && (hb.status === 'boards_ready' || hb.status === 'phase1_done')) {
+        if (hb && (hb.status === 'boards_ready' || hb.status === 'crawling_boards' || hb.status === 'phase1_done')) {
           console.log(`[Phase 1] Boards ready signal received from Worker 0 in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
         }
