@@ -16,6 +16,7 @@
  */
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getPinDetailPageHtml(pinId = '') {
   const safePinId = String(pinId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
@@ -58,6 +59,7 @@ export function getPinDetailPageHtml(pinId = '') {
       }
     };
   </script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
@@ -335,6 +337,11 @@ export function getPinDetailPageHtml(pinId = '') {
     <span x-text="toast.message" class="flex-1 font-sans"></span>
     <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
   </div>
+
+  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'loadDossier(true)' })}
+
+  <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
   <!-- Unified Top Sticky Command Bar (56px) -->
   <header class="border-b border-[#27272A] bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs">
@@ -1635,6 +1642,8 @@ export function getPinDetailPageHtml(pinId = '') {
 
   </main>
 
+  </div><!-- Close Main Shell Wrapper -->
+
   <!-- ======================================================== -->
   <!-- UNIFIED DELETE CONFIRMATION MODAL [L-06 Resolved]        -->
   <!-- ======================================================== -->
@@ -1681,6 +1690,25 @@ export function getPinDetailPageHtml(pinId = '') {
     function pinDetailApp(pinId) {
       return {
         pinId,
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        isMobileMenuOpen: false,
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          if (typeof this.$nextTick === 'function') {
+            this.$nextTick(() => {
+              if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+            });
+          }
+        },
         loading: true,
         isShardWarming: false,
         isSilentRefreshing: false,
@@ -1911,6 +1939,16 @@ export function getPinDetailPageHtml(pinId = '') {
 
         async init() {
           this.initTheme();
+          if (typeof this.$nextTick === 'function') {
+            this.$nextTick(() => {
+              if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+            });
+          }
+          if (typeof setTimeout === 'function') {
+            setTimeout(() => {
+              if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+            }, 300);
+          }
           let hasUrlContext = false;
           // Tier 1: URL Query Parameters
           if (typeof window !== 'undefined' && window.location && window.location.search) {
