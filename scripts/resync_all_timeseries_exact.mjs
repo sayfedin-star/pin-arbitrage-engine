@@ -7,7 +7,7 @@ const INSTABOX_URL = process.env.TARGET_DATABASE_URL || 'postgresql://postgres:p
 const neonSql = neon(NEON_URL);
 const pgSql = postgres(INSTABOX_URL, { max: 10, idle_timeout: 20 });
 
-async function syncTable(tableName, selectSql, targetCols, idCol = 'id') {
+async function syncTable(tableName, selectSql, targetCols, orderBy = 'pin_id, snapshot_date') {
   console.log(`\n=== Re-syncing ${tableName} with Exact String Dates ===`);
   
   // Truncate target table
@@ -25,7 +25,7 @@ async function syncTable(tableName, selectSql, targetCols, idCol = 'id') {
   while (offset < total) {
     const rows = await neonSql(`
       ${selectSql}
-      ORDER BY "${idCol}" ASC
+      ORDER BY ${orderBy}
       LIMIT ${batchSize} OFFSET ${offset}
     `);
 
@@ -55,7 +55,6 @@ async function run() {
   // 1. pins_daily_metrics
   const pdmSelect = `
     SELECT 
-      id,
       pin_id,
       snapshot_date::text AS snapshot_date,
       save_count,
@@ -68,15 +67,14 @@ async function run() {
     FROM pins_daily_metrics
   `;
   const pdmCols = [
-    'id', 'pin_id', 'snapshot_date', 'save_count', 'repin_count',
+    'pin_id', 'snapshot_date', 'save_count', 'repin_count',
     'comment_count', 'share_count', 'reaction_count', 'daily_save_velocity', 'updated_at'
   ];
-  await syncTable('pins_daily_metrics', pdmSelect, pdmCols, 'id');
+  await syncTable('pins_daily_metrics', pdmSelect, pdmCols, 'pin_id, snapshot_date');
 
   // 2. pin_serp_positions
   const pspSelect = `
     SELECT 
-      id,
       pin_id,
       keyword_id,
       snapshot_date::text AS snapshot_date,
@@ -86,9 +84,9 @@ async function run() {
     FROM pin_serp_positions
   `;
   const pspCols = [
-    'id', 'pin_id', 'keyword_id', 'snapshot_date', 'rank_position', 'is_displaced', 'created_at'
+    'pin_id', 'keyword_id', 'snapshot_date', 'rank_position', 'is_displaced', 'created_at'
   ];
-  await syncTable('pin_serp_positions', pspSelect, pspCols, 'id');
+  await syncTable('pin_serp_positions', pspSelect, pspCols, 'pin_id, snapshot_date, keyword_id');
 
   console.log('\n🎉 ALL TIME-SERIES TABLES 100% SYNCHRONIZED WITH ZERO TIMEZONE DRIFT!');
   await pgSql.end();
