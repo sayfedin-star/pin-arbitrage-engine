@@ -4,11 +4,7 @@
  * scripts/resync_operational_hub_tables.mjs
  *
  * Fast Streaming Synchronization: Neon ➡️ InstaBox PostgreSQL
- * Refreshes operational tables with post-crawl Nov 9 state:
- * - keyword_serp_current (6,050 rows)
- * - keyword_displaced_index (22,505 rows)
- * - universal_master_pins (80,057 rows)
- * - domain_intelligence_rollup (4,185 rows)
+ * Deterministic pagination + conflict-safe batch inserts.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -35,14 +31,38 @@ if (!neonUrl) {
 if (!neonUrl) {
   neonUrl = 'postgresql://neondb_owner:npg_ZtNkg4DhfW6l@ep-polished-unit-axp6khxi-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require';
 }
-// On InstaBox: postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage
+
 const boxUrl = process.env.TARGET_DATABASE_URL || 'postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage';
 
 const neonSql = neon(neonUrl);
 const boxSql = postgres(boxUrl, { max: 10, idle_timeout: 20 });
 
-async function syncTable(tableName, { batchSize = 1000 } = {}) {
+const tableConfigs = {
+  keyword_serp_current: {
+    orderBy: 'id ASC',
+    conflictKey: 'id',
+    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'crawled_at', 'updated_at']
+  },
+  keyword_displaced_index: {
+    orderBy: 'keyword_id ASC, pin_id ASC',
+    conflictKey: 'keyword_id, pin_id',
+    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'updated_at']
+  },
+  universal_master_pins: {
+    orderBy: 'pin_id ASC',
+    conflictKey: 'pin_id',
+    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'updated_at']
+  },
+  domain_intelligence_rollup: {
+    orderBy: 'domain ASC',
+    conflictKey: 'domain',
+    updateCols: ['total_saves', 'total_repins', 'updated_at']
+  }
+};
+
+async function syncTable(tableName, { batchSize = 1500 } = {}) {
   const startTime = Date.now();
+  const cfg = tableConfigs[tableName];
   console.log(`\n============================================================`);
   console.log(`[*] Synchronizing ${tableName}...`);
   console.log(`============================================================`);
@@ -65,31 +85,40 @@ async function syncTable(tableName, { batchSize = 1000 } = {}) {
   `;
   const cols = colRows.map(c => c.column_name);
 
-  // Disable triggers and truncate destination
+  // Disable triggers temporarily
   await boxSql.unsafe(`ALTER TABLE ${tableName} DISABLE TRIGGER ALL;`).catch(() => {});
-  await boxSql.unsafe(`TRUNCATE TABLE ${tableName};`);
 
   let offset = 0;
   let copied = 0;
 
   try {
     while (offset < totalRows) {
-      const rows = await neonSql(`SELECT * FROM ${tableName} ORDER BY 1 ASC LIMIT ${batchSize} OFFSET ${offset}`);
+      const rows = await neonSql(`SELECT * FROM ${tableName} ORDER BY ${cfg.orderBy} LIMIT ${batchSize} OFFSET ${offset}`);
       if (!rows || rows.length === 0) break;
 
-      const cleanRows = rows.map(r => {
+      // In-memory deduplication by conflict key to prevent Postgres 21000
+      const dedupMap = new Map();
+      for (const r of rows) {
         const clean = {};
         for (const col of cols) {
           if (r[col] !== undefined) {
             clean[col] = r[col];
           }
         }
-        return clean;
-      });
+        const key = cfg.conflictKey.split(',').map(k => String(clean[k.trim()] || '')).join('::');
+        dedupMap.set(key, clean);
+      }
 
-      await boxSql`
-        INSERT INTO ${boxSql(tableName)} ${boxSql(cleanRows)}
-      `;
+      const cleanRows = Array.from(dedupMap.values());
+
+      if (cleanRows.length > 0) {
+        // Upsert batch
+        const updateClauses = cfg.updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+        await boxSql.unsafe(`
+          INSERT INTO ${tableName} ${boxSql(cleanRows)}
+          ON CONFLICT (${cfg.conflictKey}) DO UPDATE SET ${updateClauses}
+        `);
+      }
 
       copied += rows.length;
       offset += batchSize;
