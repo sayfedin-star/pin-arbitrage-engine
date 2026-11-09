@@ -95,13 +95,13 @@ async function main() {
   const overallStart = Date.now();
   console.log('🚀 Starting Competitor Pins Synchronization (Neon ➡️ InstaBox)...');
 
-  // 1. competitor_pins
+  // 1. competitor_pins (note: shard_id is a GENERATED ALWAYS column, so omitted)
   const cpCols = [
     'id', 'competitor_id', 'pin_id', 'title', 'description', 'link_domain',
     'destination_url', 'board_name', 'image_url', 'save_count', 'repin_count',
     'comment_count', 'created_at_pinterest', 'first_seen_at', 'last_seen_at',
     'metadata', 'is_product', 'alt_text', 'enrichment_status', 'updated_at',
-    'enrich_attempts', 'claim_token', 'board_slug', 'is_deleted', 'shard_id'
+    'enrich_attempts', 'claim_token', 'board_slug', 'is_deleted'
   ];
   await syncTable('competitor_pins', cpCols, 'id ASC', 1000);
 
