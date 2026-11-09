@@ -25,6 +25,7 @@ trigger: always_on
 | **Round 24 (Phases 1–4 Forensic Single-DB Optimization)** | 80% Egress Row Deduplication, Legacy KV/D1/Hyperdrive Isolation, Room 1–6 Count/Velocity Parity, Domain Studio KPI Sync, Creator 10M+ Ceiling & Dossier Provenance Fix | Migration 047, Invariant 44, Locks 1–14 | **SEALED** |
 | **Round 25 (Visual Crossover Alignment)** | Complete Blueprint Eradication, Frequency-First Anchor Sorting & Joint Pins 24h Velocity Preview | Invariants 13, 22, 28, Locks 1, 5, 13 | **SEALED** |
 | **Round 26 (Pure Neon & VPS/Coolify Readiness)** | Complete Cloudflare (KV/D1/Hyperdrive) Purge, Pure Neon Serverless Postgres Architecture & Test Modernization | Invariant 2, Invariant 6, Locks 6, 13 | **SEALED** |
+| **Round 27 (InstaBox Dedicated Postgres Migration)** | 100% Neon ➡️ InstaBox Streaming Migration, Cloudflare Zero Trust Tunnel, CI Security Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -461,3 +462,23 @@ trigger: always_on
 - **Verification Command**:
   - `npm run check` (0 errors, 0 warnings, 103 files, 14/14 locks PASS)
   - `npm test` (All 21 test suites, 100% PASS, exit code 0)
+
+---
+
+## Round 27: Complete InstaBox Dedicated PostgreSQL 16 Migration, Cloudflare Zero Trust Tunnel & CI Hardening
+- **Round / Feature**: 100% Zero-Loss Database Migration from Neon Serverless to InstaBox Dedicated PostgreSQL 16 on 20 GiB persistent volume (`/data/postgres`), Cloudflare Zero Trust Tunnel (`cloudflared`) routing `https://app.hymum.com`, and CI Security & DDL Parity.
+- **Trap / Failure Mode**:
+  1. *Schema Omission on Migration*: Columns `created_at_pinterest` (TIMESTAMPTZ) and `creation_method` (VARCHAR) in `keyword_serp_current` existed in live Neon but were absent from SQL migration files, causing `Failed to load Pulse data: column ksc.created_at_pinterest does not exist` on `/pulse` and silent `.catch(() => [])` query swallowing on `/keywords/:slug` resulting in false "No Snapshots" empty states.
+  2. *Truncate Cascade Foreign Key Invalidation*: Truncating parent table `keyword_folders` cascaded across foreign keys to `folder_competitor_items`. Re-syncing required strict FK pre-filtering against existing InstaBox `competitor_profiles` and `keyword_folders`.
+  3. *CI Security Audit Helper Omission*: `src/dashboard-ui.mjs` was missing `safeUrl(url)`, causing GitHub Actions `CI Quality & Security Pipeline` to fail on push.
+- **Root Cause & Technical Mechanism**:
+  1. Ad-hoc DDL modifications in production without formal migration files cause subtle schema drift during physical database migrations.
+  2. In PostgreSQL, `TRUNCATE ... CASCADE` recursively truncates all child tables referencing foreign keys.
+- **Verified Solution & Invariant Codification**:
+  1. *Complete DDL & Data Backfill*: Added `created_at_pinterest` and `creation_method` to `keyword_serp_current` on InstaBox, streamed all 6,050 rows from Neon, and synchronized all 19 database tables (`keyword_folders` 6, `keyword_folder_items` 115, `folder_competitor_items` 7,630, `keyword_guided_capsules` 1,422, `keyword_tombstones` 8, `competitor_related_nodes` 1,218).
+  2. *Cloudflare Tunnel Deployment*: Dockerized `cloudflared` with tunnel `Api-PAE` routing `app.hymum.com` directly to `http://localhost:3000` on InstaBox with dual-stack `HOST=::`.
+  3. *CI Audit Compliance*: Implemented `safeUrl(url)` with URL prefix filtering in `src/dashboard-ui.mjs`, achieving 100% green CI pipeline runs.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 14/14 locks PASS)
+  - `node scripts/audit_ui.mjs` (83/83 rules passed, 100% compliant)
+  - Live HTTP endpoints: `curl http://localhost:3000/api/pulse/24h` (HTTP 200), `curl http://localhost:3000/api/folders` (HTTP 200), `curl http://localhost:3000/api/keywords/serp-compare?slug=marry-me-chicken-crock-pot` (HTTP 200).
