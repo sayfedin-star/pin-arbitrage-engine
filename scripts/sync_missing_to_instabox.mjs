@@ -90,7 +90,7 @@ async function run() {
     if (sourceRows.length === 0) continue;
 
     // Truncate target table first to avoid duplicate PKs
-    await pgSql(`TRUNCATE TABLE "${tableName}" CASCADE`);
+    await pgSql.unsafe(`TRUNCATE TABLE "${tableName}" CASCADE`);
 
     // Insert in batches of 200
     const insertBatchSize = 200;
