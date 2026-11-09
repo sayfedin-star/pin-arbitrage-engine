@@ -30,11 +30,19 @@ async function run() {
     'metadata'
   ];
 
+  const sanitizedRows = sourceRows.map(r => ({
+    folder_id: r.folder_id ?? null,
+    competitor_id: r.competitor_id ?? null,
+    created_at: r.created_at ?? null,
+    added_by: r.added_by ?? null,
+    metadata: r.metadata ? JSON.stringify(r.metadata) : '{}'
+  }));
+
   const batchSize = 500;
-  for (let i = 0; i < sourceRows.length; i += batchSize) {
-    const slice = sourceRows.slice(i, i + batchSize);
+  for (let i = 0; i < sanitizedRows.length; i += batchSize) {
+    const slice = sanitizedRows.slice(i, i + batchSize);
     await pgSql`INSERT INTO folder_competitor_items ${pgSql(slice, targetCols)}`;
-    process.stdout.write(`Inserted ${Math.min(i + batchSize, sourceRows.length)} / ${sourceRows.length} rows...\r`);
+    process.stdout.write(`Inserted ${Math.min(i + batchSize, sanitizedRows.length)} / ${sanitizedRows.length} rows...\r`);
   }
   console.log('\nfolder_competitor_items synced successfully!');
   const [{ count }] = await pgSql`SELECT COUNT(*) FROM folder_competitor_items`;
