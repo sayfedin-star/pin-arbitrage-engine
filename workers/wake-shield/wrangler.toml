@@ -1,0 +1,11 @@
+name = "pae-wake-shield"
+main = "src/index.mjs"
+compatibility_date = "2024-09-23"
+
+# Intercept app.hymum.com traffic to provide auto-wake protection
+routes = [
+  { pattern = "app.hymum.com/*", zone_name = "hymum.com" }
+]
+
+[vars]
+INSTABOX_MACHINE_ID = "m_agq2t32m5xv5joj67rqoze5h4u"
