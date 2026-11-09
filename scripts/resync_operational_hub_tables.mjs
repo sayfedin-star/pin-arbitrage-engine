@@ -20,16 +20,21 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Read .env for Neon URL
-const envPath = path.resolve(process.cwd(), '.env');
-const envContent = fs.readFileSync(envPath, 'utf8');
-const neonMatch = envContent.match(/DATABASE_URL=([^\r\n]+)/);
-if (!neonMatch) {
-  console.error('❌ Could not find DATABASE_URL in .env');
-  process.exit(1);
+let neonUrl = process.env.SOURCE_DATABASE_URL || null;
+if (!neonUrl) {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const neonMatch = envContent.match(/NEON_DATABASE_URL=([^\r\n]+)/) || envContent.match(/DATABASE_URL=([^\r\n]+)/);
+    if (neonMatch && neonMatch[1].includes('.neon.tech')) {
+      neonUrl = neonMatch[1].trim();
+    }
+  }
 }
 
-const neonUrl = neonMatch[1].trim();
+if (!neonUrl) {
+  neonUrl = 'postgresql://neondb_owner:npg_ZtNkg4DhfW6l@ep-polished-unit-axp6khxi-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require';
+}
 // On InstaBox: postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage
 const boxUrl = process.env.TARGET_DATABASE_URL || 'postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage';
 
