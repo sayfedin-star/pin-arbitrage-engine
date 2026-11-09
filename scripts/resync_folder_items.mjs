@@ -8,34 +8,25 @@ const neonSql = neon(NEON_URL);
 const pgSql = postgres(INSTABOX_URL, { max: 10, idle_timeout: 20 });
 
 async function run() {
-  console.log('Re-syncing folder_competitor_items with valid FKs...');
-  
-  // Truncate any partial rows
+  console.log('Re-syncing folder_competitor_items...');
   await pgSql`TRUNCATE TABLE folder_competitor_items;`;
 
-  // Fetch only rows where competitor_id exists in competitor_profiles and folder_id exists in keyword_folders
   const sourceRows = await neonSql`
-    SELECT fci.*
+    SELECT fci.folder_id, fci.competitor_id, fci.added_at, fci.custom_label, fci.source
     FROM folder_competitor_items fci
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
     JOIN keyword_folders kf ON kf.id = fci.folder_id;
   `;
   console.log(`Fetched ${sourceRows.length} valid FK rows from Neon.`);
 
-  const targetCols = [
-    'folder_id',
-    'competitor_id',
-    'created_at',
-    'added_by',
-    'metadata'
-  ];
+  const targetCols = ['folder_id', 'competitor_id', 'added_at', 'custom_label', 'source'];
 
   const sanitizedRows = sourceRows.map(r => ({
-    folder_id: r.folder_id ?? null,
-    competitor_id: r.competitor_id ?? null,
-    created_at: r.created_at ?? null,
-    added_by: r.added_by ?? null,
-    metadata: r.metadata ? JSON.stringify(r.metadata) : '{}'
+    folder_id: r.folder_id,
+    competitor_id: r.competitor_id,
+    added_at: r.added_at || new Date(),
+    custom_label: r.custom_label ?? null,
+    source: r.source ?? 'manual'
   }));
 
   const batchSize = 500;
