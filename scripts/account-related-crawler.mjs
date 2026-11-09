@@ -7,7 +7,7 @@
  * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Neon Postgres.
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from './crawler-engine.mjs';
 
@@ -37,7 +37,7 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const sql = neon(dbUrl);
+const sql = createUniversalSqlClient(dbUrl);
 
 function getCliArg(flag) {
   const eq = process.argv.find(a => a.startsWith(`${flag}=`));

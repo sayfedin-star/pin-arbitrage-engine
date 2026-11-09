@@ -25,7 +25,8 @@
  *      for parallel enrichment, shard sync, and qualification reconciliation.
  */
 
-import { neon } from '@neondatabase/serverless';
+// [INVARIANT: UNIVERSAL-SQL-CLIENT] Dual Neon / TCP Postgres
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import {
   syncCompetitorProfile,
@@ -78,7 +79,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;

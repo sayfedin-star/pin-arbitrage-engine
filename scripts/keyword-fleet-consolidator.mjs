@@ -12,7 +12,7 @@
  * 4. Renders the unified Executive Markdown Report to $GITHUB_STEP_SUMMARY.
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
@@ -28,7 +28,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const targetKeyword = (process.env.TARGET_KEYWORD || '').trim().toLowerCase();
 const folderIdInput = process.env.FOLDER_ID ? parseInt(process.env.FOLDER_ID, 10) : null;

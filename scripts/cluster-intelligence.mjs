@@ -12,7 +12,7 @@
  */
 
 import crypto from 'node:crypto';
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import { crc32 } from '../src/modules/sharding/fleet-router.mjs';
 
 let undiciAgent = null;
@@ -41,7 +41,7 @@ function getSql() {
       console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
       process.exit(1);
     }
-    _sql = neon(url);
+    _sql = createUniversalSqlClient(url);
   }
   return _sql;
 }

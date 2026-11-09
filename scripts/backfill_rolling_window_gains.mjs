@@ -15,7 +15,7 @@
  * and persists them into Central Hub keyword_serp_current & keyword_displaced_index.
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +50,7 @@ if (fs.existsSync(envPath)) {
   } catch (_) {}
 }
 
-const hubSql = process.env.DATABASE_URL ? neon(enforceNeonPoolerUrl(process.env.DATABASE_URL)) : null;
+const hubSql = process.env.DATABASE_URL ? createUniversalSqlClient(process.env.DATABASE_URL) : null;
 
 /**
  * Computes authentic rolling deltas across multi-day windows from raw snapshot history.

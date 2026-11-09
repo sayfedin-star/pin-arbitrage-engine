@@ -17,7 +17,7 @@
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import { normalizePinterestUsername } from '../src/modules/creators/service.mjs';
 
@@ -32,7 +32,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const rawTargetAccount = (process.env.TARGET_ACCOUNT || '').trim();
 const rawCrawlMode = (process.env.CRAWL_MODE || '').trim().toLowerCase();
 const rawMaxPages = (process.env.MAX_PAGES || '').trim();
@@ -280,7 +280,10 @@ async function main() {
     }
   }
 
-  process.exitCode = 0;
+  if (typeof sql?.end === 'function') {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
+  process.exit(0);
 }
 
 main().catch(err => {

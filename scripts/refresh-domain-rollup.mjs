@@ -6,7 +6,7 @@
  */
 
 import fs from 'fs';
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import { refreshDomainIntelligenceRollup } from '../src/modules/domains/service.mjs';
 
 let dbUrl = process.env.DATABASE_URL;
@@ -21,7 +21,7 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const sql = neon(dbUrl);
+const sql = createUniversalSqlClient(dbUrl);
 
 console.log('[DomainRollup] Starting domain intelligence rollup refresh...');
 const startTime = Date.now();

@@ -21,7 +21,7 @@
  * - Jitter backoff (2500ms-4000ms) with AbortSignal.timeout(8000).
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
@@ -76,7 +76,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;

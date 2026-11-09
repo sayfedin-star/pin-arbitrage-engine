@@ -16,7 +16,7 @@
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 
@@ -31,7 +31,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawTargetAccount = (process.env.TARGET_ACCOUNT || '').trim();
 const isSweepAll = !rawTargetAccount ||
