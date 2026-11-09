@@ -265,20 +265,6 @@ export function getPinDetailPageHtml(pinId = '') {
       init.headers = headers;
     }
     let res = await origFetch(input, init);
-    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
-      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
-      if (entered && entered.trim()) {
-        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
-        init = Object.assign({}, init);
-        const retryHeaders = new Headers(init.headers || {});
-        retryHeaders.set('x-api-key', entered.trim());
-        init.headers = retryHeaders;
-        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-          init.signal = AbortSignal.timeout(15000);
-        }
-        res = await origFetch(input, init);
-      }
-    }
     return res;
   };
 })();

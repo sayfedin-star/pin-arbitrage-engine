@@ -89,17 +89,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       init.headers = headers;
     }
     let res = await origFetch(input, init);
-    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
-      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
-      if (entered && entered.trim()) {
-        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
-        init = Object.assign({}, init);
-        const retryHeaders = new Headers(init.headers || {});
-        retryHeaders.set('x-api-key', entered.trim());
-        init.headers = retryHeaders;
-        res = await origFetch(input, init);
-      }
-    }
     return res;
   };
 })();

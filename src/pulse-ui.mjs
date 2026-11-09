@@ -93,17 +93,6 @@ export function getPulsePageHtml(folderId = '') {
           init.headers = headers;
         }
         var res = await origFetch(input, init);
-        if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
-          var entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
-          if (entered && entered.trim()) {
-            try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
-            init = Object.assign({}, init);
-            var retryHeaders = new Headers(init.headers || {});
-            retryHeaders.set('x-api-key', entered.trim());
-            init.headers = retryHeaders;
-            res = await origFetch(input, init);
-          }
-        }
         return res;
       };
     })();

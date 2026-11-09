@@ -160,9 +160,17 @@ export default {
     let response;
     let isDown = false;
 
+    // Inject secret API key automatically for authenticated operator so UI never prompts
+    const originHeaders = new Headers(request.headers);
+    const secretKeyToInject = env.API_SECRET_KEY || fallbackPin;
+    if (secretKeyToInject && !originHeaders.has('x-api-key')) {
+      originHeaders.set('x-api-key', secretKeyToInject);
+    }
+    const originRequest = new Request(request, { headers: originHeaders });
+
     try {
       // 1. Attempt to pass through to origin tunnel
-      response = await fetch(request);
+      response = await fetch(originRequest);
 
       // Cloudflare Tunnel down returns HTTP 530 (Error 1033) or 502/504
       if (response.status === 530 || response.status === 502 || response.status === 504) {
