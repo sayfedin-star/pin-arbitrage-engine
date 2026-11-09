@@ -1,5 +1,5 @@
 name: 'Setup InstaBox Database Bridge'
-description: 'Wakes InstaBox VM if sleeping and establishes secure Cloudflare TCP tunnel to PostgreSQL'
+description: 'Wakes InstaBox VM if sleeping and establishes verified Cloudflare TCP tunnel to PostgreSQL'
 
 inputs:
   instabox-api-key:
@@ -22,19 +22,47 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: 1. Wake InstaBox Machine (if sleeping)
+    - name: 1. Wake InstaBox Machine & Long-Poll Operation (if sleeping)
       shell: bash
+      env:
+        IB_API_KEY: ${{ inputs.instabox-api-key }}
+        IB_MACHINE_ID: ${{ inputs.machine-id }}
+        IB_SKIP_WAKEUP: ${{ inputs.skip-wakeup }}
       run: |
-        if [ "${{ inputs.skip-wakeup }}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then
+        if [ "${IB_SKIP_WAKEUP}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then
           echo "Skipping InstaBox wakeup API call (already woken by Stage 0)."
-        elif [ -n "${{ inputs.instabox-api-key }}" ]; then
-          echo "Checking/waking InstaBox machine: ${{ inputs.machine-id }}..."
-          curl -s -X POST "https://api.instabox.sh/v1/machines/${{ inputs.machine-id }}/resume" \
-            -H "Authorization: Bearer ${{ inputs.instabox-api-key }}" || true
-          sleep 3
+        elif [ -n "${IB_API_KEY}" ]; then
+          IDEMP_KEY="gha-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%Y%m%d%H%M)"
+          echo "Starting/Resuming InstaBox machine: ${IB_MACHINE_ID} (Idempotency-Key: ${IDEMP_KEY})..."
+          START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+            -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: ${IDEMP_KEY}" \
+            -d '{}' || echo "{}")
+
+          OP_INFO=$(node -e '
+            try {
+              const d = JSON.parse(process.argv[1] || "{}");
+              const opId = d.id || (d.error && d.error.operationId) || "";
+              const state = d.state || "";
+              const errCode = (d.error && d.error.code) || "";
+              console.log(`${opId}|${state}|${errCode}`);
+            } catch (_) {
+              console.log("||");
+            }
+          ' "${START_RESP}")
+
+          IFS='|' read -r OP_ID OP_STATE ERR_CODE <<< "${OP_INFO}"
+          echo "InstaBox start response -> opId=${OP_ID:-none}, state=${OP_STATE:-unknown}, error=${ERR_CODE:-none}"
+
+          if [ -n "${OP_ID}" ] && [ "${OP_STATE}" != "succeeded" ]; then
+            echo "Long-polling InstaBox operation ${OP_ID} (?wait=25s) until VM is ready..."
+            curl -s "https://api.instabox.sh/v1/operations/${OP_ID}?wait=25s" \
+              -H "Authorization: Bearer ${IB_API_KEY}" > /dev/null 2>&1 || true
+          fi
         fi
 
-    - name: 2. Install and launch Cloudflare Access TCP Tunnel
+    - name: 2. Install and launch Cloudflare Access TCP Tunnel + Verify PostgreSQL Handshake
       shell: bash
       run: |
         if ! command -v cloudflared &> /dev/null; then
@@ -43,16 +71,28 @@ runs:
           sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
           rm -f /tmp/cloudflared.deb
         fi
-        
+
         echo "Starting Cloudflare TCP proxy to ${{ inputs.db-hostname }} on 127.0.0.1:5432..."
         cloudflared access tcp --hostname "${{ inputs.db-hostname }}" --url 127.0.0.1:5432 > /dev/null 2>&1 &
-        
-        # Wait up to 10 seconds for the local port 5432 to become reachable
-        for i in {1..10}; do
-          if nc -z 127.0.0.1 5432 2>/dev/null || (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
-            echo "✅ Database tunnel established on 127.0.0.1:5432 in ${i}s!"
+
+        # End-to-End PostgreSQL Wire Handshake Probe (sends 8-byte SSLRequest packet through tunnel to remote Postgres)
+        echo "Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel..."
+        for i in {1..20}; do
+          if node -e '
+            const net = require("node:net");
+            const sock = net.connect({ host: "127.0.0.1", port: 5432, timeout: 1500 }, () => {
+              sock.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));
+            });
+            sock.on("data", (buf) => {
+              sock.destroy();
+              process.exit(buf.length > 0 && (buf[0] === 0x4e || buf[0] === 0x53) ? 0 : 1);
+            });
+            sock.on("timeout", () => { sock.destroy(); process.exit(1); });
+            sock.on("error", () => { sock.destroy(); process.exit(1); });
+          ' 2>/dev/null; then
+            echo "✅ End-to-end PostgreSQL tunnel verified and responsive on 127.0.0.1:5432 in ${i}s!"
             exit 0
           fi
           sleep 1
         done
-        echo "⚠️ Port 5432 not immediately detected, proceeding with execution."
+        echo "⚠️ Remote PostgreSQL handshake did not complete within 20s, proceeding with execution."
