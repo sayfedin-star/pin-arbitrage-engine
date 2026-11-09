@@ -11,36 +11,32 @@ async function testOnePin() {
   const pinId = '1047016613516965872';
   console.log(`Testing exact date sync for pin ${pinId}...`);
 
-  const rows = await neonSql`
-    SELECT 
-      pin_id,
-      snapshot_date::text AS snapshot_date,
-      save_count,
-      repin_count,
-      comment_count,
-      share_count,
-      reaction_count,
-      daily_save_velocity,
-      delta_repins_24h,
-      gains_5d,
-      gains_7d,
-      gains_10d,
-      gains_15d,
-      metadata,
-      created_at,
-      updated_at
-    FROM pins_daily_metrics
-    WHERE pin_id = ${pinId}
-    ORDER BY snapshot_date DESC;
+  const colsRes = await neonSql`
+    SELECT column_name, data_type 
+    FROM information_schema.columns 
+    WHERE table_name = 'pins_daily_metrics'
+    ORDER BY ordinal_position;
   `;
+  console.log('Neon cols:', colsRes.map(c => c.column_name));
+
+  const selectCols = colsRes
+    .map(c => c.column_name === 'snapshot_date' ? 'snapshot_date::text AS snapshot_date' : `"${c.column_name}"`)
+    .join(', ');
+
+  const rows = await neonSql(`
+    SELECT ${selectCols}
+    FROM pins_daily_metrics
+    WHERE pin_id = '${pinId}'
+    ORDER BY snapshot_date DESC;
+  `);
   console.log('Fetched from Neon:', rows);
 
   // Delete existing on target
   await pgSql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId}`;
 
   // Insert with string date
-  const cols = Object.keys(rows[0]);
-  await pgSql`INSERT INTO pins_daily_metrics ${pgSql(rows, cols)}`;
+  const targetCols = colsRes.map(c => c.column_name).filter(c => c !== 'shard_id');
+  await pgSql`INSERT INTO pins_daily_metrics ${pgSql(rows, targetCols)}`;
 
   // Query back from target
   const targetRows = await pgSql`
