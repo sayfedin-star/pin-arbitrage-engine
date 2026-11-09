@@ -14,7 +14,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { redactSecrets } from '../src/worker.mjs';
@@ -127,7 +127,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 const PORT = Number(process.env.PORT || 3456);
 
 // [INVARIANT: SEC-02 LOCALHOST CORS & CSRF GUARD]
@@ -634,7 +634,7 @@ const server = http.createServer(async (req, res) => {
             LIMIT 1;
           `;
           if (proj && proj.database_url) {
-            targetSql = getCachedShardSql(proj.database_url, () => neon(proj.database_url));
+            targetSql = getCachedShardSql(proj.database_url, () => createUniversalSqlClient(proj.database_url));
             setCachedShardSql(cleanKey, targetSql);
             if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
             if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);

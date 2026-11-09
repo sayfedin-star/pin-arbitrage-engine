@@ -54,6 +54,7 @@ permissions:
 
 env:
   DATABASE_TOPOLOGY: unified_postgres
+  PG_POOL_MAX: '2'
 
 jobs:
   # ============================================================================
@@ -147,6 +148,7 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          skip-wakeup: 'true'
 
       - name: 5. Execute Fleet Worker
         env:
@@ -200,6 +202,7 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          skip-wakeup: 'true'
 
       - name: 4. Execute Consolidation & Report Engine
         env:

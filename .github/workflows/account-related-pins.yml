@@ -27,6 +27,7 @@ permissions:
 
 env:
   DATABASE_TOPOLOGY: unified_postgres
+  PG_POOL_MAX: '2'
 
 jobs:
   harvest-related-graph:

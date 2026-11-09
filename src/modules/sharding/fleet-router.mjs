@@ -352,12 +352,20 @@ export function createUniversalSqlClient(dsn, options = {}) {
 
   if (usePostgresTcp) {
     const pgClient = postgres(cleanDsn, {
-      max: Number(options.max || (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 15) || 15),
+      max: Number(options.max || (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 10) || 10),
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false
     });
-    return wrapShardNeonTransaction(pgClient);
+    const wrappedPg = wrapShardNeonTransaction(pgClient);
+    return new Proxy(wrappedPg, {
+      apply(target, thisArg, argArray) {
+        if (typeof argArray[0] === 'string' && typeof target.unsafe === 'function') {
+          return target.unsafe(argArray[0], argArray[1]);
+        }
+        return Reflect.apply(target, thisArg, argArray);
+      }
+    });
   }
 
   return wrapShardNeonTransaction(neon(enforceNeonPoolerUrl(cleanDsn)));

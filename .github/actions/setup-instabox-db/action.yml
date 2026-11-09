@@ -14,6 +14,10 @@ inputs:
     description: 'Cloudflare Tunnel Hostname for DB'
     required: false
     default: 'db.hymum.com'
+  skip-wakeup:
+    description: 'Skip InstaBox API wakeup call when Stage 0 already woke the VM'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -21,7 +25,9 @@ runs:
     - name: 1. Wake InstaBox Machine (if sleeping)
       shell: bash
       run: |
-        if [ -n "${{ inputs.instabox-api-key }}" ]; then
+        if [ "${{ inputs.skip-wakeup }}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then
+          echo "Skipping InstaBox wakeup API call (already woken by Stage 0)."
+        elif [ -n "${{ inputs.instabox-api-key }}" ]; then
           echo "Checking/waking InstaBox machine: ${{ inputs.machine-id }}..."
           curl -s -X POST "https://api.instabox.sh/v1/machines/${{ inputs.machine-id }}/resume" \
             -H "Authorization: Bearer ${{ inputs.instabox-api-key }}" || true

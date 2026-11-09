@@ -19,7 +19,6 @@
  * 5. Runs non-blocking VACUUM (ANALYZE) on target Hub tables.
  */
 
-import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +27,8 @@ import {
   coalesceShardGroupsByPhysical,
   resolveShardConnection,
   preloadNeonRegistry,
-  isUnifiedPostgres
+  isUnifiedPostgres,
+  createUniversalSqlClient
 } from '../src/modules/sharding/fleet-router.mjs';
 
 // Load .env
@@ -650,7 +650,7 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  const sql = createUniversalSqlClient(process.env.DATABASE_URL);
   console.log('[*] Running automated maintenance...');
   const res = await optimizeHubStorage(sql);
 

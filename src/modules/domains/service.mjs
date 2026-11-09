@@ -2965,7 +2965,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const vaultUniqueUrlsCount = vaultUniqueUrlsSet.size;
 
   const allCatalogPinsCount = allPins.length + catalogOnlyVisualPins.length;
-  const totalPinsCount = allCatalogPinsCount;
+  const totalPinsCount = allPins.length > 0 ? allPins.length : allCatalogPinsCount;
   const summaryUniqueUrls = isOrganicVault ? 0 : Math.max(1, moneyUrls.length);
   const summaryPinsPerUrl = summaryUniqueUrls > 0 ? Number((totalPinsCount / summaryUniqueUrls).toFixed(2)) : 1;
   const summaryTotalSaves = allPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0);

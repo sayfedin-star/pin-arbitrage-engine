@@ -13,12 +13,11 @@
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
-import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -437,7 +436,7 @@ export async function runMigrations({
   }
 
   const pooledUrl = enforceNeonPoolerUrl(dbUrl);
-  const sql = neon(pooledUrl);
+  const sql = createUniversalSqlClient(pooledUrl);
 
   await ensureSchemaMigrationsTable(sql);
   const applied = await getAppliedMigrations(sql);
@@ -518,7 +517,7 @@ export async function listMigrations({
   }
 
   const pooledUrl = enforceNeonPoolerUrl(dbUrl);
-  const sql = neon(pooledUrl);
+  const sql = createUniversalSqlClient(pooledUrl);
   const applied = await getAppliedMigrations(sql);
   const allFiles = getMigrationFiles(migrationsDir);
 

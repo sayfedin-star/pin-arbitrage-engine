@@ -34,7 +34,8 @@ import {
   preloadNeonRegistry,
   getPinShardId,
   getPhysicalShardId,
-  crc32
+  crc32,
+  isUnifiedPostgres
 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
@@ -1412,6 +1413,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
 
             if (typeof shardSql.begin === 'function') {
               await shardSql.begin(async (tx) => {
+                await tx`SET LOCAL synchronous_commit = off;`;
                 await buildQ1(tx);
                 await buildQ2(tx);
               });
@@ -1427,7 +1429,13 @@ async function flushToStorageShards(enrichedPins, kw = null) {
 
             if (kw) {
               try {
-                await flushBatchToHub(sortedPins, kw);
+                const uniqueHubPinsMap = new Map();
+                for (const sp of sortedPins) {
+                  if (sp && sp.pin_id && !uniqueHubPinsMap.has(String(sp.pin_id))) {
+                    uniqueHubPinsMap.set(String(sp.pin_id), sp);
+                  }
+                }
+                await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw);
               } catch (hubErr) {
                 console.warn(`    [Hub Rolling Gains Flush Warning]: ${hubErr.message}`);
               }
@@ -1530,21 +1538,11 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
   if (!pins || pins.length === 0) return [];
   const sem = new Semaphore(CONCURRENCY);
   const enrichedPins = [];
-  let currentBatch = [];
   let completedCount = 0;
   const total = pins.length;
   let jitPrewarmFired = false;
 
   console.log(`  [*] ${label}: Inspecting ${total} pins with Concurrency: ${CONCURRENCY}, Hub Batch: ${BATCH_SIZE}...`);
-
-  const flushHubBatchSafe = async (chunk) => {
-    if (!chunk || chunk.length === 0) return;
-    try {
-      await flushBatchToHub(chunk, kw);
-    } catch (err) {
-      console.warn(`    [Hub Batch Flush Warning]:`, err.message);
-    }
-  };
 
   const pool = pins.map((p) => sem.run(async () => {
     if (circuitBroken) return;
@@ -1552,18 +1550,12 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
       const enriched = await inspectPin(p, kw);
       if (enriched) {
         enrichedPins.push(enriched);
-        currentBatch.push(enriched);
-        if (currentBatch.length >= BATCH_SIZE) {
-          const chunkToFlush = currentBatch;
-          currentBatch = [];
-          await flushHubBatchSafe(chunkToFlush);
-        }
       }
     } catch (err) {
       console.warn(`    [!] Pin #${p.pin_id} inspect error:`, err.message);
     } finally {
       completedCount++;
-      if (!jitPrewarmFired && total >= 1 && (completedCount / total) >= 0.8) {
+      if (!jitPrewarmFired && !isUnifiedPostgres() && total >= 1 && (completedCount / total) >= 0.8) {
         jitPrewarmFired = true;
         // JIT Pre-warming pulse (SELECT 1) across target shards 3-5s before flushToStorageShards
         const targetShardIds = new Set();
@@ -1595,10 +1587,6 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
 
   await Promise.allSettled(pool);
 
-  if (currentBatch.length > 0) {
-    await flushHubBatchSafe(currentBatch);
-  }
-
   return enrichedPins;
 }
 
@@ -1612,21 +1600,23 @@ async function run() {
   console.log(`[Config] Crawl Scope:     ${crawlScope}`);
 
   // Initialize In-Crawler Keep-Alive Heartbeat (every 3.5 min / 210s) to prevent Neon compute scale-to-zero
-  crawlerKeepAlive = setInterval(async () => {
-    if (activeTargetShards.size === 0) return;
-    const shards = Array.from(new Set(Array.from(activeTargetShards).map(s => getPhysicalShardId(s))));
-    const chunkSem = new Semaphore(5);
-    await Promise.allSettled(
-      shards.map((shardId) => chunkSem.run(async () => {
-        try {
-          const shardConn = await resolveShardConnection({ hubSql: sql, shardId });
-          await shardConn`SELECT 1;`;
-        } catch (_) {}
-      }))
-    );
-  }, 210000);
-  if (typeof crawlerKeepAlive.unref === 'function') crawlerKeepAlive.unref();
-  process.on('exit', () => { if (crawlerKeepAlive) clearInterval(crawlerKeepAlive); });
+  if (!isUnifiedPostgres()) {
+    crawlerKeepAlive = setInterval(async () => {
+      if (activeTargetShards.size === 0) return;
+      const shards = Array.from(new Set(Array.from(activeTargetShards).map(s => getPhysicalShardId(s))));
+      const chunkSem = new Semaphore(5);
+      await Promise.allSettled(
+        shards.map((shardId) => chunkSem.run(async () => {
+          try {
+            const shardConn = await resolveShardConnection({ hubSql: sql, shardId });
+            await shardConn`SELECT 1;`;
+          } catch (_) {}
+        }))
+      );
+    }, 210000);
+    if (typeof crawlerKeepAlive.unref === 'function') crawlerKeepAlive.unref();
+    process.on('exit', () => { if (crawlerKeepAlive) clearInterval(crawlerKeepAlive); });
+  }
 
   if (mode === 'folder_pin_partition') {
     // =========================================================================

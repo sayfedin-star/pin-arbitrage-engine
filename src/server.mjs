@@ -34,7 +34,9 @@ function getServerSqlClient(dsn) {
     return cachedServerSqlClient;
   }
   cachedServerDsn = dsn;
-  cachedServerSqlClient = createUniversalSqlClient(dsn);
+  cachedServerSqlClient = createUniversalSqlClient(dsn, {
+    max: Number(process.env.PG_POOL_MAX || 10)
+  });
   return cachedServerSqlClient;
 }
 

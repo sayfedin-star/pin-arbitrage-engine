@@ -8,7 +8,7 @@
  * - seed_guided_search_capsules (seed_pin_id, discovered_at DESC)
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -20,7 +20,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 
 async function optimizeIndexes() {
   console.log('[*] Optimizing Neon Database Indexes...');
@@ -51,12 +51,9 @@ async function optimizeIndexes() {
   `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 5. Indexing P4 pa_pins & metrics...');
-  await sql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`.catch(err => console.warn('[Trigger Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic ON pa_pins;`.catch(err => console.warn('[Trigger Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_created_at_pinterest ON pa_pins(created_at_pinterest DESC NULLS LAST);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_annotations_gin ON pa_pins USING gin(annotations);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 6. Indexing P2 competitor_boards & snapshots...');
@@ -102,7 +99,7 @@ async function optimizeIndexes() {
   await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS enrichment_status VARCHAR(32) DEFAULT 'pending';`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`DROP INDEX IF EXISTS idx_competitor_pins_enrichment_queue;`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`DROP INDEX IF EXISTS idx_competitor_pins_queue_fast;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`.catch(err => console.warn('[Index Notice]', err.message));
 
@@ -139,27 +136,11 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_tk_trgm_keyword ON tracked_keywords USING gin (LOWER(keyword) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles(LOWER(username));`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_username ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_display_name ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   // [INVARIANT: 100% POSTGRESQL HOT UPDATES & CLEAN B-TREE INDEXES - MIGRATION 037]
   await sql`DROP INDEX IF EXISTS idx_ksc_active_covering;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ksc_domain_serp_authority;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cp_link_domain_saves;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cp_domain_rollup_covering;`.catch(() => {});
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_ksc_active_rank_clean 
-    ON keyword_serp_current (keyword_id, rank_position)
-    WHERE rank_position IS NOT NULL;
-  `.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_ksc_domain_rank_clean 
-    ON keyword_serp_current (domain, rank_position)
-    WHERE domain IS NOT NULL;
-  `.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_cp_link_domain_clean 
-    ON competitor_pins (link_domain, created_at_pinterest DESC)
-    WHERE link_domain IS NOT NULL;
-  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 13. Ensuring 24h Pulse breakout and driver pin indexes [Round 14]...');
   await sql`
@@ -190,7 +171,7 @@ async function optimizeIndexes() {
     console.log(`[*] Discovered ${shards.length} storage shards in registry. Applying shard-level indexes...`);
     for (const shard of shards) {
       try {
-        const shardSql = neon(shard.database_url);
+        const shardSql = createUniversalSqlClient(shard.database_url);
         // Clean duplicate trigger on shard pa_pins [CAP-22]
         await shardSql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`.catch(() => {});
         // P4 pa_pins

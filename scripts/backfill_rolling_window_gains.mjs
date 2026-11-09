@@ -24,7 +24,8 @@ import {
   getPhysicalShardId,
   resolveShardConnection,
   isMultiStageHydrationJump,
-  enforceNeonPoolerUrl
+  enforceNeonPoolerUrl,
+  isUnifiedPostgres
 } from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -259,18 +260,19 @@ async function main() {
     return;
   }
 
-  // 2. Group pins by physical shard ID (20 physical databases instead of 99 virtual groups)
-  console.log('\n[*] Phase 2: Partitioning pins into 20 Physical Storage Shards via deterministic CRC32...');
-  const shardMap = new Map(); // physicalShardId (1..20) -> pin_ids[]
+  // 2. Group pins by physical shard ID (coalesced to single pass in unified PostgreSQL mode)
+  console.log('\n[*] Phase 2: Partitioning pins into Physical Storage Shards via deterministic CRC32...');
+  const shardMap = new Map(); // physicalShardId -> pin_ids[]
+  const unifiedMode = isUnifiedPostgres();
   for (const { pin_id } of activePins) {
     const virtShardId = getPinShardId(pin_id, 99);
-    const physicalShardId = getPhysicalShardId(virtShardId);
+    const physicalShardId = unifiedMode ? 1 : getPhysicalShardId(virtShardId);
     if (!shardMap.has(physicalShardId)) {
       shardMap.set(physicalShardId, []);
     }
     shardMap.get(physicalShardId).push(pin_id);
   }
-  console.log(`[+] Distributed ${activePins.length} pins across ${shardMap.size} active physical shards.`);
+  console.log(`[+] Distributed ${activePins.length} pins across ${shardMap.size} active physical shard group(s).`);
 
   // 3. Query historical snapshots from each shard and compute authentic deltas
   console.log('\n[*] Phase 3: Fetching snapshot history from Storage Shards & computing deltas...');

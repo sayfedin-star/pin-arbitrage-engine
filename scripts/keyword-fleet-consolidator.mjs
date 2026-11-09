@@ -12,9 +12,8 @@
  * 4. Renders the unified Executive Markdown Report to $GITHUB_STEP_SUMMARY.
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createUniversalSqlClient, preloadNeonRegistry, resolveShardConnection, isUnifiedPostgres } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
-import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 import { winsorize } from '../src/modules/keywords/service.mjs';
 
@@ -442,8 +441,8 @@ async function runShardJanitorGC() {
     console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
 
     await preloadNeonRegistry(sql);
-    // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION] Broadcast janitor GC strictly to the 20 physical shards
-    const shardIds = Array.from({ length: 20 }, (_, i) => i + 1);
+    // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION] Coalesce to 1 pass on unified PostgreSQL
+    const shardIds = isUnifiedPostgres() ? [1] : Array.from({ length: 20 }, (_, i) => i + 1);
     const SHARD_CONCURRENCY = 10;
     let purgedShardsCount = 0;
 

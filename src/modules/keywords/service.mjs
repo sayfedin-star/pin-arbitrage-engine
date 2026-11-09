@@ -2310,7 +2310,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
     let confirmedPinIds = [];
-    if ((!options?.skip_shard_offload || isUnifiedPostgres(envObj)) && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+    if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
         console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
         return null;

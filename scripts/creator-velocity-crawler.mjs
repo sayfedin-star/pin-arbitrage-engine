@@ -38,6 +38,7 @@ import {
   getCreatorHubSettings
 } from '../src/modules/creators/service.mjs';
 import {
+  fetchUserResource,
   fetchPinFromPinResource,
   fetchPinFromPinterest,
   setDefaultDispatcher,
@@ -53,7 +54,7 @@ import {
   crc32,
   isUnifiedPostgres
 } from '../src/modules/sharding/fleet-router.mjs';
-import { sanitizeForJsonb } from '../src/utils.mjs';
+import { formatPinterestCookie, sanitizeForJsonb } from '../src/utils.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 
@@ -591,11 +592,11 @@ async function run() {
     console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId}) [target: ${targetPages} pages, early-stop: ${earlyStop}, pulseOnly: ${isPulseOnly}]`);
 
     // -------------------------------------------------------------------------
-    // Phase 1: Ingestion on Worker 0
+    // Phase 1: Profile & Board List on Worker 0, then 20-Worker Parallel Board Swarm
     // -------------------------------------------------------------------------
     if (workerIndex === 0) {
-      console.log(`\n[*] [Phase 1: Worker 0] Ingesting profile and fresh catalog for @${targetAccount}...`);
-      
+      console.log(`\n[*] [Phase 1: Worker 0] Ingesting profile, board list, and feed for @${targetAccount}...`);
+
       // Register Phase 1 heartbeat
       await sql`
         INSERT INTO crawler_shard_heartbeats (
@@ -622,78 +623,38 @@ async function run() {
           console.warn(`[Phase 1] Boards sync warning:`, err.message);
         }
 
-        let feedPinsCount = 0;
         try {
-          const feedRes = await syncCompetitorPins(sql, targetId, targetAccount, {
+          await syncCompetitorPins(sql, targetId, targetAccount, {
             mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
             maxPages: targetPages,
             cookie: cookie
           });
-          feedPinsCount = feedRes?.total_fetched ?? feedRes?.crawled ?? 0;
         } catch (err) {
           console.warn(`[Phase 1] Pins discovery warning:`, err.message);
         }
 
-        // If sharded_boards mode or target_boards specified or feed has few pins, crawl boards to ensure complete catalog
-        if (crawlMode === 'sharded_boards' || targetBoardsInput || feedPinsCount < 100) {
-        console.log(`[*] [Phase 1: Worker 0] Crawling creator boards for complete catalog ingestion...`);
-        try {
-          const boards = await sql`
-            SELECT board_id, name, url, metadata
-            FROM competitor_boards
-            WHERE competitor_id = ${targetId}
-            ORDER BY pin_count DESC NULLS LAST;
-          `;
-          
-          let filteredBoards = boards;
-          if (personalBoardsOnly) {
-            filteredBoards = filteredBoards.filter(b => !b.metadata?.is_group_board && !b.metadata?.is_collaborative);
-          }
-          if (targetBoardsInput) {
-            const targets = targetBoardsInput.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
-            filteredBoards = filteredBoards.filter(b => targets.some(t => b.name.toLowerCase().includes(t) || b.board_id === t));
-          }
-
-          console.log(`[*] Selected ${filteredBoards.length} board(s) for catalog ingestion.`);
-          for (const b of filteredBoards.slice(0, 30)) {
-            try {
-              await syncCompetitorBoardPins(sql, targetId, targetAccount, b, {
-                mode: 'discovery',
-                maxPages: Math.min(20, maxPages),
-                cookie: cookie
-              });
-            } catch (bErr) {
-              console.warn(`[Phase 1] Board "${b.name}" crawl warning:`, bErr.message);
-            }
-          }
-        } catch (bQueryErr) {
-          console.warn(`[Phase 1] Boards query warning:`, bQueryErr.message);
-        }
+        // Signal boards_ready so all 20 workers can partition and crawl boards in parallel
+        await sql`
+          UPDATE crawler_shard_heartbeats
+          SET status = 'boards_ready',
+              updated_at = NOW()
+          WHERE competitor_id = ${targetId} AND shard_number = 0;
+        `.catch(() => {});
+        console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for 20-worker parallel board swarm.`);
+      } else {
+        console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
+        await sql`
+          UPDATE crawler_shard_heartbeats
+          SET status = 'phase1_done',
+              updated_at = NOW()
+          WHERE competitor_id = ${targetId} AND shard_number = 0;
+        `.catch(() => {});
       }
     } else {
-      console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
-    }
-
-      // Mark Phase 1 complete in heartbeats table
-      await sql`
-        UPDATE crawler_shard_heartbeats
-        SET status = 'phase1_done',
-            updated_at = NOW()
-        WHERE competitor_id = ${targetId} AND shard_number = 0;
-      `.catch(() => {});
-
-      // Stamp updated_at on competitor_profiles
-      await sql`
-        UPDATE competitor_profiles
-        SET updated_at = NOW()
-        WHERE id = ${targetId};
-      `.catch(() => {});
-      console.log(`[Phase 1: Worker 0] Ingestion phase complete for @${targetAccount}.`);
-    } else {
-      // Workers 1..19 Barrier Synchronization: Wait for Worker 0 to complete Phase 1
-      console.log(`\n[*] [Phase 1: Worker ${workerIndex + 1}/${workerTotal}] Waiting at barrier for Worker 0 to complete discovery...`);
+      // Workers 1..19 wait for Worker 0 to announce boards_ready (or phase1_done)
+      console.log(`\n[*] [Phase 1: Worker ${workerIndex + 1}/${workerTotal}] Waiting for Worker 0 to announce boards_ready...`);
       const barrierStart = Date.now();
-      const BARRIER_TIMEOUT_MS = 300000; // 5 min ceiling
+      const BARRIER_TIMEOUT_MS = 180000; // 3 min ceiling
       const isCI = process.env.GITHUB_ACTIONS === 'true';
 
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
@@ -703,24 +664,115 @@ async function run() {
           WHERE competitor_id = ${targetId} AND shard_number = 0;
         `.catch(() => [null]);
 
-        if (hb && hb.status === 'phase1_done') {
-          console.log(`[Phase 1] Barrier cleared! Worker 0 completed discovery in ${Math.round((Date.now() - barrierStart) / 1000)}s.`);
+        if (hb && (hb.status === 'boards_ready' || hb.status === 'phase1_done')) {
+          console.log(`[Phase 1] Boards ready signal received from Worker 0 in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
         }
 
-        // Local single-worker test guard: If running locally and Worker 0 never registered, don't stall
         if (!isCI && (!hb || hb.status !== 'crawling_phase1')) {
           console.log(`[Phase 1] Local single-worker test detected (no active Worker 0 heartbeat). Proceeding.`);
           break;
         }
 
-        await sleep(2500);
+        await sleep(1500);
       }
     }
 
     if (isPulseOnly) {
       console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Account @${targetAccount} is in pulse_only mode. Skipping catalog pin scraping.`);
       return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1B: 20-Worker Parallel Board Swarm (board_idx % workerTotal === workerIndex)
+    // -------------------------------------------------------------------------
+    await sql`
+      INSERT INTO crawler_shard_heartbeats (
+        competitor_id, shard_number, shard_total, status, updated_at
+      ) VALUES (
+        ${targetId}, ${workerIndex}, ${workerTotal}, 'crawling_boards', NOW()
+      )
+      ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
+        shard_total = ${workerTotal},
+        status = 'crawling_boards',
+        updated_at = NOW();
+    `.catch(() => {});
+
+    if (crawlMode === 'sharded_boards' || targetBoardsInput || crawlMode !== 'refresh') {
+      try {
+        const boards = await sql`
+          SELECT board_id, name, url, metadata
+          FROM competitor_boards
+          WHERE competitor_id = ${targetId}
+          ORDER BY pin_count DESC NULLS LAST, board_id ASC;
+        `;
+
+        let filteredBoards = boards;
+        if (personalBoardsOnly) {
+          filteredBoards = filteredBoards.filter(b => !b.metadata?.is_group_board && !b.metadata?.is_collaborative);
+        }
+        if (targetBoardsInput) {
+          const targets = targetBoardsInput.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+          filteredBoards = filteredBoards.filter(b => targets.some(t => b.name.toLowerCase().includes(t) || b.board_id === t));
+        }
+
+        const candidateBoards = filteredBoards.slice(0, 60);
+        const myBoards = candidateBoards.filter((_, boardIdx) => boardIdx % workerTotal === workerIndex);
+        console.log(`[*] [Phase 1B: Worker ${workerIndex + 1}/${workerTotal}] Assigned ${myBoards.length}/${candidateBoards.length} board(s) for parallel board swarm.`);
+
+        for (const b of myBoards) {
+          try {
+            await syncCompetitorBoardPins(sql, targetId, targetAccount, b, {
+              mode: 'discovery',
+              maxPages: Math.min(20, maxPages),
+              cookie: cookie
+            });
+          } catch (bErr) {
+            console.warn(`[Phase 1B] Board "${b.name}" crawl warning:`, bErr.message);
+          }
+        }
+      } catch (bQueryErr) {
+        console.warn(`[Phase 1B] Boards query warning:`, bQueryErr.message);
+      }
+    }
+
+    // Mark worker board phase complete in heartbeats table
+    await sql`
+      UPDATE crawler_shard_heartbeats
+      SET status = 'phase1_done',
+          updated_at = NOW()
+      WHERE competitor_id = ${targetId} AND shard_number = ${workerIndex};
+    `.catch(() => {});
+
+    if (workerIndex === 0) {
+      await sql`
+        UPDATE competitor_profiles
+        SET updated_at = NOW()
+        WHERE id = ${targetId};
+      `.catch(() => {});
+    }
+
+    // Fast Barrier Sync across all 20 workers after parallel board crawling before Phase 2
+    if (workerTotal > 1 && process.env.GITHUB_ACTIONS === 'true') {
+      const boardBarrierStart = Date.now();
+      const BOARD_BARRIER_TIMEOUT_MS = 180000;
+      while (Date.now() - boardBarrierStart < BOARD_BARRIER_TIMEOUT_MS) {
+        const [pendingRow] = await sql`
+          SELECT COUNT(*)::int AS pending
+          FROM crawler_shard_heartbeats
+          WHERE competitor_id = ${targetId}
+            AND shard_number <> ${workerIndex}
+            AND status IN ('crawling_phase1', 'boards_ready', 'crawling_boards')
+            AND updated_at > NOW() - INTERVAL '5 minutes';
+        `.catch(() => [{ pending: 0 }]);
+
+        const pendingBoards = Number(pendingRow?.pending || 0);
+        if (pendingBoards === 0) {
+          console.log(`[Phase 1B] All workers finished board ingestion in ${Math.round((Date.now() - boardBarrierStart) / 1000)}s!`);
+          break;
+        }
+        await sleep(2000);
+      }
     }
 
     // -------------------------------------------------------------------------
@@ -984,7 +1036,9 @@ async function run() {
     let myAccounts = [];
     if (myAccountIds.length > 0) {
       myAccounts = await sql`
-        SELECT id, username, display_name, tracking_mode,
+        SELECT id, username, display_name, avatar_url, monthly_reach, profile_views,
+               total_pins, total_boards, follower_count, tracking_mode, custom_label,
+               source_folder_id, metadata,
                (metadata->'qualification_rules') AS qualification_rules,
                (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
         FROM competitor_profiles
@@ -1022,127 +1076,426 @@ async function run() {
     `.catch(() => {});
 
     let accountsProcessed = 0;
-    for (let i = 0; i < myAccounts.length; i++) {
-      const acc = myAccounts[i];
-      const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
-      console.log(`\n----------------------------------------------------------------`);
-      console.log(`[Phase 1: ${i + 1}/${myAccounts.length}] Daily Pulse: @${cleanUser} (Account ID: ${acc.id})`);
-      console.log(`----------------------------------------------------------------`);
+    const pulseAccounts = [];
+    const fullAccounts = [];
 
+    for (const acc of myAccounts) {
       // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Lightweight Creator Pulse Fast-Path Bypass
-      let isPulseOnly = acc.tracking_mode === 'pulse_only' || (acc.profile_pulse_only ?? acc.metadata?.profile_pulse_only) === true;
+      const isPulseOnly = acc.tracking_mode === 'pulse_only' || (acc.profile_pulse_only ?? acc.metadata?.profile_pulse_only) === true;
+      if (isPulseOnly) {
+        pulseAccounts.push(acc);
+      } else {
+        fullAccounts.push(acc);
+      }
+    }
 
-      // 1. Sync Creator Profile & Reach
+    // -------------------------------------------------------------------------
+    // PHASE 1A: Parallel Semaphore(6) + Batch JSONB Upsert (100/batch) for pulse_only
+    // -------------------------------------------------------------------------
+    if (pulseAccounts.length > 0) {
+      console.log(`\n[*] [Phase 1A] High-Velocity Batch Pulse for ${pulseAccounts.length} pulse_only account(s) (Semaphore: 6, Batch: 100)...`);
+      const pulseIds = pulseAccounts.map(a => Number(a.id)).filter(Boolean);
+      const historyMap = new Map();
+
       try {
-        console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
-        await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: isPulseOnly });
-      } catch (pErr) {
-        console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
+        const histRows = await sql`
+          WITH p24 AS (
+            SELECT DISTINCT ON (competitor_id)
+              competitor_id, monthly_reach, profile_views, total_pins, total_boards
+            FROM competitor_history_snapshots
+            WHERE competitor_id = ANY(${pulseIds}::int[])
+              AND recorded_date < CURRENT_DATE
+            ORDER BY competitor_id, recorded_date DESC
+          ),
+          b7d AS (
+            SELECT DISTINCT ON (competitor_id)
+              competitor_id, monthly_reach, profile_views, total_pins, total_boards
+            FROM competitor_history_snapshots
+            WHERE competitor_id = ANY(${pulseIds}::int[])
+              AND recorded_date <= CURRENT_DATE - INTERVAL '6 days'
+            ORDER BY competitor_id, recorded_date DESC
+          ),
+          earliest AS (
+            SELECT DISTINCT ON (competitor_id)
+              competitor_id, monthly_reach, profile_views, total_pins, total_boards
+            FROM competitor_history_snapshots
+            WHERE competitor_id = ANY(${pulseIds}::int[])
+              AND recorded_date < CURRENT_DATE
+            ORDER BY competitor_id, recorded_date ASC
+          )
+          SELECT
+            u.cid AS competitor_id,
+            row_to_json(p24) AS prior_24h,
+            COALESCE(row_to_json(b7d), row_to_json(earliest)) AS baseline_7d
+          FROM unnest(${pulseIds}::int[]) AS u(cid)
+          LEFT JOIN p24 ON p24.competitor_id = u.cid
+          LEFT JOIN b7d ON b7d.competitor_id = u.cid
+          LEFT JOIN earliest ON earliest.competitor_id = u.cid;
+        `;
+        for (const hr of (histRows || [])) {
+          historyMap.set(Number(hr.competitor_id), {
+            prior24h: hr.prior_24h || null,
+            baseline7d: hr.baseline_7d || null
+          });
+        }
+      } catch (hErr) {
+        console.warn(`[Phase 1A] Batch history baseline lookup warning:`, hErr.message);
       }
 
-      // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
-      let wasAutoPromotedInThisRun = false;
-      if (isPulseOnly) {
-        const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? false;
-        const dynamicDelta24h = Number(creatorHubSettings?.auto_promote_delta_24h ?? AUTO_PROMOTE_PULSE_DELTA_24H);
-        const dynamicDelta7d = Number(creatorHubSettings?.auto_promote_delta_7d ?? AUTO_PROMOTE_PULSE_DELTA_7D);
+      const formattedCookie = formatPinterestCookie(cookie);
+      const PULSE_BATCH_SIZE = 100;
+      let pulseBuffer = [];
 
-        const [freshAcc] = await sql`
-          SELECT delta_reach_24h, reach_delta_7d
-          FROM competitor_profiles
-          WHERE id = ${acc.id}
-          LIMIT 1;
-        `.catch(() => [null]);
+      const flushPulseBatch = async (chunk) => {
+        if (!chunk || chunk.length === 0) return;
+        const payloadJson = JSON.stringify(sanitizeForJsonb(chunk));
+        const jsonParam = typeof sql.json === 'function' ? sql.json(sanitizeForJsonb(chunk)) : payloadJson;
 
-        const delta24h = Number(freshAcc?.delta_reach_24h || 0);
-        const delta7d = Number(freshAcc?.reach_delta_7d || 0);
-
-        if (isAutoPromoteEnabled && (delta24h >= dynamicDelta24h || delta7d >= dynamicDelta7d)) {
-          console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${delta24h} vs ${dynamicDelta24h}, 7d: +${delta7d} vs ${dynamicDelta7d}). Promoting pulse_only -> full!`);
-          
-          const configuredQualRules = creatorHubSettings?.qualification_rules || {};
-          const minSaves = Number.isFinite(Number(configuredQualRules.min_saves)) ? Math.max(0, Number(configuredQualRules.min_saves)) : 500;
-          const minVelocity = Number.isFinite(Number(configuredQualRules.min_velocity)) ? Math.max(0, Number(configuredQualRules.min_velocity)) : 10.0;
-          const qualRulesToPersist = {
-            tier1_min_saves: minSaves,
-            tier2_min_repins: minSaves,
-            tier2_min_velocity: minVelocity,
-            tier3_min_saves: Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))),
-            auto_promote_inherited: true
-          };
+        try {
+          await sql`
+            UPDATE competitor_profiles AS cp
+            SET
+              display_name = COALESCE(NULLIF(u.display_name, ''), cp.display_name),
+              avatar_url = COALESCE(NULLIF(u.avatar_url, ''), cp.avatar_url),
+              monthly_reach = CASE
+                WHEN u.monthly_reach = 10000001 AND cp.monthly_reach > 10000001 THEN cp.monthly_reach
+                WHEN u.monthly_reach > 0 THEN u.monthly_reach
+                ELSE cp.monthly_reach
+              END,
+              delta_reach_24h = u.delta_reach_24h,
+              reach_delta_7d = u.reach_delta_7d,
+              profile_views = CASE
+                WHEN u.profile_views = 10000001 AND cp.profile_views > 10000001 THEN cp.profile_views
+                WHEN u.profile_views > 0 THEN u.profile_views
+                ELSE cp.profile_views
+              END,
+              delta_views_24h = u.delta_views_24h,
+              views_delta_7d = u.views_delta_7d,
+              total_pins = GREATEST(cp.total_pins, u.total_pins),
+              delta_pins_24h = u.delta_pins_24h,
+              pins_delta_7d = u.pins_delta_7d,
+              total_boards = GREATEST(cp.total_boards, u.total_boards),
+              delta_boards_24h = u.delta_boards_24h,
+              boards_delta_7d = u.boards_delta_7d,
+              follower_count = CASE WHEN u.follower_count > 0 THEN u.follower_count ELSE cp.follower_count END,
+              activity_status = COALESCE(NULLIF(u.activity_status, ''), cp.activity_status),
+              tracking_mode = COALESCE(NULLIF(u.tracking_mode, ''), cp.tracking_mode),
+              custom_label = CASE WHEN cp.custom_label IS NULL OR cp.custom_label = '' THEN COALESCE(u.custom_label, cp.custom_label) ELSE cp.custom_label END,
+              metadata = COALESCE(cp.metadata, '{}'::jsonb) || COALESCE(u.meta_update, '{}'::jsonb),
+              last_synced_at = NOW(),
+              updated_at = NOW()
+            FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+              competitor_id int,
+              display_name text,
+              avatar_url text,
+              monthly_reach bigint,
+              delta_reach_24h bigint,
+              reach_delta_7d bigint,
+              profile_views bigint,
+              delta_views_24h bigint,
+              views_delta_7d bigint,
+              total_pins int,
+              delta_pins_24h int,
+              pins_delta_7d int,
+              total_boards int,
+              delta_boards_24h int,
+              boards_delta_7d int,
+              follower_count int,
+              activity_status text,
+              tracking_mode text,
+              custom_label text,
+              meta_update jsonb
+            )
+            WHERE cp.id = u.competitor_id;
+          `;
 
           await sql`
-            UPDATE competitor_profiles
-            SET tracking_mode = 'full',
-                custom_label = COALESCE(NULLIF(custom_label, ''), 'Breakout Auto-Promoted'),
-                metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                  'profile_pulse_only', false,
-                  'auto_promoted_at', NOW()::text,
-                  'auto_promote_reason', 'reach_breakout',
-                  'qualification_rules', ${JSON.stringify(qualRulesToPersist)}::jsonb
-                )
-            WHERE id = ${acc.id};
-          `.catch(err => console.warn(`[!] Auto-promote update failed:`, err.message));
+            INSERT INTO competitor_history_snapshots (
+              competitor_id,
+              monthly_reach,
+              profile_views,
+              follower_count,
+              total_pins,
+              total_boards,
+              recorded_date,
+              metadata
+            )
+            SELECT
+              u.competitor_id,
+              u.monthly_reach,
+              u.profile_views,
+              u.follower_count,
+              u.total_pins,
+              u.total_boards,
+              CURRENT_DATE,
+              COALESCE(u.snap_meta, '{}'::jsonb)
+            FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+              competitor_id int,
+              monthly_reach bigint,
+              profile_views bigint,
+              follower_count int,
+              total_pins int,
+              total_boards int,
+              snap_meta jsonb
+            )
+            ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
+              monthly_reach = CASE
+                WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_history_snapshots.monthly_reach > 10000001 THEN competitor_history_snapshots.monthly_reach
+                WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach
+                ELSE competitor_history_snapshots.monthly_reach
+              END,
+              profile_views = CASE
+                WHEN EXCLUDED.profile_views = 10000001 AND competitor_history_snapshots.profile_views > 10000001 THEN competitor_history_snapshots.profile_views
+                WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views
+                ELSE competitor_history_snapshots.profile_views
+              END,
+              follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
+              total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
+              total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),
+              metadata = COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)
+            WHERE
+              competitor_history_snapshots.monthly_reach IS DISTINCT FROM EXCLUDED.monthly_reach
+              OR competitor_history_snapshots.profile_views IS DISTINCT FROM EXCLUDED.profile_views
+              OR competitor_history_snapshots.follower_count IS DISTINCT FROM EXCLUDED.follower_count
+              OR competitor_history_snapshots.total_pins IS DISTINCT FROM EXCLUDED.total_pins
+              OR competitor_history_snapshots.total_boards IS DISTINCT FROM EXCLUDED.total_boards;
+          `;
+        } catch (flushErr) {
+          console.warn(`[Phase 1A] Batch pulse upsert warning:`, flushErr.message);
+        }
+      };
 
-          isPulseOnly = false;
-          wasAutoPromotedInThisRun = true;
-          acc.qualification_rules = qualRulesToPersist;
+      const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? false;
+      const dynamicDelta24h = Number(creatorHubSettings?.auto_promote_delta_24h ?? AUTO_PROMOTE_PULSE_DELTA_24H);
+      const dynamicDelta7d = Number(creatorHubSettings?.auto_promote_delta_7d ?? AUTO_PROMOTE_PULSE_DELTA_7D);
+
+      const pulseSem = new Semaphore(6);
+      await Promise.allSettled(pulseAccounts.map((acc) => pulseSem.run(async () => {
+        const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
+        if (!cleanUser) return;
+
+        try {
+          const res = await fetchUserResource(cleanUser, formattedCookie);
+          if (!res?.ok) return;
+
+          const rawReach = Number(res.monthly_reach || 0);
+          const rawViews = Number(res.profile_views || 0);
+          const totalPins = Number(res.total_pins || 0);
+          const totalBoards = Number(res.total_boards || 0);
+          const followers = Number(res.follower_count || 0);
+          const avatarUrl = res.avatar_url || acc.avatar_url || null;
+          const displayName = res.display_name || acc.display_name || cleanUser;
+
+          const prevExistingReach = Number(acc.monthly_reach || 0);
+          const prevExistingViews = Number(acc.profile_views || 0);
+          let monthlyReach = (rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach;
+          let profileViews = (rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews;
+
+          const hist = historyMap.get(Number(acc.id)) || {};
+          const prior24h = hist.prior24h || null;
+          const baseline7d = hist.baseline7d || null;
+
+          const priorReach = Number(prior24h?.monthly_reach || 0);
+          if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) monthlyReach = priorReach;
+          const priorViews = Number(prior24h?.profile_views || 0);
+          if (rawViews === 10000001 && priorViews > 10000001 && profileViews <= 10000001) profileViews = priorViews;
+
+          let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
+          let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
+          if (rawReach === 10000001 && deltaReach24h < 0) deltaReach24h = 0;
+          if (rawViews === 10000001 && deltaViews24h < 0) deltaViews24h = 0;
+          const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
+          const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
+
+          const baselineReach = Number(baseline7d?.monthly_reach || 0);
+          if (rawReach === 10000001 && baselineReach > 10000001 && monthlyReach <= 10000001) monthlyReach = baselineReach;
+          const baselineViews = Number(baseline7d?.profile_views || 0);
+          if (rawViews === 10000001 && baselineViews > 10000001 && profileViews <= 10000001) profileViews = baselineViews;
+
+          let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
+          let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
+          if (rawReach === 10000001 && reachDelta7d < 0) reachDelta7d = 0;
+          if (rawViews === 10000001 && viewsDelta7d < 0) viewsDelta7d = 0;
+          const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
+          const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
+
+          const metaUpdate = {};
+          if (res.account_created_at) metaUpdate.account_created_at = res.account_created_at;
+          if (res.last_pin_save_time) metaUpdate.last_pin_save_time = res.last_pin_save_time;
+          if (res.pinterest_id) metaUpdate.pinterest_id = res.pinterest_id;
+          if (res.group_board_count !== undefined) metaUpdate.group_board_count = res.group_board_count;
+          if (res.domain_verified !== undefined) metaUpdate.domain_verified = res.domain_verified;
+          if (res.is_verified_merchant !== undefined) metaUpdate.is_verified_merchant = res.is_verified_merchant;
+          if (res.has_catalog !== undefined) metaUpdate.has_catalog = res.has_catalog;
+          if (res.video_pin_count !== undefined) metaUpdate.video_pin_count = res.video_pin_count;
+          if (res.story_pin_count !== undefined) metaUpdate.story_pin_count = res.story_pin_count;
+
+          let activityStatus = 'just now';
+          if (res.last_pin_save_time) {
+            const diffMs = Date.now() - new Date(res.last_pin_save_time).getTime();
+            if (!isNaN(diffMs) && diffMs > 0) {
+              const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+              const diffDays = Math.floor(diffHours / 24);
+              activityStatus = diffDays >= 1 ? `${diffDays}d ago` : (diffHours >= 1 ? `${diffHours}h ago` : 'just now');
+            }
+          }
+
+          let nextTrackingMode = 'pulse_only';
+          let nextCustomLabel = acc.custom_label || '';
+
+          // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
+          if (isAutoPromoteEnabled && (deltaReach24h >= dynamicDelta24h || reachDelta7d >= dynamicDelta7d)) {
+            console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${deltaReach24h} vs ${dynamicDelta24h}, 7d: +${reachDelta7d} vs ${dynamicDelta7d}). Promoting pulse_only -> full!`);
+            const configuredQualRules = creatorHubSettings?.qualification_rules || {};
+            const minSaves = Number.isFinite(Number(configuredQualRules.min_saves)) ? Math.max(0, Number(configuredQualRules.min_saves)) : 500;
+            const minVelocity = Number.isFinite(Number(configuredQualRules.min_velocity)) ? Math.max(0, Number(configuredQualRules.min_velocity)) : 10.0;
+            const qualRulesToPersist = {
+              tier1_min_saves: minSaves,
+              tier2_min_repins: minSaves,
+              tier2_min_velocity: minVelocity,
+              tier3_min_saves: Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))),
+              auto_promote_inherited: true
+            };
+            nextTrackingMode = 'full';
+            if (!nextCustomLabel) nextCustomLabel = 'Breakout Auto-Promoted';
+            metaUpdate.profile_pulse_only = false;
+            metaUpdate.auto_promoted_at = new Date().toISOString();
+            metaUpdate.auto_promote_reason = 'reach_breakout';
+            metaUpdate.qualification_rules = qualRulesToPersist;
+
+            acc.tracking_mode = 'full';
+            acc.qualification_rules = qualRulesToPersist;
+            acc._wasAutoPromotedInThisRun = true;
+            fullAccounts.push(acc);
+          }
+
+          const snapMeta = {
+            total_saves: 0,
+            total_repins: 0,
+            delta_reach_24h: deltaReach24h,
+            reach_delta_7d: reachDelta7d,
+            delta_views_24h: deltaViews24h,
+            views_delta_7d: viewsDelta7d,
+            delta_pins_24h: deltaPins24h,
+            pins_delta_7d: pinsDelta7d,
+            delta_boards_24h: deltaBoards24h,
+            boards_delta_7d: boardsDelta7d
+          };
+
+          pulseBuffer.push({
+            competitor_id: Number(acc.id),
+            display_name: displayName,
+            avatar_url: avatarUrl,
+            monthly_reach: monthlyReach,
+            delta_reach_24h: deltaReach24h,
+            reach_delta_7d: reachDelta7d,
+            profile_views: profileViews,
+            delta_views_24h: deltaViews24h,
+            views_delta_7d: viewsDelta7d,
+            total_pins: totalPins,
+            delta_pins_24h: deltaPins24h,
+            pins_delta_7d: pinsDelta7d,
+            total_boards: totalBoards,
+            delta_boards_24h: deltaBoards24h,
+            boards_delta_7d: boardsDelta7d,
+            follower_count: followers,
+            activity_status: activityStatus,
+            tracking_mode: nextTrackingMode,
+            custom_label: nextCustomLabel,
+            meta_update: metaUpdate,
+            snap_meta: snapMeta
+          });
+
+          if (pulseBuffer.length >= PULSE_BATCH_SIZE) {
+            const chunkToFlush = pulseBuffer;
+            pulseBuffer = [];
+            await flushPulseBatch(chunkToFlush);
+          }
+        } catch (pErr) {
+          console.warn(`[!] Pulse sync warning for @${cleanUser}:`, pErr.message);
+        } finally {
+          accountsProcessed++;
+          if (accountsProcessed % 50 === 0) {
+            console.log(`  [Phase 1A Progress] Inspected ${accountsProcessed}/${pulseAccounts.length} pulse_only accounts...`);
+            await sql`
+              UPDATE crawler_shard_heartbeats
+              SET updated_at = NOW()
+              WHERE competitor_id = 0 AND shard_number = ${workerIndex};
+            `.catch(() => {});
+          }
+          await sleep(randomJitterMs(120, 250));
+        }
+      })));
+
+      if (pulseBuffer.length > 0) {
+        await flushPulseBatch(pulseBuffer);
+      }
+      console.log(`[✓] [Phase 1A] Completed batch pulse for ${pulseAccounts.length} accounts.`);
+    }
+
+    // -------------------------------------------------------------------------
+    // PHASE 1B: Full Catalog / Auto-Promoted Accounts Discovery
+    // -------------------------------------------------------------------------
+    for (let i = 0; i < fullAccounts.length; i++) {
+      const acc = fullAccounts[i];
+      const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
+      const wasAutoPromotedInThisRun = Boolean(acc._wasAutoPromotedInThisRun);
+      console.log(`\n----------------------------------------------------------------`);
+      console.log(`[Phase 1B: ${i + 1}/${fullAccounts.length}] Full Creator Sync: @${cleanUser} (Account ID: ${acc.id})`);
+      console.log(`----------------------------------------------------------------`);
+
+      if (!wasAutoPromotedInThisRun) {
+        try {
+          console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
+          await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: false });
+        } catch (pErr) {
+          console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
         }
       }
 
-      if (!isPulseOnly) {
-        const shouldHarvest = !wasAutoPromotedInThisRun || (creatorHubSettings?.auto_harvest_pins !== false);
-        if (shouldHarvest) {
-          // 2. Discover Boards
-          try {
-            await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
-          } catch (_) {}
+      const shouldHarvest = !wasAutoPromotedInThisRun || (creatorHubSettings?.auto_harvest_pins !== false);
+      if (shouldHarvest) {
+        // 2. Discover Boards
+        try {
+          await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
+        } catch (_) {}
 
-          // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages or configured harvest pages)
-          try {
-            const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
-            const earlyStop = Number(accRules.early_stop_pages) || 3;
-            const harvestPages = Math.max(1, Math.ceil((Number(creatorHubSettings?.max_pins_harvest) || 150) / 50));
-            const targetPages = crawlMode === 'deep' || crawlMode === 'all'
-              ? (Number(accRules.max_pages) || maxPages || 500)
-              : (wasAutoPromotedInThisRun ? harvestPages : earlyStop);
-            console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
-            await syncCompetitorPins(sql, acc.id, cleanUser, {
-              mode: 'refresh',
-              maxPages: targetPages,
-              cookie: cookie
-            });
-          } catch (_) {}
+        // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages or configured harvest pages)
+        try {
+          const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
+          const earlyStop = Number(accRules.early_stop_pages) || 3;
+          const harvestPages = Math.max(1, Math.ceil((Number(creatorHubSettings?.max_pins_harvest) || 150) / 50));
+          const targetPages = crawlMode === 'deep' || crawlMode === 'all'
+            ? (Number(accRules.max_pages) || maxPages || 500)
+            : (wasAutoPromotedInThisRun ? harvestPages : earlyStop);
+          console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
+          await syncCompetitorPins(sql, acc.id, cleanUser, {
+            mode: 'refresh',
+            maxPages: targetPages,
+            cookie: cookie
+          });
+        } catch (_) {}
 
-          // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
-          try {
-            const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
-            if (recon?.promoted_or_updated > 0) {
-              console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
-            }
-          } catch (rErr) {
-            console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
+        // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
+        try {
+          const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
+          if (recon?.promoted_or_updated > 0) {
+            console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
           }
-        } else {
-          console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);
+        } catch (rErr) {
+          console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
         }
       } else {
-        console.log(`[*] Account @${cleanUser} is in pulse_only mode. Skipping boards, pins, and catalog reconciliation.`);
-        await sleep(randomJitterMs(250, 500));
+        console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);
       }
 
-      if (!isPulseOnly) {
-        // Stamp updated_at so full crawl accounts reflect active sync (pulse_only accounts already updated in syncCompetitorProfile)
-        await sql`
-          UPDATE competitor_profiles
-          SET updated_at = NOW()
-          WHERE id = ${acc.id};
-        `.catch(() => {});
-      }
+      await sql`
+        UPDATE competitor_profiles
+        SET updated_at = NOW()
+        WHERE id = ${acc.id};
+      `.catch(() => {});
 
       accountsProcessed++;
-
-      // Periodically refresh heartbeat during long sweeps (every 25 accounts)
       if (accountsProcessed > 0 && accountsProcessed % 25 === 0) {
         await sql`
           UPDATE crawler_shard_heartbeats

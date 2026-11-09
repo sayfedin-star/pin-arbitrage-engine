@@ -16,8 +16,7 @@
  *   node scripts/enrich_all_domains.mjs --batch=30 --concurrency=4
  */
 
-import { neon } from '@neondatabase/serverless';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import {
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch
@@ -33,7 +32,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = createUniversalSqlClient(enforceNeonPoolerUrl(DATABASE_URL));
 
 // Parse CLI flags
 const args = process.argv.slice(2);

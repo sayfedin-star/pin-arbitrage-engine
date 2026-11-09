@@ -23,7 +23,6 @@
  * 5. Metric Deduplication: Hourly bucketed snapshots via date_trunc('hour', NOW())
  */
 
-import { neon } from '@neondatabase/serverless';
 import {
   syncCompetitorPins,
   syncCompetitorBoardPins,
@@ -38,7 +37,7 @@ import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/creators/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
-import { enforceNeonPoolerUrl, batchGroupByShard, coalesceShardGroupsByPhysical, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity, isUnifiedPostgres } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, batchGroupByShard, coalesceShardGroupsByPhysical, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity, isUnifiedPostgres, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload } from '../src/domain/pin-intelligence.mjs';
 
@@ -65,7 +64,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL);
 
 let activeBatchToRelease = null;
 let sqlClientForCleanup = null;
@@ -2231,7 +2230,7 @@ async function main() {
   try {
     const [sRow] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;`;
     if (sRow?.database_url) {
-      shardSql = neon(enforceNeonPoolerUrl(sRow.database_url));
+      shardSql = createUniversalSqlClient(enforceNeonPoolerUrl(sRow.database_url));
       console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}${targetAccount ? ` (Canonical Shard for @${targetAccount})` : ''}`);
       
       // Continuous Schema Drift Guardrail: Fail-fast if shard lacks parity

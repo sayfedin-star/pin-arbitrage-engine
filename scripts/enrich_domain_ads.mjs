@@ -14,8 +14,7 @@
  *   node scripts/enrich_domain_ads.mjs --batch=15 --concurrency=3
  */
 
-import { neon } from '@neondatabase/serverless';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   getDatabaseMonetizationStats,
@@ -38,7 +37,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = createUniversalSqlClient(enforceNeonPoolerUrl(DATABASE_URL));
 
 // Parse CLI flags
 const args = process.argv.slice(2);
