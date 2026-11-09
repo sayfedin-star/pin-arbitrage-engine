@@ -86,6 +86,11 @@ jobs:
       - name: 3. Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: 3b. Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+
       - name: 4. Execute Fleet Orchestrator & Dispatcher
         id: dispatcher
         env:
@@ -138,6 +143,11 @@ jobs:
       - name: 4. Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: 4b. Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+
       - name: 5. Execute Fleet Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -185,6 +195,11 @@ jobs:
 
       - name: 3. Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 3b. Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
 
       - name: 4. Execute Consolidation & Report Engine
         env:

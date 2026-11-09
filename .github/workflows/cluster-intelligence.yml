@@ -57,6 +57,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+
       - name: Execute Cluster Intelligence Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

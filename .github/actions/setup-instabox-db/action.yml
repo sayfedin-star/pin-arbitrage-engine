@@ -1,0 +1,52 @@
+name: 'Setup InstaBox Database Bridge'
+description: 'Wakes InstaBox VM if sleeping and establishes secure Cloudflare TCP tunnel to PostgreSQL'
+
+inputs:
+  instabox-api-key:
+    description: 'InstaBox API Key for waking machine (optional)'
+    required: false
+    default: ''
+  machine-id:
+    description: 'InstaBox Machine ID'
+    required: false
+    default: 'm_agq2t32m5xv5joj67rqoze5h4u'
+  db-hostname:
+    description: 'Cloudflare Tunnel Hostname for DB'
+    required: false
+    default: 'db.hymum.com'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 1. Wake InstaBox Machine (if sleeping)
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.instabox-api-key }}" ]; then
+          echo "Checking/waking InstaBox machine: ${{ inputs.machine-id }}..."
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${{ inputs.machine-id }}/resume" \
+            -H "Authorization: Bearer ${{ inputs.instabox-api-key }}" || true
+          sleep 3
+        fi
+
+    - name: 2. Install and launch Cloudflare Access TCP Tunnel
+      shell: bash
+      run: |
+        if ! command -v cloudflared &> /dev/null; then
+          echo "Installing cloudflared client..."
+          curl -sL --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
+          rm -f /tmp/cloudflared.deb
+        fi
+        
+        echo "Starting Cloudflare TCP proxy to ${{ inputs.db-hostname }} on 127.0.0.1:5432..."
+        cloudflared access tcp --hostname "${{ inputs.db-hostname }}" --url 127.0.0.1:5432 > /dev/null 2>&1 &
+        
+        # Wait up to 10 seconds for the local port 5432 to become reachable
+        for i in {1..10}; do
+          if nc -z 127.0.0.1 5432 2>/dev/null || (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+            echo "✅ Database tunnel established on 127.0.0.1:5432 in ${i}s!"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "⚠️ Port 5432 not immediately detected, proceeding with execution."
