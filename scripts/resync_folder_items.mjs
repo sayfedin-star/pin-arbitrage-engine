@@ -11,23 +11,33 @@ async function run() {
   console.log('Re-syncing folder_competitor_items...');
   await pgSql`TRUNCATE TABLE folder_competitor_items;`;
 
+  const validCompetitorIds = new Set(
+    (await pgSql`SELECT id FROM competitor_profiles`).map(r => r.id)
+  );
+  const validFolderIds = new Set(
+    (await pgSql`SELECT id FROM keyword_folders`).map(r => r.id)
+  );
+  console.log(`InstaBox has ${validCompetitorIds.size} competitors and ${validFolderIds.size} folders.`);
+
   const sourceRows = await neonSql`
-    SELECT fci.folder_id, fci.competitor_id, fci.added_at, fci.custom_label, fci.source
-    FROM folder_competitor_items fci
-    JOIN competitor_profiles cp ON cp.id = fci.competitor_id
-    JOIN keyword_folders kf ON kf.id = fci.folder_id;
+    SELECT folder_id, competitor_id, added_at, custom_label, source
+    FROM folder_competitor_items;
   `;
-  console.log(`Fetched ${sourceRows.length} valid FK rows from Neon.`);
+  console.log(`Fetched ${sourceRows.length} raw rows from Neon.`);
 
   const targetCols = ['folder_id', 'competitor_id', 'added_at', 'custom_label', 'source'];
 
-  const sanitizedRows = sourceRows.map(r => ({
-    folder_id: r.folder_id,
-    competitor_id: r.competitor_id,
-    added_at: r.added_at || new Date(),
-    custom_label: r.custom_label ?? null,
-    source: r.source ?? 'manual'
-  }));
+  const sanitizedRows = sourceRows
+    .filter(r => validCompetitorIds.has(r.competitor_id) && validFolderIds.has(r.folder_id))
+    .map(r => ({
+      folder_id: r.folder_id,
+      competitor_id: r.competitor_id,
+      added_at: r.added_at || new Date(),
+      custom_label: r.custom_label ?? null,
+      source: r.source ?? 'manual'
+    }));
+
+  console.log(`Filtered to ${sanitizedRows.length} valid FK rows.`);
 
   const batchSize = 500;
   for (let i = 0; i < sanitizedRows.length; i += batchSize) {
