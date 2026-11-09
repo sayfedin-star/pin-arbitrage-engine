@@ -4,7 +4,7 @@
  * scripts/resync_operational_hub_tables.mjs
  *
  * Fast Streaming Synchronization: Neon ➡️ InstaBox PostgreSQL
- * Deterministic pagination + conflict-safe batch inserts.
+ * Deterministic pagination + clean tagged template insert.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -40,23 +40,19 @@ const boxSql = postgres(boxUrl, { max: 10, idle_timeout: 20 });
 const tableConfigs = {
   keyword_serp_current: {
     orderBy: 'id ASC',
-    conflictKey: 'id',
-    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'crawled_at', 'updated_at']
+    conflictKey: 'id'
   },
   keyword_displaced_index: {
     orderBy: 'keyword_id ASC, pin_id ASC',
-    conflictKey: 'keyword_id, pin_id',
-    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'updated_at']
+    conflictKey: 'keyword_id, pin_id'
   },
   universal_master_pins: {
     orderBy: 'pin_id ASC',
-    conflictKey: 'pin_id',
-    updateCols: ['save_count', 'daily_save_velocity', 'repin_count', 'updated_at']
+    conflictKey: 'pin_id'
   },
   domain_intelligence_rollup: {
     orderBy: 'domain ASC',
-    conflictKey: 'domain',
-    updateCols: ['total_saves', 'total_repins', 'updated_at']
+    conflictKey: 'domain'
   }
 };
 
@@ -85,8 +81,9 @@ async function syncTable(tableName, { batchSize = 1500 } = {}) {
   `;
   const cols = colRows.map(c => c.column_name);
 
-  // Disable triggers temporarily
+  // Disable triggers temporarily and truncate
   await boxSql.unsafe(`ALTER TABLE ${tableName} DISABLE TRIGGER ALL;`).catch(() => {});
+  await boxSql.unsafe(`TRUNCATE TABLE ${tableName};`);
 
   let offset = 0;
   let copied = 0;
@@ -112,12 +109,10 @@ async function syncTable(tableName, { batchSize = 1500 } = {}) {
       const cleanRows = Array.from(dedupMap.values());
 
       if (cleanRows.length > 0) {
-        // Upsert batch
-        const updateClauses = cfg.updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
-        await boxSql.unsafe(`
-          INSERT INTO ${tableName} ${boxSql(cleanRows)}
-          ON CONFLICT (${cfg.conflictKey}) DO UPDATE SET ${updateClauses}
-        `);
+        await boxSql`
+          INSERT INTO ${boxSql(tableName)} ${boxSql(cleanRows)}
+          ON CONFLICT DO NOTHING
+        `;
       }
 
       copied += rows.length;
