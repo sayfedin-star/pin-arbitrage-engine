@@ -80,11 +80,11 @@ async function run() {
       snapshot_date::text AS snapshot_date,
       rank_position,
       is_displaced,
-      created_at
+      updated_at
     FROM pin_serp_positions
   `;
   const pspCols = [
-    'pin_id', 'keyword_id', 'snapshot_date', 'rank_position', 'is_displaced', 'created_at'
+    'pin_id', 'keyword_id', 'snapshot_date', 'rank_position', 'is_displaced', 'updated_at'
   ];
   await syncTable('pin_serp_positions', pspSelect, pspCols, 'pin_id, snapshot_date, keyword_id');
 
