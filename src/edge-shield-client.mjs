@@ -306,21 +306,10 @@ export function getEdgeShieldClientScript() {
       if (pid && pid.length >= 10 && !isNaN(Number(pid))) {
         if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
         hoverPrefetchTimer = setTimeout(function() {
-          // A. Edge Prefetch (< 3ms) from D1/KV
+          // A. [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+          // Network hover requests to /api/pins/ (prefetch=true) are removed to eliminate useless cache_miss network overhead
           if (!prefetchCache.has(pid)) {
             prefetchCache.add(pid);
-            fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' })
-              .then(function(res) {
-                if (!res.ok) return null;
-                return res.json().catch(function() { return null; });
-              })
-              .then(function(data) {
-                if (data && (data.status === 'cache_miss' || data.not_cached)) {
-                  // Normal edge cache miss on prefetch - handled smoothly
-                  return;
-                }
-              })
-              .catch(function() {});
           }
           // B. [INVARIANT: SAFE-PREFETCH-EDGE-ONLY - ZERO NETWORK HOVER WAKEUPS]
           // Hover requests to /api/fleet/warm?pin_id= are permanently eradicated to protect sleeping shards

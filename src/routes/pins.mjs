@@ -622,9 +622,8 @@ export async function handlePinsRoutes({
         await invalidateEdgeCache(dossierCacheKey);
       }
 
-      const dossier = await getCachedOrFetch(dossierCacheKey, async () => {
-        return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: forceRefresh });
-      }, 30000, 120000, { forceRefresh });
+      // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly
+      const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
 
       // Edge cache poisoning guard: If dossier failed, has 0 snapshots, is degraded, or has an unverified fallback (<= 2 days while having rankings),
       // invalidate cache so subsequent page loads can immediately fetch full history once shard is warm.

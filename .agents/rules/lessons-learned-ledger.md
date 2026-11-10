@@ -26,6 +26,7 @@ trigger: always_on
 | **Round 25 (Visual Crossover Alignment)** | Complete Blueprint Eradication, Frequency-First Anchor Sorting & Joint Pins 24h Velocity Preview | Invariants 13, 22, 28, Locks 1, 5, 13 | **SEALED** |
 | **Round 26 (Pure Neon & VPS/Coolify Readiness)** | Complete Cloudflare (KV/D1/Hyperdrive) Purge, Pure Neon Serverless Postgres Architecture & Test Modernization | Invariant 2, Invariant 6, Locks 6, 13 | **SEALED** |
 | **Round 27 (InstaBox Dedicated Postgres Migration)** | 100% Neon ➡️ InstaBox Streaming Migration, Cloudflare Zero Trust Tunnel, CI Security Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
+| **Round 28 (Forensic Landmine Neutralization & Native VPS SSOT)** | Neutralization of Landmines A–E, Elimination of Sharding Residues, Intraday Step Gains & Native VPS PostgreSQL SSOT Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -482,3 +483,28 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings, 14/14 locks PASS)
   - `node scripts/audit_ui.mjs` (83/83 rules passed, 100% compliant)
   - Live HTTP endpoints: `curl http://localhost:3000/api/pulse/24h` (HTTP 200), `curl http://localhost:3000/api/folders` (HTTP 200), `curl http://localhost:3000/api/keywords/serp-compare?slug=marry-me-chicken-crock-pot` (HTTP 200).
+
+---
+
+## Round 28: Forensic Landmine Neutralization (Landmines A–E) & Native VPS PostgreSQL SSOT
+- **Round / Feature**: Forensic Neutralization of 5 Architectural Landmines (A–E) in routing, live synchronization, monotonic velocity clamps, canonical pin resolution, and UI/CI topology nomenclature.
+- **Trap / Failure Mode**:
+  1. *Landmine A (Registry Leak & Shard Map Poisoning)*: In `src/modules/sharding/fleet-router.mjs` and `scripts/crawler-engine.mjs`, `preloadNeonRegistry` queried `neon_projects_registry` whenever `DATABASE_TOPOLOGY` was not explicitly passed in CLI runs, re-populating `globalShardMap` with legacy Neon shard URLs and hijacking database routing away from Native VPS PostgreSQL.
+  2. *Landmine B (Dirty `updated_at` Timestamp & Omitted Master Pin Telemetry)*: In `syncPinAcrossAllFourPillars`, Step 4 updated `updated_at = NOW()` before Step 7 evaluated `COALESCE(last_scraped_at, updated_at)`. If `last_scraped_at` was NULL, the fresh `updated_at` deceived the logic into archiving false intraday snapshots. Crucially, Step 7 updated `daily_save_velocity` but omitted core counters (`save_count`, `repin_count`, `comment_count`, `share_count`, `reaction_count`) in `universal_master_pins`.
+  3. *Landmine C (Monotonic Clamp Lock & Intraday Multi-Crawl Deficit)*: `universal_master_pins` updates in `keyword-velocity-crawler.mjs` used `WHEN EXCLUDED.daily_save_velocity > 0`, refusing to update velocity to 0 when growth flattened. Furthermore, running multiple crawls on the same day for displaced pins caused `inspectPin` to compute isolated step gains rather than compounding intraday deltas onto existing daily velocity.
+  4. *Landmine D (SSR HTML Fallback Omission for Repin Variants)*: When resolving pins with `canonical_pin_id` whose child pin reported 0 saves or less than repins/minExpectedSaves, `fetchPinFromPinterest` only called `fetchPinFromPinResource(canonId)`. If PinResource failed to return `aggregated_pin_data` for unauthenticated requests, it failed without falling back to full SSR HTML for the canonical pin.
+  5. *Landmine E (Legacy Shard Topology & Worker URL Residue)*: Pin details UI badges and logs displayed outdated labels ("Unified Central Hub", "Shard #N", "The Neon Serverless Shard containing this pin is waking up"), and GitHub Actions workflows referenced deprecated `CLOUDFLARE_WORKER_URL`.
+- **Root Cause & Technical Mechanism**:
+  1. Guard conditions evaluated optional parameters without an unconditional `isUnifiedPostgres(env)` short-circuit.
+  2. Step ordering in live sync mutated timestamp columns before reading them for snapshot arbitration, and the SQL `UPDATE` statement lacked primary counter assignments.
+  3. Strict `> 0` `CASE` filters prevented downward velocity ratcheting, violating Invariant 5 & Invariant 28.
+  4. PinResource unauthenticated endpoints often suppress public aggregates for deep repins, requiring full SSR HTML scraping.
+- **Verified Solution & Invariant Codification**:
+  1. Hardened `preloadNeonRegistry` with `if (isUnifiedPostgres(env)) return 0;` and enforced single-batch direct `hubSql` execution in `writeBatchToDeterministicShards`.
+  2. Updated `save_count`, `repin_count`, `comment_count`, `share_count`, and `reaction_count` atomically in `universal_master_pins` within `syncPinAcrossAllFourPillars`. Restated intraday snapshot condition to require `universal_master_pins.last_scraped_at IS NOT NULL AND (last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date`.
+  3. Allowed downward velocity updates in `universal_master_pins` when a crawl is live and authentic (`last_scraped_at < NOW() - INTERVAL '2 hours'`), and compounded intraday deltas via `Number(pin.daily_save_velocity || 0) + rawDelta`.
+  4. Added `!opts._isCanonicalHop` SSR HTML fallback in `fetchPinFromPinterest` targeting `canonical_pin_id`.
+  5. Rebranded all UI telemetry badges to `Native VPS PostgreSQL` / `VPS PostgreSQL SSOT`, and switched workflow notifications to `APP_PUBLIC_URL`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 104 files, 14/14 locks PASS)
+  - `node scripts/verify_regression_locks.mjs` (All 14 locks 100% green)

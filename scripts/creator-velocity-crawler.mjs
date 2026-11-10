@@ -805,7 +805,10 @@ async function run() {
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
       WHERE cp.competitor_id = ${targetId}
         AND cp.pin_id IS NOT NULL AND cp.pin_id <> ''
-        AND cp.shard_id = ANY(${assignedArray}::smallint[])
+        AND (
+          cp.shard_id = ANY(${assignedArray}::smallint[])
+          OR (cp.shard_id IS NULL AND mod(pae_crc32_shard_id(cp.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+        )
       ORDER BY cp.id ASC;
     `;
 
@@ -1585,7 +1588,10 @@ async function run() {
         p.velocity, p.last_updated_at, p.created_at_pinterest
       FROM pa_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
-      WHERE p.shard_id = ANY(${assignedWinningArray}::smallint[])
+      WHERE (
+        p.shard_id = ANY(${assignedWinningArray}::smallint[])
+        OR (p.shard_id IS NULL AND mod(pae_crc32_shard_id(p.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+      )
         AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
       ORDER BY p.saves DESC;
     `;

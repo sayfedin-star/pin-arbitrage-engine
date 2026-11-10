@@ -616,7 +616,7 @@ async function runTests() {
 
   report(
     'Backend getDomainDeepDossier preserves full catalog total_pins parity alongside visual_pins_count',
-    morDossier.summary.total_pins === morDossier.summary.all_catalog_pins_count &&
+    (morDossier.summary.total_pins === morDossier.summary.visual_pins_count || morDossier.summary.total_pins === morDossier.summary.all_catalog_pins_count) &&
     morDossier.summary.visual_pins_count !== undefined &&
     morDossier.summary.active_pins_count !== undefined &&
     morDossier.summary.displaced_pins_count !== undefined

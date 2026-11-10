@@ -8071,6 +8071,10 @@ export function getDashboardHtml(folderId = '') {
         },
 
         async fetchCompetitors(bypassCache = false) {
+          if (bypassCache) {
+            this._clientCache?.creators?.clear();
+            this._clientCache?.boards?.clear();
+          }
           if (this.scopedFolderId || this.folderFilter) {
             return this.loadFolderCreators(this.scopedFolderId || this.folderFilter);
           }
@@ -8119,6 +8123,7 @@ export function getDashboardHtml(folderId = '') {
               body: JSON.stringify({ username: cleanName })
             });
             if (res.ok) {
+              this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.username || '').replace(/^@+/, '') === cleanName) {
                 const updated = (this.competitors || []).find(c => (c.username || '').replace(/^@+/, '') === cleanName);
@@ -8455,6 +8460,7 @@ export function getDashboardHtml(folderId = '') {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               this.showToast('⚡ Quick Pulse complete for @' + username + '!');
+              this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
                 this._clientCache?.creators?.delete(username.toLowerCase());
@@ -8487,6 +8493,7 @@ export function getDashboardHtml(folderId = '') {
             if (res.ok && data?.success) {
               const promoted = data.qualified_promotions ?? data.promoted_count ?? data.qualified_count ?? 0;
               this.showToast('🌊 Deep Harvest complete for @' + username + ' (' + promoted + ' pins qualified into PinArchive)!');
+              this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
                 this._clientCache?.creators?.delete(username.toLowerCase());
@@ -8633,6 +8640,7 @@ export function getDashboardHtml(folderId = '') {
           }
           this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
           this._clientCache?.creators?.clear();
+          this._clientCache?.boards?.clear();
           await this.fetchCompetitors();
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
@@ -8645,6 +8653,7 @@ export function getDashboardHtml(folderId = '') {
           }).filter(Boolean);
           if (!usernames.length) return;
           this.showToast('🏆 Dispatching winning pins refresh for ' + usernames.length + ' creators on GitHub Actions...');
+          this._clientCache?.boards?.clear();
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
               method: 'POST',
@@ -8692,6 +8701,7 @@ export function getDashboardHtml(folderId = '') {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
+              this._clientCache?.boards?.clear();
               this.showToast('🚀 Winning pins refresh launched on GitHub Actions for @' + handle + '!');
             } else {
               this.showToast('❌ Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token'));
@@ -8794,6 +8804,7 @@ export function getDashboardHtml(folderId = '') {
               body: JSON.stringify({ competitor_id: competitor.id, username: competitor.username })
             });
             if (res.ok) {
+              this._clientCache?.boards?.clear();
               const data = await res.json();
               this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
               const bRes = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(competitor.id) + (competitor.username ? '&username=' + encodeURIComponent(competitor.username) : '')));
@@ -9230,6 +9241,7 @@ export function getDashboardHtml(folderId = '') {
             });
             const data = await res.json();
             if (res.ok && data.success) {
+              this._clientCache?.boards?.clear();
               this.showToast('🚀 ' + (data.message || 'Crawler pipeline launched on GitHub Actions!'));
             } else {
               this.showToast('❌ Dispatch note: ' + (data.error || data.message || 'Check GitHub token configuration'));
@@ -10661,6 +10673,7 @@ export function getDashboardHtml(folderId = '') {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
+              this._clientCache?.boards?.clear();
               this.showToast('🚀 ' + (data?.message || 'Crawler pipeline launched on GitHub Actions!'));
             } else {
               this.showToast('❌ Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token configuration'));

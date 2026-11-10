@@ -584,8 +584,8 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '') AS destination_url,
         COALESCE(ksc.save_count, 0)::bigint AS save_count,
         COALESCE(ksc.repin_count, 0)::int AS repin_count,
-        GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS delta_saves_24h,
-        GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS daily_save_velocity,
+        COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
         COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
       FROM keyword_serp_current ksc
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
@@ -604,8 +604,8 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(ump.destination_url, '') AS destination_url,
         COALESCE(kdi.save_count, 0)::bigint AS save_count,
         COALESCE(kdi.repin_count, 0)::int AS repin_count,
-        GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0))::numeric AS delta_saves_24h,
-        GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0))::numeric AS daily_save_velocity,
+        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
         ump.created_at_pinterest
       FROM keyword_displaced_index kdi
       LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id

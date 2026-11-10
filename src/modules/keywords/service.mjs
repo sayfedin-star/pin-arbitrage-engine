@@ -143,12 +143,6 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
   // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
   const CONCURRENCY = 4;
 
-  if (hubSql) {
-    try {
-      await preloadNeonRegistry(hubSql, env);
-    } catch (_) {}
-  }
-
   for (let i = 0; i < shardEntries.length; i += CONCURRENCY) {
     const chunk = shardEntries.slice(i, i + CONCURRENCY);
     await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
@@ -371,71 +365,10 @@ export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], en
       const m = masterMap.get(String(r.pin_id));
       return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
     });
-    if (!skipShardHydration && stillMissing.length > 0 && (!isUnifiedPostgres(env) || globalShardMap.size > 0)) {
-      await preloadNeonRegistry(hubSql, env);
-      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING]
-      const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(stillMissing, 99));
-      const newlyHydratedFromShards = [];
-
-      // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
-      const shardEntries = Array.from(shardGroups.entries());
-      const CONCURRENCY_LIMIT = 4;
-      const SCATTER_GATHER_DEADLINE_MS = 2200;
-
-      const scatterGatherTask = (async () => {
-        for (let i = 0; i < shardEntries.length; i += CONCURRENCY_LIMIT) {
-          const chunk = shardEntries.slice(i, i + CONCURRENCY_LIMIT);
-          await Promise.allSettled(
-            chunk.map(async ([shardId, pins]) => {
-              const pids = pins.map(p => String(p.pin_id));
-              const shardSql = await resolveShardConnection({ hubSql, shardId, env });
-              if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return;
-              const rows = await executeShardQueryWithCircuitBreaker({
-                shardId,
-                shardSql,
-                // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
-                timeoutMs: 2000,
-                queryFn: async (client) => {
-                  return await client`
-                    SELECT pin_id, title, domain, destination_url, image_url,
-                           creator_username, board_name, dominant_color,
-                           visual_annotations, alt_text, description, created_at_pinterest
-                    FROM universal_master_pins
-                    WHERE pin_id = ANY(${pids});
-                  `;
-                },
-                fallbackFn: async () => []
-              });
-              for (const r of (rows || [])) {
-                if (!r || !r.pin_id) continue;
-                const existing = masterMap.get(String(r.pin_id));
-                if (existing) {
-                  const keepExistingTitle = !isSyntheticPinTitle(existing.title) && (isSyntheticPinTitle(r.title) || !r.title);
-                  masterMap.set(String(r.pin_id), {
-                    ...existing,
-                    ...r,
-                    title: keepExistingTitle ? existing.title : (r.title || existing.title || '')
-                  });
-                } else {
-                  masterMap.set(String(r.pin_id), r);
-                }
-                newlyHydratedFromShards.push(r);
-              }
-            })
-          );
-        }
-      })();
-
-      let deadlineTimerId;
-      const deadlinePromise = new Promise(resolve => {
-        deadlineTimerId = setTimeout(resolve, SCATTER_GATHER_DEADLINE_MS);
-      });
-
-      await Promise.race([scatterGatherTask, deadlinePromise]).finally(() => {
-        if (deadlineTimerId) clearTimeout(deadlineTimerId);
-      });
-
-    }
+    // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
+    const CONCURRENCY_LIMIT = 4;
+    // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
+    const circuitBreakerTimeout = { timeoutMs: 2000 };
 
     return indexRows.map(row => {
       const m = masterMap.get(String(row.pin_id));

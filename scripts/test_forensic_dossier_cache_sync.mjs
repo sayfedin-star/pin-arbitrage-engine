@@ -176,8 +176,9 @@ async function runForensicAudit() {
     const workerContent = readWorkerAndRoutes();
 
     // Check DELETE /api/pins/:pin_id/snapshots/:snapshot_id
-    const deleteSnapshotMatch = workerContent.match(/if\s*\(parts\[1\]\s*===\s*'snapshots'\)[\s\S]*?return jsonResponse\(\{ success: true, deleted_snapshot/);
-    const deleteCode = deleteSnapshotMatch ? deleteSnapshotMatch[0] : '';
+    const startIdx = workerContent.indexOf("if (parts[1] === 'snapshots')");
+    const endIdx = workerContent.indexOf("parts[1] === 'serp-positions'", startIdx);
+    const deleteCode = startIdx !== -1 && endIdx !== -1 ? workerContent.slice(startIdx, endIdx) : (workerContent.match(/if\s*\(parts\[1\]\s*===\s*'snapshots'\)[\s\S]*?return jsonResponse\(\{ success: true, deleted_snapshot/) || [''])[0];
 
     const deletesDirectlyFromShard = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('DELETE FROM pin_serp_positions');
     const cleansTwoTierMetrics = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('snapshot_date = ${targetDate}::date');

@@ -11,7 +11,6 @@
     "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "crawl:creators": "node --use-system-ca scripts/creator-velocity-crawler.mjs",
     "crawl:account-related": "node --use-system-ca scripts/account-related-crawler.mjs",
-    "scheduler:vps": "node scripts/vps-scheduler.mjs",
     "dashboard": "node --use-system-ca src/server.mjs",
     "enrich:domains": "node --use-system-ca scripts/enrich_all_domains.mjs",
     "enrich:ads": "node --use-system-ca scripts/enrich_domain_ads.mjs",

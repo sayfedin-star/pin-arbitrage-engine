@@ -5250,7 +5250,6 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           this.isDark = this.darkMode;
           this.applyTheme();
           this.fetchSettings();
-          this.fetchFleetProjects();
 
           if (this.activeFolderId) {
             this.dashboardFolderFilter = this.activeFolderId;

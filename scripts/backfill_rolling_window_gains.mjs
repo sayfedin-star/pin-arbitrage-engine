@@ -431,12 +431,12 @@ async function main() {
     await hubSql`
       UPDATE keyword_serp_current ksc
       SET
-        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ksc.daily_save_velocity END,
-        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ksc.delta_repins_24h),
-        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ksc.gains_5d),
-        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d),
-        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ksc.gains_10d),
-        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ksc.gains_15d),
+        daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
+        delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
+        gains_5d = COALESCE(u.gains_5d, 0),
+        gains_7d = COALESCE(u.gains_7d, 0),
+        gains_10d = COALESCE(u.gains_10d, 0),
+        gains_15d = COALESCE(u.gains_15d, 0),
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -454,12 +454,12 @@ async function main() {
     await hubSql`
       UPDATE keyword_displaced_index kdi
       SET
-        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE kdi.daily_save_velocity END,
-        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), kdi.delta_repins_24h),
-        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), kdi.gains_5d),
-        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), kdi.gains_7d),
-        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), kdi.gains_10d),
-        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), kdi.gains_15d),
+        daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
+        delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
+        gains_5d = COALESCE(u.gains_5d, 0),
+        gains_7d = COALESCE(u.gains_7d, 0),
+        gains_10d = COALESCE(u.gains_10d, 0),
+        gains_15d = COALESCE(u.gains_15d, 0),
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -477,13 +477,13 @@ async function main() {
     await hubSql`
       UPDATE universal_master_pins ump
       SET
-        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ump.daily_save_velocity END,
-        delta_saves_24h = CASE WHEN u.daily_save_velocity > 0 THEN ROUND(u.daily_save_velocity)::int ELSE ump.delta_saves_24h END,
-        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ump.delta_repins_24h),
-        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ump.gains_5d),
-        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ump.gains_7d),
-        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ump.gains_10d),
-        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ump.gains_15d),
+        daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
+        delta_saves_24h = ROUND(COALESCE(u.daily_save_velocity, 0))::int,
+        delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
+        gains_5d = COALESCE(u.gains_5d, 0),
+        gains_7d = COALESCE(u.gains_7d, 0),
+        gains_10d = COALESCE(u.gains_10d, 0),
+        gains_15d = COALESCE(u.gains_15d, 0),
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,

@@ -1230,7 +1230,7 @@ export function getPulsePageHtml(folderId = '') {
         // [INVARIANT: HEADLESS-NODE-SHIELD] Browser environment guards
         isDark: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') !== 'light') : true,
         darkMode: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') !== 'light') : true,
-        isSidebarCollapsed: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_sidebar_collapsed') === 'true') : false,
+        isSidebarCollapsed: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pae_sidebar_collapsed') === 'true') : false,
         isMobileMenuOpen: false,
         scopedFolderId: initialFolderId || '',
         activeFolderId: initialFolderId || '',
@@ -1457,7 +1457,7 @@ export function getPulsePageHtml(folderId = '') {
         toggleSidebar: function() {
           this.isSidebarCollapsed = !this.isSidebarCollapsed;
           try {
-            localStorage.setItem('pa_sidebar_collapsed', String(this.isSidebarCollapsed));
+            localStorage.setItem('pae_sidebar_collapsed', String(this.isSidebarCollapsed));
           } catch (_) {}
           this.$nextTick(function() {
             if (typeof lucide !== 'undefined' && lucide.createIcons) {

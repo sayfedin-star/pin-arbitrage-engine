@@ -608,29 +608,31 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   }
 
 
-  // 5. Final fallback: Refresh registry from Central Hub single row query
-  if (!hubSql) {
-    throw new Error(`Cannot resolve shard ${cleanId}: No Hub database client provided.`);
+  // 5. Final fallback: Return hubSql for unified postgres, or query registry if present
+  if (hubSql) {
+    try {
+      const [row] = await hubSql`
+        SELECT id, project_id, project_name, database_url, status, assigned_shards
+        FROM neon_projects_registry
+        WHERE (project_name = ${physicalShardName} OR project_name = ${shardName} OR assigned_shards @> ARRAY[${cleanId}]::int[])
+          AND status = 'active'
+        LIMIT 1;
+      `;
+
+      if (row && isValidShardDsn(row.database_url)) {
+        globalShardMap.set(cleanId, { ...row, cachedAt: now });
+        globalShardMap.set(physicalShardId, { ...row, cachedAt: now });
+        globalShardMapLastFetched = now;
+
+        const pooledDsn = enforceNeonPoolerUrl(row.database_url);
+        return getOrCreateShardSqlClient(pooledDsn);
+      }
+    } catch (_) {}
+
+    return hubSql;
   }
 
-  const [row] = await hubSql`
-    SELECT id, project_id, project_name, database_url, status, assigned_shards
-    FROM neon_projects_registry
-    WHERE (project_name = ${physicalShardName} OR project_name = ${shardName} OR assigned_shards @> ARRAY[${cleanId}]::int[])
-      AND status = 'active'
-    LIMIT 1;
-  `;
-
-  if (!row || !isValidShardDsn(row.database_url)) {
-    throw new Error(`Shard database '${physicalShardName}' (ID: ${cleanId} -> physical: ${physicalShardId}) is not active or has invalid DSN in neon_projects_registry.`);
-  }
-
-  globalShardMap.set(cleanId, { ...row, cachedAt: now });
-  globalShardMap.set(physicalShardId, { ...row, cachedAt: now });
-  globalShardMapLastFetched = now;
-
-  const pooledDsn = enforceNeonPoolerUrl(row.database_url);
-  return getOrCreateShardSqlClient(pooledDsn);
+  throw new Error(`Cannot resolve shard ${cleanId}: No Hub database client provided.`);
 }
 
 /**
@@ -642,6 +644,18 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
  * @returns {Promise<Array<object>|null>}
  */
 export async function getFleetShardsMap(env = null, hubSql = null) {
+  if (isUnifiedPostgres(env)) {
+    const rawUrl = (typeof process !== 'undefined' ? process.env.DATABASE_URL : null) || env?.DATABASE_URL || '';
+    return [{
+      id: 1,
+      project_id: 'unified-vps-hub',
+      project_name: 'Native VPS PostgreSQL SSOT',
+      database_url: rawUrl,
+      status: 'active',
+      is_hub: true,
+      assigned_shards: Array.from({ length: 99 }, (_, i) => i + 1)
+    }];
+  }
 
   if (hubSql) {
     try {
@@ -668,7 +682,7 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
  * @returns {Promise<number>} Number of shard mappings loaded
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
-  if (isUnifiedPostgres(env)) {
+  if (isUnifiedPostgres(env) && (env?.DATABASE_TOPOLOGY === 'unified_postgres' || (typeof process !== 'undefined' && process.env?.DATABASE_TOPOLOGY === 'unified_postgres'))) {
     return 0;
   }
   if (shardMapWarmupPromise) {
@@ -684,7 +698,7 @@ export async function preloadNeonRegistry(hubSql, env = null) {
           SELECT id, project_id, project_name, database_url, status, assigned_shards
           FROM neon_projects_registry
           WHERE status = 'active';
-        `;
+        `.catch(() => null);
       }
 
       if (!rows) return 0;
@@ -1202,48 +1216,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const shardId = getPinShardId(cleanPinId, 99);
   const effectiveBypassEdgeCache = bypassEdgeCache || isUnifiedPostgres(env);
 
-  const d1Record = null;
-
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
   let shardErrorReason = null, shardErrorMessage = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
-
-  // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
-  // Prevent hollow / empty D1 shells from being treated as valid cache hits for 12 hours.
-  // A D1 cache record should ONLY be treated as a valid hit if it contains rich creative attributes:
-  // - d1Record.pin_id
-  // - (d1Record.title || d1Record.image_url)
-  // - (d1Record.description && d1Record.description.length > 5)
-  // - d1Record.created_at_pinterest
-  // - d1UpdatedMs > 0 && (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000
-  // If a D1 record is a hollow shell (missing description or created_at_pinterest), hasValidD1 must be false,
-  // allowing the query to fall through to the storage shard to fetch and upgrade the rich record!
-  const d1UpdatedMs = parseD1DateMs(d1Record?.updated_at);
-  const hasValidD1 = Boolean(
-    !bypassEdgeCache &&
-    !isUnifiedPostgres(env) &&
-    d1Record && d1Record.pin_id &&
-    (d1Record.title || d1Record.image_url) &&
-    d1Record.created_at_pinterest &&
-    d1UpdatedMs > 0 &&
-    (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000
-  );
-
-  // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
-  // Zero-Wakeup Edge Resolution: When D1 contains a valid cached daily_trajectory with verified multi-day depth,
-  // read-only views resolve in < 5ms without needing to wake up sleeping Neon Shard databases.
-  // CRITICAL ANTI-POISONING GUARD: A 2-day fallback (today + yesterday baseline) is NOT verified shard history;
-  // it must have > 2 days OR an explicit has_shard_trajectory flag to bypass the shard connection.
-  const hasValidTrajectoryFromD1 = Boolean(
-    !bypassEdgeCache &&
-    !isUnifiedPostgres(env) &&
-    hasValidD1 &&
-    Array.isArray(d1Record?.daily_trajectory) &&
-    (
-      d1Record.daily_trajectory.length > 2 ||
-      (d1Record.daily_trajectory.length >= 1 && d1Record.metadata?.has_shard_trajectory === true)
-    )
-  );
 
   // t=0 Concurrent Dispatch: Dispatch Hub queries, competitor join, and Shard resolution concurrently!
   const hubSerpPromise = hubSql`
@@ -1329,60 +1304,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   `.catch(() => []);
 
   let shardSql = null;
-  const shardResolutionPromise = !hasValidTrajectoryFromD1
-    ? resolveShardConnection({ hubSql, shardId, env }).catch(() => hubSql)
-    : Promise.resolve(null);
+  const shardResolutionPromise = resolveShardConnection({ hubSql, shardId, env }).catch(() => hubSql);
 
   const shardDataPromise = (async () => {
-    if (hasValidTrajectoryFromD1 && Array.isArray(d1Record?.daily_trajectory)) {
-      const expandedFromD1 = [];
-      for (const day of d1Record.daily_trajectory) {
-        const kws = Array.isArray(day.ranking_keywords) ? day.ranking_keywords : [];
-        if (kws.length === 0) {
-          expandedFromD1.push({
-            pin_id: cleanPinId,
-            snapshot_date: day.snapshot_date,
-            save_count: Number(day.save_count) || 0,
-            repin_count: Number(day.repin_count) || 0,
-            comment_count: Number(day.comment_count) || 0,
-            share_count: Number(day.share_count) || 0,
-            reaction_count: Number(day.reaction_count) || 0,
-            daily_save_velocity: Number(day.daily_save_velocity) || 0,
-            keyword_id: null,
-            rank_position: null,
-            is_displaced: false,
-            last_known_rank: null,
-            catalog_rank: null,
-            created_at: day.updated_at || day.crawled_at,
-            crawled_at: day.crawled_at,
-            updated_at: day.updated_at
-          });
-        } else {
-          for (const kw of kws) {
-            expandedFromD1.push({
-              pin_id: cleanPinId,
-              snapshot_date: day.snapshot_date,
-              save_count: Number(day.save_count) || 0,
-              repin_count: Number(day.repin_count) || 0,
-              comment_count: Number(day.comment_count) || 0,
-              share_count: Number(day.share_count) || 0,
-              reaction_count: Number(day.reaction_count) || 0,
-              daily_save_velocity: Number(day.daily_save_velocity) || 0,
-              keyword_id: kw.keyword_id,
-              rank_position: kw.rank_position ?? kw.rank ?? null,
-              last_known_rank: kw.last_known_rank ?? kw.rank ?? null,
-              catalog_rank: kw.catalog_rank || null,
-              is_displaced: Boolean(kw.is_displaced),
-              created_at: day.updated_at || day.crawled_at,
-              crawled_at: day.crawled_at,
-              updated_at: day.updated_at
-            });
-          }
-        }
-      }
-      return { master: d1Record, snapshots: expandedFromD1 };
-    }
-
     const resolvedShardSql = await shardResolutionPromise;
     shardSql = resolvedShardSql;
 
@@ -1392,7 +1316,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       bypassBreaker: bypassEdgeCache,
       queryFn: async (sqlClient) => {
         const [masterRowArr, rollupsOrSnaps] = await Promise.all([
-          hasValidD1 ? Promise.resolve([d1Record]) : sqlClient`
+          sqlClient`
             SELECT 
               pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
               image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
@@ -1426,8 +1350,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             ...row,
             creation_method: meta.creation_method || meta.method || null
           };
-        } else if (d1Record) {
-          masterData = d1Record;
         }
 
         return {
@@ -1438,7 +1360,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       fallbackFn: async (info) => {
         shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
         shardErrorMessage = info?.error?.message || null;
-        return { master: d1Record || null, snapshots: [] };
+        return { master: null, snapshots: [] };
       },
       timeoutMs: 8500,
       batchId: dossierBatchId
@@ -1460,8 +1382,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const initialMaster = shardData?.master || null;
   const initialSnapshots = shardData?.snapshots || [];
 
-
-  let masterRecord = initialMaster || d1Record;
+  let masterRecord = initialMaster;
   if (masterRecord) {
     const mMeta = typeof masterRecord.metadata === 'object' && masterRecord.metadata !== null ? masterRecord.metadata : {};
     const candidateMethods = [
@@ -1473,10 +1394,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
-  const hubSnapshots = [];
-  const snapRows = [...hubSnapshots]
-    .sort((a, b) => (Boolean(b.metadata) - Boolean(a.metadata)) || (Number(b.save_count || 0) - Number(a.save_count || 0)))
-    .slice(0, 10);
 
   // Helper to safely parse and unwrap metadata from JSON string, object, or array of strings/objects
   function normalizeMetadata(raw) {
@@ -1526,8 +1443,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // Parse metadata across all active sources
   const topHubMeta = normalizeMetadata(hubSerpRows[0]?.metadata);
-  let hubHistoricalSnap = (snapRows && snapRows.length > 0) ? snapRows[0] : null;
-  const snapMetaObj = normalizeMetadata(hubHistoricalSnap?.metadata);
   const shardMetaObj = normalizeMetadata(masterRecord?.metadata);
 
   // Compute Mathematical Set Union of Visual Annotations across all sources
@@ -1547,23 +1462,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
     }
   }
-  for (const sRow of snapRows) {
-    const sMeta = normalizeMetadata(sRow.metadata);
-    for (const tag of normalizeVisualAnnotations(sMeta.visual_annotations)) {
-      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
-    }
-  }
 
-  // Hub Fallback & Synthesis: If masterRecord is missing on Shard N, synthesize from Hub SERP/Snapshots/Competitor/PA/D1
+  // Hub Fallback & Synthesis: If masterRecord is missing on Shard N, synthesize from Hub SERP/Competitor/PA
   if (!masterRecord) {
     if (hubSerpRows.length > 0 && (hubSerpRows[0].title || hubSerpRows[0].image_url || Number(hubSerpRows[0].save_count) > 0)) {
       const topRow = hubSerpRows[0];
       const candidateHubMethods = [
         topRow.creation_method,
         topHubMeta.creation_method,
-        topHubMeta.method,
-        snapMetaObj.creation_method,
-        snapMetaObj.method
+        topHubMeta.method
       ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
       const resolvedHubMethod = candidateHubMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateHubMethods[0] || 'pinterest_platform';
       masterRecord = {
@@ -1578,12 +1485,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         repin_count: topRow.repin_count,
         daily_save_velocity: topRow.daily_save_velocity,
         dominant_color: topRow.dominant_color || topHubMeta.dominant_color || '#888888',
-        alt_text: topHubMeta.alt_text || snapMetaObj.alt_text || '',
-        description: topHubMeta.description || snapMetaObj.description || '',
-        created_at_pinterest: topRow.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
+        alt_text: topHubMeta.alt_text || '',
+        description: topHubMeta.description || '',
+        created_at_pinterest: topRow.created_at_pinterest || topHubMeta.created_at_pinterest || null,
         creation_method: resolvedHubMethod,
         visual_annotations: Array.from(unionSet),
-        metadata: { ...topHubMeta, ...snapMetaObj, creation_method: resolvedHubMethod, method: resolvedHubMethod }
+        metadata: { ...topHubMeta, creation_method: resolvedHubMethod, method: resolvedHubMethod }
       };
     } else if (hubCompetitorRowsRaw && hubCompetitorRowsRaw.length > 0 && (hubCompetitorRowsRaw[0].title || hubCompetitorRowsRaw[0].image_url)) {
       const compRow = hubCompetitorRowsRaw[0];
@@ -1631,58 +1538,30 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         visual_annotations: paAnnotations.length > 0 ? paAnnotations : Array.from(unionSet),
         metadata: { creation_method: 'pinterest_platform', method: 'pinterest_platform' }
       };
-    } else if (hubHistoricalSnap) {
-      const candidateSnapMethods = [
-        snapMetaObj.creation_method,
-        snapMetaObj.method
-      ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-      const resolvedSnapMethod = candidateSnapMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateSnapMethods[0] || 'pinterest_platform';
-      masterRecord = {
-        pin_id: hubHistoricalSnap.pin_id,
-        title: hubHistoricalSnap.title || snapMetaObj.seo_title || '',
-        domain: hubHistoricalSnap.domain || snapMetaObj.seo_canonical_domain || '',
-        destination_url: hubHistoricalSnap.destination_url || snapMetaObj.tracked_link || snapMetaObj.utm_link || '',
-        image_url: hubHistoricalSnap.image_url,
-        creator_username: snapMetaObj.pinner?.username || '',
-        board_name: snapMetaObj.board_name || '',
-        save_count: hubHistoricalSnap.save_count,
-        repin_count: hubHistoricalSnap.repin_count,
-        daily_save_velocity: hubHistoricalSnap.daily_save_velocity,
-        dominant_color: snapMetaObj.dominant_color || '#888888',
-        alt_text: snapMetaObj.alt_text || '',
-        description: snapMetaObj.description || '',
-        created_at_pinterest: hubHistoricalSnap.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
-        creation_method: resolvedSnapMethod,
-        visual_annotations: Array.from(unionSet),
-        metadata: { ...snapMetaObj, creation_method: resolvedSnapMethod, method: resolvedSnapMethod }
-      };
     }
   }
 
-  {
-    // Shard record exists: enrich missing alt_text, description, or created_at_pinterest if recovered from Hub
+  if (masterRecord) {
     if (!masterRecord.alt_text) {
-      masterRecord.alt_text = shardMetaObj.alt_text || topHubMeta.alt_text || snapMetaObj.alt_text || '';
+      masterRecord.alt_text = shardMetaObj.alt_text || topHubMeta.alt_text || '';
     }
     if (!masterRecord.description) {
-      masterRecord.description = shardMetaObj.description || topHubMeta.description || snapMetaObj.description || '';
+      masterRecord.description = shardMetaObj.description || topHubMeta.description || '';
     }
     if (!masterRecord.created_at_pinterest) {
-      masterRecord.created_at_pinterest = shardMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null;
+      masterRecord.created_at_pinterest = shardMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || null;
     }
     const candidateMethods = [
       masterRecord?.creation_method,
       shardMetaObj.creation_method,
       shardMetaObj.method,
-      snapMetaObj.creation_method,
-      snapMetaObj.method,
       hubSerpRows[0]?.creation_method,
       topHubMeta.creation_method,
       topHubMeta.method
     ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
     const resolvedBestMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || 'pinterest_platform';
     masterRecord.creation_method = resolvedBestMethod;
-    masterRecord.metadata = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj, creation_method: resolvedBestMethod, method: resolvedBestMethod };
+    masterRecord.metadata = { ...topHubMeta, ...shardMetaObj, creation_method: resolvedBestMethod, method: resolvedBestMethod };
   }
 
   const finalVisualAnnotations = Array.from(unionSet)
@@ -1691,8 +1570,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     .slice(0, 15);
 
   // Auto-Backfill / Write-Through: Ensure shard has the latest rich treasures
-  const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;
-  const shouldBackfillUnified = isUnifiedPostgres(env) && !initialMaster && !d1Record && shardSql && masterRecord;
+  const shouldBackfillShard = !initialMaster && shardSql && shardSql !== hubSql && masterRecord;
+  const shouldBackfillUnified = isUnifiedPostgres(env) && !initialMaster && shardSql && masterRecord;
 
   if (shouldBackfillShard || shouldBackfillUnified) {
     const backfillPromise = (async () => {
@@ -1701,8 +1580,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           masterRecord?.creation_method,
           shardMetaObj.creation_method,
           shardMetaObj.method,
-          snapMetaObj.creation_method,
-          snapMetaObj.method,
           hubSerpRows[0]?.creation_method,
           topHubMeta.creation_method,
           topHubMeta.method
@@ -1710,7 +1587,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         const resolvedBackfillMethod = backfillCandidates.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || backfillCandidates[0] || 'pinterest_platform';
         const enrichedMetaToSave = {
           ...topHubMeta,
-          ...snapMetaObj,
           ...shardMetaObj,
           creation_method: resolvedBackfillMethod,
           method: resolvedBackfillMethod
@@ -1838,34 +1714,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     return t ? new Date(t).getTime() : 0;
   }
 
-  // Detect & self-heal corrupted 2026-11-10 cache-echo zero-delta snapshots where 2026-11-09 had identical saves and positive velocity
-  const snapNov10 = shardList.find(s => formatUtcDate(s.snapshot_date) === '2026-11-10');
-  const snapNov09 = shardList.find(s => formatUtcDate(s.snapshot_date) === '2026-11-09');
-  const isCorruptedNov10Echo = Boolean(
-    snapNov10 &&
-    snapNov09 &&
-    Number(snapNov10.daily_save_velocity || 0) === 0 &&
-    Number(snapNov10.save_count || 0) === Number(snapNov09.save_count || 0) &&
-    Number(snapNov09.daily_save_velocity || 0) > 0
-  );
-  if (isCorruptedNov10Echo && shardSql) {
-    const restoredVel = Number(snapNov09.daily_save_velocity || 0);
-    Promise.all([
-      shardSql`DELETE FROM pins_daily_metrics WHERE pin_id = ${cleanPinId} AND snapshot_date = '2026-11-10'::date;`.catch(() => {}),
-      shardSql`DELETE FROM pin_serp_positions WHERE pin_id = ${cleanPinId} AND snapshot_date = '2026-11-10'::date;`.catch(() => {}),
-      shardSql`UPDATE universal_master_pins SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)}, updated_at = NOW() WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}),
-      hubSql ? hubSql`UPDATE keyword_serp_current SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)}, updated_at = NOW() WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}) : Promise.resolve(),
-      hubSql ? hubSql`UPDATE keyword_displaced_index SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)} WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}) : Promise.resolve()
-    ]).catch(() => {});
-  }
-
-  const effectiveShardList = isCorruptedNov10Echo
-    ? shardList.filter(s => formatUtcDate(s.snapshot_date) !== '2026-11-10')
-    : shardList;
   const existingShardDates = new Set();
 
   // Populate map with Shard snapshots first
-  for (const s of effectiveShardList) {
+  for (const s of shardList) {
     const sDate = formatUtcDate(s.snapshot_date);
     if (!sDate) continue;
     existingShardDates.add(sDate);
@@ -1875,12 +1727,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
   // Synthesize live in-memory SERP points from Hub active catalog ONLY if shard has no snapshots or for an already-existing shard date
-  // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Union tombstones across Shard masterRecord, Central Hub metadata, and D1 cache (NL-04)
+  // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Union tombstones across Shard masterRecord and Central Hub metadata
   const deletedSnapshotDates = new Set([
     ...(Array.isArray(masterRecord?.metadata?.deleted_snapshot_dates) ? masterRecord.metadata.deleted_snapshot_dates : []),
-    ...(Array.isArray(topHubMeta?.deleted_snapshot_dates) ? topHubMeta.deleted_snapshot_dates : []),
-    ...(Array.isArray(d1Record?.metadata?.deleted_snapshot_dates) ? d1Record.metadata.deleted_snapshot_dates : []),
-    ...(isCorruptedNov10Echo ? ['2026-11-10'] : [])
+    ...(Array.isArray(topHubMeta?.deleted_snapshot_dates) ? topHubMeta.deleted_snapshot_dates : [])
   ]);
 
   for (const sc of hubSerpRows) {
@@ -1977,26 +1827,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
-  // Merge Hub snapshots with LWW and collect missing snapshots for Shard Read-Repair
-  const missingFromShard = [];
-  for (const h of hubSnapshots) {
-    const hDate = formatUtcDate(h.snapshot_date);
-    if (!hDate) continue;
-    const dedupKey = `${hDate}_${h.keyword_id || 'global'}`;
-    const existing = snapshotMap.get(dedupKey);
-
-    if (!existing) {
-      snapshotMap.set(dedupKey, h);
-      missingFromShard.push(h);
-    } else {
-      const existingTime = getSnapTimestamp(existing);
-      const incomingTime = getSnapTimestamp(h);
-      if (incomingTime > existingTime || (incomingTime === existingTime && Number(h.id || 0) > Number(existing.id || 0))) {
-        snapshotMap.set(dedupKey, h);
-      }
-    }
-  }
-
   if (snapshotMap.size === 0 && masterRecord) {
     const todayStr = formatUtcDate(new Date());
     const livePoint = {
@@ -2025,130 +1855,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     (a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date)
   );
 
-  // Non-blocking Read-Repair: Backfill missing historical Hub snapshots into target shard
-  if (shardSql && (shardSql !== hubSql || isUnifiedPostgres(env)) && missingFromShard.length > 0 && !reconcilingPins.has(cleanPinId)) {
-    reconcilingPins.add(cleanPinId);
-    const repairPromise = (async () => {
-      try {
-        const repairPayload = missingFromShard.slice(0, 90).map(s => {
-          const sDate = formatUtcDate(s.snapshot_date);
-          return {
-            pin_id: cleanPinId,
-            keyword_id: s.keyword_id != null && !isNaN(Number(s.keyword_id)) ? Number(s.keyword_id) : null,
-            snapshot_date: sDate,
-            rank_position: s.rank_position != null && !isNaN(Number(s.rank_position)) ? Number(s.rank_position) : null,
-            is_displaced: Boolean(s.is_displaced),
-            save_count: Number(s.save_count || 0),
-            repin_count: Number(s.repin_count || 0),
-            comment_count: Number(s.comment_count || 0),
-            share_count: Number(s.share_count || 0),
-            reaction_count: Number(s.reaction_count || 0),
-            daily_save_velocity: Number(s.daily_save_velocity || 0),
-            created_at: s.created_at ? new Date(s.created_at).toISOString() : new Date().toISOString()
-          };
-        });
-
-        const txQueries = [];
-
-        // Two-Tier Shard Read-Repair: Hydrate pins_daily_metrics (Note: pins_daily_snapshots is a consolidated VIEW)
-        const metricsMap = new Map();
-        for (const s of repairPayload) {
-          const d = s.snapshot_date;
-          if (!metricsMap.has(d) || Number(s.save_count) > Number(metricsMap.get(d).save_count)) {
-            metricsMap.set(d, s);
-          }
-        }
-        // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-        const metricsRows = Array.from(metricsMap.values());
-        if (metricsRows.length > 0) {
-          txQueries.push((db) => db`
-            INSERT INTO pins_daily_metrics (
-              pin_id, snapshot_date, save_count, repin_count,
-              comment_count, share_count, reaction_count, daily_save_velocity, updated_at
-            )
-            SELECT
-              u.pin_id, u.snapshot_date::date, u.save_count, u.repin_count,
-              u.comment_count, u.share_count, u.reaction_count, u.daily_save_velocity, u.created_at::timestamptz
-            FROM jsonb_to_recordset(${JSON.stringify(metricsRows)}::jsonb) AS u(
-              pin_id text, snapshot_date text, save_count bigint, repin_count int,
-              comment_count int, share_count int, reaction_count int, daily_save_velocity numeric, created_at text
-            )
-            ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-              save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-              repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
-              comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-              share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-              reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-              daily_save_velocity = CASE 
-                WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity 
-                ELSE pins_daily_metrics.daily_save_velocity 
-              END,
-              updated_at = NOW();
-          `);
-        }
-
-        // Two-Tier Shard Read-Repair: Hydrate pin_serp_positions
-        const positionRows = repairPayload.filter(s => s.keyword_id != null && Number(s.keyword_id) > 0);
-        if (positionRows.length > 0) {
-          txQueries.push((db) => db`
-            INSERT INTO pin_serp_positions (
-              pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
-            )
-            SELECT
-              u.pin_id, u.snapshot_date::date, u.keyword_id, u.rank_position, u.is_displaced, u.rank_position,
-              CASE WHEN u.is_displaced THEN (COALESCE(u.rank_position, 1) + 250) ELSE COALESCE(u.rank_position, 1) END, u.created_at::timestamptz
-            FROM jsonb_to_recordset(${JSON.stringify(positionRows)}::jsonb) AS u(
-              pin_id text, snapshot_date text, keyword_id int, rank_position int, is_displaced boolean, created_at text
-            )
-            ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-              rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
-              is_displaced = COALESCE(EXCLUDED.is_displaced, pin_serp_positions.is_displaced),
-              updated_at = NOW();
-          `);
-        }
-
-        if (txQueries.length > 0) {
-          if (typeof shardSql.transaction === 'function') {
-            await shardSql.transaction(txQueries);
-          } else {
-            for (const buildQuery of txQueries) {
-              await buildQuery(shardSql);
-            }
-          }
-        }
-      } catch (repairErr) {
-        console.warn(`[Read-Repair] Shard ${shardId} pin ${cleanPinId} snapshot repair deferred:`, repairErr.message);
-      } finally {
-        reconcilingPins.delete(cleanPinId);
-      }
-    })();
-
-    // Edge execution: Dispatch asynchronously via ctx.waitUntil; Fall back to bounded Promise.race for CLI/Node
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      safeWaitUntil(ctx, repairPromise, 'dossier_read_repair');
-    } else {
-      try {
-        let timerId;
-        const timeoutPromise = new Promise(r => {
-          timerId = setTimeout(r, 1500);
-        });
-        await Promise.race([
-          repairPromise,
-          timeoutPromise
-        ]).finally(() => {
-          if (timerId) clearTimeout(timerId);
-        });
-      } catch (_) {}
-    }
-  }
-
   // Resolve Keyword Names for all snapshot keyword_ids to eliminate multi-SERP ambiguity
   const rawSnapshots = snapshots || [];
   const kwMap = new Map();
   for (const r of hubSerpRows) {
-    if (r?.keyword_id && r?.keyword_name) kwMap.set(Number(r.keyword_id), r.keyword_name);
-  }
-  for (const r of hubSnapshots) {
     if (r?.keyword_id && r?.keyword_name) kwMap.set(Number(r.keyword_id), r.keyword_name);
   }
   const missingKwIds = [...new Set(rawSnapshots.map(s => s.keyword_id).filter(id => id != null && !isNaN(Number(id)) && !kwMap.has(Number(id))))];
@@ -2510,7 +2220,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // Collect all available metadata objects across Shard master record, historical snapshots & SERP occurrences
   const allMetas = [
     ...(masterRecord?.metadata ? [normalizeMetadata(masterRecord.metadata)] : []),
-    ...(snapRows || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean),
+    ...(snapshots || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean),
     ...(hubSerpRows || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean)
   ];
   
@@ -2561,7 +2271,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // Supreme priority: Shard masterRecord metadata ALWAYS overrides Hub metadata
   const snapMeta = { 
-    ...cleanMeta(hubHistoricalSnap?.metadata), 
     ...cleanMeta(hubSerpRows[0]?.metadata), 
     ...cleanMeta(masterRecord?.metadata) 
   };
@@ -2632,7 +2341,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   };
 
   const latestLiveAnnotations = new Set(
-    normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations || hubHistoricalSnap?.metadata?.visual_annotations)
+    normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations)
       .map(t => String(t || '').trim())
       .filter(Boolean)
   );
@@ -2644,15 +2353,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     label: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'Live Active' : 'Historical Crawl'
   }));
 
-  const fromShardSnapshots = Boolean(
-    hasValidTrajectoryFromD1
-      ? (d1Record?.metadata?.has_shard_trajectory || (Array.isArray(d1Record?.daily_trajectory) && d1Record.daily_trajectory.length > 2))
-      : (Array.isArray(initialSnapshots) && initialSnapshots.length > 0)
-  );
+  const fromShardSnapshots = Boolean(Array.isArray(initialSnapshots) && initialSnapshots.length > 0);
 
   const isDegraded = Boolean(
     shardErrorReason ||
-    (!hasValidTrajectoryFromD1 && (!initialSnapshots || initialSnapshots.length === 0) && ((hubContext?.ranking_keywords?.length || 0) > 0 || (dailyTrajectory && dailyTrajectory.length <= 2)))
+    ((!initialSnapshots || initialSnapshots.length === 0) && ((hubContext?.ranking_keywords?.length || 0) > 0 || (dailyTrajectory && dailyTrajectory.length <= 2)))
   );
 
   const dossierResult = {
@@ -2675,7 +2380,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       dominant_color: masterRecord?.dominant_color || '#888888',
       visual_annotations: finalVisualAnnotations,
       visual_annotations_detailed: detailedAnnotations,
-      created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
+      created_at_pinterest: masterRecord?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
       creation_method: resolvedCreationMethod,
       image_signature: snapMeta.image_signature || '',
       canonical_pin_id: canonicalPinId,
@@ -2687,7 +2392,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       share_count: Number(dailyTrajectory[0]?.share_count ?? hubSerpRows[0]?.share_count ?? 0),
       daily_save_velocity: Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
-      is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404')),
+      is_deleted: Boolean(masterRecord?.is_deleted || masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),
       metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
@@ -3238,21 +2943,31 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
              THEN jsonb_build_object(
                'intraday_snapshots',
                (
-                 CASE
-                   WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
-                   THEN universal_master_pins.metadata->'intraday_snapshots'
-                   ELSE '[]'::jsonb
-                 END
-               ) || jsonb_build_array(
-                 jsonb_build_object(
-                   'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
-                   'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
-                   'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-                   'save_count', COALESCE(universal_master_pins.save_count, 0),
-                   'repin_count', COALESCE(universal_master_pins.repin_count, 0),
-                   'comment_count', COALESCE(universal_master_pins.comment_count, 0),
-                   'share_count', COALESCE(universal_master_pins.share_count, 0)
-                 )
+                 SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                 FROM (
+                   SELECT elem, ord
+                   FROM jsonb_array_elements(
+                     (
+                       CASE
+                         WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
+                         THEN universal_master_pins.metadata->'intraday_snapshots'
+                         ELSE '[]'::jsonb
+                       END
+                     ) || jsonb_build_array(
+                       jsonb_build_object(
+                         'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
+                         'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
+                         'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                         'save_count', COALESCE(universal_master_pins.save_count, 0),
+                         'repin_count', COALESCE(universal_master_pins.repin_count, 0),
+                         'comment_count', COALESCE(universal_master_pins.comment_count, 0),
+                         'share_count', COALESCE(universal_master_pins.share_count, 0)
+                       )
+                     )
+                   ) WITH ORDINALITY AS t(elem, ord)
+                   ORDER BY ord DESC
+                   LIMIT 24
+                 ) recent_intra
                )
              )
              ELSE '{}'::jsonb
@@ -3446,10 +3161,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       repins = GREATEST(repins, ${newRepins}),
       comments = GREATEST(comments, ${newComments}),
       share_count = GREATEST(share_count, ${newShares}),
-      velocity = CASE
-        WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
-        ELSE velocity
-      END,
+      velocity = COALESCE(${syncVelocity}::numeric, 0),
       reactions = COALESCE(reactions, '{}'::jsonb) || ${JSON.stringify(scrapedPin.reactions || {})}::jsonb,
       last_updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
@@ -3550,7 +3262,7 @@ export async function writeBatchToDeterministicShards(params = {}) {
   };
 
   // Fast Unified-Postgres Path: write all pins directly to hubSql in a single batch
-  if (isUnifiedPostgres(env) && hubSql && shardSqlClients.size === 0 && globalShardMap.size === 0) {
+  if (isUnifiedPostgres(env) && hubSql && shardSqlClients.size === 0) {
     try {
       const pinMap = new Map();
       for (const p of pins) {
@@ -3743,11 +3455,6 @@ export async function writeBatchToDeterministicShards(params = {}) {
   }
 
   const entries = Array.from(physicalShardGroups.entries());
-  if (hubSql) {
-    try {
-      await preloadNeonRegistry(hubSql, env);
-    } catch (_) {}
-  }
   for (let i = 0; i < entries.length; i += concurrency) {
     const batch = entries.slice(i, i + concurrency);
     await Promise.allSettled(batch.map(async ([shardId, rawShardPins]) => {
@@ -3779,17 +3486,30 @@ export async function writeBatchToDeterministicShards(params = {}) {
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
             image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-            first_discovered_pillar, first_discovered_at, updated_at
+            save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+            delta_saves_24h, delta_repins_24h,
+            is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+            first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
           )
           SELECT DISTINCT ON (u.pin_id)
             u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
             u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
             NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
-            'batch_ingest', NOW(), NOW()
+            COALESCE(u.save_count, 0)::bigint, COALESCE(u.repin_count, 0)::int, COALESCE(u.comment_count, 0)::int,
+            COALESCE(u.share_count, 0)::int, COALESCE(u.reaction_count, 0)::int,
+            COALESCE(u.daily_save_velocity, 0)::numeric,
+            COALESCE(u.daily_save_velocity, 0)::numeric,
+            0,
+            COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), u.creation_method, u.image_signature,
+            u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
+            'batch_ingest', NOW(), NOW(), NOW()
           FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
             pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
             image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
-            created_at_pinterest text, metadata jsonb
+            created_at_pinterest text, metadata jsonb,
+            save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int,
+            daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
+            image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
           )
           ORDER BY u.pin_id ASC
           ON CONFLICT (pin_id) DO UPDATE SET
@@ -3816,7 +3536,38 @@ export async function writeBatchToDeterministicShards(params = {}) {
             END,
             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
             metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-            updated_at = NOW();
+            save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+            repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+            comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+            share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+            reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+            daily_save_velocity = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
+              WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+              ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+            END,
+            delta_saves_24h = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.delta_saves_24h, 0), COALESCE(EXCLUDED.delta_saves_24h, 0))
+              WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h
+              ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
+            END,
+            delta_repins_24h = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
+              WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h
+              ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
+            END,
+            is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
+            is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
+            creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
+            image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+            seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+            is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
+            canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+            updated_at = NOW(),
+            last_scraped_at = NOW();
         `;
 
         // 2. Batch Upsert into pins_daily_metrics

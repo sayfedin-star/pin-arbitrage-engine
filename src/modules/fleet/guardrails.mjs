@@ -38,40 +38,28 @@ export async function assertShardSchemaParity(sqlClient, requiredVersion = '011'
 
 /**
  * Audit and report version across an array of shards.
+ * In unified PostgreSQL architecture, queries schema_migrations directly on Central Hub.
  */
 export async function auditFleetSchemaVersions(hubSql) {
-  const shards = await hubSql`
-    SELECT id, project_name, database_url, is_hub, status
-    FROM neon_projects_registry
-    WHERE status = 'active'
-    ORDER BY is_hub DESC, id ASC;
-  `;
-
-  const results = [];
-  for (const s of shards) {
-    try {
-      const sSql = createUniversalSqlClient(s.database_url);
-      const rows = await sSql`SELECT version, name, applied_at FROM schema_migrations ORDER BY applied_at DESC;`;
-      results.push({
-        id: s.id,
-        name: s.project_name,
-        is_hub: s.is_hub,
-        latest_version: rows[0]?.version || 'unversioned',
-        total_migrations: rows.length,
-        status: 'synced'
-      });
-    } catch (err) {
-      results.push({
-        id: s.id,
-        name: s.project_name,
-        is_hub: s.is_hub,
-        latest_version: 'error',
-        total_migrations: 0,
-        status: 'drifted',
-        error: err.message
-      });
-    }
+  try {
+    const rows = await hubSql`SELECT version, name, applied_at FROM schema_migrations ORDER BY applied_at DESC;`;
+    return [{
+      id: 1,
+      name: 'unified-vps-postgres',
+      is_hub: true,
+      latest_version: rows[0]?.version || 'unversioned',
+      total_migrations: rows.length,
+      status: 'synced'
+    }];
+  } catch (err) {
+    return [{
+      id: 1,
+      name: 'unified-vps-postgres',
+      is_hub: true,
+      latest_version: 'error',
+      total_migrations: 0,
+      status: 'drifted',
+      error: err.message
+    }];
   }
-
-  return results;
 }

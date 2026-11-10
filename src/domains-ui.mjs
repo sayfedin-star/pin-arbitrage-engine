@@ -1428,14 +1428,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
                   <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono tabular-nums text-xs">
                     <div class="flex items-center gap-2">
-                      <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Shard Archive:</span>
-                      <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Neon Shards.'"></span>
+                      <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Displaced Vault:</span>
+                      <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Unified PostgreSQL.'"></span>
                     </div>
                     <button @click="loadMoreDisplaced()"
                             :disabled="dossierLoadingMore"
                             class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
                       <span :class="{ 'animate-spin': dossierLoadingMore }">🔄</span>
-                      <span x-text="dossierLoadingMore ? 'Hydrating Shards...' : 'Load +50 Displaced Pins from Shards'">Load +50 Displaced Pins from Shards</span>
+                      <span x-text="dossierLoadingMore ? 'Hydrating Vault...' : 'Load +50 Displaced Vault Pins'">Load +50 Displaced Vault Pins</span>
                     </button>
                   </div>
                 </template>

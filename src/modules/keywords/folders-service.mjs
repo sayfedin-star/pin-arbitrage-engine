@@ -83,6 +83,7 @@ export function invalidateFolderCache(folderId) {
     crossoverCache.clear();
     folderForceRefreshCooldown.clear();
   }
+  folderTrendsCache.clear();
 }
 
 /**
@@ -2481,26 +2482,32 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
 
-      // Ratchet velocity and 24h delta to highest SSOT value across active + displaced rows
+      // Symmetrical velocity update: fresher crawl updates velocity downward or upward cleanly
       const existingCrawlMs = existingPin.crawled_at ? new Date(existingPin.crawled_at).getTime() : 0;
       const rowCrawlMs = row.crawled_at ? new Date(row.crawled_at).getTime() : 0;
-      if (vel > (existingPin.daily_save_velocity || 0)) {
-        existingPin.daily_save_velocity = vel;
-        existingPin.delta_saves_24h = Math.max(existingPin.delta_saves_24h || 0, delta24h);
-      }
       if (rowCrawlMs > existingCrawlMs && row.crawled_at) {
         existingPin.crawled_at = row.crawled_at;
+        existingPin.daily_save_velocity = vel;
+        existingPin.delta_saves_24h = delta24h;
+        existingPin.delta_repins_24h = safeNum(row.delta_repins_24h, 0);
+        existingPin.effective_velocity = effectiveVel;
+        existingPin.velocity_source = vel > 0 ? 'saves' : (safeNum(row.delta_repins_24h, 0) > 0 ? 'repins' : 'saves');
+      } else if (existingCrawlMs === 0 || rowCrawlMs === existingCrawlMs) {
+        if (existingPin.daily_save_velocity == null || existingPin.daily_save_velocity === 0) {
+          existingPin.daily_save_velocity = vel;
+          existingPin.delta_saves_24h = delta24h;
+        } else if (vel > 0 && vel !== existingPin.daily_save_velocity) {
+          existingPin.daily_save_velocity = vel;
+          existingPin.delta_saves_24h = delta24h;
+        }
+        existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
+        existingPin.effective_velocity = existingPin.daily_save_velocity > 0
+          ? existingPin.daily_save_velocity
+          : (existingPin.delta_repins_24h || 0);
+        existingPin.velocity_source = existingPin.daily_save_velocity > 0
+          ? 'saves'
+          : ((existingPin.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
       }
-
-      existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
-      existingPin.effective_velocity = Math.max(
-        existingPin.effective_velocity || 0,
-        effectiveVel,
-        existingPin.daily_save_velocity > 0 ? existingPin.daily_save_velocity : existingPin.delta_repins_24h
-      );
-      existingPin.velocity_source = existingPin.daily_save_velocity > 0
-        ? 'saves'
-        : ((existingPin.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
 
       // Preserve authentic database rolling gains without blowing up by multiplying corrupted velocity
       if (rowGains5d != null && (existingPin.gains_5d == null || rowGains5d > existingPin.gains_5d)) existingPin.gains_5d = rowGains5d;
@@ -2667,111 +2674,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         return (b.save_count || 0) - (a.save_count || 0);
       });
 
-    if (sql && stillMissingAfterHub.length > 0 && !isUnifiedPostgres(env)) {
-      const SYNC_SHARD_HYDRATION_CAP = 350;
-      const priorityShardPins = stillMissingAfterHub.slice(0, SYNC_SHARD_HYDRATION_CAP);
-      const tailShardPins = stillMissingAfterHub.slice(SYNC_SHARD_HYDRATION_CAP);
-
-      try {
-        await preloadNeonRegistry(sql, env);
-        // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE] Coalesce 99 virtual shards -> <= 20 physical Neon databases
-        const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(priorityShardPins, 99));
-        const shardEntries = Array.from(shardGroups.entries());
-        const newlyHydratedFromShards = [];
-
-        // [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Execute in waves of 4 concurrent shard queries
-        const CONCURRENCY_LIMIT = 4;
-        const SCATTER_GATHER_DEADLINE_MS = 4500;
-
-        const hydrateShardBatch = async (entries, perShardTimeoutMs = 2500, concurrency = CONCURRENCY_LIMIT) => {
-          const hydratedBatch = [];
-          for (let i = 0; i < entries.length; i += concurrency) {
-            const chunk = entries.slice(i, i + concurrency);
-            await Promise.allSettled(
-              chunk.map(async ([shardId, pins]) => {
-                const pids = pins.map(p => (typeof p === 'object' ? String(p.pin_id) : String(p)));
-                const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env });
-                if (!shardSql || (shardSql === sql && !isUnifiedPostgres(env))) return;
-
-                const rows = await executeShardQueryWithCircuitBreaker({
-                  shardId,
-                  shardSql,
-                  timeoutMs: perShardTimeoutMs,
-                  queryFn: async (client) => {
-                    // [INVARIANT: TARGETED-JSONB-PROJECTION] Project scalar fields only to protect Shard Egress
-                    return await client`
-                      SELECT
-                        ump.pin_id,
-                        ump.title,
-                        ump.domain,
-                        ump.destination_url,
-                        ump.image_url,
-                        ump.creator_username,
-                        ump.board_name,
-                        ump.dominant_color,
-                        ump.visual_annotations,
-                        ump.alt_text,
-                        ump.description,
-                        (ump.metadata->>'seo_title') AS seo_title,
-                        ump.created_at_pinterest,
-                        (ump.metadata->>'aspect_ratio') AS aspect_ratio,
-                        COALESCE(NULLIF(ump.metadata->>'creation_method', ''), NULLIF(ump.metadata->>'method', '')) AS creation_method
-                      FROM universal_master_pins ump
-                      WHERE ump.pin_id = ANY(${pids}::text[]);
-                    `;
-                  },
-                  fallbackFn: async () => []
-                });
-
-                for (const r of (rows || [])) {
-                  if (r && r.pin_id) {
-                    hydratedBatch.push(r);
-                    newlyHydratedFromShards.push(r);
-                  }
-                }
-              })
-            );
-          }
-          return hydratedBatch;
-        };
-
-        let deadlineTimerId;
-        const deadlinePromise = new Promise(resolve => {
-          deadlineTimerId = setTimeout(() => resolve(null), SCATTER_GATHER_DEADLINE_MS);
-        });
-
-        const priorityTask = hydrateShardBatch(shardEntries, 2500, CONCURRENCY_LIMIT);
-
-        const raceResult = await Promise.race([
-          priorityTask,
-          deadlinePromise
-        ]).finally(() => {
-          if (deadlineTimerId) clearTimeout(deadlineTimerId);
-        });
-
-        if (Array.isArray(raceResult)) {
-          for (const r of raceResult) {
-            if (!newlyHydratedFromShards.includes(r)) {
-              newlyHydratedFromShards.push(r);
-            }
-          }
-        }
-
-        for (const r of newlyHydratedFromShards) {
-          mergeEnrichedRow(r);
-        }
-
-        // Tier 4A: Self-Healing Write-Back to Cloudflare D1 (edge_pins_metadata)
-        const pinsToWriteToD1 = [];
-        for (const r of newlyHydratedFromShards) {
-          const e = enrichedMap.get(String(r.pin_id));
-          if (e && (e.title || e.image_url)) {
-            pinsToWriteToD1.push(e);
-          }
-        }
-// Pure Unified Architecture: Edge D1 sync and tail warming omitted
-      } catch (_) {}
-    }
+    // [INVARIANT: PURE-UNIFIED-POSTGRES] In unified_postgres, universal_master_pins is queried directly on Central Hub (hubSql).
+    // Dead 20-shard scatter-gather loop (resolveShardConnection({ hubSql: sql, shardId, env }), coalesceShardGroupsByPhysical) removed.
 
     // Apply hydrated creative metadata back to allPins BEFORE Dimension B (Tag Bridges) & Dimension D
     for (const p of missingMetaPins) {
@@ -2814,17 +2718,16 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         if (meta.save_count) p.save_count = Math.max(p.save_count || 0, Number(meta.save_count));
         if (meta.repin_count) p.repin_count = Math.max(p.repin_count || 0, Number(meta.repin_count));
         if (meta.comment_count) p.comment_count = Math.max(p.comment_count || 0, Number(meta.comment_count));
-        if (meta.daily_save_velocity && Number(meta.daily_save_velocity) > (p.daily_save_velocity || 0)) {
+        if (meta.daily_save_velocity !== undefined && meta.daily_save_velocity !== null) {
           p.daily_save_velocity = Number(meta.daily_save_velocity);
-          p.delta_saves_24h = Math.max(p.delta_saves_24h || 0, Number(meta.daily_save_velocity));
+          p.delta_saves_24h = Number(meta.daily_save_velocity);
         }
-        if (meta.delta_repins_24h && Number(meta.delta_repins_24h) > (p.delta_repins_24h || 0)) {
+        if (meta.delta_repins_24h !== undefined && meta.delta_repins_24h !== null) {
           p.delta_repins_24h = Number(meta.delta_repins_24h);
         }
-        p.effective_velocity = Math.max(
-          p.effective_velocity || 0,
-          p.daily_save_velocity > 0 ? p.daily_save_velocity : (p.delta_repins_24h || 0)
-        );
+        p.effective_velocity = p.daily_save_velocity > 0
+          ? p.daily_save_velocity
+          : (p.delta_repins_24h || 0);
         p.velocity_source = p.daily_save_velocity > 0
           ? 'saves'
           : ((p.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
@@ -3078,7 +2981,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     save_count: Number(pin.save_count || 0),
     repin_count: Number(pin.repin_count || 0),
     repin_clones_count: Number(pin.repin_clones_count || 0),
-    daily_save_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
+    daily_save_velocity: Number(pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
     effective_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
     delta_saves_24h: Number(pin.delta_saves_24h || 0),
     delta_repins_24h: Number(pin.delta_repins_24h || 0),

@@ -1220,6 +1220,41 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ success: false, error: 'Method not allowed on /domains' }, 405);
     }
 
+    // C. Sub-route: /api/folders/:id/items
+    if (parts.length >= 2 && parts[1] === 'items') {
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      if (method === 'POST') {
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
+        const body = await request.json().catch(() => ({}));
+        if (Array.isArray(body.keyword_ids)) {
+          const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
+          invalidateFolderCache(folderId);
+          return jsonResponse({ success: true, ...result });
+        }
+        const keywordId = body.keyword_id || searchParams.get('keyword_id');
+        if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
+        const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
+        invalidateFolderCache(folderId);
+        return jsonResponse({ success: true, item });
+      }
+      if (method === 'DELETE') {
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
+        let keywordId = parts[2] || searchParams.get('keyword_id');
+        let body = {};
+        try {
+          body = await request.json();
+          keywordId = keywordId || body.keyword_id;
+        } catch (_) {}
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
+        invalidateFolderCache(folderId);
+        return jsonResponse({ success: true, deleted });
+      }
+      return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
+    }
+
     const projectId = searchParams.get('project_id') || 'default';
 
     if (method === 'GET') {
@@ -1416,12 +1451,14 @@ export async function handleKeywordsRoutes({
     
     if (Array.isArray(body.keyword_ids)) {
       const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
+      invalidateFolderCache(folderId);
       return jsonResponse({ success: true, ...result });
     }
     
     const keywordId = body.keyword_id || searchParams.get('keyword_id');
     if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
     const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
+    invalidateFolderCache(folderId);
     return jsonResponse({ success: true, item });
   }
 
@@ -1440,6 +1477,7 @@ export async function handleKeywordsRoutes({
     if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
     const projectId = searchParams.get('project_id') || body.project_id || 'default';
     const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
+    invalidateFolderCache(folderId);
     return jsonResponse({ success: true, deleted });
   }
 

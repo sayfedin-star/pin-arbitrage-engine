@@ -734,24 +734,9 @@ async function syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser) {
 /**
  * Helper: Load degraded/quarantined shards from neon_projects_registry
  */
-export async function loadQuarantinedShards(sqlClient) {
-  const quarantined = new Set();
-  if (isUnifiedPostgres()) return quarantined;
-  try {
-    const rows = await sqlClient`
-      SELECT project_name, assigned_shards
-      FROM neon_projects_registry
-      WHERE status IN ('inactive', 'suspended', 'quarantined', 'degraded');
-    `;
-    for (const r of rows) {
-      const match = r.project_name?.match(/shard-(\d+)/i);
-      if (match) quarantined.add(parseInt(match[1], 10));
-      if (Array.isArray(r.assigned_shards)) {
-        r.assigned_shards.forEach(s => quarantined.add(Number(s)));
-      }
-    }
-  } catch (_) {}
-  return quarantined;
+export async function loadQuarantinedShards(_sqlClient) {
+  // In unified Postgres architecture, all shards reside on the local DB; no quarantined shards
+  return new Set();
 }
 
 /**
@@ -2207,43 +2192,13 @@ async function main() {
   if (canonicalEnv) {
     effectiveShardNumber = parseInt(canonicalEnv, 10);
   } else if (targetAccount) {
-    const quarantinedShards = new Set();
-    if (!isUnifiedPostgres()) {
-      try {
-        const qRows = await sql`
-          SELECT assigned_shards 
-          FROM neon_projects_registry 
-          WHERE status IN ('degraded', 'quarantined', 'inactive') AND assigned_shards IS NOT NULL;
-        `;
-        for (const r of qRows) {
-          if (Array.isArray(r.assigned_shards)) {
-            r.assigned_shards.forEach(s => quarantinedShards.add(Number(s)));
-          }
-        }
-      } catch (_) {}
-    }
-    effectiveShardNumber = getResilientShardNumberForEntity(targetAccount, shardTotal, quarantinedShards);
+    effectiveShardNumber = getResilientShardNumberForEntity(targetAccount, shardTotal);
   } else {
     effectiveShardNumber = shardNumber;
   }
 
-  let shardSql = isUnifiedPostgres() ? sql : null;
-  if (!isUnifiedPostgres()) {
-    const shardName = `pin-arbitrage-shard-${String(effectiveShardNumber).padStart(2, '0')}`;
-    try {
-      const [sRow] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;`;
-      if (sRow?.database_url) {
-        shardSql = createUniversalSqlClient(enforceNeonPoolerUrl(sRow.database_url));
-        console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}${targetAccount ? ` (Canonical Shard for @${targetAccount})` : ''}`);
-        try {
-          await assertShardSchemaParity(shardSql, '011', shardName);
-          console.log(`[✓] [Fleet Guardrail] ${shardName} verified at 100% schema parity (v011).`);
-        } catch (guardErr) {
-          console.warn(`[!] [Fleet Guardrail Warning] ${guardErr.message}`);
-        }
-      }
-    } catch (_) {}
-  }
+  // Unified single-DB architecture: shardSql is always sql
+  const shardSql = sql;
 
   // Dispatch based on CRAWL_PHASE or context
   if (crawlPhase === 'discovery') {

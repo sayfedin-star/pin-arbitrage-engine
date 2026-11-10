@@ -45,31 +45,13 @@ export async function handleFleetRoutes(routeCtx) {
 
   // 1. Neon Multi-Project Fleet API & Shards Map (KV Accelerated)
   if (method === 'GET' && (pathname === '/api/fleet/projects' || pathname === '/api/fleet/shards')) {
-    // Query raw unmasked projects directly from Central Hub
-    const rawShards = await sql`
-      SELECT 
-        id, project_id, project_name, region_id, database_url,
-        status, is_hub, assigned_shards, stats, created_at, updated_at
-      FROM neon_projects_registry
-      ORDER BY is_hub DESC, id ASC;
-    `;
-
-    // Security: Mask database credentials before transmitting to client
-    const clientProjects = (Array.isArray(rawShards) ? rawShards : []).map(p => {
-      const rawUrl = p.database_url || '';
-      const masked = maskDatabaseUrl(rawUrl);
-      return {
-        ...p,
-        database_url: masked,
-        masked_url: masked
-      };
-    });
+    const clientProjects = await getFleetProjects(sql);
 
     return jsonResponse({
       success: true,
       projects: clientProjects,
       shards: clientProjects,
-      source: 'neon_hub'
+      source: 'unified_postgres'
     }, 200, 10);
   }
 
@@ -179,12 +161,9 @@ export async function handleFleetRoutes(routeCtx) {
       shardIdsToPing.map(s => getPhysicalShardId(s))
     )).filter(s => s >= 1 && s <= 20).slice(0, 20);
 
-    safeWaitUntil(ctx, Promise.allSettled(physicalShardIds.map(async (physId) => {
+    safeWaitUntil(ctx, Promise.allSettled(physicalShardIds.map(async () => {
       try {
-        const shardSql = await resolveShardConnection({ hubSql: sql, shardId: physId, env });
-        if (shardSql) {
-          await shardSql`SELECT 1;`;
-        }
+        await sql`SELECT 1;`;
       } catch (_) {}
     })), 'fleet_wake_physical_shards');
 
@@ -264,6 +243,7 @@ export async function handleFleetRoutes(routeCtx) {
         warmed: false,
         cached: true,
         shard_id: targetShardId,
+        physical_shard_id: targetShardId,
         message: `Shard ${targetShardId} warming in cooldown (already active)`
       }, 200, 0);
     }
@@ -275,6 +255,7 @@ export async function handleFleetRoutes(routeCtx) {
         warmed: false,
         in_flight: true,
         shard_id: targetShardId,
+        physical_shard_id: targetShardId,
         message: `Shard ${targetShardId} is currently warming`
       }, 200, 0);
     }
@@ -286,6 +267,7 @@ export async function handleFleetRoutes(routeCtx) {
         warmed: false,
         rate_limited: true,
         shard_id: targetShardId,
+        physical_shard_id: targetShardId,
         message: 'Max concurrent warming operations reached'
       }, 200, 0);
     }
@@ -303,10 +285,7 @@ export async function handleFleetRoutes(routeCtx) {
     let warmShard = targetShardId;
     const warmPromise = (async () => {
       try {
-        const shardSql = await resolveShardConnection({ hubSql: sql, shardId: warmShard, env });
-        if (shardSql) {
-          await shardSql`SELECT 1;`;
-        }
+        await sql`SELECT 1;`;
       } catch (_) {
         // Non-fatal background wake-up ping
       } finally {
@@ -326,6 +305,7 @@ export async function handleFleetRoutes(routeCtx) {
       success: true,
       warmed: true,
       shard_id: targetShardId,
+      physical_shard_id: targetShardId,
       timestamp: now
     }, 200, 0);
   }

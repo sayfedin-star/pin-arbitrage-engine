@@ -2961,6 +2961,7 @@ export function getPinDetailPageHtml(pinId = '') {
       }
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

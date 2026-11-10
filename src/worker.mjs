@@ -882,39 +882,7 @@ export default {
       const cachedDsn = shardKeyToDsn.get(cleanKey);
       if (cachedDsn) {
         targetSql = getOrCreateShardSqlClient(cachedDsn);
-      } else if (!isUnifiedPostgres(env)) {
-        try {
-          const shardsMap = await sql`
-            SELECT id, project_id, project_name, database_url, status, assigned_shards
-            FROM neon_projects_registry 
-            WHERE status = 'active';
-          `;
-          let proj = null;
-          if (Array.isArray(shardsMap)) {
-            proj = shardsMap.find(p => 
-              (p.project_id && String(p.project_id).trim() === cleanKey) ||
-              (p.project_name && String(p.project_name).trim() === cleanKey) ||
-              (normalizeAssignedShards(p.assigned_shards).includes(Number(cleanKey)))
-            );
-          }
-          if (proj && isValidShardDsn(proj.database_url)) {
-            const canonicalUrl = enforceNeonPoolerUrl(proj.database_url);
-            shardKeyToDsn.set(cleanKey, canonicalUrl);
-            if (proj.project_id) shardKeyToDsn.set(String(proj.project_id).trim(), canonicalUrl);
-            if (proj.project_name) shardKeyToDsn.set(String(proj.project_name).trim(), canonicalUrl);
-            targetSql = getOrCreateShardSqlClient(canonicalUrl);
-          } else if (method !== 'GET') {
-            return jsonResponse({
-              error: 'Target shard not found or inactive',
-              message: `Shard '${cleanKey}' is not active in neon_projects_registry. Write mutation rejected to protect Hub integrity.`
-            }, 404);
-          }
-        } catch (_) {}
       }
-
-      // [INVARIANT: ZERO-HUB-SNAPSHOTS & NO-PROXY-FALLBACK]
-      // Shard snapshot queries must NEVER fall back to Hub, which has no snapshot tables.
-      // Shard failures fall back strictly to Cloudflare D1 edge_pins_metadata or return a clean error.
     }
 
       // 1. Cluster Intelligence & Graph Discovery Sub-Router

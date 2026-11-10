@@ -39,7 +39,7 @@ import {
 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
-import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
+import { buildRichPinMetadataPayload } from '../src/domain/pin-intelligence.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -88,7 +88,7 @@ const workerTotal = Number.isFinite(rawWorkerTotal) && rawWorkerTotal > 0 ? rawW
 // Deterministically partition the 99 storage shards across the 20 matrix runners (1:1 worker-to-physical-shard affinity)
 const assignedShards = [];
 for (let s = 1; s <= 99; s++) {
-  if (((s - 1) % 20) === workerIndex) {
+  if (((s - 1) % workerTotal) === workerIndex) {
     assignedShards.push(s);
   }
 }
@@ -170,9 +170,6 @@ let rateLimitCooldownUntil = 0;
 let consecutiveErrors = 0;
 const CIRCUIT_BREAKER_LIMIT = 25;
 let circuitBroken = false;
-
-const HARD_COOLDOWN_MS = 4 * 60 * 60 * 1000;    // 4 Hours Hard Floor
-const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Cache
 
 /**
  * Live Fetch Mode (Hydration Cache Disabled):
@@ -1209,10 +1206,10 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   THEN EXCLUDED.delta_repins_24h
                   ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
                 END,
-                gains_5d = CASE WHEN EXCLUDED.gains_5d > 0 THEN EXCLUDED.gains_5d ELSE COALESCE(universal_master_pins.gains_5d, 0) END,
-                gains_7d = CASE WHEN EXCLUDED.gains_7d > 0 THEN EXCLUDED.gains_7d ELSE COALESCE(universal_master_pins.gains_7d, 0) END,
-                gains_10d = CASE WHEN EXCLUDED.gains_10d > 0 THEN EXCLUDED.gains_10d ELSE COALESCE(universal_master_pins.gains_10d, 0) END,
-                gains_15d = CASE WHEN EXCLUDED.gains_15d > 0 THEN EXCLUDED.gains_15d ELSE COALESCE(universal_master_pins.gains_15d, 0) END,
+                gains_5d = CASE WHEN EXCLUDED.gains_5d IS NOT NULL THEN EXCLUDED.gains_5d ELSE COALESCE(universal_master_pins.gains_5d, 0) END,
+                gains_7d = CASE WHEN EXCLUDED.gains_7d IS NOT NULL THEN EXCLUDED.gains_7d ELSE COALESCE(universal_master_pins.gains_7d, 0) END,
+                gains_10d = CASE WHEN EXCLUDED.gains_10d IS NOT NULL THEN EXCLUDED.gains_10d ELSE COALESCE(universal_master_pins.gains_10d, 0) END,
+                gains_15d = CASE WHEN EXCLUDED.gains_15d IS NOT NULL THEN EXCLUDED.gains_15d ELSE COALESCE(universal_master_pins.gains_15d, 0) END,
                 is_product = (COALESCE(universal_master_pins.is_product, FALSE) OR COALESCE(EXCLUDED.is_product, FALSE)),
                 is_video = (COALESCE(universal_master_pins.is_video, FALSE) OR COALESCE(EXCLUDED.is_video, FALSE)),
                 creation_method = CASE WHEN EXCLUDED.creation_method IS NOT NULL AND EXCLUDED.creation_method <> 'pinterest_platform' THEN EXCLUDED.creation_method ELSE COALESCE(universal_master_pins.creation_method, 'pinterest_platform') END,
@@ -1324,14 +1321,10 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE
-                    WHEN COALESCE(EXCLUDED.daily_save_velocity, 0) > 0 THEN
-                      GREATEST(
-                        COALESCE(pins_daily_metrics.daily_save_velocity, 0) + GREATEST(0, COALESCE(EXCLUDED.save_count, 0) - COALESCE(pins_daily_metrics.save_count, 0)),
-                        EXCLUDED.daily_save_velocity
-                      )
+                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
                     WHEN COALESCE(EXCLUDED.save_count, 0) > COALESCE(pins_daily_metrics.save_count, 0) THEN
                       COALESCE(pins_daily_metrics.daily_save_velocity, 0) + (COALESCE(EXCLUDED.save_count, 0) - COALESCE(pins_daily_metrics.save_count, 0))
-                    ELSE COALESCE(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity, 0)
+                    ELSE COALESCE(pins_daily_metrics.daily_save_velocity, 0)
                   END,
                   updated_at = NOW()
                 RETURNING pin_id
@@ -1703,7 +1696,10 @@ async function run() {
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> '' AND ksc.is_displaced = FALSE
-            AND ksc.shard_id = ANY(${assignedShards}::smallint[])
+            AND (
+              ksc.shard_id = ANY(${assignedShards}::smallint[])
+              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1746,7 +1742,10 @@ async function run() {
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-            AND ksc.shard_id = ANY(${assignedShards}::smallint[])
+            AND (
+              ksc.shard_id = ANY(${assignedShards}::smallint[])
+              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1767,7 +1766,10 @@ async function run() {
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND kdi.shard_id = ANY(${assignedShards}::smallint[])
+            AND (
+              kdi.shard_id = ANY(${assignedShards}::smallint[])
+              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+            )
             AND (
               COALESCE(kdi.last_known_rank, 999) <= 50
               OR COALESCE(kdi.daily_save_velocity, 0) >= 5
@@ -1986,7 +1988,10 @@ async function run() {
           shard_id
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> '' AND is_displaced = FALSE
-          AND shard_id = ANY(${assignedShards}::smallint[])
+          AND (
+            shard_id = ANY(${assignedShards}::smallint[])
+            OR (shard_id IS NULL AND mod(pae_crc32_shard_id(pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+          )
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2012,7 +2017,10 @@ async function run() {
             shard_id
           FROM keyword_serp_current
           WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> ''
-            AND shard_id = ANY(${assignedShards}::smallint[])
+            AND (
+              shard_id = ANY(${assignedShards}::smallint[])
+              OR (shard_id IS NULL AND mod(pae_crc32_shard_id(pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2032,7 +2040,10 @@ async function run() {
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND kdi.shard_id = ANY(${assignedShards}::smallint[])
+            AND (
+              kdi.shard_id = ANY(${assignedShards}::smallint[])
+              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id

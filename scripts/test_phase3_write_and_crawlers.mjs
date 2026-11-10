@@ -471,31 +471,25 @@ assert.strictEqual(parseD1DateMs(1770000000000), 1770000000000, 'parseD1DateMs m
 console.log('  ✓ Consolidator Hub Table Vacuum & D1 UTC Date Parser verified (Zero local timezone skew)');
 
 // -------------------------------------------------------------
-// Test 11: Edge Shield D1 Tier-1 Bypass & Read-Time Auto-Backfill Suppression
+// Test 11: Unified PostgreSQL Direct Resolution & Clean Auto-Backfill Suppression
 // -------------------------------------------------------------
-console.log('\n[Test 11] Verifying Cloudflare D1 Tier-1 Bypass & Read-Time Auto-Backfill Suppression...');
+console.log('\n[Test 11] Verifying Unified PostgreSQL Direct Resolution & Clean Auto-Backfill Suppression...');
 
 const fleetRouterContent = fs.readFileSync('src/modules/sharding/fleet-router.mjs', 'utf8');
 
-// Assert D1 bypass logic in fleet-router.mjs
+// Assert Unified Postgres resolution in fleet-router.mjs
 assert(
-  fleetRouterContent.includes('const hasValidD1 = Boolean(') &&
-  (fleetRouterContent.includes('d1Record && d1Record.pin_id') || fleetRouterContent.includes('d1Record.metadata?.has_treasures')),
-  'fleet-router.mjs must verify hasValidD1 before firing shard queries'
-);
-assert(
-  (fleetRouterContent.includes('const masterPromise = hasValidD1') && fleetRouterContent.includes('? Promise.resolve(d1Record)')) ||
-  fleetRouterContent.includes('hasValidD1 ? Promise.resolve([d1Record])'),
-  'fleet-router.mjs must resolve masterPromise directly with d1Record when fresh, bypassing shard query'
+  fleetRouterContent.includes('isUnifiedPostgres') && fleetRouterContent.includes('resolveShardConnection'),
+  'fleet-router.mjs must support Unified Postgres direct resolution'
 );
 
-// Assert Auto-Backfill is suppressed when record was already present on shard or D1
+// Assert Auto-Backfill is strictly guarded against write churn on Hub
 assert(
-  fleetRouterContent.includes('const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;'),
-  'fleet-router.mjs must restrict Auto-Backfill strictly to !initialMaster && !d1Record (prevents write churn on read)'
+  fleetRouterContent.includes('const shouldBackfillShard =') && fleetRouterContent.includes('shardSql !== hubSql'),
+  'fleet-router.mjs must prevent write churn on read when shardSql === hubSql'
 );
 
-console.log('  ✓ Tier-1 D1 Shield bypass & Auto-Backfill suppression verified (Zero read-time write churn)');
+console.log('  ✓ Unified PostgreSQL Direct Resolution & Auto-Backfill suppression verified');
 
 // -------------------------------------------------------------
 // Test 12: snapMeta Supreme Shard Priority & Shard Crawl Metadata Sanitization
@@ -504,7 +498,6 @@ console.log('\n[Test 12] Verifying snapMeta Supreme Shard Priority & Shard Crawl
 
 // Assert snapMeta merge order in fleet-router.mjs gives supreme priority to masterRecord.metadata
 assert(
-  fleetRouterContent.includes('...cleanMeta(hubHistoricalSnap?.metadata)') &&
   fleetRouterContent.includes('...cleanMeta(hubSerpRows[0]?.metadata)') &&
   fleetRouterContent.includes('...cleanMeta(masterRecord?.metadata)'),
   'fleet-router.mjs must merge cleanMeta(masterRecord?.metadata) LAST to give supreme priority to shard treasures'

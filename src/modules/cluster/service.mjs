@@ -868,7 +868,7 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
           extracted_at = NOW(),
           pin_created_at = COALESCE(EXCLUDED.pin_created_at, candidate_graph_nodes.pin_created_at),
           age_days = EXCLUDED.age_days,
-          daily_velocity = GREATEST(candidate_graph_nodes.daily_velocity, EXCLUDED.daily_velocity),
+          daily_velocity = COALESCE(EXCLUDED.daily_velocity, candidate_graph_nodes.daily_velocity, 0),
           provenance_engine = EXCLUDED.provenance_engine,
           individual_prod_score = EXCLUDED.individual_prod_score,
           recgpt_transition_score = EXCLUDED.recgpt_transition_score,

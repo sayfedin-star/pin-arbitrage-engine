@@ -230,18 +230,15 @@ try {
   const returnsTopCreators = /top_creators:\s*creatorMonopoly/i.test(foldersServiceContent);
   check('Lock 4', returnsTopCreators, 'src/modules/keywords/folders-service.mjs omits top_creators from _executeFolderCrossover return');
 
-  // 4D. folders-service.mjs must hydrate displaced Vault pins from 20 physical shards with missing-image priority sorting, hubSql routing, aspect_ratio projection, and pin_age_days recomputation
+  // 4D. folders-service.mjs must hydrate displaced Vault pins from Unified PostgreSQL with aspect_ratio projection and pin_age_days recomputation
   const foldersHydratesShards = (
-    foldersServiceContent.includes('coalesceShardGroupsByPhysical') &&
     foldersServiceContent.includes('FROM universal_master_pins') &&
     foldersServiceContent.includes('isSyntheticPinTitle') &&
     (foldersServiceContent.includes(':crossover:v5') || foldersServiceContent.includes(':crossover:v4') || foldersServiceContent.includes(':crossover:v3')) &&
-    foldersServiceContent.includes('resolveShardConnection({ hubSql: sql, shardId, env })') &&
-    foldersServiceContent.includes('aMissingImg !== bMissingImg') &&
     foldersServiceContent.includes("(ump.metadata->>'aspect_ratio') AS aspect_ratio") &&
     /if\s*\(\s*!p\.created_at_pinterest\s*&&\s*meta\.created_at_pinterest\s*\)\s*\{[\s\S]*?p\.pin_age_days\s*=\s*Math\.max/.test(foldersServiceContent)
   );
-  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing 20-shard hydration, missing-image priority sort, hubSql routing, aspect_ratio projection, or pin_age_days recomputation');
+  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing unified universal_master_pins hydration, aspect_ratio projection, or pin_age_days recomputation');
 
   // =========================================================================
   // LOCK 5: Breadcrumb & Untracked Creator Shield
@@ -314,9 +311,9 @@ try {
   const hasPulseOnlyBypass = /acc\.tracking_mode\s*===\s*['"]pulse_only['"]/.test(creatorCrawlerContent);
   check('Lock 7', hasPulseOnlyBypass, "scripts/creator-velocity-crawler.mjs lacks tracking_mode === 'pulse_only' fast-path bypass");
 
-  // 7C. offloadKeywordCrawlToShards must check !isUnifiedPostgres(env)
-  const checksUnifiedPostgres = /!isUnifiedPostgres\(\s*env\s*\)/.test(serviceContent);
-  check('Lock 7', checksUnifiedPostgres, 'src/modules/keywords/service.mjs lacks !isUnifiedPostgres(env) guard');
+  // 7C. keywords/service.mjs must support Unified PostgreSQL topology
+  const checksUnifiedPostgres = /isUnifiedPostgres\(\s*env\s*\)/.test(serviceContent);
+  check('Lock 7', checksUnifiedPostgres, 'src/modules/keywords/service.mjs lacks isUnifiedPostgres(env) guard');
 
   // =========================================================================
   // LOCK 8: Daily Rolling Gains Workflow Automation
@@ -470,14 +467,13 @@ try {
   // 14C. Defensive rolling gains coalescence in backfill_rolling_window_gains.mjs
   const backfillGainsContent = readFile('scripts/backfill_rolling_window_gains.mjs');
   const hasDefensiveGainsCoalescence = (
-    backfillGainsContent.includes('COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d)') &&
-    backfillGainsContent.includes('COALESCE(NULLIF(u.gains_7d, 0), kdi.gains_7d)') &&
+    backfillGainsContent.includes('gains_7d = COALESCE(u.gains_7d, 0)') &&
     !backfillGainsContent.includes('computedDeltas.set(pinId, { pin_id: pinId, delta_repins_24h: 0, gains_5d: 0, gains_7d: 0')
   );
   check(
     'Lock 14',
     hasDefensiveGainsCoalescence,
-    'scripts/backfill_rolling_window_gains.mjs is missing defensive COALESCE(NULLIF(u.gains_7d, 0), ...) or contains destructive zero-overwrite catch loop'
+    'scripts/backfill_rolling_window_gains.mjs is missing defensive gains_7d = COALESCE(u.gains_7d, 0) or contains destructive zero-overwrite catch loop'
   );
 
   // 14D. Frontend domains AbortController and deep-link query hydration

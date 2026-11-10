@@ -190,11 +190,13 @@ export async function handleClusterRoutes({
     const uniqueSeeds = Array.from(dedupSeedsMap.values());
     const inserted = await bulkCreateClusterSeedsService(targetSql, uniqueSeeds);
 
-    invalidateEdgeCache('api:overview');
-    invalidateEdgeCache('api:seeds');
-    invalidateEdgeCache('api:recgpt-playbook');
-    invalidateEdgeCache('api:cluster-telemetry');
-    invalidateEdgeCache('api:guided-search');
+    await invalidateEdgeCache('api:overview');
+    await invalidateEdgeCache('api:seeds');
+    await invalidateEdgeCache('candidates');
+    await invalidateEdgeCache('intersections');
+    await invalidateEdgeCache('api:recgpt-playbook');
+    await invalidateEdgeCache('api:cluster-telemetry');
+    await invalidateEdgeCache('api:guided-search');
     return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
   }
 
@@ -210,11 +212,13 @@ export async function handleClusterRoutes({
 
     await bulkDeleteClusterSeedsService(targetSql, { pinIds, purgeDatabase });
 
-    invalidateEdgeCache('api:overview');
-    invalidateEdgeCache('api:seeds');
-    invalidateEdgeCache('api:recgpt-playbook');
-    invalidateEdgeCache('api:cluster-telemetry');
-    invalidateEdgeCache('api:guided-search');
+    await invalidateEdgeCache('api:overview');
+    await invalidateEdgeCache('api:seeds');
+    await invalidateEdgeCache('candidates');
+    await invalidateEdgeCache('intersections');
+    await invalidateEdgeCache('api:recgpt-playbook');
+    await invalidateEdgeCache('api:cluster-telemetry');
+    await invalidateEdgeCache('api:guided-search');
 
     return jsonResponse({
       success: true,
@@ -285,11 +289,13 @@ export async function handleClusterRoutes({
       }
 
       const seed = await createClusterSeedService(targetSql, { pinId, label, isCompetitor });
-      invalidateEdgeCache('api:overview');
-      invalidateEdgeCache('api:seeds');
-      invalidateEdgeCache('api:recgpt-playbook');
-      invalidateEdgeCache('api:cluster-telemetry');
-      invalidateEdgeCache('api:guided-search');
+      await invalidateEdgeCache('api:overview');
+      await invalidateEdgeCache('api:seeds');
+      await invalidateEdgeCache('candidates');
+      await invalidateEdgeCache('intersections');
+      await invalidateEdgeCache('api:recgpt-playbook');
+      await invalidateEdgeCache('api:cluster-telemetry');
+      await invalidateEdgeCache('api:guided-search');
       return jsonResponse({ success: true, seed }, 201);
     }
 
@@ -300,11 +306,13 @@ export async function handleClusterRoutes({
         return jsonResponse({ error: 'pin_id query parameter is required' }, 400);
       }
       await deleteClusterSeedService(targetSql, { pinId, purgeData });
-      invalidateEdgeCache('api:overview');
-      invalidateEdgeCache('api:seeds');
-      invalidateEdgeCache('api:recgpt-playbook');
-      invalidateEdgeCache('api:cluster-telemetry');
-      invalidateEdgeCache('api:guided-search');
+      await invalidateEdgeCache('api:overview');
+      await invalidateEdgeCache('api:seeds');
+      await invalidateEdgeCache('candidates');
+      await invalidateEdgeCache('intersections');
+      await invalidateEdgeCache('api:recgpt-playbook');
+      await invalidateEdgeCache('api:cluster-telemetry');
+      await invalidateEdgeCache('api:guided-search');
 
       return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
     }

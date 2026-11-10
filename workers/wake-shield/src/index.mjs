@@ -169,14 +169,16 @@ export default {
   async fetch(request, env, ctx) {
     const machineId = env.INSTABOX_MACHINE_ID || MACHINE_ID;
     const apiKey = env.INSTABOX_API_KEY;
-    const configuredPin = env.SHIELD_PIN || env.API_SECRET_KEY || DEFAULT_PIN;
-    const fallbackPin = env.API_SECRET_KEY || DEFAULT_PIN;
 
-    const expectedTokens = await Promise.all([
-      computeExpectedToken(configuredPin),
-      computeExpectedToken(fallbackPin),
-      computeExpectedToken(DEFAULT_PIN)
-    ]);
+    // Only allow DEFAULT_PIN ('pae2026') as a fallback if neither SHIELD_PIN nor API_SECRET_KEY is configured
+    const validPins = [];
+    if (env.SHIELD_PIN) validPins.push(env.SHIELD_PIN);
+    if (env.API_SECRET_KEY && !validPins.includes(env.API_SECRET_KEY)) validPins.push(env.API_SECRET_KEY);
+    if (validPins.length === 0) validPins.push(DEFAULT_PIN);
+
+    const expectedTokens = await Promise.all(
+      validPins.map(pin => computeExpectedToken(pin))
+    );
 
     const url = new URL(request.url);
 
@@ -196,7 +198,7 @@ export default {
     }
 
     // -------------------------------------------------------------
-    // B. AUTHENTICATION VERIFICATION (Cookie, Header, or URL Param)
+    // B. AUTHENTICATION VERIFICATION (Cookie or HTTP Header)
     // -------------------------------------------------------------
     let isAuthorized = false;
 
@@ -212,38 +214,18 @@ export default {
     const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
 
     if (
-      (headerApiKey && (headerApiKey === configuredPin || headerApiKey === fallbackPin || headerApiKey === DEFAULT_PIN)) ||
-      (bearerToken && (bearerToken === configuredPin || bearerToken === fallbackPin || bearerToken === DEFAULT_PIN))
+      (headerApiKey && validPins.includes(headerApiKey)) ||
+      (bearerToken && validPins.includes(bearerToken))
     ) {
       isAuthorized = true;
     }
 
-    // 3. Check URL Query Parameter (?pin=... or ?key=...)
-    const queryPin = url.searchParams.get('pin') || url.searchParams.get('key');
-    if (queryPin && (queryPin === configuredPin || queryPin === fallbackPin || queryPin === DEFAULT_PIN)) {
-      const token = await computeExpectedToken(queryPin);
-      if (apiKey) {
-        const wakePromise = triggerInstaBoxWake(machineId, apiKey);
-        if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(wakePromise);
-      }
-      url.searchParams.delete('pin');
-      url.searchParams.delete('key');
-      const cleanUrl = url.pathname + (url.search ? url.search : '');
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': cleanUrl,
-          'Set-Cookie': `${AUTH_COOKIE_NAME}=${token}; Path=/; Max-Age=${COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax; Secure`
-        }
-      });
-    }
-
-    // 4. Handle AJAX PIN submission from the Login Gate (POST /api/shield-auth)
+    // 3. Handle AJAX PIN submission from the Login Gate (POST /api/shield-auth)
     if (request.method === 'POST' && url.pathname === '/api/shield-auth') {
       try {
         const body = await request.json();
         const pinAttempt = (body?.pin || '').trim();
-        if (pinAttempt === configuredPin || pinAttempt === fallbackPin || pinAttempt === DEFAULT_PIN) {
+        if (pinAttempt && validPins.includes(pinAttempt)) {
           const token = await computeExpectedToken(pinAttempt);
           // Proactively wake the InstaBox VM immediately upon valid PIN authentication!
           if (apiKey) {
@@ -303,7 +285,7 @@ export default {
 
     // Inject secret API key automatically for authenticated operator so UI never prompts
     const originHeaders = new Headers(request.headers);
-    const secretKeyToInject = env.API_SECRET_KEY || fallbackPin;
+    const secretKeyToInject = env.API_SECRET_KEY || env.SHIELD_PIN || (validPins.includes(DEFAULT_PIN) ? DEFAULT_PIN : '');
     if (secretKeyToInject && !originHeaders.has('x-api-key')) {
       originHeaders.set('x-api-key', secretKeyToInject);
     }
