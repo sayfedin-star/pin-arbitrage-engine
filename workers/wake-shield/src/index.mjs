@@ -18,6 +18,7 @@ const MACHINE_ID = 'm_agq2t32m5xv5joj67rqoze5h4u';
 const DEFAULT_PIN = 'pae2026';
 const AUTH_COOKIE_NAME = 'pae_shield_auth';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const TUNNEL_DOWN_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
 
 // Isolate-level throttling caches to protect InstaBox API rate limits
 let lastWakeAt = 0;
@@ -384,8 +385,9 @@ export default {
       // 1. Attempt to pass through to origin tunnel
       response = await fetch(originRequest);
 
-      // Catch all 5xx tunnel/origin errors (500, 502, 503, 504, 520, 521, 522, 523, 524, 530)
-      if (response.status >= 500) {
+      // Catch only genuine gateway/tunnel offline statuses (502, 503, 504, 521, 522, 523, 524, 530)
+      // Do NOT intercept HTTP 500 application errors when the machine is already awake
+      if (TUNNEL_DOWN_STATUSES.has(response.status)) {
         isDown = true;
       }
     } catch (_) {

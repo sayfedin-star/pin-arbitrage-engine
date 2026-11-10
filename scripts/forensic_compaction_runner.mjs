@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { neon } from '@neondatabase/serverless';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 
 // Load .env
 if (typeof process.loadEnvFile === 'function') {
@@ -26,8 +25,7 @@ if (!process.env.DATABASE_URL && fs.existsSync(envPath)) {
   }
 }
 
-const dbUrl = enforceNeonPoolerUrl(process.env.DATABASE_URL);
-const sql = neon(dbUrl);
+const sql = process.env.DATABASE_URL ? createUniversalSqlClient(process.env.DATABASE_URL) : null;
 
 export async function getStorageBreakdown() {
   const [dbSizeRow] = await sql`

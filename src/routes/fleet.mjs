@@ -12,7 +12,7 @@ import {
   pingFleetProject,
   getFleetProjectUrl
 } from '../modules/fleet/service.mjs';
-import { resolveShardConnection, getPinShardId, isValidShardDsn, getPhysicalShardId } from '../modules/sharding/fleet-router.mjs';
+import { resolveShardConnection, getPinShardId, isValidShardDsn, getPhysicalShardId, isUnifiedPostgres } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
 import { verifyApiAuthentication } from '../worker.mjs';
 import { invalidateFolderCache } from '../modules/keywords/folders-service.mjs';
@@ -168,9 +168,9 @@ export async function handleFleetRoutes(routeCtx) {
       shardIdsToPing.push(Number(qShard));
     }
 
-    // Default to waking all 20 physical shards if "all" is requested or no shards specified
+    // Default to waking 1 unified DB in Unified Postgres mode (or 20 physical shards in sharded mode) if no explicit shards specified
     if (body.all === true || searchParams.get('all') === 'true' || shardIdsToPing.length === 0) {
-      shardIdsToPing = Array.from({ length: 20 }, (_, i) => i + 1);
+      shardIdsToPing = isUnifiedPostgres(env) ? [1] : Array.from({ length: 20 }, (_, i) => i + 1);
     }
 
     // Coalesce virtual IDs (1..99) to physical shard IDs (1..20)

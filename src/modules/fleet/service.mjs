@@ -3,9 +3,8 @@
  * Provides project registry querying and metrics aggregation.
  */
 
-import { neon } from '@neondatabase/serverless';
 import { getCompetitorsOverview, listCompetitors } from '../creators/service.mjs';
-import { getShardNumberForEntity, enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
+import { getShardNumberForEntity, enforceNeonPoolerUrl, createUniversalSqlClient } from '../sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../../utils.mjs';
 export { enforceNeonPoolerUrl, maskDatabaseUrl };
 
@@ -242,7 +241,7 @@ export async function pingFleetProject(hubSql, projectId) {
   }
 
   const start = performance.now();
-  const shardSql = neon(enforceNeonPoolerUrl(proj.database_url));
+  const shardSql = createUniversalSqlClient(proj.database_url);
   await shardSql`SELECT 1;`;
   const latencyMs = Math.round(performance.now() - start);
 

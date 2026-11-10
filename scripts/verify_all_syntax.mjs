@@ -31,7 +31,8 @@ function scanDirectory(dir, fileList = []) {
 
 const files = [
   ...scanDirectory('src'),
-  ...scanDirectory('scripts')
+  ...scanDirectory('scripts'),
+  ...(fs.existsSync('workers') ? scanDirectory('workers') : [])
 ];
 
 let failedCount = 0;

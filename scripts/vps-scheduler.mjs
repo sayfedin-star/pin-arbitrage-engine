@@ -52,6 +52,16 @@ export const VPS_JOBS = [
         cmd: process.execPath,
         args: ['scripts/backfill_rolling_window_gains.mjs'],
         env: {}
+      },
+      {
+        cmd: process.execPath,
+        args: ['scripts/keyword-fleet-consolidator.mjs'],
+        env: { MODE: 'keyword_sweep' }
+      },
+      {
+        cmd: process.execPath,
+        args: ['scripts/refresh-domain-rollup.mjs'],
+        env: {}
       }
     ]
   },
@@ -65,6 +75,16 @@ export const VPS_JOBS = [
         cmd: process.execPath,
         args: ['--use-system-ca', 'scripts/creator-velocity-crawler.mjs'],
         env: { WORKER_INDEX: '0', WORKER_TOTAL: '1', MODE: 'creator_sweep' }
+      },
+      {
+        cmd: process.execPath,
+        args: ['scripts/creator-fleet-consolidator.mjs'],
+        env: { MODE: 'creator_sweep' }
+      },
+      {
+        cmd: process.execPath,
+        args: ['scripts/refresh-domain-rollup.mjs'],
+        env: {}
       }
     ]
   },
@@ -73,6 +93,7 @@ export const VPS_JOBS = [
     name: 'Account Related Pins Graph Discovery',
     hoursUtc: [9, 17],
     minuteUtc: 0,
+    requiresTargetAccount: true,
     steps: [
       {
         cmd: process.execPath,
@@ -103,6 +124,7 @@ function runStep(step) {
       stdio: 'inherit',
       env: {
         ...process.env,
+        DATABASE_TOPOLOGY: 'unified_postgres',
         SINGLE_DB_MODE: 'true',
         ...step.env
       }
@@ -125,6 +147,10 @@ export async function executeVpsJob(jobId) {
   if (!job) {
     console.error(`[VPS-Scheduler] Unknown job id: "${jobId}". Valid IDs: ${VPS_JOBS.map(j => j.id).join(', ')}`);
     return false;
+  }
+  if (job.requiresTargetAccount && !String(process.env.TARGET_ACCOUNT || '').trim()) {
+    console.log(`[VPS-Scheduler] Skipping "${job.id}" because TARGET_ACCOUNT is not set.`);
+    return true;
   }
   if (activeJobId) {
     console.warn(`[VPS-Scheduler] Skipping "${job.id}" because "${activeJobId}" is currently in-flight.`);
@@ -160,7 +186,8 @@ function printScheduleStatus() {
   console.log('   PAE UNIFIED SINGLE-DB VPS CRON SCHEDULER');
   console.log('================================================================================');
   console.log(`Current UTC Time : ${new Date().toISOString()}`);
-  console.log(`Single-DB Mode   : true (1 Unified PostgreSQL Database, 0 External Shards)`);
+  console.log(`Database Topology: unified_postgres (1 Unified PostgreSQL Database, 0 External Shards)`);
+  console.log(`Internal Daemon  : ${process.env.ENABLE_INTERNAL_CRON === 'true' ? 'ENABLED' : 'DORMANT (Delegated to GitHub Actions 20-Runner Fleet)'}`);
   console.log(`Freshness Gate   : 18 Hours Shared Pin Deduplication via universal_master_pins`);
   console.log('--------------------------------------------------------------------------------');
   for (const job of VPS_JOBS) {
@@ -185,6 +212,14 @@ async function main() {
   }
 
   printScheduleStatus();
+  if (process.env.ENABLE_INTERNAL_CRON !== 'true' && !args.includes('--daemon')) {
+    console.log('[*] Internal cron loop is dormant by default so GitHub Actions 20-runner workflows');
+    console.log('    (01:00 UTC Keywords, 02:00 UTC Creators, 04:00 UTC Clusters) run without collision');
+    console.log('    and InstaBox VM can enter 30-min idle sleep cleanly.');
+    console.log('    Pass --once=<job> for immediate execution or set ENABLE_INTERNAL_CRON=true to keep daemon active.');
+    process.exit(0);
+  }
+
   console.log('[*] Entering continuous UTC cron loop (checking every 30 seconds)...');
 
   setInterval(async () => {

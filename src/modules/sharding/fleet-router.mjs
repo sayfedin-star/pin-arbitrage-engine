@@ -355,7 +355,25 @@ export function createUniversalSqlClient(dsn, options = {}) {
       max: Number(options.max || (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 10) || 10),
       idle_timeout: 20,
       connect_timeout: 10,
-      prepare: false
+      prepare: false,
+      transform: {
+        undefined: null
+      },
+      types: {
+        json: {
+          to: 114,
+          from: [114, 3802],
+          serialize: (x) => (typeof x === 'string' ? x : JSON.stringify(x)),
+          parse: (x) => {
+            if (typeof x !== 'string') return x;
+            try {
+              return JSON.parse(x);
+            } catch (_) {
+              return x;
+            }
+          }
+        }
+      }
     });
     const wrappedPg = wrapShardNeonTransaction(pgClient);
     return new Proxy(wrappedPg, {
@@ -3359,7 +3377,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
   };
 
   // Fast Unified-Postgres Path: write all pins directly to hubSql in a single batch
-  if (isUnifiedPostgres(env) && hubSql && shardSqlClients.size === 0) {
+  const explicitUnified = (env?.DATABASE_TOPOLOGY || (typeof process !== 'undefined' ? process.env?.DATABASE_TOPOLOGY : '')) === 'unified_postgres';
+  if (isUnifiedPostgres(env) && hubSql && (shardSqlClients.size === 0 || (globalShardMap.size === 0 && explicitUnified))) {
     try {
       const pinMap = new Map();
       for (const p of pins) {

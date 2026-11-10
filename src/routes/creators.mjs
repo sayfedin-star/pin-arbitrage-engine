@@ -560,7 +560,8 @@ export async function handleCreatorsRoutes(routeCtx) {
               max_pages: maxPages,
               personal_boards_only: personalOnly
             }
-          })
+          }),
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok || res.status === 204) {
           if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});

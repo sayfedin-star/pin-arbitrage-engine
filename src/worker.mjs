@@ -15,7 +15,7 @@ import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handleCreatorsRoutes } from './routes/creators.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
-import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards, isUnifiedPostgres } from './modules/sharding/fleet-router.mjs';
+import { createUniversalSqlClient, enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards, isUnifiedPostgres } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 
@@ -716,7 +716,7 @@ export default {
       const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
       let sql = env?.SQL_CLIENT;
       if (!sql && directNeonUrl) {
-        sql = neon(enforceNeonPoolerUrl(directNeonUrl));
+        sql = getCachedShardSql(directNeonUrl, () => createUniversalSqlClient(directNeonUrl));
       }
 
       if (!sql) {
@@ -856,7 +856,7 @@ export default {
       const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
       if (directNeonUrl) {
         const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
-        sql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
+        sql = getCachedShardSql(pooledDirectUrl, () => createUniversalSqlClient(directNeonUrl));
       }
     }
 
@@ -1158,7 +1158,8 @@ export default {
               crawl_mode: 'refresh',
               max_pages: '3'
             }
-          })
+          }),
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok) {
           if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});

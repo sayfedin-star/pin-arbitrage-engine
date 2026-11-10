@@ -428,7 +428,8 @@ export async function handleClusterRoutes({
           seed_pin_id: target,
           max_pages: maxPages
         }
-      })
+      }),
+      signal: AbortSignal.timeout(10000)
     });
 
     if (res.ok || res.status === 204) {

@@ -204,20 +204,20 @@ jobs:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
           skip-wakeup: 'true'
 
-      - name: 4. Execute Consolidation & Report Engine
+      - name: 4. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          FOLDER_ID: ${{ inputs.folder_id }}
+        run: node scripts/backfill_rolling_window_gains.mjs
+
+      - name: 5. Execute Consolidation & Report Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/keyword-fleet-consolidator.mjs
-
-      - name: 5. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          TARGET_KEYWORD: ${{ inputs.target_keyword }}
-          FOLDER_ID: ${{ inputs.folder_id }}
-        run: node scripts/backfill_rolling_window_gains.mjs
 
       - name: 6. Recompute Domain Intelligence Rollup
         env:
@@ -228,7 +228,7 @@ jobs:
         if: success()
         env:
           API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
-          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL || 'https://pin.zizeeba.com' }}
+          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL || 'https://app.hymum.com' }}
         run: |
           if [ -n "$API_SECRET_KEY" ]; then
             curl -s -X POST "${CLOUDFLARE_WORKER_URL}/api/fleet/cache-invalidate" \

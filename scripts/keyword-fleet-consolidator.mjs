@@ -59,7 +59,45 @@ async function main() {
 
     console.log(`  [+] Folder Confirmed: "${folder.name}" (ID: ${folder.id})`);
 
-    // 1. Cluster Keywords and their individual status
+    // 1. Recalculate Winsorized avg_daily_velocity per keyword in the folder from freshly inspected SERP pins
+    const folderKwPinVels = await sql`
+      SELECT kfi.keyword_id, ksc.daily_save_velocity
+      FROM keyword_folder_items kfi
+      LEFT JOIN keyword_serp_current ksc
+        ON ksc.keyword_id = kfi.keyword_id
+       AND COALESCE(ksc.is_displaced, FALSE) = FALSE
+      WHERE kfi.folder_id = ${folder.id};
+    `;
+    const folderVelsByKw = new Map();
+    const folderVelocities = [];
+    for (const r of folderKwPinVels) {
+      const kid = Number(r.keyword_id);
+      if (!folderVelsByKw.has(kid)) folderVelsByKw.set(kid, []);
+      if (r.daily_save_velocity !== null && r.daily_save_velocity !== undefined) {
+        const vel = Number(r.daily_save_velocity || 0);
+        folderVelsByKw.get(kid).push(vel);
+        folderVelocities.push(vel);
+      }
+    }
+    const folderVelUpdates = [];
+    for (const [kid, vels] of folderVelsByKw.entries()) {
+      const wVels = winsorize(vels, 0.95);
+      const kwAvgVel = wVels.length > 0
+        ? Math.round(wVels.reduce((a, b) => a + b, 0) / wVels.length)
+        : 0;
+      folderVelUpdates.push({ id: kid, avg_daily_velocity: kwAvgVel });
+    }
+    if (folderVelUpdates.length > 0) {
+      await sql`
+        UPDATE tracked_keywords tk
+        SET avg_daily_velocity = u.avg_daily_velocity,
+            updated_at = NOW()
+        FROM jsonb_to_recordset(${JSON.stringify(folderVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity int)
+        WHERE tk.id = u.id;
+      `;
+    }
+
+    // Cluster Keywords and their individual status
     const clusterKeywords = await sql`
       SELECT 
         tk.id, tk.keyword, tk.category, tk.avg_daily_velocity, tk.last_crawled_at,
@@ -90,15 +128,6 @@ async function main() {
       WHERE kfi.folder_id = ${folder.id};
     `;
 
-    // Fetch active pin velocities to apply winsorize robust averaging
-    const activeVelRows = await sql`
-      SELECT ksc.daily_save_velocity
-      FROM keyword_serp_current ksc
-      JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-      WHERE kfi.folder_id = ${folder.id}
-        AND COALESCE(ksc.is_displaced, FALSE) = FALSE;
-    `;
-    const folderVelocities = activeVelRows.map(r => Number(r.daily_save_velocity || 0));
     const robustFolderVels = winsorize(folderVelocities, 0.95);
     const avgVelocity = robustFolderVels.length > 0
       ? Math.round(robustFolderVels.reduce((a, b) => a + b, 0) / robustFolderVels.length)
@@ -320,6 +349,43 @@ async function main() {
     // CONSOLIDATION: MULTI-KEYWORD BROADCAST FLEET
     // =========================================================================
     console.log('[*] Consolidating multi-keyword broadcast run...');
+
+    // 1. Recalculate Winsorized 95th-percentile avg_daily_velocity per active keyword from freshly inspected SERP pins
+    const allActivePinVels = await sql`
+      SELECT tk.id AS keyword_id, ksc.daily_save_velocity
+      FROM tracked_keywords tk
+      LEFT JOIN keyword_serp_current ksc
+        ON ksc.keyword_id = tk.id
+       AND COALESCE(ksc.is_displaced, FALSE) = FALSE
+      WHERE tk.is_active = TRUE;
+    `;
+    const velsByKw = new Map();
+    for (const r of allActivePinVels) {
+      const kid = Number(r.keyword_id);
+      if (!velsByKw.has(kid)) velsByKw.set(kid, []);
+      if (r.daily_save_velocity !== null && r.daily_save_velocity !== undefined) {
+        velsByKw.get(kid).push(Number(r.daily_save_velocity || 0));
+      }
+    }
+    const kwVelUpdates = [];
+    for (const [kid, vels] of velsByKw.entries()) {
+      const wVels = winsorize(vels, 0.95);
+      const kwAvgVel = wVels.length > 0
+        ? Math.round(wVels.reduce((a, b) => a + b, 0) / wVels.length)
+        : 0;
+      kwVelUpdates.push({ id: kid, avg_daily_velocity: kwAvgVel });
+    }
+    if (kwVelUpdates.length > 0) {
+      await sql`
+        UPDATE tracked_keywords tk
+        SET avg_daily_velocity = u.avg_daily_velocity,
+            updated_at = NOW()
+        FROM jsonb_to_recordset(${JSON.stringify(kwVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity int)
+        WHERE tk.id = u.id;
+      `;
+    }
+    console.log(`  [+] Updated Winsorized avg_daily_velocity across ${kwVelUpdates.length} active keywords in single bulk query.`);
+
     const keywords = await sql`
       SELECT 
         tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.avg_daily_velocity, tk.last_crawled_at,

@@ -1645,6 +1645,9 @@ async function run() {
 
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
       console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
+      let fatalSerpDbErr = null;
+      let serpSuccessCount = 0;
+      let serpErrorCount = 0;
       for (const kid of keywordIdsInput) {
         const effectiveToken = crypto.randomUUID();
         try {
@@ -1657,9 +1660,16 @@ async function run() {
             force: true,
             lease_token: effectiveToken
           });
+          serpSuccessCount++;
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
-          console.warn(`  [!] [Phase 1A] Keyword ID ${kid} SERP error:`, err.message);
+          serpErrorCount++;
+          const sqlState = String(err?.code || '');
+          const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+          console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${sqlState || 'N/A'}):`, err.message);
+          if (isFatalSqlError && !fatalSerpDbErr) {
+            fatalSerpDbErr = err;
+          }
         } finally {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
           await sql`
@@ -1671,6 +1681,12 @@ async function run() {
               AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
           `.catch(() => {});
         }
+      }
+      if (fatalSerpDbErr) {
+        throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErr.message}`);
+      }
+      if (serpErrorCount > 0 && serpSuccessCount === 0) {
+        throw new Error(`[Phase 1A Total Failure] All ${serpErrorCount} assigned keyword SERP harvests failed on runner ${workerIndex + 1}/${workerTotal}.`);
       }
     } else if (!enableSerpHarvest) {
       console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Skipping directly to Phase 1B.`);
@@ -2230,6 +2246,9 @@ async function run() {
     if (enableSerpHarvest && mySerpKeywordIds.length > 0) {
       console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords...`);
       const serpSem = new Semaphore(2);
+      let fatalSerpDbErr = null;
+      let serpSuccessCount = 0;
+      let serpErrorCount = 0;
       await Promise.allSettled(
         mySerpKeywordIds.map((kid) => serpSem.run(async () => {
           const effectiveToken = crypto.randomUUID();
@@ -2242,9 +2261,16 @@ async function run() {
               force: true,
               lease_token: effectiveToken
             });
+            serpSuccessCount++;
             console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins)`);
           } catch (err) {
-            console.warn(`  [!] [Phase 1A] Keyword ID ${kid} SERP warning: ${err.message}`);
+            serpErrorCount++;
+            const sqlState = String(err?.code || '');
+            const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+            console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${sqlState || 'N/A'}): ${err.message}`);
+            if (isFatalSqlError && !fatalSerpDbErr) {
+              fatalSerpDbErr = err;
+            }
           } finally {
             // Landmine #1 Guard: Always stamp updated_at so a failed keyword never blocks the 20-worker barrier
             await sql`
@@ -2258,6 +2284,12 @@ async function run() {
           }
         }))
       );
+      if (fatalSerpDbErr) {
+        throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErr.message}`);
+      }
+      if (serpErrorCount > 0 && serpSuccessCount === 0) {
+        throw new Error(`[Phase 1A Total Failure] All ${serpErrorCount} assigned keyword SERP harvests failed on worker ${workerIndex + 1}/${workerTotal}.`);
+      }
     } else if (!enableSerpHarvest) {
       console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Proceeding directly to Phase 1B.`);
     }

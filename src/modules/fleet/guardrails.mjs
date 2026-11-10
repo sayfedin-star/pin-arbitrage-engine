@@ -1,5 +1,4 @@
-import { neon } from '@neondatabase/serverless';
-import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
+import { createUniversalSqlClient } from '../sharding/fleet-router.mjs';
 
 /**
  * Continuous Schema Drift Prevention Guardrail
@@ -51,7 +50,7 @@ export async function auditFleetSchemaVersions(hubSql) {
   const results = [];
   for (const s of shards) {
     try {
-      const sSql = neon(enforceNeonPoolerUrl(s.database_url));
+      const sSql = createUniversalSqlClient(s.database_url);
       const rows = await sSql`SELECT version, name, applied_at FROM schema_migrations ORDER BY applied_at DESC;`;
       results.push({
         id: s.id,
