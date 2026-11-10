@@ -53,6 +53,104 @@ async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetD
   await Promise.all([shardP, hubP]);
 }
 
+/**
+ * Reconciles a pin's bridged daily_save_velocity and save_count across pins_daily_metrics,
+ * universal_master_pins, keyword_serp_current, and keyword_displaced_index after any snapshot deletion.
+ */
+async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId }) {
+  if (!shardSql || !pinId) return;
+  try {
+    const remainingRows = await shardSql`
+      SELECT snapshot_date, save_count, repin_count, comment_count, share_count, daily_save_velocity
+      FROM pins_daily_metrics
+      WHERE pin_id = ${pinId}
+      ORDER BY snapshot_date DESC
+      LIMIT 30;
+    `.catch(() => []);
+
+    if (!Array.isArray(remainingRows) || remainingRows.length === 0) return;
+
+    // Chronological order (oldest -> newest) to recalculate bridged velocities
+    const chrono = [...remainingRows].reverse();
+    for (let i = 0; i < chrono.length; i++) {
+      const curr = chrono[i];
+      const currDateStr = curr.snapshot_date instanceof Date
+        ? curr.snapshot_date.toISOString().slice(0, 10)
+        : String(curr.snapshot_date).slice(0, 10);
+      let newVel = 0;
+      if (i > 0) {
+        const prev = chrono[i - 1];
+        const prevDateStr = prev.snapshot_date instanceof Date
+          ? prev.snapshot_date.toISOString().slice(0, 10)
+          : String(prev.snapshot_date).slice(0, 10);
+        const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
+        const savesDiff = Math.max(0, Number(curr.save_count || 0) - Number(prev.save_count || 0));
+        if (Number(prev.save_count || 0) > 0 && savesDiff > 0) {
+          newVel = Math.round((savesDiff / daysDiff) * 10) / 10;
+        }
+      }
+      curr.recomputed_velocity = newVel;
+      if (Math.abs(Number(curr.daily_save_velocity || 0) - newVel) > 0.05) {
+        await shardSql`
+          UPDATE pins_daily_metrics
+          SET daily_save_velocity = ${newVel}
+          WHERE pin_id = ${pinId} AND snapshot_date = ${currDateStr}::date;
+        `.catch(() => {});
+      }
+    }
+
+    const latest = chrono[chrono.length - 1];
+    const prev = chrono.length >= 2 ? chrono[chrono.length - 2] : null;
+    const latestSaves = Number(latest.save_count || 0);
+    const latestRepins = Number(latest.repin_count || 0);
+    const latestVel = Number(latest.recomputed_velocity || 0);
+    const latestDeltaSaves = Math.round(latestVel);
+    let latestDeltaRepins = 0;
+    if (prev && Number(prev.repin_count || 0) > 0 && latestRepins > Number(prev.repin_count || 0)) {
+      const currDateStr = latest.snapshot_date instanceof Date ? latest.snapshot_date.toISOString().slice(0, 10) : String(latest.snapshot_date).slice(0, 10);
+      const prevDateStr = prev.snapshot_date instanceof Date ? prev.snapshot_date.toISOString().slice(0, 10) : String(prev.snapshot_date).slice(0, 10);
+      const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
+      latestDeltaRepins = Math.round((latestRepins - Number(prev.repin_count || 0)) / daysDiff);
+    }
+
+    await Promise.all([
+      shardSql`
+        UPDATE universal_master_pins
+        SET
+          save_count = ${latestSaves},
+          repin_count = ${latestRepins},
+          daily_save_velocity = ${latestVel},
+          delta_saves_24h = ${latestDeltaSaves},
+          delta_repins_24h = ${latestDeltaRepins},
+          updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {}),
+      hubSql ? hubSql`
+        UPDATE keyword_serp_current
+        SET
+          save_count = ${latestSaves},
+          repin_count = ${latestRepins},
+          daily_save_velocity = ${latestVel},
+          delta_saves_24h = ${latestDeltaSaves},
+          delta_repins_24h = ${latestDeltaRepins},
+          updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {}) : Promise.resolve(),
+      hubSql ? hubSql`
+        UPDATE keyword_displaced_index
+        SET
+          save_count = ${latestSaves},
+          repin_count = ${latestRepins},
+          daily_save_velocity = ${latestVel},
+          delta_saves_24h = ${latestDeltaSaves},
+          delta_repins_24h = ${latestDeltaRepins},
+          updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {}) : Promise.resolve()
+    ]);
+  } catch (_) {}
+}
+
 
 /**
  * Fast URI discriminator for Pins routes
@@ -124,15 +222,16 @@ export async function handlePinsRoutes({
     if (method !== 'DELETE') {
       return methodNotAllowedResponse('DELETE, OPTIONS');
     }
-    const rawSnapshotParam = String(parts[2] || '').trim();
+    const rawSnapshotParam = decodeURIComponent(String(parts[2] || '').trim());
     const isDateParam = /^\d{4}-\d{2}-\d{2}$/.test(rawSnapshotParam);
+    const isIntradayParam = rawSnapshotParam.startsWith('intra_');
     // [INVARIANT: 60-BIT-SNOWFLAKE-SAFE] Never cast 60-bit view IDs via Number() (exceeds 53-bit MAX_SAFE_INTEGER)
     const isNumericSnapshotId = /^[1-9]\d{0,19}$/.test(rawSnapshotParam);
-    if (!isDateParam && !isNumericSnapshotId) {
+    if (!isDateParam && !isNumericSnapshotId && !isIntradayParam) {
       return jsonResponse({
         success: false,
         error: 'BAD_REQUEST',
-        message: 'Valid numeric snapshot_id or date (YYYY-MM-DD) is required'
+        message: 'Valid numeric snapshot_id, intraday checkpoint ID, or date (YYYY-MM-DD) is required'
       }, 400);
     }
     if (!pinId || !isValidPinId(pinId)) {
@@ -144,6 +243,31 @@ export async function handlePinsRoutes({
     }
     const shardId = getPinShardId(pinId, 99);
     const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
+
+    if (isIntradayParam && shardSql) {
+      await shardSql`
+        UPDATE universal_master_pins
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{intraday_snapshots}',
+          COALESCE((
+            SELECT jsonb_agg(elem)
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
+            ) AS elem
+            WHERE COALESCE(elem->>'id', '') <> ${rawSnapshotParam}
+          ), '[]'::jsonb)
+        ),
+        updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {});
+      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: rawSnapshotParam });
+      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidateEdgeCache('keywords:pin-dossier');
+      return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
+    }
 
     let targetDate = isDateParam ? rawSnapshotParam : null;
     let targetKwId = null;
@@ -190,6 +314,7 @@ export async function handlePinsRoutes({
         // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
         await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate });
       }
+      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -248,6 +373,7 @@ export async function handlePinsRoutes({
       `.catch(() => {});
       // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
       await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
+      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -262,7 +388,7 @@ export async function handlePinsRoutes({
     });
   }
 
-  // 1B. DELETE /api/pins/:pin_id/daily-metrics/:date (Delete entire day's metrics and all ranks)
+  // 1B. DELETE /api/pins/:pin_id/daily-metrics/:date (Delete entire day's metrics or specific intraday checkpoint)
   if (parts[1] === 'daily-metrics') {
     if (method !== 'DELETE') {
       return methodNotAllowedResponse('DELETE, OPTIONS');
@@ -274,31 +400,98 @@ export async function handlePinsRoutes({
         message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
       }, 400);
     }
-    const snapshotDate = String(parts[2] || searchParams.get('snapshot_date') || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+    const rawTarget = decodeURIComponent(String(parts[2] || searchParams.get('snapshot_date') || '').trim());
+    const isIntradayTarget = rawTarget.startsWith('intra_');
+    const isDateTarget = /^\d{4}-\d{2}-\d{2}$/.test(rawTarget);
+    if (!isDateTarget && !isIntradayTarget) {
       return jsonResponse({
         success: false,
         error: 'BAD_REQUEST',
-        message: 'Valid YYYY-MM-DD snapshot_date is required in path (/api/pins/:pinId/daily-metrics/YYYY-MM-DD)'
+        message: 'Valid YYYY-MM-DD snapshot_date or intraday checkpoint ID is required in path (/api/pins/:pinId/daily-metrics/:target)'
       }, 400);
     }
 
     const shardId = getPinShardId(pinId, 99);
     const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
 
-    // Delete metrics and positions from shard
-    await shardSql`
-      DELETE FROM pins_daily_metrics
-      WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-    `.catch(() => {});
+    if (isIntradayTarget) {
+      await shardSql`
+        UPDATE universal_master_pins
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{intraday_snapshots}',
+          COALESCE((
+            SELECT jsonb_agg(elem)
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
+            ) AS elem
+            WHERE COALESCE(elem->>'id', '') <> ${rawTarget}
+          ), '[]'::jsonb)
+        ),
+        updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {});
+      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: rawTarget });
+      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+    } else {
+      const snapshotDate = rawTarget;
+      // Check if an earlier intraday checkpoint exists for this same date; if so, promote the latest intraday checkpoint into pins_daily_metrics
+      const [umpRow] = await shardSql`
+        SELECT metadata FROM universal_master_pins WHERE pin_id = ${pinId} LIMIT 1;
+      `.catch(() => []);
+      const intraArr = Array.isArray(umpRow?.metadata?.intraday_snapshots)
+        ? umpRow.metadata.intraday_snapshots.filter(x => x && String(x.snapshot_date || '').slice(0, 10) === snapshotDate)
+        : [];
 
-    await shardSql`
-      DELETE FROM pin_serp_positions
-      WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-    `.catch(() => {});
+      if (intraArr.length > 0) {
+        // Sort descending by recorded_at and promote the latest intraday checkpoint
+        intraArr.sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
+        const promoted = intraArr[0];
+        const promotedId = String(promoted.id || '');
+        await shardSql`
+          UPDATE pins_daily_metrics
+          SET
+            save_count = ${Number(promoted.save_count || 0)},
+            repin_count = ${Number(promoted.repin_count || 0)},
+            comment_count = ${Number(promoted.comment_count || 0)},
+            share_count = ${Number(promoted.share_count || 0)},
+            updated_at = COALESCE(NULLIF(${String(promoted.recorded_at || '')}, '')::timestamptz, NOW())
+          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+        `.catch(() => {});
+        await shardSql`
+          UPDATE universal_master_pins
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{intraday_snapshots}',
+            COALESCE((
+              SELECT jsonb_agg(elem)
+              FROM jsonb_array_elements(
+                CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
+              ) AS elem
+              WHERE COALESCE(elem->>'id', '') <> ${promotedId}
+            ), '[]'::jsonb)
+          ),
+          updated_at = NOW()
+          WHERE pin_id = ${pinId};
+        `.catch(() => {});
+        await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      } else {
+        // Delete metrics and positions from shard for the entire date
+        await shardSql`
+          DELETE FROM pins_daily_metrics
+          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+        `.catch(() => {});
 
-    // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
-    await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
+        await shardSql`
+          DELETE FROM pin_serp_positions
+          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+        `.catch(() => {});
+
+        // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
+        await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
+        await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      }
+    }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
@@ -307,7 +500,7 @@ export async function handlePinsRoutes({
     return jsonResponse({
       success: true,
       pin_id: pinId,
-      snapshot_date: snapshotDate
+      snapshot_date: rawTarget
     });
   }
 

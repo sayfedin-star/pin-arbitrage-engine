@@ -175,123 +175,12 @@ const HARD_COOLDOWN_MS = 4 * 60 * 60 * 1000;    // 4 Hours Hard Floor
 const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Cache
 
 /**
- * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
+ * Live Fetch Mode (Hydration Cache Disabled):
+ * Always fetch live telemetry from Pinterest whenever the workflow runs,
+ * recording intraday timestamps or updating the crawl hour if unchanged.
  */
-function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
-    return {
-      shouldFetch: false,
-      reason: 'ssot_freshness_gate_18h',
-      reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
-      }
-    };
-  }
-  const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
-  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
-  const isDeepHydrated = Boolean(
-    pin.is_deep_hydrated === true ||
-    pin.is_deep_hydrated === 'true' ||
-    meta.is_deep_hydrated === true ||
-    meta.is_deep_hydrated === 'true'
-  );
-  const imgSig = pin.image_signature || meta.image_signature || '';
-  const hasRichTreasures = Boolean(
-    meta.has_treasures === true ||
-    imgSig ||
-    pin.has_visual_annotations === true ||
-    meta.canonical_pin_id ||
-    meta.board_pin_count
-  );
-  const isDisplaced = Boolean(pin.is_displaced);
-
-  const lastCrawlMs = crawlTime ? new Date(crawlTime).getTime() : NaN;
-  const elapsedMs = !isNaN(lastCrawlMs) ? (currentUtcTimestamp - lastCrawlMs) : Infinity;
-
-  // Self-Healing: Invalidate cache and fetch if original Pinterest creation date is missing
-  if (!pin.created_at_pinterest) {
-    return { shouldFetch: true, reason: 'missing_created_at_pinterest', reuseTelemetry: null };
-  }
-
-  // Displaced pins lack full metadata column in keyword_displaced_index; guard by crawlTime / updated_at cooldown
-  if (isDisplaced && !isNaN(lastCrawlMs) && pin.save_count != null && elapsedMs < HARD_COOLDOWN_MS) {
-    return {
-      shouldFetch: false,
-      reason: 'displaced_cooldown_active',
-      reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
-      }
-    };
-  }
-
-  // Do not invalidate cache merely because save_count === 0 if the pin is verified deep-hydrated
-  if (!crawlTime || isNaN(lastCrawlMs) || !isDeepHydrated || !hasRichTreasures || pin.save_count == null) {
-    return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
-  }
-
-  // Self-Healing: Invalidate cache if pin creation_method is missing or degraded to generic 'pinterest_platform'
-  const currentMethod = pin.creation_method || pin.method || meta.creation_method || meta.method;
-  const isGenericOrMissingMethod = !currentMethod || currentMethod === 'pinterest_platform';
-  if (isGenericOrMissingMethod) {
-    return { shouldFetch: true, reason: 'missing_or_generic_creation_method', reuseTelemetry: null };
-  }
-
-  const lastCrawlDateStr = new Date(lastCrawlMs).toISOString().slice(0, 10);
-  const currentUtcDateStr = new Date(currentUtcTimestamp).toISOString().slice(0, 10);
-  const isSameCalendarDay = (lastCrawlDateStr === currentUtcDateStr);
-
-  // 1. Hard Cooldown: Under 4 hours, preserve known saves so pins_daily_metrics is never dropped
-  if (elapsedMs < HARD_COOLDOWN_MS) {
-    if (!isSameCalendarDay) {
-      return {
-        shouldFetch: false,
-        reason: 'hard_cooldown_cross_midnight_preserve_metrics',
-        reuseTelemetry: {
-          save_count: Number(pin.save_count || 0),
-          repin_count: Number(pin.repin_count || 0),
-          comment_count: Number(pin.comment_count || 0),
-          share_count: Number(pin.share_count || 0),
-          daily_save_velocity: 0
-        }
-      };
-    }
-    return {
-      shouldFetch: false,
-      reason: 'hard_cooldown_under_4h',
-      reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
-      }
-    };
-  }
-
-  // 2. Same-Day Cache: If within same calendar day and under 18 hours
-  if (isSameCalendarDay && elapsedMs < MAX_SAME_DAY_TTL_MS) {
-    return {
-      shouldFetch: false,
-      reason: 'fresh_same_day_cache',
-      reuseTelemetry: {
-        save_count: Number(pin.save_count),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
-      }
-    };
-  }
-
-  return { shouldFetch: true, reason: 'stale_or_new_day', reuseTelemetry: null };
+function evaluateHydrationGuard(_pin, _currentUtcTimestamp = Date.now()) {
+  return { shouldFetch: true, reason: 'live_fetch_enabled', reuseTelemetry: null };
 }
 
 /**
@@ -364,7 +253,7 @@ async function inspectPin(pin, kw) {
   let fetchRes = null;
 
   try {
-    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly, cookie });
+    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly, cookie, minExpectedSaves: Number(pin.save_count || 0) });
     const isConfirmedDead = fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404');
     const isRateLimited = fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429');
     if (!fetchRes?.ok && !isConfirmedDead && !isRateLimited) {
@@ -460,16 +349,25 @@ async function inspectPin(pin, kw) {
     const rawDelta = authenticSaves - baselineSaves;
     const baseDateRaw = pin.baseline_day_date || pin.crawled_at || pin.metadata?.crawled_at || null;
     if (rawDelta > 0 && baseDateRaw) {
-      computedVelocity = calculateDailyVelocity({
-        currentSaves: authenticSaves,
-        baselineSaves,
-        currentRepins: authenticRepins,
-        baselineRepins: Number(pin.repin_count || 0),
-        currentDate: new Date(),
-        baselineDate: baseDateRaw,
-        createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
-        maxCap: 25000
-      });
+      const parsedBase = new Date(baseDateRaw);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const baseIso = !isNaN(parsedBase.getTime()) ? parsedBase.toISOString().slice(0, 10) : null;
+      if (!hasExplicitBaseline && baseIso === todayIso) {
+        // Intraday second crawl where pin.save_count was already updated earlier today:
+        // Add the new intraday step gain onto today's existing 24h velocity.
+        computedVelocity = Math.min(25000, Number(pin.daily_save_velocity || 0) + rawDelta);
+      } else {
+        computedVelocity = calculateDailyVelocity({
+          currentSaves: authenticSaves,
+          baselineSaves,
+          currentRepins: authenticRepins,
+          baselineRepins: Number(pin.repin_count || 0),
+          currentDate: new Date(),
+          baselineDate: baseDateRaw,
+          createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
+          maxCap: 25000
+        });
+      }
     } else if (rawDelta > 0 && !baseDateRaw && (pin.created_at_pinterest || detail?.created_at)) {
       computedVelocity = calculateDailyVelocity({
         currentSaves: authenticSaves,
@@ -1113,8 +1011,16 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
               };
               const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorSnaps]);
-              if (gains.delta_saves_24h != null && gains.delta_saves_24h > 0) {
-                sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.delta_saves_24h));
+              if (gains.delta_saves_24h != null) {
+                if (sp.was_live_scraped !== false) {
+                  sp.daily_save_velocity = Number(gains.delta_saves_24h);
+                } else {
+                  sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.delta_saves_24h));
+                }
+              } else if (priorSnaps.length > 0 && sp.was_live_scraped !== false) {
+                const todayPrev = priorSnaps[0];
+                const intradayAdd = Math.max(0, Number(sp.save_count || 0) - Number(todayPrev.save_count || 0));
+                sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), Number(todayPrev.daily_save_velocity || 0) + intradayAdd));
               }
               sp.delta_repins_24h = gains.delta_repins_24h;
               sp.gains_5d = gains.gains_5d;
@@ -1181,7 +1087,9 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 canonical_pin_id: enrichedShardMeta.canonical_pin_id ? String(enrichedShardMeta.canonical_pin_id) : null,
                 is_displaced: Boolean(sp.is_displaced),
                 last_known_rank: sp.last_known_rank ? Number(sp.last_known_rank) : null,
-                catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
+                catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null),
+                was_live_scraped: Boolean(sp.was_live_scraped !== false),
+                last_scraped_at: sp.was_live_scraped !== false ? new Date().toISOString() : null
               };
             }));
 
@@ -1204,14 +1112,15 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 COALESCE(u.save_count, 0), COALESCE(u.repin_count, 0), COALESCE(u.comment_count, 0), COALESCE(u.share_count, 0), COALESCE(u.reaction_count, 0), COALESCE(u.daily_save_velocity, 0),
                 COALESCE(u.daily_save_velocity, 0), COALESCE(u.delta_repins_24h, 0), COALESCE(u.gains_5d, 0), COALESCE(u.gains_7d, 0), COALESCE(u.gains_10d, 0), COALESCE(u.gains_15d, 0),
                 COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), COALESCE(NULLIF(u.creation_method, ''), 'pinterest_platform'), u.image_signature, u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
-                NOW(), 'keyword', NOW(), NOW()
+                NULLIF(TRIM(u.last_scraped_at), '')::timestamptz, 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, board_slug text, title text, domain text,
                 destination_url text, image_url text, description text, alt_text text, dominant_color text,
                 visual_annotations jsonb, created_at_pinterest text, metadata jsonb,
                 save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric,
                 delta_repins_24h int, gains_5d int, gains_7d int, gains_10d int, gains_15d int,
-                is_product boolean, is_video boolean, creation_method text, image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
+                is_product boolean, is_video boolean, creation_method text, image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text,
+                last_scraped_at text
               )
               ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
               ON CONFLICT (pin_id) DO UPDATE SET
@@ -1249,15 +1158,57 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                          'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
                        )
                        ELSE '{}'::jsonb
+                     END
+                  || CASE
+                       WHEN EXCLUDED.last_scraped_at IS NOT NULL
+                        AND COALESCE(universal_master_pins.save_count, 0) > 0
+                        AND (COALESCE(universal_master_pins.last_scraped_at, universal_master_pins.updated_at) AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+                        AND (
+                          universal_master_pins.save_count IS DISTINCT FROM GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))
+                          OR universal_master_pins.repin_count IS DISTINCT FROM GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0))
+                        )
+                       THEN jsonb_build_object(
+                         'intraday_snapshots',
+                         (
+                           CASE
+                             WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
+                             THEN universal_master_pins.metadata->'intraday_snapshots'
+                             ELSE '[]'::jsonb
+                           END
+                         ) || jsonb_build_array(
+                           jsonb_build_object(
+                             'id', 'intra_' || EXTRACT(EPOCH FROM COALESCE(universal_master_pins.last_scraped_at, universal_master_pins.updated_at))::bigint::text,
+                             'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
+                             'recorded_at', to_char(COALESCE(universal_master_pins.last_scraped_at, universal_master_pins.updated_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                             'save_count', COALESCE(universal_master_pins.save_count, 0),
+                             'repin_count', COALESCE(universal_master_pins.repin_count, 0),
+                             'comment_count', COALESCE(universal_master_pins.comment_count, 0),
+                             'share_count', COALESCE(universal_master_pins.share_count, 0)
+                           )
+                         )
+                       )
+                       ELSE '{}'::jsonb
                      END,
                 save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
                 repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
                 comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
                 share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
                 reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
-                daily_save_velocity = CASE WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity ELSE COALESCE(universal_master_pins.daily_save_velocity, 0) END,
-                delta_saves_24h = CASE WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h ELSE COALESCE(universal_master_pins.delta_saves_24h, 0) END,
-                delta_repins_24h = CASE WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h ELSE COALESCE(universal_master_pins.delta_repins_24h, 0) END,
+                daily_save_velocity = CASE
+                  WHEN EXCLUDED.daily_save_velocity IS NOT NULL AND (EXCLUDED.daily_save_velocity > 0 OR COALESCE(universal_master_pins.last_scraped_at, '1970-01-01'::timestamptz) < NOW() - INTERVAL '2 hours')
+                  THEN EXCLUDED.daily_save_velocity
+                  ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+                END,
+                delta_saves_24h = CASE
+                  WHEN EXCLUDED.delta_saves_24h IS NOT NULL AND (EXCLUDED.delta_saves_24h > 0 OR COALESCE(universal_master_pins.last_scraped_at, '1970-01-01'::timestamptz) < NOW() - INTERVAL '2 hours')
+                  THEN EXCLUDED.delta_saves_24h
+                  ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
+                END,
+                delta_repins_24h = CASE
+                  WHEN EXCLUDED.delta_repins_24h IS NOT NULL AND (EXCLUDED.delta_repins_24h > 0 OR COALESCE(universal_master_pins.last_scraped_at, '1970-01-01'::timestamptz) < NOW() - INTERVAL '2 hours')
+                  THEN EXCLUDED.delta_repins_24h
+                  ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
+                END,
                 gains_5d = CASE WHEN EXCLUDED.gains_5d > 0 THEN EXCLUDED.gains_5d ELSE COALESCE(universal_master_pins.gains_5d, 0) END,
                 gains_7d = CASE WHEN EXCLUDED.gains_7d > 0 THEN EXCLUDED.gains_7d ELSE COALESCE(universal_master_pins.gains_7d, 0) END,
                 gains_10d = CASE WHEN EXCLUDED.gains_10d > 0 THEN EXCLUDED.gains_10d ELSE COALESCE(universal_master_pins.gains_10d, 0) END,
@@ -1269,7 +1220,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
                 is_repin = (COALESCE(universal_master_pins.is_repin, FALSE) OR COALESCE(EXCLUDED.is_repin, FALSE)),
                 canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
-                last_scraped_at = NOW(),
+                last_scraped_at = COALESCE(EXCLUDED.last_scraped_at, universal_master_pins.last_scraped_at, NOW()),
                 updated_at = NOW();
             `;
 
@@ -1287,7 +1238,8 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   reaction_count int,
                   comment_count int,
                   share_count int,
-                  daily_save_velocity numeric
+                  daily_save_velocity numeric,
+                  was_live_scraped boolean
                 )
               ),
               dedup_metrics AS (
@@ -1346,6 +1298,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   ORDER BY pm.snapshot_date DESC
                   LIMIT 1
                 ) prev ON TRUE
+                WHERE COALESCE(rb.was_live_scraped, TRUE) = TRUE
                 GROUP BY rb.pin_id, prev.save_count, prev.snapshot_date
               ),
               upsert_metrics AS (
@@ -1371,8 +1324,14 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE
-                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-                    ELSE pins_daily_metrics.daily_save_velocity
+                    WHEN COALESCE(EXCLUDED.daily_save_velocity, 0) > 0 THEN
+                      GREATEST(
+                        COALESCE(pins_daily_metrics.daily_save_velocity, 0) + GREATEST(0, COALESCE(EXCLUDED.save_count, 0) - COALESCE(pins_daily_metrics.save_count, 0)),
+                        EXCLUDED.daily_save_velocity
+                      )
+                    WHEN COALESCE(EXCLUDED.save_count, 0) > COALESCE(pins_daily_metrics.save_count, 0) THEN
+                      COALESCE(pins_daily_metrics.daily_save_velocity, 0) + (COALESCE(EXCLUDED.save_count, 0) - COALESCE(pins_daily_metrics.save_count, 0))
+                    ELSE COALESCE(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity, 0)
                   END,
                   updated_at = NOW()
                 RETURNING pin_id
@@ -1480,8 +1439,9 @@ function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null
     const pid = String(cp.pin_id);
     const enriched = enrichedMap.get(pid);
     const baseMethod = cp.creation_method || cp.method || cp.metadata?.creation_method || cp.metadata?.method || 'pinterest_platform';
-    const basePin = enriched ? { ...enriched } : {
+    const basePin = enriched ? { ...enriched, was_live_scraped: Boolean(!enriched.from_hydration_cache) } : {
       pin_id: pid,
+      was_live_scraped: false,
       creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
       board_name: cp.board_name || cp.metadata?.board_name || '',
       board_slug: (cp.board_name || cp.metadata?.board_name || '').toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-'),
@@ -1744,18 +1704,6 @@ async function run() {
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> '' AND ksc.is_displaced = FALSE
             AND ksc.shard_id = ANY(${assignedShards}::smallint[])
-            AND (
-              ksc.crawled_at IS NULL
-              OR (
-                ksc.crawled_at < NOW() - INTERVAL '4 hours'
-                AND (
-                  (ksc.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                  OR ksc.crawled_at < NOW() - INTERVAL '18 hours'
-                )
-              )
-              OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1799,18 +1747,6 @@ async function run() {
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
             AND ksc.shard_id = ANY(${assignedShards}::smallint[])
-            AND (
-              ksc.crawled_at IS NULL
-              OR (
-                ksc.crawled_at < NOW() - INTERVAL '4 hours'
-                AND (
-                  (ksc.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                  OR ksc.crawled_at < NOW() - INTERVAL '18 hours'
-                )
-              )
-              OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1832,10 +1768,6 @@ async function run() {
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND kdi.shard_id = ANY(${assignedShards}::smallint[])
-            AND (
-              kdi.updated_at IS NULL
-              OR kdi.updated_at < NOW() - INTERVAL '4 hours'
-            )
             AND (
               COALESCE(kdi.last_known_rank, 999) <= 50
               OR COALESCE(kdi.daily_save_velocity, 0) >= 5
@@ -2055,18 +1987,6 @@ async function run() {
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> '' AND is_displaced = FALSE
           AND shard_id = ANY(${assignedShards}::smallint[])
-          AND (
-            crawled_at IS NULL
-            OR (
-              crawled_at < NOW() - INTERVAL '4 hours'
-              AND (
-                (crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                OR crawled_at < NOW() - INTERVAL '18 hours'
-              )
-            )
-            OR (metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-            OR COALESCE(NULLIF(creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-          )
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2093,18 +2013,6 @@ async function run() {
           FROM keyword_serp_current
           WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> ''
             AND shard_id = ANY(${assignedShards}::smallint[])
-            AND (
-              crawled_at IS NULL
-              OR (
-                crawled_at < NOW() - INTERVAL '4 hours'
-                AND (
-                  (crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                  OR crawled_at < NOW() - INTERVAL '18 hours'
-                )
-              )
-              OR (metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-              OR COALESCE(NULLIF(creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2125,10 +2033,6 @@ async function run() {
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND kdi.shard_id = ANY(${assignedShards}::smallint[])
-            AND (
-              kdi.updated_at IS NULL
-              OR kdi.updated_at < NOW() - INTERVAL '4 hours'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id
@@ -2344,18 +2248,6 @@ async function run() {
               -- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: IEEE 802.3 CRC32 Hash Parity
               OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
             )
-            AND (
-              ksc.crawled_at IS NULL
-              OR (
-                ksc.crawled_at < NOW() - INTERVAL '4 hours'
-                AND (
-                  (ksc.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                  OR ksc.crawled_at < NOW() - INTERVAL '18 hours'
-                )
-              )
-              OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -2402,18 +2294,6 @@ async function run() {
               ksc.shard_id = ANY(${assignedShards}::smallint[])
               OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
             )
-            AND (
-              ksc.crawled_at IS NULL
-              OR (
-                ksc.crawled_at < NOW() - INTERVAL '4 hours'
-                AND (
-                  (ksc.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-                  OR ksc.crawled_at < NOW() - INTERVAL '18 hours'
-                )
-              )
-              OR (ksc.metadata->>'is_deep_hydrated')::boolean IS NOT TRUE
-              OR COALESCE(NULLIF(ksc.creation_method, ''), 'pinterest_platform') = 'pinterest_platform'
-            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -2438,10 +2318,6 @@ async function run() {
             AND (
               kdi.shard_id = ANY(${assignedShards}::smallint[])
               OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
-            AND (
-              kdi.updated_at IS NULL
-              OR kdi.updated_at < NOW() - INTERVAL '4 hours'
             )
             AND (
               COALESCE(kdi.last_known_rank, 999) <= 50

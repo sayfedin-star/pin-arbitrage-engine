@@ -73,8 +73,42 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
     };
   }
 
+  // Deduplicate by calendar day (YYYY-MM-DD), keeping the highest save_count / repin_count per day
+  // so multiple same-day crawls always compare today's latest state against yesterday's baseline.
+  const byDayMap = new Map();
+  for (const s of snapshots) {
+    if (!s || !s.snapshot_date) continue;
+    const dStr = s.snapshot_date instanceof Date
+      ? s.snapshot_date.toISOString().slice(0, 10)
+      : String(s.snapshot_date).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) continue;
+    const prev = byDayMap.get(dStr);
+    if (!prev) {
+      byDayMap.set(dStr, { ...s, snapshot_date: dStr });
+    } else {
+      byDayMap.set(dStr, {
+        ...prev,
+        ...s,
+        snapshot_date: dStr,
+        save_count: Math.max(Number(prev.save_count || 0), Number(s.save_count || 0)),
+        repin_count: Math.max(Number(prev.repin_count || 0), Number(s.repin_count || 0)),
+        daily_save_velocity: Math.max(Number(prev.daily_save_velocity || 0), Number(s.daily_save_velocity || 0))
+      });
+    }
+  }
+
   // Sort descending by snapshot_date (latest first)
-  const sorted = [...snapshots].sort((a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date));
+  const sorted = Array.from(byDayMap.values()).sort((a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date));
+  if (sorted.length === 0) {
+    return {
+      daily_save_velocity: 0,
+      delta_repins_24h: 0,
+      gains_5d: 0,
+      gains_7d: 0,
+      gains_10d: 0,
+      gains_15d: 0
+    };
+  }
   const latest = sorted[0];
   const currentSaves = Number(latest.save_count || 0);
   const currentRepins = Number(latest.repin_count || 0);
@@ -164,6 +198,66 @@ async function main() {
   }
 
   console.log(`[*] Central Hub: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
+
+  // Pre-flight Self-Heal: Purge corrupted 2026-11-10 zero-delta cache-echo snapshots
+  try {
+    const healed = await hubSql`
+      WITH corrupted AS (
+        SELECT pm.pin_id, pm.snapshot_date, prev.daily_save_velocity AS prev_vel
+        FROM pins_daily_metrics pm
+        JOIN pins_daily_metrics prev
+          ON prev.pin_id = pm.pin_id
+         AND prev.snapshot_date = '2026-11-09'::date
+        WHERE pm.snapshot_date = '2026-11-10'::date
+          AND COALESCE(pm.daily_save_velocity, 0) = 0
+          AND pm.save_count = prev.save_count
+          AND COALESCE(prev.daily_save_velocity, 0) > 0
+      ),
+      del_pos AS (
+        DELETE FROM pin_serp_positions psp
+        USING corrupted c
+        WHERE psp.pin_id = c.pin_id AND psp.snapshot_date = c.snapshot_date
+      ),
+      del_metrics AS (
+        DELETE FROM pins_daily_metrics pm
+        USING corrupted c
+        WHERE pm.pin_id = c.pin_id AND pm.snapshot_date = c.snapshot_date
+        RETURNING pm.pin_id
+      ),
+      sync_ump AS (
+        UPDATE universal_master_pins u
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int,
+          updated_at = NOW()
+        FROM corrupted c
+        WHERE u.pin_id = c.pin_id AND COALESCE(u.daily_save_velocity, 0) = 0
+      ),
+      sync_ksc AS (
+        UPDATE keyword_serp_current ksc
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int,
+          updated_at = NOW()
+        FROM corrupted c
+        WHERE ksc.pin_id = c.pin_id AND COALESCE(ksc.daily_save_velocity, 0) = 0
+      ),
+      sync_kdi AS (
+        UPDATE keyword_displaced_index kdi
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int
+        FROM corrupted c
+        WHERE kdi.pin_id = c.pin_id AND COALESCE(kdi.daily_save_velocity, 0) = 0
+      )
+      SELECT COUNT(*)::int AS count FROM del_metrics;
+    `;
+    if (healed?.[0]?.count > 0) {
+      console.log(`[+] Pre-flight Cleaned ${healed[0].count} corrupted 2026-11-10 zero-delta snapshots & restored velocity.`);
+    }
+  } catch (cleanErr) {
+    console.warn(`[!] Pre-flight 2026-11-10 cleanup warning: ${cleanErr.message}`);
+  }
 
   // Environment guard to exit cleanly with 0 bytes of Hub egress when protecting monthly cap
   if (process.env.SKIP_GLOBAL_GAINS_BACKFILL === 'true' && !process.env.FOLDER_ID && !process.env.TARGET_KEYWORD) {
@@ -323,8 +417,8 @@ async function main() {
 
   console.log(`[+] Computed authentic deltas for ${computedDeltas.size} pins.`);
 
-  // 4. Batch update Central Hub keyword_serp_current and keyword_displaced_index
-  console.log('\n[*] Phase 4: Batch updating Central Hub keyword_serp_current & keyword_displaced_index...');
+  // 4. Batch update Central Hub keyword_serp_current, keyword_displaced_index, and universal_master_pins
+  console.log('\n[*] Phase 4: Batch updating Central Hub keyword_serp_current, keyword_displaced_index & universal_master_pins...');
   const deltaList = Array.from(computedDeltas.values());
   const BATCH_SIZE = 250;
   let updatedCount = 0;
@@ -332,7 +426,6 @@ async function main() {
   for (let i = 0; i < deltaList.length; i += BATCH_SIZE) {
     const chunk = deltaList.slice(i, i + BATCH_SIZE);
     const payloadJson = JSON.stringify(chunk);
-    const jsonParam = typeof hubSql.json === "function" ? hubSql.json(chunk) : payloadJson;
 
     // Update keyword_serp_current
     await hubSql`
@@ -345,7 +438,7 @@ async function main() {
         gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ksc.gains_10d),
         gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ksc.gains_15d),
         updated_at = NOW()
-      FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         daily_save_velocity numeric,
         delta_repins_24h int,
@@ -368,7 +461,7 @@ async function main() {
         gains_10d = COALESCE(NULLIF(u.gains_10d, 0), kdi.gains_10d),
         gains_15d = COALESCE(NULLIF(u.gains_15d, 0), kdi.gains_15d),
         updated_at = NOW()
-      FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         daily_save_velocity numeric,
         delta_repins_24h int,
@@ -380,9 +473,33 @@ async function main() {
       WHERE kdi.pin_id = u.pin_id;
     `;
 
+    // Update universal_master_pins
+    await hubSql`
+      UPDATE universal_master_pins ump
+      SET
+        daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ump.daily_save_velocity END,
+        delta_saves_24h = CASE WHEN u.daily_save_velocity > 0 THEN ROUND(u.daily_save_velocity)::int ELSE ump.delta_saves_24h END,
+        delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ump.delta_repins_24h),
+        gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ump.gains_5d),
+        gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ump.gains_7d),
+        gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ump.gains_10d),
+        gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ump.gains_15d),
+        updated_at = NOW()
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+        pin_id text,
+        daily_save_velocity numeric,
+        delta_repins_24h int,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int
+      )
+      WHERE ump.pin_id = u.pin_id;
+    `;
+
     updatedCount += chunk.length;
     if (updatedCount % 1000 === 0 || updatedCount === deltaList.length) {
-      console.log(`  -> Updated ${updatedCount}/${deltaList.length} pins on Central Hub...`);
+      console.log(`  -> Updated ${updatedCount}/${deltaList.length} pins on Central Hub & Master...`);
     }
   }
 

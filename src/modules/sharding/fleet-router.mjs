@@ -668,7 +668,7 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
  * @returns {Promise<number>} Number of shard mappings loaded
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
-  if (isUnifiedPostgres(env) && (env?.DATABASE_TOPOLOGY === 'unified_postgres' || (typeof process !== 'undefined' && process.env?.DATABASE_TOPOLOGY === 'unified_postgres'))) {
+  if (isUnifiedPostgres(env)) {
     return 0;
   }
   if (shardMapWarmupPromise) {
@@ -1065,7 +1065,13 @@ export function sanitizeDossierTrajectory(dossier) {
     : (Array.isArray(dossier.trajectory) ? dossier.trajectory : (Array.isArray(dossier.snapshots) ? dossier.snapshots : null));
   if (!Array.isArray(traj) || traj.length === 0) return dossier;
 
-  const chrono = [...traj].sort((a, b) => String(a.snapshot_date || '').localeCompare(String(b.snapshot_date || '')));
+  const chrono = [...traj].sort((a, b) => {
+    const dCmp = String(a.snapshot_date || '').slice(0, 10).localeCompare(String(b.snapshot_date || '').slice(0, 10));
+    if (dCmp !== 0) return dCmp;
+    const tA = String(a.recorded_at || a.updated_at || a.crawled_at || '');
+    const tB = String(b.recorded_at || b.updated_at || b.crawled_at || '');
+    return tA.localeCompare(tB);
+  });
   let runningMax = 0;
   for (const d of chrono) {
     const s = Number(d.save_count || 0);
@@ -1103,17 +1109,40 @@ export function sanitizeDossierTrajectory(dossier) {
       } else {
         curr.daily_save_velocity = 0;
       }
+      curr.window_24h_velocity = curr.daily_save_velocity;
+      curr.window_24h_delta = 0;
     } else {
       curr.is_hydration_jump = false;
       if (!curr.velocity_mode || curr.velocity_mode === 'hydration_amortized') curr.velocity_mode = 'normal';
-      const currDate = new Date(curr.snapshot_date);
-      const prevDate = new Date(prev.snapshot_date);
+      const currDate = new Date(String(curr.snapshot_date || '').slice(0, 10));
+      const prevDate = new Date(String(prev.snapshot_date || '').slice(0, 10));
       const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
       const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
+      curr.step_save_delta = diff;
       if (diff <= 0) {
         curr.daily_save_velocity = 0;
       } else {
         curr.daily_save_velocity = Math.round((diff / elapsed) * 10) / 10;
+      }
+
+      // Compute true 24h window gain against the latest snapshot from a prior calendar date
+      const currDayStr = String(curr.snapshot_date || '').slice(0, 10);
+      let priorCalSnap = null;
+      for (let j = i - 1; j >= 0; j--) {
+        const candDayStr = String(chrono[j].snapshot_date || '').slice(0, 10);
+        if (candDayStr && candDayStr < currDayStr) {
+          priorCalSnap = chrono[j];
+          break;
+        }
+      }
+      if (priorCalSnap && !isMultiStageHydrationJump(priorCalSnap, curr)) {
+        const calElapsed = Math.max(1, Math.round((currDate - new Date(String(priorCalSnap.snapshot_date || '').slice(0, 10))) / 86400000));
+        const calDiff = Math.max(0, Number(curr.save_count || 0) - Number(priorCalSnap.save_count || 0));
+        curr.window_24h_delta = calDiff;
+        curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+      } else {
+        curr.window_24h_delta = Math.max(0, diff);
+        curr.window_24h_velocity = curr.daily_save_velocity;
       }
     }
   }
@@ -1146,6 +1175,10 @@ export function sanitizeDossierTrajectory(dossier) {
   if (Array.isArray(dossier.daily_trajectory)) dossier.daily_trajectory = desc;
   if (Array.isArray(dossier.trajectory)) dossier.trajectory = desc;
   if (Array.isArray(dossier.snapshots)) dossier.snapshots = desc;
+  if (dossier.creative && desc[0]) {
+    dossier.creative.save_count = Math.max(Number(dossier.creative.save_count || 0), Number(desc[0].save_count || 0));
+    dossier.creative.daily_save_velocity = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? dossier.creative.daily_save_velocity ?? 0);
+  }
   return dossier;
 }
 
@@ -1805,28 +1838,57 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     return t ? new Date(t).getTime() : 0;
   }
 
+  // Detect & self-heal corrupted 2026-11-10 cache-echo zero-delta snapshots where 2026-11-09 had identical saves and positive velocity
+  const snapNov10 = shardList.find(s => formatUtcDate(s.snapshot_date) === '2026-11-10');
+  const snapNov09 = shardList.find(s => formatUtcDate(s.snapshot_date) === '2026-11-09');
+  const isCorruptedNov10Echo = Boolean(
+    snapNov10 &&
+    snapNov09 &&
+    Number(snapNov10.daily_save_velocity || 0) === 0 &&
+    Number(snapNov10.save_count || 0) === Number(snapNov09.save_count || 0) &&
+    Number(snapNov09.daily_save_velocity || 0) > 0
+  );
+  if (isCorruptedNov10Echo && shardSql) {
+    const restoredVel = Number(snapNov09.daily_save_velocity || 0);
+    Promise.all([
+      shardSql`DELETE FROM pins_daily_metrics WHERE pin_id = ${cleanPinId} AND snapshot_date = '2026-11-10'::date;`.catch(() => {}),
+      shardSql`DELETE FROM pin_serp_positions WHERE pin_id = ${cleanPinId} AND snapshot_date = '2026-11-10'::date;`.catch(() => {}),
+      shardSql`UPDATE universal_master_pins SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)}, updated_at = NOW() WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}),
+      hubSql ? hubSql`UPDATE keyword_serp_current SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)}, updated_at = NOW() WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}) : Promise.resolve(),
+      hubSql ? hubSql`UPDATE keyword_displaced_index SET daily_save_velocity = ${restoredVel}, delta_saves_24h = ${Math.round(restoredVel)} WHERE pin_id = ${cleanPinId} AND COALESCE(daily_save_velocity, 0) = 0;`.catch(() => {}) : Promise.resolve()
+    ]).catch(() => {});
+  }
+
+  const effectiveShardList = isCorruptedNov10Echo
+    ? shardList.filter(s => formatUtcDate(s.snapshot_date) !== '2026-11-10')
+    : shardList;
+  const existingShardDates = new Set();
+
   // Populate map with Shard snapshots first
-  for (const s of shardList) {
+  for (const s of effectiveShardList) {
     const sDate = formatUtcDate(s.snapshot_date);
     if (!sDate) continue;
+    existingShardDates.add(sDate);
     const dedupKey = `${sDate}_${s.keyword_id || 'global'}`;
     snapshotMap.set(dedupKey, s);
   }
 
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-  // Synthesize live in-memory SERP points from Hub active catalog (read-time only, no DB writes)
-  // Decoupled from strict todayUtc: Any valid crawl date represents a valid telemetry capture point
+  // Synthesize live in-memory SERP points from Hub active catalog ONLY if shard has no snapshots or for an already-existing shard date
   // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Union tombstones across Shard masterRecord, Central Hub metadata, and D1 cache (NL-04)
   const deletedSnapshotDates = new Set([
     ...(Array.isArray(masterRecord?.metadata?.deleted_snapshot_dates) ? masterRecord.metadata.deleted_snapshot_dates : []),
     ...(Array.isArray(topHubMeta?.deleted_snapshot_dates) ? topHubMeta.deleted_snapshot_dates : []),
-    ...(Array.isArray(d1Record?.metadata?.deleted_snapshot_dates) ? d1Record.metadata.deleted_snapshot_dates : [])
+    ...(Array.isArray(d1Record?.metadata?.deleted_snapshot_dates) ? d1Record.metadata.deleted_snapshot_dates : []),
+    ...(isCorruptedNov10Echo ? ['2026-11-10'] : [])
   ]);
 
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
     const crawlIso = formatUtcDate(crawlDate);
-    if (crawlIso && !deletedSnapshotDates.has(crawlIso)) {
+    // Do NOT fabricate a new date from kdi.updated_at / ksc.crawled_at if real snapshots already exist on the shard for other dates
+    const canUseCrawlDate = crawlIso && !deletedSnapshotDates.has(crawlIso) && (existingShardDates.size === 0 || existingShardDates.has(crawlIso));
+    if (canUseCrawlDate) {
       const dedupKey = `${crawlIso}_${sc.keyword_id || 'global'}`;
       const crawlIsoStr = safeIsoDate(sc.crawled_at) || safeIsoDate(sc.updated_at) || (crawlIso + 'T00:00:00.000Z');
       const updatedIsoStr = safeIsoDate(sc.updated_at) || crawlIsoStr;
@@ -2182,7 +2244,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const updatedTs = safeIsoDate(s.updated_at) || crawlTs;
     if (!dailyMap.has(dateKey)) {
       dailyMap.set(dateKey, {
+        row_key: dateKey,
+        snapshot_id: s.id ? String(s.id) : dateKey,
         snapshot_date: dateKey,
+        recorded_at: updatedTs || crawlTs,
         save_count: Number(s.save_count) || 0,
         repin_count: Number(s.repin_count) || 0,
         comment_count: Number(s.comment_count) || 0,
@@ -2199,6 +2264,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     if (crawlTs && (!day.crawled_at || new Date(crawlTs).getTime() > new Date(day.crawled_at).getTime())) {
       day.crawled_at = crawlTs;
       day.updated_at = updatedTs;
+      day.recorded_at = updatedTs || crawlTs;
     }
     day.save_count = Math.max(day.save_count, Number(s.save_count) || 0);
     day.repin_count = Math.max(day.repin_count, Number(s.repin_count) || 0);
@@ -2253,8 +2319,54 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
-  // Chronologically sort and enforce non-decreasing monotonic saves (prevents sawtooth jumps)
-  const dailyTrajectory = Array.from(dailyMap.values()).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date));
+  // Expand distinct intraday checkpoints from masterRecord.metadata.intraday_snapshots
+  const intradayList = Array.isArray(masterRecord?.metadata?.intraday_snapshots)
+    ? masterRecord.metadata.intraday_snapshots
+    : [];
+  const trajectoryEntries = Array.from(dailyMap.values());
+  const seenIntradayKeys = new Set();
+
+  for (const cp of intradayList) {
+    if (!cp || !cp.snapshot_date) continue;
+    const cpDate = formatUtcDate(cp.snapshot_date);
+    const cpId = String(cp.id || cp.recorded_at || '');
+    if (!cpDate || deletedSnapshotDates.has(cpDate) || (cpId && deletedSnapshotDates.has(cpId))) continue;
+    const parentDay = dailyMap.get(cpDate);
+    const cpSaves = Number(cp.save_count || 0);
+    const cpRepins = Number(cp.repin_count || 0);
+    if (parentDay && cpSaves === Number(parentDay.save_count || 0) && cpRepins === Number(parentDay.repin_count || 0)) {
+      continue;
+    }
+    const dedupIntra = `${cpDate}_${cpSaves}_${cpRepins}`;
+    if (seenIntradayKeys.has(dedupIntra)) continue;
+    seenIntradayKeys.add(dedupIntra);
+
+    const recAt = safeIsoDate(cp.recorded_at) || (cpDate + 'T00:00:00.000Z');
+    trajectoryEntries.push({
+      row_key: cpId || `${cpDate}_${recAt}`,
+      snapshot_id: cpId || `${cpDate}_${recAt}`,
+      snapshot_date: cpDate,
+      recorded_at: recAt,
+      crawled_at: recAt,
+      updated_at: recAt,
+      is_intraday_checkpoint: true,
+      save_count: cpSaves,
+      repin_count: cpRepins,
+      comment_count: Number(cp.comment_count || parentDay?.comment_count || 0),
+      share_count: Number(cp.share_count || parentDay?.share_count || 0),
+      reaction_count: Number(cp.reaction_count || parentDay?.reaction_count || 0),
+      daily_save_velocity: 0,
+      best_rank: parentDay?.best_rank || 999,
+      ranking_keywords: parentDay?.ranking_keywords ? [...parentDay.ranking_keywords] : []
+    });
+  }
+
+  // Chronologically sort by date and timestamp, then enforce non-decreasing monotonic saves
+  const dailyTrajectory = trajectoryEntries.sort((a, b) => {
+    const dCmp = String(b.snapshot_date || '').localeCompare(String(a.snapshot_date || ''));
+    if (dCmp !== 0) return dCmp;
+    return String(b.recorded_at || b.updated_at || '').localeCompare(String(a.recorded_at || a.updated_at || ''));
+  });
   const chronoDays = [...dailyTrajectory].reverse();
   let runningMaxSaves = 0;
   for (const d of chronoDays) {
@@ -2293,15 +2405,36 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       } else {
         curr.daily_save_velocity = 0;
       }
+      curr.window_24h_velocity = curr.daily_save_velocity;
+      curr.window_24h_delta = 0;
     } else {
       curr.is_hydration_jump = false;
       curr.velocity_mode = 'normal';
+      curr.step_save_delta = diff;
       if (elapsedDays >= 1) {
         if (diff <= 0) {
           curr.daily_save_velocity = 0;
         } else {
           curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
         }
+      }
+
+      // Compute 24h calendar window velocity against latest prior calendar day snapshot
+      let priorCalSnap = null;
+      for (let j = i - 1; j >= 0; j--) {
+        if (chronoDays[j].snapshot_date < curr.snapshot_date) {
+          priorCalSnap = chronoDays[j];
+          break;
+        }
+      }
+      if (priorCalSnap && !isMultiStageHydrationJump(priorCalSnap, curr)) {
+        const calElapsed = Math.max(1, Math.round((currDate - new Date(priorCalSnap.snapshot_date)) / 86400000));
+        const calDiff = Math.max(0, curr.save_count - priorCalSnap.save_count);
+        curr.window_24h_delta = calDiff;
+        curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+      } else {
+        curr.window_24h_delta = Math.max(0, diff);
+        curr.window_24h_velocity = curr.daily_save_velocity;
       }
     }
   }
@@ -2552,7 +2685,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       repin_count: Number(dailyTrajectory[0]?.repin_count ?? hubSerpRows[0]?.repin_count ?? masterRecord?.repin_count ?? 0),
       comment_count: Number(dailyTrajectory[0]?.comment_count ?? hubSerpRows[0]?.comment_count ?? 0),
       share_count: Number(dailyTrajectory[0]?.share_count ?? hubSerpRows[0]?.share_count ?? 0),
-      daily_save_velocity: Number(dailyTrajectory[0]?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
+      daily_save_velocity: Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404')),
       metadata: snapMeta
@@ -3059,14 +3192,16 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   const rawDelta = Math.max(0, newSaves - baselineSaves);
   const rawRepinDelta = Math.max(0, newRepins - targetBaselineRepins);
 
-  // Intraday Ratchet Protection:
-  // If baselineDateIso === todayUtcStr (same-day second crawl without prior-day snapshot),
-  // NEVER overwrite existing positive velocity with a smaller intraday +1/d delta or 0.
+  // Intraday Ratchet & Exact 24h Window Calculation:
+  // 1. If a prior-day snapshot exists (baselineDateIso < todayUtcStr), computedVelocity is the exact 24h gain against prior day.
+  // 2. If only a same-day baseline exists (!baselineDateIso || baselineDateIso === todayUtcStr), add any positive intraday gain to today's existing velocity.
+  const intradayStepGain = Math.max(0, newSaves - Number(todayShardRow?.save_count || baselineSaves || 0));
+  const intradayRepinStepGain = Math.max(0, newRepins - Number(todayShardRow?.repin_count || targetBaselineRepins || 0));
   const syncVelocity = (!baselineDateIso || baselineDateIso === todayUtcStr)
-    ? Math.max(existingPositiveVelocity, computedVelocity)
-    : (rawDelta === 0 && existingPositiveVelocity > 0 ? existingPositiveVelocity : computedVelocity);
+    ? Math.max(existingPositiveVelocity + intradayStepGain, computedVelocity)
+    : computedVelocity;
   const syncRepinsDelta = (!baselineDateIso || baselineDateIso === todayUtcStr)
-    ? Math.max(existingPositiveRepinDelta, rawRepinDelta)
+    ? Math.max(existingPositiveRepinDelta + intradayRepinStepGain, rawRepinDelta)
     : rawRepinDelta;
 
   // 7. Shard: Upsert two-tier modern snapshot metrics (pins_daily_metrics)
@@ -3085,15 +3220,52 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-      daily_save_velocity = GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0)),
+      daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity, 0),
       updated_at = NOW();
   `;
   await shardSql`
     UPDATE universal_master_pins
     SET
-      daily_save_velocity = GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0)),
-      delta_saves_24h = GREATEST(COALESCE(delta_saves_24h, 0), COALESCE(${syncVelocity}::numeric, 0)),
-      delta_repins_24h = GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0)),
+      metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
+        || CASE
+             WHEN COALESCE(universal_master_pins.save_count, 0) > 0
+              AND universal_master_pins.last_scraped_at IS NOT NULL
+              AND (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              AND (
+                universal_master_pins.save_count IS DISTINCT FROM ${newSaves}
+                OR universal_master_pins.repin_count IS DISTINCT FROM ${newRepins}
+              )
+             THEN jsonb_build_object(
+               'intraday_snapshots',
+               (
+                 CASE
+                   WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
+                   THEN universal_master_pins.metadata->'intraday_snapshots'
+                   ELSE '[]'::jsonb
+                 END
+               ) || jsonb_build_array(
+                 jsonb_build_object(
+                   'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
+                   'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
+                   'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                   'save_count', COALESCE(universal_master_pins.save_count, 0),
+                   'repin_count', COALESCE(universal_master_pins.repin_count, 0),
+                   'comment_count', COALESCE(universal_master_pins.comment_count, 0),
+                   'share_count', COALESCE(universal_master_pins.share_count, 0)
+                 )
+               )
+             )
+             ELSE '{}'::jsonb
+           END,
+      save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), ${newSaves}::bigint),
+      repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), ${newRepins}::int),
+      comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), ${newComments}::int),
+      share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), ${newShares}::int),
+      reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
+      daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity, 0),
+      delta_saves_24h = ROUND(COALESCE(${syncVelocity}::numeric, 0))::int,
+      delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0),
+      last_scraped_at = NOW(),
       updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
   `.catch(() => {});
@@ -3237,8 +3409,9 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         repin_count = GREATEST(COALESCE(repin_count, 0), ${newRepins}),
         comment_count = GREATEST(COALESCE(comment_count, 0), ${newComments}),
         share_count = GREATEST(COALESCE(share_count, 0), ${newShares}),
-        daily_save_velocity = GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0)),
-        delta_repins_24h = GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0)),
+        daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity, 0),
+        delta_saves_24h = ROUND(COALESCE(${syncVelocity}::numeric, 0))::int,
+        delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0),
         domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
         updated_at = NOW()
       WHERE pin_id = ${cleanPinId};
@@ -3377,8 +3550,7 @@ export async function writeBatchToDeterministicShards(params = {}) {
   };
 
   // Fast Unified-Postgres Path: write all pins directly to hubSql in a single batch
-  const explicitUnified = (env?.DATABASE_TOPOLOGY || (typeof process !== 'undefined' ? process.env?.DATABASE_TOPOLOGY : '')) === 'unified_postgres';
-  if (isUnifiedPostgres(env) && hubSql && (shardSqlClients.size === 0 || (globalShardMap.size === 0 && explicitUnified))) {
+  if (isUnifiedPostgres(env) && hubSql && shardSqlClients.size === 0 && globalShardMap.size === 0) {
     try {
       const pinMap = new Map();
       for (const p of pins) {

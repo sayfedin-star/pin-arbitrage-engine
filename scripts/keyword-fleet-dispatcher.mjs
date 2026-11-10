@@ -88,6 +88,66 @@ async function main() {
     console.warn('[!] Pre-flight sequence sync warning:', seqErr.message);
   }
 
+  // Self-heal corrupted 2026-11-10 zero-delta cache-echo snapshots and restore authentic 24h velocity
+  try {
+    const healed = await sql`
+      WITH corrupted AS (
+        SELECT pm.pin_id, pm.snapshot_date, prev.daily_save_velocity AS prev_vel, prev.save_count AS prev_saves
+        FROM pins_daily_metrics pm
+        JOIN pins_daily_metrics prev
+          ON prev.pin_id = pm.pin_id
+         AND prev.snapshot_date = '2026-11-09'::date
+        WHERE pm.snapshot_date = '2026-11-10'::date
+          AND COALESCE(pm.daily_save_velocity, 0) = 0
+          AND pm.save_count = prev.save_count
+          AND COALESCE(prev.daily_save_velocity, 0) > 0
+      ),
+      del_pos AS (
+        DELETE FROM pin_serp_positions psp
+        USING corrupted c
+        WHERE psp.pin_id = c.pin_id AND psp.snapshot_date = c.snapshot_date
+      ),
+      del_metrics AS (
+        DELETE FROM pins_daily_metrics pm
+        USING corrupted c
+        WHERE pm.pin_id = c.pin_id AND pm.snapshot_date = c.snapshot_date
+        RETURNING pm.pin_id
+      ),
+      sync_ump AS (
+        UPDATE universal_master_pins u
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int,
+          updated_at = NOW()
+        FROM corrupted c
+        WHERE u.pin_id = c.pin_id AND COALESCE(u.daily_save_velocity, 0) = 0
+      ),
+      sync_ksc AS (
+        UPDATE keyword_serp_current ksc
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int,
+          updated_at = NOW()
+        FROM corrupted c
+        WHERE ksc.pin_id = c.pin_id AND COALESCE(ksc.daily_save_velocity, 0) = 0
+      ),
+      sync_kdi AS (
+        UPDATE keyword_displaced_index kdi
+        SET
+          daily_save_velocity = c.prev_vel,
+          delta_saves_24h = ROUND(c.prev_vel)::int
+        FROM corrupted c
+        WHERE kdi.pin_id = c.pin_id AND COALESCE(kdi.daily_save_velocity, 0) = 0
+      )
+      SELECT COUNT(*)::int AS count FROM del_metrics;
+    `;
+    if (healed?.[0]?.count > 0) {
+      console.log(`[+] Pre-flight Cleaned ${healed[0].count} corrupted 2026-11-10 zero-delta snapshots & restored velocity.`);
+    }
+  } catch (cleanErr) {
+    console.warn('[!] Pre-flight 2026-11-10 cleanup warning:', cleanErr.message);
+  }
+
   // Dynamically resolve configuration from DB app_settings with ENV overrides
   const appSettings = await getAppSettings(sql).catch(() => ({}));
   const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();

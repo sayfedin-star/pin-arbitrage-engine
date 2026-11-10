@@ -1801,11 +1801,49 @@ export async function fetchPinFromPinResource(pinId, dispatcher = defaultDispatc
  * Resiliency Guard: PinResource only supports pure numeric snowflakes. Any obfuscated ID, 404, or fetch failure
  * automatically falls back to full SSR HTML scraping so 301/302 redirects are followed and active pins are never false-404'd.
  */
-export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = null, dispatcher = defaultDispatcher } = {}) {
+export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = null, dispatcher = defaultDispatcher, minExpectedSaves = 0 } = {}) {
   const isNumericSnowflake = /^\d+$/.test(String(pinId || '').trim());
   if (isTelemetryOnly && isNumericSnowflake) {
     const fastRes = await fetchPinFromPinResource(pinId, dispatcher, true);
-    if (fastRes && (fastRes.ok || fastRes.status === 429)) {
+    if (fastRes && fastRes.status === 429) {
+      return fastRes;
+    }
+    if (fastRes && fastRes.ok && fastRes.pin) {
+      const p = fastRes.pin;
+      const expected = Number(minExpectedSaves || 0);
+      if (
+        p.canonical_pin_id &&
+        String(p.canonical_pin_id) !== String(pinId) &&
+        ((p.saves || 0) <= 0 || !p.has_explicit_saves || (expected > 0 && (p.saves || 0) < expected) || ((p.saves || 0) <= (p.repins || 0) && (p.repins || 0) > 15))
+      ) {
+        const canonPin = await fetchPinFromPinResource(p.canonical_pin_id, dispatcher, false).catch(() => null);
+        if (canonPin) {
+          if ((canonPin.saves || 0) > (p.saves || 0)) {
+            p.saves = canonPin.saves;
+            p.has_explicit_saves = Boolean(p.has_explicit_saves || canonPin.has_explicit_saves || canonPin.saves > 0);
+          }
+          if ((canonPin.repins || 0) > (p.repins || 0)) {
+            p.repins = canonPin.repins;
+          }
+        }
+      }
+
+      const hasValidSaves =
+        (p.saves || 0) > 0 &&
+        Boolean(p.has_explicit_saves) &&
+        !(expected > 0 && (p.saves || 0) < expected) &&
+        !((p.saves || 0) < (p.repins || 0) && (p.saves || 0) < 50 && (p.repins || 0) > 50);
+
+      if (hasValidSaves) {
+        return fastRes;
+      }
+
+      const ssrRes = await fetchPinFromPinterest(pinId, cookie, { dispatcher });
+      if (ssrRes && ssrRes.ok && ssrRes.pin) {
+        ssrRes.pin.saves = Math.max(Number(ssrRes.pin.saves || 0), Number(p.saves || 0));
+        ssrRes.pin.repins = Math.max(Number(ssrRes.pin.repins || 0), Number(p.repins || 0));
+        return ssrRes;
+      }
       return fastRes;
     }
   }
@@ -1899,7 +1937,7 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
     const isSuspicious = !parsed || parsed.saves === 0 || (!parsed.has_explicit_saves && parsed.repins > 0) || (parsed.saves <= parsed.repins && parsed.repins > 50);
     if (isSuspicious) {
       const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
-      if (fallbackPin && fallbackPin.saves > 0) {
+      if (fallbackPin && (fallbackPin.saves > 0 || fallbackPin.repins > 0 || fallbackPin.canonical_pin_id)) {
         if (!parsed) {
           parsed = fallbackPin;
         } else {
@@ -1911,11 +1949,44 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
             ...parsed,
             method: authenticMethod,
             creation_method: authenticMethod,
+            canonical_pin_id: parsed.canonical_pin_id || fallbackPin.canonical_pin_id || null,
             saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
             repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
             comments: Math.max(parsed.comments || 0, fallbackPin.comments || 0),
-            has_explicit_saves: true
+            has_explicit_saves: Boolean(parsed.has_explicit_saves || fallbackPin.has_explicit_saves || fallbackPin.saves > 0)
           };
+        }
+      }
+    }
+
+    if (
+      parsed &&
+      parsed.canonical_pin_id &&
+      String(parsed.canonical_pin_id) !== cleanId &&
+      ((parsed.saves || 0) <= 0 || (parsed.saves || 0) <= (parsed.repins || 0) || (Number(opts.minExpectedSaves) > 0 && (parsed.saves || 0) < Number(opts.minExpectedSaves)))
+    ) {
+      const canonId = String(parsed.canonical_pin_id);
+      let canonPin = await fetchPinFromPinResource(canonId, dispatcher).catch(() => null);
+      if (
+        !opts._isCanonicalHop &&
+        (!canonPin || !canonPin.has_explicit_saves || (canonPin.saves || 0) <= (parsed.saves || 0))
+      ) {
+        const canonHtmlRes = await fetchPinFromPinterest(canonId, null, {
+          ...opts,
+          _isCanonicalHop: true,
+          dispatcher
+        }).catch(() => null);
+        if (canonHtmlRes?.ok && canonHtmlRes.pin && (canonHtmlRes.pin.saves || 0) > (canonPin?.saves || 0)) {
+          canonPin = canonHtmlRes.pin;
+        }
+      }
+      if (canonPin) {
+        if ((canonPin.saves || 0) > (parsed.saves || 0)) {
+          parsed.saves = canonPin.saves;
+          parsed.has_explicit_saves = true;
+        }
+        if ((canonPin.repins || 0) > (parsed.repins || 0)) {
+          parsed.repins = canonPin.repins;
         }
       }
     }

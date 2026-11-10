@@ -417,20 +417,14 @@ export function getPinDetailPageHtml(pinId = '') {
       </nav>
     </div>
 
-    <!-- Center: Shard Badge & Status Dot -->
+    <!-- Center: Storage Topology Badge & Status Dot -->
     <div class="hidden lg:flex items-center gap-2">
       <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#27272A] bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-300">
         <span class="w-2 h-2 rounded-full" :class="isShardWarming ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
-        <span x-text="dossier?.topology === 'unified_postgres' ? 'Unified Central Hub' : 'Storage Shard'"></span>
-        <template x-if="dossier?.topology !== 'unified_postgres'">
-          <span>
-            <span class="text-emerald-400 font-bold" x-text="dossier?.shard_id ? ('#' + dossier.shard_id) : 'resolving...'"></span>
-            <span class="text-slate-600">/ 99</span>
-          </span>
-        </template>
+        <span>Native VPS PostgreSQL</span>
       </div>
       <template x-if="dossier?.from_shard_snapshots">
-        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80" x-text="dossier?.topology === 'unified_postgres' ? 'Unified Hub SSOT' : 'Shard Snapshot SSOT'">Shard Snapshot SSOT</span>
+        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">VPS PostgreSQL SSOT</span>
       </template>
     </div>
 
@@ -506,7 +500,7 @@ export function getPinDetailPageHtml(pinId = '') {
         @click="loadDossier(true)" 
         :disabled="loading"
         class="p-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
-        :title="dossier?.topology === 'unified_postgres' ? 'Reload dossier from Unified Central Hub' : 'Reload dossier from Edge & Shard'"
+        :title="'Reload dossier from Native VPS PostgreSQL'"
       >
         <svg :class="loading ? 'animate-spin' : ''" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
       </button>
@@ -518,11 +512,11 @@ export function getPinDetailPageHtml(pinId = '') {
     <div class="flex flex-col items-center gap-3 max-w-sm text-center">
       <div class="w-10 h-10 border-2 border-rose-600 border-t-transparent rounded-full animate-spin"></div>
       <div class="text-sm font-semibold text-white">Resolving Universal Pin Dossier...</div>
-      <div class="text-xs text-slate-400 font-mono tabular-nums">Routing deterministic CRC32 hash to Shard Fleet.</div>
+      <div class="text-xs text-slate-400 font-mono tabular-nums">Querying Native VPS PostgreSQL SSOT...</div>
     </div>
   </div>
 
-  <!-- Error / Cold Shard State -->
+  <!-- Error State -->
   <div x-show="!loading && (!dossier || !dossier.success)" class="flex-1 flex items-center justify-center p-8" x-cloak>
     <div class="bg-[#121215] border border-[#27272A] rounded-2xl max-w-md w-full p-8 text-center flex flex-col items-center gap-4 shadow-xl">
       <div 
@@ -532,8 +526,8 @@ export function getPinDetailPageHtml(pinId = '') {
         <span x-text="isShardWarming ? '⏳' : '⚠️'"></span>
       </div>
       <div>
-        <h2 class="text-base font-bold text-white" x-text="isShardWarming ? 'Storage Shard Warming Up' : 'Pin Telemetry Not Found'"></h2>
-        <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="isShardWarming ? 'The Neon Serverless Shard containing this pin is waking up from scale-to-zero cold sleep. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
+        <h2 class="text-base font-bold text-white" x-text="isShardWarming ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
+        <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="isShardWarming ? 'The database is temporarily busy processing a heavy query. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
       </div>
       <div class="flex items-center gap-3 pt-2">
         <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer">
@@ -725,10 +719,10 @@ export function getPinDetailPageHtml(pinId = '') {
           <span class="font-mono tabular-nums font-bold text-slate-200" x-text="formatStrictUniversalAge()"></span>
         </div>
 
-        <!-- Shard Allocation / Storage Topology -->
+        <!-- Storage Topology -->
         <div class="flex items-center justify-between gap-2 border-t border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0" x-text="dossier?.topology === 'unified_postgres' ? 'Storage Architecture' : 'CRC32 Routing'"></span>
-          <span class="font-mono tabular-nums text-emerald-400 font-semibold" x-text="dossier?.topology === 'unified_postgres' ? 'Unified Central Hub' : ('Shard #' + dossier?.shard_id)"></span>
+          <span class="text-slate-400 shrink-0">Storage Architecture</span>
+          <span class="font-mono tabular-nums text-emerald-400 font-semibold">Native VPS PostgreSQL</span>
         </div>
 
         <!-- Cross-Pillar Radar Action -->
@@ -940,7 +934,7 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Performance Trajectory</div>
-            <div class="text-[11px] text-slate-500 font-mono tabular-nums" x-text="dossier?.topology === 'unified_postgres' ? 'Multi-day historical telemetry plotted from Unified Central Hub' : 'Multi-day historical telemetry plotted from Shard database'">Multi-day historical telemetry plotted from Shard database</div>
+            <div class="text-[11px] text-slate-500 font-mono tabular-nums">Multi-day historical telemetry plotted from Native VPS PostgreSQL SSOT</div>
           </div>
 
           <!-- Timeframe & Metric Selector [NL-03 Resolved] -->
@@ -1121,19 +1115,27 @@ export function getPinDetailPageHtml(pinId = '') {
                   <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <template x-for="(day, dIdx) in filteredDays()" :key="day.snapshot_date">
+              <template x-for="(day, dIdx) in filteredDays()" :key="getDayRowKey(day)">
                 <tbody class="divide-y divide-[#27272A] border-b border-[#27272A]">
                   <tr class="hover:bg-[#18181B]/80 transition group">
                     <!-- Expand chevron -->
-                    <td class="py-3 px-4 text-center cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
-                      <svg class="w-4 h-4 text-slate-500 group-hover:text-slate-200 transition-transform duration-200 inline-block" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-rose-400' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    <td class="py-3 px-4 text-center cursor-pointer" @click="toggleDayExpanded(getDayRowKey(day))">
+                      <svg class="w-4 h-4 text-slate-500 group-hover:text-slate-200 transition-transform duration-200 inline-block" :class="isDayExpanded(getDayRowKey(day)) ? 'rotate-90 text-rose-400' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </td>
 
-                    <!-- Date -->
-                    <td class="py-3 px-4 font-mono tabular-nums whitespace-nowrap cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
-                      <div class="font-bold text-white" x-text="day.snapshot_date"></div>
+                    <!-- Date & Crawl Time (YYYY-MM-DD HH:MM) -->
+                    <td class="py-3 px-4 font-mono tabular-nums whitespace-nowrap cursor-pointer" @click="toggleDayExpanded(getDayRowKey(day))">
+                      <div class="flex items-center gap-1.5">
+                        <span class="font-bold text-white" x-text="day.snapshot_date"></span>
+                        <template x-if="formatSnapshotTime(day)">
+                          <span class="text-[10.5px] px-1.5 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-sky-400 font-mono" x-text="formatSnapshotTime(day)"></span>
+                        </template>
+                      </div>
                       <template x-if="dIdx === 0">
                         <span class="text-[10px] text-emerald-400 font-sans">Latest crawl</span>
+                      </template>
+                      <template x-if="dIdx > 0 && day.is_intraday_checkpoint">
+                        <span class="text-[10px] text-sky-400/80 font-sans">Intraday checkpoint</span>
                       </template>
                     </td>
 
@@ -1177,9 +1179,9 @@ export function getPinDetailPageHtml(pinId = '') {
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                       <button 
                         type="button" 
-                        @click="requestDeleteDay(day.snapshot_date)" 
+                        @click="requestDeleteDay(day.is_intraday_checkpoint ? (day.snapshot_id || day.row_key) : day.snapshot_date)" 
                         class="p-1.5 rounded-md hover:bg-red-950/50 text-slate-500 hover:text-red-400 transition cursor-pointer"
-                        title="Delete telemetry for this date"
+                        title="Delete this snapshot row and bridge delta"
                       >
                         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                       </button>
@@ -1187,11 +1189,11 @@ export function getPinDetailPageHtml(pinId = '') {
                   </tr>
 
                   <!-- Accordion Sub-Drawer: Keywords for this Day -->
-                  <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-[#18181B]/40">
+                  <tr x-show="isDayExpanded(getDayRowKey(day))" class="bg-[#18181B]/40">
                     <td colspan="7" class="p-4 border-t border-[#27272A]">
                       <div class="space-y-3">
                         <div class="flex items-center justify-between text-xs">
-                          <span class="font-bold text-slate-300">Detailed SERP Keywords for <span class="font-mono text-white" x-text="day.snapshot_date"></span></span>
+                          <span class="font-bold text-slate-300">Detailed SERP Keywords for <span class="font-mono text-white" x-text="day.snapshot_date + (formatSnapshotTime(day) ? (' ' + formatSnapshotTime(day)) : '')"></span></span>
                           <span class="text-slate-400 font-mono text-[11px]" x-text="(day.ranking_keywords || []).length + ' keywords indexed'"></span>
                         </div>
 
@@ -1648,16 +1650,16 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
       <p class="text-xs text-slate-300 leading-relaxed">
         <template x-if="deleteType === 'DAY'">
-          <span>Are you sure you want to permanently delete all metrics and SERP rankings for <strong class="text-white" x-text="itemToDelete?.date"></strong>? This will remove the record from Shard <span class="font-mono tabular-nums text-emerald-400 font-semibold" x-text="'#' + dossier?.shard_id"></span>.</span>
+          <span>Are you sure you want to permanently delete this snapshot for <strong class="text-white" x-text="itemToDelete?.date"></strong>? Subsequent snapshot deltas will be automatically recalculated.</span>
         </template>
         <template x-if="deleteType === 'SERP_BADGE'">
           <span>Remove keyword ranking for <strong class="text-white" x-text="itemToDelete?.keywordName"></strong> on <strong class="text-white" x-text="itemToDelete?.date"></strong>? Daily metrics will be preserved.</span>
         </template>
         <template x-if="deleteType === 'SNAPSHOT'">
-          <span>Delete snapshot <strong class="text-rose-400" x-text="'#' + (itemToDelete?.snapshotId || snapshotToDelete)"></strong> from Shard <span class="font-mono tabular-nums text-emerald-400 font-semibold" x-text="'#' + dossier?.shard_id"></span>?</span>
+          <span>Delete snapshot <strong class="text-rose-400" x-text="'#' + (itemToDelete?.snapshotId || snapshotToDelete)"></strong> from Native VPS PostgreSQL?</span>
         </template>
         <template x-if="deleteType === 'PIN'">
-          <span>Permanently purge Pin <strong class="text-rose-400" x-text="'#' + pinId"></strong> from all Shard tables, Central Hub rankings, and Edge Caches? This action cannot be undone.</span>
+          <span>Permanently purge Pin <strong class="text-rose-400" x-text="'#' + pinId"></strong> from all Native VPS PostgreSQL tables? This action cannot be undone.</span>
         </template>
       </p>
       <div class="flex items-center justify-end gap-3 pt-2">
@@ -1783,14 +1785,38 @@ export function getPinDetailPageHtml(pinId = '') {
           return diffDays + 'd';
         },
 
+        computeTrue24hWindowDelta() {
+          const traj = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : (this.dossier?.snapshots || []);
+          if (!traj.length) return 0;
+          const head = traj[0];
+          if (head?.window_24h_delta !== undefined && head?.window_24h_delta !== null) {
+            return Number(head.window_24h_delta);
+          }
+          const headDate = head?.snapshot_date ? String(head.snapshot_date).slice(0, 10) : '';
+          const priorDaySnap = traj.find(s => {
+            const d = s?.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+            return d && d !== headDate;
+          });
+          if (!priorDaySnap) return this.computeDeltaUnified(0, 'save_count');
+          if (this.isHydrationJump(head, priorDaySnap)) return null;
+          return (Number(head.save_count) || 0) - (Number(priorDaySnap.save_count) || 0);
+        },
+
         formatLive24hVelocity() {
-          const liveDelta = this.computeDeltaUnified(0, 'save_count');
-          if (liveDelta !== undefined && liveDelta !== null) {
+          const head = this.dossier?.daily_trajectory?.[0];
+          if (head?.window_24h_velocity !== undefined && head?.window_24h_velocity !== null && Number(head.window_24h_velocity) > 0) {
+            const wVel = Number(head.window_24h_velocity);
+            return '+' + (Number.isInteger(wVel) ? wVel : wVel.toFixed(1)) + '/d';
+          }
+          const liveDelta = this.computeTrue24hWindowDelta();
+          if (liveDelta !== undefined && liveDelta !== null && liveDelta !== 0) {
             return (liveDelta >= 0 ? '+' : '') + liveDelta + '/d';
           }
-          const trajVel = Number(this.dossier?.daily_trajectory?.[0]?.daily_save_velocity ?? this.dossier?.creative?.daily_save_velocity);
+          const trajVel = Number(this.dossier?.creative?.daily_save_velocity ?? head?.daily_save_velocity);
           if (Number.isFinite(trajVel) && trajVel > 0) {
-            return (trajVel >= 0 ? '+' : '') + trajVel.toFixed(1) + '/d';
+            return '+' + (Number.isInteger(trajVel) ? trajVel : trajVel.toFixed(1)) + '/d';
           }
           return '+0/d';
         },
@@ -1812,7 +1838,7 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         format24hSaveDelta() {
-          const delta = this.computeDeltaUnified(0, 'save_count');
+          const delta = this.computeTrue24hWindowDelta();
           if (delta === null) {
             const rawVel = Number(this.dossier?.creative?.daily_save_velocity || this.dossier?.daily_trajectory?.[0]?.daily_save_velocity || 0);
             return '+' + rawVel.toFixed(1) + '/d (Amortized)';
@@ -2582,52 +2608,81 @@ export function getPinDetailPageHtml(pinId = '') {
           return currVal - prevVal;
         },
 
-        rebuildDateMapCache() {
-          const map = new Map();
+        getDayRowKey(day) {
+          if (!day) return '';
+          if (day.row_key) return String(day.row_key);
+          if (day.is_intraday_checkpoint && day.snapshot_id) return String(day.snapshot_id);
+          const d = day.snapshot_date ? String(day.snapshot_date).slice(0, 10) : '';
+          const rec = day.recorded_at || day.updated_at || day.crawled_at || '';
+          return rec ? (d + '__' + rec) : d;
+        },
+
+        formatSnapshotTime(day) {
+          if (!day) return '';
+          const rawTs = day.recorded_at || day.updated_at || day.crawled_at;
+          if (!rawTs) return '';
+          const str = String(rawTs).trim();
+          const isoMatch = str.match(/T([0-9]{2}:[0-9]{2})/);
+          if (isoMatch && isoMatch[1] && isoMatch[1] !== '00:00') {
+            return isoMatch[1] + ' UTC';
+          }
+          const spaceMatch = str.match(/ ([0-9]{2}:[0-9]{2})/);
+          if (spaceMatch && spaceMatch[1] && spaceMatch[1] !== '00:00') {
+            return spaceMatch[1] + ' UTC';
+          }
+          const parsed = new Date(str);
+          if (!isNaN(parsed.getTime())) {
+            const hh = String(parsed.getUTCHours()).padStart(2, '0');
+            const mm = String(parsed.getUTCMinutes()).padStart(2, '0');
+            if (hh !== '00' || mm !== '00') return hh + ':' + mm + ' UTC';
+          }
+          return '';
+        },
+
+        _buildOrderedAuditRows() {
           const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
             ? this.dossier.daily_trajectory
             : (this.dossier?.snapshots || []);
-          const dayMap = new Map();
+          const rowMap = new Map();
           for (const s of rawDays) {
-            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
-            if (d && !dayMap.has(d)) dayMap.set(d, s);
+            const key = this.getDayRowKey(s);
+            if (key && !rowMap.has(key)) rowMap.set(key, s);
           }
-          const days = Array.from(dayMap.values()).sort((a, b) => String(b.snapshot_date).localeCompare(String(a.snapshot_date)));
+          return Array.from(rowMap.values()).sort((a, b) => {
+            const da = a.snapshot_date ? String(a.snapshot_date).slice(0, 10) : '';
+            const db = b.snapshot_date ? String(b.snapshot_date).slice(0, 10) : '';
+            if (da !== db) return db.localeCompare(da);
+            const ta = String(a.recorded_at || a.updated_at || '');
+            const tb = String(b.recorded_at || b.updated_at || '');
+            return tb.localeCompare(ta);
+          });
+        },
+
+        rebuildDateMapCache() {
+          const map = new Map();
+          const days = this._buildOrderedAuditRows();
           for (let i = 0; i < days.length; i++) {
+            const rowKey = this.getDayRowKey(days[i]);
             const fullDate = days[i].snapshot_date;
             const shortDate = fullDate ? String(fullDate).slice(0, 10) : '';
             const entry = {
               current: days[i],
               previous: days[i + 1] || null
             };
-            if (fullDate) map.set(fullDate, entry);
-            if (shortDate && shortDate !== fullDate) map.set(shortDate, entry);
+            if (rowKey) map.set(rowKey, entry);
+            if (fullDate && !map.has(fullDate)) map.set(fullDate, entry);
+            if (shortDate && !map.has(shortDate)) map.set(shortDate, entry);
           }
           this._cachedDateMap = map;
         },
 
         totalUnfilteredDaysCount() {
-          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
-            ? this.dossier.daily_trajectory
-            : (this.dossier?.snapshots || []);
-          const dayMap = new Map();
-          for (const s of rawDays) {
-            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
-            if (d && !dayMap.has(d)) dayMap.set(d, true);
-          }
-          return dayMap.size || rawDays.length || 0;
+          const days = this._buildOrderedAuditRows();
+          return days.length || 0;
         },
 
         filteredDays() {
-          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
-            ? this.dossier.daily_trajectory
-            : (this.dossier?.snapshots || []);
-          const dayMap = new Map();
-          for (const s of rawDays) {
-            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
-            if (d && !dayMap.has(d)) dayMap.set(d, s);
-          }
-          let days = Array.from(dayMap.values()).sort((a, b) => String(b.snapshot_date).localeCompare(String(a.snapshot_date)));
+          let days = this._buildOrderedAuditRows();
           if (this.selectedKeywordFilter && this.selectedKeywordFilter !== 'ALL') {
             days = days.filter(d => (d.ranking_keywords || []).some(k => k.keyword === this.selectedKeywordFilter));
           }
@@ -2640,8 +2695,11 @@ export function getPinDetailPageHtml(pinId = '') {
         formatDayDelta(day, idx) {
           if (!day) return '+0 (Baseline)';
           if (!this._cachedDateMap) this.rebuildDateMapCache();
+          const rowKey = this.getDayRowKey(day);
           const dStr = day.snapshot_date ? String(day.snapshot_date).slice(0, 10) : '';
-          const entry = this._cachedDateMap?.get(day.snapshot_date) || (dStr ? this._cachedDateMap?.get(dStr) : null);
+          const entry = (rowKey ? this._cachedDateMap?.get(rowKey) : null)
+            || this._cachedDateMap?.get(day.snapshot_date)
+            || (dStr ? this._cachedDateMap?.get(dStr) : null);
           const prev = entry ? entry.previous : null;
 
           if (!prev) return '+0 (Baseline)';
@@ -2651,9 +2709,11 @@ export function getPinDetailPageHtml(pinId = '') {
           }
 
           const delta = (Number(day.save_count) || 0) - (Number(prev.save_count) || 0);
-          if (delta > 0) return '+' + this.formatNumber(delta) + ' 24h';
-          if (delta < 0) return this.formatNumber(delta) + ' 24h';
-          return '0 24h';
+          const prevDate = prev.snapshot_date ? String(prev.snapshot_date).slice(0, 10) : '';
+          const suffix = (dStr && prevDate && dStr === prevDate) ? ' step' : ' 24h';
+          if (delta > 0) return '+' + this.formatNumber(delta) + suffix;
+          if (delta < 0) return this.formatNumber(delta) + suffix;
+          return '0' + suffix;
         },
 
         // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Displaced / Unranked SERP Badge Guard
@@ -2674,19 +2734,20 @@ export function getPinDetailPageHtml(pinId = '') {
           return isAccordion ? ('#' + rank) : ('[SERP #' + rank + ']');
         },
 
-        toggleDayExpanded(date) {
-          if (!date) return;
-          this.expandedDays[date] = !this.expandedDays[date];
+        toggleDayExpanded(dateOrKey) {
+          if (!dateOrKey) return;
+          this.expandedDays[dateOrKey] = !this.expandedDays[dateOrKey];
         },
 
-        isDayExpanded(date) {
-          return Boolean(this.expandedDays[date]);
+        isDayExpanded(dateOrKey) {
+          return Boolean(this.expandedDays[dateOrKey]);
         },
 
         expandAllDays() {
           const next = {};
           for (const d of this.filteredDays()) {
-            if (d.snapshot_date) next[d.snapshot_date] = true;
+            const k = this.getDayRowKey(d);
+            if (k) next[k] = true;
           }
           this.expandedDays = next;
         },
