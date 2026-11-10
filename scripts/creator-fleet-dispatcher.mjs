@@ -56,6 +56,91 @@ async function main() {
   console.log('   🚀 CREATOR INTELLIGENCE FLEET DISPATCHER (20-RUNNER SWARM)');
   console.log('================================================================');
 
+  // Self-heal PostgreSQL SERIAL/BIGSERIAL sequences after migration & heal 10M+ ceiling artifacts
+  try {
+    await sql`
+      DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN
+          SELECT
+            c.relname AS table_name,
+            a.attname AS column_name,
+            pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS seq_name
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_attribute a ON a.attrelid = c.oid
+          WHERE n.nspname = 'public'
+            AND c.relkind = 'r'
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+            AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+        LOOP
+          EXECUTE format(
+            'SELECT setval(%L, GREATEST(COALESCE((SELECT MAX(%I) FROM public.%I), 0) + 1, 1), false)',
+            r.seq_name,
+            r.column_name,
+            r.table_name
+          );
+        END LOOP;
+      END $$;
+    `;
+    await sql`
+      UPDATE competitor_profiles
+      SET
+        delta_reach_24h = CASE
+          WHEN (monthly_reach > 10000001 AND (monthly_reach - delta_reach_24h) = 10000001)
+            OR (monthly_reach = 10000001 AND delta_reach_24h < 0)
+          THEN 0
+          ELSE delta_reach_24h
+        END,
+        reach_delta_7d = CASE
+          WHEN (monthly_reach > 10000001 AND (monthly_reach - reach_delta_7d) = 10000001)
+            OR (monthly_reach = 10000001 AND reach_delta_7d < 0)
+          THEN 0
+          ELSE reach_delta_7d
+        END,
+        delta_views_24h = CASE
+          WHEN (profile_views > 10000001 AND (profile_views - delta_views_24h) = 10000001)
+            OR (profile_views = 10000001 AND delta_views_24h < 0)
+          THEN 0
+          ELSE delta_views_24h
+        END,
+        views_delta_7d = CASE
+          WHEN (profile_views > 10000001 AND (profile_views - views_delta_7d) = 10000001)
+            OR (profile_views = 10000001 AND views_delta_7d < 0)
+          THEN 0
+          ELSE views_delta_7d
+        END
+      WHERE
+        (monthly_reach > 10000001 AND ((monthly_reach - delta_reach_24h) = 10000001 OR (monthly_reach - reach_delta_7d) = 10000001))
+        OR (monthly_reach = 10000001 AND (delta_reach_24h < 0 OR reach_delta_7d < 0))
+        OR (profile_views > 10000001 AND ((profile_views - delta_views_24h) = 10000001 OR (profile_views - views_delta_7d) = 10000001))
+        OR (profile_views = 10000001 AND (delta_views_24h < 0 OR views_delta_7d < 0));
+    `;
+    await sql`
+      UPDATE competitor_history_snapshots chs
+      SET
+        monthly_reach = CASE
+          WHEN chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001 THEN cp.monthly_reach
+          ELSE chs.monthly_reach
+        END,
+        profile_views = CASE
+          WHEN chs.profile_views = 10000001 AND cp.profile_views > 10000001 THEN cp.profile_views
+          ELSE chs.profile_views
+        END
+      FROM competitor_profiles cp
+      WHERE chs.competitor_id = cp.id
+        AND (
+          (chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001)
+          OR (chs.profile_views = 10000001 AND cp.profile_views > 10000001)
+        );
+    `;
+  } catch (healErr) {
+    console.warn('[!] Pre-flight sequence/ceiling heal warning:', healErr.message);
+  }
+
   const isSweepAll = !rawTargetAccount ||
     rawTargetAccount.toLowerCase() === 'all' ||
     rawTargetAccount.toLowerCase() === 'cron' ||

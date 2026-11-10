@@ -54,6 +54,40 @@ async function main() {
   console.log('   🚀 KEYWORD INTELLIGENCE & VELOCITY FLEET DISPATCHER (20-RUNNER)');
   console.log('================================================================');
 
+  // Self-heal PostgreSQL SERIAL/BIGSERIAL sequences after migration so keyword_serp_current / tracked_keywords inserts never collide on _pkey
+  try {
+    await sql`
+      DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN
+          SELECT
+            c.relname AS table_name,
+            a.attname AS column_name,
+            pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS seq_name
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_attribute a ON a.attrelid = c.oid
+          WHERE n.nspname = 'public'
+            AND c.relkind = 'r'
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+            AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+        LOOP
+          EXECUTE format(
+            'SELECT setval(%L, GREATEST(COALESCE((SELECT MAX(%I) FROM public.%I), 0) + 1, 1), false)',
+            r.seq_name,
+            r.column_name,
+            r.table_name
+          );
+        END LOOP;
+      END $$;
+    `;
+  } catch (seqErr) {
+    console.warn('[!] Pre-flight sequence sync warning:', seqErr.message);
+  }
+
   // Dynamically resolve configuration from DB app_settings with ENV overrides
   const appSettings = await getAppSettings(sql).catch(() => ({}));
   const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();

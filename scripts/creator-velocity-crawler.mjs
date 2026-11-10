@@ -1151,7 +1151,6 @@ async function run() {
       const flushPulseBatch = async (chunk) => {
         if (!chunk || chunk.length === 0) return;
         const payloadJson = JSON.stringify(sanitizeForJsonb(chunk));
-        const jsonParam = typeof sql.json === 'function' ? sql.json(sanitizeForJsonb(chunk)) : payloadJson;
 
         try {
           await sql`
@@ -1186,7 +1185,7 @@ async function run() {
               metadata = COALESCE(cp.metadata, '{}'::jsonb) || COALESCE(u.meta_update, '{}'::jsonb),
               last_synced_at = NOW(),
               updated_at = NOW()
-            FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
               competitor_id int,
               display_name text,
               avatar_url text,
@@ -1211,7 +1210,7 @@ async function run() {
             WHERE cp.id = u.competitor_id;
           `;
 
-          await sql`
+          const insertSnapshots = () => sql`
             INSERT INTO competitor_history_snapshots (
               competitor_id,
               monthly_reach,
@@ -1231,7 +1230,7 @@ async function run() {
               u.total_boards,
               CURRENT_DATE,
               COALESCE(u.snap_meta, '{}'::jsonb)
-            FROM jsonb_to_recordset(${jsonParam}::jsonb) AS u(
+            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
               competitor_id int,
               monthly_reach bigint,
               profile_views bigint,
@@ -1262,6 +1261,23 @@ async function run() {
               OR competitor_history_snapshots.total_pins IS DISTINCT FROM EXCLUDED.total_pins
               OR competitor_history_snapshots.total_boards IS DISTINCT FROM EXCLUDED.total_boards;
           `;
+
+          try {
+            await insertSnapshots();
+          } catch (snapErr) {
+            if (String(snapErr.message || '').includes('competitor_history_snapshots_pkey')) {
+              await sql`
+                SELECT setval(
+                  pg_get_serial_sequence('competitor_history_snapshots', 'id'),
+                  GREATEST(COALESCE((SELECT MAX(id) FROM competitor_history_snapshots), 0) + 1, 1),
+                  false
+                );
+              `.catch(() => {});
+              await insertSnapshots();
+            } else {
+              throw snapErr;
+            }
+          }
         } catch (flushErr) {
           console.warn(`[Phase 1A] Batch pulse upsert warning:`, flushErr.message);
         }
@@ -1304,8 +1320,8 @@ async function run() {
 
           let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
           let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
-          if (rawReach === 10000001 && deltaReach24h < 0) deltaReach24h = 0;
-          if (rawViews === 10000001 && deltaViews24h < 0) deltaViews24h = 0;
+          if (rawReach === 10000001 || (priorReach === 10000001 && monthlyReach > 10000001)) deltaReach24h = 0;
+          if (rawViews === 10000001 || (priorViews === 10000001 && profileViews > 10000001)) deltaViews24h = 0;
           const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
           const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
@@ -1316,8 +1332,8 @@ async function run() {
 
           let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
           let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
-          if (rawReach === 10000001 && reachDelta7d < 0) reachDelta7d = 0;
-          if (rawViews === 10000001 && viewsDelta7d < 0) viewsDelta7d = 0;
+          if (rawReach === 10000001 || (baselineReach === 10000001 && monthlyReach > 10000001)) reachDelta7d = 0;
+          if (rawViews === 10000001 || (baselineViews === 10000001 && profileViews > 10000001)) viewsDelta7d = 0;
           const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
           const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 

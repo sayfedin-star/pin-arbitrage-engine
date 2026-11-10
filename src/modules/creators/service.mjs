@@ -223,23 +223,37 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 
     if (!Array.isArray(query)) return [];
 
-    return query.map(p => ({
-      ...p,
-      handle: `@${p.username}`,
-      monthly_reach: Number(p.monthly_reach || 0),
-      delta_reach_24h: Number(p.delta_reach_24h || 0),
-      reach_delta_7d: Number(p.reach_delta_7d || 0),
-      profile_views: Number(p.profile_views || 0),
-      delta_views_24h: Number(p.delta_views_24h || 0),
-      views_delta_7d: Number(p.views_delta_7d || 0),
-      total_pins: Number(p.total_pins || 0),
-      delta_pins_24h: Number(p.delta_pins_24h || 0),
-      pins_delta_7d: Number(p.pins_delta_7d || 0),
-      total_boards: Number(p.total_boards || 0),
-      delta_boards_24h: Number(p.delta_boards_24h || 0),
-      boards_delta_7d: Number(p.boards_delta_7d || 0),
-      follower_count: Number(p.follower_count || 0)
-    }));
+    return query.map(p => {
+      const mReach = Number(p.monthly_reach || 0);
+      let dReach24h = Number(p.delta_reach_24h || 0);
+      let dReach7d = Number(p.reach_delta_7d || 0);
+      if (mReach > 10000001 && (mReach - dReach24h) === 10000001) dReach24h = 0;
+      if (mReach > 10000001 && (mReach - dReach7d) === 10000001) dReach7d = 0;
+
+      const pViews = Number(p.profile_views || 0);
+      let dViews24h = Number(p.delta_views_24h || 0);
+      let dViews7d = Number(p.views_delta_7d || 0);
+      if (pViews > 10000001 && (pViews - dViews24h) === 10000001) dViews24h = 0;
+      if (pViews > 10000001 && (pViews - dViews7d) === 10000001) dViews7d = 0;
+
+      return {
+        ...p,
+        handle: `@${p.username}`,
+        monthly_reach: mReach,
+        delta_reach_24h: dReach24h,
+        reach_delta_7d: dReach7d,
+        profile_views: pViews,
+        delta_views_24h: dViews24h,
+        views_delta_7d: dViews7d,
+        total_pins: Number(p.total_pins || 0),
+        delta_pins_24h: Number(p.delta_pins_24h || 0),
+        pins_delta_7d: Number(p.pins_delta_7d || 0),
+        total_boards: Number(p.total_boards || 0),
+        delta_boards_24h: Number(p.delta_boards_24h || 0),
+        boards_delta_7d: Number(p.boards_delta_7d || 0),
+        follower_count: Number(p.follower_count || 0)
+      };
+    });
   } catch (err) {
     console.warn('[listCompetitors] Query failed, returning fallback empty list:', err.message);
     const fallback = [];
@@ -393,8 +407,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 
   let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
   let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
-  if (rawReach === 10000001 && deltaReach24h < 0) deltaReach24h = 0;
-  if (rawViews === 10000001 && deltaViews24h < 0) deltaViews24h = 0;
+  if (rawReach === 10000001 || (priorReach === 10000001 && monthlyReach > 10000001)) deltaReach24h = 0;
+  if (rawViews === 10000001 || (priorViews === 10000001 && profileViews > 10000001)) deltaViews24h = 0;
   const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
   const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
@@ -409,8 +423,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 
   let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
   let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
-  if (rawReach === 10000001 && reachDelta7d < 0) reachDelta7d = 0;
-  if (rawViews === 10000001 && viewsDelta7d < 0) viewsDelta7d = 0;
+  if (rawReach === 10000001 || (baselineReach === 10000001 && monthlyReach > 10000001)) reachDelta7d = 0;
+  if (rawViews === 10000001 || (baselineViews === 10000001 && profileViews > 10000001)) viewsDelta7d = 0;
   const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
   const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
@@ -1789,8 +1803,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   }
 
   // Monotonic 10M+ ceiling guard for snapshots so unauthenticated 10,000,001 dips never corrupt trajectory charts or deltas
-  let runningMaxReach = 0;
-  let runningMaxViews = 0;
+  const profReach = Number(profile.monthly_reach || 0);
+  const profViews = Number(profile.profile_views || 0);
+  let runningMaxReach = profReach > 10000001 ? profReach : 0;
+  let runningMaxViews = profViews > 10000001 ? profViews : 0;
   for (const snap of (snapshots || [])) {
     const r = Number(snap.monthly_reach || 0);
     const v = Number(snap.profile_views || 0);
