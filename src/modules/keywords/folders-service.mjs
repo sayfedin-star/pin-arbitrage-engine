@@ -2247,8 +2247,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         GREATEST(COALESCE(ra.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
         GREATEST(COALESCE(ra.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
         GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
-        COALESCE(NULLIF(ra.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(NULLIF(ra.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
+        COALESCE(ra.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(ra.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
         ra.gains_5d,
         ra.gains_7d,
         ra.gains_10d,
@@ -2402,7 +2402,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     const rowGains24h = (row.gains_24h != null && Number.isFinite(Number(row.gains_24h))) ? Number(row.gains_24h) : null;
 
     let delta24h = (rowGains24h != null) ? rowGains24h : vel;
-    const effectiveVel = vel > 0 ? vel : safeNum(row.delta_repins_24h, 0);
+    const effectiveVel = vel;
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
@@ -2501,12 +2501,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           existingPin.delta_saves_24h = delta24h;
         }
         existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
-        existingPin.effective_velocity = existingPin.daily_save_velocity > 0
-          ? existingPin.daily_save_velocity
-          : (existingPin.delta_repins_24h || 0);
-        existingPin.velocity_source = existingPin.daily_save_velocity > 0
-          ? 'saves'
-          : ((existingPin.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
+        existingPin.effective_velocity = existingPin.daily_save_velocity || 0;
+        existingPin.velocity_source = 'saves';
       }
 
       // Preserve authentic database rolling gains without blowing up by multiplying corrupted velocity
@@ -2725,12 +2721,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         if (meta.delta_repins_24h !== undefined && meta.delta_repins_24h !== null) {
           p.delta_repins_24h = Number(meta.delta_repins_24h);
         }
-        p.effective_velocity = p.daily_save_velocity > 0
-          ? p.daily_save_velocity
-          : (p.delta_repins_24h || 0);
-        p.velocity_source = p.daily_save_velocity > 0
-          ? 'saves'
-          : ((p.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
+        p.effective_velocity = p.daily_save_velocity || 0;
+        p.velocity_source = 'saves';
       }
     }
   }
@@ -2822,13 +2814,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       primary.delta_saves_24h = Math.max(primary.delta_saves_24h || 0, secondary.delta_saves_24h || 0);
       primary.delta_repins_24h = Math.max(primary.delta_repins_24h || 0, secondary.delta_repins_24h || 0);
       primary.effective_velocity = Math.max(
-        primary.effective_velocity || 0,
-        secondary.effective_velocity || 0,
-        primary.daily_save_velocity > 0 ? primary.daily_save_velocity : (primary.delta_repins_24h || 0)
+        primary.daily_save_velocity || 0,
+        secondary.daily_save_velocity || 0
       );
-      primary.velocity_source = primary.daily_save_velocity > 0
-        ? 'saves'
-        : ((primary.delta_repins_24h || 0) > 0 ? 'repins' : 'saves');
+      primary.velocity_source = 'saves';
       primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
       if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
       if ((!primary.dominant_color || primary.dominant_color === '#888888' || primary.dominant_color === '#000000') && secondary.dominant_color && secondary.dominant_color !== '#888888') {

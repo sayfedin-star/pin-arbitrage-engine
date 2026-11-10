@@ -3370,19 +3370,19 @@ export async function writeBatchToDeterministicShards(params = {}) {
           daily_save_velocity = CASE
             WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
             THEN GREATEST(COALESCE(universal_master_pins.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
-            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+            WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
             ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
           END,
           delta_saves_24h = CASE
             WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
             THEN GREATEST(COALESCE(universal_master_pins.delta_saves_24h, 0), COALESCE(EXCLUDED.delta_saves_24h, 0))
-            WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h
+            WHEN EXCLUDED.delta_saves_24h IS NOT NULL THEN EXCLUDED.delta_saves_24h
             ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
           END,
           delta_repins_24h = CASE
             WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
             THEN GREATEST(COALESCE(universal_master_pins.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
-            WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h
+            WHEN EXCLUDED.delta_repins_24h IS NOT NULL THEN EXCLUDED.delta_repins_24h
             ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
           END,
           is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
@@ -3544,19 +3544,19 @@ export async function writeBatchToDeterministicShards(params = {}) {
             daily_save_velocity = CASE
               WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
               THEN GREATEST(COALESCE(universal_master_pins.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
-              WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
               ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
             END,
             delta_saves_24h = CASE
               WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
               THEN GREATEST(COALESCE(universal_master_pins.delta_saves_24h, 0), COALESCE(EXCLUDED.delta_saves_24h, 0))
-              WHEN EXCLUDED.delta_saves_24h > 0 THEN EXCLUDED.delta_saves_24h
+              WHEN EXCLUDED.delta_saves_24h IS NOT NULL THEN EXCLUDED.delta_saves_24h
               ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
             END,
             delta_repins_24h = CASE
               WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
               THEN GREATEST(COALESCE(universal_master_pins.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
-              WHEN EXCLUDED.delta_repins_24h > 0 THEN EXCLUDED.delta_repins_24h
+              WHEN EXCLUDED.delta_repins_24h IS NOT NULL THEN EXCLUDED.delta_repins_24h
               ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
             END,
             is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),

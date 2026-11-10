@@ -267,9 +267,9 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ump.alt_text, '') AS alt_text,
       GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
       GREATEST(COALESCE(ksc.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
-      COALESCE(NULLIF(ksc.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(NULLIF(ksc.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS delta_saves_24h,
-      COALESCE(NULLIF(ksc.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
+      COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
+      COALESCE(ksc.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
       COALESCE(ksc.gains_5d, 0) AS gains_5d,
       COALESCE(ksc.gains_7d, 0) AS gains_7d,
       COALESCE(ksc.gains_10d, 0) AS gains_10d,
@@ -334,9 +334,9 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         kdi.displaced_date,
         GREATEST(COALESCE(kdi.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
         GREATEST(COALESCE(kdi.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
-        COALESCE(NULLIF(kdi.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(NULLIF(kdi.daily_save_velocity, 0), ump.daily_save_velocity, 0) AS delta_saves_24h,
-        COALESCE(NULLIF(kdi.delta_repins_24h, 0), ump.delta_repins_24h, 0) AS delta_repins_24h,
+        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
+        COALESCE(kdi.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
         COALESCE(kdi.gains_5d, 0) AS gains_5d,
         COALESCE(kdi.gains_7d, 0) AS gains_7d,
         COALESCE(kdi.gains_10d, 0) AS gains_10d,
@@ -409,9 +409,9 @@ async function queryViralCreatorPins(sql, folderIdNum) {
     LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
     CROSS JOIN LATERAL (
       SELECT
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
-        COALESCE(NULLIF(ump.delta_repins_24h, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h
+        COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
+        COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
+        COALESCE(ump.delta_repins_24h, NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h
     ) m
     WHERE cpin.is_deleted = FALSE
       AND (cpin.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'] OR COALESCE(ump.daily_save_velocity, 0) > 0)

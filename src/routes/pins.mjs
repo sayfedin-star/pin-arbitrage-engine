@@ -131,7 +131,6 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
           save_count = ${latestSaves},
           repin_count = ${latestRepins},
           daily_save_velocity = ${latestVel},
-          delta_saves_24h = ${latestDeltaSaves},
           delta_repins_24h = ${latestDeltaRepins},
           updated_at = NOW()
         WHERE pin_id = ${pinId};
@@ -142,7 +141,6 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
           save_count = ${latestSaves},
           repin_count = ${latestRepins},
           daily_save_velocity = ${latestVel},
-          delta_saves_24h = ${latestDeltaSaves},
           delta_repins_24h = ${latestDeltaRepins},
           updated_at = NOW()
         WHERE pin_id = ${pinId};

@@ -1,0 +1,873 @@
+STRICT READ-ONLY FORENSIC AUDIT MODE. ZERO CODE MODIFICATIONS: DO NOT edit, write, delete, or modify any file. DO NOT run mutating commands.
+
+You own the forensic inspection of Regression Locks, Test Suites & SQL Schema.
+
+Files to inspect line-by-line:
+
+scripts/verify_regression_locks.mjs
+scripts/verify_sql_schema_parity.mjs
+scripts/verify_all_syntax.mjs
+scripts/validate_inline_scripts.mjs
+scripts/verify_dom_nesting.mjs
+scripts/test_*.mjs
+scripts/migrations/*.sql
+Deliverable: Perform thorough line-by-line inspection and post a forensic report on the board to @coordinator titled [audit-locks-tests] with:
+
+Exact mapping of which locks in verify_regression_locks.mjs and which test_*.mjs files enforce legacy sharding/Neon/Cloudflare functions or comments, and what must be updated in those tests when we later delete the legacy code.
+Schema audit of scripts/migrations/ and verify_sql_schema_parity.mjs for legacy tables (neon_projects_registry, d1_*, pa_pin_metrics, etc.).
+Tag @coordinator when complete.
+
+Show less
+
+@audit-sharding
+@coordinator
+#7 · 7:56 PM
+[audit-sharding-fleet] Forensic Audit Report: Sharding & Fleet Architecture
+
+1. Unguarded neon_projects_registry Queries & *.neon.tech Checks
+src/modules/fleet/guardrails.mjs (Lines 43-48):
+auditFleetSchemaVersions(hubSql) directly queries FROM neon_projects_registry WHERE status = 'active' without checking isUnifiedPostgres(env) or table existence; crashes if the registry is deprecated/empty. Loops and calls createUniversalSqlClient(s.database_url).
+
+src/modules/fleet/service.mjs:
+Lines 22-37 (getFleetProjects): Direct SELECT ... FROM neon_projects_registry ORDER BY is_hub DESC, id ASC with zero topology check or fallback.
+Lines 69-71 (registerNewProject): Hard gate if (!/^postgres(?:ql)?:$/i.test(parsedDsn.protocol) || !parsedDsn.hostname.endsWith('.neon.tech')) strictly enforces *.neon.tech hostnames, rejecting VPS, self-hosted Postgres, Docker, and Supabase endpoints.
+Lines 73-101 (registerNewProject): Unguarded INSERT INTO neon_projects_registry (...) VALUES (...) ON CONFLICT DO UPDATE.
+Lines 131-135, 138-142 (syncProjectCompetitorStats): UPDATE neon_projects_registry SET stats = ... (swallowed in empty catch).
+Lines 191-204, 206-215 (syncFleetDatabases): Unguarded SELECT ... FROM neon_projects_registry WHERE NOT is_hub and UPDATE neon_projects_registry SET stats = ....
+Lines 233-238 (pingFleetProject): Unguarded SELECT ... FROM neon_projects_registry WHERE project_id = ${projectId}.
+Lines 262-267 (getFleetProjectUrl): Unguarded SELECT ... FROM neon_projects_registry WHERE project_id = ${projectId}.
+src/routes/fleet.mjs (Lines 49-55):
+handleFleetRoutes (GET /api/fleet/projects & /api/fleet/shards) directly queries SELECT ... FROM neon_projects_registry without checking isUnifiedPostgres(env).
+
+src/worker.mjs:
+Line 48 (redactSecrets): Hardcoded regex /ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.neon\.tech/gi.
+Lines 887-891 (fetch): Queries neon_projects_registry dynamically when !isUnifiedPostgres(env) and project_id/shard param is passed.
+src/modules/sharding/fleet-router.mjs:
+Lines 350-351 (createUniversalSqlClient): Checks /\.neon\.tech\b/i to determine whether to use @neondatabase/serverless or postgres.js TCP driver.
+Lines 484-485 (enforceNeonPoolerUrl): Substring check if (!cleanUrl.includes('.neon.tech') || cleanUrl.includes('-pooler')) return cleanUrl;.
+Lines 616-622 (resolveShardConnection): Fallback query SELECT ... FROM neon_projects_registry WHERE ... in sharded mode.
+Lines 648-652 (getFleetShardsMap): Direct query inside try/catch.
+Lines 683-688 (preloadNeonRegistry): Direct query to neon_projects_registry (guarded by if (isUnifiedPostgres(env)) return 0; at L671).
+---
+
+2. Dead / Unreachable Code Blocks in fleet-router.mjs
+Lines 1205-1246 & 1336-1384 (d1Record = null Dead Path):
+Line 1205 sets const d1Record = null;.
+Lines 1221-1230 (hasValidD1) and Lines 1237-1246 (hasValidTrajectoryFromD1) are permanently false.
+Lines 1336-1384 (if (hasValidTrajectoryFromD1 && Array.isArray(d1Record?.daily_trajectory)) { ... }): 49 lines of dead D1 expansion code that CAN NEVER execute.
+Line 1395: hasValidD1 ? Promise.resolve([d1Record]) : ... (ternary true branch is dead).
+Lines 1429-1431: else if (d1Record) { masterData = d1Record; } (dead branch).
+Line 1464: let masterRecord = initialMaster || d1Record; (d1Record is null).
+Line 1882: d1Record?.metadata?.deleted_snapshot_dates (dead lookup).
+Lines 1476-1479, 1529-1530, 1634-1659, 1980-2143 (hubSnapshots = [] Dead Path):
+Line 1476 hardcodes const hubSnapshots = [];.
+Lines 1477-1479: snapRows is always [].
+Line 1529: hubHistoricalSnap is always null.
+Lines 1550-1555: Loop over snapRows never executes.
+Lines 1634-1659: else if (hubHistoricalSnap) fallback synthesis block (26 lines) is 100% UNREACHABLE.
+Lines 1980-1998: Loop over hubSnapshots never runs; missingFromShard remains [].
+Lines 2028-2143 (116 lines!): Two-Tier Shard Read-Repair (if (shardSql && ... missingFromShard.length > 0)) is 100% UNREACHABLE / DEAD CODE.
+Lines 998-1007 (storeFolderCrossoverSynopsis / getFolderCrossoverSynopsis):
+Dead stub functions returning { stored: false } / null (retired in migration 047).
+
+Lines 2741-2752 (getFastEdgeDossier):
+Stub returning { not_cached: true } without accessing D1 or KV.
+
+Lines 2721-2725 (canMirrorTrajectoryToD1):
+Variable assigned Boolean(...) but never referenced anywhere.
+
+Lines 572-634 (resolveShardConnection Sharded Fallback Path):
+In unified_postgres mode (default), Line 565 returns hubSql immediately; Lines 572-634 (template resolution, KV lookup, warmup, registry queries) are completely bypassed.
+
+---
+
+3. In-Memory Caches Across Architecture
+src/worker.mjs:
+edgeCache = new Map() (Line 467): L0 in-memory cache for getCachedOrFetch. Capacity: MAX_CACHE_ENTRIES = 512 (FIFO eviction).
+inflightPromises = new Map() (Line 468): Single-flight request coalescing for getCachedOrFetch.
+shardKeyToDsn = new Map() (Line 437): Unbounded cache mapping shard/project keys to canonical pooled DSNs.
+shardSqlCache (Line 436): Alias export pointing to shardSqlClients.
+l0PinterestCircuit (Line 173): Rate-limit circuit breaker state { triggered_at, cooldown_seconds, reason }.
+src/modules/sharding/fleet-router.mjs:
+globalShardMap = new Map() (Line 157, alias registryCache): Shard ID -> { database_url, status, project_name, cachedAt }. TTL: SHARD_MAP_TTL_MS = 600,000ms (10m).
+inflightShardMapPromise (Line 161) & shardMapWarmupPromise (Line 162): Single-flight warmup locks.
+shardSqlClients = new Map() (Line 244): LRU pooled SQL client cache. Capacity: MAX_SHARD_SQL_CLIENTS = 48 with evicted?.end?.({ timeout: 1 }).
+circuitBreakers = new Map() (Line 409): Shard ID -> { state, failures, nextAttempt }. Cooldown: 6000ms.
+reconcilingPins = new Set() (Line 414): Set of pin IDs preventing concurrent duplicate read-repairs.
+src/routes/fleet.mjs:
+recentWarmedShards = new Map() (Line 21): Shard ID -> epochMs (15s cooldown deduplication, pruned when size > 200).
+inFlightWarms = new Set() (Line 22): Currently warming shard IDs (capped at MAX_CONCURRENT_WARMS = 4).
+src/server.mjs:
+cachedServerSqlClient / cachedServerDsn (Lines 28-29): Local dev server SQL client cache. Default host is 0.0.0.0 (Line 167) instead of 127.0.0.1 (SEC-02 finding).
+---
+
+4. Discrepancies & Risks in Core Routing & Ingestion Functions
+A. fetchUniversalPinDossier:
+Critical Hardcoded Date Poisoning / Corrupted Echo Self-Healing (Lines 1842-1864):
+Explicitly hardcodes dates '2026-11-10' and '2026-11-09'. If a pin has identical saves on Nov 10 and Nov 9 with 0 velocity, it assumes Nov 10 is a corrupted echo, executes an active DELETE FROM pins_daily_metrics and DELETE FROM pin_serp_positions for 2026-11-10, and restores Nov 9's old velocity. This deletes authentic zero-delta snapshots on Nov 10 and violates Rule 5 (Symmetrical Velocity Ratchet).
+
+Mutating Auto-Backfill on Read Path (Lines 1694-1799):
+A GET /api/pins/:id request issues INSERT INTO universal_master_pins ... ON CONFLICT DO UPDATE if the pin exists in keyword_serp_current or competitor_pins but not yet in universal_master_pins.
+
+Dead Read-Repair (Lines 2028-2143):
+116 lines of snapshot read-repair can never execute because hubSnapshots is hardcoded to [].
+
+8500ms Circuit Breaker Cascades (Line 1443):
+When queries take >8500ms, the physical shard trips OPEN, causing all subsequent queries for that shard (and its ~5 virtual shards) to fail fast for 6 seconds.
+
+B. syncPinAcrossAllFourPillars:
+Unbounded Growth of intraday_snapshots in JSONB (Lines 3227-3259):
+Appends to universal_master_pins.metadata->'intraday_snapshots' whenever saves/repins change on the same date with zero array truncation or pruning.
+
+Monotonic Ratchet Trapping Velocity in keyword_serp_current and pa_pins (Rule 5 Violation):
+Line 3370: Same-day crawls use GREATEST(...), preventing velocity from decreasing.
+Lines 3449-3452: In pa_pins, velocity = CASE WHEN ${syncVelocity} > 0 THEN ${syncVelocity} ELSE velocity END permanently preserves historical velocity; velocity CAN NEVER drop to 0.
+Sequential Un-batched Execution (12+ Roundtrips, Lines 2975-3460):
+Runs 11 sequential SQL queries across Hub and Shard outside of any transaction, causing latency spikes (2-5s) and potential inconsistent partial sync if any step fails.
+
+C. writeBatchToDeterministicShards:
+Severe Architectural Divergence: Unified vs. Sharded Batch Upsert [CRITICAL]:
+In Unified Postgres Mode (Lines 3553-3743): Queries a LATERAL join against prior day pins_daily_metrics to compute daily_save_velocity, delta_saves_24h, and delta_repins_24h, and updates save_count, repin_count, and daily_save_velocity on universal_master_pins.
+In Sharded Mode (Lines 3778-3820): Does NOT execute a LATERAL join. Crucially, the INSERT INTO universal_master_pins query (Lines 3779-3783) OMITS save_count, repin_count, and daily_save_velocity from both the column list and the ON CONFLICT DO UPDATE clause! Sharded mode leaves universal_master_pins with NULL/0 metrics after batch ingestion.
+Missing Failure Tracking in Unified Mode:
+If the unified write fails (Line 3740), it logs a warning but fails to populate confirmedPinIds.failedShards.
+
+Show less
+
+@audit-locks
+@coordinator
+#8 · 8:04 PM
+[audit-locks-tests] FORENSIC AUDIT: REGRESSION LOCKS, TEST SUITES & SQL SCHEMA
+
+1. Executive Summary
+Complete, read-only forensic inspection across verify_regression_locks.mjs, verify_sql_schema_parity.mjs, verify_all_syntax.mjs, validate_inline_scripts.mjs, verify_dom_nesting.mjs, 30 scripts/test_*.mjs test suites, and 49 scripts/migrations/*.sql migrations.
+Root Cause Uncovered: Dead D1 code (d1Record = null, hasValidD1, parseD1DateMs) was stranded in src/modules/sharding/fleet-router.mjs because scripts/test_phase3_write_and_crawlers.mjs (Test 11) literally asserts those exact string literals.
+Regression Gate Impact: Locks 3, 4, 7, and 12 in verify_regression_locks.mjs actively enforce 20-shard / 99-virtual-shard primitives (shard_id = ANY, coalesceShardGroupsByPhysical, getPhysicalShardId, !isUnifiedPostgres(env)). Deleting legacy sharding requires synchronized updates to these locks.
+---
+
+2. Exact Mapping of Regression Locks (scripts/verify_regression_locks.mjs)
+| Lock # | Lock Name & Scope | Legacy Sharding / Neon / Cloudflare Functions or Strings Enforced | Refactoring Action Required When Deleting Legacy Code |
+
+| :--- | :--- | :--- | :--- |
+
+| Lock 1 | DOM Hierarchy & Header Dropdown | None (Clean DOM nesting in campaign-folders-ui.mjs & unclipped header). | Keep unchanged. |
+
+| Lock 2 | Pin Dossier Timeframe & SERP Badge | 2E: Enforces export function sanitizeDossierTrajectory in src/modules/sharding/fleet-router.mjs. | Keep export in fleet-router.mjs (or update file path if router is relocated). |
+
+| Lock 3 | Universal Shard-Affine SQL Pushdown | 3A/3B: Enforces shard_id = ANY in creator-velocity-crawler.mjs queries on pa_pins and competitor_pins.<br>3C/3D: Enforces pae_crc32_shard_id( in keyword-velocity-crawler.mjs.<br>3E/3F: Enforces getPhysicalShardId and coalesceShardGroupsByPhysical exports in fleet-router.mjs and mathematical contract ((v - 1) % 20) + 1.<br>3G: Enforces coalesceShardGroupsByPhysical imported and called across 6 files (fleet-router.mjs, keyword-velocity-crawler.mjs, creator-velocity-crawler.mjs, crawler-engine.mjs, optimize_hub_storage.mjs, service.mjs). | HIGH IMPACT: When moving to 100% Unified Single-DB Postgres, Lock 3 must be refactored. Either replace with Single-DB topology invariant, or allow coalesceShardGroupsByPhysical / getPhysicalShardId to act as transparent pass-throughs. |
+
+| Lock 4 | Authentic Multi-Window Gains vs Fake Multiplier | 4D: Enforces that folders-service.mjs contains coalesceShardGroupsByPhysical, FROM universal_master_pins, and resolveShardConnection({ hubSql: sql, shardId, env }). | Update Lock 4D to assert direct single-DB query on universal_master_pins instead of 20-shard loop. |
+
+| Lock 5 | Context-Preserving Pin Navigation | None (UI breadcrumbs and untracked creator guards). | Keep unchanged. |
+
+| Lock 6 | Pure Neon Architecture & Zero Cloudflare Footprint | 6A: Asserts src/modules/keywords/d1-metadata.mjs does NOT exist (!fs.existsSync).<br>6B: Asserts zero occurrences of PIN_ENGINE_KV, PIN_D1_DB, createHyperdriveClient, getPinKvKeysToEvict, d1-metadata across 13 src/ files. | PRESERVE: Essential anti-regression lock enforcing zero Cloudflare footprint. Expand to forbid vestigial comments if desired. |
+
+| Lock 7 | Room 3 Creator Hub & Lightweight Pulse | 7C: Enforces !isUnifiedPostgres(env) guard in offloadKeywordCrawlToShards (src/modules/keywords/service.mjs). | Update Lock 7C when removing dead multi-shard offloading branch. |
+
+| Lock 8-11 | Rolling Gains, Audience Gains, SERP Track, BigInt Parity | None (Business metrics, workflows, UI states, BigInt casts). | Keep unchanged. |
+
+| Lock 12 | Auto-Promote Pulse Breakout & Migration 041 | Enforces existence of file scripts/migrations/041_composite_shard_indexes.sql. | Do NOT delete 041_composite_shard_indexes.sql. |
+
+| Lock 13 | Invariant & Memory Documentation Parity Gate | 13C: Enforces expectedLockCount = 14 consecutive locks. | If locks are added, merged, or retired, keep expectedLockCount and documented list in sync. |
+
+| Lock 14 | Hidden Endpoints & Media Waterfall | Scraper endpoints and UI guards. | Keep unchanged. |
+
+---
+
+3. Forensic Mapping of Test Suites (scripts/test_*.mjs)
+Out of 30 test files audited, 16 enforce legacy sharding, Neon, or Cloudflare functions/mocks:
+
+test_phase3_write_and_crawlers.mjs (CRITICAL SMOKING GUN):
+Test 11 (lines 476-498): Actively asserts that fleet-router.mjs contains:
+const hasValidD1 = Boolean(
+d1Record && d1Record.pin_id
+const masterPromise = hasValidD1 ? Promise.resolve(d1Record)
+const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;
+Test 10 (lines 462-470): Imports and tests parseD1DateMs(sqliteFormat).
+Test 1 (lines 23-43): Enforces new Request(cacheUrl, { method: 'GET' }), l1Cache.put, l1Cache.match.
+Test 6 (lines 283-323): Enforces prewarmSqlSELECT 1;` and shardSql.transaction([q1, q2, q3]) in keyword-velocity-crawler.mjs`.
+Test 7 (lines 325-356): Tests getPinShardId and checks keyword-velocity-crawler.mjs uses getPinShardId(targetPin.pin_id, 99).
+Update Required: Test 11 must be retired/updated so dead D1 code can be removed from fleet-router.mjs. Test 10 should drop parseD1DateMs import.
+test_cloudflare_edge_modernization.mjs:
+Lines 22-41: Mocks FROM neon_projects_registry returning virtual shards.
+Lines 104-124 (Axis 2): Tests isUnifiedPostgres(env) and resolveShardConnection.
+Update Required: Update mock SQL when neon_projects_registry queries are removed.
+test_creation_method_precedence.mjs:
+Imports resolveShardConnection, preloadNeonRegistry, getPinShardId.
+Lines 249-285: Tests 2 and 3 mock legacy syncPinsBatchToD1.
+Lines 349-380: Live DB mode calls preloadNeonRegistry(hubSql) and loops over shards.
+Update Required: Remove vestigial D1 test blocks; update live DB test to query unified DB directly.
+test_creator_intelligence_fleet.mjs:
+Lines 126-131: Asserts // [INVARIANT: DETERMINISTIC-CRC32-SHARDING] in creator-velocity-crawler.mjs.
+Lines 153-157: Asserts syncPinsToMasterShards(sql, masterPinsToSync).
+Lines 166-171: Asserts crawler_shard_heartbeats in crawler.
+Update Required: Maintain invariant comment or update assertion.
+test_jit_warming_and_d1_trajectory.mjs:
+Section 3: Mocks pins_daily_rollups_v2, pins_daily_snapshots, pins_daily_metrics and sets globalShardMap.
+Section 4: Tests /api/fleet/warm?pin_id=... and verifies data.shard_id matches getPinShardId or getPhysicalShardId.
+Section 5: Tests getEdgeShieldClientScript calling /api/fleet/warm?pin_id=.
+Update Required: If /api/fleet/warm or globalShardMap is removed, update Sections 3 and 4.
+test_p0_hotfixes.mjs:
+Lines 110-180: Tests fetchPinTrajectoryFromShard and verifies res.shard_id === expectedShardId.
+Update Required: Retain fetchPinTrajectoryFromShard signature or update test.
+test_p1_consolidation.mjs:
+Section 1: Verifies zero pa_pin_metrics queries and asserts syncPinAcrossAllFourPillars & fetchPinTrajectoryFromShard.
+Section 2: Tests getPinShardId and batchGroupByShard.
+Section 3: Tests enforceNeonPoolerUrl, shardSqlClients, and shardSqlCache in worker.mjs.
+Section 4: Tests ingestPinsBatch, getPinDetailWithMetrics, deletePinMetricSnapshot.
+Update Required: Sections 2 and 3 enforce shard pooling and caching functions in fleet-router.mjs and worker.mjs.
+test_p2_verification.mjs:
+Section 2: Asserts literal comments [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] and [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout in src/modules/keywords/service.mjs.
+Update Required: Preserve these inline comments if refactoring service.mjs.
+test_p3_cleanup.mjs:
+Section 2: Tests getPinShardId, getShardNumberForEntity, getResilientShardNumberForEntity, crc32, batchGroupByShard.
+Update Required: Retain these utility exports in fleet-router.mjs as transparent wrappers.
+test_phase2_read_acceleration.mjs:
+Tests 3 & 4: Tests globalShardMap, warmGlobalShardMap(mockHubSql) singleflight, resolveShardConnection, and _setShardSqlClient.
+Test 5: Asserts keyword_serp_current is queried and keyword_pins_snapshots is NOT queried on Hub.
+Update Required: Update Tests 3 & 4 if globalShardMap is retired.
+test_phase4_live_explain.mjs:
+Lines 144-162: Imports preloadNeonRegistry and resolveShardConnection and queries pins_daily_rollups_v2 on Shard 1.
+Update Required: Update Test 6 to query unified tables.
+test_phase4_full_adversarial.mjs:
+Line 354: Asserts UI error text rawHtml.includes('Retry Shard Fetch').
+Update Required: Preserve banner microcopy or update test assertion.
+test_phase7_production_audit.mjs:
+Axis 1: Mock SQL queries FROM neon_projects_registry and pins_daily_snapshots.
+Axis 4: Tests getPinShardId mathematical uniformity across 99 shards for 10,000 IDs.
+Update Required: Retain getPinShardId mathematical function; update mock SQL.
+test_route_manifest.mjs:
+Lines 16-28: mockEnv defines mock PIN_ENGINE_KV and PIN_D1_DB.
+Update Required: Keep mockEnv safe or clean up.
+test_unified_phase1_phase2_adversarial.mjs:
+Axis 1: 1,000-pin shard routing test mocking FROM neon_projects_registry and pins_daily_snapshots.
+Axis 2: Tests shard circuit breaker on shard 77.
+Axis 5: Asserts CREATE OR REPLACE VIEW keyword_master_pins AS in 016_hub_and_spoke_synopses_and_shards.sql.
+Update Required: Update Axis 1 and 2 if circuit breakers and registry queries are refactored.
+test_forensic_dossier_cache_sync.mjs:
+Tests executeShardQueryWithCircuitBreaker, pins_daily_metrics, and pin_serp_positions.
+Update Required: Keep pins_daily_metrics table references intact.
+---
+
+4. SQL Schema Audit (scripts/migrations/ & verify_sql_schema_parity.mjs)
+A. Legacy Tables Audit
+neon_projects_registry:
+Created: Migration 001. Indexed in 014.
+Purged: In Migration 048, all pin-arbitrage-shard-% rows were deleted (DELETE FROM neon_projects_registry WHERE is_hub = FALSE OR project_name LIKE 'pin-arbitrage-shard-%').
+Parity Verifier: Registered in verify_sql_schema_parity.mjs KNOWN_TABLE_COLUMNS (lines 421-434).
+Action: Can be dropped completely via new Migration 050. Remove from KNOWN_TABLE_COLUMNS once dropped.
+pa_pin_metrics:
+Created: Migration 005. Altered in 008, 011, 015, 024, 034, 036.
+Dropped: Dropped on Shards in Migration 047 (DROP TABLE IF EXISTS pa_pin_metrics CASCADE;).
+Parity Verifier: Omitted from KNOWN_TABLE_COLUMNS. test_p1_consolidation.mjs strictly enforces 0 queries.
+Action: Add explicit DROP TABLE IF EXISTS pa_pin_metrics CASCADE; in Hub Migration 050 to ensure Central Hub is 100% clean.
+keyword_pins_snapshots:
+Created: Migration 003. Superseded in 016/033.
+Parity Verifier: Not in KNOWN_TABLE_COLUMNS. Guard 1 in verify_sql_schema_parity.mjs (line 537) strictly bans direct INSERT INTO keyword_pins_snapshots.
+Action: Drop table in Hub Migration 050. Guard 1 will continue to pass.
+pins_daily_snapshots:
+Created: Physical table in 016. Converted to a composite VIEW over pins_daily_metrics + pin_serp_positions in 033 and 047.
+Parity Verifier: Registered in KNOWN_TABLE_COLUMNS (lines 101-117). Guard 2 (line 545) bans ON CONFLICT (pin_id, snapshot_date) on this view.
+Action: Retain view for read-only trajectory backwards-compatibility.
+keyword_master_pins:
+Created: View over universal_master_pins in 016, 047, 048.
+Action: Retain view for zero-regression backward compatibility.
+crawler_shard_heartbeats:
+Created: Migration 009. Retained in 047 for telemetry.
+Action: Retained for crawler coordination in Mode B / Mode C.
+Cloudflare D1 (edge_pins_metadata):
+Status: Not in Postgres migrations (D1 was SQLite).
+Action: Clean up ghost comments in src/modules/keywords/folders-service.mjs:2764 and src/worker.mjs:917.
+---
+
+5. Verification Commands Run & Zero-Mutation Confirmation
+Ran node scripts/verify_regression_locks.mjs -> 14/14 Locks PASSED (Elapsed: 49.4ms).
+ZERO files were created, edited, deleted, or modified. Strict Read-Only mode preserved 100%.
+Forensic audit report complete. Tagging @coordinator.
+
+Show less
+
+@audit-ui-edge
+@coordinator
+#9 · 8:04 PM
+[audit-ui-cache-edge] FORENSIC AUDIT REPORT: UI, Client-side Edge Caches & Cloudflare Artifacts
+
+EXECUTIVE SUMMARY
+Line-by-line forensic audit completed across all 13 specified UI components, client-side caching modules, and Cloudflare Worker artifacts.
+
+Key findings:
+
+Critical Authentication Bypass in Wake-Shield: workers/wake-shield/src/index.mjs contains a hardcoded fallback PIN pae2026 that is ALWAYS evaluated in expectedTokens and all auth pathways (lines 178, 215, 223, 246). Any request with pae2026 bypasses the access gate even if an operator configures a production SHIELD_PIN or API_SECRET_KEY.
+Missing Edge Shield Script Injection in Pin Details: getEdgeShieldClientScript is imported on line 18 in src/pin-details-ui.mjs but is NEVER injected into the HTML template, leaving /pin/:id without window.safeApiFetch (falls back to native unshielded fetch) and without hover prefetch listeners.
+Pervasive Residual Sharding / Neon / Fleet UI Artifacts: 120+ references across dashboard-ui.mjs, dashboard-modals.mjs, domains-ui.mjs, keywords-ui.mjs, pin-details-ui.mjs, and pulse-ui.mjs including modal dialogs (Register Neon Project in Fleet, Inspect Neon Fleet Node, Launch 20-Shard Parallel Crawler), UI labels (Hydrating Shards..., stored in Neon Shards, Warming shard...), and dead RPC calls (/api/fleet/projects fetched on every keywords page init but never rendered).
+Permanent In-Memory Cache Bloat: dashboard-ui.mjs contains _clientCache.boards (in-memory Map) which is NEVER cleared or evicted on crawls or syncs, causing boards to render stale pins indefinitely until hard page reload.
+Wrangler Binding Discrepancy: Root wrangler.toml declares DATABASE_TOPOLOGY = "unified_postgres" but declares ZERO Cloudflare KV, D1, or Hyperdrive bindings.
+---
+
+PART 1: HOVER PREFETCH, SHARD-WARMING & CLIENT STORAGE AUDIT
+1. Client-Side Hover Prefetch (?prefetch=true)
+Source Location: src/edge-shield-client.mjs (lines 286-339).
+Trigger: document.addEventListener('mouseover', ...) on selector [data-pin-id], a[href*="/pin/"], a[href*="/pins/"].
+Debounce: 130ms (setTimeout(..., 130)). Cancelled immediately on mouseout or target change.
+Prefetch Request: fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }) (line 312).
+In-Memory Cache: var prefetchCache = new Set(); (line 292). Pins are added on first prefetch and NEVER purged or expired. If a pin returns 404 or cache miss initially, hovering again never retries.
+Warming Cache Artifact: var warmCache = new Set(); (line 293, 327-328). Dead memory set; the network call /api/fleet/warm?pin_id= was commented out (// [INVARIANT: SAFE-PREFETCH-EDGE-ONLY - ZERO NETWORK HOVER WAKEUPS]), but warmCache remains allocated.
+Script Injection Parity:
+Injected via ${getEdgeShieldClientScript()} in:
+src/campaign-folders-ui.mjs (line 3548)
+src/dashboard-ui.mjs (line 11330)
+src/discovery-ui.mjs (line 1545)
+src/domains-ui.mjs (line 3572)
+src/keywords-ui.mjs (line 7094)
+OMITTED / MISSING:
+src/pin-details-ui.mjs: Imported on line 18 (import { getEdgeShieldClientScript } from './edge-shield-client.mjs';), but NEVER called or injected into the HTML string!
+src/pulse-ui.mjs: Not imported and not injected.
+2. Shard-Warming Hooks & Retry Loops
+src/pin-details-ui.mjs:
+Lines 423, 437: :class="isShardWarming ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'" and <span class="hidden sm:inline">Warming shard...</span>.
+Lines 524-535: In empty/error state: <h2 ... x-text="isShardWarming ? 'Database Busy' : 'Pin Telemetry Not Found'">, <span x-text="isShardWarming ? 'Retry Shard Fetch' : 'Try Force Refresh'"></span>.
+Lines 2201-2224: this.isShardWarming = Boolean(data?.is_degraded || data?.shard_cold);
+Silent auto-refresh loop executes up to 3 times with progressive delays (1200ms, 3000ms, 5000ms) if is_degraded or shard_cold or !data?.from_shard_snapshots.
+
+Line 2229-2232: On HTTP 503, sets this.isShardWarming = true and shows toast: 'Pin storage shard is warming up from sleep.'.
+src/domains-ui.mjs:
+Lines 1427-1440, 2825-2847: loadMoreDisplaced() button labeled Load +50 Displaced Pins from Shards / Hydrating Shards... queries /api/domains/dossier?domain=...&displaced_limit=... (+50 each click).
+src/pulse-ui.mjs:
+Lines 1093-1096: isDossierHydrating indicator: <span>Hydrating deep description, SEO alt-text, and Shard trajectory in background...</span>.
+src/dashboard-ui.mjs:
+Lines 8960-8998: pingFleetShard(project) triggers POST to /api/fleet/ping.
+Lines 8911-8956: pingFleetBatchAction() samples hub and up to 4 shards, pinging /api/fleet/ping.
+Lines 9006-9029: syncAllFleetDatabasesAction() posts to /api/fleet/sync with toast: '🔄 Synchronizing Hub profiles & boards across all 99 Neon database shards...'.
+3. Client Storage (sessionStorage and localStorage)
+sessionStorage:
+'pae_pin_breadcrumb_ctx' (pin-details-ui.mjs:2007, 2033, 2159, dashboard-ui.mjs:10201): Persists navigation origin (originCreator, originKeyword, originFolderId, originDomain, originReturnUrl, originLabel, savedAt) across F5 reloads.
+localStorage:
+'pa_theme' & 'pin_theme' (All 7 UI studios): Dual keys kept in tandem for dark/light mode toggle.
+'pae_admin_api_key' (All 7 UI studios): Read by <head> script monkey-patching window.fetch to auto-inject x-api-key.
+'pae_sidebar_collapsed' vs 'pa_sidebar_collapsed': Naming Discrepancy! pulse-ui.mjs:1233, 1460 reads/writes 'pa_sidebar_collapsed', while all other 6 studios read/writes 'pae_sidebar_collapsed'. As a result, toggling the sidebar on /pulse does not persist when navigating to /keywords, /domains, or /accounts.
+'keywords_visible_columns' (keywords-ui.mjs:4579, 4595, 5281): Persists custom visible table columns for SERP table.
+'creator_master_visible_columns' (dashboard-ui.mjs:6011, 6026, 7825): Persists custom visible table columns for Creator Catalog.
+'pin_hub_view_mode' (dashboard-ui.mjs:7006, 7472): Persists grid vs table mode for candidate intersections.
+'pin_seed_view_mode' (dashboard-ui.mjs:7070): Persists seed view mode.
+'pa_selected_project_id' (keywords-ui.mjs:5618): Stored in onProjectChange() (legacy fleet shard selector).
+4. Stale UI State & Memory Leaks
+dashboard-ui.mjs (_clientCache):
+Lines 6307, 9622-9698: SWR cache for creator details (_clientCache.creators). While creators are evicted on rule updates (lines 10109, 10139) or manual refresh (line 8635), _clientCache.boards (lines 10281-10386) is NEVER cleared or expired. Visiting a creator's board caches pins permanently in browser memory; subsequent visits always render cached pins first.
+keywords-ui.mjs (this.fleetProjects):
+Lines 4245, 5253, 5624-5632: On every page load, init() calls this.fetchFleetProjects() which hits /api/fleet/projects. The resulting array is assigned to this.fleetProjects but is NEVER rendered anywhere in keywords-ui.mjs template! Completely dead network round-trip.
+domains-ui.mjs HTTP Cache Pass-through:
+Line 2368: cache: forceRefresh ? 'no-store' : 'default' sends cache: 'default' when not force-refreshing, allowing intermediate or browser HTTP caches to serve stale domain listings.
+---
+
+PART 2: RESIDUAL SHARD, NEON, D1, KV & CENTRAL HUB REFERENCES
+Exact line-by-line inventory across all UI templates:
+
+src/pin-details-ui.mjs:
+Line 7: Header comment: Deterministic Shard Badge
+Line 14: Header comment: Non-Disruptive Cold-Shard Background Warming with Silent Retry
+Line 426: Condition: <template x-if="dossier?.from_shard_snapshots">
+Line 437: UI Label: <span class="hidden sm:inline">Warming shard...</span>
+Line 458: Action Tooltip: title="Permanently delete this pin from target Shard, Central Hub, and Edge Caches"
+Line 535: Error Button: <span x-text="isShardWarming ? 'Retry Shard Fetch' : 'Try Force Refresh'"></span>
+Line 2201, 2211: JS Property checks: data?.is_degraded || data?.shard_cold and !data?.from_shard_snapshots
+Line 2232: Toast Message: 'Pin storage shard is warming up from sleep.'
+Line 2930: Toast Message: 'Pin #' + this.pinId + ' permanently purged from Shards and Hub'
+src/pulse-ui.mjs:
+Line 1095: UI Status: <span>Hydrating deep description, SEO alt-text, and Shard trajectory in background...</span>
+Line 1175: UI Notice: <span class="text-slate-400 italic">No visual tags detected in Hub SERP snapshot</span>
+Line 2115: Exported Markdown: '- Source 2 (Description): ' + (p.description ? 'Enriched from live Shard' : 'Compacted on Hub · Available via Edge D1')
+src/domains-ui.mjs:
+Line 1427: Template comment: <!-- On-Demand Shard Displaced Pins Loader -->
+Line 1431: UI Subheader: <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Shard Archive:</span>
+Line 1432: UI Body Copy: ...additional historical displaced pins are stored in Neon Shards.
+Line 1438: Button Label: <span x-text="dossierLoadingMore ? 'Hydrating Shards...' : 'Load +50 Displaced Pins from Shards'">
+src/keywords-ui.mjs:
+Line 217, 220: Button Tooltip: <!-- Refresh Hub Button -->, title="Sync with Neon Central Hub"
+Line 4033: Swarm Modal Footer: <span class="text-[11px] text-slate-400 font-mono tabular-nums">20 Azure VMs &middot; Zero Hub writes</span>
+Line 5248: Inline Comment: // Keywords & SERP studio strictly bind to Central Metadata Hub
+Line 5315: Inline Comment: // Defer secondary hub calls so they do not saturate DB connection pool...
+src/dashboard-ui.mjs:
+Line 596: Button Label: <span>Harvest Board (GHA 20-Shards)</span>
+Line 650: UI Badge: <div class="text-[10.5px] text-slate-400" x-text="boardPins.length + ' indexed in Neon'"></div>
+Line 751: Loading Indicator: <span class="text-xs font-semibold text-slate-400">Loading board pins inventory from Neon database...</span>
+Line 761: Empty State Copy: Click Harvest Board below to crawl all pins belonging to this board using the 20-shard GitHub Actions matrix.
+Line 1401: Card Header: <span>Tracked Seeds in Neon Postgres Database</span>
+Line 1818: Descriptive Text: These 3 candidate nodes are dynamically extracted from Neon for active seed...
+Line 3507-3508: Shard Badge: <template x-if="c._shard_name && selectedProject === 'all'"><span ... x-text="c._shard_name.replace('pin-arbitrage-', '')"></span></template>
+Line 4478: Subtitle Text: Discovered pins catalog for @... Deeply synchronized across Neon Shards.
+Line 4737: Button Label: <span>⚡ Launch 20-Shard GitHub Actions Harvest</span>
+Line 5298, 5300: Button Label: <span>⚡ Harvest All Boards (20 Shards)</span>
+Line 5564: Button Tooltip: title="Harvest this specific board via GitHub Actions 20-Shard Crawler"
+Line 6272-6275: Filter Code: if (this.fleetRoleFilter === 'hub') ... else if (this.fleetRoleFilter === 'shard') ...
+Line 8893, 8902: String Literals: 'ep-pooler.neon.tech'
+Line 8916-8922: Sample Selection: const hub = this.fleetProjects.find(p => p.is_hub); const shards = this.fleetProjects.filter(p => !p.is_hub);
+Line 8960: Function Name: async pingFleetShard(project)
+Line 9008: Toast Message: '🔄 Synchronizing Hub profiles & boards across all 99 Neon database shards...'
+Line 9017: Toast Message: '🎉 Fleet synchronized! Replicated across ' + data.successful_shards + ' shards...'
+Line 9220, 10880: Toast Message: '⚡ Dispatching 20-shard GHA Crawler for @' + handle + '...'
+Line 9517: Arabic Message: ...وتثبيت كوتا الحصص في Neon.
+Line 10635: Message: (Sharded across 20 nodes)
+Line 10894: Toast Message: '🚀 20-Shard Crawler dispatched on GitHub Actions!'
+Line 10969: Toast Message: 'Neon project registered in fleet!'
+Line 11025: Toast Message: '✅ Successfully imported ' + (data?.count || 0) + ' seeds into Neon!'
+Line 11137, 11170: State & Toast: deletePurgeNeon = true;, '🗑️ Deleted ... (Neon DB purged cleanly)'
+src/ui/dashboard-modals.mjs:
+Lines 541, 550, 628, 647: Seed Modal: aria-label="Add Tracked Seeds to Neon", <h3>Add Tracked Seeds to Neon</h3>, Trigger crawl pipeline right after inserting seeds into Neon, Import Seeds to Neon.
+Lines 786, 789: Matrix Modal: Matrix 20-Shards, Parallel Matrix Sharding (20 Concurrent Runners).
+Lines 894, 917, 919: Purge Modal: Delete Confirmation & Neon Purge Modal, Comprehensive Purge from Neon Database, ...from Neon Serverless.
+Lines 1003, 1023: Raw JSON Modal: ...and persist all pins to Neon Serverless, Ingest & Store in Neon.
+Lines 1155, 1157, 1165, 1167, 1179, 1185, 1192, 1242, 1258: 20-Shard Crawler Modal:
+role="dialog" aria-label="Launch 20-Shard Parallel Crawler"
+<h3>Launch 20-Shard Parallel Crawler</h3>
+Board-Level Modulo Sharding
+Distribute all boards across 20 shards (idx % 20)
+value="sharded_boards"
+Launch 20-Shard Crawler
+Line 1325: Loading Indicator: <span>Loading keyword SERP pins from Neon...</span>
+Lines 1365-1393: Fleet Registration Modal:
+role="dialog" aria-label="Register Neon Project in Fleet"
+<h3>Register Neon Project in Fleet</h3>
+<p ...>Add an isolated Neon Postgres project to the 100-project registry.</p>
+placeholder="e.g. pin-shard-02 or competitors-db"
+placeholder="postgresql://user:pass@ep-*-pooler.neon.tech/neondb?sslmode=require"
+Lines 1406-1469: Fleet Node Inspection Modal:
+role="dialog" aria-label="Inspect Neon Fleet Node"
+x-text="inspectedNode?.is_hub ? '👑 HUB MASTER' : '📦 SHARD'"
+button @click="pingFleetShard(inspectedNode)"
+span x-text="... ? 'Pinging...' : 'Test Shard Latency'"
+---
+
+PART 3: SECURITY & ARCHITECTURE AUDIT OF WAKE-SHIELD & WRANGLER
+1. Security Vulnerabilities in workers/wake-shield/src/index.mjs
+[CRITICAL] SEC-WAKE-01: Hardcoded Master PIN Bypass:
+Lines 18, 178, 215-216, 223, 246:
+    const DEFAULT_PIN = 'pae2026';
+    const expectedTokens = await Promise.all([
+      computeExpectedToken(configuredPin),
+      computeExpectedToken(fallbackPin),
+      computeExpectedToken(DEFAULT_PIN) // ALWAYS ACCEPTED!
+    ]);
+Even if an operator configures a secure SHIELD_PIN or API_SECRET_KEY in Cloudflare Secrets, any attacker entering 'pae2026' on the login screen or sending x-api-key: pae2026 or Authorization: Bearer pae2026 is granted full administrative access.
+
+[HIGH] SEC-WAKE-02: Hardcoded Machine ID Fallback:
+Line 17: const MACHINE_ID = 'm_agq2t32m5xv5joj67rqoze5h4u';
+Exposes InstaBox instance ID directly in client-delivered bundle / source repository.
+
+[HIGH] SEC-WAKE-03: Hardcoded Cryptographic Salt:
+Line 31: data = enc.encode(${secret}:pae_access_salt_2026);
+Static salt is hardcoded, enabling rainbow table precomputation of valid SHA-256 tokens for short PINs.
+
+[MEDIUM] SEC-WAKE-04: Credential Exposure via URL Query String (CWE-598 / Rule 24):
+Lines 221-239: Accepts ?pin= and ?key= query parameters. While the worker immediately strips them and redirects with 302, the plain-text PIN is captured in Cloudflare Edge request logs, ISP proxies, and browser navigation histories.
+[MEDIUM] SEC-WAKE-05: Insecure Default Header Injection:
+Lines 306-309: Injects env.API_SECRET_KEY || fallbackPin into the origin request x-api-key header. If API_SECRET_KEY is not set, it injects 'pae2026' to origin.
+[LOW] SEC-WAKE-06: 30-Day Static Cookie without Revocation:
+Lines 20, 193, 236, 259: Cookie pae_shield_auth has a 30-day lifetime with no session ID rotation or timestamp expiration checking.
+2. Architecture & Throttling in workers/wake-shield/src/index.mjs
+Wake Trigger: Wakes stopped/suspended InstaBox VM via official OpenAPI POST /v1/machines/:id/start with required 20s time-bucketed Idempotency-Key and {} JSON body.
+Isolate-Level Throttling: Throttled to at most once per 15s per worker isolate (now - lastWakeAt < 15000). Note: Because Cloudflare Workers run across hundreds of global PoPs, multi-region traffic will instantiate multiple isolates, each with independent throttling.
+Polling Loop: Dedicated /api/shield-wake-status endpoint tests origin tunnel /api/health with a fast 2.5s timeout. It throttles InstaBox metadata queries (?meta=1) to once every 6 seconds.
+3. Audit of wrangler.toml (Root vs Wake-Shield)
+Root wrangler.toml:
+Lines 9-15:
+    [vars]
+    PORT = "3456"
+    DATABASE_TOPOLOGY = "unified_postgres"
+    [env.preview.vars]
+    PORT = "3456"
+    DATABASE_TOPOLOGY = "unified_postgres"
+Dead Bindings / Configuration Gap: wrangler.toml does NOT declare any kv_namespaces, d1_databases, or hyperdrive bindings. Any application code in src/worker.mjs or fleet-router.mjs referencing env.PIN_ENGINE_KV, env.DB, or env.HYPERDRIVE will find them undefined when running in standard Cloudflare Workers environments.
+workers/wake-shield/wrangler.toml:
+Configures route app.hymum.com/* on zone hymum.com.
+Sets INSTABOX_MACHINE_ID = "m_agq2t32m5xv5joj67rqoze5h4u".
+Missing declaration for SHIELD_PIN, API_SECRET_KEY, and INSTABOX_API_KEY (must be populated via Cloudflare Secrets).
+---
+
+Forensic audit complete. No files or code modified. Ready for coordinator synthesis.
+
+Show less
+
+@audit-crawlers
+@coordinator
+#10 · 8:06 PM
+[audit-crawlers-scripts] FORENSIC AUDIT REPORT: Crawlers, Scripts & Ops Workflows
+
+EXECUTIVE SUMMARY
+Mode: Strict read-only forensic audit. Zero mutations or file writes performed in repository.
+Scope: 15 scripts (scripts/lib/pinterest.mjs, scripts/keyword-velocity-crawler.mjs, scripts/keyword-fleet-dispatcher.mjs, scripts/keyword-fleet-consolidator.mjs, scripts/creator-velocity-crawler.mjs, scripts/creator-fleet-dispatcher.mjs, scripts/creator-fleet-consolidator.mjs, scripts/crawler-engine.mjs, scripts/cluster-intelligence.mjs, scripts/account-related-crawler.mjs, scripts/backfill_rolling_window_gains.mjs, scripts/refresh-domain-rollup.mjs, scripts/optimize_hub_storage.mjs, scripts/vps-scheduler.mjs, scripts/migrate.mjs) and 5 GitHub Actions workflows (.github/workflows/*.yml).
+Critical Findings:
+VPS Single-Worker 95% Pin-Loss Trap: In scripts/keyword-velocity-crawler.mjs (L91), runner shard partitioning hardcodes ((s - 1) % 20) === workerIndex rather than using workerTotal. When running on VPS (WORKER_TOTAL=1), only 5 of 99 shards are crawled; 94 shards (95% of pins) are dropped!
+SQL Shard Filter NULL Drop: In scripts/keyword-velocity-crawler.mjs Mode B (L1989, L2015, L2035) and Mode C (L1706, L1749, L1770), queries filter AND shard_id = ANY(${assignedShards}::smallint[]) without the NULL fallback OR (shard_id IS NULL AND mod(...)) present in Mode A. Any pin with NULL shard_id is silently skipped. In scripts/creator-velocity-crawler.mjs (L808, L1588), cp.shard_id = ANY(...) and p.shard_id = ANY(...) similarly drop any pins with NULL shard_id.
+Permanent Frozen Velocity Ratchet Violation (Rules 5 & 28): In scripts/backfill_rolling_window_gains.mjs (L434, L457, L480), daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ksc.daily_save_velocity END. When a pin stops gaining saves (u.daily_save_velocity = 0), its previous velocity is frozen permanently! The same applies to delta_repins_24h and gains_5d/7d/10d/15d via NULLIF(..., 0). In scripts/keyword-velocity-crawler.mjs (L1212-1215), UMP multi-day gains are similarly trapped in monotonic CASE WHEN EXCLUDED.gains > 0 ....
+Unconditional preloadNeonRegistry Calls: preloadNeonRegistry is called unconditionally even in unified Postgres mode in scripts/keyword-velocity-crawler.mjs (L964), scripts/keyword-fleet-consolidator.mjs (L509), scripts/optimize_hub_storage.mjs (L100), and scripts/creator-velocity-crawler.mjs (L163, L264).
+Direct neon_projects_registry Queries: scripts/crawler-engine.mjs directly queries neon_projects_registry (L743, L2215, L2234) for degraded/quarantined shards and shard connection strings.
+---
+
+PART 1: SHARD/NEON REFERENCES, ASSIGNEDSHARDS FILTERS & PRELOAD CALLS
+1. scripts/keyword-velocity-crawler.mjs
+Imports (L24, L30-39):
+Imports createUniversalSqlClient, batchGroupByShard, coalesceShardGroupsByPhysical, resolveShardConnection, preloadNeonRegistry, getPinShardId, getPhysicalShardId, crc32, isUnifiedPostgres from ../src/modules/sharding/fleet-router.mjs.
+Active Shard Target Tracking (L44-57):
+const activeTargetShards = new Set();
+L52: const sid = getPhysicalShardId(getPinShardId(p.pin_id, 99)); activeTargetShards.add(sid);
+Runner Shard-Affine Partitioning (L87-95) [CRITICAL BUG]:
+L89-94:
+    const assignedShards = [];
+    for (let s = 1; s <= 99; s++) {
+      if (((s - 1) % 20) === workerIndex) { // <--- BUG: Hardcodes 20! Ignores workerTotal
+        assignedShards.push(s);
+      }
+    }
+    const assignedShardSet = new Set(assignedShards);
+Unconditional preloadNeonRegistry & Shard Flush (L964-985):
+L964: await preloadNeonRegistry(sql); (Executed unconditionally in flushToStorageShards).
+L965-966: batchGroupByShard(enrichedPins, 99) and coalesceShardGroupsByPhysical(...).
+L978: const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+JIT Shard Prewarm (L1518-1541):
+L1518: Guarded by if (!jitPrewarmFired && !isUnifiedPostgres() && total >= 1 && (completedCount / total) >= 0.8).
+L1524: const sid = getPinShardId(targetPin.pin_id, 99);
+L1531: await preloadNeonRegistry(sql);
+L1534: const prewarmSql = await resolveShardConnection({ hubSql: sql, shardId });
+In-Crawler Keep-Alive Heartbeat (L1563-1579):
+L1563: if (!isUnifiedPostgres()) sets 210s interval calling resolveShardConnection({ hubSql: sql, shardId }).
+Mode C (Folder Cluster) SQL & In-Memory Shard Filters (L1702-1820):
+L1706: AND ksc.shard_id = ANY(${assignedShards}::smallint[])
+L1749: AND ksc.shard_id = ANY(${assignedShards}::smallint[])
+L1770: AND kdi.shard_id = ANY(${assignedShards}::smallint[])
+L1820: In-memory filter: allPins.filter(p => assignedShardSet.has(getPinShardId(p.pin_id, 99)));
+Risk: Lacks NULL fallback on shard_id, causing newly ingested or NULL-shard pins to be dropped.
+Mode B (Single-Keyword) SQL & In-Memory Shard Filters (L1986-2063):
+L1989: AND shard_id = ANY(${assignedShards}::smallint[])
+L2015: AND shard_id = ANY(${assignedShards}::smallint[])
+L2035: AND kdi.shard_id = ANY(${assignedShards}::smallint[])
+L2063: In-memory filter: allPins.filter(p => assignedShardSet.has(getPinShardId(p.pin_id, 99)));
+Risk: Lacks NULL fallback on shard_id.
+Mode A (Global Sweep) Shard Filters (L2241-2350):
+L2247-2249: ksc.shard_id = ANY(${assignedShards}::smallint[]) OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+L2294-2295: ksc.shard_id = ANY(${assignedShards}::smallint[]) OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+L2319-2320: kdi.shard_id = ANY(${assignedShards}::smallint[]) OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
+2. scripts/creator-velocity-crawler.mjs
+Imports (L29, L50-56):
+Imports createUniversalSqlClient, resolveShardConnection, preloadNeonRegistry, getPinShardId, isUnifiedPostgres from ../src/modules/sharding/fleet-router.mjs.
+Preload & Sharded Writes in syncMetricsToShards (L163-220):
+L163: await preloadNeonRegistry(hubSql); (Unconditional).
+L168: if (isUnifiedPostgres()) writes to hubSql; else L211 calls resolveShardConnection({ hubSql, shardId }).
+Preload & Sharded Writes in syncPinsToMasterShards (L264-375):
+L264: await preloadNeonRegistry(hubSql); (Unconditional).
+L269: if (isUnifiedPostgres()) writes to hubSql; else L373 calls resolveShardConnection({ hubSql, shardId }).
+Shard-Affine Partitioning Setup (L785-794):
+L787-792: for (let s = 1; s <= 99; s++) { if ((s - 1) % workerTotal === workerIndex) assignedShards.add(s); } (Correctly uses workerTotal).
+SQL Shard Filters (Lock 3):
+L808: WHERE cp.competitor_id = ${targetId} AND cp.shard_id = ANY(${assignedArray}::smallint[]) on competitor_pins.
+L1588: WHERE p.shard_id = ANY(${assignedWinningArray}::smallint[]) on pa_pins.
+Risk: Pins with NULL shard_id are omitted.
+3. scripts/crawler-engine.mjs
+Imports (L40):
+Imports enforceNeonPoolerUrl, batchGroupByShard, coalesceShardGroupsByPhysical, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity, isUnifiedPostgres, createUniversalSqlClient from ../src/modules/sharding/fleet-router.mjs.
+syncEnrichedMetricsToShards (L217, L256):
+if (isUnifiedPostgres()) executes on hubSql; fallback calls resolveShardConnection({ hubSql, shardId }).
+syncEnrichedPinsToMasterShards (L313, L408):
+if (isUnifiedPostgres()) executes on hubSql; fallback calls resolveShardConnection({ hubSql, shardId }).
+Direct Queries to neon_projects_registry:
+L741-745:
+    SELECT project_name, assigned_shards
+    FROM neon_projects_registry
+    WHERE status IN ('inactive', 'suspended', 'quarantined', 'degraded');
+(Skipped if isUnifiedPostgres()).
+
+L2213-2217:
+    SELECT assigned_shards 
+    FROM neon_projects_registry 
+    WHERE status IN ('degraded', 'quarantined', 'inactive') AND assigned_shards IS NOT NULL;
+L2234:
+    SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;
+4. scripts/keyword-fleet-consolidator.mjs
+Imports (L15): createUniversalSqlClient, preloadNeonRegistry, resolveShardConnection, isUnifiedPostgres.
+Tombstone Cleanup (L509-526):
+L509: await preloadNeonRegistry(sql); (Unconditional).
+L511: const shardIds = isUnifiedPostgres() ? [1] : Array.from({ length: 20 }, (_, i) => i + 1);
+L519: const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+L520-523: DELETE FROM pin_serp_positions WHERE keyword_id = ANY(${purgeIds});
+5. scripts/backfill_rolling_window_gains.mjs
+Imports (L18, L23-29): createUniversalSqlClient, getPinShardId, getPhysicalShardId, resolveShardConnection, isUnifiedPostgres.
+Physical Shard Partitioning & Connection (L358-388):
+L360-363: const unifiedMode = isUnifiedPostgres(); const virtShardId = getPinShardId(pin_id, 99); const physicalShardId = unifiedMode ? 1 : getPhysicalShardId(virtShardId);
+L380: const shardSql = await resolveShardConnection({ hubSql, shardId });
+L382-388: SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity FROM pins_daily_metrics WHERE pin_id = ANY(...)
+6. scripts/optimize_hub_storage.mjs
+Imports (L25-32): resolveShardConnection, preloadNeonRegistry, isUnifiedPostgres, createUniversalSqlClient.
+Step 1 Displaced Archive (L100, L129):
+L100: await preloadNeonRegistry(sql); (Unconditional).
+L129: const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+L130: if (!shardSql || (!isUnifiedPostgres() && shardSql === sql)) throw new Error(...);
+Step 2 Snapshot Offload (L398, L438):
+L398-399: if (!isUnifiedPostgres()) try { await preloadNeonRegistry(sql); ... }
+L438: const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+7. scripts/cluster-intelligence.mjs
+Imports (L15-16): createUniversalSqlClient, crc32.
+Heartbeats & Sharding (L1521, L1629):
+L1521: UPDATE crawler_shard_heartbeats RETURNING competitor_id, shard_number;
+L1629: AND (${shardIdx}::int IS NULL OR mod(pae_crc32_shard_id(pin_id::text, 99) - 1, 20) = ${shardIdx}::int)
+8. scripts/migrate.mjs
+Imports (L20): enforceNeonPoolerUrl, createUniversalSqlClient.
+Pooling (L438, L519): const pooledUrl = enforceNeonPoolerUrl(dbUrl);
+9. Standalone Clients (Import createUniversalSqlClient Only):
+scripts/keyword-fleet-dispatcher.mjs (L21)
+scripts/creator-fleet-dispatcher.mjs (L20)
+scripts/creator-fleet-consolidator.mjs (L19)
+scripts/account-related-crawler.mjs (L10)
+scripts/refresh-domain-rollup.mjs (L9)
+---
+
+PART 2: COOLDOWNS, CACHE SKIPS & VELOCITY CALCULATION EDGE CASES
+1. scripts/keyword-velocity-crawler.mjs
+Dead Cooldown Constants:
+L174-175: HARD_COOLDOWN_MS = 4 60 60 1000; and MAX_SAME_DAY_TTL_MS = 18 60 60 1000; are declared but never referenced anywhere.
+Unused Import:
+L42: shouldSkipFreshPinEnrichment imported from ../src/domain/pin-intelligence.mjs is never used.
+Dead Cache Bypass Function:
+L182-184: function evaluateHydrationGuard(_pin) { return { shouldFetch: true, reason: 'live_fetch_enabled', reuseTelemetry: null }; }.
+L194-226: if (!guard.shouldFetch && guard.reuseTelemetry) { return { ... from_hydration_cache: true }; } is 100% dead code because guard.shouldFetch is hardcoded to true.
+Rate Limit Circuit Breaker (L228-234, L294-307):
+Exponential backoff rateLimitCooldownUntil with CIRCUIT_BREAKER_LIMIT = 25. Sleeps up to 5000ms per iteration.
+Displaced 6-Hour Interval Shift (L1762, L2028, L2309):
+CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at.
+Velocity Calculation (L341-395):
+Explicit baseline check: hasExplicitBaseline = (pin.baseline_day_saves != null && Number(pin.baseline_day_saves) > 0).
+Intraday second crawl: if (!hasExplicitBaseline && baseIso === todayIso) computedVelocity = Math.min(25000, Number(pin.daily_save_velocity || 0) + rawDelta).
+Normal delta: Delegates to calculateDailyVelocity in src/lib/math.mjs.
+Zero delta zeroing: L382-393 zeroes velocity if rawDelta === 0 && baseIso < todayIso && !updatedToday.
+Database Velocity Update & Gains Ratchet Trap (L566-574, L699-707, L836-844, L1212-1215):
+In ksc updates, daily_save_velocity safely updates downward if NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL.
+TRAP on UMP (L1212-1215):
+gains_5d = CASE WHEN EXCLUDED.gains_5d > 0 THEN EXCLUDED.gains_5d ELSE COALESCE(universal_master_pins.gains_5d, 0) END.
+
+If multi-day gain drops to 0, it is never updated to 0; the old positive gain remains frozen!
+
+2. scripts/creator-velocity-crawler.mjs
+18-Hour Shared Pin Freshness Gate (Phase 2, L830-852):
+Checks shouldSkipFreshPinEnrichment(masterSnapshot, 18).
+If skipped, sets delta_saves: prevVelocity, delta_repins: 0 without making an HTTP request to Pinterest.
+Phase 3 (Winning Pins, L1603-1623) Asymmetry:
+Does NOT check the 18-hour freshness gate. Winning pins are always scraped or fetched via PinResource micro-packet.
+Velocity Calculation (computeNormalized24hVelocity, L479-537):
+Checks intraday midnight normalization (isSameDay).
+Delegates to canonical calculateDailyVelocity({ ... }) in src/lib/math.mjs.
+Fallback: unhydrated 0-baseline without creation timestamp suppresses velocity to 0 until Day-2 crawl.
+3. scripts/crawler-engine.mjs
+Pin Resource Fast Path & Tri-State Fallbacks (L1960-1977):
+Fast-path via fetchPinFromPinResource.
+Falls back to full guest scrape if:
+!resPin
+rawSaves === 0 && prevSaves > 0
+rawSaves < prevSaves * 0.8 (drop > 20%)
+rawSaves === rawRepins && rawRepins > 50 (Pinterest returned repins instead of total saves).
+Velocity Calculation (L1533-1539 & L2015-2046):
+L1537: Initial enrichment velocity defaults to lifetime average saves / elapsedDays if age >= 2 days, else 0.
+L2021: Winning pins reconciliation delegates to calculateDailyVelocity({ wasDeepHydrated: prevSaves >= 10, maxCap: 25000 }).
+4. scripts/backfill_rolling_window_gains.mjs
+[CRITICAL INVARIANT VIOLATION: RULES 5 & 28] Anti-Symmetric Velocity Ratchet in Phase 4 (L434, L457, L480):
+  -- On keyword_serp_current (L434):
+  daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ksc.daily_save_velocity END,
+  delta_repins_24h = COALESCE(NULLIF(u.delta_repins_24h, 0), ksc.delta_repins_24h),
+  gains_5d = COALESCE(NULLIF(u.gains_5d, 0), ksc.gains_5d),
+  gains_7d = COALESCE(NULLIF(u.gains_7d, 0), ksc.gains_7d),
+  gains_10d = COALESCE(NULLIF(u.gains_10d, 0), ksc.gains_10d),
+  gains_15d = COALESCE(NULLIF(u.gains_15d, 0), ksc.gains_15d),
+
+  -- On keyword_displaced_index (L457):
+  daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE kdi.daily_save_velocity END,
+  ...
+
+  -- On universal_master_pins (L480):
+  daily_save_velocity = CASE WHEN u.daily_save_velocity > 0 THEN u.daily_save_velocity ELSE ump.daily_save_velocity END,
+  delta_saves_24h = CASE WHEN u.daily_save_velocity > 0 THEN ROUND(u.daily_save_velocity)::int ELSE ump.delta_saves_24h END,
+  ...
+Forensic Impact: If a pin ceases getting saves (u.daily_save_velocity === 0), this query refuses to write 0 and keeps the old positive velocity indefinitely! Similarly, NULLIF(u.gains_5d, 0) prevents rolling gains from dropping to 0 when momentum halts!
+
+---
+
+PART 3: WORKFLOW & SCHEDULER INSPECTION
+1. GitHub Actions Workflows (.github/workflows/*.yml)
+keyword-intelligence-velocity.yml:
+Trigger: Cron 0 1 * (01:00 UTC daily) & workflow_dispatch.
+Topology: DATABASE_TOPOLOGY: unified_postgres, PG_POOL_MAX: '2'.
+Pipeline:
+Stage 0: scripts/keyword-fleet-dispatcher.mjs -> outputs matrix tasks JSON.
+Stage 1: scripts/keyword-velocity-crawler.mjs across 20-runner matrix (max-parallel: 20, 55min timeout).
+Stage 2: scripts/backfill_rolling_window_gains.mjs -> scripts/keyword-fleet-consolidator.mjs -> scripts/refresh-domain-rollup.mjs -> POST /api/fleet/cache-invalidate.
+crawler-pipeline.yml:
+Trigger: Cron 0 2 * (02:00 UTC daily) & workflow_dispatch.
+Topology: DATABASE_TOPOLOGY: unified_postgres, PG_POOL_MAX: '2'.
+Pipeline:
+Stage 0: scripts/creator-fleet-dispatcher.mjs.
+Stage 1: scripts/creator-velocity-crawler.mjs across 20-runner matrix.
+Stage 2: scripts/creator-fleet-consolidator.mjs -> scripts/refresh-domain-rollup.mjs -> POST /api/fleet/cache-invalidate.
+cluster-intelligence.yml:
+Trigger: Cron 0 4 * (04:00 UTC daily) & workflow_dispatch.
+Topology: DATABASE_TOPOLOGY: unified_postgres, PG_POOL_MAX: '2'.
+Pipeline:
+Stage 0: SELECT COUNT(*)::int AS cnt FROM cluster_seeds.
+Stage 1: scripts/cluster-intelligence.mjs across matrix shard: [1..20].
+account-related-pins.yml:
+Trigger: workflow_dispatch only.
+Runs scripts/account-related-crawler.mjs with DATABASE_TOPOLOGY: unified_postgres.
+ci.yml:
+Trigger: push/pull_request on main.
+Runs npm run check and node scripts/audit_ui.mjs.
+2. VPS Scheduler (scripts/vps-scheduler.mjs)
+Schedule Configuration:
+01:00 UTC: keywords (keyword-velocity-crawler.mjs -> backfill_rolling_window_gains.mjs -> keyword-fleet-consolidator.mjs -> refresh-domain-rollup.mjs).
+05:00 UTC: creators (creator-velocity-crawler.mjs -> creator-fleet-consolidator.mjs -> refresh-domain-rollup.mjs).
+09:00 & 17:00 UTC: related (account-related-crawler.mjs).
+11:00 UTC: maintenance (optimize_hub_storage.mjs).
+Daemon State & Collisions:
+By default, internal cron loop is DORMANT unless ENABLE_INTERNAL_CRON=true or --daemon is passed. This prevents race conditions with GitHub Actions runners and allows InstaBox VM to scale-to-zero.
+Environment Flags Injected:
+Sets DATABASE_TOPOLOGY: 'unified_postgres', SINGLE_DB_MODE: 'true'.
+The VPS 95% Pin-Drop Defect:
+L49 sets env: { WORKER_INDEX: '0', WORKER_TOTAL: '1', MODE: 'keyword_sweep' }.
+Because keyword-velocity-crawler.mjs L91 hardcodes ((s - 1) % 20) === workerIndex, running under vps-scheduler.mjs only crawls 5 out of 99 shards, dropping 95% of active pins!
+---
+
+Forensic audit complete. No files were modified. Tagging @coordinator.
+
+Show less
+
+@audit-backend
+@coordinator
+#11 · 8:12 PM
+[audit-backend-services] Complete Forensic Audit of Backend Services & APIs
+
+All 15 target files inspected line-by-line in STRICT READ-ONLY MODE (zero repository mutations performed). Below is the comprehensive forensic report across the 3 audit mandates.
+
+---
+
+1. DEAD SHARD LOOPS, REDUNDANT SQL ROUND-TRIPS & LEGACY SHIMS
+A. Dead Shard Loops (!isUnifiedPostgres(env))
+src/modules/keywords/folders-service.mjs (Lines 2670–2760):
+Mechanism: Condition if (sql && stillMissingAfterHub.length > 0 && !isUnifiedPostgres(env)) wraps a 90-line Tier-3 shard hydration routine. In unified postgres topology (DATABASE_TOPOLOGY = 'unified_postgres'), !isUnifiedPostgres(env) evaluates to false.
+Impact: Entire code block is 100% dead. It contains calls to preloadNeonRegistry(sql, env) (L2676), coalesceShardGroupsByPhysical(batchGroupByShard(...)) (L2678), resolveShardConnection (L2693), and executeShardQueryWithCircuitBreaker (L2696). If any pin metadata was legitimately missing after the Hub query (L2622), this block fails to hydrate it because it assumes shards are remote.
+src/modules/keywords/service.mjs (Lines 374–438):
+Mechanism: In hydrateDisplacedIndexFromShards:
+if (!skipShardHydration && stillMissing.length > 0 && (!isUnifiedPostgres(env) || globalShardMap.size > 0))
+
+Impact: When running in unified postgres (isUnifiedPostgres(env) === true and globalShardMap.size === 0), this 65-line scatter-gather block is dead and completely bypassed. Contains dead calls to preloadNeonRegistry, coalesceShardGroupsByPhysical, resolveShardConnection, and executeShardQueryWithCircuitBreaker.
+B. Redundant SQL Round-Trips & In-Memory Shard Shims
+src/modules/keywords/service.mjs (Lines 131–158):
+Redundant Registry Query: await preloadNeonRegistry(hubSql, env); is called at Line 132 AND called AGAIN at Line 148 within the same execution path of offloadKeywordCrawlToShards.
+Redundant Partitioning: const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(combined, 99)); is computed at L138, then immediately discarded at L139 by const shardEntries = (isUnifiedPostgres(env) && globalShardMap.size === 0) ? [[1, combined]] : Array.from(shardGroups.entries());.
+Legacy Routing Shim: L156 calls resolveShardConnection({ hubSql, shardId, env }) which simply returns hubSql, followed by legacy check if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return; (L158).
+src/routes/keywords.mjs (Lines 567–575):
+Redundant Routing Hop: During single pin delete:
+const targetShardId = getPinShardId(pinId, 99);
+
+const targetShardSql = await resolveShardConnection({ hubSql: sql, shardId: targetShardId, env });
+
+await targetShardSql\DELETE FROM pin_serp_positions WHERE pin_id = ${pinId} AND keyword_id = ${keywordId};\;
+
+In unified postgres, targetShardSql === sql. It performs an unneeded shard resolution and deletes without a transaction across keyword_serp_current, pin_serp_positions, and keyword_displaced_index (3 separate network round-trips).
+
+Unused Import: Line 64 imports isUnifiedPostgres from fleet-router.mjs but never uses it.
+src/routes/pins.mjs (Lines 244–245, 355–356, 414–415, 573–586):
+Redundant Shard Resolution: Every snapshot delete and pin purge route calls getPinShardId(pinId, 99) and resolveShardConnection({ hubSql: sql, shardId, env }), returning sql.
+Sequential Multi-Round-Trip Purge (Lines 576–586): Pin purge executes 7 sequential non-transactional queries (DELETE FROM universal_master_pins, pins_daily_metrics, pin_serp_positions, keyword_serp_current, keyword_displaced_index, competitor_pins, pa_pins), each individually shielded with .catch(() => {}), instead of a single atomic transaction.
+src/modules/pulse/service.mjs (Line 20 & Line 346):
+Unused Import: Line 20 imports isUnifiedPostgres from ../sharding/fleet-router.mjs, never referenced anywhere in pulse/service.mjs.
+Legacy Column Selection: Line 346 queries kdi.shard_id in SQL CTE, unused in downstream aggregations.
+src/modules/creators/service.mjs (Lines 4960–5023) & src/routes/creators.mjs (Line 927):
+Eradicated Legacy Shims: getTopicClusters still queries pa_topic_clusters_page stored procedure and pa_pins.raw_topic, despite Invariant 13 permanently eradicating Smart Topic Clusters. Still exposed via GET /api/topics in routes/creators.mjs:927.
+---
+
+2. IN-MEMORY & EDGE CACHES SERVING STALE DATA AFTER CRAWLS
+When backend crawlers (keyword-velocity-crawler.mjs, creator-velocity-crawler.mjs, cluster-intelligence.mjs, refresh-domain-rollup.mjs) complete their daily runs on GitHub Actions or VPS, they write directly to PostgreSQL. They do NOT (and cannot) evict Cloudflare Workers' in-memory L0 isolate maps or edge KV/Cache API keys. Consequently, multiple services serve stale pre-crawl data:
+
+| File & Location | Cache Variable / Key | TTL / Stale Duration | Stale Ingestion Risk Mechanism |
+
+| :--- | :--- | :--- | :--- |
+
+| src/routes/domains.mjs (L98–104) | getCachedOrFetch (domains:leaderboard:ep:0) | 6 Hours TTL + 1 Hour SWR (7 hours total) | Hardcoded epoch = '0'. Crawlers running refresh-domain-rollup.mjs update domain_intelligence_rollup in Postgres, but Workers continue serving stale leaderboard for up to 7 hours unless ?refresh=true is manually passed. |
+
+| src/routes/domains.mjs (L172) | getCachedOrFetch (domains:dossier) | 60s TTL + 15 min SWR | Dossiers cached for up to 16 minutes after crawl. |
+
+| src/modules/keywords/visual-lens-cache.mjs (L13, L81–98) + src/modules/keywords/service.mjs (L483, L663) | visualSearchCache (Map) + pin_visual_search_cache (Postgres table) | 1 Hour (Memory Map) / 7 Days (Postgres table) | Zero invalidation hooks on pin crawl or refresh. If a pin's image or metadata changes, stale matches are served for up to 7 days. Comments still falsely claim "Sub-5ms Edge KV reads". |
+
+| src/modules/keywords/folders-service.mjs (L30, L49, L1783) | folderTrendsCache (Map, max 100), crossoverCache (Map, max 50), TAG_LEMMA_CACHE (Map) | 10 Minutes (CROSSOVER_TTL_MS) / Unbounded (folderTrendsCache, TAG_LEMMA_CACHE) | invalidateFolderCache(fid) only clears crossoverCache; it NEVER clears folderTrendsCache or TAG_LEMMA_CACHE. Cross-isolate crawls never invalidate crossoverCache, serving pre-crawl crossover matrix for 10 minutes. |
+
+| src/modules/pulse/service.mjs (L24, L35, L45) | pulseMemoryCache (Map, max 25), tagNormCache (Map, max 2000), kwSlugCache (Map, max 500) | 120 Seconds (PULSE_MEMORY_TTL_MS) | Bounded to node process/isolate. invalidateGlobalPulseCache clears local isolate only; other isolates continue serving stale pulse data. Tag and slug caches are never cleared. |
+
+| src/modules/keywords/trends-service.mjs (L7, L12, L17, L22) | trendsCache (Map), interestCache (Map), velocityCache (Map), relatedInterestsCache (Map) | 24 Hours (trendsCache) / 1 Hour (velocityCache, interestCache) | Top-level in-memory maps in service module. No invalidation triggers exist; stale Pinterest trend and velocity curves persist across sessions. |
+
+| src/routes/pins.mjs (L625) | getCachedOrFetch (pin:dossier) | 30s TTL + 120s SWR (plus 12h in D1/KV via fetchUniversalPinDossier) | If a crawler ingests fresh daily pin metrics, the HTTP GET /api/pins/:id returns cached dossier without re-evaluating database metrics. |
+
+| src/routes/keywords.mjs (L266, 598, 656, 682, 694, 767, 793) | getCachedOrFetch (keywords:list, keywords:pins, keywords:guides, keywords:serp, keywords:intelligence, keywords:displaced, keywords:pin-dossier) | 12s to 30s TTL + 45s to 120s SWR | 7 distinct keyword endpoints serve stale SERP rankings and displaced lists post-crawl. |
+
+| src/routes/creators.mjs (L251, 377, 443, 469, 766, 845, 927, 970) | getCachedOrFetch (creators:boards, creators:detail, creators:account_pins, creators:top_urls, creators:overview, pinarchive:overview, topics, pinarchive:pins) | 8s to 30s TTL + 30s to 60s SWR | 8 distinct creator endpoints serve stale follower counts, pins, and winner statuses post-crawl. |
+
+| src/routes/cluster.mjs (L145, 270, 348, 461, 476, 491, 510) | getCachedOrFetch (api:overview, api:seeds, candidates:${shardKey}, api:recgpt-playbook, api:cluster-telemetry, api:guided-search, intersections:${shardKey}) | 8s to 30s TTL + 30s to 120s SWR | Mutative routes (L193, L213, L288) invalidate api:* but OMIT invalidating candidates:${shardKey} and intersections:${shardKey}. Stale candidate nodes persist across seed deletions/imports. |
+
+| src/worker.mjs (L637–665) | invalidateEdgeCache(prefix) Architectural Limitation | N/A | Deletes keys from L0 edgeCache.keys(), but Cloudflare Cache API (L1 caches.default) has no prefix deletion API. Keys evicted from L0 or cached on other isolates remain in L1 cache until their HTTP Cache-Control expires. |
+
+---
+
+3. VELOCITY / DELTA CALCULATION & SQL QUERY DISCREPANCIES ACROSS SUBSYSTEMS
+Discrepancy A: Velocity & Delta Semantic Conflation (Repins vs. Saves)
+/pulse (src/modules/pulse/service.mjs:587–588, 607–608):
+  GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS delta_saves_24h,
+  GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0))::numeric AS daily_save_velocity,
+Pulse forces delta_saves_24h and daily_save_velocity to equal the GREATEST of saves or repins! If a pin gained 0 saves and 80 repins, Pulse reports 80 saves/day velocity and 80 delta_saves_24h.
+
+/folders/:id (src/modules/keywords/folders-service.mjs:2496–2498, 2824, 3081):
+Introduces effective_velocity which silently swaps in delta_repins_24h if daily_save_velocity === 0:
+
+daily_save_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0)
+
+The folder crossover matrix returns repin delta under the label daily_save_velocity.
+
+/domains (src/modules/domains/service.mjs:867, 954, 2204, 2291):
+Strictly defines velocity as save velocity (GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ump.daily_save_velocity, 0))), completely ignoring delta_repins_24h.
+
+/accounts (src/modules/creators/service.mjs:2418–2445):
+Separates velocity (saves/day), delta_saves_24h, and delta_repins_24h cleanly into distinct columns.
+
+/pin/:id (src/modules/sharding/fleet-router.mjs:1105–1180):
+Reconciles trajectory exclusively based on pins_daily_metrics.save_count deltas.
+
+Root Problem: The exact same pin with 0 saves and 50 repins in 24h reports:
+/pulse: velocity = 50, delta_saves = 50
+/folders/:id: daily_save_velocity = 50
+/domains: velocity = 0
+/accounts: velocity = 0, delta_saves = 0, delta_repins = 50
+/pin/:id: daily_save_velocity = 0
+Discrepancy B: Monotonic Clamping & Violation of Downward Ratcheting (Rules 5 & 28)
+folders-service.mjs (Lines 2487–2490 & 2817–2825):
+  if (vel > (existingPin.daily_save_velocity || 0)) {
+    existingPin.daily_save_velocity = vel;
+  }
+Folder pin merging only updates velocity if incoming velocity is strictly greater than existing, permanently preventing velocity from ratcheting downward when save activity cools down.
+
+cluster/service.mjs (Line 871):
+  daily_velocity = GREATEST(candidate_graph_nodes.daily_velocity, EXCLUDED.daily_velocity)
+Traps candidate node velocity in an eternal monotonic GREATEST clamp, violating Invariant 28.
+
+cluster/service.mjs (Line 785):
+const dailyVelocity = Number((saves / ageDays).toFixed(2));
+
+Divides total lifetime saves by total age in days, rather than calculating incremental 24h/daily save deltas!
+
+Discrepancy C: Expression-Wrapping Anti-Patterns on B-Tree Indexes (Rule 9)
+pulse/service.mjs (Lines 588 & 608):
+  JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username), '@', '')))
+  JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username), '@', '')))
+Wraps joined creator columns in multiple string functions (LOWER, TRIM, REPLACE), disabling B-tree seeks and forcing sequential scans across keyword_serp_current and top_creators.
+
+domains/service.mjs (Lines 895, 925, 984):
+Wraps indexed domain and account columns in SPLIT_PART, LOWER, REPLACE, and RTRIM within large CTE joins.
+
+Discrepancy D: Anti-Hydration Spike Suppression Disparity
+keywords/service.mjs (L1449): Calls calculateDailyVelocity SSOT (lib/math.mjs), which detects multi-stage hydration jumps, repin-to-save baseline transitions, and amortizes or suppresses to 0.
+pulse/service.mjs (L804–807, L1151–1153): Only suppresses delta_repins_24h if p.daily_save_velocity === 0 && p.delta_saves_24h === 0. If daily_save_velocity is even 1, massive unhydrated repin spikes (e.g. 5,000 repins) pass right through.
+folders-service.mjs: Contains zero anti-hydration spike suppression for repins.
+---
+
+Forensic audit complete. Ready for coordinator synthesis.
