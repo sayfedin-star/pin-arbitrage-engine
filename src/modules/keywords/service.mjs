@@ -1874,30 +1874,38 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     delete updatedMetadata.popular_pins;
 
     // Prepare slimmed Hub SERP rows (strip heavy duplicate fields from Hub metadata JSONB)
-    const hubSerpPayload = preparedPins.map(p => ({
-      pin_id: p.pin_id,
-      rank_position: p.rank_position,
-      prev_rank_position: p.metadata?.prev_rank ?? p.rank_position,
-      baseline_day_saves: (p.daily_save_velocity === 0 && p.metadata?.prev_save_count && Math.abs(Number(p.metadata.prev_save_count) - Number(p.repin_count || 0)) <= Math.max(50, Number(p.repin_count || 0) * 0.03))
+    const hubSerpPayload = preparedPins.map(p => {
+      const prevSavesNum = Number(p.metadata?.prev_save_count || 0);
+      const isInitialBaseline = prevSavesNum <= 0;
+      const baselineDaySaves = isInitialBaseline
         ? p.save_count
-        : (p.metadata?.prev_save_count ?? p.save_count),
-      baseline_day_date: p.metadata?.baseline_date || todayIso,
-      title: p.title,
-      domain: p.domain,
-      destination_url: p.destination_url,
-      image_url: p.image_url,
-      creator_username: p.metadata?.pinner?.username || '',
-      board_name: p.metadata?.board_name || '',
-      save_count: p.save_count,
-      repin_count: p.repin_count,
-      comment_count: p.comment_count,
-      daily_save_velocity: p.daily_save_velocity,
-      delta_repins_24h: Number(p.delta_repins_24h || 0),
-      dominant_color: p.dominant_color || '#888888',
-      visual_annotations: p.visual_annotations || [],
-      created_at_pinterest: p.created_at_pinterest,
-      creation_method: p.creation_method || null,
-      crawled_at: p.crawled_at || null,
+        : ((p.daily_save_velocity === 0 && Math.abs(prevSavesNum - Number(p.repin_count || 0)) <= Math.max(50, Number(p.repin_count || 0) * 0.03))
+          ? p.save_count
+          : (p.metadata?.prev_save_count ?? p.save_count));
+      const resolvedVelocity = isInitialBaseline ? 0 : p.daily_save_velocity;
+
+      return {
+        pin_id: p.pin_id,
+        rank_position: p.rank_position,
+        prev_rank_position: p.metadata?.prev_rank ?? p.rank_position,
+        baseline_day_saves: baselineDaySaves,
+        baseline_day_date: p.metadata?.baseline_date || todayIso,
+        title: p.title,
+        domain: p.domain,
+        destination_url: p.destination_url,
+        image_url: p.image_url,
+        creator_username: p.metadata?.pinner?.username || '',
+        board_name: p.metadata?.board_name || '',
+        save_count: p.save_count,
+        repin_count: p.repin_count,
+        comment_count: p.comment_count,
+        daily_save_velocity: resolvedVelocity,
+        delta_repins_24h: Number(p.delta_repins_24h || 0),
+        dominant_color: p.dominant_color || '#888888',
+        visual_annotations: p.visual_annotations || [],
+        created_at_pinterest: p.created_at_pinterest,
+        creation_method: p.creation_method || null,
+        crawled_at: p.crawled_at || null,
       metadata: {
         prev_rank: p.metadata?.prev_rank ?? null,
         rank_delta: p.metadata?.rank_delta ?? 0,
@@ -1919,7 +1927,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         canonical_pin_id: p.metadata?.canonical_pin_id || undefined,
         board_pin_count: p.metadata?.board_pin_count || undefined
       }
-    }));
+    };
+  });
 
     // ATOMIC MULTI-STATEMENT TRANSACTION VIA sql.transaction
     // Bundles Hub active SERP cache + slim displaced index updates into 1 ACID commit
@@ -2257,7 +2266,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
     let confirmedPinIds = [];
-    if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+    const shouldSkipShard = !isUnifiedPostgres(envObj) && Boolean(options?.skip_shard_offload);
+    if (!shouldSkipShard && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       const newSerpPins = [];
       const existingSerpPins = [];
       for (const p of preparedPins) {

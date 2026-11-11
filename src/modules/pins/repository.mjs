@@ -6,8 +6,10 @@
  *    plus opening snapshot in `pins_daily_metrics`. Zero row-lock contention or regex/JSONB merge overhead.
  * 2. Re-Save / Metric Refresh (`resavePinsMetricsBatch`): Direct metric & velocity update on existing pins
  *    plus today's snapshot in `pins_daily_metrics` without mutating `first_discovered_at`.
- * 3. Pure Read-Only Dossier (`getPinDossier`): Single-roundtrip read of pin creative, 30-day trajectory,
- *    and active/displaced SERP positions with ZERO read-path database writes.
+ * 3. Atomic Batch Ingest (`ingestPinsBatch`): Unified CTE ingestion calculating SQL velocity and
+ *    upserting master pins, daily metrics, and SERP positions in a single transaction.
+ * 4. Pure Read-Only Dossier (`getPinDossier`): Single-roundtrip read of pin creative, algorithmic intelligence,
+ *    creator context, keywords context, and 30-day trajectory with ZERO read-path database writes.
  */
 
 import { calculateDailyVelocity } from '../../lib/math.mjs';
@@ -58,6 +60,10 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
       const destUrl = String(p.destination_url || p.link || '').trim();
       const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
       const richMeta = buildRichPinMetadataPayload(p);
+      const rawSaves = p.save_count ?? p.saves;
+      const isUnhydrated = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
+      const saveCount = isUnhydrated ? null : Math.max(0, Number(rawSaves || 0));
+
       dedupMap.set(pid, {
         pin_id: pid,
         creator_username: String(p.creator_username || p.account_username || '').replace(/^@/, '').trim().toLowerCase(),
@@ -75,12 +81,12 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
           ? p.visual_annotations
           : (Array.isArray(p.annotations) ? p.annotations : []),
         created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-        save_count: Math.max(0, Number(p.save_count ?? p.saves ?? 0)),
+        save_count: saveCount,
         repin_count: Math.max(0, Number(p.repin_count ?? p.repins ?? 0)),
         comment_count: Math.max(0, Number(p.comment_count ?? p.comments ?? 0)),
         share_count: Math.max(0, Number(p.share_count ?? p.shares ?? 0)),
         reaction_count: Math.max(0, Number(p.reaction_count ?? 0)),
-        daily_save_velocity: Math.max(0, Number(p.daily_save_velocity ?? p.velocity ?? 0)),
+        daily_save_velocity: 0,
         is_product: Boolean(p.is_product || richMeta.is_product),
         is_video: Boolean(p.is_video || richMeta.is_video),
         creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
@@ -118,8 +124,8 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
         u.destination_url,
         u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
         NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz,
-        u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, u.daily_save_velocity,
-        u.daily_save_velocity, 0,
+        u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, 0,
+        0, 0,
         u.is_product, u.is_video, u.creation_method, u.image_signature, u.canonical_pin_id,
         u.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), u.metadata
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
@@ -146,7 +152,7 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
         u.comment_count,
         u.share_count,
         u.reaction_count,
-        u.daily_save_velocity,
+        0,
         NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text, save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric
@@ -274,15 +280,24 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       SELECT
         rb.*,
         CASE
-          WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::numeric, rb.daily_save_velocity)
-          WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL THEN
-            ROUND(
-              GREATEST(0, rb.save_count - prev.save_count)::numeric
-              / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)),
-              2
-            )
+          WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
+            CASE
+              WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::numeric, rb.daily_save_velocity)
+              WHEN prev.snapshot_date IS NOT NULL THEN
+                ROUND(
+                  GREATEST(0, rb.save_count - prev.save_count)::numeric
+                  / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)),
+                  2
+                )
+              ELSE 0::numeric
+            END
           ELSE 0::numeric
-        END AS effective_velocity
+        END AS effective_velocity,
+        CASE
+          WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
+            GREATEST(0, (rb.save_count - prev.save_count))::bigint
+          ELSE 0::bigint
+        END AS true_delta_saves_24h
       FROM raw_batch rb
       LEFT JOIN LATERAL (
         SELECT pm.save_count, pm.snapshot_date
@@ -304,7 +319,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         share_count = CASE WHEN cb.share_count > 0 THEN cb.share_count ELSE ump.share_count END,
         reaction_count = CASE WHEN cb.reaction_count > 0 THEN cb.reaction_count ELSE ump.reaction_count END,
         daily_save_velocity = cb.effective_velocity,
-        delta_saves_24h = cb.effective_velocity,
+        delta_saves_24h = cb.true_delta_saves_24h,
         delta_repins_24h = COALESCE(cb.delta_repins_24h, ump.delta_repins_24h, 0),
         gains_5d = COALESCE(cb.gains_5d, ump.gains_5d, 0),
         gains_7d = COALESCE(cb.gains_7d, ump.gains_7d, 0),
@@ -354,10 +369,213 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
 }
 
 /**
- * 3. Pure Read-Only Pin Dossier (`getPinDossier` - القراءة الصافية السريعة)
- * Reads the pin creative from `universal_master_pins`, the last 30 daily snapshots
- * from `pins_daily_metrics`, and its SERP rankings from `keyword_serp_current`
- * in a single fast read-only pass with ZERO database writes.
+ * 3. Atomic Batch Ingest (`ingestPinsBatch` - الاستيعاب الذري الشامل)
+ * Unified CTE ingestion calculating SQL velocity and upserting master pins,
+ * daily metrics, and SERP positions in a single transaction.
+ *
+ * @param {Function} sql - Unified PostgreSQL client
+ * @param {Array<object>} pins - Array of pins from crawlers/scrapers
+ * @param {object} [options={}] - Options (e.g. pillar)
+ * @returns {Promise<{ ingested: number, inserted: number, updated: number }>}
+ */
+export async function ingestPinsBatch(sql, pins = [], options = {}) {
+  if (!Array.isArray(pins) || pins.length === 0) {
+    return { ingested: 0, inserted: 0, updated: 0 };
+  }
+  const pillar = String(options.pillar || 'keyword');
+
+  const dedupMap = new Map();
+  for (const p of pins) {
+    const pid = String(p?.pin_id || p?.id || '').trim();
+    if (!pid) continue;
+    if (!dedupMap.has(pid)) {
+      const domainRaw = String(p.domain || p.link_domain || '').trim();
+      const destUrl = String(p.destination_url || p.link || '').trim();
+      const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
+      const richMeta = buildRichPinMetadataPayload(p);
+      const rawSaves = p.save_count ?? p.saves;
+      const isUnhydrated = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
+      const saveCount = isUnhydrated ? null : Math.max(0, Number(rawSaves || 0));
+
+      dedupMap.set(pid, {
+        pin_id: pid,
+        creator_username: String(p.creator_username || p.account_username || '').replace(/^@/, '').trim().toLowerCase(),
+        board_name: String(p.board_name || '').trim(),
+        board_slug: String(p.board_slug || '').trim(),
+        title: String(p.title || '').trim(),
+        domain: cleanDomain || domainRaw,
+        clean_domain: cleanDomain,
+        destination_url: destUrl,
+        image_url: String(p.image_url || '').trim(),
+        description: String(p.description || '').trim(),
+        alt_text: String(p.alt_text || '').trim(),
+        dominant_color: String(p.dominant_color || '#888888').trim(),
+        visual_annotations: Array.isArray(p.visual_annotations)
+          ? p.visual_annotations
+          : (Array.isArray(p.annotations) ? p.annotations : []),
+        created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+        save_count: saveCount,
+        repin_count: Math.max(0, Number(p.repin_count ?? p.repins ?? 0)),
+        comment_count: Math.max(0, Number(p.comment_count ?? p.comments ?? 0)),
+        share_count: Math.max(0, Number(p.share_count ?? p.shares ?? 0)),
+        reaction_count: Math.max(0, Number(p.reaction_count ?? 0)),
+        daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
+        is_product: Boolean(p.is_product || richMeta.is_product),
+        is_video: Boolean(p.is_video || richMeta.is_video),
+        creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
+        image_signature: richMeta.image_signature ? String(richMeta.image_signature) : null,
+        canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null,
+        first_discovered_pillar: pillar,
+        keyword_id: p.keyword_id != null ? Number(p.keyword_id) : null,
+        rank_position: p.rank_position != null ? Number(p.rank_position) : null,
+        is_displaced: Boolean(p.is_displaced),
+        last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
+        catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
+        metadata: richMeta
+      });
+    }
+  }
+
+  const rows = Array.from(dedupMap.values()).sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+  if (rows.length === 0) return { ingested: 0, inserted: 0, updated: 0 };
+
+  const payloadJson = JSON.stringify(rows);
+
+  const res = await sql`
+    WITH raw_batch AS (
+      SELECT *
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+        pin_id text, creator_username text, board_name text, board_slug text, title text, domain text, clean_domain text,
+        destination_url text, image_url text, description text, alt_text text, dominant_color text,
+        visual_annotations jsonb, created_at_pinterest text,
+        save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int,
+        daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
+        image_signature text, canonical_pin_id text, first_discovered_pillar text, metadata jsonb
+      )
+    ),
+    computed_batch AS (
+      SELECT
+        rb.*,
+        CASE
+          WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
+            CASE
+              WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::numeric, rb.daily_save_velocity)
+              WHEN prev.snapshot_date IS NOT NULL THEN
+                ROUND(
+                  GREATEST(0, COALESCE(rb.save_count, 0) - prev.save_count)::numeric
+                  / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)),
+                  2
+                )
+              ELSE 0::numeric
+            END
+          ELSE 0::numeric
+        END AS effective_velocity,
+        CASE
+          WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
+            GREATEST(0, (COALESCE(rb.save_count, 0) - prev.save_count))::bigint
+          ELSE 0::bigint
+        END AS true_delta_saves_24h
+      FROM raw_batch rb
+      LEFT JOIN LATERAL (
+        SELECT pm.save_count, pm.snapshot_date
+        FROM pins_daily_metrics pm
+        WHERE pm.pin_id = rb.pin_id
+          AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+        ORDER BY pm.snapshot_date DESC
+        LIMIT 1
+      ) prev ON TRUE
+    ),
+    upsert_pins AS (
+      INSERT INTO universal_master_pins (
+        pin_id, creator_username, board_name, board_slug, title, domain, clean_domain, destination_url,
+        image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
+        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+        delta_saves_24h, delta_repins_24h,
+        is_product, is_video, creation_method, image_signature, canonical_pin_id,
+        first_discovered_pillar, first_discovered_at, first_saved_at, last_resaved_at, last_scraped_at, updated_at, metadata
+      )
+      SELECT
+        cb.pin_id, cb.creator_username, cb.board_name, cb.board_slug, cb.title, cb.domain,
+        COALESCE(NULLIF(cb.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, '')), '^www\.', ''))),
+        cb.destination_url,
+        cb.image_url, cb.description, cb.alt_text, cb.dominant_color, cb.visual_annotations,
+        NULLIF(TRIM(cb.created_at_pinterest), '')::timestamptz,
+        cb.save_count, cb.repin_count, cb.comment_count, cb.share_count, cb.reaction_count, cb.effective_velocity,
+        cb.true_delta_saves_24h, 0,
+        cb.is_product, cb.is_video, cb.creation_method, cb.image_signature, cb.canonical_pin_id,
+        cb.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), cb.metadata
+      FROM computed_batch cb
+      ORDER BY cb.pin_id ASC
+      ON CONFLICT (pin_id) DO UPDATE SET
+        creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+        board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+        board_slug = COALESCE(NULLIF(EXCLUDED.board_slug, ''), universal_master_pins.board_slug),
+        title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+        domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+        clean_domain = COALESCE(NULLIF(EXCLUDED.clean_domain, ''), universal_master_pins.clean_domain),
+        destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+        image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+        description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+        dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888') THEN EXCLUDED.dominant_color ELSE universal_master_pins.dominant_color END,
+        visual_annotations = CASE WHEN jsonb_array_length(COALESCE(EXCLUDED.visual_annotations, '[]'::jsonb)) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
+        save_count = CASE WHEN EXCLUDED.save_count IS NOT NULL AND EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE universal_master_pins.save_count END,
+        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE universal_master_pins.repin_count END,
+        comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE universal_master_pins.comment_count END,
+        share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE universal_master_pins.share_count END,
+        reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE universal_master_pins.reaction_count END,
+        daily_save_velocity = EXCLUDED.daily_save_velocity,
+        delta_saves_24h = EXCLUDED.delta_saves_24h,
+        last_resaved_at = NOW(),
+        last_scraped_at = NOW(),
+        updated_at = NOW()
+      RETURNING pin_id, (xmax = 0) AS is_insert
+    ),
+    upsert_daily AS (
+      INSERT INTO pins_daily_metrics (
+        pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+      )
+      SELECT
+        cb.pin_id,
+        (NOW() AT TIME ZONE 'UTC')::date,
+        cb.save_count,
+        cb.repin_count,
+        cb.comment_count,
+        cb.share_count,
+        cb.reaction_count,
+        cb.effective_velocity,
+        NOW()
+      FROM computed_batch cb
+      ORDER BY cb.pin_id ASC
+      ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
+        comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE pins_daily_metrics.comment_count END,
+        share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE pins_daily_metrics.share_count END,
+        reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE pins_daily_metrics.reaction_count END,
+        daily_save_velocity = EXCLUDED.daily_save_velocity,
+        updated_at = NOW()
+    )
+    SELECT pin_id, is_insert FROM upsert_pins;
+  `;
+
+  if (rows.some(r => r.keyword_id && r.keyword_id > 0)) {
+    await upsertPinSerpPositionsBatch(sql, payloadJson);
+  }
+
+  const inserted = Array.isArray(res) ? res.filter(r => r.is_insert).length : 0;
+  const updated = Array.isArray(res) ? res.filter(r => !r.is_insert).length : 0;
+  return { ingested: Array.isArray(res) ? res.length : 0, inserted, updated };
+}
+
+/**
+ * 4. Pure Read-Only Pin Dossier (`getPinDossier` - القراءة الصافية السريعة)
+ * Single canonical dossier retrieval function returning:
+ * - creative
+ * - algorithmic_intelligence
+ * - pillar_1_creator_context
+ * - pillar_2_keywords_context
+ * - snapshots (and daily_trajectory)
  *
  * @param {Function} sql - Unified PostgreSQL client
  * @param {string|number} pinId - Target Pin ID
@@ -367,7 +585,7 @@ export async function getPinDossier(sql, pinId) {
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) return null;
 
-  const [pinRows, trajectoryRows, serpRows] = await Promise.all([
+  const [pinRows, trajectoryRows, serpRows, creatorRows] = await Promise.all([
     sql`
       SELECT
         pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
@@ -412,11 +630,21 @@ export async function getPinDossier(sql, pinId) {
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
       WHERE ksc.pin_id = ${cleanPinId}
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST;
-    `
+    `,
+    sql`
+      SELECT cp.id, cp.username, cp.display_name, cp.is_active, cp.metadata
+      FROM competitor_profiles cp
+      JOIN universal_master_pins ump ON ump.creator_username = cp.username
+      WHERE ump.pin_id = ${cleanPinId}
+      LIMIT 1;
+    `.catch(() => [])
   ]);
 
   const pin = pinRows?.[0] || null;
   if (!pin) return null;
+
+  const creatorProfile = creatorRows?.[0] || null;
+  const meta = typeof pin.metadata === 'object' && pin.metadata !== null ? pin.metadata : {};
 
   // Compute clean chronological step deltas (pure MAX(0, (curr - prev) / days))
   const chrono = [...(trajectoryRows || [])].reverse();
@@ -427,20 +655,122 @@ export async function getPinDossier(sql, pinId) {
       curr.daily_save_velocity = Number(curr.daily_save_velocity || 0);
     } else {
       const prev = chrono[i - 1];
-      curr.step_save_delta = Math.max(0, Number(curr.save_count || 0) - Number(prev.save_count || 0));
-      curr.daily_save_velocity = calculateDailyVelocity({
-        currentSaves: curr.save_count,
-        baselineSaves: prev.save_count,
-        currentDate: curr.snapshot_date,
-        baselineDate: prev.snapshot_date
-      });
+      const prevSaves = Number(prev.save_count || 0);
+      const currSaves = Number(curr.save_count || 0);
+      const diff = Math.max(0, currSaves - prevSaves);
+      curr.step_save_delta = diff;
+      if (prevSaves <= 0 && currSaves > 0) {
+        // Hydration jump from zero/null baseline: suppress velocity to 0
+        curr.daily_save_velocity = 0;
+      } else {
+        curr.daily_save_velocity = calculateDailyVelocity({
+          currentSaves: curr.save_count,
+          baselineSaves: prev.save_count,
+          currentDate: curr.snapshot_date,
+          baselineDate: prev.snapshot_date
+        });
+      }
     }
   }
 
+  const descSnapshots = [...chrono].reverse();
+  const canonicalPinId = pin.canonical_pin_id || meta.canonical_pin_id || cleanPinId;
+  const isCanonicalRoot = !pin.canonical_pin_id || String(pin.canonical_pin_id) === String(cleanPinId);
+  const hasDestLink = Boolean(pin.destination_url || meta.tracked_link || meta.utm_link);
+  const isGoLinkless = Boolean(meta.is_go_linkless || !hasDestLink);
+
+  const creative = {
+    ...pin,
+    save_count: Number(pin.save_count || 0),
+    repin_count: Number(pin.repin_count || 0),
+    reaction_count: Math.max(0, Number(pin.reaction_count || 0)),
+    daily_save_velocity: Number(pin.daily_save_velocity || 0),
+    delta_saves_24h: Number(pin.delta_saves_24h || 0),
+    visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations : []
+  };
+
+  const algorithmicIntelligence = {
+    is_repin: Boolean(pin.is_repin),
+    origin_pinner: meta.origin_pinner || null,
+    origin_pinner_followers: meta.origin_pinner_followers ?? meta.origin_pinner?.follower_count ?? null,
+    domain_official_user: meta.domain_official_user || null,
+    creator_is_verified_merchant: Boolean(meta.creator_is_verified_merchant ?? false),
+    image_signature: pin.image_signature || meta.image_signature || '',
+    image_dimensions: meta.image_dimensions || meta.imageDimensions || null,
+    seo_noindex_reason: pin.seo_noindex_reason || meta.seo_noindex_reason || null,
+    is_indexed_google: !(pin.seo_noindex_reason || meta.seo_noindex_reason),
+    is_go_linkless: isGoLinkless,
+    is_arbitrage_active: !isGoLinkless,
+    category_breadcrumbs: Array.isArray(meta.category_breadcrumbs) ? meta.category_breadcrumbs : [],
+    board_metrics: {
+      pin_count: Number(meta.board_pin_count || 0),
+      order_modified_at: meta.board_order_modified_at || null,
+      board_url: meta.board_url || null,
+      cover_url: meta.board_cover_url || null,
+      thumbnail_url: meta.board_thumbnail_url || null
+    },
+    creation_method: pin.creation_method || meta.creation_method || 'pinterest_platform',
+    seo_title: meta.seo_title || pin.title || '',
+    seo_description: meta.seo_description || pin.description || '',
+    seo_canonical_url: meta.seo_canonical_url || '',
+    seo_canonical_domain: meta.seo_canonical_domain || pin.domain || '',
+    canonical_pin_id: canonicalPinId,
+    canonical_pin_url: pin.canonical_pin_id ? `https://www.pinterest.com/pin/${pin.canonical_pin_id}/` : `https://www.pinterest.com/pin/${cleanPinId}/`,
+    is_canonical_root: isCanonicalRoot,
+    seo_related_interests: Array.isArray(meta.seo_related_interests) ? meta.seo_related_interests : [],
+    rich_metadata: meta.rich_metadata || null,
+    visual_objects: Array.isArray(meta.visual_objects) ? meta.visual_objects : [],
+    reactions: meta.reactions || {},
+    utm_link: meta.utm_link || pin.destination_url || '',
+    tracked_link: meta.tracked_link || pin.destination_url || '',
+    is_product: Boolean(pin.is_product || meta.is_product),
+    is_video: Boolean(pin.is_video || meta.is_video),
+    shopping_data: meta.shopping_data || null
+  };
+
+  const pillar1CreatorContext = {
+    creator_username: pin.creator_username || '',
+    creator_url: pin.creator_username ? `https://www.pinterest.com/${pin.creator_username}/` : null,
+    board_name: pin.board_name || '',
+    board_slug: pin.board_slug || (pin.board_name ? pin.board_name.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : ''),
+    board_url: (pin.creator_username && pin.board_slug) ? `https://www.pinterest.com/${pin.creator_username}/${pin.board_slug}/` : null,
+    competitor_tracked: Boolean(creatorProfile),
+    competitor_profile: creatorProfile || null
+  };
+
+  const pillar2KeywordsContext = {
+    ranking_keywords: (serpRows || []).map(k => ({
+      keyword_id: k.keyword_id,
+      keyword: k.keyword_name,
+      rank: k.rank_position,
+      prev_rank: k.prev_rank_position,
+      is_displaced: k.is_displaced,
+      last_known_rank: k.last_known_rank,
+      crawled_at: k.crawled_at,
+      updated_at: k.updated_at
+    })),
+    serp_impressions: (serpRows || []).length,
+    highest_rank: (serpRows || []).reduce((min, k) => Math.min(min, k.rank_position || 999), 999)
+  };
+
   return {
     pin_id: cleanPinId,
-    creative: pin,
-    daily_trajectory: [...chrono].reverse(),
+    creative,
+    algorithmic_intelligence: algorithmicIntelligence,
+    pillar_1_creator_context: pillar1CreatorContext,
+    pillar_2_keywords_context: pillar2KeywordsContext,
+    snapshots: descSnapshots,
+    daily_trajectory: descSnapshots,
     serp_positions: serpRows || []
   };
 }
+
+export const PinRepository = {
+  insertNewPinsBatch,
+  resavePinsMetricsBatch,
+  ingestPinsBatch,
+  getPinDossier,
+  normalizeCleanDomain
+};
+
+export default PinRepository;

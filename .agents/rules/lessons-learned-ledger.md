@@ -614,3 +614,24 @@ trigger: always_on
 - **Verification Command**:
   - `node --test tests/core-pinterest-parser-client.test.mjs` (9/9 PASS, 100% green).
   - `npm run check` (0 errors, 0 warnings, 108 files, 14/14 locks PASS).
+
+---
+
+## Round 32: PAE v6.0 Backend Services Rebuild & Mathematical Anti-Hydration Zeroing
+- **Round / Feature**: PAE v6.0 Services Rebuild across `src/modules/pins/repository.mjs`, `src/modules/keywords/service.mjs`, `src/modules/sharding/fleet-router.mjs`, `src/modules/pulse/service.mjs`, and `src/modules/keywords/folders-service.mjs`.
+- **Trap / Failure Mode**:
+  1. *Hydration Spike on Initial Save*: `insertNewPinsBatch` defaulted unhydrated pins to `save_count = 0` rather than `NULL` and permitted non-zero `daily_save_velocity` on first discovery, contaminating trajectory calculations.
+  2. *Untrusted External Velocity*: `resavePinsMetricsBatch` trusted incoming `daily_save_velocity` without verifying that a prior snapshot existed (`prev.save_count > 0`), and stored float rate `effective_velocity` into integer column `delta_saves_24h`.
+  3. *Incomplete Jump Detection*: `isMultiStageHydrationJump` previously required `was_deep_hydrated === false`, causing hydration jumps to be missed when callers omitted that property.
+  4. *Phase 1A Shard Decoupling*: Phase 1A passed `skip_shard_offload: true`, preventing `universal_master_pins` and `pins_daily_metrics` from synchronizing with real saves.
+  5. *Unbounded Pulse Queries & False Delta*: `queryActiveSerp` and `queryVaultAndVacuum` executed `LIMIT 15000` queries and passed `daily_save_velocity` as `delta_saves_24h`.
+- **Root Cause & Technical Mechanism**:
+  Omission of explicit `prev.save_count > 0` validation in database CTEs, missing unhydrated NULL-state distinction, and conflating rate-of-change (`daily_save_velocity`) with absolute integer difference (`delta_saves_24h`).
+- **Verified Solution & Invariant Codification**:
+  1. **Pin Repository (`src/modules/pins/repository.mjs`)**: Preserved `save_count = NULL` for unhydrated pins and forced `daily_save_velocity = 0` on first-day discovery in `insertNewPinsBatch`. In `resavePinsMetricsBatch`, guarded external velocity with `prev.save_count > 0` and stored true integer `(curr - prev)` delta in `delta_saves_24h`. Implemented unified atomic CTE `ingestPinsBatch` and upgraded `getPinDossier` to canonical 5-field schema.
+  2. **Keywords Service (`src/modules/keywords/service.mjs`)**: Enforced `baseline_day_saves = p.save_count` and `daily_save_velocity = 0` when `Number(prev_save_count || 0) <= 0`. Bypassed `skip_shard_offload` in Unified PostgreSQL mode.
+  3. **Fleet Router (`src/modules/sharding/fleet-router.mjs`)**: In `isMultiStageHydrationJump`, enforced `if (pSaves <= 0 && cSaves > 0) return true;`. Zeroed out `daily_save_velocity`, `window_24h_velocity`, and `window_24h_delta` on hydration jumps, preserved calendar-day window velocity on same-day steps, and applied `Math.max` + reaction sum fallbacks.
+  4. **Pulse & Folders Service (`src/modules/pulse/service.mjs` & `folders-service.mjs`)**: Clamped queries from `LIMIT 15000` to `LIMIT 2500`, selected authentic `ump.delta_saves_24h`, and exported shared `getFolderPulseCrossoverAnalytics`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 105 files, 14/14 locks PASS).
+
