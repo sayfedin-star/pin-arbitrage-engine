@@ -28,6 +28,9 @@ trigger: always_on
 | **Round 27 (InstaBox Dedicated Postgres Migration)** | 100% Neon ➡️ InstaBox Streaming Migration, Cloudflare Zero Trust Tunnel, CI Security Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
 | **Round 28 (Forensic Landmine Neutralization & Native VPS SSOT)** | Neutralization of Landmines A–E, Elimination of Sharding Residues, Intraday Step Gains & Native VPS PostgreSQL SSOT Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
 | **Round 29 (Neon Eradication & Strict VPS Execution)** | Complete Eradication of Neon DSNs, Direct VPS Migration 050 Application & Live Server Service Restart | Invariants 1–44, Locks 1–14 | **SEALED** |
+| **Round 30 (Canonical De-Poisoning & Independence)** | Eradication of Canonical Save-Stealing, Repin Conflation & GREATEST Ratchets | Invariant 28, Lock 14 | **SEALED** |
+| **Round 31 (Unified Single-DB Consolidation)** | Single VPS PostgreSQL Database Architecture & Removal of Multi-Shard Branches | Invariants 1–44, Locks 1–14 | **SEALED** |
+| **Round 32 (Frontend UI Hydration & Consolidation)** | Hydration Chart Zero-Exclusion, Pulse Transient Retry, Shared Formatters & Canonical PinRow | Rule 31, Invariants 28, 31, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -571,3 +574,30 @@ trigger: always_on
 - **Verification Command**:
   - `npm run check` (0 errors, 0 warnings, 105 files, 14/14 locks PASS).
   - `node scripts/test_p0_hotfixes.mjs && node scripts/test_p1_consolidation.mjs && node scripts/test_phase3_write_and_crawlers.mjs && node scripts/test_jit_warming_and_d1_trajectory.mjs` (100% PASS).
+
+---
+
+## Round 32: Frontend UI Hydration Invariant Healing, Pulse Transient Retry, Shared Formatters & Canonical PinRow Consolidation
+- **Round / Feature**: Round 32: Frontend UI Hydration Invariant Healing, Pulse Transient Retry, Shared Formatters & Canonical PinRow Consolidation.
+- **Trap / Failure Mode**:
+  1. *Pin Dossier Trajectory Cliff Wall*: In `src/pin-details-ui.mjs` (`computeChartPoints`), leading zero-save snapshots predating the first positive crawl day were included in SVG coordinate calculation, rendering a false 0 baseline followed by a vertical cliff wall.
+  2. *Uncalibrated Baseline 24h Velocity*: In `isHydrationJump`, `prevSaves <= 0 && currSaves > 0` was not immediately caught, causing newly hydrated pins to display artificial amortized lifetime velocity instead of recognizing baseline calibration.
+  3. *Missing Reactions in Engagement Card*: Cell 5 displayed only comments and shares, omitting audience reactions (`reaction_count`) despite reactions being included in `totalEngagementScore`.
+  4. *Inconsistent Canonical Root Detection*: Top status bar and technical cards lacked explicit `is_canonical_root` handling, causing derivative repins to be indistinguishable from original root pins.
+  5. *Pulse Cold-Start / Transient Network Timeout Drops*: `fetchPulseData` lacked retry handling for `TimeoutError`, `AbortError`, or transient network drops, leaving operators with a failed screen when VPS cold-starts took > 15s.
+  6. *Duplicated Formatting & Component Redundancy*: Table views across Pulse, Keywords, Folders, and Domains duplicated formatting logic and `<tr>` markup, violating Rule 31 formatting consistency and cluttering maintenance.
+- **Root Cause & Technical Mechanism**:
+  Lack of leading zero-snapshot exclusion on SVG chart rendering, uncalibrated baseline jump detection, absence of network error catching in the fetch retry loop, and absence of unified UI formatter and component primitives.
+- **Verified Solution & Invariant Codification**:
+  1. Updated `computeChartPoints()` in `src/pin-details-ui.mjs` to exclude leading zero-save snapshots predating the first positive hydration day.
+  2. Enforced `if (prevSaves <= 0 && currSaves > 0) return true;` in `isHydrationJump`.
+  3. Returned `'0 today (Hydrated Baseline)'` in `format24hSaveDelta` when `delta === null`.
+  4. Added `totalReactions()`, updated `totalEngagementScore()`, and codified `isCanonicalRoot()` and `canonicalPinId()` consistently.
+  5. Implemented resilient multi-attempt retry loop in `src/pulse-ui.mjs` with fresh `AbortSignal.timeout(15000)` handling both HTTP 502/503/504 and transient network/timeout errors.
+  6. Created `src/ui/shared-formatters.mjs` (and `src/shared-formatters.mjs`) implementing Rule 31, anti-NaN guards, and tabular figures.
+  7. Built `src/ui/pin-row.mjs` providing shared `PinRow` template generation with 4-tier image degradation waterfall.
+  8. Cleaned up 35MB of orphaned files in `public/assets/aistudio/`.
+- **Verification Command**:
+  - `node scripts/test_ui_architect_deliverables.mjs` (100% PASS).
+  - `npm run check` (109 files, 14/14 regression locks PASS).
+

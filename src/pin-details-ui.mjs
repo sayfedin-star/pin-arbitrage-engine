@@ -794,10 +794,16 @@ export function getPinDetailPageHtml(pinId = '') {
           </template>
 
           <!-- Status 4: Canonical Root Source -->
-          <template x-if="dossier?.algorithmic_intelligence?.canonical_pin_id">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-950/60 text-purple-300 border border-purple-800/80 font-mono tabular-nums">
+          <template x-if="isCanonicalRoot()">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-950/60 text-purple-300 border border-purple-800/80 font-mono text-[11px] tabular-nums">
               <svg class="w-3 h-3 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>
-              <span x-text="'Canonical #' + dossier.algorithmic_intelligence.canonical_pin_id"></span>
+              <span>Canonical Root</span>
+            </span>
+          </template>
+          <template x-if="!isCanonicalRoot() && canonicalPinId()">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 font-mono text-[11px] tabular-nums">
+              <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+              <span x-text="'Repin of #' + canonicalPinId()"></span>
             </span>
           </template>
         </div>
@@ -919,7 +925,8 @@ export function getPinDetailPageHtml(pinId = '') {
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5">
+            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate">
+              <span x-text="formatNumber(totalReactions())"></span> reactions, 
               <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
               <span x-text="totalShares()"></span> shares
             </div>
@@ -1394,10 +1401,14 @@ export function getPinDetailPageHtml(pinId = '') {
                   <span class="text-slate-400">Google Web Indexing</span>
                   <span class="font-bold" :class="!dossier?.algorithmic_intelligence?.seo_noindex_reason ? 'text-emerald-400' : 'text-rose-400'" x-text="!dossier?.algorithmic_intelligence?.seo_noindex_reason ? 'Fully Indexed' : ('Excluded: ' + dossier.algorithmic_intelligence.seo_noindex_reason)"></span>
                 </div>
-                <template x-if="dossier?.algorithmic_intelligence?.canonical_pin_id">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400">Canonical Status</span>
+                  <span class="font-mono tabular-nums font-bold" :class="isCanonicalRoot() ? 'text-purple-400' : 'text-indigo-400'" x-text="isCanonicalRoot() ? 'Canonical Root' : ('Repin (#' + canonicalPinId() + ')')"></span>
+                </div>
+                <template x-if="!isCanonicalRoot() && canonicalPinId()">
                   <div class="flex items-center justify-between">
                     <span class="text-slate-400">Canonical Pin ID</span>
-                    <span class="font-mono tabular-nums text-purple-400 font-bold" x-text="'#' + dossier.algorithmic_intelligence.canonical_pin_id"></span>
+                    <span class="font-mono tabular-nums text-purple-400 font-bold" x-text="'#' + canonicalPinId()"></span>
                   </div>
                 </template>
                 <template x-if="dossier?.algorithmic_intelligence?.seo_canonical_url">
@@ -1840,8 +1851,7 @@ export function getPinDetailPageHtml(pinId = '') {
         format24hSaveDelta() {
           const delta = this.computeTrue24hWindowDelta();
           if (delta === null) {
-            const rawVel = Number(this.dossier?.creative?.daily_save_velocity || this.dossier?.daily_trajectory?.[0]?.daily_save_velocity || 0);
-            return '+' + rawVel.toFixed(1) + '/d (Amortized)';
+            return '0 today (Hydrated Baseline)';
           }
           if (delta > 0) return '+' + this.formatNumber(delta) + ' today';
           if (delta < 0) return this.formatNumber(delta) + ' today';
@@ -2499,10 +2509,17 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         computeChartPoints() {
-          const snaps = this.chronologicalSnapshots();
+          let snaps = this.chronologicalSnapshots();
+          const isVel = this.chartMetric === 'velocity';
+
+          if (!isVel) {
+            const firstPosIdx = snaps.findIndex(s => Number(s?.save_count || 0) > 0);
+            if (firstPosIdx > 0) {
+              snaps = snaps.slice(firstPosIdx);
+            }
+          }
           if (snaps.length < 2) return [];
 
-          const isVel = this.chartMetric === 'velocity';
           const values = snaps.map(s => {
             if (isVel) {
               const v = Number(s?.daily_save_velocity);
@@ -2570,6 +2587,8 @@ export function getPinDetailPageHtml(pinId = '') {
           const currRepins = Number(curr.repin_count || 0);
           const prevSaves = Number(prev.save_count || 0);
           const prevRepins = Number(prev.repin_count || 0);
+
+          if (prevSaves <= 0 && currSaves > 0) return true;
 
           // [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
           if (prevRepins > 0 && prevSaves === prevRepins && currSaves > currRepins * 1.35) return true;
@@ -2805,12 +2824,30 @@ export function getPinDetailPageHtml(pinId = '') {
           return Number(s?.share_count || this.dossier?.creative?.share_count || 0);
         },
 
+        totalReactions() {
+          const s = this.latestSnapshot();
+          return Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
+        },
+
         totalEngagementScore() {
           const s = this.latestSnapshot();
           const snapC = Number(s?.comment_count || this.dossier?.creative?.comment_count || 0);
-          const snapR = Number(s?.reaction_count || 0);
+          const snapR = Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
           const snapSh = Number(s?.share_count || this.dossier?.creative?.share_count || 0);
           return snapC + snapR + snapSh;
+        },
+
+        isCanonicalRoot() {
+          const ai = this.dossier?.algorithmic_intelligence;
+          const cr = this.dossier?.creative;
+          if (ai?.is_canonical_root !== undefined) return Boolean(ai.is_canonical_root);
+          if (cr?.is_canonical_root !== undefined) return Boolean(cr.is_canonical_root);
+          if (ai?.canonical_pin_id) return String(ai.canonical_pin_id) === String(this.pinId);
+          return true;
+        },
+
+        canonicalPinId() {
+          return this.dossier?.algorithmic_intelligence?.canonical_pin_id || this.dossier?.creative?.canonical_pin_id || null;
         },
 
         async triggerLiveDeepSync() {
