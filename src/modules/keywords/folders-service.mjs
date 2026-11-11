@@ -2244,8 +2244,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
           ELSE NULL
         END AS visual_annotations,
         ra.creation_method,
-        GREATEST(COALESCE(ra.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
-        GREATEST(COALESCE(ra.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+        COALESCE(NULLIF(ra.save_count, 0), ump.save_count, 0) AS save_count,
+        COALESCE(NULLIF(ra.repin_count, 0), ump.repin_count, 0) AS repin_count,
         GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
         COALESCE(ra.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
         COALESCE(ra.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
@@ -2478,8 +2478,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       if (incomingColor && (!existingPin.dominant_color || existingPin.dominant_color === '#888888' || existingPin.dominant_color === '#000000' || existingPin.dominant_color === '#1e1e24')) {
         existingPin.dominant_color = incomingColor;
       }
-      existingPin.save_count = Math.max(existingPin.save_count, rowSaves);
-      existingPin.repin_count = Math.max(existingPin.repin_count, rowRepins);
+      if (!row.is_displaced && rowSaves > 0) existingPin.save_count = rowSaves;
+      else if (!existingPin.save_count && rowSaves > 0) existingPin.save_count = rowSaves;
+      if (!row.is_displaced && rowRepins > 0) existingPin.repin_count = rowRepins;
+      else if (!existingPin.repin_count && rowRepins > 0) existingPin.repin_count = rowRepins;
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
 
       // Symmetrical velocity update: fresher crawl updates velocity downward or upward cleanly
@@ -2606,11 +2608,11 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         created_at_pinterest: existing.created_at_pinterest || r.created_at_pinterest || null,
         aspect_ratio: existing.aspect_ratio || r.aspect_ratio || null,
         creation_method: existing.creation_method || r.creation_method || null,
-        save_count: Math.max(Number(existing.save_count || 0), Number(r.save_count || 0)),
-        repin_count: Math.max(Number(existing.repin_count || 0), Number(r.repin_count || 0)),
+        save_count: Number(r.save_count || existing.save_count || 0),
+        repin_count: Number(r.repin_count || existing.repin_count || 0),
         comment_count: Math.max(Number(existing.comment_count || 0), Number(r.comment_count || 0)),
-        daily_save_velocity: Math.max(Number(existing.daily_save_velocity || 0), Number(r.daily_save_velocity || 0)),
-        delta_repins_24h: Math.max(Number(existing.delta_repins_24h || 0), Number(r.delta_repins_24h || 0))
+        daily_save_velocity: Number(r.daily_save_velocity ?? existing.daily_save_velocity ?? 0),
+        delta_repins_24h: Number(r.delta_repins_24h ?? existing.delta_repins_24h ?? 0)
       });
     };
 
@@ -2711,8 +2713,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         if ((!p.format || p.format === 'ORGANIC PIN') && meta.creation_method) {
           p.format = String(meta.creation_method).toUpperCase();
         }
-        if (meta.save_count) p.save_count = Math.max(p.save_count || 0, Number(meta.save_count));
-        if (meta.repin_count) p.repin_count = Math.max(p.repin_count || 0, Number(meta.repin_count));
+        if (!p.save_count && meta.save_count) p.save_count = Number(meta.save_count);
+        if (!p.repin_count && meta.repin_count) p.repin_count = Number(meta.repin_count);
         if (meta.comment_count) p.comment_count = Math.max(p.comment_count || 0, Number(meta.comment_count));
         if (meta.daily_save_velocity !== undefined && meta.daily_save_velocity !== null) {
           p.daily_save_velocity = Number(meta.daily_save_velocity);
@@ -2809,16 +2811,13 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
       primary.has_active_rank = primary.rankings.some(r => !r.is_displaced);
       primary.has_vault_rank = primary.rankings.some(r => r.is_displaced);
       primary.min_rank = primary.rankings.length > 0 ? Math.min(...primary.rankings.map(r => r.rank_position)) : 1;
-      primary.save_count = Math.max(primary.save_count || 0, secondary.save_count || 0);
-      primary.daily_save_velocity = Math.max(primary.daily_save_velocity || 0, secondary.daily_save_velocity || 0);
-      primary.delta_saves_24h = Math.max(primary.delta_saves_24h || 0, secondary.delta_saves_24h || 0);
-      primary.delta_repins_24h = Math.max(primary.delta_repins_24h || 0, secondary.delta_repins_24h || 0);
-      primary.effective_velocity = Math.max(
-        primary.daily_save_velocity || 0,
-        secondary.daily_save_velocity || 0
-      );
+      if (!primary.save_count && secondary.save_count) primary.save_count = secondary.save_count;
+      if (!primary.daily_save_velocity && secondary.daily_save_velocity) primary.daily_save_velocity = secondary.daily_save_velocity;
+      if (!primary.delta_saves_24h && secondary.delta_saves_24h) primary.delta_saves_24h = secondary.delta_saves_24h;
+      if (!primary.delta_repins_24h && secondary.delta_repins_24h) primary.delta_repins_24h = secondary.delta_repins_24h;
+      primary.effective_velocity = primary.daily_save_velocity || 0;
       primary.velocity_source = 'saves';
-      primary.repin_count = Math.max(primary.repin_count || 0, secondary.repin_count || 0);
+      if (!primary.repin_count && secondary.repin_count) primary.repin_count = secondary.repin_count;
       if (!primary.image_url && secondary.image_url) primary.image_url = secondary.image_url;
       if ((!primary.dominant_color || primary.dominant_color === '#888888' || primary.dominant_color === '#000000') && secondary.dominant_color && secondary.dominant_color !== '#888888') {
         primary.dominant_color = secondary.dominant_color;

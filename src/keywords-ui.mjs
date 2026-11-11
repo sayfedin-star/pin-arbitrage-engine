@@ -5621,13 +5621,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         },
 
         async fetchFleetProjects() {
-          try {
-            const res = await fetch('/api/fleet/projects');
-            if (res.ok) {
-              const data = await res.json();
-              this.fleetProjects = data.projects || [];
-            }
-          } catch (_) {}
+          this.fleetProjects = [{
+            id: 1,
+            project_id: 'unified-vps-hub',
+            project_name: 'Native VPS PostgreSQL SSOT',
+            status: 'active',
+            is_hub: true
+          }];
         },
 
         normalizeKeyword(k) {

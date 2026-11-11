@@ -28,73 +28,28 @@ export function detectHydrationJump(params) {
   if (!params || typeof params !== 'object') return false;
   const curSaves = Number(params.currentSaves ?? 0);
   const prevSaves = Number(params.baselineSaves ?? 0);
-  const curRepins = Number(params.currentRepins ?? params.repinCount ?? 0);
-  const prevRepins = Number(params.baselineRepins ?? params.repinCount ?? 0);
-  const repinCount = Number(params.repinCount ?? curRepins ?? prevRepins ?? 0);
 
   if (!Number.isFinite(curSaves) || !Number.isFinite(prevSaves)) return false;
 
   const rawDelta = Math.max(0, curSaves - prevSaves);
   if (rawDelta === 0) return false;
 
-  // 1. prev.save_count === 0 && curr.save_count > 0
-  if (prevSaves === 0 && curSaves > 0) return true;
-
-  // 1B. Medium pin hydration jump guard: unhydrated stub (wasDeepHydrated === false) with curSaves >= 30,
-  // or low prior saves (prevSaves < 10 && curSaves >= 100)
-  if (params.wasDeepHydrated === false && curSaves >= 30) return true;
-  if (prevSaves < 10 && curSaves >= 100) return true;
-
-  // 2. [DEPRECATED LANDMINE: Removed - Authentic Pinterest pins can genuinely have repin_count > save_count]
-
-  // 2B. Repin-Baseline Fingerprint Guard:
-  // If baselineSaves matches repinCount (or within ±3% / ±50 of repinCount) AND currentSaves - baselineSaves >= 100
-  // WHILE currentSaves diverged significantly above currentRepins (curSaves > targetRepins * 1.25):
-  // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
-  const targetRepins = curRepins > 0 ? curRepins : (repinCount > 0 ? repinCount : prevRepins);
-  if (targetRepins > 0 && prevSaves > 0 && curSaves > prevSaves) {
-    const repinDiff = Math.abs(prevSaves - targetRepins);
-    const repinTolerance = Math.max(50, targetRepins * 0.03);
-    const savesDivergedFromRepins = curSaves > targetRepins * 1.25 && (curSaves - targetRepins) >= 100;
-    if (repinDiff <= repinTolerance && (curSaves - prevSaves) >= 100 && savesDivergedFromRepins) {
-      return true;
-    }
-  }
-
-  // 3. Repin-to-Save Hydration Jump: prevSaves was equal/close to prevRepins OR curRepins (within 3% or 5 saves),
-  // while curSaves jumped by >= 15% (and rawDelta >= 50) AND diverged above current repins
-  const refRepins = prevRepins > 0 ? prevRepins : curRepins;
-  const effCurRepins = curRepins > 0 ? curRepins : refRepins;
-  if (
-    prevSaves > 0 &&
-    refRepins > 0 &&
-    Math.abs(prevSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03)) &&
-    curSaves > prevSaves * 1.15 &&
-    (curSaves - prevSaves) >= 50 &&
-    curSaves > effCurRepins * 1.25
-  ) {
+  // Only treat an explicitly unhydrated 0-save stub receiving its first lifetime backfill as a hydration jump.
+  // Authentic viral growth, 4x surges, and saves near repin_count are NEVER suppressed.
+  if (prevSaves === 0 && curSaves > 0 && params.wasDeepHydrated === false) {
     return true;
   }
-  if (prevRepins > 0 && prevSaves === prevRepins && curSaves > effCurRepins * 1.35) return true;
-
-  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curSaves >= prevSaves * 2.5
-  if (prevRepins === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5) return true;
-
-  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
-  if (prevSaves > 0 && (curSaves / prevSaves) >= 4.0 && (curSaves - prevSaves) >= 2500) return true;
-
-  // 6. Legacy guard: rawDelta > 2000 when prevSaves < 500 and (prevSaves === 0 or cur / prev > 20)
-  if (rawDelta > 2000 && prevSaves < 500 && (prevSaves === 0 || (curSaves / Math.max(1, prevSaves)) > 20)) return true;
 
   return false;
 }
 
 /**
- * Calculates time-normalized daily save velocity between two snapshot dates.
+ * Calculates time-normalized daily save velocity between two snapshot dates:
+ * MAX(0, (curr_saves - prev_saves) / days_diff)
  * [INVARIANT: UTC-MIDNIGHT-NORMALIZED-VELOCITY]
  *
  * Normalizes elapsed time to pure UTC calendar days (midnight-to-midnight)
- * to prevent intraday hour bias, NaN poisoning, and lifetime-save velocity spikes.
+ * to prevent intraday hour bias and NaN poisoning.
  *
  * @param {object} params
  * @param {number|string} params.currentSaves - Current confirmed saves count
@@ -118,9 +73,6 @@ export function calculateDailyVelocity(params) {
   const {
     currentSaves = 0,
     baselineSaves = 0,
-    currentRepins = 0,
-    baselineRepins = 0,
-    repinCount = 0,
     currentDate = new Date(),
     baselineDate = null,
     maxCap = 25000,
@@ -130,9 +82,6 @@ export function calculateDailyVelocity(params) {
 
   const curSavesNum = Number(currentSaves);
   const baseSavesNum = Number(baselineSaves);
-  const curRepinsNum = Number(currentRepins);
-  const baseRepinsNum = Number(baselineRepins);
-  const repinCountNum = Number(repinCount || currentRepins || baselineRepins || 0);
   const capNum = Number.isFinite(Number(maxCap)) && Number(maxCap) > 0 ? Number(maxCap) : 25000;
 
   // Anti-NaN guard
@@ -150,57 +99,14 @@ export function calculateDailyVelocity(params) {
     return 0;
   }
 
-  // [INVARIANT: ANTI-HYDRATION-SPIKE]
-  // Repin-Baseline Fingerprint Guard:
-  // If baselineSaves matches repinCount (or within ±3% / ±5 saves of repinCount) AND currentSaves jumped by >= 15% (and >= 50 saves)
-  // WHILE diverging above current repins (curSavesNum > effCurRepinsNum * 1.25):
-  // Recognize this as a Repin-to-Save Hydration Gap (total_saves - repin_count), NOT a 24h organic gain!
-  const refRepinsNum = baseRepinsNum > 0 ? baseRepinsNum : (curRepinsNum > 0 ? curRepinsNum : repinCountNum);
-  const effCurRepinsNum = curRepinsNum > 0 ? curRepinsNum : (repinCountNum > 0 ? repinCountNum : refRepinsNum);
-  if (
-    baseSavesNum > 0 &&
-    refRepinsNum > 0 &&
-    Math.abs(baseSavesNum - refRepinsNum) <= Math.max(5, Math.round(refRepinsNum * 0.03)) &&
-    curSavesNum > baseSavesNum * 1.15 &&
-    (curSavesNum - baseSavesNum) >= 50 &&
-    curSavesNum > effCurRepinsNum * 1.25
-  ) {
-    return 0;
-  }
-  if (effCurRepinsNum > 0 && baseSavesNum > 0 && curSavesNum > baseSavesNum) {
-    const repinDiff = Math.abs(baseSavesNum - effCurRepinsNum);
-    const repinTolerance = Math.max(50, effCurRepinsNum * 0.03);
-    if (repinDiff <= repinTolerance && (curSavesNum - baseSavesNum) >= 100 && curSavesNum > effCurRepinsNum * 1.25 && (curSavesNum - effCurRepinsNum) >= 100) {
-      return 0;
-    }
-  }
-
-  // Eliminate unhydrated 0-baseline jumps & multi-stage hydration artifacts:
-  const isHydrationJump = detectHydrationJump({
-    currentSaves: curSavesNum,
-    baselineSaves: baseSavesNum,
-    currentRepins: curRepinsNum,
-    baselineRepins: baseRepinsNum,
-    repinCount: repinCountNum,
-    wasDeepHydrated: wasDeepHydrated ?? params.wasDeepHydrated
-  });
-
-  if (isHydrationJump) {
-    // If jump was specifically caused by a Repin-to-Save hydration transition, return 0 (no organic delta)
-    if (
-      baseSavesNum > 0 &&
-      refRepinsNum > 0 &&
-      Math.abs(baseSavesNum - refRepinsNum) <= Math.max(5, Math.round(refRepinsNum * 0.03))
-    ) {
-      return 0;
-    }
+  // Guard only against an explicitly unhydrated 0-baseline stub
+  if (detectHydrationJump({ currentSaves: curSavesNum, baselineSaves: baseSavesNum, wasDeepHydrated })) {
     if (createdAt) {
       const createdD = createdAt instanceof Date ? createdAt : new Date(createdAt);
       if (!isNaN(createdD.getTime())) {
         const curD = currentDate instanceof Date ? currentDate : new Date(currentDate);
         const lifetimeMs = Math.max(0, (curD.getTime() - createdD.getTime()));
         const lifetimeDays = lifetimeMs / 86400000;
-        // Age-bounded: if age < 2 days, suppress to 0 to prevent fake velocity division spikes (+69582.7/d)
         if (lifetimeDays >= 2) {
           const lifetimeVelocity = Math.round((curSavesNum / lifetimeDays) * 10) / 10;
           return Math.min(lifetimeVelocity, capNum);

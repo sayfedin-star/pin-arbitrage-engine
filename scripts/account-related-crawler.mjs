@@ -232,8 +232,8 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
         )
         ORDER BY x.candidate_pin_id ASC
         ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
-          saves = GREATEST(competitor_related_nodes.saves, EXCLUDED.saves),
-          repins = GREATEST(competitor_related_nodes.repins, EXCLUDED.repins),
+          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE competitor_related_nodes.saves END,
+          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE competitor_related_nodes.repins END,
           title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
           image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
           domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,
@@ -368,7 +368,7 @@ async function main() {
         title = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title NOT LIKE 'Seed %' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
         image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url),
         board_name = COALESCE(EXCLUDED.board_name, competitor_seed_pins.board_name),
-        save_count = GREATEST(competitor_seed_pins.save_count, EXCLUDED.save_count);
+        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE competitor_seed_pins.save_count END;
     `;
   }
 

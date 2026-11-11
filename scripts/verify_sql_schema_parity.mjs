@@ -154,7 +154,11 @@ export const KNOWN_TABLE_COLUMNS = {
     'seo_noindex_reason',
     'is_repin',
     'canonical_pin_id',
-    'last_scraped_at'
+    'last_scraped_at',
+    'clean_domain',
+    'first_saved_at',
+    'last_resaved_at',
+    'is_deep_hydrated'
   ]),
   tracked_keywords: new Set([
     'id',

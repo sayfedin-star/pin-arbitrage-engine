@@ -929,10 +929,10 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
           const pinData = await fetchPinDetails(candidate.candidate_pin_id, baseHeaders);
           if (pinData && pinData.repins !== undefined && pinData.repins !== null) {
             const repins = Number(pinData.repins || 0);
-            const currentSaves = Math.max(Number(candidate.saves || 0), Number(pinData.saves || 0));
+            const currentSaves = Number(pinData.saves) > 0 ? Number(pinData.saves) : Number(candidate.saves || 0);
             const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
             const ageDays = Math.max(1, Number(candidate.age_days || 180));
-            const updatedVelocity = Math.min(1000.0, Math.max(Number(candidate.daily_velocity || 0), Number((currentSaves / ageDays).toFixed(2))));
+            const updatedVelocity = Math.min(1000.0, Number((currentSaves / ageDays).toFixed(2)) || Number(candidate.daily_velocity || 0));
 
             enrichedBatch.push({
               seed_pin_id: String(seedPinId),
@@ -1375,13 +1375,13 @@ async function crawlSeed(seed) {
           title = EXCLUDED.title,
           dominant_color = EXCLUDED.dominant_color,
           aspect_ratio = EXCLUDED.aspect_ratio,
-          saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
+          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END,
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
           save_rate = CASE
-            WHEN EXCLUDED.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
-              THEN ROUND((EXCLUDED.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
-            WHEN candidate_graph_nodes.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
-              THEN ROUND((candidate_graph_nodes.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
+            WHEN EXCLUDED.repins > 0 AND (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END) > 0
+              THEN ROUND((EXCLUDED.repins::numeric / (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END)::numeric) * 100, 2)
+            WHEN candidate_graph_nodes.repins > 0 AND (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END) > 0
+              THEN ROUND((candidate_graph_nodes.repins::numeric / (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END)::numeric) * 100, 2)
             ELSE candidate_graph_nodes.save_rate
           END,
           domain = EXCLUDED.domain,

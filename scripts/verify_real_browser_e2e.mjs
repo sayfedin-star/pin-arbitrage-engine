@@ -260,7 +260,7 @@ async function runRealBrowserVerification() {
 
   // 1. Launch local server
   console.log(`\n[Server Setup] Spawning live application server on ${BASE_URL}...`);
-  const serverProc = spawn(process.execPath, ['scripts/dashboard.mjs'], {
+  const serverProc = spawn(process.execPath, ['src/server.mjs'], {
     env: { ...process.env, PORT: String(PORT) },
     stdio: ['ignore', 'pipe', 'pipe']
   });

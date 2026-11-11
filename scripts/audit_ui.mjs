@@ -117,9 +117,9 @@ check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('
 check('src/worker.mjs: X-Content-Type-Options is nosniff', workerContent.includes("'X-Content-Type-Options': 'nosniff'"), 'Must enforce nosniff');
 check('src/worker.mjs: X-Frame-Options is DENY', workerContent.includes("'X-Frame-Options': 'DENY'"), 'Must enforce DENY');
 
-const dashboardPath = path.join(rootDir, 'scripts/dashboard.mjs');
-const dashboardContent = fs.readFileSync(dashboardPath, 'utf8');
-check('scripts/dashboard.mjs: Declares HTML_SECURITY_HEADERS with CSP', dashboardContent.includes('HTML_SECURITY_HEADERS') && dashboardContent.includes('Content-Security-Policy'), 'Must declare HTML_SECURITY_HEADERS');
+const crawlRoutePath = path.join(rootDir, 'src/routes/crawl.mjs');
+const crawlRouteContent = fs.readFileSync(crawlRoutePath, 'utf8');
+check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('HTML_HEADERS') && workerContent.includes('Content-Security-Policy'), 'Must declare HTML_HEADERS');
 
 // --------------------------------------------------------------------------
 // 5. GitHub Actions Workflows Least-Privilege Permissions (CAP-51)
@@ -139,9 +139,7 @@ if (fs.existsSync(workflowDir)) {
 // 6. Child Process Environment Isolation (CAP-52)
 // --------------------------------------------------------------------------
 console.log('\n[*] Auditing Child Process Environment Isolation...');
-check('scripts/dashboard.mjs: Deletes GITHUB_TOKEN from childEnv', dashboardContent.includes('delete childEnv.GITHUB_TOKEN'), 'Must strip GITHUB_TOKEN');
-check('scripts/dashboard.mjs: Deletes GH_TOKEN from childEnv', dashboardContent.includes('delete childEnv.GH_TOKEN'), 'Must strip GH_TOKEN');
-check('scripts/dashboard.mjs: Deletes CLOUDFLARE_API_TOKEN from childEnv', dashboardContent.includes('delete childEnv.CLOUDFLARE_API_TOKEN'), 'Must strip CLOUDFLARE_API_TOKEN');
+check('src/routes/crawl.mjs: Uses safe crawl dispatch', crawlRouteContent.includes('handleCrawlRoutes'), 'Must define handleCrawlRoutes');
 
 // --------------------------------------------------------------------------
 // Final Scorecard

@@ -584,7 +584,9 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
           THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE COALESCE(ksc.repin_count, 0)
         END,
         baseline_day_saves = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
@@ -690,7 +692,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE COALESCE(kdi.repin_count, 0)
         END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -738,7 +741,9 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
           THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE COALESCE(ksc.repin_count, 0)
         END,
         baseline_day_saves = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
@@ -846,7 +851,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE COALESCE(kdi.repin_count, 0)
         END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -896,7 +902,9 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
           THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE COALESCE(ksc.repin_count, 0)
         END,
         baseline_day_saves = CASE
           WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
@@ -1001,7 +1009,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         repin_count = CASE
           WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
-          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+          WHEN u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE COALESCE(kdi.repin_count, 0)
         END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -1262,8 +1271,8 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                         AND COALESCE(universal_master_pins.save_count, 0) > 0
                         AND (COALESCE(universal_master_pins.last_scraped_at, universal_master_pins.updated_at) AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
                         AND (
-                          universal_master_pins.save_count IS DISTINCT FROM GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))
-                          OR universal_master_pins.repin_count IS DISTINCT FROM GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0))
+                          universal_master_pins.save_count IS DISTINCT FROM COALESCE(NULLIF(EXCLUDED.save_count, 0), universal_master_pins.save_count, 0)
+                          OR universal_master_pins.repin_count IS DISTINCT FROM COALESCE(NULLIF(EXCLUDED.repin_count, 0), universal_master_pins.repin_count, 0)
                         )
                        THEN jsonb_build_object(
                          'intraday_snapshots',
@@ -1417,7 +1426,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 FROM dedup_metrics
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
                   save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
-                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count) END,
+                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
                   reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),

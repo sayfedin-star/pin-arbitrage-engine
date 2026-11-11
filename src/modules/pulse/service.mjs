@@ -265,8 +265,8 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(NULLIF(ksc.board_name, ''), NULLIF(ump.board_name, ''), '') AS board_name,
       COALESCE(ump.description, '') AS description,
       COALESCE(ump.alt_text, '') AS alt_text,
-      GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
-      GREATEST(COALESCE(ksc.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+      COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0) AS save_count,
+      COALESCE(NULLIF(ksc.repin_count, 0), ump.repin_count, 0) AS repin_count,
       COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
       COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
       COALESCE(ksc.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
@@ -295,7 +295,7 @@ async function queryActiveSerp(sql, folderIdNum) {
         SELECT 1 FROM keyword_folder_items fi 
         WHERE fi.keyword_id = ksc.keyword_id AND fi.folder_id = ${folderIdNum}::int
       ))
-    ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, 0), COALESCE(ump.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC, ksc.save_count DESC
+    ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, ump.delta_repins_24h, 0)) DESC, COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0) DESC
     LIMIT 15000;
   `;
 }
@@ -332,8 +332,8 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         kdi.last_known_rank,
         kdi.vacuum_opportunity_score,
         kdi.displaced_date,
-        GREATEST(COALESCE(kdi.save_count, 0), COALESCE(ump.save_count, 0)) AS save_count,
-        GREATEST(COALESCE(kdi.repin_count, 0), COALESCE(ump.repin_count, 0)) AS repin_count,
+        COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) AS save_count,
+        COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0) AS repin_count,
         COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
         COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
         COALESCE(kdi.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
@@ -372,7 +372,7 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
           SELECT 1 FROM keyword_folder_items fi 
           WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
         ))
-      ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(ump.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC
+      ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, kdi.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, kdi.delta_repins_24h, 0)) DESC
       LIMIT 15000;
     `
   ]);
@@ -722,8 +722,8 @@ async function queryWinnersAndDomains(sql) {
         pa.board_name,
         pa.image_url,
         COALESCE(pa.dominant_color, '#888888') AS dominant_color,
-        GREATEST(COALESCE(pa.saves, 0), COALESCE(ump.save_count, 0)) AS saves,
-        GREATEST(COALESCE(pa.repins, 0), COALESCE(ump.repin_count, 0)) AS repins,
+        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) AS saves,
+        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0) AS repins,
         GREATEST(COALESCE(pa.comments, 0), COALESCE(ump.comment_count, 0)) AS comments,
         COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) AS velocity,
         COALESCE(pa.annotations, '[]'::jsonb) AS annotations,
@@ -733,7 +733,7 @@ async function queryWinnersAndDomains(sql) {
       FROM pa_pins pa
       LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
       WHERE (COALESCE(ump.daily_save_velocity, pa.velocity, 0) > 0 OR COALESCE(pa.saves, 0) >= 100)
-      ORDER BY COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) DESC, GREATEST(COALESCE(pa.saves, 0), COALESCE(ump.save_count, 0)) DESC
+      ORDER BY COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) DESC, COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
       LIMIT 100;
     `,
     sql`
@@ -2512,64 +2512,3 @@ export function synthesizePinBlueprint(pinId, pulseData) {
     }
   };
 }
-
-// Warm up V8 JIT at module load time so Worker isolate compilation overhead is eliminated
-try {
-  const _warmupPins = [];
-  for (let i = 0; i < 200; i++) {
-    _warmupPins.push({
-      pin_id: 'warm_' + i,
-      keyword_id: (i % 15) + 1,
-      keyword_text: 'warmup keyword ' + (i % 15),
-      keyword_category: 'Warmup',
-      save_count: 100 + i * 10,
-      repin_count: 10 + i,
-      daily_save_velocity: 10.0 + (i % 50),
-      delta_saves_24h: 10 + (i % 30),
-      delta_repins_24h: 5 + (i % 20),
-      gains_5d: 20, gains_7d: 30, gains_10d: 40, gains_15d: 50,
-      url_global_saves: 50,
-      title: 'Warmup Pin Title ' + i,
-      image_url: 'https://i.pinimg.com/236x/warm_' + i + '.jpg',
-      destination_url: 'https://warmup.com/pin/' + i,
-      domain: 'warmup.com',
-      creator_username: 'warmcreator_' + (i % 10),
-      board_name: 'Warmup Board ' + (i % 5),
-      dominant_color: '#3b82f6',
-      visual_annotations: ['Warm Tag ' + (i % 12), 'Tag Beta ' + ((i + 1) % 12), 'Tag Gamma ' + ((i + 2) % 12)],
-      created_at_pinterest: '2026-11-01T00:00:00.000Z',
-      rank_position: (i % 50) + 1,
-      folders: [{ folder_id: (i % 3) + 1, folder_name: 'Folder ' + (i % 3), folder_color: '#rose' }]
-    });
-  }
-  const _warmupCaps = [];
-  for (let i = 0; i < 40; i++) {
-    _warmupCaps.push({
-      id: i + 1,
-      keyword_id: (i % 15) + 1,
-      keyword_text: 'warmup keyword ' + (i % 15),
-      keyword_category: 'Warmup',
-      term: 'warm ' + (i % 10),
-      display_label: 'Warm ' + (i % 10),
-      score: 10 + i,
-      dominant_color: '#3b82f6',
-      display_order: i
-    });
-  }
-  const _warmupSql = async (strings) => {
-    const q = Array.isArray(strings) ? strings.join('') : String(strings);
-    if (q.includes('keyword_guided_capsules')) return _warmupCaps;
-    if (q.includes('competitor_profiles') || q.includes('active_creators')) {
-      return [{ id: 1, username: 'warm', monthly_reach: 1000, profile_views: 500, effective_delta_reach_24h: 10, driver_pins: [] }];
-    }
-    if (q.includes('keyword_displaced_index')) return [];
-    if (q.includes('domain_intelligence_rollup')) return [];
-    return _warmupPins;
-  };
-  await getGlobal24hPulseService(_warmupSql, {}, { forceRefresh: true });
-  await getGlobal24hPulseService(_warmupSql, {}, { forceRefresh: true });
-  pulseMemoryCache.clear();
-  pulseForceRefreshCooldown.clear();
-  inflightPulse.clear();
-} catch (_) {}
-

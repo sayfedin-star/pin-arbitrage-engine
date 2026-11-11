@@ -336,13 +336,12 @@ try {
   // =========================================================================
   console.log('\n[Lock 10] Verifying Room 3 Single-Creator SERP Track Fallback...');
   const routesKeywordsContent = readFile('src/routes/keywords.mjs');
-  const dashboardServerContent = readFile('scripts/dashboard.mjs');
 
   const routesHasToggleFallback = /\/api\/folders\/:id\/creators[\s\S]*?toggleFolderCreatorTracking/i.test(routesKeywordsContent);
   check('Lock 10', routesHasToggleFallback, 'src/routes/keywords.mjs lacks toggleFolderCreatorTracking fallback in POST /api/folders/:id/creators');
 
-  const dashboardHasToggleFallback = /\/api\/folders\/:id\/creators[\s\S]*?toggleFolderCreatorTracking/i.test(dashboardServerContent);
-  check('Lock 10', dashboardHasToggleFallback, 'scripts/dashboard.mjs lacks toggleFolderCreatorTracking fallback in POST /api/folders/:id/creators');
+  const duplicateDashboardDeleted = !fs.existsSync(path.join(ROOT_DIR, 'scripts/dashboard.mjs'));
+  check('Lock 10', duplicateDashboardDeleted, 'scripts/dashboard.mjs duplicate server must remain deleted (Unified server is src/server.mjs)');
 
   // =========================================================================
   // LOCK 11: Domain Studio -> /accounts Hydration & Crawler BigInt Parity
@@ -513,9 +512,17 @@ try {
     `src/ui/dashboard-modals.mjs contains ${arabicMatches ? arabicMatches.length : 0} residual Arabic characters (LND-823)`
   );
 
-  // 14G. Round 30 Anti-Scattering, Anti-Conflation & Anti-Compounding Shields
+  // 14G. Round 30 & Round 31 Anti-Scattering, Anti-Conflation, Anti-Compounding & Unified Single-DB Anti-Lock Shields
   const clusterServiceContent = readFile('src/modules/cluster/service.mjs');
+  const pulseServiceContent = readFile('src/modules/pulse/service.mjs');
+  const domainsServiceContent = readFile('src/modules/domains/service.mjs');
+  const hasUnifiedClientAndRepo = (
+    fs.existsSync(path.join(ROOT_DIR, 'src/db/client.mjs')) &&
+    fs.existsSync(path.join(ROOT_DIR, 'src/modules/pins/repository.mjs')) &&
+    fs.existsSync(path.join(ROOT_DIR, 'scripts/migrations/052_unified_clean_schema_ssot.sql'))
+  );
   const antiScatteringGuards = (
+    hasUnifiedClientAndRepo &&
     pinterestScraperContent.includes('has_explicit_saves:') &&
     !pinterestScraperContent.includes('canonicalPin?.saveCount') &&
     keywordCrawlerContent.includes('gains.daily_save_velocity') &&
@@ -524,12 +531,17 @@ try {
     !keywordsServiceContent.includes('item?.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || item.repin_count') &&
     !clusterServiceContent.includes('p.aggregated_pin_data?.aggregated_stats?.saves ?? (p.repin_count || 0)') &&
     !fleetRouterContent.includes('existingPositiveVelocity + intradayStepGain') &&
-    !fleetRouterContent.includes('save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))')
+    !fleetRouterContent.includes('save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))') &&
+    !fleetRouterContent.includes('runningMaxSaves') &&
+    !fleetRouterContent.includes('shouldBackfillUnified') &&
+    !pulseServiceContent.includes('_warmupPins') &&
+    !pulseServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))') &&
+    !domainsServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))')
   );
   check(
     'Lock 14',
     antiScatteringGuards,
-    'Round 30 regression: detected save/repin conflation, gains.delta_saves_24h typo, intraday velocity compounding, or GREATEST save_count lock'
+    'Round 30/31 regression: detected save/repin conflation, gains.delta_saves_24h typo, intraday velocity compounding, runningMaxSaves ratchet, GREATEST save_count lock, or missing unified DB modules'
   );
 
 } catch (e) {

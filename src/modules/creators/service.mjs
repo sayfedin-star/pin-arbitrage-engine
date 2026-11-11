@@ -1632,48 +1632,18 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%amazon.%'
           AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%etsy.%'
         GROUP BY clean_dom
-        ORDER BY COUNT(*) DESC, SUM(GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0))) DESC
+        ORDER BY COUNT(*) DESC, SUM(COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)) DESC
         LIMIT 1;
       `;
       if (domRow?.clean_dom) {
         resolvedPrimaryDomain = domRow.clean_dom;
         profile.website_url = resolvedPrimaryDomain;
-        await sql`UPDATE competitor_profiles SET website_url = ${resolvedPrimaryDomain}, updated_at = NOW() WHERE id = ${compId};`.catch(() => {});
       }
     } catch (_) {}
   }
 
-  // Auto-sync any newly discovered direct creator pins from universal_master_pins into competitor_pins
-  const cleanUserNorm = (cleanUsername || profile.username || '').replace(/^@/, '').trim().toLowerCase();
-  if (cleanUserNorm) {
-    await sql`
-      INSERT INTO competitor_pins (
-        competitor_id, pin_id, title, description, link_domain, destination_url,
-        board_name, board_slug, image_url, save_count, repin_count, comment_count,
-        is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
-      )
-      SELECT
-        ${compId}, ump.pin_id, COALESCE(ump.title, ''), COALESCE(ump.description, ''),
-        COALESCE(ump.domain, ''), COALESCE(ump.destination_url, ''), COALESCE(ump.board_name, ''),
-        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(ump.board_name, ''), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')), ''),
-        COALESCE(ump.image_url, ''), COALESCE(ump.save_count, 0), COALESCE(ump.repin_count, 0),
-        COALESCE(ump.comment_count, 0), COALESCE(ump.is_product, false), ump.created_at_pinterest,
-        NOW(), NOW(), 'completed'
-      FROM universal_master_pins ump
-      WHERE LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) = ${cleanUserNorm}
-        AND (
-          ${resolvedPrimaryDomain} = ''
-          OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
-        )
-      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
-        save_count = GREATEST(COALESCE(competitor_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-        repin_count = GREATEST(COALESCE(competitor_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
-        destination_url = COALESCE(NULLIF(competitor_pins.destination_url, ''), EXCLUDED.destination_url),
-        link_domain = COALESCE(NULLIF(competitor_pins.link_domain, ''), EXCLUDED.link_domain),
-        board_name = COALESCE(NULLIF(competitor_pins.board_name, ''), EXCLUDED.board_name),
-        image_url = COALESCE(NULLIF(competitor_pins.image_url, ''), EXCLUDED.image_url);
-    `.catch(() => {});
-  }
+  // [INVARIANT: ZERO-READ-PATH-MUTATIONS]
+  // Read path is strictly read-only: zero UPDATE competitor_profiles or INSERT INTO competitor_pins during GET /api/competitors/detail.
 
   const aggregatesPromise = (async () => {
     try {
@@ -1703,9 +1673,9 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         SELECT
           COUNT(*) FILTER (WHERE is_official_domain = TRUE)::int AS total_catalog_pins,
           COUNT(*) FILTER (WHERE is_official_domain = FALSE)::int AS external_pins_count,
-          COALESCE(SUM(GREATEST(COALESCE(save_count, 0), COALESCE(ump_saves, 0), COALESCE(pa_saves, 0))) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_saves,
-          COALESCE(SUM(GREATEST(COALESCE(save_count, 0), COALESCE(ump_saves, 0), COALESCE(pa_saves, 0))) FILTER (WHERE is_official_domain = FALSE), 0)::bigint AS external_saves,
-          COALESCE(SUM(GREATEST(COALESCE(repin_count, 0), COALESCE(ump_repins, 0), COALESCE(pa_repins, 0))) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_repins,
+          COALESCE(SUM(COALESCE(NULLIF(ump_saves, 0), NULLIF(save_count, 0), pa_saves, 0)) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_saves,
+          COALESCE(SUM(COALESCE(NULLIF(ump_saves, 0), NULLIF(save_count, 0), pa_saves, 0)) FILTER (WHERE is_official_domain = FALSE), 0)::bigint AS external_saves,
+          COALESCE(SUM(COALESCE(NULLIF(ump_repins, 0), NULLIF(repin_count, 0), pa_repins, 0)) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_repins,
           MIN(COALESCE(created_at_pinterest, ump_created_at, first_seen_at)) FILTER (WHERE is_official_domain = TRUE) AS earliest_pin_at,
           MAX(COALESCE(created_at_pinterest, ump_created_at, first_seen_at)) FILTER (WHERE is_official_domain = TRUE) AS latest_pin_at,
           COUNT(*) FILTER (WHERE is_official_domain = TRUE AND COALESCE(created_at_pinterest, ump_created_at) >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
@@ -1747,7 +1717,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         WITH official_set AS (
           SELECT
             cp.pin_id,
-            GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0), COALESCE(pa.saves, 0))::bigint AS saves,
+            COALESCE(NULLIF(ump.save_count, 0), NULLIF(cp.save_count, 0), pa.saves, 0)::bigint AS saves,
             NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
           FROM competitor_pins cp
           LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -2043,16 +2013,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   }
 
-  // Asynchronously persist healed reach and views to Postgres profile
-  if (resolvedMonthlyReach > Number(profile.monthly_reach || 0) || resolvedProfileViews > Number(profile.profile_views || 0)) {
-    await sql`
-      UPDATE competitor_profiles
-      SET monthly_reach = GREATEST(monthly_reach, ${resolvedMonthlyReach}),
-          profile_views = GREATEST(profile_views, ${resolvedProfileViews}),
-          updated_at = NOW()
-      WHERE id = ${compId};
-    `.catch(() => {});
-  }
+  // [INVARIANT: ZERO-READ-PATH-MUTATIONS]
+  // Healed reach & views are resolved in-memory without issuing UPDATE on GET.
 
   return {
     profile: {
@@ -2411,37 +2373,29 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
       cp.board_slug,
       COALESCE(NULLIF(cp.image_url, ''), ump.image_url, '') AS image_url,
-      GREATEST(COALESCE(cp.save_count, 0), COALESCE(ump.save_count, 0), COALESCE(pa.saves, 0))::bigint AS save_count,
-      GREATEST(COALESCE(cp.repin_count, 0), COALESCE(ump.repin_count, 0), COALESCE(pa.repins, 0))::bigint AS repin_count,
-      GREATEST(COALESCE(cp.comment_count, 0), COALESCE(ump.comment_count, 0), COALESCE(pa.comments, 0))::int AS comment_count,
-      GREATEST(COALESCE(ump.share_count, 0), COALESCE(pa.share_count, 0))::bigint AS share_count,
-      -- [INVARIANT: UNIFIED-EFFECTIVE-VELOCITY] Priority COALESCE: delta_saves_24h / universal_master_pins velocity takes strict precedence
-      GREATEST(
-        COALESCE(
-          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE
-            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
-            ELSE COALESCE(pa.velocity, 0)::numeric
-          END
-        ),
-        COALESCE(ump.daily_save_velocity, 0)::numeric
+      COALESCE(NULLIF(ump.save_count, 0), NULLIF(cp.save_count, 0), pa.saves, 0)::bigint AS save_count,
+      COALESCE(NULLIF(ump.repin_count, 0), NULLIF(cp.repin_count, 0), pa.repins, 0)::bigint AS repin_count,
+      COALESCE(NULLIF(ump.comment_count, 0), NULLIF(cp.comment_count, 0), pa.comments, 0)::int AS comment_count,
+      COALESCE(NULLIF(ump.share_count, 0), pa.share_count, 0)::bigint AS share_count,
+      -- [INVARIANT: UNIFIED-EFFECTIVE-VELOCITY] Priority COALESCE: universal_master_pins SSOT takes strict precedence
+      COALESCE(
+        NULLIF(ump.daily_save_velocity, 0)::numeric,
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        COALESCE(pa.velocity, 0)::numeric
       )::numeric AS velocity,
-      GREATEST(
-        COALESCE(
-          (cp.metadata->>'delta_saves_24h')::numeric,
-          (cp.metadata->>'delta_saves')::numeric,
-          0
-        ),
-        COALESCE(ump.delta_saves_24h, ump.daily_save_velocity, 0)::numeric
+      COALESCE(
+        NULLIF(ump.delta_saves_24h, 0)::numeric,
+        NULLIF(ump.daily_save_velocity, 0)::numeric,
+        (cp.metadata->>'delta_saves_24h')::numeric,
+        (cp.metadata->>'delta_saves')::numeric,
+        0::numeric
       )::numeric AS delta_saves_24h,
-      GREATEST(
-        COALESCE(
-          (cp.metadata->>'delta_repins_24h')::numeric,
-          (cp.metadata->>'delta_repins')::numeric,
-          0
-        ),
-        COALESCE(ump.delta_repins_24h, 0)::numeric
+      COALESCE(
+        NULLIF(ump.delta_repins_24h, 0)::numeric,
+        (cp.metadata->>'delta_repins_24h')::numeric,
+        (cp.metadata->>'delta_repins')::numeric,
+        0::numeric
       )::numeric AS delta_repins_24h,
       COALESCE(NULLIF(ump.dominant_color, '#888888'), pa.dominant_color, '#888888') AS dominant_color,
       COALESCE(
@@ -4802,8 +4756,8 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
         image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
         dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' AND EXCLUDED.dominant_color <> '' THEN EXCLUDED.dominant_color ELSE pa_pins.dominant_color END,
-        saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-        repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+        saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE pa_pins.saves END,
+        repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE pa_pins.repins END,
         comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
         share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
         reactions = CASE WHEN EXCLUDED.reactions <> '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
@@ -4877,8 +4831,8 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
               destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
               link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
               board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
-              save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
-              repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+              save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE competitor_pins.save_count END,
+              repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE competitor_pins.repin_count END,
               comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
               is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
               last_seen_at = NOW();

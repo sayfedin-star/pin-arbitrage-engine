@@ -276,8 +276,8 @@ export async function optimizeHubStorage(sql) {
                 FROM dedup_metrics
                 ORDER BY pin_id ASC, snapshot_date ASC
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-                  save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-                  repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                  save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
                   reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
@@ -365,8 +365,8 @@ export async function optimizeHubStorage(sql) {
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_displaced_index.creator_username),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(COALESCE(keyword_displaced_index.vacuum_opportunity_score, 0), COALESCE(EXCLUDED.vacuum_opportunity_score, 0)),
-            save_count = GREATEST(COALESCE(keyword_displaced_index.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-            repin_count = GREATEST(COALESCE(keyword_displaced_index.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(keyword_displaced_index.save_count, 0) END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(keyword_displaced_index.repin_count, 0) END,
             comment_count = GREATEST(COALESCE(keyword_displaced_index.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
             share_count = GREATEST(COALESCE(keyword_displaced_index.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
             daily_save_velocity = CASE
@@ -506,8 +506,8 @@ export async function optimizeHubStorage(sql) {
                 FROM dedup_metrics
                 ORDER BY pin_id ASC, snapshot_date ASC
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-                  save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-                  repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                  save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
