@@ -273,7 +273,7 @@ async function remediate() {
       save_count = ump.save_count,
       repin_count = ump.repin_count,
       daily_save_velocity = ump.daily_save_velocity,
-      delta_saves_24h = ump.delta_saves_24h
+      delta_repins_24h = COALESCE(ump.delta_repins_24h, 0)
     FROM universal_master_pins ump
     WHERE kdi.pin_id = ump.pin_id
       AND (
