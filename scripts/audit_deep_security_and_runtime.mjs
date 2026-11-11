@@ -19,7 +19,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import vm from 'node:vm';
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 import worker, { redactSecrets } from '../src/worker.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';

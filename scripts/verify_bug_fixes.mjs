@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 import { getPruningCandidates, listFolderCreatorsWithDiscovery } from '../src/modules/keywords/folders-service.mjs';
 
 const sql = neon(process.env.DATABASE_URL);

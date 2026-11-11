@@ -971,8 +971,8 @@ export async function listDomainsIntelligence(sql, {
       -- Universal Master Pins SSOT (Direct Domain Footprint)
       SELECT
         CASE 
-          WHEN LOWER(TRIM(ump.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE LOWER(TRIM(ump.domain))
+          WHEN COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain)))
         END AS clean_domain,
         ump.pin_id,
         NULL::int AS keyword_id,
@@ -983,9 +983,9 @@ export async function listDomainsIntelligence(sql, {
         COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
         CASE
           WHEN ump.first_discovered_pillar = 'creator'
-            AND LOWER(TRIM(ump.domain)) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
-            AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1)
-            AND RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
+            AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
+            AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1)
+            AND RTRIM(SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
           THEN ''
           ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
         END AS username,
@@ -994,7 +994,7 @@ export async function listDomainsIntelligence(sql, {
       FROM universal_master_pins ump
       WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'serp', 'competitors'))
-        AND ump.domain IS NOT NULL AND ump.domain <> ''
+        AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
 
       UNION ALL
 
@@ -1488,8 +1488,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
         -- Universal Master Pins SSOT
         SELECT
           CASE 
-            WHEN LOWER(TRIM(ump.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(TRIM(ump.domain))
+            WHEN COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain)))
           END AS clean_domain,
           ump.pin_id,
           NULL::int AS keyword_id,
@@ -1500,9 +1500,9 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
           CASE
             WHEN ump.first_discovered_pillar = 'creator'
-              AND LOWER(TRIM(ump.domain)) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
-              AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1)
-              AND RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(ump.domain)), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
+              AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
+              AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1)
+              AND RTRIM(SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
             THEN ''
             ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
           END AS username,
@@ -2324,7 +2324,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
       FROM universal_master_pins ump
-      WHERE (LOWER(TRIM(ump.domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(ump.domain)) = 'uploaded by user'))
+      WHERE (ump.clean_domain = ${cleanDomain} OR LOWER(TRIM(ump.domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND (ump.clean_domain = 'uploaded by user' OR LOWER(TRIM(ump.domain)) = 'uploaded by user')))
       ORDER BY COALESCE(ump.save_count, 0) DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'universal_master_pins')) : Promise.resolve([])

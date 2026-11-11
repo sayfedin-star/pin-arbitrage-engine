@@ -343,7 +343,6 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(kdi.gains_15d, 0) AS gains_15d,
         COALESCE(NULLIF(kdi.domain, ''), NULLIF(ump.domain, ''), NULLIF(pa.domain, ''), NULLIF(cpin.link_domain, ''), '') AS domain,
         COALESCE(NULLIF(kdi.creator_username, ''), NULLIF(ump.creator_username, ''), NULLIF(pa.account_username, ''), '') AS creator_username,
-        kdi.shard_id,
         COALESCE(NULLIF(ump.title, ''), NULLIF(pa.title, ''), NULLIF(cpin.title, ''), '') AS title,
         COALESCE(NULLIF(ump.description, ''), NULLIF(pa.description, ''), NULLIF(cpin.description, ''), '') AS description,
         COALESCE(NULLIF(ump.alt_text, ''), NULLIF(pa.alt_text, ''), NULLIF(cpin.alt_text, ''), '') AS alt_text,

@@ -15,18 +15,14 @@
  * and persists them into Central Hub keyword_serp_current & keyword_displaced_index.
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import {
+  createUniversalSqlClient,
+  isMultiStageHydrationJump,
+  enforceNeonPoolerUrl
+} from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  getPinShardId,
-  getPhysicalShardId,
-  resolveShardConnection,
-  isMultiStageHydrationJump,
-  enforceNeonPoolerUrl,
-  isUnifiedPostgres
-} from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -132,8 +128,6 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
       delta_repins_24h = 0;
     } else if (isJump) {
       delta_repins_24h = 0;
-    } else if (prevRepins > 0 && (currentRepins / prevRepins) >= 4.0 && (currentRepins - prevRepins) >= 200) {
-      delta_repins_24h = 0;
     } else if (daysDiff > 7) {
       delta_repins_24h = 0;
     } else {
@@ -171,7 +165,6 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
     // If earlier baseline was 0 or unhydrated while current saves are large, suppress jump to 0.
     if (baseSaves === 0 && currentSaves > 0) return 0;
     if (isMultiStageHydrationJump(bestSnap, latest)) return 0;
-    if (baseSaves > 0 && (currentSaves / baseSaves) >= 4.0 && (currentSaves - baseSaves) >= 2500) return 0;
 
     const delta = currentSaves - baseSaves;
     return Math.max(0, delta);
@@ -294,65 +287,40 @@ async function main() {
     return;
   }
 
-  // 2. Group pins by physical shard ID (coalesced to single pass in unified PostgreSQL mode)
-  console.log('\n[*] Phase 2: Partitioning pins into Physical Storage Shards via deterministic CRC32...');
-  const shardMap = new Map(); // physicalShardId -> pin_ids[]
-  const unifiedMode = isUnifiedPostgres();
-  for (const { pin_id } of activePins) {
-    const virtShardId = getPinShardId(pin_id, 99);
-    const physicalShardId = unifiedMode ? 1 : getPhysicalShardId(virtShardId);
-    if (!shardMap.has(physicalShardId)) {
-      shardMap.set(physicalShardId, []);
-    }
-    shardMap.get(physicalShardId).push(pin_id);
-  }
-  console.log(`[+] Distributed ${activePins.length} pins across ${shardMap.size} active physical shard group(s).`);
-
-  // 3. Query historical snapshots from each shard and compute authentic deltas
-  console.log('\n[*] Phase 3: Fetching snapshot history from Storage Shards & computing deltas...');
+  // 2. Query historical snapshots directly from Unified PostgreSQL pins_daily_metrics
+  console.log('\n[*] Phase 2: Fetching snapshot history from Unified PostgreSQL pins_daily_metrics & computing deltas...');
   const computedDeltas = new Map(); // pin_id -> { delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
-  let shardsProcessed = 0;
-  let totalSnapshotsRead = 0;
+  const allPinIds = activePins.map(r => String(r.pin_id));
 
-  for (const [shardId, pinIds] of shardMap.entries()) {
-    shardsProcessed++;
-    try {
-      const shardSql = await resolveShardConnection({ hubSql, shardId });
-      // Batch query historical snapshots for all pins on this shard (up to last 16 days)
-      const snapshots = await shardSql`
-        SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
-        FROM pins_daily_metrics
-        WHERE pin_id = ANY(${pinIds}::text[])
-          AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-        ORDER BY snapshot_date DESC;
-      `;
+  try {
+    const snapshots = await hubSql`
+      SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+      FROM pins_daily_metrics
+      WHERE pin_id = ANY(${allPinIds}::text[])
+        AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
+      ORDER BY snapshot_date DESC;
+    `;
 
-      totalSnapshotsRead += snapshots.length;
-
-      // Group snapshots by pin_id
-      const pinSnapshotsMap = new Map();
-      for (const snap of snapshots) {
-        if (!pinSnapshotsMap.has(snap.pin_id)) {
-          pinSnapshotsMap.set(snap.pin_id, []);
-        }
-        pinSnapshotsMap.get(snap.pin_id).push(snap);
+    const pinSnapshotsMap = new Map();
+    for (const snap of snapshots) {
+      if (!pinSnapshotsMap.has(snap.pin_id)) {
+        pinSnapshotsMap.set(snap.pin_id, []);
       }
-
-      for (const pinId of pinIds) {
-        const snaps = pinSnapshotsMap.get(pinId) || [];
-        const gains = calculateRollingGainsFromSnapshots(snaps);
-        computedDeltas.set(pinId, {
-          pin_id: pinId,
-          ...gains
-        });
-      }
-
-      if (shardsProcessed % 10 === 0 || shardsProcessed === shardMap.size) {
-        console.log(`  -> Processed ${shardsProcessed}/${shardMap.size} shards (${totalSnapshotsRead} snapshots retrieved)...`);
-      }
-    } catch (err) {
-      console.warn(`  [-] Warning querying Shard #${shardId}: ${err.message}. Skipping delta overwrite for ${pinIds.length} pins.`);
+      pinSnapshotsMap.get(snap.pin_id).push(snap);
     }
+
+    for (const pinId of allPinIds) {
+      const snaps = pinSnapshotsMap.get(pinId) || [];
+      const gains = calculateRollingGainsFromSnapshots(snaps);
+      computedDeltas.set(pinId, {
+        pin_id: pinId,
+        ...gains
+      });
+    }
+
+    console.log(`  -> Retrieved ${snapshots.length} snapshots across ${allPinIds.length} pins in 1 unified query.`);
+  } catch (err) {
+    console.warn(`  [-] Warning querying pins_daily_metrics: ${err.message}.`);
   }
 
   console.log(`[+] Computed authentic deltas for ${computedDeltas.size} pins.`);

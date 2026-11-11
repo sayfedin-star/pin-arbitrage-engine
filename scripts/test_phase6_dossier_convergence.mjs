@@ -1,6 +1,6 @@
 import fs from 'fs';
 import assert from 'assert';
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 import { getPinDeepDossier } from '../src/modules/keywords/service.mjs';
 import { fetchUniversalPinDossier } from '../src/modules/sharding/fleet-router.mjs';
 

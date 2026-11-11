@@ -1626,7 +1626,7 @@ async function main() {
       FROM cluster_seeds
       WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
         AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-        AND (${shardIdx}::int IS NULL OR mod(pae_crc32_shard_id(pin_id::text, 99) - 1, 20) = ${shardIdx}::int)
+        AND (${shardIdx}::int IS NULL OR MOD(ABS(('x' || SUBSTR(MD5(pin_id::text), 1, 8))::bit(32)::int), 20) = ${shardIdx}::int)
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);

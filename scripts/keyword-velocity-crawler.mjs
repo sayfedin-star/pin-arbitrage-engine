@@ -40,6 +40,7 @@ import {
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
 import { buildRichPinMetadataPayload } from '../src/domain/pin-intelligence.mjs';
+import { insertNewPinsBatch, resavePinsMetricsBatch } from '../src/modules/pins/repository.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -1136,6 +1137,16 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               sp.gains_15d = gains.gains_15d;
             }
 
+            // Strictly separate First-Time Save (insertNewPinsBatch) from Re-Save / Metric Refresh (resavePinsMetricsBatch)
+            const newCrawlPins = sortedPins.filter(sp => !pinSnapshotsMap.has(String(sp.pin_id)));
+            const existingCrawlPins = sortedPins.filter(sp => pinSnapshotsMap.has(String(sp.pin_id)));
+            if (newCrawlPins.length > 0) {
+              await insertNewPinsBatch(shardSql, newCrawlPins, 'keyword').catch(() => {});
+            }
+            if (existingCrawlPins.length > 0) {
+              await resavePinsMetricsBatch(shardSql, existingCrawlPins).catch(() => {});
+            }
+
             const sanitizeShardMeta = (raw) => {
               if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
               const clean = {};
@@ -1358,41 +1369,19 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   COALESCE(MAX(rb.comment_count), 0) AS comment_count,
                   COALESCE(MAX(rb.share_count), 0) AS share_count,
                   CASE
-                    -- Symmetrical ratchet: when JS computed velocity is available, allow downward decay without monotonic GREATEST lock
+                    -- Pure authentic daily velocity: MAX(0, (curr - prev) / days)
                     WHEN MAX(rb.daily_save_velocity) IS NOT NULL THEN LEAST(25000::numeric, GREATEST(0::numeric, MAX(rb.daily_save_velocity)))
-                    WHEN prev.save_count IS NOT NULL AND prev.snapshot_date IS NOT NULL THEN
-                      -- Shield against unhydrated 0-baseline jump in SQL fallback
-                      CASE
-                        WHEN prev.save_count = 0
-                          OR (
-                            (COALESCE(MAX(rb.save_count), 0) - prev.save_count) > 2000
-                            AND prev.save_count < 500
-                            AND (COALESCE(MAX(rb.save_count), 0)::numeric / GREATEST(1, prev.save_count)) > 20
-                          )
-                          OR (
-                            prev.save_count > 0 
-                            AND (COALESCE(MAX(rb.save_count), 0)::numeric / prev.save_count) >= 4.0 
-                            AND (COALESCE(MAX(rb.save_count), 0) - prev.save_count) >= 2500
-                          )
-                          OR (
-                            prev.save_count > 0
-                            AND COALESCE(MAX(rb.repin_count), 0) > 0
-                            AND ABS(prev.save_count - COALESCE(MAX(rb.repin_count), 0)) <= GREATEST(5, ROUND(COALESCE(MAX(rb.repin_count), 0) * 0.03))
-                            AND COALESCE(MAX(rb.save_count), 0) > prev.save_count * 1.15
-                            AND (COALESCE(MAX(rb.save_count), 0) - prev.save_count) >= 50
-                          )
-                        THEN 0::numeric
-                        ELSE LEAST(
-                          25000::numeric,
-                          COALESCE(
-                            ROUND(
-                              GREATEST(0, COALESCE(MAX(rb.save_count), 0) - prev.save_count)::numeric
-                              / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
-                            , 2),
-                            0::numeric
-                          )
+                    WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL THEN
+                      LEAST(
+                        25000::numeric,
+                        COALESCE(
+                          ROUND(
+                            GREATEST(0, COALESCE(MAX(rb.save_count), 0) - prev.save_count)::numeric
+                            / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+                          , 2),
+                          0::numeric
                         )
-                      END
+                      )
                     ELSE 0::numeric
                   END AS daily_save_velocity
                 FROM raw_batch rb
@@ -1799,15 +1788,11 @@ async function run() {
             ksc.created_at_pinterest, ksc.creation_method,
             (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
             ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
-            ksc.baseline_day_saves, ksc.baseline_day_date,
-            ksc.shard_id
+            ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> '' AND ksc.is_displaced = FALSE
-            AND (
-              ksc.shard_id = ANY(${assignedShards}::smallint[])
-              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(ksc.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1830,7 +1815,7 @@ async function run() {
           f.save_count, f.repin_count, f.daily_save_velocity,
           f.created_at_pinterest, f.creation_method,
           f.is_deep_hydrated, f.crawled_at, f.updated_at, f.is_displaced,
-          f.baseline_day_saves, f.baseline_day_date, f.shard_id,
+          f.baseline_day_saves, f.baseline_day_date,
           ap.folder_positions
         FROM folder_ksc f
         JOIN aggregated_positions ap ON ap.pin_id = f.pin_id
@@ -1845,15 +1830,11 @@ async function run() {
             ksc.created_at_pinterest, ksc.creation_method,
             (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
             ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
-            ksc.baseline_day_saves, ksc.baseline_day_date,
-            ksc.shard_id
+            ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-            AND (
-              ksc.shard_id = ANY(${assignedShards}::smallint[])
-              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(ksc.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1869,16 +1850,12 @@ async function run() {
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
-            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
-            kdi.shard_id
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND (
-              kdi.shard_id = ANY(${assignedShards}::smallint[])
-              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(kdi.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND (
               COALESCE(kdi.last_known_rank, 999) <= 50
               OR COALESCE(kdi.daily_save_velocity, 0) >= 5
@@ -1907,7 +1884,7 @@ async function run() {
           cp.save_count, cp.repin_count, cp.daily_save_velocity,
           cp.created_at_pinterest, cp.creation_method,
           cp.is_deep_hydrated, cp.crawled_at, cp.updated_at, cp.is_displaced,
-          cp.baseline_day_saves, cp.baseline_day_date, cp.shard_id,
+          cp.baseline_day_saves, cp.baseline_day_date,
           ap.folder_positions
         FROM combined_pins cp
         JOIN aggregated_positions ap ON ap.pin_id = cp.pin_id
@@ -2093,14 +2070,10 @@ async function run() {
           created_at_pinterest, creation_method,
           (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
           crawled_at, updated_at, FALSE as is_displaced,
-          baseline_day_saves, baseline_day_date,
-          shard_id
+          baseline_day_saves, baseline_day_date
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> '' AND is_displaced = FALSE
-          AND (
-            shard_id = ANY(${assignedShards}::smallint[])
-            OR (shard_id IS NULL AND mod(pae_crc32_shard_id(pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-          )
+          AND MOD(ABS(('x' || SUBSTR(MD5(pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2114,7 +2087,7 @@ async function run() {
           save_count, repin_count, daily_save_velocity,
           created_at_pinterest, creation_method,
           is_deep_hydrated, crawled_at, updated_at, is_displaced,
-          baseline_day_saves, baseline_day_date, shard_id
+          baseline_day_saves, baseline_day_date
         FROM (
           SELECT 
             pin_id, keyword_id, rank_position, last_known_rank,
@@ -2122,14 +2095,10 @@ async function run() {
             created_at_pinterest, creation_method,
             (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
             crawled_at, updated_at, is_displaced,
-            baseline_day_saves, baseline_day_date,
-            shard_id
+            baseline_day_saves, baseline_day_date
           FROM keyword_serp_current
           WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> ''
-            AND (
-              shard_id = ANY(${assignedShards}::smallint[])
-              OR (shard_id IS NULL AND mod(pae_crc32_shard_id(pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -2145,15 +2114,11 @@ async function run() {
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
-            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
-            kdi.shard_id
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND (
-              kdi.shard_id = ANY(${assignedShards}::smallint[])
-              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(kdi.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id
@@ -2358,17 +2323,12 @@ async function run() {
             ksc.created_at_pinterest, ksc.creation_method,
             (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
             ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
-            ksc.baseline_day_saves, ksc.baseline_day_date,
-            ksc.shard_id
+            ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
             AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
             AND ksc.is_displaced = FALSE
-            AND (
-              ksc.shard_id = ANY(${assignedShards}::smallint[])
-              -- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: IEEE 802.3 CRC32 Hash Parity
-              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(ksc.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -2391,7 +2351,7 @@ async function run() {
           g.save_count, g.repin_count, g.daily_save_velocity,
           g.created_at_pinterest, g.creation_method,
           g.is_deep_hydrated, g.crawled_at, g.updated_at, g.is_displaced,
-          g.baseline_day_saves, g.baseline_day_date, g.shard_id,
+          g.baseline_day_saves, g.baseline_day_date,
           ap.folder_positions
         FROM global_ksc g
         JOIN aggregated_positions ap ON ap.pin_id = g.pin_id
@@ -2406,15 +2366,11 @@ async function run() {
             ksc.created_at_pinterest, ksc.creation_method,
             (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
             ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
-            ksc.baseline_day_saves, ksc.baseline_day_date,
-            ksc.shard_id
+            ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
             AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-            AND (
-              ksc.shard_id = ANY(${assignedShards}::smallint[])
-              OR (ksc.shard_id IS NULL AND mod(pae_crc32_shard_id(ksc.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(ksc.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -2430,16 +2386,12 @@ async function run() {
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
-            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
-            kdi.shard_id
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
           WHERE kdi.keyword_id = ANY(${allFleetKeywordIds})
             AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND (
-              kdi.shard_id = ANY(${assignedShards}::smallint[])
-              OR (kdi.shard_id IS NULL AND mod(pae_crc32_shard_id(kdi.pin_id::text, 99) - 1, ${workerTotal}) = ${workerIndex})
-            )
+            AND MOD(ABS(('x' || SUBSTR(MD5(kdi.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
             AND (
               COALESCE(kdi.last_known_rank, 999) <= 50
               OR COALESCE(kdi.daily_save_velocity, 0) >= 5
@@ -2468,7 +2420,7 @@ async function run() {
           cp.save_count, cp.repin_count, cp.daily_save_velocity,
           cp.created_at_pinterest, cp.creation_method,
           cp.is_deep_hydrated, cp.crawled_at, cp.updated_at, cp.is_displaced,
-          cp.baseline_day_saves, cp.baseline_day_date, cp.shard_id,
+          cp.baseline_day_saves, cp.baseline_day_date,
           ap.folder_positions
         FROM combined_pins cp
         JOIN aggregated_positions ap ON ap.pin_id = cp.pin_id

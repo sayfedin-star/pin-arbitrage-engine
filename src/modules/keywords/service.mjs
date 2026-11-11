@@ -45,6 +45,7 @@ import {
 } from '../sharding/fleet-router.mjs';
 
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
+import { insertNewPinsBatch, resavePinsMetricsBatch } from '../pins/repository.mjs';
 
 /**
  * Offloads crawled active pins and newly displaced pins directly to the 99 Neon Storage Shards
@@ -1132,8 +1133,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         save_count, baseline_day_saves, baseline_day_date,
         repin_count, comment_count, crawled_at,
         created_at_pinterest, creation_method,
-        (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
-        shard_id
+        (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated
       FROM keyword_serp_current
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE;
@@ -1160,8 +1160,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         createdAt: s.crawled_at,
         created_at_pinterest: s.created_at_pinterest,
         creation_method: s.creation_method,
-        is_deep_hydrated: Boolean(s.is_deep_hydrated),
-        shard_id: s.shard_id
+        is_deep_hydrated: Boolean(s.is_deep_hydrated)
       });
 
       const snapDateStr = s.crawled_at instanceof Date
@@ -2253,12 +2252,29 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       console.warn(`[crawlKeywordSERP] Auto-discover folder creators warning for keyword ${kid}:`, err?.message);
     });
 
-    // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the 99 Shards + D1
-    // Bypassed during Fleet Phase 1A when skip_shard_offload=true since Phase 1B performs global deduplicated shard sync
+    // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the Unified SSOT
+    // Strictly separate First-Time Save (insertNewPinsBatch) from Re-Save / Metric Refresh (resavePinsMetricsBatch)
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
     let confirmedPinIds = [];
     if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+      const newSerpPins = [];
+      const existingSerpPins = [];
+      for (const p of preparedPins) {
+        const pid = String(p.pin_id || '');
+        if (!pid) continue;
+        if (!immediateMap.has(pid) && !globalSavesMap.has(pid)) {
+          newSerpPins.push(p);
+        } else {
+          existingSerpPins.push(p);
+        }
+      }
+      if (newSerpPins.length > 0) {
+        await insertNewPinsBatch(sql, newSerpPins, 'keyword').catch(() => {});
+      }
+      if (existingSerpPins.length > 0) {
+        await resavePinsMetricsBatch(sql, existingSerpPins).catch(() => {});
+      }
       const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
         console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
         return null;

@@ -13,7 +13,7 @@ if (typeof process.loadEnvFile === 'function') {
 }
 
 import assert from 'assert';
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {

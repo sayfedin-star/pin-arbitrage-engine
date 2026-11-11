@@ -14,8 +14,9 @@
 
 BEGIN;
 
--- 1. Drop legacy Neon registry & CRC32 sharding function
+-- 1. Drop legacy Neon registry & both signatures of CRC32 sharding function
 DROP TABLE IF EXISTS public.neon_projects_registry CASCADE;
+DROP FUNCTION IF EXISTS public.pae_crc32_shard_id(text, integer) CASCADE;
 DROP FUNCTION IF EXISTS public.pae_crc32_shard_id(text) CASCADE;
 
 -- 2. Drop legacy shard_id indexes and columns across operational tables
@@ -31,12 +32,21 @@ ALTER TABLE IF EXISTS public.competitor_pins DROP COLUMN IF EXISTS shard_id CASC
 ALTER TABLE IF EXISTS public.keyword_serp_current DROP COLUMN IF EXISTS shard_id CASCADE;
 ALTER TABLE IF EXISTS public.keyword_displaced_index DROP COLUMN IF EXISTS shard_id CASCADE;
 
--- 3. Enrich central SSOT table (`universal_master_pins`) with explicit lifecycle & SARGable domain columns
+-- 3. Enrich central SSOT table (`universal_master_pins`) and operational tables with explicit SARGable `clean_domain`
 ALTER TABLE IF EXISTS public.universal_master_pins
   ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255),
   ADD COLUMN IF NOT EXISTS first_saved_at TIMESTAMPTZ DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS last_resaved_at TIMESTAMPTZ DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS is_deep_hydrated BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE IF EXISTS public.competitor_pins
+  ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);
+
+ALTER TABLE IF EXISTS public.keyword_serp_current
+  ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);
+
+ALTER TABLE IF EXISTS public.keyword_displaced_index
+  ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);
 
 -- Backfill clean_domain and timestamps on existing rows where null
 UPDATE public.universal_master_pins
@@ -45,6 +55,18 @@ SET
   first_saved_at = COALESCE(first_saved_at, first_discovered_at, NOW()),
   last_resaved_at = COALESCE(last_resaved_at, last_scraped_at, updated_at, NOW()),
   is_deep_hydrated = COALESCE((metadata->>'is_deep_hydrated')::boolean, save_count > 0)
+WHERE clean_domain IS NULL;
+
+UPDATE public.competitor_pins
+SET clean_domain = LOWER(REGEXP_REPLACE(TRIM(COALESCE(link_domain, '')), '^www\.', ''))
+WHERE clean_domain IS NULL;
+
+UPDATE public.keyword_serp_current
+SET clean_domain = LOWER(REGEXP_REPLACE(TRIM(COALESCE(domain, '')), '^www\.', ''))
+WHERE clean_domain IS NULL;
+
+UPDATE public.keyword_displaced_index
+SET clean_domain = LOWER(REGEXP_REPLACE(TRIM(COALESCE(domain, '')), '^www\.', ''))
 WHERE clean_domain IS NULL;
 
 -- 4. Create unified `pins` view aliasing `universal_master_pins` so queries can use `pins` or `universal_master_pins` interchangeably
@@ -102,7 +124,13 @@ CREATE INDEX IF NOT EXISTS idx_ump_creator_username_lower
   ON public.universal_master_pins (LOWER(TRIM(REPLACE(COALESCE(creator_username, ''), '@', ''))));
 
 CREATE INDEX IF NOT EXISTS idx_cp_competitor_clean_domain
-  ON public.competitor_pins (competitor_id, LOWER(REGEXP_REPLACE(TRIM(COALESCE(link_domain, '')), '^www\.', '')));
+  ON public.competitor_pins (competitor_id, clean_domain);
+
+CREATE INDEX IF NOT EXISTS idx_ksc_clean_domain
+  ON public.keyword_serp_current (clean_domain);
+
+CREATE INDEX IF NOT EXISTS idx_kdi_clean_domain
+  ON public.keyword_displaced_index (clean_domain);
 
 CREATE INDEX IF NOT EXISTS idx_pdm_pin_snapshot_desc
   ON public.pins_daily_metrics (pin_id, snapshot_date DESC);

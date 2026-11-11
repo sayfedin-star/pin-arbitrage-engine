@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 import fs from 'fs';
 import { calculateFolderCrossover } from '../src/modules/keywords/folders-service.mjs';
 

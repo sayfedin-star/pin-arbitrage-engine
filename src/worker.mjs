@@ -9,7 +9,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { neon } from '@neondatabase/serverless';
+export { createSqlClient, getSqlClient } from './db/client.mjs';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handleCreatorsRoutes } from './routes/creators.mjs';

@@ -16,6 +16,7 @@ import {
   resolveShardConnection,
   syncPinAcrossAllFourPillars
 } from '../modules/sharding/fleet-router.mjs';
+import { getPinDossier } from '../modules/pins/repository.mjs';
 
 import { fetchPinFromPinterest, resolvePinterestShortlink } from '../../scripts/lib/pinterest.mjs';
 
@@ -620,8 +621,15 @@ export async function handlePinsRoutes({
         await invalidateEdgeCache(dossierCacheKey);
       }
 
-      // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly
-      const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
+      // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly (pure read-only SSOT)
+      const [dossier, repoReadDossier] = await Promise.all([
+        fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true }),
+        getPinDossier(sql, pinId).catch(() => null)
+      ]);
+      if (dossier && repoReadDossier?.creative) {
+        dossier.first_saved_at = repoReadDossier.creative.first_saved_at || dossier.first_discovered_at || null;
+        dossier.last_resaved_at = repoReadDossier.creative.last_resaved_at || dossier.updated_at || null;
+      }
 
       // Edge cache poisoning guard: If dossier failed, has 0 snapshots, is degraded, or has an unverified fallback (<= 2 days while having rankings),
       // invalidate cache so subsequent page loads can immediately fetch full history once shard is warm.

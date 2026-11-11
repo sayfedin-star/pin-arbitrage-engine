@@ -48,7 +48,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'prev_rank_position',
     'baseline_day_saves',
     'baseline_day_date',
-    'shard_id',
+    'clean_domain',
     'delta_repins_24h',
     'gains_5d',
     'gains_7d',
@@ -69,8 +69,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'daily_save_velocity',
     'updated_at',
     'domain',
+    'clean_domain',
     'creator_username',
-    'shard_id',
     'delta_repins_24h',
     'gains_5d',
     'gains_7d',
@@ -305,7 +305,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'claim_token',
     'board_slug',
     'is_deleted',
-    'shard_id'
+    'clean_domain'
   ]),
   competitor_history_snapshots: new Set([
     'id',
@@ -341,8 +341,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'created_at_pinterest',
     'first_seen_at',
     'last_updated_at',
-    'alt_text',
-    'shard_id'
+    'alt_text'
   ]),
   pa_qualification_rules: new Set([
     'id',
@@ -421,22 +420,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'ads_txt_status',
     'raw_header_snippet',
     'checked_at'
-  ]),
-  neon_projects_registry: new Set([
-    'id',
-    'project_id',
-    'project_name',
-    'region_id',
-    'database_url',
-    'status',
-    'is_hub',
-    'assigned_shards',
-    'stats',
-    'metadata',
-    'created_at',
-    'updated_at'
-  ]),
-};;
+  ])
+};
 
 function scanDirectory(dir, fileList = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });

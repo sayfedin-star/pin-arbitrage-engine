@@ -109,108 +109,68 @@ try {
   check('Lock 2', hasSanitizeDossier, 'src/modules/sharding/fleet-router.mjs lacks sanitizeDossierTrajectory function');
 
   // =========================================================================
-  // LOCK 3: Neon Egress & Shard Pushdown
+  // LOCK 3: Unified Single-DB SSOT & Eradication of Legacy Sharding / Neon Driver
   // =========================================================================
-  console.log('\n[Lock 3] Verifying Neon Egress & Shard Pushdown (Creator & Keyword Crawlers)...');
+  console.log('\n[Lock 3] Verifying Unified Single-DB SSOT, Clean Repository Wiring & Zero Legacy Sharding...');
   const creatorCrawlerContent = readFile('scripts/creator-velocity-crawler.mjs');
   const keywordCrawlerContent = readFile('scripts/keyword-velocity-crawler.mjs');
+  const clusterCrawlerContent = readFile('scripts/cluster-intelligence.mjs');
+  const pkgJsonContent = readFile('package.json');
+  const workerContent = readFile('src/worker.mjs');
+  const pinsRouteContent = readFile('src/routes/pins.mjs');
+  const serviceKeywordsContent = readFile('src/modules/keywords/service.mjs');
+  const serviceCreatorsContent = readFile('src/modules/creators/service.mjs');
 
-  // 3A. creator-velocity-crawler queries pa_pins with shard_id = ANY
-  const paPinsPushdown = /FROM pa_pins[\s\S]*?WHERE[\s\S]*?shard_id\s*=\s*ANY/i.test(creatorCrawlerContent);
-  check('Lock 3', paPinsPushdown, 'scripts/creator-velocity-crawler.mjs queries pa_pins without shard_id = ANY pushdown');
+  // 3A. Crawlers must NOT reference dropped shard_id column or pae_crc32_shard_id SQL function
+  const hasDroppedShardSqlInCrawlers = (
+    /\b(?:cp|p|ksc|kdi|f|g)\.shard_id\b/i.test(creatorCrawlerContent) ||
+    /\b(?:cp|p|ksc|kdi|f|g)\.shard_id\b/i.test(keywordCrawlerContent) ||
+    /\bshard_id\s*=\s*ANY/i.test(creatorCrawlerContent) ||
+    /\bshard_id\s*=\s*ANY/i.test(keywordCrawlerContent) ||
+    /\bpae_crc32_shard_id\s*\(/i.test(creatorCrawlerContent) ||
+    /\bpae_crc32_shard_id\s*\(/i.test(keywordCrawlerContent) ||
+    /\bpae_crc32_shard_id\s*\(/i.test(clusterCrawlerContent)
+  );
+  check('Lock 3', !hasDroppedShardSqlInCrawlers, 'Crawlers still reference dropped shard_id column or pae_crc32_shard_id SQL function (conflicts with Migration 052)');
 
-  // 3B. creator-velocity-crawler queries competitor_pins with shard_id = ANY
-  const competitorPinsPushdown = /FROM competitor_pins[\s\S]*?WHERE[\s\S]*?shard_id\s*=\s*ANY/i.test(creatorCrawlerContent);
-  check('Lock 3', competitorPinsPushdown, 'scripts/creator-velocity-crawler.mjs queries competitor_pins without shard_id = ANY pushdown');
+  // 3B. Crawlers must partition work using native PostgreSQL MD5 modulo
+  const usesMd5ModuloPartition = (
+    /SUBSTR\(MD5\(.*pin_id/i.test(creatorCrawlerContent) &&
+    /SUBSTR\(MD5\(.*pin_id/i.test(keywordCrawlerContent) &&
+    /SUBSTR\(MD5\(.*pin_id/i.test(clusterCrawlerContent)
+  );
+  check('Lock 3', usesMd5ModuloPartition, 'Crawlers are missing deterministic SUBSTR(MD5(pin_id::text), 1, 8) runner partitioning');
 
   // 3C. keyword-velocity-crawler must NOT use hashtext(
   const usesHashtext = /hashtext\s*\(/i.test(keywordCrawlerContent);
-  check('Lock 3', !usesHashtext, 'scripts/keyword-velocity-crawler.mjs uses banned hashtext( instead of pae_crc32_shard_id');
+  check('Lock 3', !usesHashtext, 'scripts/keyword-velocity-crawler.mjs uses banned hashtext(');
 
-  // 3D. keyword-velocity-crawler must use pae_crc32_shard_id(
-  const usesCrc32 = /pae_crc32_shard_id\s*\(/i.test(keywordCrawlerContent);
-  check('Lock 3', usesCrc32, 'scripts/keyword-velocity-crawler.mjs lacks pae_crc32_shard_id deterministic sharding function');
+  // 3D. Zero @neondatabase/serverless dependency in package.json, src/worker.mjs, or src/modules/sharding/fleet-router.mjs
+  const hasNeonServerless = (
+    pkgJsonContent.includes('@neondatabase/serverless') ||
+    /from\s+['"]@neondatabase\/serverless['"]/.test(workerContent) ||
+    /from\s+['"]@neondatabase\/serverless['"]/.test(fleetRouterContent)
+  );
+  check('Lock 3', !hasNeonServerless, '@neondatabase/serverless must be completely removed from package.json, src/worker.mjs, and src/modules/sharding/fleet-router.mjs');
 
-  // 3E. fleet-router.mjs exports getPhysicalShardId and coalesceShardGroupsByPhysical
-  const hasPhysicalShardHelpers = (
-    fleetRouterContent.includes('export function getPhysicalShardId') &&
-    fleetRouterContent.includes('export function coalesceShardGroupsByPhysical')
+  // 3E. src/db/client.mjs must be imported and wired into fleet-router.mjs and worker.mjs
+  const dbClientWired = (
+    fleetRouterContent.includes("from '../../db/client.mjs'") &&
+    fleetRouterContent.includes('createSqlClient') &&
+    workerContent.includes("from './db/client.mjs'")
   );
-  check('Lock 3', hasPhysicalShardHelpers, 'src/modules/sharding/fleet-router.mjs lacks getPhysicalShardId or coalesceShardGroupsByPhysical exports');
+  check('Lock 3', dbClientWired, 'src/db/client.mjs is not actively imported and wired into src/modules/sharding/fleet-router.mjs and src/worker.mjs');
 
-  // 3F. getPhysicalShardId mathematical range [1, 20] and mapping parity: for all v in [1, 99], output is in [1, 20] and ((v - 1) % 20) + 1
-  let physicalMappingClean = true;
-  const matchPhysicalFn = fleetRouterContent.match(/export function getPhysicalShardId\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
-  if (matchPhysicalFn) {
-    try {
-      const getPhysicalShardIdFn = new Function('virtualShardId', matchPhysicalFn[1]);
-      for (let v = 1; v <= 99; v++) {
-        const out = getPhysicalShardIdFn(v);
-        const expectedP = ((v - 1) % 20) + 1;
-        if (out !== expectedP || out < 1 || out > 20) {
-          physicalMappingClean = false;
-          break;
-        }
-      }
-    } catch (_) {
-      physicalMappingClean = false;
-    }
-  } else {
-    physicalMappingClean = false;
-  }
-  check('Lock 3', physicalMappingClean, 'getPhysicalShardId mapping fails range [1, 20] mathematical contract');
-
-  // 3G. coalesceShardGroupsByPhysical must be imported and called across all 6 core services and crawlers
-  const crawlerEngineCode = readFile('scripts/crawler-engine.mjs');
-  const optimizeHubStorageContent = readFile('scripts/optimize_hub_storage.mjs');
-  const serviceKeywordsContent = readFile('src/modules/keywords/service.mjs');
-
-  const fleetRouterCoalesces = (
-    fleetRouterContent.includes('export function coalesceShardGroupsByPhysical') &&
-    /writeBatchToDeterministicShards[\s\S]*?coalesceShardGroupsByPhysical/.test(fleetRouterContent)
+  // 3F. src/modules/pins/repository.mjs must be imported and wired across routes, services, and crawlers
+  const pinRepoWired = (
+    pinsRouteContent.includes('getPinDossier') &&
+    serviceKeywordsContent.includes('insertNewPinsBatch') &&
+    serviceKeywordsContent.includes('resavePinsMetricsBatch') &&
+    serviceCreatorsContent.includes('insertNewPinsBatch') &&
+    keywordCrawlerContent.includes('insertNewPinsBatch') &&
+    keywordCrawlerContent.includes('resavePinsMetricsBatch')
   );
-  const keywordCrawlerCoalesces = (
-    keywordCrawlerContent.includes('coalesceShardGroupsByPhysical') &&
-    /coalesceShardGroupsByPhysical\s*\(/.test(keywordCrawlerContent)
-  );
-  const creatorCrawlerCoalesces = (
-    creatorCrawlerContent.includes('coalesceShardGroupsByPhysical') &&
-    /coalesceShardGroupsByPhysical\s*\(/.test(creatorCrawlerContent)
-  );
-  const crawlerEngineCoalesces = (
-    crawlerEngineCode.includes('coalesceShardGroupsByPhysical') &&
-    /coalesceShardGroupsByPhysical\s*\(/.test(crawlerEngineCode)
-  );
-  const optimizeHubCoalesces = (
-    optimizeHubStorageContent.includes('coalesceShardGroupsByPhysical') &&
-    /coalesceShardGroupsByPhysical\s*\(/.test(optimizeHubStorageContent)
-  );
-  const serviceKeywordsCoalesces = (
-    serviceKeywordsContent.includes('coalesceShardGroupsByPhysical') &&
-    /coalesceShardGroupsByPhysical\s*\(/.test(serviceKeywordsContent)
-  );
-
-  const allCoalesced = (
-    fleetRouterCoalesces &&
-    keywordCrawlerCoalesces &&
-    creatorCrawlerCoalesces &&
-    crawlerEngineCoalesces &&
-    optimizeHubCoalesces &&
-    serviceKeywordsCoalesces
-  );
-
-  check(
-    'Lock 3',
-    allCoalesced,
-    `coalesceShardGroupsByPhysical missing or not called in: ${[
-      !fleetRouterCoalesces && 'src/modules/sharding/fleet-router.mjs',
-      !keywordCrawlerCoalesces && 'scripts/keyword-velocity-crawler.mjs',
-      !creatorCrawlerCoalesces && 'scripts/creator-velocity-crawler.mjs',
-      !crawlerEngineCoalesces && 'scripts/crawler-engine.mjs',
-      !optimizeHubCoalesces && 'scripts/optimize_hub_storage.mjs',
-      !serviceKeywordsCoalesces && 'src/modules/keywords/service.mjs'
-    ].filter(Boolean).join(', ')}`
-  );
+  check('Lock 3', pinRepoWired, 'src/modules/pins/repository.mjs (insertNewPinsBatch, resavePinsMetricsBatch, getPinDossier) is not wired across routes, services, and crawlers');
 
   // =========================================================================
   // LOCK 4: Authentic Multi-Window Gains vs Fake Multiplier

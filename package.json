@@ -34,7 +34,6 @@
   "author": "sayfedin-star",
   "license": "MIT",
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.4",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

@@ -19,8 +19,8 @@
  *    - Groups arrays of pins by target shard ID for atomic bulk UNNEST writes by GitHub Actions runners.
  */
 
-import { neon } from '@neondatabase/serverless';
-import postgres from 'postgres';
+import { createSqlClient, getSqlClient } from '../../db/client.mjs';
+import { getPinDossier } from '../pins/repository.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import { buildRichPinMetadataPayload } from '../../domain/pin-intelligence.mjs';
 
@@ -333,52 +333,14 @@ export function wrapShardNeonTransaction(client) {
 }
 
 /**
- * Dual-Driver Universal PostgreSQL Connector (Neon HTTP Serverless + Coolify/VPS TCP postgres.js)
- * Automatically uses @neondatabase/serverless for *.neon.tech endpoints (or Edge Workers without TCP override)
- * and standard TCP postgres.js for self-hosted PostgreSQL on Coolify / VPS.
+ * Unified PostgreSQL Connector (Native VPS TCP postgres.js via src/db/client.mjs)
  */
 export function createUniversalSqlClient(dsn, options = {}) {
   if (!dsn || typeof dsn !== 'string') {
     throw new Error('createUniversalSqlClient requires a valid PostgreSQL connection string');
   }
   const cleanDsn = dsn.trim();
-  const driverOverride = (
-    options.driver ||
-    (typeof process !== 'undefined' ? process.env?.DB_DRIVER : '') ||
-    ''
-  ).toLowerCase().trim();
-  const isNeonHost = /\.neon\.tech\b/i.test(cleanDsn);
-  const usePostgresTcp = driverOverride === 'postgres' || driverOverride === 'tcp' || (!isNeonHost && driverOverride !== 'neon');
-
-  if (usePostgresTcp) {
-    const pgClient = postgres(cleanDsn, {
-      max: Number(options.max || (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 10) || 10),
-      idle_timeout: 20,
-      connect_timeout: 10,
-      prepare: false,
-      transform: {
-        undefined: null
-      },
-      types: {
-        json: {
-          to: 114,
-          from: [114, 3802],
-          serialize: (x) => (typeof x === 'string' ? x : JSON.stringify(x)),
-          parse: (x) => {
-            if (typeof x !== 'string') return x;
-            try {
-              return JSON.parse(x);
-            } catch (_) {
-              return x;
-            }
-          }
-        }
-      }
-    });
-    return wrapShardNeonTransaction(pgClient);
-  }
-
-  return wrapShardNeonTransaction(neon(enforceNeonPoolerUrl(cleanDsn)));
+  return wrapShardNeonTransaction(createSqlClient(cleanDsn, options));
 }
 
 export function getOrCreateShardSqlClient(pooledDsn) {
@@ -555,7 +517,7 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     if (hubSql) return wrapShardNeonTransaction(hubSql);
     const defaultDsn = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
     if (defaultDsn && isValidShardDsn(defaultDsn)) {
-      return getOrCreateShardSqlClient(enforceNeonPoolerUrl(defaultDsn));
+      return wrapShardNeonTransaction(getSqlClient(env));
     }
   }
 
@@ -1123,7 +1085,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       shardSql: resolvedShardSql,
       bypassBreaker: bypassEdgeCache,
       queryFn: async (sqlClient) => {
-        const [masterRowArr, rollupsOrSnaps] = await Promise.all([
+        const [masterRowArr, rollupsOrSnaps, repoDossier] = await Promise.all([
           sqlClient`
             SELECT 
               pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
@@ -1147,22 +1109,23 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             WHERE pin_id = ${cleanPinId}
             ORDER BY snapshot_date DESC, created_at DESC
             LIMIT 90;
-          `.catch(() => [])
+          `.catch(() => []),
+          getPinDossier(sqlClient, cleanPinId).catch(() => null)
         ]);
 
-        const row = masterRowArr[0] || null;
+        const row = masterRowArr[0] || repoDossier?.creative || null;
         let masterData = null;
         if (row) {
           const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
           masterData = {
             ...row,
-            creation_method: meta.creation_method || meta.method || null
+            creation_method: meta.creation_method || meta.method || row.creation_method || null
           };
         }
 
         return {
           master: masterData,
-          snapshots: rollupsOrSnaps || []
+          snapshots: (rollupsOrSnaps && rollupsOrSnaps.length > 0) ? rollupsOrSnaps : (repoDossier?.daily_trajectory || [])
         };
       },
       fallbackFn: async (info) => {

@@ -6,7 +6,7 @@
 
 import assert from 'node:assert';
 import { performance } from 'node:perf_hooks';
-import { neon } from '@neondatabase/serverless';
+import { createSqlClient as neon } from '../src/db/client.mjs';
 import worker from '../src/worker.mjs';
 import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 import { getDomainDeepDossier, fetchAndCacheDomainAge } from '../src/modules/domains/service.mjs';
