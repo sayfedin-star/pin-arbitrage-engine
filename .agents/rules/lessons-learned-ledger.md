@@ -594,3 +594,23 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings, 106 files, 14/14 locks PASS).
   - `node scripts/test_runtime_architect_v6.mjs` (13/13 PASS).
 
+---
+
+## Round 32: Core Crawlers & Stateless Scrapers Modularization (PAE v6.0 Rebuild)
+- **Round / Feature**: Extraction and modularization of `src/core/pinterest-client.mjs` and `src/core/pinterest-parser.mjs`, unhydrated `save_count = null` enforcement, 10M+ ceiling protection, elimination of runtime `ALTER TABLE` DDL queries from worker initialization, zeroing dirty velocity when `baselineSaves <= 0`, and transition to Stateless Scraper HTTP ingestion via `POST /api/internal/ingest`.
+- **Trap / Failure Mode**:
+  1. *Unhydrated Zero-Save Masking*: When discovering pins from Stage 0 SERP or list feeds, Pinterest omits explicit aggregated save counters. Emitting `save_count = 0` instead of `null` created false baselines, causing subsequent closeup hydration (e.g. 100k saves) to evaluate as a 24h delta of +25,000/d (`[INVARIANT: ANTI-HYDRATION-SPIKE]`).
+  2. *Dirty Velocity Retention on <= 0 Baseline*: If `baselineSaves <= 0`, retaining `pin.daily_save_velocity` preserved poisoned/stale rate-of-change values across runs.
+  3. *Runtime `ALTER TABLE` AccessExclusiveLock Contention*: Parallel 20-runner fleet workers executing `ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS ...` at startup triggered DDL catalog locks and deadlocks on PostgreSQL.
+  4. *Direct DB Contention from 20 GitHub Actions Runners*: Opening direct database connection pools from 20 distributed ephemeral runners exhausted `/dev/shm` and PostgreSQL connection limits.
+- **Root Cause & Technical Mechanism**:
+  Lack of strict unhydrated `null` representation in `formatPin`, un-guarded startup DDL migrations in crawler workers, retaining dirty velocity when baseline saves <= 0, and runner architecture relying on direct DB access instead of HTTP ingestion.
+- **Verified Solution & Invariant Codification**:
+  1. Built `src/core/pinterest-client.mjs` with canonical Chrome 131 fingerprinting, strict `_auth=0` guest cookie sanitization, 2500-4000ms jitter, 8000ms AbortSignal timeout, and `PinterestCircuitBreaker` (states: `CLOSED`, `OPEN`, `HALF_OPEN`) on 429/403.
+  2. Built `src/core/pinterest-parser.mjs` extracting the 48 canonical fields from `__PWS_DATA__` SSR JSON with 3-tier fallback to `PinResource/get/?data=...` and `Pidgets`. Unhydrated pins strictly return `save_count = null` and `has_explicit_saves = false`. Added `parseCleanMetric` cap protection against 10M+ anomalies (10,000,001 ceiling).
+  3. Removed runtime `ALTER TABLE` DDL queries from worker initialization in `scripts/keyword-velocity-crawler.mjs`.
+  4. In `scripts/keyword-velocity-crawler.mjs`, if `baselineSaves <= 0`, `computedVelocity` is strictly forced to `0`.
+  5. Implemented `pushBatchToIngestApi` in crawlers, routing crawled results via HTTP `POST /api/internal/ingest` when `INGEST_API_URL` / `PAE_INGEST_ENDPOINT` is configured.
+- **Verification Command**:
+  - `node --test tests/core-pinterest-parser-client.test.mjs` (9/9 PASS, 100% green).
+  - `npm run check` (0 errors, 0 warnings, 108 files, 14/14 locks PASS).

@@ -71,13 +71,18 @@ if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
 }
 
+const isMainModule = Boolean(process.argv[1] && (
+  process.argv[1].endsWith('keyword-velocity-crawler.mjs') ||
+  process.argv[1].endsWith('keyword-velocity-crawler')
+));
+
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
+if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env.PAE_INGEST_ENDPOINT) {
   console.error('[-] FATAL: DATABASE_URL is not set.');
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = DATABASE_URL ? createUniversalSqlClient(DATABASE_URL) : null;
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -339,9 +344,13 @@ async function inspectPin(pin, kw) {
   const baselineSaves = hasExplicitBaseline
     ? Number(pin.baseline_day_saves)
     : Number(pin.save_count || 0);
-  let computedVelocity = Number(pin.daily_save_velocity || 0);
+  let computedVelocity = (baselineSaves <= 0) ? 0 : Number(pin.daily_save_velocity || 0);
 
-  if (detail && authenticSaves < baselineSaves) {
+  if (baselineSaves <= 0) {
+    // [INVARIANT: ANTI-HYDRATION-SPIKE] Transition from unhydrated/zero saves to positive is a baseline calibration.
+    // If baselineSaves <= 0, do NOT retain dirty pin.daily_save_velocity; set it to 0.
+    computedVelocity = 0;
+  } else if (detail && authenticSaves < baselineSaves) {
     // Self-healed save_count dropped below a previously poisoned baseline: reset velocity to 0
     computedVelocity = 0;
   } else if (detail && authenticSaves >= baselineSaves) {
@@ -1038,11 +1047,65 @@ async function flushBatchToHub(pinsChunk, kw) {
 }
 
 /**
+ * Push crawled results via HTTP POST /api/internal/ingest (Stateless Scraper Protocol)
+ */
+export async function pushBatchToIngestApi(payload, options = {}) {
+  const ingestUrl = options.ingestUrl || process.env.INGEST_API_URL || process.env.PAE_INGEST_ENDPOINT;
+  if (!ingestUrl) return null;
+
+  const apiKey = options.apiKey || process.env.API_SECRET_KEY || process.env.INTERNAL_API_KEY || '';
+  const cleanEndpoint = ingestUrl.endsWith('/api/internal/ingest')
+    ? ingestUrl
+    : `${ingestUrl.replace(/\/$/, '')}/api/internal/ingest`;
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { 'x-api-key': apiKey, 'Authorization': `Bearer ${apiKey}` } : {})
+  };
+
+  const res = await fetch(cleanEndpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`Ingest API error HTTP ${res.status}: ${errorText}`);
+  }
+
+  return await res.json();
+}
+
+/**
  * Flush enriched pin records across the 99 Neon Storage Shards
  * Includes LATERAL historical baseline lookup on pins_daily_metrics to guarantee authentic Vault velocity.
  */
 async function flushToStorageShards(enrichedPins, kw = null) {
   if (!enrichedPins || enrichedPins.length === 0) return 0;
+
+  // [INVARIANT: STATELESS-SCRAPER-INGEST-HTTP]
+  // In stateless runner mode, push crawled pins to internal ingestion route instead of opening direct DB connections.
+  const ingestUrl = process.env.INGEST_API_URL || process.env.PAE_INGEST_ENDPOINT;
+  if (ingestUrl) {
+    try {
+      console.log(`[Stateless Ingest] Pushing ${enrichedPins.length} pins to ${ingestUrl}...`);
+      await pushBatchToIngestApi({
+        batch_type: 'keyword_pins',
+        keyword_id: kw ? kw.id : null,
+        keyword: kw ? kw.keyword : null,
+        worker_index: typeof workerIndex !== 'undefined' ? workerIndex : 0,
+        worker_total: typeof workerTotal !== 'undefined' ? workerTotal : 20,
+        pins: enrichedPins
+      });
+      console.log(`[Stateless Ingest] Successfully flushed ${enrichedPins.length} pins via Ingest API.`);
+      return 1;
+    } catch (ingestErr) {
+      console.warn(`[!] Stateless Ingest API push failed, falling back to direct SQL: ${ingestErr.message}`);
+    }
+  }
+
   await preloadNeonRegistry(sql);
   const virtualGroups = batchGroupByShard(enrichedPins, 99);
   const shardGroups = coalesceShardGroupsByPhysical(virtualGroups);
@@ -2169,8 +2232,6 @@ async function run() {
     // Phase 1A: 20 Runners harvest SERPs in parallel (~5-6 keywords/runner)
     // Phase 1B: Push-Down SQL Hash Slice (bigint overflow-shielded) + 3KB JSON Vault Inspection
     // =========================================================================
-    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`.catch(() => {});
-    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`.catch(() => {});
 
     let allFleetKeywordIds = allKeywordIdsInput.length > 0 ? allKeywordIdsInput : [];
     if (allFleetKeywordIds.length === 0) {
@@ -2461,7 +2522,9 @@ async function run() {
   }
 }
 
-run().catch(err => {
-  console.error('[-] Fatal Worker Error:', err);
-  process.exit(1);
-});
+if (isMainModule) {
+  run().catch(err => {
+    console.error('[-] Fatal Worker Error:', err);
+    process.exit(1);
+  });
+}

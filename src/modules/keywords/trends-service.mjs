@@ -4,6 +4,8 @@
  * Extracts 52-week search momentum, seasonal peak estimation, demographics, and related trends.
  */
 
+import { getStandardPinterestHeaders } from '../../core/pinterest-client.mjs';
+
 const trendsCache = new Map();
 const inflightTrends = new Map();
 const TRENDS_CACHE_MAX = 300;
@@ -59,13 +61,12 @@ export async function fetchPinterestInterestVolume(term) {
       if (oldestKey) interestCache.delete(oldestKey);
     }
 
-    const headers = {
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'x-requested-with': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js',
-      'referer': `https://www.pinterest.com/ideas/${slug}/`
-    };
+    const headers = getStandardPinterestHeaders({
+      referer: `https://www.pinterest.com/ideas/${slug}/`,
+      extraHeaders: {
+        'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js'
+      }
+    });
 
     const dataParam = encodeURIComponent(JSON.stringify({
       options: { interest: slug, field_set_key: 'ideas_hub' },
@@ -395,11 +396,12 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
   }
 
   const requestPromise = (async () => {
-    const headers = {
-      'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'Referer': 'https://trends.pinterest.com/'
-    };
+    const headers = getStandardPinterestHeaders({
+      referer: 'https://trends.pinterest.com/',
+      extraHeaders: {
+        'Accept': 'application/json, text/plain, */*'
+      }
+    });
 
     // 2. Fetch seed query prefix_match (broadest match returning 10+ matching suggestion curves)
     if (cleanSeed && cleanSeed.length >= 2) {
@@ -515,11 +517,12 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
 
   const promise = (async () => {
     try {
-      const headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        'Referer': 'https://trends.pinterest.com/'
-      };
+      const headers = getStandardPinterestHeaders({
+        referer: 'https://trends.pinterest.com/',
+        extraHeaders: {
+          'Accept': 'application/json, text/plain, */*'
+        }
+      });
 
       // 1. Fetch exact prefix match for the term to get primary 52-week curve
       const prefixUrl = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanTerm)}&country=${country}`;
@@ -720,14 +723,15 @@ export async function fetchPinterestTrendsCollage(term, country = 'US') {
   const token = typeof crypto !== 'undefined' && crypto.randomUUID 
     ? crypto.randomUUID().replace(/-/g, '') 
     : 'a68e7fb21890c174dc09e3f509aa3115';
-  const headers = {
-    'content-type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    'Referer': 'https://trends.pinterest.com/',
-    'x-new-site': 'true',
-    'x-csrftoken': token,
-    'Cookie': `csrftoken=${token}`
-  };
+  const headers = getStandardPinterestHeaders({
+    referer: 'https://trends.pinterest.com/',
+    extraHeaders: {
+      'content-type': 'application/json',
+      'x-new-site': 'true',
+      'x-csrftoken': token,
+      'Cookie': `csrftoken=${token}`
+    }
+  });
 
   const payload = {
     terms: [cleanTerm],
@@ -789,13 +793,12 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
   // 2. Fetch popular pins via BaseSearchResource
   const searchQuery = encodeURIComponent(cleanTerm);
   const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A12%7D%2C%22context%22%3A%7B%7D%7D`;
-  const headers = {
-    'Accept': 'application/json, text/javascript, */*, q=0.01',
-    'X-Requested-With': 'XMLHttpRequest',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    'x-pinterest-pws-handler': 'www/search/pins.js',
-    'referer': `https://www.pinterest.com/search/pins/?q=${searchQuery}`
-  };
+  const headers = getStandardPinterestHeaders({
+    referer: `https://www.pinterest.com/search/pins/?q=${searchQuery}`,
+    extraHeaders: {
+      'x-pinterest-pws-handler': 'www/search/pins.js'
+    }
+  });
 
   try {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
