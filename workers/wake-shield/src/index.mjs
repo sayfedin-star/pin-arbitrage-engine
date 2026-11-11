@@ -352,11 +352,13 @@ export default {
     let response;
     let isDown = false;
 
-    const isNavigationOrHealth =
-      request.method === 'GET' ||
-      request.method === 'HEAD' ||
-      url.pathname === '/api/health';
-    const timeoutMs = isNavigationOrHealth ? 3500 : 12000;
+    const acceptHeader = request.headers.get('accept') || '';
+    const isApi = url.pathname.startsWith('/api/');
+    const isHealthProbe = url.pathname === '/api/health';
+    // Decouple API timeout (15000ms) from browser navigation timeout (3500ms).
+    // Fast 3500ms timeout for browser HTML navigation and /api/health probes; 15000ms for API endpoints.
+    const isBrowserNavigation = !isApi && (request.mode === 'navigate' || acceptHeader.includes('text/html') || ((request.method === 'GET' || request.method === 'HEAD') && !acceptHeader.includes('application/json')));
+    const timeoutMs = (isBrowserNavigation || isHealthProbe) ? 3500 : 15000;
 
     try {
       const originRequest = new Request(request, {
@@ -382,10 +384,60 @@ export default {
       return response;
     }
 
-    // 2. Machine is asleep! Trigger wake-up via InstaBox OpenAPI (`POST /v1/machines/:id/start`)
+    // 2. Before treating the VPS as asleep and returning 503 "waking up", probe /api/health.
+    // If the VPS is already awake, do NOT mask a 500 error or slow query as 503 waking up.
+    let vpsAwake = false;
+    if (!isHealthProbe) {
+      try {
+        const healthUrl = new URL('/api/health', url.origin);
+        const healthReq = new Request(healthUrl.toString(), {
+          method: 'GET',
+          headers: {
+            'x-api-key': secretKeyToInject,
+            'accept': 'application/json'
+          },
+          signal: AbortSignal.timeout(2500)
+        });
+        const healthRes = await fetch(healthReq);
+        if (healthRes.ok) {
+          vpsAwake = true;
+        }
+      } catch (_) {
+        vpsAwake = false;
+      }
+    }
+
+    if (vpsAwake) {
+      // VPS is confirmed awake: do not mask application errors, slow queries, or timeouts as "waking up"
+      if (response) {
+        return response;
+      }
+      const isJsonRequest = isApi || acceptHeader.includes('application/json');
+      if (isJsonRequest) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'GATEWAY_TIMEOUT',
+          message: `Origin request to '${url.pathname}' timed out after ${timeoutMs}ms, but VPS instance is awake and healthy.`
+        }), {
+          status: 504,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+          }
+        });
+      }
+      return new Response(`<!DOCTYPE html><html lang="en" class="dark"><body style="background:#09090b;color:#fafafa;font-family:sans-serif;padding:40px;text-align:center;"><h2>Origin Request Timeout</h2><p>The request timed out after ${timeoutMs}ms, but the server is awake and healthy. Please reload.</p></body></html>`, {
+        status: 504,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate'
+        }
+      });
+    }
+
+    // 3. Machine is asleep! Trigger wake-up via InstaBox OpenAPI (`POST /v1/machines/:id/start`)
     let wakeInfo = lastWakeResult;
     if (apiKey) {
-      const acceptHeader = request.headers.get('accept') || '';
       const isHtmlVisit = !url.pathname.startsWith('/api/') && !acceptHeader.includes('application/json');
       if (isHtmlVisit) {
         // Await initial wake response (up to 5s) so we immediately know if VM is booting or in cooldown
@@ -400,8 +452,7 @@ export default {
       }
     }
 
-    // 3. API client requesting JSON -> Return structured retry JSON
-    const acceptHeader = request.headers.get('accept') || '';
+    // 4. API client requesting JSON -> Return structured retry JSON
     if (url.pathname.startsWith('/api/') || acceptHeader.includes('application/json')) {
       const retrySec = wakeInfo?.retryAfterSeconds || 3;
       return new Response(JSON.stringify({
@@ -423,7 +474,7 @@ export default {
       });
     }
 
-    // 4. Browser visit -> Render Swiss-grid Dark Mode Smart Waking Splash Screen
+    // 5. Browser visit -> Render Swiss-grid Dark Mode Smart Waking Splash Screen
     return new Response(renderWakingHtml(machineId, wakeInfo), {
       status: 200,
       headers: {

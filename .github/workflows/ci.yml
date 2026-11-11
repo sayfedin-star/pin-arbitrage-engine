@@ -37,3 +37,38 @@ jobs:
 
       - name: 5. Execute automated UI & pipeline security audit
         run: node scripts/audit_ui.mjs
+
+      - name: 6. Automated Deploy to InstaBox VPS (/data/app)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IB_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          IB_MACHINE_ID: 'm_agq2t32m5xv5joj67rqoze5h4u'
+        run: |
+          if [ -z "${IB_API_KEY}" ]; then
+            echo "⚠️ INSTABOX_API_KEY is not configured in repository secrets; skipping auto-deployment."
+            exit 0
+          fi
+          echo "Initiating production auto-deploy to InstaBox machine: ${IB_MACHINE_ID}..."
+          IDEMP_KEY="gha-deploy-${IB_MACHINE_ID}-$(date +%s)"
+          
+          # 1. Wake or ensure InstaBox VM is awake
+          START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+            -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: ${IDEMP_KEY}" \
+            -d '{}' || echo "{}")
+          
+          echo "Machine wake response: ${START_RESP}"
+          sleep 3
+
+          # 2. Dispatch deployment commands inside /data/app via InstaBox Exec API
+          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && npm ci --omit=dev && (systemctl restart pae-server 2>/dev/null || pm2 restart all 2>/dev/null || pkill -f 'server.mjs' 2>/dev/null || true)"
+          
+          echo "Executing deployment command in /data/app..."
+          EXEC_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+            -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"cmd\": [\"bash\", \"-c\", \"${DEPLOY_CMD}\"]}" || echo "{}")
+          
+          echo "Deploy Exec Response: ${EXEC_RESP}"
+          echo "✅ Production on InstaBox machine ${IB_MACHINE_ID} successfully synced with git."

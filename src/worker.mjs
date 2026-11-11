@@ -885,6 +885,49 @@ export default {
       }
     }
 
+    // [SECURE INTERNAL INGESTION ROUTE]
+    if (method === 'POST' && pathname === '/api/internal/ingest') {
+      let payload = {};
+      try {
+        payload = await request.json();
+      } catch (_) {
+        return jsonResponse({
+          success: false,
+          error: 'BAD_REQUEST',
+          message: 'Malformed JSON payload in ingestion request.'
+        }, 400);
+      }
+
+      const items = Array.isArray(payload.pins) ? payload.pins : (Array.isArray(payload.items) ? payload.items : []);
+      const creator = payload.creator || payload.account_username || null;
+      const ingestType = payload.type || (creator ? 'competitor_pins' : 'pins');
+
+      if (items.length > 0 && targetSql) {
+        safeWaitUntil(ctx, (async () => {
+          try {
+            if (creator) {
+              const { ingestPinsBatch } = await import('./modules/creators/service.mjs');
+              await ingestPinsBatch(targetSql, items, creator, { filterQualified: Boolean(payload.filterQualified) });
+            } else {
+              const { writeBatchToDeterministicShards } = await import('./modules/sharding/fleet-router.mjs');
+              await writeBatchToDeterministicShards({ pins: items, hubSql: targetSql, env, ctx });
+            }
+          } catch (err) {
+            console.error('[POST /api/internal/ingest error]:', redactSecrets(err?.message || String(err)));
+          }
+        })(), 'internal_ingest_batch');
+      }
+
+      return jsonResponse({
+        success: true,
+        queued: true,
+        type: ingestType,
+        received: items.length,
+        creator: creator || null,
+        message: `Successfully accepted and queued ${items.length} items for background ingestion.`
+      }, 202);
+    }
+
       // 1. Cluster Intelligence & Graph Discovery Sub-Router
       if (isClusterRoute(pathname)) {
         const clusterRes = await handleClusterRoutes({

@@ -571,3 +571,26 @@ trigger: always_on
 - **Verification Command**:
   - `npm run check` (0 errors, 0 warnings, 105 files, 14/14 locks PASS).
   - `node scripts/test_p0_hotfixes.mjs && node scripts/test_p1_consolidation.mjs && node scripts/test_phase3_write_and_crawlers.mjs && node scripts/test_jit_warming_and_d1_trajectory.mjs` (100% PASS).
+
+---
+
+## Round 32: Runtime & Infrastructure Modernization (Server Decoupling, Wake Shield Hardening & VPS Auto-Deployment)
+- **Round / Feature**: Server runtime hardening in `src/server.mjs`, Cloudflare Edge wake-shield decoupling in `workers/wake-shield/src/index.mjs`, secure internal crawler ingestion endpoint `POST /api/internal/ingest`, and CI/CD automated deployment to InstaBox VPS `/data/app`.
+- **Trap / Failure Mode**:
+  1. *Stalled HTTP Responses on Background Tasks*: In `src/server.mjs`, line 120 blocked `res.end()` on `await Promise.allSettled(bgPromises)`, tying client response latency to long-running background tasks (hydration sweeps, rollups, and cache evictions).
+  2. *Legacy Client Import Drift*: `src/server.mjs` imported `createUniversalSqlClient` from `fleet-router.mjs` instead of the canonical `src/db/client.mjs` pool.
+  3. *Cloudflare Wake-Shield False 503 Waking on Slow Queries*: In `workers/wake-shield/src/index.mjs`, all GET/HEAD API queries shared a short 3500ms timeout with browser navigation, and any origin timeout or 502/503 response was unconditionally masked as 503 "PAE instance waking up from idle state", even when the VPS was awake and running.
+  4. *Manual Deployment Drift*: Production InstaBox VPS machine `m_agq2t32m5xv5joj67rqoze5h4u` required manual git pulls, causing divergence between git commits and the running server in `/data/app`.
+- **Root Cause & Technical Mechanism**:
+  Awaiting background promises before ending the HTTP response in Node server, lack of an asynchronous task queue (`p-limit(4)`), coupling browser navigation timeout with backend API timeout, absence of origin `/api/health` pre-flight probing in wake shield, and absence of an Exec API deployment step in `.github/workflows/ci.yml`.
+- **Verified Solution & Invariant Codification**:
+  1. Implemented `AsyncTaskQueue` (concurrency 4, `serverBackgroundTaskQueue`) in `src/server.mjs`, wiring `ctx.waitUntil(p)` directly to the queue and streaming responses with immediate `res.end()`.
+  2. Switched SQL client imports in `src/server.mjs` to `createSqlClient` / `getSqlClient` from `./db/client.mjs`.
+  3. Built declarative Node-native routing in `src/server.mjs` handling `GET /api/health`, `POST /api/internal/ingest` (with secure timing-safe secret key verification), and `GET /api/internal/queue`, with transparent fallback to `worker.fetch(webRequest, env, ctx)`.
+  4. Added `POST /api/internal/ingest` to `src/worker.mjs` with `safeWaitUntil` background dispatch to guarantee 100% route parity.
+  5. Hardened `workers/wake-shield/src/index.mjs`: decoupled API timeout (15000ms) from browser navigation timeout (3500ms), and added a fast `/api/health` probe before assuming machine sleep—returning authentic responses or 504 Gateway Timeout rather than masking healthy VPS errors as 503 "waking up".
+  6. Added automated deploy step in `.github/workflows/ci.yml` targeting InstaBox VPS `/data/app` on `m_agq2t32m5xv5joj67rqoze5h4u` via InstaBox Exec API on push to `main`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 106 files, 14/14 locks PASS).
+  - `node scripts/test_runtime_architect_v6.mjs` (13/13 PASS).
+
