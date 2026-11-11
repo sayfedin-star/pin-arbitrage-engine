@@ -352,11 +352,15 @@ export default {
     let response;
     let isDown = false;
 
+    const isApiDataRequest =
+      url.pathname.startsWith('/api/') && url.pathname !== '/api/health';
     const isNavigationOrHealth =
-      request.method === 'GET' ||
-      request.method === 'HEAD' ||
-      url.pathname === '/api/health';
-    const timeoutMs = isNavigationOrHealth ? 3500 : 12000;
+      !isApiDataRequest && (
+        request.method === 'GET' ||
+        request.method === 'HEAD' ||
+        url.pathname === '/api/health'
+      );
+    const timeoutMs = isNavigationOrHealth ? 3500 : 15000;
 
     try {
       const originRequest = new Request(request, {

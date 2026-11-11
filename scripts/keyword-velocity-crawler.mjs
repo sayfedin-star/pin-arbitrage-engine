@@ -344,6 +344,9 @@ async function inspectPin(pin, kw) {
   if (detail && authenticSaves < baselineSaves) {
     // Self-healed save_count dropped below a previously poisoned baseline: reset velocity to 0
     computedVelocity = 0;
+  } else if (detail && !hasExplicitBaseline && baselineSaves === 0) {
+    // First-time hydration from 0-save SERP skeleton: establish Day-1 baseline with 0 velocity (never treat total saves as 24h gain)
+    computedVelocity = 0;
   } else if (detail && authenticSaves >= baselineSaves) {
     const rawDelta = authenticSaves - baselineSaves;
     const baseDateRaw = (hasExplicitBaseline ? pin.baseline_day_date : null) || pin.crawled_at || pin.metadata?.crawled_at || pin.baseline_day_date || null;
@@ -376,18 +379,6 @@ async function inspectPin(pin, kw) {
           maxCap: 25000
         });
       }
-    } else if (rawDelta > 0 && !baseDateRaw && (pin.created_at_pinterest || detail?.created_at)) {
-      computedVelocity = calculateDailyVelocity({
-        currentSaves: authenticSaves,
-        baselineSaves: 0,
-        currentRepins: authenticRepins,
-        baselineRepins: 0,
-        currentDate: new Date(),
-        baselineDate: new Date(Date.now() - 86400000),
-        createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
-        wasDeepHydrated,
-        maxCap: 25000
-      });
     } else if (rawDelta === 0 && baseDateRaw) {
       const parsedBase = new Date(baseDateRaw);
       const parsedUpdated = pin.updated_at ? new Date(pin.updated_at) : null;
@@ -1116,9 +1107,20 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
                 }
               } else if (todayPrevSnap && sp.was_live_scraped !== false) {
-                // Only when no prior-day snapshot exists in pins_daily_metrics: preserve today's peak velocity without compounding
-                const intradayDelta = Math.max(0, Number(sp.save_count || 0) - Number(todayPrevSnap.save_count || 0));
-                sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), Number(todayPrevSnap.daily_save_velocity || 0), intradayDelta));
+                // Only when no prior-day snapshot exists in pins_daily_metrics:
+                // Never treat a 0-save SERP skeleton from Phase 1A as a valid baseline for intradayDelta!
+                const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
+                if (prevTodaySaves > 0) {
+                  const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
+                  const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
+                    ? Number(todayPrevSnap.daily_save_velocity || 0)
+                    : 0;
+                  sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
+                } else {
+                  sp.daily_save_velocity = 0;
+                }
+              } else if (priorDaySnaps.length === 0) {
+                sp.daily_save_velocity = 0;
               }
               sp.delta_repins_24h = gains.delta_repins_24h;
               sp.gains_5d = gains.gains_5d;
@@ -2169,8 +2171,8 @@ async function run() {
     // Phase 1A: 20 Runners harvest SERPs in parallel (~5-6 keywords/runner)
     // Phase 1B: Push-Down SQL Hash Slice (bigint overflow-shielded) + 3KB JSON Vault Inspection
     // =========================================================================
-    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`.catch(() => {});
-    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`.catch(() => {});
+    // Note: crawl_lease_token and crawl_lease_until are provisioned in schema migrations (052_unified_clean_schema_ssot.sql)
+    // to prevent 20-worker DDL lock contention and NOTICE spam on every GitHub Actions matrix run.
 
     let allFleetKeywordIds = allKeywordIdsInput.length > 0 ? allKeywordIdsInput : [];
     if (allFleetKeywordIds.length === 0) {

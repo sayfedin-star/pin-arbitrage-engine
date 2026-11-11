@@ -335,7 +335,7 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) AS save_count,
         COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0) AS repin_count,
         COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
+        0 AS delta_saves_24h,
         COALESCE(kdi.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
         COALESCE(kdi.gains_5d, 0) AS gains_5d,
         COALESCE(kdi.gains_7d, 0) AS gains_7d,
@@ -372,7 +372,7 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
           WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
         ))
       ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, kdi.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, kdi.delta_repins_24h, 0)) DESC
-      LIMIT 15000;
+      LIMIT 2500;
     `
   ]);
 

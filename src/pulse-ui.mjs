@@ -1533,12 +1533,16 @@ export function getPulsePageHtml(folderId = '') {
 
             var res = await fetch(url, fetchOptions);
 
-            // [INVARIANT: COLD-START-TRANSIENT-RETRY] 1-attempt automatic retry on cold-start HTTP 502/503/504
-            if ((res.status === 502 || res.status === 503 || res.status === 504) && seq === this._pulseReqSeq) {
-              console.warn('[Pulse UI] Cold-start HTTP ' + res.status + ' encountered. Retrying in 1,200ms...');
-              await new Promise(function(resolve) { setTimeout(resolve, 1200); });
-              if (seq !== this._pulseReqSeq) return; // Discard if user triggered new action during wait
-              res = await fetch(url, fetchOptions);
+            // [INVARIANT: COLD-START-TRANSIENT-RETRY] Up to 3 automatic retries on cold-start HTTP 502/503/504
+            for (var retryAttempt = 1; retryAttempt <= 3; retryAttempt++) {
+              if ((res.status === 502 || res.status === 503 || res.status === 504) && seq === this._pulseReqSeq) {
+                console.warn('[Pulse UI] Cold-start HTTP ' + res.status + ' encountered (attempt ' + retryAttempt + '/3). Retrying in 2,500ms...');
+                await new Promise(function(resolve) { setTimeout(resolve, 2500); });
+                if (seq !== this._pulseReqSeq) return; // Discard if user triggered new action during wait
+                res = await fetch(url, fetchOptions);
+              } else {
+                break;
+              }
             }
 
             if (seq !== this._pulseReqSeq) return; // Discard stale race responses

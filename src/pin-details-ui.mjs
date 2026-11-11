@@ -751,11 +751,17 @@ export function getPinDetailPageHtml(pinId = '') {
         
         <!-- Status Chips Header Ribbon -->
         <div class="flex items-center gap-2 flex-wrap text-xs">
-          <!-- Status 1: Original Creator Upload vs Repin -->
-          <template x-if="!dossier?.algorithmic_intelligence?.is_repin">
+          <!-- Status 1: Original Creator Upload vs Canonical Variant vs Repin -->
+          <template x-if="!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root !== false">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-semibold">
               <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               <span>100% Original Creator Upload</span>
+            </span>
+          </template>
+          <template x-if="!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root === false">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 font-medium">
+              <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+              <span>Canonical Variant</span>
             </span>
           </template>
           <template x-if="dossier?.algorithmic_intelligence?.is_repin">
@@ -919,9 +925,9 @@ export function getPinDetailPageHtml(pinId = '') {
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5">
+            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate">
               <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
-              <span x-text="totalShares()"></span> shares
+              <span x-text="totalShares()"></span> shares<template x-if="totalReactions() > 0"><span>, <span x-text="totalReactions()"></span> reactions</span></template>
             </div>
           </div>
         </div>
@@ -1069,10 +1075,10 @@ export function getPinDetailPageHtml(pinId = '') {
               <span class="text-slate-400 font-medium">Daily Snapshots:</span>
               <span class="font-mono tabular-nums font-bold text-white">
                 <template x-if="totalUnfilteredDaysCount() > filteredDays().length">
-                  <span>Showing <span x-text="filteredDays().length"></span> of <span x-text="totalUnfilteredDaysCount()"></span> days</span>
+                  <span>Showing <span x-text="filteredDays().length"></span> of <span x-text="totalUnfilteredDaysCount()"></span> entries</span>
                 </template>
                 <template x-if="totalUnfilteredDaysCount() <= filteredDays().length">
-                  <span x-text="filteredDays().length + ' days'"></span>
+                  <span x-text="formatAuditLogSummaryCount()"></span>
                 </template>
               </span>
               <button type="button" @click="expandAllDays()" class="text-slate-400 hover:text-white underline text-[11px] ml-2 cursor-pointer">Expand All</button>
@@ -1360,7 +1366,7 @@ export function getPinDetailPageHtml(pinId = '') {
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Authentic Original</span>
-                  <span class="font-bold" :class="!dossier?.algorithmic_intelligence?.is_repin ? 'text-emerald-400' : 'text-slate-400'" x-text="!dossier?.algorithmic_intelligence?.is_repin ? 'Yes (Original Creator)' : 'No (Curated Repin)'"></span>
+                  <span class="font-bold" :class="(!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root !== false) ? 'text-emerald-400' : 'text-slate-400'" x-text="(!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root !== false) ? 'Yes (Original Creator)' : (!dossier?.algorithmic_intelligence?.is_repin ? 'Canonical Variant' : 'No (Curated Repin)')"></span>
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Origin Pinner</span>
@@ -1843,8 +1849,24 @@ export function getPinDetailPageHtml(pinId = '') {
             const rawVel = Number(this.dossier?.creative?.daily_save_velocity || this.dossier?.daily_trajectory?.[0]?.daily_save_velocity || 0);
             return '+' + rawVel.toFixed(1) + '/d (Amortized)';
           }
-          if (delta > 0) return '+' + this.formatNumber(delta) + ' today';
-          if (delta < 0) return this.formatNumber(delta) + ' today';
+          const traj = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : (this.dossier?.snapshots || []);
+          const head = traj[0];
+          let elapsedDays = Number(head?.window_elapsed_days || 0);
+          if (!elapsedDays && head?.snapshot_date && traj.length > 1) {
+            const headDate = String(head.snapshot_date).slice(0, 10);
+            const priorDaySnap = traj.find(s => {
+              const d = s?.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+              return d && d < headDate;
+            });
+            if (priorDaySnap?.snapshot_date) {
+              elapsedDays = Math.max(1, Math.round((new Date(headDate) - new Date(String(priorDaySnap.snapshot_date).slice(0, 10))) / 86400000));
+            }
+          }
+          const windowSuffix = elapsedDays > 1 ? (' (' + elapsedDays + 'd)') : ' today';
+          if (delta > 0) return '+' + this.formatNumber(delta) + windowSuffix;
+          if (delta < 0) return this.formatNumber(delta) + windowSuffix;
           return '0 today (Steady)';
         },
 
@@ -2692,6 +2714,17 @@ export function getPinDetailPageHtml(pinId = '') {
           return days;
         },
 
+        formatAuditLogSummaryCount() {
+          const rows = this.filteredDays();
+          const uniqueDates = new Set(rows.map(r => r?.snapshot_date ? String(r.snapshot_date).slice(0, 10) : '').filter(Boolean));
+          const calDays = uniqueDates.size || rows.length;
+          const extraCheckpoints = Math.max(0, rows.length - calDays);
+          if (extraCheckpoints > 0) {
+            return calDays + (calDays === 1 ? ' day' : ' days') + ' (' + rows.length + ' snapshots)';
+          }
+          return calDays + (calDays === 1 ? ' day' : ' days');
+        },
+
         formatDayDelta(day, idx) {
           if (!day) return '+0 (Baseline)';
           if (!this._cachedDateMap) this.rebuildDateMapCache();
@@ -2710,7 +2743,15 @@ export function getPinDetailPageHtml(pinId = '') {
 
           const delta = (Number(day.save_count) || 0) - (Number(prev.save_count) || 0);
           const prevDate = prev.snapshot_date ? String(prev.snapshot_date).slice(0, 10) : '';
-          const suffix = (dStr && prevDate && dStr === prevDate) ? ' step' : ' 24h';
+          let suffix = ' 24h';
+          if (dStr && prevDate) {
+            if (dStr === prevDate) {
+              suffix = ' step';
+            } else {
+              const gapDays = Math.max(1, Math.round((new Date(dStr) - new Date(prevDate)) / 86400000));
+              if (gapDays > 1) suffix = ' (' + gapDays + 'd)';
+            }
+          }
           if (delta > 0) return '+' + this.formatNumber(delta) + suffix;
           if (delta < 0) return this.formatNumber(delta) + suffix;
           return '0' + suffix;
@@ -2805,10 +2846,15 @@ export function getPinDetailPageHtml(pinId = '') {
           return Number(s?.share_count || this.dossier?.creative?.share_count || 0);
         },
 
+        totalReactions() {
+          const s = this.latestSnapshot();
+          return Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
+        },
+
         totalEngagementScore() {
           const s = this.latestSnapshot();
           const snapC = Number(s?.comment_count || this.dossier?.creative?.comment_count || 0);
-          const snapR = Number(s?.reaction_count || 0);
+          const snapR = Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
           const snapSh = Number(s?.share_count || this.dossier?.creative?.share_count || 0);
           return snapC + snapR + snapSh;
         },
