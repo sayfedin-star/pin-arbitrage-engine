@@ -563,9 +563,36 @@ export async function getFleetShardsMap(env = null, _hubSql = null) {
 }
 
 /**
- * No-op in Unified Single-DB Architecture (retained for caller compatibility).
+ * Preloads Shard registry into globalShardMap.
  */
-export async function preloadNeonRegistry(_hubSql, _env = null) {
+export async function preloadNeonRegistry(hubSql, env = null) {
+  if (typeof hubSql !== 'function') return 0;
+  try {
+    const res = hubSql`
+      SELECT id, project_name, database_url, assigned_shards
+      FROM neon_projects_registry
+      WHERE is_active = TRUE
+      ORDER BY id ASC;
+    `;
+    const rows = (typeof res?.then === 'function') ? await res : await hubSql();
+    if (Array.isArray(rows) && rows.length > 0) {
+      for (const r of rows) {
+        const shards = normalizeAssignedShards(r.assigned_shards);
+        for (const s of shards) {
+          globalShardMap.set(Number(s), {
+            id: r.id,
+            project_name: r.project_name,
+            database_url: r.database_url,
+            assigned_shards: shards
+          });
+        }
+      }
+      globalShardMapLastFetched = Date.now();
+      return globalShardMap.size;
+    }
+  } catch (_) {
+    return 0;
+  }
   return 0;
 }
 
@@ -866,7 +893,7 @@ export function isMultiStageHydrationJump(prev, curr) {
   if (!prev || !curr) return false;
   const pSaves = Number(prev.save_count || 0);
   const cSaves = Number(curr.save_count || 0);
-  if (pSaves === 0 && cSaves > 0 && prev.was_deep_hydrated === false) return true;
+  if (pSaves <= 0 && cSaves > 0) return true;
   return false;
 }
 
@@ -904,14 +931,10 @@ export function sanitizeDossierTrajectory(dossier) {
     const prevDate = new Date(String(prev.snapshot_date || '').slice(0, 10));
     const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
-    curr.step_save_delta = diff;
-    if (Number(prev.save_count || 0) > 0) {
-      curr.daily_save_velocity = diff <= 0 ? 0 : Math.round((diff / elapsed) * 10) / 10;
-    } else {
-      curr.daily_save_velocity = Number(curr.daily_save_velocity || 0);
-    }
-
     const currDayStr = String(curr.snapshot_date || '').slice(0, 10);
+    const prevDayStr = String(prev.snapshot_date || '').slice(0, 10);
+    const isSameDayStep = Boolean(currDayStr && prevDayStr && currDayStr === prevDayStr);
+
     let priorCalSnap = null;
     for (let j = i - 1; j >= 0; j--) {
       const candDayStr = String(chrono[j].snapshot_date || '').slice(0, 10);
@@ -920,14 +943,35 @@ export function sanitizeDossierTrajectory(dossier) {
         break;
       }
     }
-    if (priorCalSnap && Number(priorCalSnap.save_count || 0) > 0) {
-      const calElapsed = Math.max(1, Math.round((currDate - new Date(String(priorCalSnap.snapshot_date || '').slice(0, 10))) / 86400000));
-      const calDiff = Math.max(0, Number(curr.save_count || 0) - Number(priorCalSnap.save_count || 0));
-      curr.window_24h_delta = calDiff;
-      curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+
+    const isJump = isMultiStageHydrationJump(prev, curr) || (priorCalSnap && isMultiStageHydrationJump(priorCalSnap, curr));
+    if (isJump) {
+      curr.is_hydration_jump = true;
+      curr.velocity_mode = 'hydration_jump';
+      curr.step_save_delta = 0;
+      curr.daily_save_velocity = 0;
+      curr.window_24h_velocity = 0;
+      curr.window_24h_delta = 0;
     } else {
-      curr.window_24h_delta = Math.max(0, diff);
-      curr.window_24h_velocity = curr.daily_save_velocity;
+      curr.step_save_delta = diff;
+      if (Number(prev.save_count || 0) > 0) {
+        curr.daily_save_velocity = diff <= 0 ? 0 : Math.round((diff / elapsed) * 10) / 10;
+      } else {
+        curr.daily_save_velocity = 0;
+      }
+
+      if (priorCalSnap && Number(priorCalSnap.save_count || 0) > 0) {
+        const calElapsed = Math.max(1, Math.round((currDate - new Date(String(priorCalSnap.snapshot_date || '').slice(0, 10))) / 86400000));
+        const calDiff = Math.max(0, Number(curr.save_count || 0) - Number(priorCalSnap.save_count || 0));
+        curr.window_24h_delta = calDiff;
+        curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+        if (isSameDayStep) {
+          curr.daily_save_velocity = curr.window_24h_velocity;
+        }
+      } else {
+        curr.window_24h_delta = Math.max(0, diff);
+        curr.window_24h_velocity = curr.daily_save_velocity;
+      }
     }
   }
 
@@ -1754,24 +1798,26 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const currDate = new Date(curr.snapshot_date);
     const elapsedDays = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = curr.save_count - prev.save_count;
+    const currDateStr = String(curr.snapshot_date || '').slice(0, 10);
+    const prevDateStr = String(prev.snapshot_date || '').slice(0, 10);
+    const isSameDayStep = Boolean(currDateStr && prevDateStr && currDateStr === prevDateStr);
 
-    const isJump = isMultiStageHydrationJump(prev, curr);
+    let priorCalSnap = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const candDayStr = String(chronoDays[j].snapshot_date || '').slice(0, 10);
+      if (candDayStr && candDayStr < currDateStr) {
+        priorCalSnap = chronoDays[j];
+        break;
+      }
+    }
+
+    const isJump = isMultiStageHydrationJump(prev, curr) || (priorCalSnap && isMultiStageHydrationJump(priorCalSnap, curr));
     if (isJump) {
       curr.is_hydration_jump = true;
-      curr.velocity_mode = 'hydration_amortized';
-      const pinCreatedAt = masterRecord?.created_at_pinterest ? new Date(masterRecord.created_at_pinterest) : null;
-      if (pinCreatedAt && !isNaN(pinCreatedAt.getTime())) {
-        const ageMs = Math.max(86400000, currDate.getTime() - pinCreatedAt.getTime());
-        const ageDays = Math.max(1, Math.round(ageMs / 86400000));
-        if (ageDays >= 2) {
-          curr.daily_save_velocity = Math.round((Number(curr.save_count || 0) / ageDays) * 10) / 10;
-        } else {
-          curr.daily_save_velocity = 0;
-        }
-      } else {
-        curr.daily_save_velocity = 0;
-      }
-      curr.window_24h_velocity = curr.daily_save_velocity;
+      curr.velocity_mode = 'hydration_jump';
+      curr.step_save_delta = 0;
+      curr.daily_save_velocity = 0;
+      curr.window_24h_velocity = 0;
       curr.window_24h_delta = 0;
     } else {
       curr.is_hydration_jump = false;
@@ -1785,19 +1831,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         }
       }
 
-      // Compute 24h calendar window velocity against latest prior calendar day snapshot
-      let priorCalSnap = null;
-      for (let j = i - 1; j >= 0; j--) {
-        if (chronoDays[j].snapshot_date < curr.snapshot_date) {
-          priorCalSnap = chronoDays[j];
-          break;
-        }
-      }
-      if (priorCalSnap && !isMultiStageHydrationJump(priorCalSnap, curr)) {
+      if (priorCalSnap && Number(priorCalSnap.save_count || 0) > 0) {
         const calElapsed = Math.max(1, Math.round((currDate - new Date(priorCalSnap.snapshot_date)) / 86400000));
         const calDiff = Math.max(0, curr.save_count - priorCalSnap.save_count);
         curr.window_24h_delta = calDiff;
         curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+        if (isSameDayStep) {
+          curr.daily_save_velocity = curr.window_24h_velocity;
+        }
       } else {
         curr.window_24h_delta = Math.max(0, diff);
         curr.window_24h_velocity = curr.daily_save_velocity;
@@ -1870,9 +1911,23 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     };
   }
 
-  const creatorUsername = masterRecord?.creator_username || '';
-  const boardName = masterRecord?.board_name || '';
-  const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const cleanMeta = (obj) => {
+    const normalized = normalizeMetadata(obj);
+    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return {};
+    return Object.fromEntries(
+      Object.entries(normalized).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+    );
+  };
+
+  // Supreme priority: Shard masterRecord metadata ALWAYS overrides Hub metadata
+  const snapMeta = { 
+    ...cleanMeta(hubSerpRows[0]?.metadata), 
+    ...cleanMeta(masterRecord?.metadata) 
+  };
+
+  const creatorUsername = masterRecord?.creator_username || hubSerpRows[0]?.creator_username || snapMeta.pinner?.username || snapMeta.domain_official_user?.username || '';
+  const boardName = masterRecord?.board_name || hubSerpRows[0]?.board_name || snapMeta?.board_name || '';
+  const boardSlug = masterRecord?.board_slug || (boardName ? boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : '');
   // Collect all available metadata objects across Shard master record, historical snapshots & SERP occurrences
   const allMetas = [
     ...(masterRecord?.metadata ? [normalizeMetadata(masterRecord.metadata)] : []),
@@ -1915,21 +1970,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   if (!seoCanonicalUrl && canonicalPinId) {
     seoCanonicalUrl = `/pin/${canonicalPinId}/`;
   }
-  const isCanonicalRoot = canonicalPinId ? (String(canonicalPinId) === String(cleanPinId)) : true;
-
-  const cleanMeta = (obj) => {
-    const normalized = normalizeMetadata(obj);
-    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return {};
-    return Object.fromEntries(
-      Object.entries(normalized).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
-    );
-  };
-
-  // Supreme priority: Shard masterRecord metadata ALWAYS overrides Hub metadata
-  const snapMeta = { 
-    ...cleanMeta(hubSerpRows[0]?.metadata), 
-    ...cleanMeta(masterRecord?.metadata) 
-  };
+  const isCanonicalRoot = !canonicalPinId || String(canonicalPinId) === String(cleanPinId);
 
   // Backfill description and alt_text on masterRecord if empty
   if (masterRecord) {
@@ -1957,6 +1998,18 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
   const resolvedCreationMethod = candidateCreationMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateCreationMethods[0] || 'pinterest_platform';
 
+  const hasDestLink = Boolean(
+    masterRecord?.destination_url ||
+    snapMeta.tracked_link ||
+    snapMeta.utm_link ||
+    hubSerpRows[0]?.destination_url
+  );
+  const isGoLinkless = Boolean(
+    snapMeta.is_go_linkless ||
+    snapMeta.go_linkless ||
+    !hasDestLink
+  );
+
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),
     origin_pinner: snapMeta.origin_pinner || null,
@@ -1967,8 +2020,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     image_dimensions: snapMeta.image_dimensions || snapMeta.imageDimensions || null,
     seo_noindex_reason: snapMeta.seo_noindex_reason || null,
     is_indexed_google: !snapMeta.seo_noindex_reason,
-    is_go_linkless: Boolean(snapMeta.is_go_linkless ?? false),
-    is_arbitrage_active: !Boolean(snapMeta.is_go_linkless),
+    is_go_linkless: isGoLinkless,
+    is_arbitrage_active: !isGoLinkless,
     category_breadcrumbs: Array.isArray(snapMeta.category_breadcrumbs) ? snapMeta.category_breadcrumbs : [],
     board_metrics: {
       pin_count: Number(snapMeta.board_pin_count || 0),
@@ -2016,6 +2069,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     ((!initialSnapshots || initialSnapshots.length === 0) && ((hubContext?.ranking_keywords?.length || 0) > 0 || (dailyTrajectory && dailyTrajectory.length <= 2)))
   );
 
+  const reactionsSum = Object.values(snapMeta.reactions || {}).reduce((acc, v) => acc + (Number(v) || 0), 0);
+  const resolvedReactionCount = Math.max(
+    0,
+    Number(masterRecord?.reaction_count || 0),
+    Number(dailyTrajectory[0]?.reaction_count || 0),
+    Number(hubSerpRows[0]?.reaction_count || 0),
+    reactionsSum
+  );
+
   const dossierResult = {
     success: true,
     pin_id: cleanPinId,
@@ -2042,10 +2104,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       canonical_pin_id: canonicalPinId,
       canonical_pin_url: canonicalPinUrl,
       is_canonical_root: isCanonicalRoot,
-      save_count: Number(masterRecord?.save_count || hubSerpRows[0]?.save_count || dailyTrajectory[0]?.save_count || 0),
-      repin_count: Number(masterRecord?.repin_count || hubSerpRows[0]?.repin_count || dailyTrajectory[0]?.repin_count || 0),
+      save_count: Math.max(0, Number(masterRecord?.save_count || 0), Number(hubSerpRows[0]?.save_count || 0), Number(dailyTrajectory[0]?.save_count || 0)),
+      repin_count: Math.max(0, Number(masterRecord?.repin_count || 0), Number(hubSerpRows[0]?.repin_count || 0), Number(dailyTrajectory[0]?.repin_count || 0)),
       comment_count: Number(masterRecord?.comment_count || dailyTrajectory[0]?.comment_count || hubSerpRows[0]?.comment_count || 0),
       share_count: Number(masterRecord?.share_count || dailyTrajectory[0]?.share_count || hubSerpRows[0]?.share_count || 0),
+      reaction_count: resolvedReactionCount,
       daily_save_velocity: Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? masterRecord?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),
@@ -2514,19 +2577,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   const isRepinToSaveTransition = baselineSaves > 0 && refRepins > 0 && Math.abs(baselineSaves - refRepins) <= Math.max(5, Math.round(refRepins * 0.03));
 
   if (jumpDetected) {
-    if (isRepinToSaveTransition) {
-      computedVelocity = 0;
-    } else {
-      const pinCreatedAt = scrapedPin.created_at_pinterest || scrapedPin.created_at;
-      const pinCreatedDate = pinCreatedAt ? new Date(pinCreatedAt) : null;
-      if (pinCreatedDate && !isNaN(pinCreatedDate.getTime())) {
-        const ageMs = Math.max(86400000, nowDate.getTime() - pinCreatedDate.getTime());
-        const ageDays = Math.max(1, Math.round(ageMs / 86400000));
-        computedVelocity = Math.round((newSaves / ageDays) * 10) / 10;
-      } else {
-        computedVelocity = 0;
-      }
-    }
+    computedVelocity = 0;
   } else {
     computedVelocity = calculateDailyVelocity({
       currentSaves: newSaves,
@@ -2563,11 +2614,13 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   const intradayRepinStepGain = todayShardRow
     ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
     : 0;
-  const syncVelocity = (hasExplicitScrapedSaves && newSaves < baselineSaves)
+  const syncVelocity = jumpDetected
     ? 0
-    : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-      ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
-      : computedVelocity);
+    : ((hasExplicitScrapedSaves && newSaves < baselineSaves)
+      ? 0
+      : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+        ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
+        : computedVelocity));
   const syncRepinsDelta = (!baselineDateIso || baselineDateIso === todayUtcStr)
     ? Math.max(existingPositiveRepinDelta, rawRepinDelta, intradayRepinStepGain)
     : rawRepinDelta;

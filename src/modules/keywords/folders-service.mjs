@@ -26,6 +26,7 @@ import {
   isUnifiedPostgres
 } from '../sharding/fleet-router.mjs';
 import { extractCanonicalAnnotations, normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
+import { getFolderPulseCrossoverAnalytics } from '../pulse/service.mjs';
 
 export const folderTrendsCache = new Map();
 export const FOLDER_TRENDS_CACHE_MAX = 100;
@@ -2097,7 +2098,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
 
   const computePromise = (async () => {
     try {
-      const result = await _executeFolderCrossover(sql, fid, { env, ctx });
+      const result = await _executeFolderCrossover(sql, fid, { env, ctx, refresh: effectiveRefresh });
       if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
         const oldest = crossoverCache.keys().next().value;
         if (oldest) crossoverCache.delete(oldest);
@@ -2123,7 +2124,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   return await computePromise;
 }
 
-async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}) {
+async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refresh = false } = {}) {
   // 1. Fetch Folder & Member Keywords
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;
@@ -2181,6 +2182,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
   // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
   // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
+  const pulseAnalyticsPromise = getFolderPulseCrossoverAnalytics(sql, fid, { env, ctx, refresh: Boolean(refresh) }).catch(() => null);
   let [pinRows, displacedRows, capsuleRows] = await Promise.all([
     sql`
       WITH ranked_active AS (
@@ -2329,7 +2331,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
         is_displaced
       FROM folder_kdi
       ORDER BY pin_rn ASC, in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
-      LIMIT 15000;
+      LIMIT 2500;
     `,
     sql`
       SELECT 
@@ -3781,6 +3783,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null } = {}
     creator_monopoly: creatorMonopoly,
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Top Creators Rollup Wiring
     top_creators: creatorMonopoly,
+    pulse_analytics: await pulseAnalyticsPromise,
     seasonality: {
       status: hasTrends ? 'available' : 'insufficient_data',
       composite_wave: normalizedWeeklyWave,
