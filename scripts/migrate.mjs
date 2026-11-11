@@ -193,6 +193,16 @@ export function splitSqlStatements(sqlText) {
  * Guarantees zero version collisions and zero false-pending flags on live database.
  */
 export const CANONICAL_SPECIAL_VERSIONS = {
+  '001_clean_ssot_schema.sql': {
+    version: '001',
+    name: 'clean_ssot_schema',
+    aliases: ['001', '001_clean_ssot_schema', 'clean_ssot_schema']
+  },
+  '001_core_registry.sql': {
+    version: '001_legacy',
+    name: 'core_registry',
+    aliases: ['001', '001_legacy', '001_core_registry', 'core_registry']
+  },
   '009_crawler_shard_heartbeats.sql': {
     version: '009_heartbeats',
     name: 'crawler_shard_heartbeats',
@@ -237,6 +247,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '044',
     name: '044_hot_index_and_velocity_sanitization',
     aliases: ['044', '044_hot_index_and_velocity_sanitization', 'hot_index_and_velocity_sanitization']
+  },
+  '055_heal_hydration_baselines_and_ssot.sql': {
+    version: '055',
+    name: 'heal_hydration_baselines_and_ssot',
+    aliases: ['055', '055_heal_hydration_baselines_and_ssot', 'heal_hydration_baselines_and_ssot']
   }
 };
 
