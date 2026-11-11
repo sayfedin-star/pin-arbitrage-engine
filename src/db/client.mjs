@@ -68,16 +68,27 @@ export function createSqlClient(dsn, options = {}) {
     throw new Error('[db/client] DATABASE_URL is required to initialize the PostgreSQL client.');
   }
 
-  const maxConnections = Number(
+  const isCi = typeof process !== 'undefined' && Boolean(process.env?.GITHUB_ACTIONS);
+  const defaultMax = isCi ? 3 : 15;
+  const requestedMax = Number(
     options.max ||
-    (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 15) ||
-    15
+    (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 0) ||
+    defaultMax
   );
+  // Cap GITHUB_ACTIONS pool size to 3-4 connections
+  const maxConnections = isCi ? Math.max(1, Math.min(requestedMax, 4)) : Math.max(1, requestedMax);
 
   const pgClient = postgres(cleanDsn, {
     max: maxConnections,
     idle_timeout: Number(options.idle_timeout ?? 20),
     connect_timeout: Number(options.connect_timeout ?? 10),
+    max_lifetime: Number(options.max_lifetime ?? 300),
+    keep_alive: Number(options.keep_alive ?? 30),
+    onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
+    connection: {
+      ...(options.connection || {}),
+      max_parallel_workers_per_gather: 0
+    },
     prepare: false,
     transform: {
       undefined: null

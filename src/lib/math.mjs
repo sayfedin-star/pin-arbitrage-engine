@@ -34,9 +34,10 @@ export function detectHydrationJump(params) {
   const rawDelta = Math.max(0, curSaves - prevSaves);
   if (rawDelta === 0) return false;
 
-  // Only treat an explicitly unhydrated 0-save stub receiving its first lifetime backfill as a hydration jump.
-  // Authentic viral growth, 4x surges, and saves near repin_count are NEVER suppressed.
-  if (prevSaves === 0 && curSaves > 0 && params.wasDeepHydrated === false) {
+  // [INVARIANT: ANTI-HYDRATION-SPIKE]
+  // If baseline saves was <= 0 and current saves is positive, this is the first hydration
+  // calibration baseline, strictly not an authentic 24h velocity delta.
+  if (prevSaves <= 0 && curSaves > 0) {
     return true;
   }
 
@@ -99,20 +100,10 @@ export function calculateDailyVelocity(params) {
     return 0;
   }
 
-  // Guard only against an explicitly unhydrated 0-baseline stub
+  // [INVARIANT: ANTI-HYDRATION-SPIKE]
+  // When detectHydrationJump is true, transition from <= 0 to positive saves is a
+  // baseline calibration, not a 24h velocity. Strictly return 0.
   if (detectHydrationJump({ currentSaves: curSavesNum, baselineSaves: baseSavesNum, wasDeepHydrated })) {
-    if (createdAt) {
-      const createdD = createdAt instanceof Date ? createdAt : new Date(createdAt);
-      if (!isNaN(createdD.getTime())) {
-        const curD = currentDate instanceof Date ? currentDate : new Date(currentDate);
-        const lifetimeMs = Math.max(0, (curD.getTime() - createdD.getTime()));
-        const lifetimeDays = lifetimeMs / 86400000;
-        if (lifetimeDays >= 2) {
-          const lifetimeVelocity = Math.round((curSavesNum / lifetimeDays) * 10) / 10;
-          return Math.min(lifetimeVelocity, capNum);
-        }
-      }
-    }
     return 0;
   }
 
