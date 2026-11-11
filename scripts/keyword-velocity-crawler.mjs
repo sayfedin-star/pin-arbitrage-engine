@@ -250,7 +250,7 @@ async function inspectPin(pin, kw) {
   let fetchRes = null;
 
   try {
-    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly, cookie, minExpectedSaves: Number(pin.save_count || 0) });
+    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly, cookie });
     const isConfirmedDead = fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404');
     const isRateLimited = fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429');
     if (!fetchRes?.ok && !isConfirmedDead && !isRateLimited) {
@@ -350,9 +350,18 @@ async function inspectPin(pin, kw) {
       const todayIso = new Date().toISOString().slice(0, 10);
       const baseIso = !isNaN(parsedBase.getTime()) ? parsedBase.toISOString().slice(0, 10) : null;
       if (!hasExplicitBaseline && baseIso === todayIso) {
-        // Intraday second crawl where pin.save_count was already updated earlier today:
-        // Add the new intraday step gain onto today's existing 24h velocity.
-        computedVelocity = Math.min(25000, Number(pin.daily_save_velocity || 0) + rawDelta);
+        // Intraday crawl where pin was already updated today: take max to preserve today's peak velocity, never compound monotonically
+        computedVelocity = Math.max(Number(pin.daily_save_velocity || 0), calculateDailyVelocity({
+          currentSaves: authenticSaves,
+          baselineSaves,
+          currentRepins: authenticRepins,
+          baselineRepins: Number(pin.repin_count || 0),
+          currentDate: new Date(),
+          baselineDate: baseDateRaw,
+          createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
+          wasDeepHydrated,
+          maxCap: 25000
+        }));
       } else {
         computedVelocity = calculateDailyVelocity({
           currentSaves: authenticSaves,
@@ -362,6 +371,7 @@ async function inspectPin(pin, kw) {
           currentDate: new Date(),
           baselineDate: baseDateRaw,
           createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
+          wasDeepHydrated,
           maxCap: 25000
         });
       }
@@ -374,6 +384,7 @@ async function inspectPin(pin, kw) {
         currentDate: new Date(),
         baselineDate: new Date(Date.now() - 86400000),
         createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
+        wasDeepHydrated,
         maxCap: 25000
       });
     } else if (rawDelta === 0 && baseDateRaw) {
@@ -648,7 +659,10 @@ async function flushBatchToHub(pinsChunk, kw) {
     await sql`
       UPDATE keyword_displaced_index kdi
       SET
-        save_count = GREATEST(kdi.save_count, u.authentic_saves::bigint),
+        save_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+        END,
         repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -783,7 +797,10 @@ async function flushBatchToHub(pinsChunk, kw) {
     await sql`
       UPDATE keyword_displaced_index kdi
       SET
-        save_count = GREATEST(kdi.save_count, u.authentic_saves::bigint),
+        save_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+        END,
         repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -917,7 +934,10 @@ async function flushBatchToHub(pinsChunk, kw) {
     await sql`
       UPDATE keyword_displaced_index kdi
       SET
-        save_count = GREATEST(kdi.save_count, u.authentic_saves::bigint),
+        save_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+        END,
         repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
@@ -1186,8 +1206,8 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                        )
                        ELSE '{}'::jsonb
                      END,
-                save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-                repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+                save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
+                repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
                 comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
                 share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
                 reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
@@ -1760,7 +1780,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
+            COALESCE(kdi.save_count, 0) as baseline_day_saves,
+            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
@@ -2035,7 +2056,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
+            COALESCE(kdi.save_count, 0) as baseline_day_saves,
+            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
@@ -2319,8 +2341,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            NULL::bigint as baseline_day_saves,
-            NULL::date as baseline_day_date,
+            COALESCE(kdi.save_count, 0) as baseline_day_saves,
+            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id

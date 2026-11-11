@@ -527,3 +527,26 @@ trigger: always_on
   - `npm run check` inside `/data/app` on VPS (100% green, 14/14 locks).
   - `curl -s http://127.0.0.1:3000/api/health` (HTTP 200, healthy).
 
+---
+
+## Round 30: Canonical Pin Metric De-Poisoning & Monotonic Velocity Compounding Eradication
+- **Round / Feature**: Eradication of cross-pin canonical save-stealing in `scripts/lib/pinterest.mjs`, elimination of monotonic velocity compounding in `scripts/keyword-velocity-crawler.mjs`, and VPS database remediation.
+- **Trap / Failure Mode**:
+  1. *Landmine A (Canonical Pin Metric Hijacking)*: In `scripts/lib/pinterest.mjs` (`fetchPinHybrid` and `fetchPinFromPinterest`), when a pin had `saves <= repins` or `saves < minExpectedSaves`, the scraper hopped to `canonical_pin_id` and overwrote the child pin's saves and repins with the canonical pin's saves. On Pinterest, canonical pins are SEO root URLs that accumulated thousands of saves over years. The child pin (e.g. #348888302405814587) only had 9 authentic saves, but was assigned 4,229 saves! Pin #1130966525258943811 had 257 saves, but was assigned 8,570 saves! This caused massive artificial jumps (+2,720/d and +7,076/d), falsely ranking mediocre pins as explosive breakout winners on the 24H Pulse and Campaign Folders studios.
+  2. *Landmine B (Monotonic Velocity Compounding)*: In `scripts/keyword-velocity-crawler.mjs:355`, when `baseIso === todayIso`, the crawler added `Number(pin.daily_save_velocity || 0) + rawDelta` instead of time-normalizing via `calculateDailyVelocity`, compounding velocity monotonically higher on every crawl (e.g. 211 + 44 = 255/d for pin #1152288254700579018).
+  3. *Landmine C (Displaced Pins Baseline Omission)*: Queries for `keyword_displaced_index` passed `NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date`, depriving the crawler of true prior day baseline metrics.
+  4. *Landmine D (Monotonic GREATEST Lock on Database Upserts)*: Database updates used `save_count = GREATEST(...)`, locking poisoned numbers permanently and preventing authentic live crawls from correcting metrics downward.
+- **Root Cause & Technical Mechanism**:
+  Conflation of a pin's authentic metrics with its SEO `canonicalPin`, failure to respect `[INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]`, plus runaway addition of raw deltas to existing velocities.
+- **Verified Solution & Invariant Codification**:
+  1. Completely eradicated the canonical hop in `fetchPinHybrid` and `fetchPinFromPinterest`.
+  2. Removed `pin.canonicalPin?.saveCount` and `pin.canonicalPin?.repinCount` from `extractPinData`.
+  3. Replaced compounding velocity addition with canonical `calculateDailyVelocity` and `Math.max` intraday preservation.
+  4. Passed true baseline saves and date for displaced pins (`COALESCE(kdi.save_count, 0)` and `(kdi.updated_at AT TIME ZONE 'UTC')::date`).
+  5. Allowed live crawls to update `save_count` to authentic metrics without `GREATEST` trap.
+  6. Executed `scripts/remediate-canonical-poisoning.mjs` on the live VPS database to heal all affected pins.
+  7. Recomputed rolling window gains via `scripts/backfill_rolling_window_gains.mjs` and domain rollups.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 105 files, 14/14 locks PASS).
+  - Pin Inspector parity verification on live Pinterest data (#348888302405814587 -> 9 saves, #1130966525258943811 -> 357 saves, #1152288254700579018 -> 44/d velocity).
+
