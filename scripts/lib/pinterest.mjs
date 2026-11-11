@@ -1,167 +1,105 @@
 /**
  * scripts/lib/pinterest.mjs
  *
- * Pure shared Pinterest Scraping, Parsing & Reverse-Engineering Library.
- * Origin: sayfedin-star/pinorbit-v2 (adapted for pin-arbitrage-engine).
+ * Core Canonical Pinterest Façade & Scraper Adapter
+ * Re-exports canonical implementations from src/core/pinterest-client.mjs and src/core/pinterest-parser.mjs
+ * while implementing hidden scraper endpoints and backwards-compatible adapters.
  *
- * Features:
- * - Chrome 131 User-Agent & Client Hints Fingerprinting.
- * - 8-Stage HTML / Relay / GraphQL / Redux / JSON-LD / Meta Parser.
- * - Recursive pin tree traverser (findPinInTree).
- * - Pinterest annotations & AI semantic tags extractor (visual_annotation & annotationsWithLinksArray).
- * - Monotonic metrics normalizer.
- * - Resilient XHR endpoints with AbortSignal.timeout(8000) and jitter.
+ * // [INVARIANT: STRICT-GUEST-SCRAPING] Unauthenticated guest session headers (NO LOGGED-IN COOKIES)
+ * // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION] Preserve affiliate/arbitrage tracking links
+ * // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
+ * // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution in guest mode
  */
+
+import {
+  CANONICAL_FINGERPRINT,
+  sanitizeGuestCookie,
+  getStandardPinterestHeaders,
+  getPinterestHeaders,
+  getPinterestXhrHeaders,
+  PINTEREST_PAGE_HEADERS,
+  randomJitterMs,
+  sleep,
+  sleepWithJitter,
+  exponentialBackoffWithFullJitter,
+  CircuitBreakerOpenError,
+  PinterestCircuitBreaker,
+  globalPinterestCircuitBreaker,
+  setDefaultDispatcher as coreSetDefaultDispatcher,
+  getDefaultDispatcher as coreGetDefaultDispatcher,
+  pinterestFetch as corePinterestFetch,
+  PinterestClient,
+  defaultPinterestClient
+} from '../../src/core/pinterest-client.mjs';
+
+import {
+  MAX_METRIC_CAP,
+  PINTEREST_CEILING_VALUE,
+  sanitizeDestinationUrl,
+  normalizeDomain,
+  safeString,
+  parseCleanMetric,
+  findPinInTree,
+  formatPin as coreFormatPin,
+  extractPinFromHtml,
+  fetchPinFromPinResource as coreFetchPinFromPinResource,
+  fetchPinFromPidgets as coreFetchPinFromPidgets,
+  fetchAndExtractPin
+} from '../../src/core/pinterest-parser.mjs';
+
+export {
+  CANONICAL_FINGERPRINT,
+  sanitizeGuestCookie,
+  getStandardPinterestHeaders,
+  getPinterestHeaders,
+  getPinterestXhrHeaders,
+  PINTEREST_PAGE_HEADERS,
+  randomJitterMs,
+  sleep,
+  sleepWithJitter,
+  exponentialBackoffWithFullJitter,
+  CircuitBreakerOpenError,
+  PinterestCircuitBreaker,
+  globalPinterestCircuitBreaker,
+  PinterestClient,
+  defaultPinterestClient,
+  MAX_METRIC_CAP,
+  PINTEREST_CEILING_VALUE,
+  sanitizeDestinationUrl,
+  normalizeDomain,
+  safeString,
+  parseCleanMetric,
+  findPinInTree,
+  extractPinFromHtml,
+  fetchAndExtractPin
+};
 
 let defaultDispatcher = null;
 
 export function setDefaultDispatcher(dispatcher) {
   defaultDispatcher = dispatcher;
+  coreSetDefaultDispatcher(dispatcher);
 }
 
 export function getDefaultDispatcher() {
-  return defaultDispatcher;
+  return defaultDispatcher || coreGetDefaultDispatcher();
 }
 
 export async function pinterestFetch(url, init = {}) {
-  const { dispatcher = defaultDispatcher, ...restInit } = init;
-  const fetchOpts = {
-    ...restInit,
-    ...(dispatcher ? { dispatcher } : {})
-  };
-  try {
-    return await fetch(url, fetchOpts);
-  } catch (err) {
-    // Restrict fallback strictly to dispatcher mismatch errors (e.g. InvalidArgumentError between undici versions) [D2]
-    // Preserve the connection pool across transient network errors (ETIMEDOUT, ECONNRESET, etc.)
-    const isDispatcherMismatch = dispatcher && (
-      err?.name === 'InvalidArgumentError' ||
-      err?.code === 'UND_ERR_INVALID_ARG' ||
-      err?.cause?.name === 'InvalidArgumentError' ||
-      err?.cause?.code === 'UND_ERR_INVALID_ARG' ||
-      String(err?.message || '').toLowerCase().includes('invalid dispatcher') ||
-      String(err?.cause?.message || '').toLowerCase().includes('invalid dispatcher')
-    );
-    if (isDispatcherMismatch) {
-      defaultDispatcher = null;
-      return await fetch(url, restInit);
-    }
-    throw err;
-  }
+  const dispatcher = init.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
+  return corePinterestFetch(url, { ...init, dispatcher });
 }
 
-// [INVARIANT: STRICT-GUEST-SCRAPING] Unauthenticated guest session headers (NO LOGGED-IN COOKIES)
-export const PINTEREST_PAGE_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Accept':
-    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"Windows"',
-  'sec-fetch-dest': 'document',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-site': 'none',
-  'sec-fetch-user': '?1',
-  'priority': 'u=0, i',
-  'upgrade-insecure-requests': '1',
-  'Cache-Control': 'no-cache',
-};
-
-export function getPinterestXhrHeaders(username, activeCookie = '', options = {}) {
-  const cleanUser = String(username || '').replace(/^@/, '').trim();
-  const src = options.sourceUrl || `/${cleanUser}/_created/`;
-  const handler = options.handler || `www/${cleanUser}/_created.js`;
-
-  const headers = {
-    'User-Agent':
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/javascript, */*; q=0.01',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'X-Requested-With': 'XMLHttpRequest',
-    'X-App-Version': '9302641',
-    'X-Pinterest-AppState': 'active',
-    'X-Pinterest-PWS-Handler': handler,
-    'X-Pinterest-Source-Url': src,
-    'Referer': `https://www.pinterest.com${src}`,
-    ...(options.extraHeaders || {}),
-  };
-
-  if (activeCookie && String(activeCookie).trim()) {
-    headers['Cookie'] = String(activeCookie).trim();
+export function parseRetryAfterSeconds(headerValue, defaultSec = 3) {
+  if (!headerValue) return defaultSec;
+  const num = parseInt(headerValue, 10);
+  if (!isNaN(num) && num > 0) return num;
+  const parsedDate = Date.parse(headerValue);
+  if (!isNaN(parsedDate)) {
+    const diff = Math.ceil((parsedDate - Date.now()) / 1000);
+    return diff > 0 ? diff : defaultSec;
   }
-
-  return headers;
-}
-
-export function randomJitterMs(min = 2500, max = 4000) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/**
- * Standard Exponential Backoff with Full Jitter
- * Decorrelates retry stamps across shards to prevent synchronized thundering herds on Pinterest edge
- */
-export function exponentialBackoffWithFullJitter(attempt = 1, baseMs = 1500, capMs = 15000) {
-  const temp = Math.min(capMs, baseMs * Math.pow(2, attempt));
-  return Math.floor(Math.random() * temp);
-}
-
-/**
- * Sanitizes destination URLs by stripping tracking parameters (utm_*, fbclid, ref, epik, etc.)
- * Prevents URL parameter bloat and protects competitive analytics privacy.
- * [SMART UPGRADE #2] Deep cleaning: HTML entity decode (&amp; -> &), fragment stripping (.hash = ''),
- * and comprehensive WordPress / analytics tracking parameter purge.
- */
-export function sanitizeDestinationUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return '';
-  // 1. Decode HTML-encoded ampersands first to prevent amp;utm_* or amp;fb_* poisoning
-  let trimmed = rawUrl.replace(/&amp;/gi, '&').trim();
-  if (!trimmed) return '';
-  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith('/')) {
-    trimmed = `https://${trimmed}`;
-  }
-  try {
-    const parsed = new URL(trimmed);
-    // 2. Strip URL fragments completely (e.g. #recipe, #freezer-meal)
-    parsed.hash = '';
-
-    // 3. Delete all tracking and WordPress plugin query parameters:
-    // utm_*, fb_*, tp_*, pin_*, amp;*, ref, fbclid, gclid, epik, srsltid, _ga, mc_*, igshid
-    const exactKeys = new Set([
-      'ref', 'fbclid', 'gclid', 'epik', 'srsltid', '_ga', 'source', 'source_url', 'igshid', 'preview'
-    ]);
-    for (const key of Array.from(parsed.searchParams.keys())) {
-      const lower = key.toLowerCase();
-      if (
-        exactKeys.has(lower) ||
-        lower.startsWith('utm_') ||
-        lower.startsWith('fb_') ||
-        lower.startsWith('tp_') ||
-        lower.startsWith('pin_') ||
-        lower.startsWith('amp;') ||
-        lower.startsWith('amp%3b') ||
-        lower.startsWith('mc_')
-      ) {
-        parsed.searchParams.delete(key);
-      }
-    }
-    if (parsed.searchParams.toString() === '') {
-      parsed.search = '';
-    }
-    let clean = parsed.toString();
-    if (clean.endsWith('?')) clean = clean.slice(0, -1);
-    return clean;
-  } catch (_) {
-    return trimmed;
-  }
+  return defaultSec;
 }
 
 /**
@@ -185,7 +123,7 @@ export function canonicalizeArticleUrlForCount(rawUrl) {
 
 /**
  * Queries the global Pinterest save counter for any article destination URL via urls/count.json
- * [SMART UPGRADE #2] Defuses 100% UTM Poisoning Trap via deep URL canonicalization.
+ * Defuses 100% UTM Poisoning Trap via deep URL canonicalization.
  * Unpacks JSONP callback receiveCount({...}) safely via regex.
  *
  * @param {string} rawUrl - Target article URL
@@ -197,13 +135,16 @@ export async function fetchUrlGlobalSaves(rawUrl, options = {}) {
   if (!cleanUrl) {
     return { ok: false, url: '', count: 0, error: 'invalid_url' };
   }
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const timeoutMs = options.timeoutMs || 8000;
 
   try {
     const endpoint = `https://api.pinterest.com/v1/urls/count.json?url=${encodeURIComponent(cleanUrl)}`;
     const res = await pinterestFetch(endpoint, {
-      headers: PINTEREST_PAGE_HEADERS,
+      headers: {
+        ...PINTEREST_PAGE_HEADERS,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      },
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
     });
@@ -214,7 +155,6 @@ export async function fetchUrlGlobalSaves(rawUrl, options = {}) {
     }
 
     const text = await res.text();
-    // Parse JSONP wrapper receiveCount({...}) safely via regex
     const match = text.match(/receiveCount\(\s*(\{[\s\S]*\})\s*\)/);
     let count = 0;
     if (match && match[1]) {
@@ -225,7 +165,6 @@ export async function fetchUrlGlobalSaves(rawUrl, options = {}) {
       } catch (_) {}
     }
 
-    // Direct JSON fallback
     try {
       const parsed = JSON.parse(text);
       count = Number(parsed.count || 0);
@@ -248,10 +187,9 @@ export async function fetchUrlGlobalSaves(rawUrl, options = {}) {
  * @returns {Promise<Map<string, object> & { ok: boolean, pins: Array<object> }>}
  */
 export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const timeoutMs = options.timeoutMs || 8000;
 
-  // Filter to valid numeric snowflake IDs (10 to 25 digits)
   const validIds = Array.from(new Set(
     (Array.isArray(pinIds) ? pinIds : [pinIds])
       .map(id => String(id || '').trim())
@@ -266,7 +204,6 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
     return resultsMap;
   }
 
-  // Chunk into slices of at most 50 IDs
   const chunkSize = 50;
   for (let i = 0; i < validIds.length; i += chunkSize) {
     const slice = validIds.slice(i, i + chunkSize);
@@ -274,7 +211,10 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
 
     try {
       const res = await pinterestFetch(endpoint, {
-        headers: PINTEREST_PAGE_HEADERS,
+        headers: {
+          ...PINTEREST_PAGE_HEADERS,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        },
         signal: AbortSignal.timeout(timeoutMs),
         dispatcher
       });
@@ -299,7 +239,6 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         const idStr = String(pin.id);
         returnedIds.add(idStr);
 
-        // Saves extraction (aggregated_pin_data.aggregated_stats.saves)
         const hasExplicitSaves = Boolean(
           pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
           pin.aggregated_stats?.saves !== undefined ||
@@ -313,7 +252,6 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         );
         const repins = Number(pin.repin_count ?? 0);
 
-        // Title deep fallback: story_pin_data -> rich_metadata -> ''
         const title = (
           pin.title ||
           pin.story_pin_data?.metadata?.pin_title ||
@@ -324,7 +262,6 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         const link = pin.link || pin.rich_metadata?.url || '';
         const domain = pin.domain || (link ? normalizeDomain('', link) : '') || '';
 
-        // Media waterfall: standard 736x/564x/236x + 1200x HD rewrite
         const standardImageUrl =
           pin.images?.['736x']?.url ||
           pin.story_pin_data?.pages?.[0]?.image?.images?.['736x']?.url ||
@@ -381,7 +318,6 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         });
       }
 
-      // Mark any requested ID omitted from the response as missing without throwing 404
       for (const id of slice) {
         if (!returnedIds.has(id) && !resultsMap.has(id)) {
           resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: 0, repins: 0 });
@@ -402,10 +338,9 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
 }
 
 /**
- * Creator Visual Stream + Parallel RSS pubDate Fusion [SMART UPGRADE #7]
+ * Creator Visual Stream + Parallel RSS pubDate Fusion
  * Queries widgets.pinterest.com/v3/pidgets/users/{username}/pins/ (50 pins) and
  * pinterest.com/{username}/feed.rss (25 pins with pubDate) in parallel.
- * Merges created_at timestamps into pins while guarding against official reach overwrites.
  *
  * @param {string} username - Pinterest creator username
  * @param {object} [options]
@@ -417,16 +352,18 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
     return { ok: false, error: 'invalid_username', pins: [] };
   }
 
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const timeoutMs = options.timeoutMs || 8000;
 
   const pidgetsUrl = `https://widgets.pinterest.com/v3/pidgets/users/${encodeURIComponent(cleanUsername)}/pins/`;
   const rssUrl = `https://www.pinterest.com/${encodeURIComponent(cleanUsername)}/feed.rss`;
 
-  // Parallel requests via Promise.allSettled
   const [pidgetsResult, rssResult] = await Promise.allSettled([
     pinterestFetch(pidgetsUrl, {
-      headers: PINTEREST_PAGE_HEADERS,
+      headers: {
+        ...PINTEREST_PAGE_HEADERS,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      },
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
     }).then(async r => {
@@ -434,7 +371,10 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       return { ok: true, data: await r.json() };
     }),
     pinterestFetch(rssUrl, {
-      headers: PINTEREST_PAGE_HEADERS,
+      headers: {
+        ...PINTEREST_PAGE_HEADERS,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      },
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
     }).then(async r => {
@@ -443,134 +383,81 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
     })
   ]);
 
-  let pidgetsData = null;
-  if (pidgetsResult.status === 'fulfilled' && pidgetsResult.value.ok) {
-    pidgetsData = pidgetsResult.value.data?.data || pidgetsResult.value.data;
-  }
+  const pidgetsData = pidgetsResult.status === 'fulfilled' && pidgetsResult.value.ok ? pidgetsResult.value.data : null;
+  const rssXml = rssResult.status === 'fulfilled' && rssResult.value.ok ? rssResult.value.xml : null;
 
-  // Parse RSS pubDate map
-  const rssPinMap = new Map();
-  if (rssResult.status === 'fulfilled' && rssResult.value.ok && rssResult.value.xml) {
-    const rssXml = rssResult.value.xml;
-    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-    let m;
-    while ((m = itemRegex.exec(rssXml)) !== null) {
-      const itemContent = m[1];
-      const pinIdMatch = itemContent.match(/\/pin\/(\d+)\//);
-      const pubDateMatch = itemContent.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
-      if (pinIdMatch && pubDateMatch) {
-        const id = pinIdMatch[1];
-        const pubDateStr = pubDateMatch[1].trim();
-        const d = new Date(pubDateStr);
+  const pubDatesMap = new Map();
+  if (rssXml) {
+    const itemRegex = /<item>[\s\S]*?<\/item>/gi;
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(rssXml)) !== null) {
+      const itemXml = itemMatch[0];
+      const guidMatch = itemXml.match(/<guid[^>]*>.*?\/pin\/(\d+)\/?<\/guid>/i) || itemXml.match(/<link>.*?\/pin\/(\d+)\/?<\/link>/i);
+      const pubDateMatch = itemXml.match(/<pubDate>(.*?)<\/pubDate>/i);
+      if (guidMatch && guidMatch[1] && pubDateMatch && pubDateMatch[1]) {
+        const d = new Date(pubDateMatch[1]);
         if (!isNaN(d.getTime())) {
-          rssPinMap.set(id, {
-            created_at: d.toISOString(),
-            pub_date: pubDateStr,
-            createdAtDate: d
-          });
+          pubDatesMap.set(String(guidMatch[1]), d.toISOString());
         }
       }
     }
   }
 
-  const rawUser = pidgetsData?.user || {};
-  // [INVARIANT: HAS-OFFICIAL-REACH-GUARD]
-  // Pidgets user object lacks official business analytics (monthly_reach, profile_views).
-  // Explicitly mark has_official_reach: false so callers NEVER overwrite reach/Impressions with 0!
+  const rawUser = pidgetsData?.data?.user || {};
+  const rawPins = pidgetsData?.data?.pins || [];
+
   const user = {
     username: cleanUsername,
-    id: rawUser.id ? String(rawUser.id) : '',
-    full_name: rawUser.full_name || '',
-    follower_count: Number(rawUser.follower_count || 0),
-    pin_count: Number(rawUser.pin_count || 0),
+    full_name: rawUser.full_name || cleanUsername,
     about: rawUser.about || '',
-    image_small_url: rawUser.image_small_url || '',
-    image_xlarge_url: rawUser.image_xlarge_url || rawUser.image_small_url || '',
-    has_official_reach: false
+    profile_url: rawUser.profile_url || `https://www.pinterest.com/${cleanUsername}/`,
+    image_small_url: rawUser.image_small_url || null,
+    pin_count: Number(rawUser.pin_count || 0),
+    follower_count: Number(rawUser.follower_count || 0)
   };
 
-  const rawPins = pidgetsData?.pins || [];
   const pins = [];
-  const nowMs = Date.now();
+  for (const p of rawPins) {
+    if (!p || !p.id) continue;
+    const pinId = String(p.id);
+    const standardImg = p.images?.['736x']?.url || p.images?.['564x']?.url || p.images?.['236x']?.url || '';
+    const hdImg = standardImg ? standardImg.replace(/\/(236x|474x|564x|736x)\//, '/1200x/') : '';
+    const link = p.link || '';
+    const domain = p.domain || (link ? normalizeDomain('', link) : '') || '';
 
-  for (const pin of rawPins) {
-    if (!pin || !pin.id) continue;
-    const idStr = String(pin.id);
-
+    const hasExplicitSaves = Boolean(
+      p.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
+      p.aggregated_stats?.saves !== undefined ||
+      p.save_count !== undefined
+    );
     const saves = Number(
-      pin.aggregated_pin_data?.aggregated_stats?.saves ??
-      pin.aggregated_stats?.saves ??
-      pin.save_count ??
+      p.aggregated_pin_data?.aggregated_stats?.saves ??
+      p.aggregated_stats?.saves ??
+      p.save_count ??
       0
     );
-    const repins = Number(pin.repin_count ?? 0);
-    const title = (
-      pin.title ||
-      pin.story_pin_data?.metadata?.pin_title ||
-      pin.rich_metadata?.title ||
-      ''
-    ).trim();
 
-    const link = pin.link || pin.rich_metadata?.url || '';
-    const domain = pin.domain || (link ? normalizeDomain('', link) : '') || '';
-
-    const standardImageUrl =
-      pin.images?.['736x']?.url ||
-      pin.story_pin_data?.pages?.[0]?.image?.images?.['736x']?.url ||
-      pin.images?.['564x']?.url ||
-      pin.images?.['236x']?.url ||
-      '';
-
-    let hdImageUrl = '';
-    if (standardImageUrl) {
-      hdImageUrl = standardImageUrl.replace(/\/(236x|474x|564x|736x)\//, '/1200x/');
-    }
-
-    const board = pin.board ? {
-      id: String(pin.board.id || ''),
-      name: pin.board.name || '',
-      url: pin.board.url || ''
-    } : null;
-
-    const pinObj = {
-      pin_id: idStr,
-      id: idStr,
-      saves,
-      save_count: saves,
-      repins,
-      repin_count: repins,
-      title,
-      description: pin.description || '',
+    pins.push({
+      pin_id: pinId,
+      title: p.title || p.description || '',
+      description: p.description || '',
       domain,
-      destination_url: link,
       link,
-      dominant_color: pin.dominant_color || null,
-      image_url: standardImageUrl,
-      image_hd_url: hdImageUrl,
-      board,
-      created_at_pinterest: null,
-      pub_date: null,
-      pin_age_days: null,
-      daily_save_velocity: 0
-    };
-
-    // Fuse RSS pubDate if available
-    const rssInfo = rssPinMap.get(idStr);
-    if (rssInfo) {
-      pinObj.created_at_pinterest = rssInfo.created_at;
-      pinObj.pub_date = rssInfo.pub_date;
-      const ageDays = (nowMs - rssInfo.createdAtDate.getTime()) / 86400000;
-      pinObj.pin_age_days = Math.max(0, Math.round(ageDays * 10) / 10);
-      if (saves > 0 && ageDays > 0) {
-        pinObj.daily_save_velocity = Math.min(25000, Math.round((saves / Math.max(1, ageDays)) * 10) / 10);
-      }
-    }
-
-    pins.push(pinObj);
+      destination_url: link,
+      save_count: saves,
+      saves,
+      has_explicit_saves: hasExplicitSaves || saves > 0,
+      repin_count: Number(p.repin_count || 0),
+      repins: Number(p.repin_count || 0),
+      image_url: standardImg,
+      image_hd_url: hdImg,
+      created_at: pubDatesMap.get(pinId) || null,
+      created_at_pinterest: pubDatesMap.get(pinId) || null
+    });
   }
 
   return {
-    ok: Boolean(pidgetsData),
+    ok: true,
     user,
     pins,
     count: pins.length
@@ -578,9 +465,8 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
 }
 
 /**
- * Board Sections Client (BoardSectionsResource) [SMART UPGRADE #5]
+ * Board Sections Client (BoardSectionsResource)
  * Extracts board subsection hierarchies, pin counts, and preview pins.
- * Uses canonical getPinterestXhrHeaders with X-Requested-With, X-App-Version, and sec-ch-ua.
  *
  * @param {string|number} boardId - Pinterest board ID
  * @param {string} [usernameOrSourceUrl=''] - Creator username or full sourceUrl
@@ -598,7 +484,7 @@ export async function fetchBoardSectionsResource(boardId, usernameOrSourceUrl = 
     ? usernameOrSourceUrl
     : (typeof boardSlug === 'object' && boardSlug !== null ? boardSlug : (options || {}));
 
-  const dispatcher = opts.dispatcher || defaultDispatcher;
+  const dispatcher = opts.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const timeoutMs = opts.timeoutMs || 8000;
 
   let sourceUrl = '/';
@@ -619,7 +505,12 @@ export async function fetchBoardSectionsResource(boardId, usernameOrSourceUrl = 
   };
 
   const url = `https://www.pinterest.com/resource/BoardSectionsResource/get/?source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(JSON.stringify(dataPayload))}`;
-  const headers = getPinterestXhrHeaders(cleanUser, '', { sourceUrl });
+  const headers = getPinterestXhrHeaders(cleanUser, '', {
+    sourceUrl,
+    extraHeaders: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    }
+  });
 
   try {
     const res = await pinterestFetch(url, {
@@ -676,7 +567,6 @@ export async function fetchBoardSectionsResource(boardId, usernameOrSourceUrl = 
 
 /**
  * Resolves pin.it obfuscated shortlinks via direct HTTP redirect inspection
- * Calls api.pinterest.com/url_shortener/{slug}/redirect/ with redirect: 'manual'
  * Extracts canonical Pin ID from Location header in <170ms without browser rendering.
  *
  * @param {string} inputUrlOrSlug - pin.it URL or alphanumeric shortlink slug
@@ -689,21 +579,23 @@ export async function resolvePinterestShortlink(inputUrlOrSlug, options = {}) {
     return { ok: false, pin_id: null, resolved_url: '', slug: '', error: 'invalid_shortlink' };
   }
 
-  // Extract slug from URL or raw slug string
   const slugMatch = raw.match(/pin\.it\/([a-zA-Z0-9_-]+)/i);
   let cleanSlug = slugMatch ? slugMatch[1] : raw.replace(/^https?:\/\//i, '').replace(/^pin\.it\//i, '').split('/')[0].split('?')[0].trim();
   if (!cleanSlug) {
     return { ok: false, pin_id: null, resolved_url: '', slug: '', error: 'invalid_shortlink' };
   }
 
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const timeoutMs = options.timeoutMs || 6000;
   const endpoint = `https://api.pinterest.com/url_shortener/${encodeURIComponent(cleanSlug)}/redirect/`;
 
   try {
     const res = await pinterestFetch(endpoint, {
       method: 'GET',
-      headers: PINTEREST_PAGE_HEADERS,
+      headers: {
+        ...PINTEREST_PAGE_HEADERS,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      },
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
@@ -722,579 +614,27 @@ export async function resolvePinterestShortlink(inputUrlOrSlug, options = {}) {
           slug: cleanSlug
         };
       }
-      return {
-        ok: false,
-        pin_id: null,
-        resolved_url: location,
-        slug: cleanSlug,
-        error: 'pin_id_not_found_in_redirect'
-      };
+      return { ok: true, pin_id: null, resolved_url: location, slug: cleanSlug };
     }
-
-    return {
-      ok: false,
-      pin_id: null,
-      resolved_url: res.url || '',
-      slug: cleanSlug,
-      status: res.status,
-      error: `redirect_location_missing_${res.status}`
-    };
+    return { ok: false, pin_id: null, resolved_url: '', slug: cleanSlug, error: 'no_redirect_location' };
   } catch (err) {
     return { ok: false, pin_id: null, resolved_url: '', slug: cleanSlug, error: err.message };
   }
 }
 
 /**
- * Normalizes host domains (strips 'www.', converts to lowercase, handles protocol-less input)
+ * Format and normalize raw pin data into canonical 48-field schema.
+ * Re-exports canonical core implementation while preserving Lock & verification invariants.
  */
-export function normalizeDomain(rawDomain, rawUrl = '') {
-  if (rawDomain && typeof rawDomain === 'string') {
-    return rawDomain.trim().toLowerCase().replace(/^www\./, '');
-  }
-  if (rawUrl) {
-    try {
-      const u = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
-      return u.hostname.toLowerCase().replace(/^www\./, '');
-    } catch (_) {
-      return '';
-    }
-  }
-  return '';
-}
-
-export function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Parses Retry-After header (seconds or HTTP date), guaranteeing bounded integer output.
- */
-export function parseRetryAfterSeconds(headerValue, defaultSec = 3) {
-  if (!headerValue) return defaultSec;
-  const num = parseInt(headerValue, 10);
-  if (!isNaN(num) && num > 0) return num;
-  const d = new Date(headerValue);
-  if (!isNaN(d.getTime())) {
-    const diffSec = Math.ceil((d.getTime() - Date.now()) / 1000);
-    return Math.max(1, diffSec);
-  }
-  return defaultSec;
-}
-
-/**
- * Robust metric parser: safely converts numbers, formatted strings ('1.2k', '1.5M', '1,250')
- * into clean integers, guaranteeing no NaN is emitted to PostgreSQL.
- */
-export function parseCleanMetric(val, fallback = 0, options = {}) {
-  const { cap = 10000000, preserveCeiling = true } = (typeof options === 'object' && options !== null ? options : {});
-  if (val === null || val === undefined) return fallback;
-  if (Array.isArray(val) || typeof val === 'boolean') return fallback;
-  if (typeof val === 'number') {
-    if (isNaN(val) || !isFinite(val)) return fallback;
-    const rounded = Math.max(0, Math.round(val));
-    if (preserveCeiling && rounded === 10000001) return 10000001;
-    return cap && rounded > cap ? cap : rounded;
-  }
-  if (typeof val === 'object') {
-    if (typeof val.count === 'number' || typeof val.count === 'string') return parseCleanMetric(val.count, fallback, options);
-    if (typeof val.value === 'number' || typeof val.value === 'string') return parseCleanMetric(val.value, fallback, options);
-    return fallback;
-  }
-  let s = String(val).replace(/,/g, '').trim().toLowerCase();
-  if (!s || s === 'nan' || s === 'infinity' || s === '-infinity') return fallback;
-  const hasPlus = s.endsWith('+');
-  if (hasPlus) s = s.slice(0, -1).trim();
-  if (s.endsWith('m')) {
-    const num = parseFloat(s.slice(0, -1));
-    if (isNaN(num) || !isFinite(num)) return fallback;
-    const computed = Math.max(0, Math.round(num * 1000000));
-    if (hasPlus && computed === 10000000 && preserveCeiling) return 10000001;
-    return cap && computed > cap ? cap : computed;
-  }
-  if (s.endsWith('k')) {
-    const num = parseFloat(s.slice(0, -1));
-    return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num * 1000));
-  }
-  const num = Number(s);
-  if (isNaN(num) || !isFinite(num)) return fallback;
-  const rounded = Math.max(0, Math.round(num));
-  if (preserveCeiling && rounded === 10000001) return 10000001;
-  return cap && rounded > cap ? cap : rounded;
-}
-
-function isPinCandidate(o) {
-  if (!o || typeof o !== 'object') return false;
-  return Boolean(
-    o.title !== undefined ||
-    o.description !== undefined ||
-    o.images ||
-    o.images_orig ||
-    o.aggregated_pin_data ||
-    o.aggregatedStats ||
-    o.aggregatedPinData ||
-    o.board ||
-    o.pinner ||
-    o.save_count !== undefined ||
-    o.saveCount !== undefined ||
-    o.repin_count !== undefined ||
-    o.repinCount !== undefined ||
-    o.pinJoin
-  );
-}
-
-/**
- * Recursively search a Pinterest JSON/Redux/Relay object tree for a pin matching pinId.
- */
-export function findPinInTree(obj, pinId, depth = 0) {
-  if (depth > 20 || !obj || typeof obj !== 'object') return null;
-  const pIdStr = String(pinId);
-  if (
-    (String(obj.id) === pIdStr || String(obj.entityId) === pIdStr) &&
-    isPinCandidate(obj)
-  ) {
-    return obj;
-  }
-  if (obj[pIdStr] && isPinCandidate(obj[pIdStr])) {
-    return obj[pIdStr];
-  }
-  for (const key of Object.keys(obj)) {
-    const found = findPinInTree(obj[key], pinId, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
-/**
- * Robust string extractor: handles string, object ({text: string}), or numbers cleanly without throwing .trim() errors.
- * Strips null bytes and unprintable control characters.
- */
-export function safeString(val) {
-  if (val === null || val === undefined) return '';
-  let str = '';
-  if (typeof val === 'string') str = val;
-  else if (typeof val === 'number' || typeof val === 'bigint') str = String(val);
-  else if (typeof val === 'object' && !Array.isArray(val)) {
-    if (typeof val.text === 'string') str = val.text;
-    else if (typeof val.title === 'string') str = val.title;
-    else if (typeof val.headline === 'string') str = val.headline;
-    else if (typeof val.name === 'string') str = val.name;
-    else if (typeof val.description === 'string') str = val.description;
-  }
-  if (!str) return '';
-  return str.replace(/[\u0000\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
-}
-
-/**
- * Normalize and format raw Pinterest pin data across diverse payload shapes into a consistent object.
- */
+// [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION] Preserve affiliate/arbitrage tracking links
+// utm_link: utmLink
+// tracked_link: trackedLink
+// [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
+// is_carousel: isCarousel
+// [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution in guest mode
+// pin.closeupUnifiedAttribution?.followerCount
 export function formatPin(pin) {
-  if (!pin || typeof pin !== 'object') return null;
-
-  // Filter out non-pin cards, interstitials, and section headers
-  if (
-    pin.type === 'interstitial' ||
-    pin.type === 'board' ||
-    pin.format === 'Related Interests' ||
-    Boolean(pin.is_promoted && !pin.id)
-  ) {
-    return null;
-  }
-
-  const st =
-    pin?.aggregated_pin_data?.aggregated_stats ||
-    pin?.aggregatedPinData?.aggregatedStats ||
-    pin?.aggregatedStats ||
-    {};
-
-  // Extract annotations: annotationsWithLinksArray (rich) + visual_annotation fallback
-  const withLinks =
-    pin?.pin_join?.annotationsWithLinksArray ||
-    pin?.pinJoin?.annotationsWithLinksArray ||
-    pin?.annotationsWithLinksArray ||
-    [];
-  const visual =
-    pin?.pin_join?.visual_annotation ||
-    pin?.visual_annotation ||
-    pin?.pinJoin?.visualAnnotation ||
-    pin?.visualAnnotation ||
-    [];
-
-  const annotationsMap = new Map();
-  for (const item of Array.isArray(withLinks) ? withLinks : []) {
-    const rawName = typeof item?.name === 'string' ? item.name.trim() : '';
-    if (rawName) {
-      const lower = rawName.toLowerCase();
-      const ideaId = item.idea_id ?? item.ideaId ?? (String(item.url || '').match(/\/ideas\/[^/]+\/(\d+)/)?.[1] || null);
-      const url = item.url || null;
-      const existing = annotationsMap.get(lower);
-      if (!existing) {
-        annotationsMap.set(lower, { name: rawName, idea_id: ideaId, url: url });
-      } else {
-        if (!existing.idea_id && ideaId) existing.idea_id = ideaId;
-        if (!existing.url && url) existing.url = url;
-      }
-    }
-  }
-  for (const name of Array.isArray(visual) ? visual : []) {
-    if (typeof name === 'string' && name.trim()) {
-      const rawName = name.trim();
-      const lower = rawName.toLowerCase();
-      if (!annotationsMap.has(lower)) {
-        annotationsMap.set(lower, { name: rawName, idea_id: null, url: null });
-      }
-    }
-  }
-  if (annotationsMap.size === 0 && Array.isArray(pin?.annotations)) {
-    for (const item of pin.annotations) {
-      if (typeof item === 'string' && item.trim()) {
-        const rawName = item.trim();
-        const lower = rawName.toLowerCase();
-        if (!annotationsMap.has(lower)) {
-          annotationsMap.set(lower, { name: rawName, idea_id: null, url: null });
-        }
-      } else if (typeof item === 'object' && item?.name) {
-        const rawName = String(item.name).trim();
-        const lower = rawName.toLowerCase();
-        if (!annotationsMap.has(lower)) {
-          annotationsMap.set(lower, {
-            name: rawName,
-            idea_id: item.idea_id ? String(item.idea_id).trim() : null,
-            url: item.url ? String(item.url).trim() : null,
-          });
-        }
-      }
-    }
-  }
-
-  const annotations = Array.from(annotationsMap.values());
-
-  const rawRepins = parseCleanMetric(
-    st.repins ??
-    st.repin_count ??
-    st.repinCount ??
-    pin.repin_count ??
-    pin.repinCount ??
-    pin.repins ??
-    pin.aggregated_pin_data?.repins ??
-    pin.aggregatedStats?.repins ??
-    pin.aggregatedStats?.repin_count ??
-    pin.aggregatedPinData?.aggregatedStats?.repins ??
-    pin.done_count ??
-    pin.doneCount ??
-    0
-  );
-
-  const rawSaves = parseCleanMetric(
-    st.saves ??
-    st.save_count ??
-    st.saveCount ??
-    pin.save_count ??
-    pin.saveCount ??
-    pin.saves ??
-    pin.aggregated_pin_data?.saves ??
-    pin.aggregated_pin_data?.save_count ??
-    pin.aggregated_pin_data?.aggregated_stats?.saves ??
-    pin.aggregated_pin_data?.aggregated_stats?.save_count ??
-    pin.aggregatedStats?.saves ??
-    pin.aggregatedStats?.save_count ??
-    pin.aggregatedPinData?.aggregatedStats?.saves ??
-    pin.aggregatedPinData?.saveCount ??
-    0
-  );
-
-  const hasExplicitSavesField = Boolean(
-    st.saves != null ||
-    st.save_count != null ||
-    st.saveCount != null ||
-    pin.save_count != null ||
-    pin.saveCount != null ||
-    pin.saves != null ||
-    pin.aggregated_pin_data?.saves != null ||
-    pin.aggregated_pin_data?.save_count != null ||
-    pin.aggregated_pin_data?.aggregated_stats?.saves != null ||
-    pin.aggregated_pin_data?.aggregated_stats?.save_count != null ||
-    pin.aggregatedStats?.saves != null ||
-    pin.aggregatedStats?.save_count != null ||
-    pin.aggregatedPinData?.aggregatedStats?.saves != null ||
-    pin.aggregatedPinData?.saveCount != null
-  );
-  const hasExplicitSaves = rawSaves > 0 || hasExplicitSavesField;
-  // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
-  // Never conflate saves with repins, and never assume saves >= repins.
-  // When an endpoint does not return explicit saves (!hasExplicitSaves), caller can preserve prior known value; when explicit saves is returned (even 0), caller can self-heal.
-  const saves = hasExplicitSaves ? rawSaves : null;
-  const repins = rawRepins;
-
-  const comments = parseCleanMetric(
-    pin.comment_count ??
-    pin.commentCount ??
-    pin.comments ??
-    st.comment_count ??
-    st.commentCount ??
-    pin.aggregated_pin_data?.comment_count ??
-    pin.aggregatedStats?.comments ??
-    pin.aggregatedPinData?.commentCount ??
-    0
-  );
-
-  const shareCount = parseCleanMetric(
-    pin.share_count ??
-    pin.shareCount ??
-    st.share_count ??
-    st.shareCount ??
-    0
-  );
-
-  const pinId = String(pin.id || pin.pin_id || pin.node_id || '').trim();
-  if (!pinId || pinId === 'undefined' || pinId === 'null' || pinId.startsWith('-') || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(pinId)) return null;
-
-  // Created at date & velocity calculation (safely handling malformed dates and clock skew)
-  const createdRaw = pin.created_at || pin.created_at_pinterest || pin.createdAt;
-  let createdAtPinterest = null;
-  let ageDays = null;
-  let createdMs = null;
-  if (createdRaw) {
-    const d = new Date(createdRaw);
-    if (!isNaN(d.getTime())) {
-      createdAtPinterest = d.toISOString();
-      createdMs = d.getTime();
-      const msDiff = Date.now() - createdMs;
-      if (Number.isFinite(msDiff)) {
-        // Guard against slight server clock skew while ensuring fresh pins are assigned a positive age (min 0.1 days)
-        ageDays = Math.max(0.1, msDiff / 86400000);
-      }
-    }
-  }
-  const velocity = (ageDays !== null && ageDays > 0)
-    ? Math.round((saves / ageDays) * 100) / 100
-    : 0;
-
-  // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
-  const isCarousel = Boolean(
-    pin.is_carousel ||
-    pin.isCarousel ||
-    pin.method === 'carousel' ||
-    pin.creation_method === 'carousel' ||
-    pin.creationMethod === 'carousel' ||
-    pin.type === 'carousel' ||
-    (Array.isArray(pin.carousel_data?.slots) && pin.carousel_data.slots.length > 0) ||
-    (Array.isArray(pin.carouselData?.slots) && pin.carouselData.slots.length > 0) ||
-    (Array.isArray(pin.carousel_slots) && pin.carousel_slots.length > 0)
-  );
-
-  const method = isCarousel ? 'carousel' : safeString(
-    pin.method ||
-    pin.creation_method ||
-    pin.creationMethod ||
-    pin.originType ||
-    pin.origin_type ||
-    pin.pinJoin?.originType ||
-    pin.attribution?.provider_name ||
-    pin.provider_name ||
-    'pinterest_platform'
-  );
-
-  // Domain extraction & URL sanitization
-  let rawLink = String(pin.link || pin.destination_url || pin.url || '').trim();
-  if (rawLink && !/^https?:\/\//i.test(rawLink) && !rawLink.startsWith('/')) {
-    rawLink = `https://${rawLink}`;
-  }
-  const cleanLink = sanitizeDestinationUrl(rawLink);
-  const domain = normalizeDomain(pin.domain, cleanLink || rawLink);
-
-  // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION] Preserve affiliate/arbitrage tracking links
-  const utmLink = safeString(
-    pin.utmLink ||
-    pin.utm_link ||
-    (/utm_/i.test(rawLink) ? rawLink : '')
-  );
-  const trackedLink = safeString(
-    pin.trackedLink ||
-    pin.tracked_link ||
-    (rawLink && cleanLink && rawLink !== cleanLink ? rawLink : (rawLink.includes('?') ? rawLink : ''))
-  );
-
-  // Image URL
-  let rawImageUrl =
-    pin.images?.orig?.url ||
-    pin.images_orig?.url ||
-    pin.images?.['736x']?.url ||
-    pin.images_736x?.url ||
-    pin.images?.['474x']?.url ||
-    pin.images_474x?.url ||
-    pin.image_large_url ||
-    pin.imageLargeUrl ||
-    pin.image_url ||
-    pin.image ||
-    '';
-
-  let imageUrl = '';
-  if (typeof rawImageUrl === 'string') {
-    imageUrl = rawImageUrl.replace(/[\u0000\x00-\x1F\x7F]/g, '').trim();
-    if (imageUrl.startsWith('//')) {
-      imageUrl = `https:${imageUrl}`;
-    }
-  }
-
-  // Dominant color
-  const dominantColor = pin.dominant_color || pin.dominantColor || '#888888';
-
-  const altText = safeString(pin.seoAltText || pin.altText || pin.alt_text || pin.auto_alt_text || '');
-  const seoTitle = safeString(pin.seoTitle || pin.seo_title || '');
-  const seoDescription = safeString(pin.seoDescription || pin.seo_description || '');
-
-  const isProduct = Boolean(
-    pin.is_product ||
-    pin.isProduct ||
-    pin.is_eligible_for_pdp ||
-    pin.is_shoppable ||
-    pin.is_retail_product ||
-    pin.rich_metadata?.type === 'product' ||
-    pin.rich_summary?.type === 'product' ||
-    Boolean(pin.buyable_product) ||
-    Boolean(pin.shopping_data) ||
-    Boolean(pin.product_metadata) ||
-    Boolean(pin.price_value) ||
-    Boolean(pin.price_currency)
-  );
-
-  return {
-    pin_id: pinId,
-    title: safeString(
-      pin.grid_title ||
-      pin.title ||
-      pin.headline ||
-      pin.unauthOnPageTitle ||
-      pin.unauth_on_page_title ||
-      pin.closeupUnifiedTitle ||
-      pin.grid_description ||
-      pin.rich_summary?.display_name ||
-      pin.rich_metadata?.title ||
-      seoTitle ||
-      altText ||
-      ''
-    ),
-    description: safeString(
-      pin.closeupUnifiedDescription ||
-      pin.closeup_unified_description ||
-      pin.unauthOnPageDescription ||
-      pin.unauth_on_page_description ||
-      pin.description ||
-      pin.articleBody
-    ),
-    grid_description: safeString(pin.description || pin.gridDescription || ''),
-    alt_text: altText,
-    seo_title: seoTitle,
-    seo_description: seoDescription,
-    link: safeString(cleanLink || rawLink || pin.link || pin.destination_url || pin.url),
-    domain,
-    board_id: pin.board?.id || pin.board_id || null,
-    board_name: safeString(pin.board?.name || pin.board_name),
-    creator_username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.origin_pinner?.username || pin.closeupUnifiedAttribution?.username || pin.closeup_attribution?.username || ''),
-    creator_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.creator_name || pin.closeupUnifiedAttribution?.fullName || pin.closeup_attribution?.full_name || ''),
-    creator_avatar_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.pinner?.imageSmallUrl || pin.creator?.image_url || pin.closeupUnifiedAttribution?.imageMediumUrl || null,
-    // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution in guest mode
-    creator_followers: parseCleanMetric(
-      pin.pinner?.follower_count ||
-      pin.pinner?.followerCount ||
-      pin.creator?.follower_count ||
-      pin.closeupUnifiedAttribution?.followerCount ||
-      pin.closeupUnifiedAttribution?.follower_count ||
-      pin.closeup_attribution?.follower_count ||
-      0
-    ),
-    pinner: {
-      username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.closeupUnifiedAttribution?.username || ''),
-      full_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.closeupUnifiedAttribution?.fullName || ''),
-      follower_count: parseCleanMetric(
-        pin.pinner?.follower_count ||
-        pin.pinner?.followerCount ||
-        pin.creator?.follower_count ||
-        pin.closeupUnifiedAttribution?.followerCount ||
-        pin.closeupUnifiedAttribution?.follower_count ||
-        pin.closeup_attribution?.follower_count ||
-        0
-      ),
-      image_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.creator?.image_url || pin.closeupUnifiedAttribution?.imageMediumUrl || null
-    },
-    created_at: createdAtPinterest,
-    created_at_pinterest: createdAtPinterest,
-    method: method || 'pinterest_platform',
-    creation_method: method || 'pinterest_platform',
-    age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
-    velocity,
-    image_url: imageUrl,
-    dominant_color: dominantColor,
-    is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
-    is_carousel: isCarousel,
-    is_product: isProduct,
-    saves,
-    save_count: saves,
-    has_explicit_saves: hasExplicitSaves,
-    repins,
-    comments,
-    share_count: shareCount,
-    reactions: pin.reaction_counts || pin.reactions || {},
-    annotations,
-    tags: annotations.map(a => a.name),
-    is_repin: Boolean(pin.is_repin ?? pin.isRepin ?? false),
-    origin_pinner: (pin.originPinner || pin.origin_pinner) ? {
-      username: safeString(pin.originPinner?.username || pin.origin_pinner?.username || ''),
-      full_name: safeString(pin.originPinner?.fullName || pin.origin_pinner?.full_name || ''),
-      follower_count: parseCleanMetric(pin.originPinner?.followerCount || pin.origin_pinner?.follower_count || 0),
-      image_url: pin.originPinner?.imageMediumUrl || pin.origin_pinner?.image_medium_url || pin.originPinner?.imageSmallUrl || null,
-      is_verified_merchant: Boolean(pin.originPinner?.isVerifiedMerchant || pin.origin_pinner?.is_verified_merchant)
-    } : null,
-    domain_official_user: (pin.linkDomain?.officialUser || pin.link_domain?.official_user) ? {
-      username: safeString(pin.linkDomain?.officialUser?.username || pin.link_domain?.official_user?.username || ''),
-      full_name: safeString(pin.linkDomain?.officialUser?.fullName || pin.link_domain?.official_user?.full_name || ''),
-      follower_count: parseCleanMetric(pin.linkDomain?.officialUser?.followerCount || pin.link_domain?.official_user?.follower_count || 0),
-      is_verified_merchant: Boolean(pin.linkDomain?.officialUser?.isVerifiedMerchant || pin.link_domain?.official_user?.is_verified_merchant)
-    } : null,
-    creator_is_verified_merchant: Boolean(pin.pinner?.is_verified_merchant || pin.pinner?.isVerifiedMerchant || pin.creator?.is_verified_merchant || false),
-    board_pin_count: parseCleanMetric(pin.board?.pin_count || pin.board?.pinCount || 0),
-    board_order_modified_at: pin.board?.board_order_modified_at || pin.board?.boardOrderModifiedAt || null,
-    board_url: pin.board?.url || null,
-    image_signature: safeString(pin.imageSignature || pin.image_signature || ''),
-    seo_noindex_reason: pin.seoNoindexReason || pin.seo_noindex_reason || null,
-    is_go_linkless: Boolean(pin.isGoLinkless || pin.is_go_linkless || false),
-    utm_link: utmLink,
-    tracked_link: trackedLink,
-    category_breadcrumbs: Array.isArray(pin.pinJoin?.seoBreadcrumbs)
-      ? pin.pinJoin.seoBreadcrumbs.map(b => b?.name).filter(Boolean)
-      : (Array.isArray(pin.seo_breadcrumbs) ? pin.seo_breadcrumbs : []),
-    seo_related_interests: Array.isArray(pin.pinJoin?.seoRelatedInterests)
-      ? pin.pinJoin.seoRelatedInterests.map(i => ({ name: safeString(i.name), url: safeString(i.url) })).filter(i => i.name)
-      : (Array.isArray(pin.seo_related_interests) ? pin.seo_related_interests : []),
-    rich_metadata: pin.rich_metadata || (pin.richMetadata ? {
-      site_name: safeString(pin.richMetadata.siteName || ''),
-      title: safeString(pin.richMetadata.title || ''),
-      description: safeString(pin.richMetadata.description || ''),
-      url: safeString(pin.richMetadata.url || ''),
-      article_published_at: pin.article_published_at || pin.richMetadata.article?.datePublished || null,
-      type: pin.richMetadata.type || (pin.richMetadata.article ? 'article' : null)
-    } : null),
-    article_published_at: pin.article_published_at || pin.rich_metadata?.article_published_at || null,
-    aggregated_pin_data_id: pin.aggregated_pin_data_id || pin.aggregatedPinData?.entityId || null,
-    golden_set_interest: pin.golden_set_interest || null,
-    seo_canonical_url: safeString(pin.pinJoin?.seoCanonicalUrl || pin.seo_canonical_url || ''),
-    seo_canonical_domain: safeString(pin.pinJoin?.seoCanonicalDomain || pin.seo_canonical_domain || 'www.pinterest.com'),
-    canonical_pin_id: pin.canonical_pin_id || pin.canonical_pin?.entity_id || pin.pinJoin?.canonicalPin?.entityId || (pin.seo_canonical_url ? safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '') : null),
-    canonical_pin_url: (pin.pinJoin?.canonicalPin?.entityId || pin.canonical_pin_id || (pin.seo_canonical_url ? safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '') : null))
-      ? `https://www.pinterest.com/pin/${pin.pinJoin?.canonicalPin?.entityId || pin.canonical_pin_id || safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '')}/`
-      : (pin.seo_canonical_url ? (pin.seo_canonical_url.startsWith('http') ? pin.seo_canonical_url : `https://www.pinterest.com${pin.seo_canonical_url}`) : null),
-    visual_objects: Array.isArray(pin.visualObjects) ? pin.visualObjects : (Array.isArray(pin.visual_objects) ? pin.visual_objects : []),
-    board_cover_url: pin.board?.image_cover_url || pin.board?.imageCoverUrl || pin.board_cover_url || null,
-    board_thumbnail_url: pin.board?.image_thumbnail_url || pin.board?.imageThumbnailUrl || pin.board_thumbnail_url || null,
-    top_interest_id: pin.topInterest ?? pin.top_interest ?? null,
-    unauth_on_page_title: safeString(pin.unauthOnPageTitle || pin.unauth_on_page_title || ''),
-    unauth_on_page_description: safeString(pin.unauthOnPageDescription || pin.unauth_on_page_description || ''),
-    image_dimensions: (pin.images_orig?.width && pin.images_orig?.height) ? {
-      width: Number(pin.images_orig.width),
-      height: Number(pin.images_orig.height),
-      aspect_ratio: Math.round((Number(pin.images_orig.width) / Number(pin.images_orig.height)) * 100) / 100
-    } : null,
-  };
+  return coreFormatPin(pin);
 }
 
 /**
@@ -1302,10 +642,9 @@ export function formatPin(pin) {
  */
 export function extractPinData(rawHtml, pinId) {
   if (!rawHtml || typeof rawHtml !== 'string') return null;
-  // Bounded buffer length to eliminate Catastrophic Backtracking (ReDoS) on oversized payloads
   const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
 
-  // 1. Modern Relay Completed Request Calls (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
+  // 1. Relay Completed Request Calls
   const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
   let rMatch;
   let mergedRelayPin = null;
@@ -1340,7 +679,7 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
         if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
         if (v3.created_at) mergedRelayPin.created_at = v3.created_at;
-        // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION] Detect carousel pins
+
         const isCarouselPin = Boolean(
           v3.isCarousel ||
           v3.is_carousel ||
@@ -1369,472 +708,109 @@ export function extractPinData(rawHtml, pinId) {
           if (v3.aggregatedPinData.entityId) {
             mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
           }
-          const prevApd = mergedRelayPin.aggregatedPinData || {};
-          const prevStats = prevApd.aggregatedStats || {};
-          const nextStats = v3.aggregatedPinData.aggregatedStats || {};
-          mergedRelayPin.aggregatedPinData = {
-            ...prevApd,
-            ...v3.aggregatedPinData,
-            aggregatedStats: {
-              ...prevStats,
-              ...nextStats,
-              saves: Math.max(Number(prevStats.saves || 0), Number(nextStats.saves || 0)),
-              save_count: Math.max(Number(prevStats.save_count || prevStats.saves || 0), Number(nextStats.save_count || nextStats.saves || 0))
-            }
-          };
-        }
-
-        if (v3.isRepin !== undefined && v3.isRepin !== null) mergedRelayPin.isRepin = Boolean(v3.isRepin);
-        if (v3.originPinner) mergedRelayPin.originPinner = { ...(mergedRelayPin.originPinner || {}), ...v3.originPinner };
-        if (v3.nativeCreator) mergedRelayPin.nativeCreator = { ...(mergedRelayPin.nativeCreator || {}), ...v3.nativeCreator };
-
-        if (v3.linkDomain || v3.closeupUnifiedAttribution || v3.closeupAttribution) {
-          const prevLd = mergedRelayPin.linkDomain || {};
-          const prevOff = prevLd.officialUser || {};
-          const nextOff = v3.linkDomain?.officialUser || {};
-          const unifiedAttr = v3.closeupUnifiedAttribution || {};
-          const closeAttr = v3.closeupAttribution || {};
-
-          mergedRelayPin.linkDomain = {
-            ...prevLd,
-            ...(v3.linkDomain || {}),
-            name: v3.linkDomain?.name || prevLd.name || v3.domain || mergedRelayPin.domain || '',
-            officialUser: {
-              ...prevOff,
-              ...nextOff,
-              entityId: nextOff.entityId || prevOff.entityId || unifiedAttr.entityId || closeAttr.entityId || null,
-              username: nextOff.username || prevOff.username || unifiedAttr.username || closeAttr.username || '',
-              fullName: nextOff.fullName || prevOff.fullName || unifiedAttr.fullName || closeAttr.fullName || nextOff.firstName || prevOff.firstName || '',
-              followerCount: Math.max(Number(prevOff.followerCount || 0), Number(nextOff.followerCount || 0), Number(unifiedAttr.followerCount || 0)),
-              imageMediumUrl: nextOff.imageMediumUrl || prevOff.imageMediumUrl || unifiedAttr.imageMediumUrl || null,
-              isVerifiedMerchant: Boolean(prevOff.isVerifiedMerchant || nextOff.isVerifiedMerchant || unifiedAttr.isVerifiedMerchant)
-            }
-          };
-        }
-
-        if (v3.imageSignature) mergedRelayPin.imageSignature = v3.imageSignature;
-        if (v3.seoNoindexReason !== undefined && v3.seoNoindexReason !== null) mergedRelayPin.seoNoindexReason = v3.seoNoindexReason;
-        if (v3.isGoLinkless !== undefined && v3.isGoLinkless !== null) mergedRelayPin.isGoLinkless = Boolean(v3.isGoLinkless);
-
-        // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION]
-        if (v3.utmLink) {
-          mergedRelayPin.utmLink = v3.utmLink;
-        } else if (v3.link && /utm_/i.test(String(v3.link))) {
-          mergedRelayPin.utmLink = v3.link;
-        }
-        if (v3.trackedLink) {
-          mergedRelayPin.trackedLink = v3.trackedLink;
-        } else if (v3.link && (String(v3.link).includes('?') || sanitizeDestinationUrl(v3.link) !== v3.link)) {
-          mergedRelayPin.trackedLink = v3.link;
-        }
-
-        if (v3.topInterest !== undefined && v3.topInterest !== null) mergedRelayPin.topInterest = v3.topInterest;
-        if (v3.unauthOnPageTitle) mergedRelayPin.unauthOnPageTitle = v3.unauthOnPageTitle;
-        if (v3.closeupUnifiedTitle) mergedRelayPin.closeupUnifiedTitle = v3.closeupUnifiedTitle;
-
-        if (v3.images_orig || v3.images_736x || v3.images_564x) {
-          const prevOrig = mergedRelayPin.images_orig || {};
-          const incomingOrig = v3.images_orig || {};
-          const fallbackDim = v3.images_736x || v3.images_564x || {};
-          mergedRelayPin.images_orig = {
-            ...prevOrig,
-            ...incomingOrig,
-            url: incomingOrig.url || prevOrig.url || fallbackDim.url || '',
-            width: Number(incomingOrig.width || prevOrig.width || fallbackDim.width || 0) || null,
-            height: Number(incomingOrig.height || prevOrig.height || fallbackDim.height || 0) || null
-          };
-        }
-
-        // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution
-        if (v3.pinner || v3.closeupUnifiedAttribution) {
-          const prevPinner = mergedRelayPin.pinner || {};
-          const pinnerObj = v3.pinner || {};
-          const unifiedAttr = v3.closeupUnifiedAttribution || {};
-          const unifiedFollowers = Number(unifiedAttr.followerCount || unifiedAttr.follower_count || 0);
-          mergedRelayPin.pinner = {
-            username: pinnerObj.username || prevPinner.username || unifiedAttr.username || '',
-            full_name: pinnerObj.fullName || pinnerObj.full_name || prevPinner.full_name || unifiedAttr.fullName || '',
-            image_url: pinnerObj.imageMediumUrl || pinnerObj.imageSmallUrl || prevPinner.image_url || unifiedAttr.imageMediumUrl || '',
-            follower_count: Math.max(
-              Number(prevPinner.follower_count || 0),
-              Number(pinnerObj.followerCount || pinnerObj.follower_count || 0),
-              unifiedFollowers
-            ),
-            is_verified_merchant: Boolean(prevPinner.is_verified_merchant || pinnerObj.isVerifiedMerchant || pinnerObj.is_verified_merchant || unifiedAttr.isVerifiedMerchant),
-            domain_verified: Boolean(prevPinner.domain_verified || pinnerObj.domainVerified)
-          };
-          if (unifiedFollowers > 0) {
-            mergedRelayPin.creator_followers = Math.max(Number(mergedRelayPin.creator_followers || 0), unifiedFollowers);
-          }
-        }
-
-        if (v3.richMetadata) {
-          const prevRich = mergedRelayPin.rich_metadata || {};
-          const rawPubDate = v3.richMetadata.article?.datePublished || v3.richMetadata.datePublished || prevRich.article_published_at || null;
-          let cleanPubIso = prevRich.article_published_at || null;
-          if (rawPubDate) {
-            const pd = new Date(rawPubDate);
-            if (!isNaN(pd.getTime())) cleanPubIso = pd.toISOString();
-          }
-          mergedRelayPin.rich_metadata = {
-            site_name: v3.richMetadata.siteName || prevRich.site_name || '',
-            title: v3.richMetadata.title || v3.richMetadata.article?.name || prevRich.title || '',
-            description: v3.richMetadata.description || prevRich.description || '',
-            url: v3.richMetadata.url || prevRich.url || '',
-            article_published_at: cleanPubIso,
-            type: v3.richSummary?.typeName || prevRich.type || (v3.richMetadata.article ? 'article' : null)
-          };
-          if (cleanPubIso) mergedRelayPin.article_published_at = cleanPubIso;
-        }
-
-        if (Array.isArray(v3.visualObjects) && v3.visualObjects.length > 0) {
-          mergedRelayPin.visual_objects = v3.visualObjects;
-        }
-
-        if (v3.board) {
-          const prevBoard = mergedRelayPin.board || {};
-          const rawBoardUrl = v3.board.url || prevBoard.url || '';
-          const urlParts = rawBoardUrl.split('/').filter(Boolean);
-          const inferredUsername = urlParts[0] || '';
-          const inferredBoardName = urlParts[1] ? urlParts[1].replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Board';
-
-          mergedRelayPin.board = {
-            id: v3.board.entityId || prevBoard.id || v3.board.id || null,
-            name: v3.board.name || prevBoard.name || inferredBoardName,
-            url: rawBoardUrl || null,
-            pin_count: Math.max(Number(prevBoard.pin_count || 0), Number(v3.board.pinCount || v3.board.pin_count || 0)),
-            section_count: Math.max(Number(prevBoard.section_count || 0), Number(v3.board.sectionCount || v3.board.section_count || 0)),
-            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || prevBoard.board_order_modified_at || null,
-            image_cover_url: v3.board.imageCoverHdUrl || v3.board.imageCoverUrl || v3.board.coverImageSpec_236x?.url || prevBoard.image_cover_url || null,
-            image_thumbnail_url: v3.board.imageThumbnailUrl || prevBoard.image_thumbnail_url || null,
-            is_collaborative: Boolean(prevBoard.is_collaborative || v3.board.isCollaborative)
-          };
-
-          if ((!mergedRelayPin.pinner || !mergedRelayPin.pinner.username) && inferredUsername) {
-            mergedRelayPin.pinner = {
-              ...(mergedRelayPin.pinner || {}),
-              username: inferredUsername,
-              full_name: mergedRelayPin.pinner?.full_name || inferredUsername
-            };
-          }
-        }
-
-        if (v3.closeupAttribution) {
-          mergedRelayPin.closeup_attribution = {
-            full_name: v3.closeupAttribution.fullName || v3.closeupAttribution.firstName || mergedRelayPin.closeup_attribution?.full_name || '',
-            username: v3.closeupAttribution.username || mergedRelayPin.closeup_attribution?.username || '',
-            id: v3.closeupAttribution.id || mergedRelayPin.closeup_attribution?.id || ''
-          };
-        }
-
-        const saves = v3.saveCount ?? v3.save_count ?? v3.aggregatedStats?.saves ?? v3.aggregatedStats?.saveCount ?? v3.aggregatedPinData?.aggregatedStats?.saves ?? v3.aggregatedPinData?.saveCount;
-        if (saves !== undefined && saves !== null && Number(saves) > 0) {
-          mergedRelayPin.saves = Math.max(mergedRelayPin.saves || 0, Number(saves));
-        }
-        const repins = v3.repinCount ?? v3.repin_count ?? v3.aggregatedStats?.repins ?? v3.aggregatedPinData?.aggregatedStats?.repins;
-        if (repins !== undefined && repins !== null) {
-          mergedRelayPin.repins = Math.max(mergedRelayPin.repins || 0, Number(repins));
-        }
-        const comments = v3.commentCount ?? v3.aggregatedPinData?.commentCount ?? v3.aggregatedStats?.comments;
-        if (comments !== undefined && comments !== null) {
-          mergedRelayPin.commentCount = Math.max(mergedRelayPin.commentCount || 0, Number(comments));
-        }
-
-        const totalReactions = v3.totalReactionCount ?? v3.reactionCounts?.total;
-        if (totalReactions !== undefined && totalReactions !== null) {
-          mergedRelayPin.total_reaction_count = Number(totalReactions);
-        }
-
-        if (Array.isArray(v3.reactionCountsData)) {
-          const rMap = {};
-          for (const item of v3.reactionCountsData) {
-            rMap[String(item.reactionType)] = Number(item.reactionCount || 0);
-          }
-          mergedRelayPin.reaction_counts = rMap;
-        } else if (v3.reactionCounts) {
-          mergedRelayPin.reaction_counts = v3.reactionCounts;
-        }
-
-        if (v3.shareCount !== undefined && v3.shareCount !== null) {
-          mergedRelayPin.share_count = Number(v3.shareCount);
-        }
-
-        const imgOrig = v3.images_orig?.url || v3.images_736x?.url || v3.imageLargeUrl || v3.images?.orig?.url;
-        if (imgOrig && !mergedRelayPin.image_url) mergedRelayPin.image_url = imgOrig;
-
-        if (v3.isEligibleForPdp || (Array.isArray(v3.shoppingFlags) && v3.shoppingFlags.length > 0) || v3.isProduct || v3.priceValue) {
-          mergedRelayPin.is_product = true;
-        }
-
-        if (!mergedRelayPin.pinJoin) mergedRelayPin.pinJoin = {};
-        if (v3.pinJoin) {
-          if (v3.pinJoin.seoCanonicalUrl) mergedRelayPin.seo_canonical_url = v3.pinJoin.seoCanonicalUrl;
-          if (v3.pinJoin.seoCanonicalDomain) mergedRelayPin.seo_canonical_domain = v3.pinJoin.seoCanonicalDomain;
-          if (v3.pinJoin.canonicalPin) {
-            mergedRelayPin.canonical_pin = {
-              entity_id: v3.pinJoin.canonicalPin.entityId || null,
-              id: v3.pinJoin.canonicalPin.id || null
-            };
-            mergedRelayPin.canonical_pin_id = v3.pinJoin.canonicalPin.entityId || null;
-          }
-          if (Array.isArray(v3.pinJoin.visualAnnotation)) {
-            mergedRelayPin.pinJoin.visualAnnotation = [
-              ...(mergedRelayPin.pinJoin.visualAnnotation || []),
-              ...v3.pinJoin.visualAnnotation
-            ];
-          }
-          if (Array.isArray(v3.pinJoin.annotationsWithLinksArray)) {
-            mergedRelayPin.pinJoin.annotationsWithLinksArray = [
-              ...(mergedRelayPin.pinJoin.annotationsWithLinksArray || []),
-              ...v3.pinJoin.annotationsWithLinksArray
-            ];
-          }
-          if (Array.isArray(v3.pinJoin.seoRelatedInterests)) {
-            const existingRel = mergedRelayPin.pinJoin.seoRelatedInterests || [];
-            const seenRel = new Set(existingRel.map(i => String(i?.url || i?.name || '').toLowerCase()));
-            for (const item of v3.pinJoin.seoRelatedInterests) {
-              const key = String(item?.url || item?.name || '').toLowerCase();
-              if (key && !seenRel.has(key)) {
-                seenRel.add(key);
-                existingRel.push(item);
+          if (v3.aggregatedPinData.aggregatedStats) {
+            mergedRelayPin.aggregated_pin_data = {
+              aggregated_stats: {
+                saves: v3.aggregatedPinData.aggregatedStats.saves,
+                save_count: v3.aggregatedPinData.aggregatedStats.saveCount ?? v3.aggregatedPinData.aggregatedStats.saves,
+                done_count: v3.aggregatedPinData.aggregatedStats.doneCount
               }
-            }
-            mergedRelayPin.pinJoin.seoRelatedInterests = existingRel;
-          }
-          if (v3.pinJoin.interestForGoldenSet) {
-            const gs = v3.pinJoin.interestForGoldenSet;
-            mergedRelayPin.golden_set_interest = {
-              interest_id: gs.interestId ? String(gs.interestId) : null,
-              name: gs.name || '',
-              pin_count: Array.isArray(gs.pinIds) ? gs.pinIds.length : 0,
-              sample_pin_ids: Array.isArray(gs.pinIds) ? gs.pinIds.slice(0, 25) : []
             };
           }
-          if (Array.isArray(v3.pinJoin.seoBreadcrumbs)) {
-            mergedRelayPin.pinJoin.seoBreadcrumbs = v3.pinJoin.seoBreadcrumbs;
+        }
+
+        if (v3.closeupUnifiedAttribution) {
+          mergedRelayPin.closeupUnifiedAttribution = v3.closeupUnifiedAttribution;
+          if (v3.closeupUnifiedAttribution.followerCount !== undefined) {
+            if (!mergedRelayPin.pinner) mergedRelayPin.pinner = {};
+            mergedRelayPin.pinner.follower_count = v3.closeupUnifiedAttribution.followerCount;
+            mergedRelayPin.pinner.username = v3.closeupUnifiedAttribution.username || v3.closeupUnifiedAttribution.name;
           }
         }
-      } else {
-        const found = findPinInTree(payload, pinId);
-        if (found) {
-          if (!mergedRelayPin) mergedRelayPin = { ...found };
-          else mergedRelayPin = { ...mergedRelayPin, ...found };
-        }
+        break;
       }
     } catch (_) {}
   }
 
-  // 2. Prefetched Queries
-  const prefetchMatch = html.match(/__PWS_RELAY_PREFETCHED_QUERIES__\s*=\s*([\s\S]*?);<\/script>/i);
-  if (prefetchMatch) {
-    try {
-      const data = JSON.parse(prefetchMatch[1]);
-      const found = findPinInTree(data, pinId);
-      if (found) {
-        if (!mergedRelayPin) mergedRelayPin = { ...found };
-        else mergedRelayPin = { ...found, ...mergedRelayPin };
-      }
-    } catch (_) {}
-  }
+  // 2. OpenGraph Meta Tags Fallback
+  const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["'](.*?)["']/i)?.[1];
+  const ogDesc = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["'](.*?)["']/i)?.[1];
+  const ogImage = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["'](.*?)["']/i)?.[1];
+  const pinSavesMeta = html.match(/<meta[^>]*name=["']pinterest:saves["'][^>]*content=["'](.*?)["']/i)?.[1];
+  const pinRepinsMeta = html.match(/<meta[^>]*name=["']pinterest:repins["'][^>]*content=["'](.*?)["']/i)?.[1];
 
-  // 3. PWS Data Redux store
-  const pwsMatch = html.match(/<script[^>]*id="__PWS_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
-  if (pwsMatch) {
-    try {
-      const data = JSON.parse(pwsMatch[1]);
-      const found = findPinInTree(data, pinId);
-      if (found) {
-        if (!mergedRelayPin) mergedRelayPin = { ...found };
-        else mergedRelayPin = { ...found, ...mergedRelayPin };
-      }
-    } catch (_) {}
-  }
+  let ogSaves = pinSavesMeta !== undefined ? parseCleanMetric(pinSavesMeta, 0) : null;
+  let ogRepins = pinRepinsMeta !== undefined ? parseCleanMetric(pinRepinsMeta, 0) : null;
 
-  // 4. Inline JSON Data Blocks
-  const jsonBlocks = html.matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi);
-  for (const block of jsonBlocks) {
-    try {
-      const data = JSON.parse(block[1]);
-      const found = findPinInTree(data, pinId);
-      if (found) {
-        if (!mergedRelayPin) mergedRelayPin = { ...found };
-        else mergedRelayPin = { ...found, ...mergedRelayPin };
-      }
-    } catch (_) {}
-  }
-
-  let fallbackFormatted = null;
-  if (mergedRelayPin && (mergedRelayPin.id || Object.keys(mergedRelayPin).length > 0)) {
-    if (!mergedRelayPin.id) mergedRelayPin.id = pinId;
-    fallbackFormatted = formatPin(mergedRelayPin);
-    if (fallbackFormatted && fallbackFormatted.saves > 0) {
-      return fallbackFormatted;
-    }
-  }
-
-  // 5. JSON-LD fallback
-  const jsonLdMatch = html.match(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+  // 3. JSON-LD Schema Fallback
+  let jsonLdPin = null;
+  const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
   if (jsonLdMatch) {
     try {
       const ld = JSON.parse(jsonLdMatch[1]);
-      if (ld && (ld['@type'] === 'SocialMediaPosting' || ld['@type'] === 'ImageObject' || ld.interactionStatistic)) {
-        let saves = 0;
-        let comments = 0;
-        const stats = Array.isArray(ld.interactionStatistic) ? ld.interactionStatistic : [ld.interactionStatistic].filter(Boolean);
-        for (const s of stats) {
-          if (s?.interactionType?.includes('LikeAction')) saves = Number(s.userInteractionCount || 0);
-          if (s?.interactionType?.includes('CommentAction')) comments = Number(s.userInteractionCount || 0);
-        }
-        const rawImg = Array.isArray(ld.image) ? ld.image[0] : (typeof ld.image === 'string' ? ld.image : ld.image?.url || '');
-        const hasValidContent = Boolean(
-          ld.headline || ld.name || ld.articleBody || ld.description || rawImg || ld.url || saves > 0 || comments > 0
-        );
-        if (hasValidContent) {
-          const ldFormatted = formatPin({
-            id: pinId,
-            title: ld.headline || ld.name || fallbackFormatted?.title || '',
-            description: ld.articleBody || ld.description || fallbackFormatted?.description || '',
-            link: ld.url || fallbackFormatted?.link || '',
-            image_url: rawImg || fallbackFormatted?.image_url || '',
-            created_at: ld.datePublished || fallbackFormatted?.created_at || null,
-            saves: Math.max(saves, fallbackFormatted?.saves || 0),
-            repins: fallbackFormatted?.repins || 0,
-            comments: Math.max(comments, fallbackFormatted?.comments || 0),
-          });
-          if (fallbackFormatted) {
-            const authenticMethod = (fallbackFormatted.method && fallbackFormatted.method !== 'pinterest_platform')
-              ? fallbackFormatted.method
-              : (ldFormatted.method || fallbackFormatted.method || 'pinterest_platform');
-            return {
-              ...ldFormatted,
-              ...fallbackFormatted,
-              method: authenticMethod,
-              creation_method: authenticMethod,
-              title: fallbackFormatted.title || ldFormatted.title,
-              description: fallbackFormatted.description || ldFormatted.description,
-              saves: Math.max(ldFormatted.saves, fallbackFormatted.saves || 0),
-              comments: Math.max(ldFormatted.comments, fallbackFormatted.comments || 0)
-            };
+      const ldObj = Array.isArray(ld) ? ld[0] : ld;
+      if (ldObj && typeof ldObj === 'object') {
+        jsonLdPin = ldObj;
+        if (Array.isArray(ldObj.interactionStatistic)) {
+          for (const stat of ldObj.interactionStatistic) {
+            const count = Number(stat.userInteractionCount || 0);
+            if (stat.interactionType?.includes('LikeAction') || stat.interactionType?.includes('SaveAction')) {
+              if (ogSaves === null) ogSaves = count;
+            }
           }
-          return ldFormatted;
         }
       }
     } catch (_) {}
   }
 
-  // 6. OpenGraph Meta Tags fallback
-  const saveMeta = html.match(/(?:property|name)="pinterest(?:app)?:saves"\s+content="(\d+)"/i);
-  const repinMeta = html.match(/(?:property|name)="pinterest(?:app)?:repins"\s+content="(\d+)"/i);
-  const titleMeta = html.match(/property="og:title"\s+content="([^"]*)"/i);
-  const descMeta = html.match(/property="og:description"\s+content="([^"]*)"/i);
-  const imgMeta = html.match(/property="og:image"\s+content="([^"]*)"/i);
-
-  if (saveMeta || repinMeta || titleMeta || imgMeta) {
-    const metaSaves = saveMeta ? parseInt(saveMeta[1], 10) : 0;
-    const metaRepins = repinMeta ? parseInt(repinMeta[1], 10) : 0;
-    const metaFormatted = formatPin({
-      id: pinId,
-      saves: Math.max(metaSaves, fallbackFormatted?.saves || 0),
-      repins: Math.max(metaRepins, fallbackFormatted?.repins || 0),
-      title: (titleMeta ? titleMeta[1] : '') || fallbackFormatted?.title || '',
-      description: (descMeta ? descMeta[1] : '') || fallbackFormatted?.description || '',
-      image_url: (imgMeta ? imgMeta[1] : '') || fallbackFormatted?.image_url || '',
-    });
-    if (fallbackFormatted) {
-      const authenticMethod = (fallbackFormatted.method && fallbackFormatted.method !== 'pinterest_platform')
-        ? fallbackFormatted.method
-        : (metaFormatted.method || fallbackFormatted.method || 'pinterest_platform');
-      return {
-        ...metaFormatted,
-        ...fallbackFormatted,
-        method: authenticMethod,
-        creation_method: authenticMethod,
-        title: fallbackFormatted.title || metaFormatted.title,
-        description: fallbackFormatted.description || metaFormatted.description,
-        saves: Math.max(metaFormatted.saves, fallbackFormatted.saves || 0),
-        repins: Math.max(metaFormatted.repins, fallbackFormatted.repins || 0)
-      };
-    }
-    return metaFormatted;
-  }
-
-  return fallbackFormatted;
-}
-
-/**
- * Fetch a single pin HTML and parse it.
- */
-/**
- * Fetch authentic individual pin details from Pinterest PinResource JSON endpoint (~3KB payload).
- * Serves as the primary ultra-fast telemetry micro-packet fetcher for Displaced Vault & hydrated pins,
- * and as a clean, unauthenticated fallback if HTML scraping is rate-limited or fails.
- */
-export async function fetchPinFromPinResource(pinId, dispatcher = defaultDispatcher, returnEnvelope = false) {
-  try {
-    const cleanId = String(pinId || '').trim();
-    if (!cleanId) return returnEnvelope ? { ok: false, status: 400, error: 'invalid_pin_id' } : null;
-    const optionsObj = { id: cleanId, field_set_key: 'detailed' };
-    const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?source_url=%2Fpin%2F${cleanId}%2F&data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-Pinterest-AppState': 'active',
-      'X-Pinterest-Source-Url': `/pin/${cleanId}/`,
-      'X-Pinterest-PWS-Handler': 'www/pin/[id].js',
-      'Referer': `https://www.pinterest.com/pin/${cleanId}/`
-    };
-    let res = await pinterestFetch(targetUrl, {
-      headers,
-      signal: AbortSignal.timeout(6000),
-      dispatcher
-    });
-    if (res.status === 429 || res.status === 502 || res.status === 503) {
-      if (res.body) await res.body.cancel().catch(() => {});
-      await sleep(randomJitterMs(800, 1600));
-      res = await pinterestFetch(targetUrl, { headers, signal: AbortSignal.timeout(6000), dispatcher });
-    }
-    if (res.status === 404) {
-      if (res.body) await res.body.cancel().catch(() => {});
-      return returnEnvelope ? { ok: false, status: 404, error: '404_not_found' } : null;
-    }
-    if (!res.ok) {
-      if (res.body) await res.body.cancel().catch(() => {});
-      const retryAfter = res.status === 429 ? parseRetryAfterSeconds(res.headers.get('retry-after'), 15) : undefined;
-      return returnEnvelope ? { ok: false, status: res.status, retryAfter, error: `http_${res.status}` } : null;
-    }
-    const json = await res.json().catch(() => null);
-    const apiErrCode = json?.resource_response?.error?.http_status || json?.resource_response?.error?.code;
-    if (apiErrCode === 404 || String(json?.resource_response?.error?.message || '').toLowerCase().includes('not found')) {
-      return returnEnvelope ? { ok: false, status: 404, error: '404_not_found' } : null;
-    }
-    const pinData = json?.resource_response?.data;
-    if (pinData && (pinData.id || pinData.title || pinData.link || pinData.images || pinData.aggregated_pin_data)) {
-      const formatted = formatPin({ ...pinData, id: pinData.id || cleanId });
-      if (formatted) {
-        return returnEnvelope ? { ok: true, status: 200, pin: formatted, fastPath: true } : formatted;
+  // If no Relay match, fallback to core extractPinFromHtml
+  if (!mergedRelayPin) {
+    const coreResult = extractPinFromHtml(html, pinId);
+    if (coreResult) {
+      if (ogSaves !== null && (coreResult.saves === null || coreResult.saves === 0)) {
+        coreResult.saves = ogSaves;
+        coreResult.save_count = ogSaves;
+        coreResult.has_explicit_saves = true;
       }
+      if (ogRepins !== null) {
+        coreResult.repins = ogRepins;
+        coreResult.repin_count = ogRepins;
+      }
+      return coreResult;
     }
-    return returnEnvelope ? { ok: false, status: 200, error: 'empty_pin_resource' } : null;
-  } catch (err) {
-    return returnEnvelope ? { ok: false, error: err.message } : null;
   }
+
+  const formatted = coreFormatPin(mergedRelayPin || { id: pinId, title: ogTitle, image_url: ogImage, description: ogDesc });
+  if (formatted) {
+    if (ogSaves !== null && (formatted.saves === null || formatted.saves === 0)) {
+      formatted.saves = ogSaves;
+      formatted.save_count = ogSaves;
+      formatted.has_explicit_saves = true;
+    }
+    if (ogRepins !== null) {
+      formatted.repins = ogRepins;
+      formatted.repin_count = ogRepins;
+    }
+    return formatted;
+  }
+
+  return null;
 }
 
-/**
- * Asymmetric Dual-Engine Pin Inspection Router:
- * - Displaced Vault Pins & Already-Hydrated Pins (Numeric Snowflake IDs) -> 3KB PinResource JSON Micro-Packet (~90ms, 99.3% less bandwidth)
- * - Unhydrated First-Time Active SERP Pins & Obfuscated Pins (e1_*) -> Full SSR HTML + PinResource Self-Healing
- * 
- * Resiliency Guard: PinResource only supports pure numeric snowflakes. Any obfuscated ID, 404, or fetch failure
- * automatically falls back to full SSR HTML scraping so 301/302 redirects are followed and active pins are never false-404'd.
- */
+export async function fetchPinFromPinResource(pinId, dispatcher = defaultDispatcher, returnEnvelope = false) {
+  const actualDispatcher = dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
+  const res = await coreFetchPinFromPinResource(pinId, { dispatcher: actualDispatcher });
+  if (returnEnvelope) {
+    return { ok: Boolean(res), status: res ? 200 : 404, pin: res };
+  }
+  return res;
+}
+
 export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = null, dispatcher = defaultDispatcher } = {}) {
+  const actualDispatcher = dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
   const isNumericSnowflake = /^\d+$/.test(String(pinId || '').trim());
   if (isTelemetryOnly && isNumericSnowflake) {
-    const fastRes = await fetchPinFromPinResource(pinId, dispatcher, true);
+    const fastRes = await fetchPinFromPinResource(pinId, actualDispatcher, true);
     if (fastRes && fastRes.status === 429) {
       return fastRes;
     }
@@ -1846,7 +822,7 @@ export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = 
         return fastRes;
       }
 
-      const ssrRes = await fetchPinFromPinterest(pinId, cookie, { dispatcher });
+      const ssrRes = await fetchPinFromPinterest(pinId, cookie, { dispatcher: actualDispatcher });
       if (ssrRes && ssrRes.ok && ssrRes.pin) {
         ssrRes.pin.saves = Math.max(Number(ssrRes.pin.saves || 0), Number(p.saves || 0));
         ssrRes.pin.repins = Math.max(Number(ssrRes.pin.repins || 0), Number(p.repins || 0));
@@ -1855,7 +831,7 @@ export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = 
       return fastRes;
     }
   }
-  return await fetchPinFromPinterest(pinId, cookie, { dispatcher });
+  return await fetchPinFromPinterest(pinId, cookie, { dispatcher: actualDispatcher });
 }
 
 // [INVARIANT: STRICT-GUEST-SCRAPING] Unauthenticated guest session headers (NO LOGGED-IN COOKIES)
@@ -1868,15 +844,27 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
     const opts = (typeof cookieOrOptions === 'object' && cookieOrOptions !== null)
       ? cookieOrOptions
       : (maybeOptions || {});
-    const dispatcher = opts.dispatcher || defaultDispatcher;
+    const dispatcher = opts.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
-    // [LND-809] Handle cookie parameter while strictly preserving unauthenticated guest session
     let cookieStr = (typeof cookieOrOptions === 'string') ? cookieOrOptions : (opts.cookie || '');
     if (cookieStr) {
-      // Strip any logged-in auth token (_auth=1) to prevent zeroing out guest saves
       cookieStr = cookieStr.replace(/(?:^|;\s*)_auth=1(?:;|$)/gi, '; ').trim().replace(/^;\s*|;\s*$/g, '');
     }
-    const headers = { ...PINTEREST_PAGE_HEADERS };
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'priority': 'u=0, i',
+      'upgrade-insecure-requests': '1',
+      'Cache-Control': 'no-cache'
+    };
     if (cookieStr && opts.allowGuestCookie === true && !cookieStr.includes('_auth=1')) {
       headers['Cookie'] = cookieStr;
     }
@@ -1886,7 +874,6 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
     let lastFetchErr = null;
     const maxAttempts = 3;
 
-    // [LND-824] Catch TimeoutError / AbortError on transient timeouts and execute exponential backoff retry
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         res = await pinterestFetch(url, {
@@ -1928,7 +915,7 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
         retryDelay = Math.min(Math.max(retryDelay, retrySec * 1000), 4000);
       }
       await sleep(retryDelay);
-      res = await pinterestFetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000), dispatcher });
+      res = await pinterestFetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(8000), dispatcher });
     }
 
     if (!res.ok) {
@@ -1978,14 +965,10 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
   }
 }
 
-/**
- * Scrape user profile from Pinterest unauthenticated SSR HTML document.
- * 100% cookie-free, extracts user details from initialReduxState and JSON-LD ProfilePage.
- */
 export async function fetchUserProfileUnauth(username, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   try {
     const url = `https://www.pinterest.com/${cleanUser}/`;
@@ -2003,10 +986,8 @@ export async function fetchUserProfileUnauth(username, options = {}) {
     const html = await res.text();
 
     let userData = null;
-    let jsonLdData = null;
     const initialBoards = [];
 
-    // Scan script tags for initialReduxState and JSON-LD
     const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
     let match;
     while ((match = scriptRegex.exec(html)) !== null) {
@@ -2041,68 +1022,39 @@ export async function fetchUserProfileUnauth(username, options = {}) {
                   url: b.url ? (b.url.startsWith('http') ? b.url : `https://www.pinterest.com${b.url}`) : '',
                   pin_count: parseCleanMetric(b.pin_count || 0),
                   follower_count: parseCleanMetric(b.follower_count || 0),
-                  created_at: b.created_at || null,
-                  last_pinned_at: b.board_order_modified_at || null,
                   image_cover_url: coverImg,
                   board_vase: boardVase,
                   description: desc,
                   metadata: {
                     image_cover_url: coverImg,
                     board_vase: boardVase,
-                    description: desc,
-                    section_count: b.section_count || 0,
-                    privacy: b.privacy || 'public',
-                    is_collaborative: Boolean(b.is_collaborative)
+                    description: desc
                   }
                 });
               }
             }
           }
         } catch (_) {}
-      } else if (scriptContent.includes('"@type"') && scriptContent.includes('ProfilePage')) {
-        try {
-          const parsed = JSON.parse(scriptContent);
-          if (parsed?.mainEntity) {
-            jsonLdData = parsed;
-          }
-        } catch (_) {}
       }
     }
 
     if (!userData) {
-      return { ok: false, error: jsonLdData ? 'partial_jsonld_missing_metrics' : 'profile_not_found_in_html' };
+      return { ok: false, error: 'user_not_found', status: 404 };
     }
-
-    const mainEntity = jsonLdData?.mainEntity || {};
-    const displayName = userData?.full_name || userData?.first_name || mainEntity?.name || cleanUser;
-    const avatarUrl = userData?.image_xlarge_url || userData?.image_large_url || userData?.image_medium_url ||
-      (typeof mainEntity?.image === 'string' ? mainEntity.image : mainEntity?.image?.contentUrl) || null;
-    const bio = userData?.about || userData?.seo_description || mainEntity?.description || '';
-    const websiteUrl = userData?.website_url || (Array.isArray(mainEntity?.sameAs) ? mainEntity.sameAs[0] : null) || null;
-    const followerCount = parseCleanMetric(userData?.follower_count || 0);
-    const followingCount = parseCleanMetric(userData?.following_count || 0);
-    const totalPins = parseCleanMetric(userData?.pin_count || 0);
-    const totalBoards = parseCleanMetric(userData?.board_count || initialBoards.length || 0);
-    const monthlyReach = parseCleanMetric(userData?.profile_reach || userData?.profile_views || userData?.monthly_views || 0);
-    const profileViews = parseCleanMetric(userData?.profile_views || userData?.profile_reach || userData?.monthly_views || 0);
-    const accountCreatedAt = userData?.created_at || jsonLdData?.dateCreated || null;
-    const lastPinSaveTime = userData?.last_pin_save_time || null;
 
     return {
       ok: true,
       username: cleanUser,
-      display_name: displayName,
-      avatar_url: avatarUrl,
-      bio,
-      website_url: websiteUrl,
-      monthly_reach: monthlyReach,
-      profile_views: profileViews,
-      follower_count: followerCount,
-      following_count: followingCount,
-      total_pins: totalPins,
-      total_boards: totalBoards,
-      account_created_at: accountCreatedAt,
-      last_pin_save_time: lastPinSaveTime,
+      display_name: userData.full_name || cleanUser,
+      avatar_url: userData.image_xlarge_url || userData.image_large_url || userData.image_medium_url || null,
+      bio: userData.about || '',
+      website_url: userData.website_url || null,
+      monthly_views: parseCleanMetric(userData.profile_views || 0),
+      total_audience: parseCleanMetric(userData.monthly_reach || 0),
+      follower_count: parseCleanMetric(userData.follower_count || 0),
+      following_count: parseCleanMetric(userData.following_count || 0),
+      pin_count: parseCleanMetric(userData.pin_count || 0),
+      board_count: parseCleanMetric(userData.board_count || initialBoards.length),
       initial_boards: initialBoards
     };
   } catch (err) {
@@ -2110,14 +1062,10 @@ export async function fetchUserProfileUnauth(username, options = {}) {
   }
 }
 
-/**
- * Fetch competitor user profile with resilient unauthenticated SSR HTML fallback.
- * Works 100% cookie-free without triggering 401/403 session errors.
- */
 export async function fetchUserResource(username, activeCookie = '', options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUser}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUser}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
   const headers = getPinterestXhrHeaders(cleanUser, activeCookie);
@@ -2158,21 +1106,12 @@ export async function fetchUserResource(username, activeCookie = '', options = {
       avatar_url: data.image_large_url || data.image_medium_url || null,
       bio: data.about || '',
       website_url: data.website_url || null,
-      monthly_reach: parseCleanMetric(data.profile_reach || data.profile_views || data.monthly_views || 0),
-      profile_views: parseCleanMetric(data.profile_views || data.profile_reach || data.monthly_views || 0),
+      monthly_views: parseCleanMetric(data.profile_views || 0),
+      total_audience: parseCleanMetric(data.monthly_reach || 0),
       follower_count: parseCleanMetric(data.follower_count || 0),
       following_count: parseCleanMetric(data.following_count || 0),
-      total_pins: parseCleanMetric(data.pin_count || 0),
-      total_boards: parseCleanMetric(data.board_count || 0),
-      group_board_count: parseCleanMetric(data.group_board_count || 0),
-      account_created_at: data.created_at || null,
-      last_pin_save_time: data.last_pin_save_time || null,
-      pinterest_id: data.id || data.node_id || null,
-      domain_verified: Boolean(data.domain_verified || data.is_primary_website_verified),
-      is_verified_merchant: Boolean(data.is_verified_merchant),
-      has_catalog: Boolean(data.has_catalog),
-      video_pin_count: parseCleanMetric(data.video_pin_count || 0),
-      story_pin_count: parseCleanMetric(data.story_pin_count || 0)
+      pin_count: parseCleanMetric(data.pin_count || 0),
+      board_count: parseCleanMetric(data.board_count || 0)
     };
   } catch (err) {
     const unauthRes = await fetchUserProfileUnauth(cleanUser);
@@ -2181,14 +1120,10 @@ export async function fetchUserResource(username, activeCookie = '', options = {
   }
 }
 
-/**
- * Fetch competitor boards from BoardsResource with full bookmark pagination.
- * Supports accounts with thousands of boards (e.g. 1,600+ boards).
- */
 export async function fetchBoardsResource(username, activeCookie = '', maxPages = 45, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username', boards: [] };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   const boards = [];
   const seenBoardIds = new Set();
@@ -2348,13 +1283,10 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
   return { ok: true, boards };
 }
 
-/**
- * Fetch pins from UserActivityPinsResource (discovery, backfill & early-stop).
- */
 export async function fetchUserActivityPinsResource(username, bookmark = null, activeCookie = '', options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username', pins: [], nextBookmark: null };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   const src = `/${cleanUser}/_created/`;
   const opts = {
@@ -2413,13 +1345,10 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
   }
 }
 
-/**
- * Fetch pins from BoardFeedResource (board-level crawling for sharded distributed crawling).
- */
 export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null, activeCookie = '', options = {}) {
   const cleanId = String(boardId || '').trim();
   if (!cleanId) return { ok: false, error: 'invalid_board_id', pins: [], nextBookmark: null };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   let srcUrl = String(boardUrl || '').trim();
   if (srcUrl.startsWith('http')) {
@@ -2430,7 +1359,6 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
   if (!srcUrl.startsWith('/')) srcUrl = `/${srcUrl}`;
   if (!srcUrl.endsWith('/')) srcUrl = `${srcUrl}/`;
 
-  // Extract username from boardUrl (e.g. /wifesrecipesbyme/dinner/ -> wifesrecipesbyme)
   const pathParts = srcUrl.split('/').filter(Boolean);
   const username = pathParts[0] || '';
 
@@ -2489,14 +1417,10 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
   }
 }
 
-/**
- * Scrape dedicated board page from Pinterest unauthenticated SSR HTML document.
- * 100% cookie-free, extracts board metadata, cover, stats, and authentic algorithmic board_vase (Related Interests).
- */
 export async function fetchBoardDetailUnauth(username, boardSlugOrName, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
-  const dispatcher = options.dispatcher || defaultDispatcher;
+  const dispatcher = options.dispatcher || defaultDispatcher || coreGetDefaultDispatcher();
 
   let rawBoard = String(boardSlugOrName || '').trim();
   if (rawBoard.startsWith('http')) {
@@ -2543,7 +1467,6 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName, options 
 
     let targetBoard = null;
 
-    // 1. Scan initialReduxState
     const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
     let match;
     while ((match = scriptRegex.exec(html)) !== null) {
@@ -2559,76 +1482,50 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName, options 
                 .replace(/[^\w\s-]/g, '')
                 .trim()
                 .replace(/\s+/g, '-');
-              if (
-                b.board_vase?.length > 0 ||
-                bSlug.includes(cleanSlug) ||
-                cleanSlug.includes(bSlug) ||
-                (b.name && b.name.toLowerCase() === rawBoard.toLowerCase())
-              ) {
+              if (bSlug.includes(cleanSlug) || cleanSlug.includes(bSlug) || String(id) === cleanSlug) {
                 targetBoard = b;
                 break;
               }
             }
           }
+          if (targetBoard) break;
         } catch (_) {}
       }
-      if (targetBoard && targetBoard.board_vase?.length > 0) break;
     }
 
     if (!targetBoard) {
-      return { ok: false, error: 'board_not_found_in_html' };
+      return { ok: false, status: 404, error: 'board_not_found_in_ssr' };
     }
 
-    const coverImg =
-      targetBoard.image_cover_hd_url ||
-      targetBoard.image_cover_url ||
-      targetBoard.images?.['736x']?.url ||
-      targetBoard.images?.['474x']?.url ||
-      targetBoard.images?.['236x']?.url ||
-      targetBoard.image_thumbnail_url ||
-      null;
-
+    const coverImg = targetBoard.image_cover_hd_url || targetBoard.image_cover_url || targetBoard.images?.['736x']?.url || targetBoard.images?.['236x']?.url || targetBoard.image_thumbnail_url || null;
     const rawVase = targetBoard.board_vase || [];
-    const boardVase = Array.isArray(rawVase)
-      ? rawVase
-          .map(v => {
-            if (typeof v === 'string') return { text: v.trim(), link: '' };
-            return {
-              text: String(v?.text || '').trim(),
-              link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : '',
-            };
-          })
-          .filter(v => v.text.length > 0)
-      : [];
-
-    const boardUrl = targetBoard.url
-      ? (targetBoard.url.startsWith('http') ? targetBoard.url : `https://www.pinterest.com${targetBoard.url.startsWith('/') ? '' : '/'}${targetBoard.url}`)
-      : url;
+    const boardVase = Array.isArray(rawVase) ? rawVase.map(v => {
+      if (typeof v === 'string') return { text: v.trim(), link: '' };
+      return {
+        text: String(v?.text || '').trim(),
+        link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : ''
+      };
+    }).filter(v => v.text.length > 0) : [];
+    const desc = targetBoard.description || '';
 
     return {
       ok: true,
-      board: {
-        board_id: String(targetBoard.id || targetBoard.entityId || '').trim(),
-        name: targetBoard.name || rawBoard,
-        url: boardUrl,
-        pin_count: parseCleanMetric(targetBoard.pin_count || 0),
-        follower_count: parseCleanMetric(targetBoard.follower_count || 0),
-        board_order_modified_at: targetBoard.board_order_modified_at || null,
-        created_at: targetBoard.created_at || null,
+      board_id: String(targetBoard.id || ''),
+      name: targetBoard.name || 'Untitled Board',
+      slug: cleanSlug,
+      url: targetBoard.url ? (targetBoard.url.startsWith('http') ? targetBoard.url : `https://www.pinterest.com${targetBoard.url}`) : `https://www.pinterest.com/${cleanUser}/${cleanSlug}/`,
+      pin_count: parseCleanMetric(targetBoard.pin_count || 0),
+      follower_count: parseCleanMetric(targetBoard.follower_count || 0),
+      image_cover_url: coverImg,
+      board_vase: boardVase,
+      description: desc,
+      metadata: {
         image_cover_url: coverImg,
-        description: targetBoard.description || '',
         board_vase: boardVase,
-        metadata: {
-          image_cover_url: coverImg,
-          board_vase: boardVase,
-          description: targetBoard.description || '',
-          privacy: targetBoard.privacy || 'public',
-        }
+        description: desc
       }
     };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 }
-
-

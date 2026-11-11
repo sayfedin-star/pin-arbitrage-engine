@@ -51,24 +51,88 @@ jobs:
           echo "Initiating production auto-deploy to InstaBox machine: ${IB_MACHINE_ID}..."
           IDEMP_KEY="gha-deploy-${IB_MACHINE_ID}-$(date +%s)"
           
-          # 1. Wake or ensure InstaBox VM is awake
-          START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+          # 1. Wake or ensure InstaBox VM is awake with 25s long polling
+          START_RESP=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start?wait=25s" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Idempotency-Key: ${IDEMP_KEY}" \
-            -d '{}' || echo "{}")
+            -d '{}')
           
           echo "Machine wake response: ${START_RESP}"
-          sleep 3
-
-          # 2. Dispatch deployment commands inside /data/app via InstaBox Exec API
-          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && npm ci --omit=dev && (systemctl restart pae-server 2>/dev/null || pm2 restart all 2>/dev/null || pkill -f 'server.mjs' 2>/dev/null || true)"
           
-          echo "Executing deployment command in /data/app..."
-          EXEC_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+          # Verify machine reached running state
+          STATE=$(echo "${START_RESP}" | jq -r '.state // empty')
+          if [ "${STATE}" != "running" ]; then
+            for i in $(seq 1 6); do
+              sleep 5
+              INFO=$(curl -s -f -X GET "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
+                -H "Authorization: Bearer ${IB_API_KEY}")
+              STATE=$(echo "${INFO}" | jq -r '.state // empty')
+              [ "${STATE}" = "running" ] && break
+            done
+          fi
+          if [ "${STATE}" != "running" ]; then
+            echo "❌ Machine ${IB_MACHINE_ID} failed to reach running state (current: ${STATE})"
+            exit 1
+          fi
+
+          # 2. Dispatch deployment commands inside /data/app with automated migrations and sudo restart
+          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && npm ci --omit=dev && node scripts/migrate.mjs && sudo systemctl restart pae-server"
+          
+          echo "Executing deployment and migration command in /data/app..."
+          EXEC_RESP=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "{\"cmd\": [\"bash\", \"-c\", \"${DEPLOY_CMD}\"]}" || echo "{}")
+            -d "{\"cmd\": [\"bash\", \"-c\", \"${DEPLOY_CMD}\"]}")
           
-          echo "Deploy Exec Response: ${EXEC_RESP}"
-          echo "✅ Production on InstaBox machine ${IB_MACHINE_ID} successfully synced with git."
+          EXIT_CODE=$(echo "${EXEC_RESP}" | jq -r '.exitCode // 1')
+          TIMED_OUT=$(echo "${EXEC_RESP}" | jq -r '.timedOut // false')
+          STDOUT=$(echo "${EXEC_RESP}" | jq -r '.stdout // empty')
+          STDERR=$(echo "${EXEC_RESP}" | jq -r '.stderr // empty')
+
+          echo "Deployment STDOUT:"
+          echo "${STDOUT}"
+          if [ "${EXIT_CODE}" != "0" ] || [ "${TIMED_OUT}" = "true" ]; then
+            echo "❌ Deployment failed with exitCode ${EXIT_CODE} (timedOut: ${TIMED_OUT})"
+            echo "STDERR: ${STDERR}"
+            exit 1
+          fi
+
+          # 3. Post-deployment /api/health verification checking deployed commit SHA
+          EXPECTED_SHA="${{ github.sha }}"
+          echo "Verifying health endpoint for deployed commit ${EXPECTED_SHA}..."
+          VERIFIED=0
+          for i in $(seq 1 10); do
+            sleep 3
+            HEALTH_EXEC=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+              -H "Authorization: Bearer ${IB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"cmd\": [\"curl\", \"-s\", \"http://127.0.0.1:3000/api/health\"]}")
+            
+            HEALTH_RAW=$(echo "${HEALTH_EXEC}" | jq -r '.stdout // empty')
+            HEALTH_STATUS=$(echo "${HEALTH_RAW}" | jq -r '.status // empty')
+            HEALTH_COMMIT=$(echo "${HEALTH_RAW}" | jq -r '.commit // empty')
+
+            if [ "${HEALTH_STATUS}" = "healthy" ]; then
+              echo "Health check succeeded: status=${HEALTH_STATUS}, commit=${HEALTH_COMMIT}"
+              if [ -n "${HEALTH_COMMIT}" ] && [ "${HEALTH_COMMIT}" != "unknown" ]; then
+                if [[ "${EXPECTED_SHA}" == "${HEALTH_COMMIT}"* ]] || [[ "${HEALTH_COMMIT}" == "${EXPECTED_SHA}"* ]]; then
+                  echo "✅ Verified deployed commit SHA matches ${EXPECTED_SHA}!"
+                  VERIFIED=1
+                  break
+                fi
+              else
+                echo "✅ Health check succeeded (commit check skipped: '${HEALTH_COMMIT}')"
+                VERIFIED=1
+                break
+              fi
+            fi
+            echo "Attempt $i: waiting for healthy service (status=${HEALTH_STATUS}, commit=${HEALTH_COMMIT})..."
+          done
+
+          if [ "${VERIFIED}" != "1" ]; then
+            echo "❌ Post-deployment health verification failed!"
+            exit 1
+          fi
+
+          echo "✅ Production on InstaBox machine ${IB_MACHINE_ID} successfully deployed, migrated, and verified."

@@ -24,10 +24,32 @@
  * @returns {boolean} True if the transition represents a multi-stage hydration jump
  */
 // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Anti-Hydration Jump Detection
-export function detectHydrationJump(params) {
-  if (!params || typeof params !== 'object') return false;
-  const curSaves = Number(params.currentSaves ?? 0);
-  const prevSaves = Number(params.baselineSaves ?? 0);
+export function detectHydrationJump(params, maybePrevSaves = 0, maybeCurRepins = 0, maybePrevRepins = 0) {
+  let curSaves = 0;
+  let prevSaves = 0;
+  let curRepins = 0;
+  let prevRepins = 0;
+
+  if (typeof params === 'number') {
+    curSaves = params;
+    prevSaves = Number(maybePrevSaves || 0);
+    curRepins = Number(maybeCurRepins || 0);
+    prevRepins = Number(maybePrevRepins || 0);
+  } else if (params && typeof params === 'object') {
+    if (params.prev || params.curr) {
+      curSaves = Number(params.curr?.save_count ?? params.curr?.saves ?? params.curr?.currentSaves ?? 0);
+      prevSaves = Number(params.prev?.save_count ?? params.prev?.saves ?? params.prev?.baselineSaves ?? 0);
+      curRepins = Number(params.curr?.repin_count ?? params.curr?.repins ?? params.curr?.currentRepins ?? 0);
+      prevRepins = Number(params.prev?.repin_count ?? params.prev?.repins ?? params.prev?.baselineRepins ?? 0);
+    } else {
+      curSaves = Number(params.currentSaves ?? params.save_count ?? params.curr_saves ?? params.currSaves ?? 0);
+      prevSaves = Number(params.baselineSaves ?? params.prev_saves ?? params.prevSaves ?? params.base_saves ?? 0);
+      curRepins = Number(params.currentRepins ?? params.repin_count ?? params.curr_repins ?? params.curRepins ?? 0);
+      prevRepins = Number(params.baselineRepins ?? params.prev_repins ?? params.prevRepins ?? params.base_repins ?? 0);
+    }
+  } else {
+    return false;
+  }
 
   if (!Number.isFinite(curSaves) || !Number.isFinite(prevSaves)) return false;
 
@@ -35,9 +57,34 @@ export function detectHydrationJump(params) {
   if (rawDelta === 0) return false;
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
-  // If baseline saves was <= 0 and current saves is positive, this is the first hydration
-  // calibration baseline, strictly not an authentic 24h velocity delta.
+  // 1. prev.save_count <= 0 && curr.save_count > 0
   if (prevSaves <= 0 && curSaves > 0) {
+    return true;
+  }
+
+  // 2. prev.save_count < prev.repin_count
+  if (prevRepins > 0 && prevSaves < prevRepins) {
+    return true;
+  }
+
+  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  const effCurRepins = curRepins > 0 ? curRepins : prevRepins;
+  if (prevRepins > 0 && prevSaves === prevRepins && curSaves > effCurRepins * 1.35) {
+    return true;
+  }
+
+  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
+  if (prevRepins === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5) {
+    return true;
+  }
+
+  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+  if (prevSaves > 0 && (curSaves / prevSaves) >= 4.0 && (curSaves - prevSaves) >= 2500) {
+    return true;
+  }
+
+  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+  if (rawDelta > 2000 && prevSaves < 500 && (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)) {
     return true;
   }
 
@@ -74,6 +121,8 @@ export function calculateDailyVelocity(params) {
   const {
     currentSaves = 0,
     baselineSaves = 0,
+    currentRepins = 0,
+    baselineRepins = 0,
     currentDate = new Date(),
     baselineDate = null,
     maxCap = 25000,
@@ -83,6 +132,8 @@ export function calculateDailyVelocity(params) {
 
   const curSavesNum = Number(currentSaves);
   const baseSavesNum = Number(baselineSaves);
+  const curRepinsNum = Number(params.currentRepins ?? params.curRepins ?? currentRepins ?? 0);
+  const baseRepinsNum = Number(params.baselineRepins ?? params.prevRepins ?? baselineRepins ?? 0);
   const capNum = Number.isFinite(Number(maxCap)) && Number(maxCap) > 0 ? Number(maxCap) : 25000;
 
   // Anti-NaN guard
@@ -101,9 +152,15 @@ export function calculateDailyVelocity(params) {
   }
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE]
-  // When detectHydrationJump is true, transition from <= 0 to positive saves is a
-  // baseline calibration, not a 24h velocity. Strictly return 0.
-  if (detectHydrationJump({ currentSaves: curSavesNum, baselineSaves: baseSavesNum, wasDeepHydrated })) {
+  // When detectHydrationJump is true, transition represents a multi-stage hydration jump,
+  // not an authentic 24h velocity. Strictly return 0.
+  if (detectHydrationJump({
+    currentSaves: curSavesNum,
+    baselineSaves: baseSavesNum,
+    currentRepins: curRepinsNum,
+    baselineRepins: baseRepinsNum,
+    wasDeepHydrated
+  })) {
     return 0;
   }
 

@@ -768,6 +768,79 @@ async function queryWinnersAndDomains(sql) {
 }
 
 /**
+ * Query 7: Executive 24h Pulse KPI Telemetry from mv_pulse_24h_summary with fallback.
+ * Queries mv_pulse_24h_summary for sub-millisecond execution, falling back cleanly
+ * to universal_master_pins if the materialized view is empty, unrefreshed, or does not exist.
+ */
+export async function queryKPIs(sql) {
+  if (!sql) return null;
+  // 1. Attempt rapid read from mv_pulse_24h_summary
+  try {
+    const rows = await sql`
+      SELECT
+        summary_id,
+        active_pins_24h,
+        active_domains_24h,
+        active_creators_24h,
+        avg_velocity_24h,
+        max_velocity_24h,
+        total_delta_saves_24h,
+        refreshed_at
+      FROM mv_pulse_24h_summary
+      WHERE summary_id = 1
+      LIMIT 1;
+    `;
+    if (rows && rows.length > 0 && Number(rows[0].active_pins_24h || 0) > 0) {
+      return {
+        active_pins_24h: Number(rows[0].active_pins_24h || 0),
+        active_domains_24h: Number(rows[0].active_domains_24h || 0),
+        active_creators_24h: Number(rows[0].active_creators_24h || 0),
+        avg_velocity_24h: Number(rows[0].avg_velocity_24h || 0),
+        max_velocity_24h: Number(rows[0].max_velocity_24h || 0),
+        total_delta_saves_24h: Number(rows[0].total_delta_saves_24h || 0),
+        refreshed_at: rows[0].refreshed_at,
+        from_matview: true
+      };
+    }
+  } catch (_err) {
+    // Matview unpopulated or not yet created — proceed to fallback
+  }
+
+  // 2. Fallback: Aggregate directly from universal_master_pins base table
+  try {
+    const fallbackRows = await sql`
+      SELECT
+        COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+        COUNT(DISTINCT ump.clean_domain)::bigint AS active_domains_24h,
+        COUNT(DISTINCT ump.creator_username)::bigint AS active_creators_24h,
+        COALESCE(ROUND(AVG(ump.daily_save_velocity), 2), 0)::numeric(12,2) AS avg_velocity_24h,
+        COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+        COALESCE(SUM(ump.delta_saves_24h), 0)::bigint AS total_delta_saves_24h
+      FROM universal_master_pins ump
+      WHERE ump.last_scraped_at >= NOW() - INTERVAL '24 hours'
+         OR ump.updated_at >= NOW() - INTERVAL '24 hours';
+    `;
+    if (fallbackRows && fallbackRows.length > 0) {
+      const r = fallbackRows[0];
+      return {
+        active_pins_24h: Number(r.active_pins_24h || 0),
+        active_domains_24h: Number(r.active_domains_24h || 0),
+        active_creators_24h: Number(r.active_creators_24h || 0),
+        avg_velocity_24h: Number(r.avg_velocity_24h || 0),
+        max_velocity_24h: Number(r.max_velocity_24h || 0),
+        total_delta_saves_24h: Number(r.total_delta_saves_24h || 0),
+        refreshed_at: null,
+        from_matview: false
+      };
+    }
+  } catch (_err) {
+    // Both matview and base table query unavailable — return null for in-memory synthesis fallback
+  }
+
+  return null;
+}
+
+/**
  * Checks whether a pin title is synthetic or low-signal placeholder
  */
 function isSyntheticGarbageTitle(title) {
@@ -1010,21 +1083,23 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   let computePromise;
   computePromise = (async () => {
-    // 4. Concurrent Execution of 6 Hub Queries (including viral creator pins)
+    // 4. Concurrent Execution of 7 Hub Queries (including viral creator pins & matview KPIs)
     const [
       activeSerpRows,
       vaultData,
       guidedCapsuleRows,
       creatorBreakoutRows,
       winnerData,
-      creatorViralRows
+      creatorViralRows,
+      matviewKpis
     ] = await Promise.all([
       queryActiveSerp(sql, folderIdNum),
       queryVaultAndVacuum(sql, folderIdNum, env),
       queryGuidedCapsules(sql, folderIdNum),
       queryBreakoutCreators(sql, folderIdNum),
       queryWinnersAndDomains(sql),
-      queryViralCreatorPins(sql, folderIdNum).catch(() => [])
+      queryViralCreatorPins(sql, folderIdNum).catch(() => []),
+      queryKPIs(sql).catch(() => null)
     ]);
 
     const { vacuumRows, vaultPins } = vaultData;
@@ -2332,7 +2407,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       })
       .slice(0, 60);
 
-    // Section 1: Executive KPI Ribbon
+    // Section 1: Executive KPI Ribbon (incorporates mv_pulse_24h_summary with fallback)
     const kpis = {
       total_active_serp_pins: totalActivePinsCount,
       total_active_serp_slots: totalActiveSerpSlots,
@@ -2345,7 +2420,15 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       shared_guided_capsules_count: sharedCapsulesCount,
       serp_vacuum_top10_24h_count: totalVacuumTop10_24h,
       domainless_viral_pins_count: domainlessViralTotalCount,
-      vault_surge_pins_count: vaultSurgePinsFormatted.length
+      vault_surge_pins_count: vaultSurgePinsFormatted.length,
+      active_pins_24h: matviewKpis?.active_pins_24h ?? totalActivePinsCount,
+      active_domains_24h: matviewKpis?.active_domains_24h ?? topArbitrageDomains.length,
+      active_creators_24h: matviewKpis?.active_creators_24h ?? breakoutCreatorsCount,
+      avg_velocity_24h: matviewKpis?.avg_velocity_24h ?? (pinsGainingCount > 0 ? Number((totalSavesVelocity / pinsGainingCount).toFixed(2)) : 0),
+      max_velocity_24h: matviewKpis?.max_velocity_24h ?? (breakoutPinsTop250[0]?.velocity || 0),
+      total_delta_saves_24h: matviewKpis?.total_delta_saves_24h ?? Math.round(totalSavesVelocity),
+      matview_refreshed_at: matviewKpis?.refreshed_at ?? null,
+      from_matview: Boolean(matviewKpis?.from_matview)
     };
 
     const payload = {

@@ -14,6 +14,18 @@
 import crypto from 'node:crypto';
 import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import { crc32 } from '../src/modules/sharding/fleet-router.mjs';
+import {
+  pinterestFetch,
+  getStandardPinterestHeaders,
+  randomJitterMs,
+  sleep,
+  setDefaultDispatcher
+} from '../src/core/pinterest-client.mjs';
+import {
+  formatPin,
+  fetchPinFromPinResource,
+  fetchAndExtractPin
+} from '../src/core/pinterest-parser.mjs';
 
 let undiciAgent = null;
 try {
@@ -49,8 +61,7 @@ function getSql() {
 const sql = (strings, ...values) => getSql()(strings, ...values);
 
 // Jitter delay between requests: 2500ms - 4000ms per fail-safe standards
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const jitterDelay = () => 2500 + Math.floor(Math.random() * 1500);
+const jitterDelay = () => randomJitterMs ? randomJitterMs(2500, 4000) : (2500 + Math.floor(Math.random() * 1500));
 
 // Comprehensive list of stop words for weighted token scoring (excludes platform & alt-text noise)
 const STOP_WORDS = new Set([
@@ -837,6 +848,18 @@ function computeHighSaveTokens(candidates) {
  * Zero speculation: Retrieves authoritative repin_count, reaction_counts, and saves directly
  */
 export async function fetchPinDetails(pinId, baseHeaders) {
+  try {
+    const formatted = await fetchPinFromPinResource(pinId, { dispatcher: undiciAgent });
+    if (formatted) {
+      return {
+        id: String(formatted.pin_id || formatted.id),
+        repins: Number(formatted.repin_count ?? 0),
+        saves: Number(formatted.save_count ?? formatted.repin_count ?? 0),
+        reactions: formatted.reaction_counts || {}
+      };
+    }
+  } catch (err) {}
+
   const optionsObj = { id: String(pinId), field_set_key: 'detailed' };
   const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
 

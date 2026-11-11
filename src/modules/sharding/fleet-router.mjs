@@ -888,12 +888,39 @@ export async function getFolderCrossoverSynopsis(_hubSql, _folderId) {
  * 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
  * 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
  * 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+ * 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
  */
 export function isMultiStageHydrationJump(prev, curr) {
   if (!prev || !curr) return false;
-  const pSaves = Number(prev.save_count || 0);
-  const cSaves = Number(curr.save_count || 0);
+  const pSaves = typeof prev === 'number' ? prev : Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0);
+  const cSaves = typeof curr === 'number' ? curr : Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0);
+  const pRepins = typeof prev === 'object' ? Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0) : 0;
+  const cRepins = typeof curr === 'object' ? Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0) : 0;
+
+  if (!Number.isFinite(pSaves) || !Number.isFinite(cSaves)) return false;
+
+  const rawDelta = Math.max(0, cSaves - pSaves);
+  if (rawDelta === 0) return false;
+
+  // 1. prev.save_count <= 0 && curr.save_count > 0
   if (pSaves <= 0 && cSaves > 0) return true;
+
+  // 2. prev.save_count < prev.repin_count
+  if (pRepins > 0 && pSaves < pRepins) return true;
+
+  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  const effCurRepins = cRepins > 0 ? cRepins : pRepins;
+  if (pRepins > 0 && pSaves === pRepins && cSaves > effCurRepins * 1.35) return true;
+
+  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
+  if (pRepins === 0 && cRepins >= 25 && cSaves >= pSaves * 2.5) return true;
+
+  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+  if (pSaves > 0 && (cSaves / pSaves) >= 4.0 && (cSaves - pSaves) >= 2500) return true;
+
+  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+  if (rawDelta > 2000 && pSaves < 500 && (pSaves <= 0 || (cSaves / Math.max(1, pSaves)) > 20)) return true;
+
   return false;
 }
 

@@ -193,13 +193,8 @@ export function splitSqlStatements(sqlText) {
  * Guarantees zero version collisions and zero false-pending flags on live database.
  */
 export const CANONICAL_SPECIAL_VERSIONS = {
-  '001_clean_ssot_schema.sql': {
-    version: '001',
-    name: 'clean_ssot_schema',
-    aliases: ['001', '001_clean_ssot_schema', 'clean_ssot_schema']
-  },
   '001_core_registry.sql': {
-    version: '001_legacy',
+    version: '001',
     name: 'core_registry',
     aliases: ['001', '001_legacy', '001_core_registry', 'core_registry']
   },
@@ -208,30 +203,33 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     name: 'crawler_shard_heartbeats',
     aliases: ['009_heartbeats', '009_crawler_shard_heartbeats', 'crawler_shard_heartbeats']
   },
-  '009_keyword_guided_capsules.sql': {
+  '009b_keyword_guided_capsules.sql': {
     version: '009_capsules',
     name: 'keyword_guided_capsules',
-    aliases: ['009_capsules', '009_keyword_guided_capsules', 'keyword_guided_capsules']
+    aliases: ['009_capsules', '009b', '009_keyword_guided_capsules', '009b_keyword_guided_capsules', 'keyword_guided_capsules'],
+    legacyFilenames: ['009_keyword_guided_capsules.sql']
   },
   '029_domain_monetization_metadata.sql': {
     version: '029',
     name: 'domain_monetization_metadata',
     aliases: ['029', 'domain_monetization_metadata']
   },
-  '029_keyword_snapshots_not_null_displaced.sql': {
+  '029b_keyword_snapshots_not_null_displaced.sql': {
     version: '029_displaced',
     name: 'keyword_snapshots_not_null_displaced',
-    aliases: ['029_displaced', 'keyword_snapshots_not_null_displaced']
+    aliases: ['029_displaced', '029b', '029_keyword_snapshots_not_null_displaced', '029b_keyword_snapshots_not_null_displaced', 'keyword_snapshots_not_null_displaced'],
+    legacyFilenames: ['029_keyword_snapshots_not_null_displaced.sql']
   },
   '038_campaign_workspace_scoping.sql': {
     version: '038',
     name: '038_campaign_workspace_scoping.sql',
     aliases: ['038', '038_campaign_workspace_scoping.sql', '038_campaign_workspace_scoping']
   },
-  '038_pa_pins_competitor_pins_shard_id.sql': {
+  '038b_pa_pins_competitor_pins_shard_id.sql': {
     version: '038_shard_id',
     name: '038_pa_pins_competitor_pins_shard_id',
-    aliases: ['038_shard_id', '038_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id']
+    aliases: ['038_shard_id', '038b', '038_pa_pins_competitor_pins_shard_id', '038b_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id'],
+    legacyFilenames: ['038_pa_pins_competitor_pins_shard_id.sql']
   },
   '042_hot_and_schema_compaction.sql': {
     version: '042',
@@ -243,15 +241,32 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     name: '043_displaced_index_creator',
     aliases: ['043', '043_displaced_index_creator', 'displaced_index_creator']
   },
+  '043b_unified_ssot_ecosystem_and_indexes.sql': {
+    version: '043_ssot_indexes',
+    name: '043_unified_ssot_ecosystem_and_indexes',
+    aliases: ['043_ssot_indexes', '043b', '043_unified_ssot_ecosystem_and_indexes', '043b_unified_ssot_ecosystem_and_indexes', 'unified_ssot_ecosystem_and_indexes'],
+    legacyFilenames: ['043_unified_ssot_ecosystem_and_indexes.sql']
+  },
   '044_hot_index_and_velocity_sanitization.sql': {
     version: '044',
     name: '044_hot_index_and_velocity_sanitization',
     aliases: ['044', '044_hot_index_and_velocity_sanitization', 'hot_index_and_velocity_sanitization']
   },
+  '047b_drop_unused_legacy_tables.sql': {
+    version: '047_drop_tables',
+    name: '047_drop_unused_legacy_tables',
+    aliases: ['047_drop_tables', '047b', '047_drop_unused_legacy_tables', '047b_drop_unused_legacy_tables', 'drop_unused_legacy_tables'],
+    legacyFilenames: ['047_drop_unused_legacy_tables.sql']
+  },
   '055_heal_hydration_baselines_and_ssot.sql': {
     version: '055',
     name: 'heal_hydration_baselines_and_ssot',
     aliases: ['055', '055_heal_hydration_baselines_and_ssot', 'heal_hydration_baselines_and_ssot']
+  },
+  '056_create_mv_pulse_24h_summary.sql': {
+    version: '056',
+    name: 'create_mv_pulse_24h_summary',
+    aliases: ['056', '056_create_mv_pulse_24h_summary', 'mv_pulse_24h_summary']
   }
 };
 
@@ -349,7 +364,7 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
       return a.localeCompare(b);
     });
 
-  return files.map(filename => {
+  const result = files.map(filename => {
     const special = CANONICAL_SPECIAL_VERSIONS[filename];
     const numPrefix = parseInt(filename.split('_')[0], 10);
     const numericPrefix = isNaN(numPrefix) ? null : numPrefix;
@@ -361,6 +376,7 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
         version: special.version,
         name: special.name,
         aliases: special.aliases || [],
+        legacyFilenames: special.legacyFilenames || [],
         numericPrefix
       };
     }
@@ -374,9 +390,24 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
       version,
       name,
       aliases: [filename.replace(/\.sql$/i, '')],
+      legacyFilenames: [],
       numericPrefix
     };
   });
+
+  const originalFind = result.find.bind(result);
+  result.find = function(predicate, thisArg) {
+    const found = originalFind(predicate, thisArg);
+    if (found) return found;
+    return originalFind((m, idx, arr) => {
+      if (m.legacyFilenames && m.legacyFilenames.some(legacy => predicate({ ...m, filename: legacy }, idx, arr))) {
+        return true;
+      }
+      return false;
+    }, thisArg);
+  };
+
+  return result;
 }
 
 export const discoverMigrations = getMigrationFiles;

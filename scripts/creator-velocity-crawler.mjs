@@ -38,12 +38,20 @@ import {
   getCreatorHubSettings
 } from '../src/modules/creators/service.mjs';
 import {
-  fetchUserResource,
-  fetchPinFromPinResource,
-  fetchPinFromPinterest,
-  setDefaultDispatcher,
+  pinterestFetch,
+  getStandardPinterestHeaders,
+  randomJitterMs,
   sleep,
-  randomJitterMs
+  setDefaultDispatcher
+} from '../src/core/pinterest-client.mjs';
+import {
+  formatPin,
+  fetchPinFromPinResource,
+  fetchAndExtractPin
+} from '../src/core/pinterest-parser.mjs';
+import {
+  fetchUserResource,
+  fetchPinFromPinterest
 } from './lib/pinterest.mjs';
 import {
   batchGroupByShard,
