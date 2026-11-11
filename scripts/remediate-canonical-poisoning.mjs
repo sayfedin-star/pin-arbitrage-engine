@@ -8,7 +8,7 @@
  */
 
 import postgres from 'postgres';
-import { fetchPinFromPinResource, defaultDispatcher, sleep } from './lib/pinterest.mjs';
+import { fetchPinFromPinResource, sleep } from './lib/pinterest.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage';
@@ -46,7 +46,7 @@ async function remediate() {
 
     try {
       // Fetch authentic pin metrics directly from Pinterest
-      const fastRes = await fetchPinFromPinResource(pinId, defaultDispatcher, true);
+      const fastRes = await fetchPinFromPinResource(pinId, null, true);
       if (!fastRes?.ok || !fastRes.pin) {
         skippedCount++;
         continue;
