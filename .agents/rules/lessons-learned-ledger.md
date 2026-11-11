@@ -27,6 +27,7 @@ trigger: always_on
 | **Round 26 (Pure Neon & VPS/Coolify Readiness)** | Complete Cloudflare (KV/D1/Hyperdrive) Purge, Pure Neon Serverless Postgres Architecture & Test Modernization | Invariant 2, Invariant 6, Locks 6, 13 | **SEALED** |
 | **Round 27 (InstaBox Dedicated Postgres Migration)** | 100% Neon ➡️ InstaBox Streaming Migration, Cloudflare Zero Trust Tunnel, CI Security Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
 | **Round 28 (Forensic Landmine Neutralization & Native VPS SSOT)** | Neutralization of Landmines A–E, Elimination of Sharding Residues, Intraday Step Gains & Native VPS PostgreSQL SSOT Parity | Invariants 1–44, Locks 1–14 | **SEALED** |
+| **Round 29 (Neon Eradication & Strict VPS Execution)** | Complete Eradication of Neon DSNs, Direct VPS Migration 050 Application & Live Server Service Restart | Invariants 1–44, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -508,3 +509,21 @@ trigger: always_on
 - **Verification Command**:
   - `npm run check` (0 errors, 0 warnings, 104 files, 14/14 locks PASS)
   - `node scripts/verify_regression_locks.mjs` (All 14 locks 100% green)
+
+---
+
+## Round 29: Neon Total Eradication & Strict VPS-Exclusive Execution Lock
+- **Round / Feature**: Permanent eradication of Neon connection strings, removal of legacy local `.env` Neon drift, and locking all migrations, index runs, and API operations strictly to the Native VPS PostgreSQL instance (`pin-arbitrage` on InstaBox, `127.0.0.1:5432/pin_arbitrage`).
+- **Trap / Failure Mode**: Local `.env` still pointed `DATABASE_URL` to the deprecated Neon pooler DSN (`ep-polished-unit-axp6khxi-pooler.c-4.us-east-2.aws.neon.tech`), causing local tooling runs (`scripts/migrate.mjs`) to apply changes to Neon while the VPS was paused, creating a false impression of live execution.
+- **Root Cause & Technical Mechanism**: Disconnection between developer machine local `.env` and production VPS configuration, combined with VM auto-suspend.
+- **Verified Solution & Invariant Codification**:
+  1. Resumed InstaBox VM `m_agq2t32m5xv5joj67rqoze5h4u` (`pin-arbitrage`).
+  2. Pulled latest git commits into `/data/app` on the VPS.
+  3. Ran Migration 050 and `scripts/ensure_indexes.mjs` directly against the live VPS PostgreSQL database (`postgresql://postgres:***@127.0.0.1:5432/pin_arbitrage`), dropping `neon_projects_registry`, `pa_pin_metrics`, and `keyword_pins_snapshots`.
+  4. Verified 0 dropped tables remaining and verified core data count: 80,857 pins, 5,619 competitors, 121 keywords.
+  5. Restarted `pae-server.service` and confirmed HTTP health probe returns `topology: unified_postgres`.
+  6. Replaced `DATABASE_URL` in local `.env` with the VPS PostgreSQL URL and purged logged-in cookies (`_auth=1`).
+- **Verification Command**:
+  - `npm run check` inside `/data/app` on VPS (100% green, 14/14 locks).
+  - `curl -s http://127.0.0.1:3000/api/health` (HTTP 200, healthy).
+
