@@ -189,11 +189,11 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
-          comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-          share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-          reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
+          comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
+          share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
+          reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
           daily_save_velocity = EXCLUDED.daily_save_velocity,
           updated_at = NOW();
       `;
@@ -233,11 +233,11 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
           )
           ORDER BY x.pin_id ASC
           ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-            save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-            repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
-            comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-            share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-            reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
+            comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
+            share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
+            reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
             daily_save_velocity = CASE
               WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
               ELSE pins_daily_metrics.daily_save_velocity
@@ -782,17 +782,6 @@ async function run() {
     // -------------------------------------------------------------------------
     console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Fetching catalog slice for @${targetAccount}...`);
 
-    // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
-    // Binds worker connections to at most 5 shards: S_w = { s in [1, 99] | (s - 1) % workerTotal === workerIndex }
-    const assignedShards = new Set();
-    for (let s = 1; s <= 99; s++) {
-      if ((s - 1) % workerTotal === workerIndex) {
-        assignedShards.add(s);
-      }
-    }
-    const assignedArray = Array.from(assignedShards);
-    console.log(`[Worker ${workerIndex + 1}/${workerTotal}] Shard-Affine Partition active: Assigned ${assignedShards.size} shards: [${assignedArray.join(', ')}]`);
-
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
     const catalogPins = await sql`
       SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, cp.save_count, cp.repin_count, cp.comment_count,
@@ -805,7 +794,7 @@ async function run() {
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
       WHERE cp.competitor_id = ${targetId}
         AND cp.pin_id IS NOT NULL AND cp.pin_id <> ''
-        AND MOD(ABS(('x' || SUBSTR(MD5(cp.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
+        AND MOD(ABS(('x' || SUBSTR(MD5(cp.pin_id::text), 1, 8))::bit(32)::int::bigint), ${workerTotal}) = ${workerIndex}
       ORDER BY cp.id ASC;
     `;
 
@@ -868,11 +857,10 @@ async function run() {
           const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
           const freshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? 0));
 
-          // Physical Invariant: Total saves must always be at least verified repin count
-          const freshRepins = Math.max(prevRepins, rawFreshRepins);
+          const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;
           // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
-          const freshSaves = rawFreshSaves > 0 ? Math.max(prevSaves, rawFreshSaves) : prevSaves;
-          const freshComments = Math.max(prevComments, rawFreshComments);
+          const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;
+          const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
           const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
           const deltaRepins = Math.max(0, freshRepins - prevRepins);
@@ -937,9 +925,9 @@ async function run() {
       // 1. Commit active telemetry to competitor_pins on Central Hub
       await sql`
         UPDATE competitor_pins AS cp
-        SET save_count = GREATEST(cp.save_count, x.saves::bigint),
-            repin_count = GREATEST(cp.repin_count, x.repins::bigint),
-            comment_count = GREATEST(cp.comment_count, x.comments::int),
+        SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
+            repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
+            comment_count = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(cp.comment_count, 0) END,
             enrichment_status = 'enriched',
             metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
               'delta_saves_24h', x.delta_saves,
@@ -1564,19 +1552,6 @@ async function run() {
     // -------------------------------------------------------------------------
     console.log(`\n[*] [Phase 2] Querying all active winning pins from pa_pins on Central Hub...`);
 
-    // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-    // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
-    // Filter slice for this worker using shard-affine partitioning
-    // Binds worker connections to at most 5 shards: S_w = { s in [1, 99] | (s - 1) % workerTotal === workerIndex }
-    const assignedWinningShards = new Set();
-    for (let s = 1; s <= 99; s++) {
-      if ((s - 1) % workerTotal === workerIndex) {
-        assignedWinningShards.add(s);
-      }
-    }
-    const assignedWinningArray = Array.from(assignedWinningShards);
-    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} Shard-Affine Partition active: Assigned ${assignedWinningShards.size} shards: [${assignedWinningArray.join(', ')}]`);
-
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (pa_pins)
     const myWinningSlice = await sql`
       SELECT 
@@ -1585,7 +1560,7 @@ async function run() {
         p.velocity, p.last_updated_at, p.created_at_pinterest
       FROM pa_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
-      WHERE MOD(ABS(('x' || SUBSTR(MD5(p.pin_id::text), 1, 8))::bit(32)::int), ${workerTotal}) = ${workerIndex}
+      WHERE MOD(ABS(('x' || SUBSTR(MD5(p.pin_id::text), 1, 8))::bit(32)::int::bigint), ${workerTotal}) = ${workerIndex}
         AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
       ORDER BY p.saves DESC;
     `;
@@ -1626,11 +1601,10 @@ async function run() {
             const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
             const freshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? prevShares));
 
-            // Physical Invariant: Total saves must always be at least verified repin count
-            const freshRepins = Math.max(prevRepins, rawFreshRepins);
+            const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;
             // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
-            const freshSaves = rawFreshSaves > 0 ? Math.max(prevSaves, rawFreshSaves) : prevSaves;
-            const freshComments = Math.max(prevComments, rawFreshComments);
+            const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;
+            const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
             const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
             const deltaRepins = Math.max(0, freshRepins - prevRepins);
@@ -1696,10 +1670,10 @@ async function run() {
       // 1. Atomic batch commit to pa_pins on Hub
       await sql`
         UPDATE pa_pins AS p
-        SET saves = GREATEST(p.saves, x.saves),
-            repins = GREATEST(p.repins, x.repins),
-            comments = GREATEST(p.comments, x.comments),
-            share_count = GREATEST(p.share_count, x.share_count),
+        SET saves = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(p.saves, 0) END,
+            repins = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(p.repins, 0) END,
+            comments = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(p.comments, 0) END,
+            share_count = CASE WHEN x.share_count > 0 THEN x.share_count::bigint ELSE COALESCE(p.share_count, 0) END,
             velocity = x.velocity,
             last_updated_at = NOW()
         FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
@@ -1716,9 +1690,9 @@ async function run() {
       // 2. Atomic batch commit to competitor_pins on Hub
       await sql`
         UPDATE competitor_pins AS cp
-        SET save_count = GREATEST(cp.save_count, x.saves::bigint),
-            repin_count = GREATEST(cp.repin_count, x.repins::bigint),
-            comment_count = GREATEST(cp.comment_count, x.comments::int),
+        SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
+            repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
+            comment_count = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(cp.comment_count, 0) END,
             metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
               'delta_saves_24h', x.delta_saves,
               'delta_repins_24h', x.delta_repins,

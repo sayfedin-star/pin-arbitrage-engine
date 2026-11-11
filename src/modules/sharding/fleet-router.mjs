@@ -1085,21 +1085,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       shardSql: resolvedShardSql,
       bypassBreaker: bypassEdgeCache,
       queryFn: async (sqlClient) => {
-        const [masterRowArr, rollupsOrSnaps, repoDossier] = await Promise.all([
-          sqlClient`
-            SELECT 
-              pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
-              image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-              first_discovered_pillar, first_discovered_at, updated_at,
-              save_count, repin_count, comment_count, share_count, reaction_count,
-              daily_save_velocity, delta_saves_24h, delta_repins_24h,
-              gains_5d, gains_7d, gains_10d, gains_15d,
-              is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id, last_scraped_at,
-              COALESCE(metadata, '{}'::jsonb) AS metadata
-            FROM universal_master_pins
-            WHERE pin_id = ${cleanPinId}
-            LIMIT 1;
-          `.catch(() => []),
+        const [repoDossier, rollupsOrSnaps] = await Promise.all([
+          getPinDossier(sqlClient, cleanPinId).catch(() => null),
           sqlClient`
             SELECT 
               id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
@@ -1109,16 +1096,17 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             WHERE pin_id = ${cleanPinId}
             ORDER BY snapshot_date DESC, created_at DESC
             LIMIT 90;
-          `.catch(() => []),
-          getPinDossier(sqlClient, cleanPinId).catch(() => null)
+          `.catch(() => [])
         ]);
 
-        const row = masterRowArr[0] || repoDossier?.creative || null;
+        const row = repoDossier?.creative || null;
         let masterData = null;
         if (row) {
           const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
           masterData = {
             ...row,
+            first_discovered_at: row.first_saved_at || row.first_discovered_at || null,
+            last_scraped_at: row.last_resaved_at || row.last_scraped_at || row.updated_at || null,
             creation_method: meta.creation_method || meta.method || row.creation_method || null
           };
         }

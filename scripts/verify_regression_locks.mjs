@@ -496,7 +496,10 @@ try {
     !fleetRouterContent.includes('shouldBackfillUnified') &&
     !pulseServiceContent.includes('_warmupPins') &&
     !pulseServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))') &&
-    !domainsServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))')
+    !domainsServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))') &&
+    !creatorCrawlerContent.includes('GREATEST(pins_daily_metrics.save_count') &&
+    !creatorCrawlerContent.includes('GREATEST(p.saves') &&
+    !keywordsServiceContent.includes('GREATEST(pins_daily_metrics.save_count')
   );
   check(
     'Lock 14',

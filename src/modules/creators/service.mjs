@@ -1623,7 +1623,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   if (!resolvedPrimaryDomain) {
     try {
       const [domRow] = await sql`
-        SELECT LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${compId}
@@ -1659,10 +1659,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
             pa.pin_id AS pa_pin_id,
             pa.saves AS pa_saves,
             pa.repins AS pa_repins,
-            LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) AS clean_dom,
+            COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom,
             (
               ${resolvedPrimaryDomain} = ''
-              OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
+              OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
               OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
               OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
             ) AS is_official_domain
@@ -1725,7 +1725,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
           WHERE cp.competitor_id = ${compId}
             AND (
-              LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
+              COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
               OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
               OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
             )
@@ -1736,7 +1736,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
             COALESCE(ump.save_count, 0)::bigint AS saves,
             NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
           FROM universal_master_pins ump
-          WHERE LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', '')) = ${resolvedPrimaryDomain}
+          WHERE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', ''))) = ${resolvedPrimaryDomain}
             AND NOT EXISTS (
               SELECT 1 FROM competitor_pins cp_ex
               WHERE cp_ex.competitor_id = ${compId} AND cp_ex.pin_id = ump.pin_id
@@ -2309,7 +2309,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   if (!primaryDomain) {
     try {
       const [domRow] = await sql`
-        SELECT LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${numericId}
@@ -2445,7 +2445,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (
         ${primaryDomain} = ''
-        OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+        OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
         OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
         OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
       )
@@ -2584,12 +2584,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND (
           (${activeScope} = 'ecosystem' AND (
             ${primaryDomain} = ''
-            OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+            OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
             OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
             OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
           ))
           OR (${activeScope} = 'external' AND ${primaryDomain} <> '' AND (
-            LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) NOT IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+            COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) NOT IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
             AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
             AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
           ))
@@ -2794,7 +2794,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         kdi.pin_id AS kdi_pin_id,
         (
           ${primaryDomain} = ''
-          OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+          OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
           OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
           OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
         ) AS is_official_domain
@@ -2926,7 +2926,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
     }
     if (!primaryDomain) {
       const [domRow] = await sql`
-        SELECT LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${numericId}
@@ -2970,8 +2970,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
         AND COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') NOT LIKE '%pinterest.com%'
         AND (
           ${primaryDomain} = ''
-          OR (${activeScope} IN ('official', 'ecosystem') AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) = ${primaryDomain})
-          OR (${activeScope} = 'external' AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', '')) <> ${primaryDomain})
+          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) = ${primaryDomain})
+          OR (${activeScope} = 'external' AND COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) <> ${primaryDomain})
         )
       UNION ALL
       SELECT

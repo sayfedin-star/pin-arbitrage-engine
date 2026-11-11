@@ -622,13 +622,16 @@ export async function handlePinsRoutes({
       }
 
       // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly (pure read-only SSOT)
-      const [dossier, repoReadDossier] = await Promise.all([
-        fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true }),
-        getPinDossier(sql, pinId).catch(() => null)
-      ]);
-      if (dossier && repoReadDossier?.creative) {
-        dossier.first_saved_at = repoReadDossier.creative.first_saved_at || dossier.first_discovered_at || null;
-        dossier.last_resaved_at = repoReadDossier.creative.last_resaved_at || dossier.updated_at || null;
+      const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
+      if (dossier && !dossier.first_saved_at && dossier.creative) {
+        dossier.first_saved_at = dossier.creative.first_saved_at || dossier.creative.first_discovered_at || null;
+        dossier.last_resaved_at = dossier.creative.last_resaved_at || dossier.creative.updated_at || null;
+      } else if (!dossier?.creative && searchParams.get('repo_fallback') === 'true') {
+        const repoReadDossier = await getPinDossier(sql, pinId).catch(() => null);
+        if (dossier && repoReadDossier?.creative) {
+          dossier.first_saved_at = repoReadDossier.creative.first_saved_at || null;
+          dossier.last_resaved_at = repoReadDossier.creative.last_resaved_at || null;
+        }
       }
 
       // Edge cache poisoning guard: If dossier failed, has 0 snapshots, is degraded, or has an unverified fallback (<= 2 days while having rankings),

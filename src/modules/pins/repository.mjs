@@ -65,6 +65,7 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
         board_slug: String(p.board_slug || '').trim(),
         title: String(p.title || '').trim(),
         domain: cleanDomain || domainRaw,
+        clean_domain: cleanDomain,
         destination_url: destUrl,
         image_url: String(p.image_url || '').trim(),
         description: String(p.description || '').trim(),
@@ -86,6 +87,11 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
         image_signature: richMeta.image_signature ? String(richMeta.image_signature) : null,
         canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null,
         first_discovered_pillar: String(pillar || 'keyword'),
+        keyword_id: p.keyword_id != null ? Number(p.keyword_id) : null,
+        rank_position: p.rank_position != null ? Number(p.rank_position) : null,
+        is_displaced: Boolean(p.is_displaced),
+        last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
+        catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
         metadata: richMeta
       });
     }
@@ -99,23 +105,25 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
   const insertedRows = await sql`
     WITH ins_pins AS (
       INSERT INTO universal_master_pins (
-        pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
+        pin_id, creator_username, board_name, board_slug, title, domain, clean_domain, destination_url,
         image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
         save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
         delta_saves_24h, delta_repins_24h,
         is_product, is_video, creation_method, image_signature, canonical_pin_id,
-        first_discovered_pillar, first_discovered_at, last_scraped_at, updated_at, metadata
+        first_discovered_pillar, first_discovered_at, first_saved_at, last_resaved_at, last_scraped_at, updated_at, metadata
       )
       SELECT
-        u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain, u.destination_url,
+        u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain,
+        COALESCE(NULLIF(u.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(u.domain, '')), '^www\.', ''))),
+        u.destination_url,
         u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
         NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz,
         u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, u.daily_save_velocity,
         u.daily_save_velocity, 0,
         u.is_product, u.is_video, u.creation_method, u.image_signature, u.canonical_pin_id,
-        u.first_discovered_pillar, NOW(), NOW(), NOW(), u.metadata
+        u.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), u.metadata
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-        pin_id text, creator_username text, board_name text, board_slug text, title text, domain text,
+        pin_id text, creator_username text, board_name text, board_slug text, title text, domain text, clean_domain text,
         destination_url text, image_url text, description text, alt_text text, dominant_color text,
         visual_annotations jsonb, created_at_pinterest text,
         save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int,
@@ -149,7 +157,46 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
     SELECT pin_id FROM ins_pins;
   `;
 
+  if (rows.some(r => r.keyword_id && r.keyword_id > 0)) {
+    await upsertPinSerpPositionsBatch(sql, payloadJson);
+  }
+
   return { inserted: Array.isArray(insertedRows) ? insertedRows.length : 0 };
+}
+
+/**
+ * Helper to upsert daily SERP rank positions (`pin_serp_positions`) when ranking telemetry is present.
+ *
+ * @param {Function} sql - Unified PostgreSQL client
+ * @param {string} payloadJson - Serialized JSON array of pin rows containing keyword_id
+ */
+async function upsertPinSerpPositionsBatch(sql, payloadJson) {
+  await sql`
+    INSERT INTO pin_serp_positions (
+      pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
+      last_known_rank, catalog_rank, updated_at
+    )
+    SELECT DISTINCT ON (u.pin_id, u.keyword_id)
+      u.pin_id,
+      (NOW() AT TIME ZONE 'UTC')::date,
+      u.keyword_id,
+      u.rank_position,
+      COALESCE(u.is_displaced, FALSE),
+      u.last_known_rank,
+      u.catalog_rank,
+      NOW()
+    FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+      pin_id text, keyword_id int, rank_position int, is_displaced boolean, last_known_rank int, catalog_rank int
+    )
+    WHERE u.keyword_id IS NOT NULL AND u.keyword_id > 0
+    ORDER BY u.pin_id ASC, u.keyword_id ASC
+    ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+      rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+      is_displaced = EXCLUDED.is_displaced,
+      last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+      catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
+      updated_at = NOW();
+  `;
 }
 
 /**
@@ -170,8 +217,18 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
   for (const p of pins) {
     const pid = String(p?.pin_id || p?.id || '').trim();
     if (!pid) continue;
+    const domainRaw = String(p.domain || p.link_domain || '').trim();
+    const destUrl = String(p.destination_url || p.link || '').trim();
+    const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
     dedupMap.set(pid, {
       pin_id: pid,
+      domain: cleanDomain || domainRaw || null,
+      clean_domain: cleanDomain || null,
+      keyword_id: p.keyword_id != null ? Number(p.keyword_id) : null,
+      rank_position: p.rank_position != null ? Number(p.rank_position) : null,
+      is_displaced: Boolean(p.is_displaced),
+      last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
+      catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
       save_count: Math.max(0, Number(p.save_count ?? p.saves ?? 0)),
       repin_count: Math.max(0, Number(p.repin_count ?? p.repins ?? 0)),
       comment_count: Math.max(0, Number(p.comment_count ?? p.comments ?? 0)),
@@ -197,6 +254,8 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       SELECT *
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
+        domain text,
+        clean_domain text,
         save_count bigint,
         repin_count bigint,
         comment_count int,
@@ -237,6 +296,8 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
     upd_master AS (
       UPDATE universal_master_pins ump
       SET
+        domain = COALESCE(NULLIF(cb.domain, ''), ump.domain),
+        clean_domain = COALESCE(NULLIF(cb.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, ump.domain, '')), '^www\.', ''))),
         save_count = CASE WHEN cb.save_count > 0 THEN cb.save_count ELSE ump.save_count END,
         repin_count = CASE WHEN cb.repin_count > 0 THEN cb.repin_count ELSE ump.repin_count END,
         comment_count = CASE WHEN cb.comment_count > 0 THEN cb.comment_count ELSE ump.comment_count END,
@@ -250,6 +311,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         gains_10d = COALESCE(cb.gains_10d, ump.gains_10d, 0),
         gains_15d = COALESCE(cb.gains_15d, ump.gains_15d, 0),
         created_at_pinterest = COALESCE(ump.created_at_pinterest, NULLIF(TRIM(cb.created_at_pinterest), '')::timestamptz),
+        last_resaved_at = NOW(),
         last_scraped_at = NOW(),
         updated_at = NOW()
       FROM computed_batch cb
@@ -283,6 +345,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
     )
     SELECT pin_id FROM upd_master;
   `;
+
+  if (sorted.some(r => r.keyword_id && r.keyword_id > 0)) {
+    await upsertPinSerpPositionsBatch(sql, payloadJson);
+  }
 
   return { updated: Array.isArray(updatedRows) ? updatedRows.length : 0 };
 }

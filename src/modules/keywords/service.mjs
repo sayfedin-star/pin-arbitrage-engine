@@ -201,9 +201,9 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               THEN EXCLUDED.visual_annotations
               ELSE universal_master_pins.visual_annotations
             END,
-            save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-            repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
-            comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+            save_count = CASE WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
+            repin_count = CASE WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
+            comment_count = CASE WHEN COALESCE(EXCLUDED.comment_count, 0) > 0 THEN EXCLUDED.comment_count ELSE COALESCE(universal_master_pins.comment_count, 0) END,
             daily_save_velocity = CASE
               WHEN (universal_master_pins.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
                 AND COALESCE(universal_master_pins.daily_save_velocity, 0) > 0
@@ -260,11 +260,11 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
             FROM dedup_metrics
             ORDER BY pin_id ASC
             ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-              save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-              repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
-              reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-              comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-              share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+              save_count = CASE WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+              repin_count = CASE WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
+              reaction_count = CASE WHEN COALESCE(EXCLUDED.reaction_count, 0) > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
+              comment_count = CASE WHEN COALESCE(EXCLUDED.comment_count, 0) > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
+              share_count = CASE WHEN COALESCE(EXCLUDED.share_count, 0) > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
               daily_save_velocity = CASE 
                 WHEN COALESCE(pins_daily_metrics.daily_save_velocity, 0) > 0
                   AND (EXCLUDED.daily_save_velocity IS NULL OR EXCLUDED.daily_save_velocity <= 1 OR EXCLUDED.daily_save_velocity < pins_daily_metrics.daily_save_velocity)
@@ -2263,11 +2263,23 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       for (const p of preparedPins) {
         const pid = String(p.pin_id || '');
         if (!pid) continue;
+        const enrichedPin = { ...p, keyword_id: kid, is_displaced: false };
         if (!immediateMap.has(pid) && !globalSavesMap.has(pid)) {
-          newSerpPins.push(p);
+          newSerpPins.push(enrichedPin);
         } else {
-          existingSerpPins.push(p);
+          existingSerpPins.push(enrichedPin);
         }
+      }
+      for (const dp of droppedOutList) {
+        const dpid = String(dp?.pin_id || '');
+        if (!dpid) continue;
+        existingSerpPins.push({
+          ...dp,
+          keyword_id: kid,
+          rank_position: null,
+          is_displaced: true,
+          last_known_rank: Number(dp.rank_position || dp.prev_rank || dp.last_known_rank || 100)
+        });
       }
       if (newSerpPins.length > 0) {
         await insertNewPinsBatch(sql, newSerpPins, 'keyword').catch(() => {});
@@ -2275,12 +2287,16 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       if (existingSerpPins.length > 0) {
         await resavePinsMetricsBatch(sql, existingSerpPins).catch(() => {});
       }
-      const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
-        console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
-        return null;
-      });
-      if (offloadRes?.confirmedPinIds) {
-        confirmedPinIds = offloadRes.confirmedPinIds;
+      if (isUnifiedPostgres(envObj)) {
+        confirmedPinIds = [...newSerpPins, ...existingSerpPins].map(p => String(p.pin_id));
+      } else {
+        const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
+          console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
+          return null;
+        });
+        if (offloadRes?.confirmedPinIds) {
+          confirmedPinIds = offloadRes.confirmedPinIds;
+        }
       }
     }
 
