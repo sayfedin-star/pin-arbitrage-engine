@@ -943,9 +943,6 @@ export function sanitizeDossierTrajectory(dossier) {
     const prevDate = new Date(prevDayStr);
     const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
-    const currDayStr = String(curr.snapshot_date || '').slice(0, 10);
-    const prevDayStr = String(prev.snapshot_date || '').slice(0, 10);
-    const isSameDayStep = Boolean(currDayStr && prevDayStr && currDayStr === prevDayStr);
 
     let priorCalSnap = null;
     for (let j = i - 1; j >= 0; j--) {
@@ -1829,14 +1826,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const currDate = new Date(currDayStr);
     const elapsedDays = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = curr.save_count - prev.save_count;
-    const currDateStr = String(curr.snapshot_date || '').slice(0, 10);
-    const prevDateStr = String(prev.snapshot_date || '').slice(0, 10);
-    const isSameDayStep = Boolean(currDateStr && prevDateStr && currDateStr === prevDateStr);
 
     let priorCalSnap = null;
     for (let j = i - 1; j >= 0; j--) {
       const candDayStr = String(chronoDays[j].snapshot_date || '').slice(0, 10);
-      if (candDayStr && candDayStr < currDateStr) {
+      if (candDayStr && candDayStr < currDayStr) {
         priorCalSnap = chronoDays[j];
         break;
       }
@@ -2142,7 +2136,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       save_count: Math.max(0, Number(masterRecord?.save_count || 0), Number(hubSerpRows[0]?.save_count || 0), Number(dailyTrajectory[0]?.save_count || 0)),
       repin_count: Math.max(0, Number(masterRecord?.repin_count || 0), Number(hubSerpRows[0]?.repin_count || 0), Number(dailyTrajectory[0]?.repin_count || 0)),
       comment_count: Number(masterRecord?.comment_count || dailyTrajectory[0]?.comment_count || hubSerpRows[0]?.comment_count || 0),
-      reaction_count: Number(masterRecord?.reaction_count || dailyTrajectory[0]?.reaction_count || hubSerpRows[0]?.reaction_count || 0),
       share_count: Number(masterRecord?.share_count || dailyTrajectory[0]?.share_count || hubSerpRows[0]?.share_count || 0),
       reaction_count: resolvedReactionCount,
       daily_save_velocity: Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? masterRecord?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
