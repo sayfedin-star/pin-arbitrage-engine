@@ -785,30 +785,41 @@ export function parseRetryAfterSeconds(headerValue, defaultSec = 3) {
  * Robust metric parser: safely converts numbers, formatted strings ('1.2k', '1.5M', '1,250')
  * into clean integers, guaranteeing no NaN is emitted to PostgreSQL.
  */
-export function parseCleanMetric(val, fallback = 0) {
+export function parseCleanMetric(val, fallback = 0, options = {}) {
+  const { cap = 10000000, preserveCeiling = true } = (typeof options === 'object' && options !== null ? options : {});
   if (val === null || val === undefined) return fallback;
   if (Array.isArray(val) || typeof val === 'boolean') return fallback;
   if (typeof val === 'number') {
     if (isNaN(val) || !isFinite(val)) return fallback;
-    return Math.max(0, Math.round(val));
+    const rounded = Math.max(0, Math.round(val));
+    if (preserveCeiling && rounded === 10000001) return 10000001;
+    return cap && rounded > cap ? cap : rounded;
   }
   if (typeof val === 'object') {
-    if (typeof val.count === 'number' || typeof val.count === 'string') return parseCleanMetric(val.count, fallback);
-    if (typeof val.value === 'number' || typeof val.value === 'string') return parseCleanMetric(val.value, fallback);
+    if (typeof val.count === 'number' || typeof val.count === 'string') return parseCleanMetric(val.count, fallback, options);
+    if (typeof val.value === 'number' || typeof val.value === 'string') return parseCleanMetric(val.value, fallback, options);
     return fallback;
   }
-  const s = String(val).replace(/,/g, '').trim().toLowerCase();
+  let s = String(val).replace(/,/g, '').trim().toLowerCase();
   if (!s || s === 'nan' || s === 'infinity' || s === '-infinity') return fallback;
+  const hasPlus = s.endsWith('+');
+  if (hasPlus) s = s.slice(0, -1).trim();
   if (s.endsWith('m')) {
     const num = parseFloat(s.slice(0, -1));
-    return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num * 1000000));
+    if (isNaN(num) || !isFinite(num)) return fallback;
+    const computed = Math.max(0, Math.round(num * 1000000));
+    if (hasPlus && computed === 10000000 && preserveCeiling) return 10000001;
+    return cap && computed > cap ? cap : computed;
   }
   if (s.endsWith('k')) {
     const num = parseFloat(s.slice(0, -1));
     return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num * 1000));
   }
   const num = Number(s);
-  return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num));
+  if (isNaN(num) || !isFinite(num)) return fallback;
+  const rounded = Math.max(0, Math.round(num));
+  if (preserveCeiling && rounded === 10000001) return 10000001;
+  return cap && rounded > cap ? cap : rounded;
 }
 
 function isPinCandidate(o) {
@@ -1011,7 +1022,7 @@ export function formatPin(pin) {
   // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
   // Never conflate saves with repins, and never assume saves >= repins.
   // When an endpoint does not return explicit saves (!hasExplicitSaves), caller can preserve prior known value; when explicit saves is returned (even 0), caller can self-heal.
-  const saves = rawSaves;
+  const saves = hasExplicitSaves ? rawSaves : null;
   const repins = rawRepins;
 
   const comments = parseCleanMetric(
@@ -1218,6 +1229,7 @@ export function formatPin(pin) {
     is_carousel: isCarousel,
     is_product: isProduct,
     saves,
+    save_count: saves,
     has_explicit_saves: hasExplicitSaves,
     repins,
     comments,

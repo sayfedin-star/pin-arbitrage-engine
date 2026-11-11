@@ -9,6 +9,8 @@
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
+import { getStandardPinterestHeaders } from '../../core/pinterest-client.mjs';
+
 // In-Memory True LRU Cache for Pinterest Typeahead (max 500 entries, 15m TTL)
 const typeaheadCache = new Map();
 const inflightTypeahead = new Map();
@@ -70,13 +72,12 @@ export async function fetchKeywordTypeahead(term) {
     const sourceUrl = encodeURIComponent(`/search/pins/?q=${encodeURIComponent(cleanTerm)}`);
     const url = `https://www.pinterest.com/resource/AdvancedTypeaheadResource/get/?source_url=${sourceUrl}&data=${dataParam}`;
 
-    const headers = {
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'X-Requested-With': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'x-pinterest-pws-handler': 'www/search/pins.js',
-      'referer': `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(cleanTerm)}`
-    };
+    const headers = getStandardPinterestHeaders({
+      referer: `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(cleanTerm)}`,
+      extraHeaders: {
+        'x-pinterest-pws-handler': 'www/search/pins.js'
+      }
+    });
 
     let res;
     try {
