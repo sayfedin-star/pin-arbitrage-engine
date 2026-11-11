@@ -811,9 +811,9 @@ async function run() {
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myCatalogSlice.map(p => sem.run(async () => {
-        const prevSaves = Math.max(0, Number(p.save_count || 0), Number(p.ump_saves || 0));
-        const prevRepins = Math.max(0, Number(p.repin_count || 0), Number(p.ump_repins || 0));
-        const prevComments = Math.max(0, Number(p.comment_count || 0), Number(p.ump_comments || 0));
+        const prevSaves = Math.max(0, Number(p.ump_saves ?? p.save_count ?? 0));
+        const prevRepins = Math.max(0, Number(p.ump_repins ?? p.repin_count ?? 0));
+        const prevComments = Math.max(0, Number(p.ump_comments ?? p.comment_count ?? 0));
         const prevVelocity = Number(p.prev_velocity ?? p.ump_velocity ?? 0);
 
         // 18-Hour Shared Pin Freshness Gate: Skip duplicate HTTP call if pin was already scraped within 18h in universal_master_pins

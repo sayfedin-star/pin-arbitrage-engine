@@ -40,7 +40,6 @@ import {
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
 import { buildRichPinMetadataPayload } from '../src/domain/pin-intelligence.mjs';
-import { insertNewPinsBatch, resavePinsMetricsBatch } from '../src/modules/pins/repository.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -1128,15 +1127,8 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               sp.gains_15d = gains.gains_15d;
             }
 
-            // Strictly separate First-Time Save (insertNewPinsBatch) from Re-Save / Metric Refresh (resavePinsMetricsBatch)
-            const newCrawlPins = sortedPins.filter(sp => !pinSnapshotsMap.has(String(sp.pin_id)));
-            const existingCrawlPins = sortedPins.filter(sp => pinSnapshotsMap.has(String(sp.pin_id)));
-            if (newCrawlPins.length > 0) {
-              await insertNewPinsBatch(shardSql, newCrawlPins, 'keyword').catch(() => {});
-            }
-            if (existingCrawlPins.length > 0) {
-              await resavePinsMetricsBatch(shardSql, existingCrawlPins).catch(() => {});
-            }
+            // Note: First-time save (insertNewPinsBatch) and metric refresh (resavePinsMetricsBatch)
+            // are executed atomically by buildQ1/buildQ2 below so save_count is not mutated prior to intraday_snapshots delta detection.
 
             const sanitizeShardMeta = (raw) => {
               if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};

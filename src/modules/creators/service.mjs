@@ -1736,7 +1736,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
             COALESCE(ump.save_count, 0)::bigint AS saves,
             NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
           FROM universal_master_pins ump
-          WHERE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', ''))) = ${resolvedPrimaryDomain}
+          WHERE ump.clean_domain = ${resolvedPrimaryDomain}
             AND NOT EXISTS (
               SELECT 1 FROM competitor_pins cp_ex
               WHERE cp_ex.competitor_id = ${compId} AND cp_ex.pin_id = ump.pin_id
@@ -2352,7 +2352,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (
         ${primaryDomain} = ''
         OR ${activeScope} = 'external'
-        OR LOWER(REGEXP_REPLACE(TRIM(COALESCE(cp.link_domain, '')), '^www\\.', '')) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+        OR COALESCE(NULLIF(cp.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cp.link_domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
         OR COALESCE(cp.link_domain, '') ILIKE '%pinterest.%'
         OR COALESCE(cp.link_domain, '') ILIKE '%pin.it%'
       )
@@ -2625,7 +2625,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(ump.is_product, false) AS is_product
       FROM universal_master_pins ump
       WHERE ${activeScope} IN ('ecosystem', 'curators')
-        AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', ''))) = ${primaryDomain}
+        AND ump.clean_domain = ${primaryDomain}
         AND NOT EXISTS (
           SELECT 1 FROM competitor_pins cp_ex
           WHERE cp_ex.competitor_id = ${numericId} AND cp_ex.pin_id = ump.pin_id
@@ -2827,7 +2827,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ? sql`
         SELECT COUNT(*)::int AS curator_pins_total
         FROM universal_master_pins ump
-        WHERE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', ''))) = ${primaryDomain}
+        WHERE ump.clean_domain = ${primaryDomain}
           AND NOT EXISTS (
             SELECT 1 FROM competitor_pins cp_ex
             WHERE cp_ex.competitor_id = ${numericId} AND cp_ex.pin_id = ump.pin_id
@@ -2986,7 +2986,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
       FROM universal_master_pins ump
       WHERE ${primaryDomain} <> ''
         AND ${activeScope} IN ('ecosystem', 'curators')
-        AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(ump.domain, '')), '^www\\.', ''))) = ${primaryDomain}
+        AND ump.clean_domain = ${primaryDomain}
         AND COALESCE(ump.destination_url, '') != ''
         AND COALESCE(ump.destination_url, '') NOT LIKE '%pinterest.com%'
         AND NOT EXISTS (

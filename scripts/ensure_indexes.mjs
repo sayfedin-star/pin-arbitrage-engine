@@ -152,6 +152,70 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_date ON pins_daily_metrics(pin_id, snapshot_date ASC);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_psp_pin_date ON pin_serp_positions(pin_id, snapshot_date ASC);`.catch(() => {});
 
+  console.log('[*] 15. Ensuring clean_domain columns, B-Tree indexes, and pae_sync_clean_domain triggers [Migration 052/053]...');
+  await sql`ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE keyword_displaced_index ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_competitor_clean_domain ON competitor_pins(competitor_id, clean_domain);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksc_clean_domain ON keyword_serp_current(clean_domain);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_kdi_clean_domain ON keyword_displaced_index(clean_domain);`.catch(() => {});
+  await sql`
+    CREATE OR REPLACE FUNCTION public.pae_sync_clean_domain()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      row_data jsonb;
+      raw_dom text;
+      dest_url text;
+    BEGIN
+      row_data := to_jsonb(NEW);
+      raw_dom := COALESCE(
+        NULLIF(BTRIM(COALESCE(row_data->>'domain', '')), ''),
+        NULLIF(BTRIM(COALESCE(row_data->>'link_domain', '')), ''),
+        NULLIF(BTRIM(COALESCE(NEW.clean_domain, '')), '')
+      );
+      IF raw_dom IS NULL OR raw_dom = '' THEN
+        dest_url := BTRIM(COALESCE(row_data->>'destination_url', ''));
+        IF dest_url <> '' THEN
+          raw_dom := SUBSTRING(LOWER(dest_url) FROM '^https?://(?:www\.)?([^/?#:]+)');
+        END IF;
+      END IF;
+      raw_dom := COALESCE(raw_dom, '');
+      raw_dom := REGEXP_REPLACE(LOWER(BTRIM(raw_dom)), '^https?://', '');
+      raw_dom := REGEXP_REPLACE(raw_dom, '/.*$', '');
+      NEW.clean_domain := REGEXP_REPLACE(raw_dom, '^www\.', '');
+      RETURN NEW;
+    END;
+    $$;
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_ump_sync_clean_domain ON universal_master_pins;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_ump_sync_clean_domain
+      BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain ON universal_master_pins
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_cp_sync_clean_domain ON competitor_pins;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_cp_sync_clean_domain
+      BEFORE INSERT OR UPDATE OF link_domain, destination_url, clean_domain ON competitor_pins
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_ksc_sync_clean_domain ON keyword_serp_current;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_ksc_sync_clean_domain
+      BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain ON keyword_serp_current
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_kdi_sync_clean_domain ON keyword_displaced_index;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_kdi_sync_clean_domain
+      BEFORE INSERT OR UPDATE OF domain, clean_domain ON keyword_displaced_index
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+
   console.log('[+] All indexes and columns verified and active in Unified PostgreSQL SSOT!');
 }
 
