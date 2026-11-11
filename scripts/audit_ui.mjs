@@ -117,8 +117,8 @@ check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('
 check('src/worker.mjs: X-Content-Type-Options is nosniff', workerContent.includes("'X-Content-Type-Options': 'nosniff'"), 'Must enforce nosniff');
 check('src/worker.mjs: X-Frame-Options is DENY', workerContent.includes("'X-Frame-Options': 'DENY'"), 'Must enforce DENY');
 
-const crawlRoutePath = path.join(rootDir, 'src/routes/crawl.mjs');
-const crawlRouteContent = fs.readFileSync(crawlRoutePath, 'utf8');
+const keywordsRoutePath = path.join(rootDir, 'src/routes/keywords.mjs');
+const keywordsRouteContent = fs.readFileSync(keywordsRoutePath, 'utf8');
 check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('HTML_HEADERS') && workerContent.includes('Content-Security-Policy'), 'Must declare HTML_HEADERS');
 
 // --------------------------------------------------------------------------
@@ -139,7 +139,7 @@ if (fs.existsSync(workflowDir)) {
 // 6. Child Process Environment Isolation (CAP-52)
 // --------------------------------------------------------------------------
 console.log('\n[*] Auditing Child Process Environment Isolation...');
-check('src/routes/crawl.mjs: Uses safe crawl dispatch', crawlRouteContent.includes('handleCrawlRoutes'), 'Must define handleCrawlRoutes');
+check('src/routes/keywords.mjs: Uses safe crawl dispatch', keywordsRouteContent.includes('dispatch-workflow'), 'Must define dispatch-workflow');
 
 // --------------------------------------------------------------------------
 // Final Scorecard
