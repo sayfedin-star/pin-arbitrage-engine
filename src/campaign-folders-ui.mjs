@@ -1563,7 +1563,7 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
               <div class="p-2 border-t border-slate-100 dark:border-[#27272A]/80 text-[11px] font-mono tabular-nums flex items-center justify-between text-slate-500">
                 <span class="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 font-bold">
                   <i data-lucide="bookmark" class="w-3 h-3"></i>
-                  <span x-text="formatNumber(p.save_count || p.repin_count || 0)"></span>
+                  <span x-text="formatNumber(p.save_count ?? p.saves ?? 0)"></span>
                 </span>
                 <span class="text-[10px] text-slate-400" x-text="p.published_at ? new Date(p.published_at).toLocaleDateString() : 'Live'"></span>
               </div>

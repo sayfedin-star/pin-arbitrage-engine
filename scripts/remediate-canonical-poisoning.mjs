@@ -9,7 +9,7 @@
  */
 
 import postgres from 'postgres';
-import { fetchPinFromPinResource, sleep } from './lib/pinterest.mjs';
+import { fetchPinHybrid, sleep } from './lib/pinterest.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage';
@@ -18,25 +18,35 @@ const sql = postgres(DATABASE_URL, { max: 20 });
 async function remediate() {
   console.log('=== [FORENSIC REMEDIATION] Starting Canonical De-Poisoning & Velocity Healing ===\n');
 
-  // 1. Identify suspicious pins:
-  // - canonical_pin_id != pin_id and (daily_save_velocity >= 20 or delta_saves_24h >= 20)
-  // - OR daily_save_velocity >= 50
-  // - OR delta_saves_24h >= 50
-  // - OR explicit landmark pins reported by user
+  // 1. Identify all candidate pins across universal_master_pins and keyword_serp_current:
+  // - Any pin with a distinct canonical_pin_id (regardless of current velocity, catching low-velocity poisoned pins)
+  // - Any pin where save_count == repin_count > 0 (catching repin_count -> save_count conflation)
+  // - Any pin with daily_save_velocity >= 20 or delta_saves_24h >= 20
+  // - Any pin in keyword_serp_current where baseline_day_saves > save_count
+  // - Explicit landmark pins reported by operator
   const candidatePins = await sql`
     SELECT DISTINCT pin_id
-    FROM universal_master_pins
-    WHERE (
-      (canonical_pin_id IS NOT NULL AND canonical_pin_id <> pin_id AND (daily_save_velocity >= 20 OR delta_saves_24h >= 20))
-      OR daily_save_velocity >= 50
-      OR delta_saves_24h >= 50
-      OR pin_id IN (
-        '348888302405814587', '1130966525258943811', '1152288254700579018',
-        '903112531589721411', '1083608360376709865', '503277327134077011',
-        '4598949345276753984', '1145040274134461975', '4600215988456425536',
-        '1125829606883665959', '1134907174848332604', '307018899618535309'
+    FROM (
+      SELECT pin_id
+      FROM universal_master_pins
+      WHERE (
+        (canonical_pin_id IS NOT NULL AND canonical_pin_id <> '' AND canonical_pin_id <> pin_id)
+        OR (save_count > 0 AND save_count = repin_count)
+        OR daily_save_velocity >= 20
+        OR delta_saves_24h >= 20
+        OR pin_id IN (
+          '348888302405814587', '1130966525258943811', '1152288254700579018',
+          '903112531589721411', '1083608360376709865', '503277327134077011',
+          '4598949345276753984', '1145040274134461975', '4600215988456425536',
+          '1125829606883665959', '1134907174848332604', '307018899618535309'
+        )
       )
-    )
+      UNION
+      SELECT pin_id
+      FROM keyword_serp_current
+      WHERE (baseline_day_saves IS NOT NULL AND baseline_day_saves > save_count)
+         OR (save_count > 0 AND save_count = repin_count)
+    ) candidates
     ORDER BY pin_id;
   `;
 
@@ -54,18 +64,17 @@ async function remediate() {
 
     await Promise.all(chunk.map(async ({ pin_id: pinId }) => {
       try {
-        // Fetch authentic pin metrics directly from Pinterest PinResource
-        const fastRes = await fetchPinFromPinResource(pinId, null, true);
-        if (!fastRes?.ok || !fastRes.pin) {
+        // Fetch authentic pin metrics via fetchPinHybrid (PinResource + SSR fallback if aggregated_pin_data is omitted)
+        const p = await fetchPinHybrid(pinId, { isTelemetryOnly: true });
+        if (!p || (!p.has_explicit_saves && Number(p.saves ?? 0) === 0 && Number(p.repins ?? 0) > 0)) {
           skippedCount++;
           return;
         }
 
-        const p = fastRes.pin;
-        const trueSaves = Number(p.saves ?? 0);
-        const trueRepins = Number(p.repins ?? 0);
-        const trueComments = Number(p.comments ?? 0);
-        const trueShares = Number(p.share_count ?? 0);
+        const trueSaves = Math.max(0, Number(p.saves ?? 0));
+        const trueRepins = Math.max(0, Number(p.repins ?? 0));
+        const trueComments = Math.max(0, Number(p.comments ?? 0));
+        const trueShares = Math.max(0, Number(p.share_count ?? p.shares ?? 0));
         const totalReactions = (typeof p.reactions === 'object' && p.reactions !== null)
           ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
           : Number(p.reactions || 0);
@@ -101,13 +110,14 @@ async function remediate() {
               wasDeepHydrated: baseSaves >= 10,
               maxCap: 25000
             });
-            deltaSaves24h = Math.max(0, trueSaves - baseSaves);
+            deltaSaves24h = Math.round(trueVelocity);
           } else {
             // If true saves is lower than prior baseline, prior baseline was poisoned!
-            // Clamp any historical snapshot where save_count exceeds authentic true saves
+            // Clamp any historical snapshot where save_count exceeds authentic true saves and reset its poisoned velocity
             await sql`
               UPDATE pins_daily_metrics
-              SET save_count = ${trueSaves}
+              SET save_count = ${trueSaves},
+                  daily_save_velocity = 0
               WHERE pin_id = ${pinId}
                 AND save_count > ${trueSaves};
             `;
@@ -147,17 +157,23 @@ async function remediate() {
             comment_count = ${trueComments},
             share_count = ${trueShares},
             daily_save_velocity = ${trueVelocity},
+            delta_saves_24h = ${deltaSaves24h},
             delta_repins_24h = ${deltaRepins24h},
             updated_at = NOW()
           WHERE pin_id = ${pinId};
         `;
 
-        // 3. Update keyword_serp_current
+        // 3. Update keyword_serp_current (including self-healing poisoned baseline_day_saves)
         await sql`
           UPDATE keyword_serp_current
           SET
             save_count = ${trueSaves},
             repin_count = ${trueRepins},
+            baseline_day_saves = CASE
+              WHEN baseline_day_saves IS NOT NULL AND baseline_day_saves > ${trueSaves}
+              THEN ${trueSaves}
+              ELSE baseline_day_saves
+            END,
             comment_count = ${trueComments},
             share_count = ${trueShares},
             daily_save_velocity = ${trueVelocity},
@@ -166,7 +182,30 @@ async function remediate() {
           WHERE pin_id = ${pinId};
         `;
 
-        // 4. Update today's snapshot in pins_daily_metrics (physical table, NOT view)
+        // 4. Update competitor_pins & pa_pins
+        await sql`
+          UPDATE competitor_pins
+          SET
+            save_count = ${trueSaves},
+            repin_count = ${trueRepins},
+            comment_count = ${trueComments},
+            updated_at = NOW()
+          WHERE pin_id = ${pinId};
+        `;
+
+        await sql`
+          UPDATE pa_pins
+          SET
+            saves = ${trueSaves},
+            repins = ${trueRepins},
+            comments = ${trueComments},
+            share_count = ${trueShares},
+            velocity = ${trueVelocity},
+            last_updated_at = NOW()
+          WHERE pin_id = ${pinId};
+        `;
+
+        // 5. Update today's snapshot in pins_daily_metrics (physical table, NOT view)
         await sql`
           UPDATE pins_daily_metrics
           SET
@@ -204,16 +243,27 @@ async function remediate() {
   console.log(`  Skipped: ${skippedCount} pins`);
   console.log(`  Failed: ${failedCount} pins`);
 
-  // 5. Global Table Sync to eliminate any discrepancies
-  console.log('\n[Global Sync] Harmonizing keyword_serp_current and keyword_displaced_index with universal_master_pins...');
+  // 6. Global Table Sync to eliminate any discrepancies across all 4 pillars
+  console.log('\n[Global Sync] Harmonizing keyword_serp_current, keyword_displaced_index, competitor_pins, and pa_pins with universal_master_pins...');
   const resKsc = await sql`
     UPDATE keyword_serp_current ksc
     SET
       save_count = ump.save_count,
+      repin_count = ump.repin_count,
+      baseline_day_saves = CASE
+        WHEN ksc.baseline_day_saves IS NOT NULL AND ksc.baseline_day_saves > ump.save_count
+        THEN ump.save_count
+        ELSE ksc.baseline_day_saves
+      END,
       daily_save_velocity = ump.daily_save_velocity
     FROM universal_master_pins ump
     WHERE ksc.pin_id = ump.pin_id
-      AND (ksc.save_count <> ump.save_count OR ksc.daily_save_velocity <> ump.daily_save_velocity);
+      AND (
+        ksc.save_count <> ump.save_count
+        OR ksc.repin_count <> ump.repin_count
+        OR ksc.daily_save_velocity <> ump.daily_save_velocity
+        OR (ksc.baseline_day_saves IS NOT NULL AND ksc.baseline_day_saves > ump.save_count)
+      );
   `;
   console.log(`  Synchronized ${resKsc.count || 0} rows in keyword_serp_current.`);
 
@@ -221,12 +271,41 @@ async function remediate() {
     UPDATE keyword_displaced_index kdi
     SET
       save_count = ump.save_count,
-      daily_save_velocity = ump.daily_save_velocity
+      repin_count = ump.repin_count,
+      daily_save_velocity = ump.daily_save_velocity,
+      delta_saves_24h = ump.delta_saves_24h
     FROM universal_master_pins ump
     WHERE kdi.pin_id = ump.pin_id
-      AND (kdi.save_count <> ump.save_count OR kdi.daily_save_velocity <> ump.daily_save_velocity);
+      AND (
+        kdi.save_count <> ump.save_count
+        OR kdi.repin_count <> ump.repin_count
+        OR kdi.daily_save_velocity <> ump.daily_save_velocity
+      );
   `;
   console.log(`  Synchronized ${resKdi.count || 0} rows in keyword_displaced_index.`);
+
+  const resCp = await sql`
+    UPDATE competitor_pins cp
+    SET
+      save_count = ump.save_count,
+      repin_count = ump.repin_count
+    FROM universal_master_pins ump
+    WHERE cp.pin_id = ump.pin_id
+      AND (cp.save_count <> ump.save_count OR cp.repin_count <> ump.repin_count);
+  `;
+  console.log(`  Synchronized ${resCp.count || 0} rows in competitor_pins.`);
+
+  const resPa = await sql`
+    UPDATE pa_pins pa
+    SET
+      saves = ump.save_count,
+      repins = ump.repin_count,
+      velocity = ump.daily_save_velocity
+    FROM universal_master_pins ump
+    WHERE pa.pin_id = ump.pin_id
+      AND (pa.saves <> ump.save_count OR pa.repins <> ump.repin_count OR pa.velocity <> ump.daily_save_velocity);
+  `;
+  console.log(`  Synchronized ${resPa.count || 0} rows in pa_pins.`);
 
   await sql.end();
 }

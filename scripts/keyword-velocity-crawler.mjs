@@ -322,32 +322,42 @@ async function inspectPin(pin, kw) {
 
   const detailSaves = Number(detail?.saves ?? detail?.save_count ?? 0);
   const prevKnownSaves = Number(pin.save_count || 0);
+  const hasExplicitDetailSaves = Boolean(detail?.has_explicit_saves) || detailSaves > 0;
   // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
-  // Preserve previously known save_count if PinResource fast path omitted saves (detailSaves === 0)
-  const authenticSaves = (detailSaves > 0)
-    ? Math.max(prevKnownSaves, detailSaves)
+  // Trust explicit live saves from Pinterest so previously inflated/repin-conflated save_count self-heals,
+  // preserving prevKnownSaves only if an endpoint omitted the saves field completely (!hasExplicitDetailSaves).
+  const authenticSaves = hasExplicitDetailSaves
+    ? detailSaves
     : prevKnownSaves;
-  const authenticRepins = Math.max(
-    Number(pin.repin_count || 0),
-    Number(detail?.repins || 0),
-    Number(detail?.repin_count || 0)
-  );
+  const detailRepins = Math.max(Number(detail?.repins || 0), Number(detail?.repin_count || 0));
+  const authenticRepins = detailRepins > 0
+    ? detailRepins
+    : Number(pin.repin_count || 0);
   const authenticComments = Number(detail?.comments || detail?.comment_count || 0);
   const authenticShares = Number(detail?.shares || detail?.share_count || 0);
 
   // Live Velocity Delta Generation (Immunized against Phase 1A -> Phase 1B same-day zeroing):
-  const hasExplicitBaseline = (pin.baseline_day_saves != null && Number(pin.baseline_day_saves) > 0);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const rawBaseDateObj = pin.baseline_day_date ? new Date(pin.baseline_day_date) : null;
+  const rawBaseDateIso = rawBaseDateObj && !isNaN(rawBaseDateObj.getTime()) ? rawBaseDateObj.toISOString().slice(0, 10) : null;
+  const hasExplicitBaseline = (
+    pin.baseline_day_saves != null &&
+    Number(pin.baseline_day_saves) > 0 &&
+    (!rawBaseDateIso || rawBaseDateIso < todayIso)
+  );
   const baselineSaves = hasExplicitBaseline
     ? Number(pin.baseline_day_saves)
     : Number(pin.save_count || 0);
   let computedVelocity = Number(pin.daily_save_velocity || 0);
 
-  if (detail && authenticSaves >= baselineSaves) {
+  if (detail && authenticSaves < baselineSaves) {
+    // Self-healed save_count dropped below a previously poisoned baseline: reset velocity to 0
+    computedVelocity = 0;
+  } else if (detail && authenticSaves >= baselineSaves) {
     const rawDelta = authenticSaves - baselineSaves;
-    const baseDateRaw = pin.baseline_day_date || pin.crawled_at || pin.metadata?.crawled_at || null;
+    const baseDateRaw = (hasExplicitBaseline ? pin.baseline_day_date : null) || pin.crawled_at || pin.metadata?.crawled_at || pin.baseline_day_date || null;
     if (rawDelta > 0 && baseDateRaw) {
       const parsedBase = new Date(baseDateRaw);
-      const todayIso = new Date().toISOString().slice(0, 10);
       const baseIso = !isNaN(parsedBase.getTime()) ? parsedBase.toISOString().slice(0, 10) : null;
       if (!hasExplicitBaseline && baseIso === todayIso) {
         // Intraday crawl where pin was already updated today: take max to preserve today's peak velocity, never compound monotonically
@@ -390,7 +400,6 @@ async function inspectPin(pin, kw) {
     } else if (rawDelta === 0 && baseDateRaw) {
       const parsedBase = new Date(baseDateRaw);
       const parsedUpdated = pin.updated_at ? new Date(pin.updated_at) : null;
-      const todayIso = new Date().toISOString().slice(0, 10);
       const updatedToday = parsedUpdated && !isNaN(parsedUpdated.getTime()) && parsedUpdated.toISOString().slice(0, 10) === todayIso;
       // Never zero out velocity if the pin was already updated today during Phase 1A SERP harvest!
       if (!updatedToday && !isNaN(parsedBase.getTime())) {
@@ -500,6 +509,7 @@ async function inspectPin(pin, kw) {
     created_at_pinterest: createdAtPinterest,
     created_at: createdAtPinterest,
     save_count: authenticSaves,
+    has_explicit_saves: hasExplicitDetailSaves,
     repin_count: authenticRepins,
     comment_count: authenticComments,
     share_count: authenticShares,
@@ -536,6 +546,7 @@ async function flushBatchToHub(pinsChunk, kw) {
     return {
       pin_id: String(p.pin_id),
       authentic_saves: Number(p.save_count || 0),
+      has_explicit_saves: Boolean(p.has_explicit_saves || Number(p.save_count || 0) > 0),
       authentic_repins: Number(p.repin_count || 0),
       authentic_comments: Number(p.comment_count || 0),
       authentic_shares: Number(p.share_count || 0),
@@ -564,11 +575,23 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_serp_current ksc
       SET 
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_saves > 0 AND COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, false) = false
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
           THEN u.authentic_saves::bigint
-          ELSE GREATEST(ksc.save_count, u.authentic_saves::bigint)
+          WHEN u.authentic_saves > 0
+          THEN u.authentic_saves::bigint
+          ELSE COALESCE(ksc.save_count, 0)
         END,
-        repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+        END,
+        baseline_day_saves = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
+           AND ksc.baseline_day_saves > u.authentic_saves::bigint
+          THEN u.authentic_saves::bigint
+          ELSE ksc.baseline_day_saves
+        END,
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -631,6 +654,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -660,10 +684,14 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_displaced_index kdi
       SET
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
-          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+          WHEN NOT u.from_hydration_cache AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true) THEN u.authentic_saves::bigint
+          WHEN u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE COALESCE(kdi.save_count, 0)
         END,
-        repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+        END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -679,6 +707,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -700,11 +729,23 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_serp_current ksc
       SET 
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_saves > 0 AND COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, false) = false
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
           THEN u.authentic_saves::bigint
-          ELSE GREATEST(ksc.save_count, u.authentic_saves::bigint)
+          WHEN u.authentic_saves > 0
+          THEN u.authentic_saves::bigint
+          ELSE COALESCE(ksc.save_count, 0)
         END,
-        repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+        END,
+        baseline_day_saves = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
+           AND ksc.baseline_day_saves > u.authentic_saves::bigint
+          THEN u.authentic_saves::bigint
+          ELSE ksc.baseline_day_saves
+        END,
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -767,6 +808,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -798,10 +840,14 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_displaced_index kdi
       SET
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
-          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+          WHEN NOT u.from_hydration_cache AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true) THEN u.authentic_saves::bigint
+          WHEN u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE COALESCE(kdi.save_count, 0)
         END,
-        repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+        END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -817,6 +863,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -840,11 +887,23 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_serp_current ksc
       SET 
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_saves > 0 AND COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, false) = false
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
           THEN u.authentic_saves::bigint
-          ELSE GREATEST(ksc.save_count, u.authentic_saves::bigint)
+          WHEN u.authentic_saves > 0
+          THEN u.authentic_saves::bigint
+          ELSE COALESCE(ksc.save_count, 0)
         END,
-        repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
+          THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(ksc.repin_count, 0), u.authentic_repins::int)
+        END,
+        baseline_day_saves = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
+           AND ksc.baseline_day_saves > u.authentic_saves::bigint
+          THEN u.authentic_saves::bigint
+          ELSE ksc.baseline_day_saves
+        END,
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -907,6 +966,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -935,10 +995,14 @@ async function flushBatchToHub(pinsChunk, kw) {
       UPDATE keyword_displaced_index kdi
       SET
         save_count = CASE
-          WHEN NOT u.from_hydration_cache AND u.authentic_saves > 0 THEN u.authentic_saves::bigint
-          ELSE GREATEST(kdi.save_count, u.authentic_saves::bigint)
+          WHEN NOT u.from_hydration_cache AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true) THEN u.authentic_saves::bigint
+          WHEN u.authentic_saves > 0 THEN u.authentic_saves::bigint
+          ELSE COALESCE(kdi.save_count, 0)
         END,
-        repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
+        repin_count = CASE
+          WHEN NOT u.from_hydration_cache AND u.authentic_repins > 0 THEN u.authentic_repins::int
+          ELSE GREATEST(COALESCE(kdi.repin_count, 0), u.authentic_repins::int)
+        END,
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
@@ -954,6 +1018,7 @@ async function flushBatchToHub(pinsChunk, kw) {
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
+        has_explicit_saves boolean,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
@@ -1020,24 +1085,40 @@ async function flushToStorageShards(enrichedPins, kw = null) {
             }
 
             // 2. Compute authentic rolling deltas in-memory from distinct-date snapshots in pins_daily_metrics
+            const todayUtcIso = new Date().toISOString().slice(0, 10);
             for (const sp of sortedPins) {
-              const priorSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
+              const allSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
+              // Strictly separate today's existing snapshot from prior-day snapshots (< todayUtcIso)
+              // to prevent compounding yesterday's velocity onto today's delta!
+              const priorDaySnaps = [];
+              let todayPrevSnap = null;
+              for (const snap of allSnaps) {
+                const snapIso = snap?.snapshot_date
+                  ? (snap.snapshot_date instanceof Date ? snap.snapshot_date.toISOString().slice(0, 10) : String(snap.snapshot_date).slice(0, 10))
+                  : null;
+                if (snapIso === todayUtcIso) {
+                  if (!todayPrevSnap) todayPrevSnap = snap;
+                } else if (snapIso && snapIso < todayUtcIso) {
+                  priorDaySnaps.push(snap);
+                }
+              }
+
               const currentSnap = {
-                snapshot_date: new Date(),
+                snapshot_date: todayUtcIso,
                 save_count: sp.save_count != null ? Number(sp.save_count) : 0,
                 repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
               };
-              const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorSnaps]);
-              if (gains.delta_saves_24h != null) {
+              const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
+              if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
                 if (sp.was_live_scraped !== false) {
-                  sp.daily_save_velocity = Number(gains.delta_saves_24h);
+                  sp.daily_save_velocity = Number(gains.daily_save_velocity);
                 } else {
-                  sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.delta_saves_24h));
+                  sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
                 }
-              } else if (priorSnaps.length > 0 && sp.was_live_scraped !== false) {
-                const todayPrev = priorSnaps[0];
-                const intradayAdd = Math.max(0, Number(sp.save_count || 0) - Number(todayPrev.save_count || 0));
-                sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), Number(todayPrev.daily_save_velocity || 0) + intradayAdd));
+              } else if (todayPrevSnap && sp.was_live_scraped !== false) {
+                // Only when no prior-day snapshot exists in pins_daily_metrics: preserve today's peak velocity without compounding
+                const intradayDelta = Math.max(0, Number(sp.save_count || 0) - Number(todayPrevSnap.save_count || 0));
+                sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), Number(todayPrevSnap.daily_save_velocity || 0), intradayDelta));
               }
               sp.delta_repins_24h = gains.delta_repins_24h;
               sp.gains_5d = gains.gains_5d;
@@ -1335,15 +1416,13 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                   NOW()
                 FROM dedup_metrics
                 ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-                  save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-                  repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                  save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count) END,
                   reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE
                     WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-                    WHEN COALESCE(EXCLUDED.save_count, 0) > COALESCE(pins_daily_metrics.save_count, 0) THEN
-                      COALESCE(pins_daily_metrics.daily_save_velocity, 0) + (COALESCE(EXCLUDED.save_count, 0) - COALESCE(pins_daily_metrics.save_count, 0))
                     ELSE COALESCE(pins_daily_metrics.daily_save_velocity, 0)
                   END,
                   updated_at = NOW()
@@ -1780,8 +1859,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            COALESCE(kdi.save_count, 0) as baseline_day_saves,
-            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
@@ -2056,8 +2135,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            COALESCE(kdi.save_count, 0) as baseline_day_saves,
-            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
@@ -2341,8 +2420,8 @@ async function run() {
             false AS is_deep_hydrated,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
-            COALESCE(kdi.save_count, 0) as baseline_day_saves,
-            (kdi.updated_at AT TIME ZONE 'UTC')::date as baseline_day_date,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
+            CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date,
             kdi.shard_id
           FROM keyword_displaced_index kdi
           LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id

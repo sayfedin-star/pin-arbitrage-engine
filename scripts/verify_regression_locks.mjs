@@ -513,6 +513,25 @@ try {
     `src/ui/dashboard-modals.mjs contains ${arabicMatches ? arabicMatches.length : 0} residual Arabic characters (LND-823)`
   );
 
+  // 14G. Round 30 Anti-Scattering, Anti-Conflation & Anti-Compounding Shields
+  const clusterServiceContent = readFile('src/modules/cluster/service.mjs');
+  const antiScatteringGuards = (
+    pinterestScraperContent.includes('has_explicit_saves:') &&
+    !pinterestScraperContent.includes('canonicalPin?.saveCount') &&
+    keywordCrawlerContent.includes('gains.daily_save_velocity') &&
+    !keywordCrawlerContent.includes('gains.delta_saves_24h') &&
+    !keywordCrawlerContent.includes('todayPrev.daily_save_velocity || 0) + intradayAdd') &&
+    !keywordsServiceContent.includes('item?.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || item.repin_count') &&
+    !clusterServiceContent.includes('p.aggregated_pin_data?.aggregated_stats?.saves ?? (p.repin_count || 0)') &&
+    !fleetRouterContent.includes('existingPositiveVelocity + intradayStepGain') &&
+    !fleetRouterContent.includes('save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))')
+  );
+  check(
+    'Lock 14',
+    antiScatteringGuards,
+    'Round 30 regression: detected save/repin conflation, gains.delta_saves_24h typo, intraday velocity compounding, or GREATEST save_count lock'
+  );
+
 } catch (e) {
   errors.push(`Unexpected Gate Script Error: ${e.message}\n${e.stack}`);
   console.error(`💥 Execution failure:`, e);

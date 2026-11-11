@@ -768,8 +768,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
 
         const saves = Math.max(
           Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
-          Number(item.save_count || 0),
-          Number(item.repin_count || 0)
+          Number(item.save_count || 0)
         );
 
         // Classify visual relationship
@@ -1307,10 +1306,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const destinationUrl = item.link || '';
       const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
       
+      const hasExplicitItemSaves = Boolean(
+        item.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
+        item.save_count !== undefined
+      );
       const rawSaves = Math.max(
         Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
-        Number(item.save_count || 0),
-        Number(item.repin_count || 0)
+        Number(item.save_count || 0)
       );
       
       let reactions = 0;
@@ -1358,17 +1360,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       // Lifetime cumulative pin saves can NEVER legitimately drop to 0.
       const baseEntryForPin = baselineMap.get(pinId);
       const baseSavesForPin = (baseEntryForPin && typeof baseEntryForPin === 'object') ? Number(baseEntryForPin.saves || 0) : Number(baseEntryForPin || 0);
-      const confirmedSaves = Math.max(
-        saves,
+      const priorKnownSaves = Math.max(
         Number(immediateData?.saves || 0),
         baseSavesForPin,
         Number(globalSavesMap.get(pinId) || 0)
       );
-      const confirmedRepins = Math.max(
-        Number(item.repin_count || 0),
-        Number(immediateData?.repins || 0),
-        Number(globalRepinsMap.get(pinId) || 0)
-      );
+      const confirmedSaves = (saves > 0 || hasExplicitItemSaves)
+        ? saves
+        : priorKnownSaves;
+      const itemRepins = Number(item.repin_count || 0);
+      const confirmedRepins = itemRepins > 0
+        ? itemRepins
+        : Math.max(
+            Number(immediateData?.repins || 0),
+            Number(globalRepinsMap.get(pinId) || 0)
+          );
       const confirmedComments = Math.max(
         Number(item.comment_count || 0),
         Number(immediateData?.comments || 0)
@@ -1573,11 +1579,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
               const pidgetSaves = Number(pData.saves ?? pData.save_count ?? 0);
               const pidgetRepins = Number(pData.repins ?? pData.repin_count ?? 0);
-              if (pidgetSaves > 0) {
-                p.save_count = Math.max(p.save_count, pidgetSaves);
+              if (pidgetSaves > 0 || pData.has_explicit_saves) {
+                p.save_count = pidgetSaves;
               }
               if (pidgetRepins > 0) {
-                p.repin_count = Math.max(p.repin_count, pidgetRepins);
+                p.repin_count = pidgetRepins;
               }
               if (pData.title && !isSyntheticPinTitle(pData.title) && (!p.title || isSyntheticPinTitle(p.title))) {
                 p.title = pData.title;
@@ -2006,6 +2012,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           rank_position = EXCLUDED.rank_position,
           last_known_rank = EXCLUDED.rank_position,
           baseline_day_saves = CASE
+            -- Self-heal poisoned baseline: if prior baseline_day_saves exceeds current authentic save_count, clamp baseline to save_count
+            WHEN EXCLUDED.save_count > 0 AND keyword_serp_current.baseline_day_saves > EXCLUDED.save_count
+            THEN EXCLUDED.save_count
             -- If prior baseline_day_saves was a repin_count artifact and real saves are now available, reset to save_count
             WHEN keyword_serp_current.repin_count > 0 
              AND ABS(keyword_serp_current.baseline_day_saves - keyword_serp_current.repin_count) <= GREATEST(50, keyword_serp_current.repin_count * 0.03)
@@ -2036,8 +2045,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), keyword_serp_current.image_url),
           creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_serp_current.creator_username),
           board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), keyword_serp_current.board_name),
-          save_count = GREATEST(COALESCE(keyword_serp_current.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-          repin_count = GREATEST(COALESCE(keyword_serp_current.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+          save_count = CASE
+            WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count
+            ELSE COALESCE(keyword_serp_current.save_count, 0)
+          END,
+          repin_count = CASE
+            WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count
+            ELSE COALESCE(keyword_serp_current.repin_count, 0)
+          END,
           comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           daily_save_velocity = CASE 
             -- Accept EXCLUDED velocity if current row holds a repin-to-save artifact
@@ -2141,8 +2156,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_displaced_index.creator_username),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
-            save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
-            repin_count = GREATEST(keyword_displaced_index.repin_count, EXCLUDED.repin_count),
+            save_count = CASE WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count ELSE keyword_displaced_index.save_count END,
+            repin_count = CASE WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count ELSE keyword_displaced_index.repin_count END,
             daily_save_velocity = EXCLUDED.daily_save_velocity,
             updated_at = NOW();
         `);

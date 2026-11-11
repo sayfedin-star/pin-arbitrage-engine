@@ -238,8 +238,8 @@ async function bulkInsertMetrics(hubSql, metrics) {
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
           comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
           share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
           reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -278,8 +278,8 @@ async function bulkInsertMetrics(hubSql, metrics) {
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
           comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
           share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
           reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -530,8 +530,8 @@ export async function bulkSyncPinsToDeterministicShards(hubSql, enrichedPins) {
         )
         ORDER BY u.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
           comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
           share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
           reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -577,8 +577,8 @@ export async function bulkUpdateCompetitorPins(sqlClient, updates) {
       UPDATE competitor_pins AS cp
       SET enrichment_status = x.status,
           enrich_attempts = COALESCE(x.enrich_attempts, cp.enrich_attempts, 0),
-          save_count = GREATEST(cp.save_count, x.saves),
-          repin_count = GREATEST(cp.repin_count, x.repins),
+          save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE cp.save_count END,
+          repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE cp.repin_count END,
           comment_count = GREATEST(cp.comment_count, x.comments),
           alt_text = CASE WHEN x.alt_text IS NOT NULL AND x.alt_text <> '' THEN x.alt_text ELSE cp.alt_text END,
           is_product = (cp.is_product OR COALESCE(x.is_product, false)),
@@ -2075,8 +2075,8 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
           // Atomic monotonic batch commit to pa_pins on Hub
           await sqlClient`
             UPDATE pa_pins AS p
-            SET saves = GREATEST(p.saves, x.saves),
-                repins = GREATEST(p.repins, x.repins),
+            SET saves = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE p.saves END,
+                repins = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE p.repins END,
                 comments = GREATEST(p.comments, x.comments),
                 share_count = GREATEST(p.share_count, x.share_count),
                 velocity = x.velocity,
@@ -2092,11 +2092,11 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
             WHERE p.pin_id = x.pin_id;
           `;
 
-          // Atomic monotonic batch commit to competitor_pins on Hub
+          // Atomic batch commit to competitor_pins on Hub
           await sqlClient`
             UPDATE competitor_pins AS cp
-            SET save_count = GREATEST(cp.save_count, x.saves::bigint),
-                repin_count = GREATEST(cp.repin_count, x.repins::bigint),
+            SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE cp.save_count END,
+                repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE cp.repin_count END,
                 comment_count = GREATEST(cp.comment_count, x.comments::int),
                 metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object('delta_saves_24h', x.delta_saves, 'delta_repins_24h', x.delta_repins),
                 updated_at = NOW()

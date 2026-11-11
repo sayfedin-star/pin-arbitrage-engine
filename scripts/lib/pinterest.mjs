@@ -300,6 +300,11 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         returnedIds.add(idStr);
 
         // Saves extraction (aggregated_pin_data.aggregated_stats.saves)
+        const hasExplicitSaves = Boolean(
+          pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
+          pin.aggregated_stats?.saves !== undefined ||
+          pin.save_count !== undefined
+        );
         const saves = Number(
           pin.aggregated_pin_data?.aggregated_stats?.saves ??
           pin.aggregated_stats?.saves ??
@@ -357,6 +362,7 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
           id: idStr,
           saves,
           save_count: saves,
+          has_explicit_saves: hasExplicitSaves || saves > 0,
           repins,
           repin_count: repins,
           title,
@@ -985,10 +991,26 @@ export function formatPin(pin) {
     0
   );
 
-  const hasExplicitSaves = rawSaves > 0;
+  const hasExplicitSavesField = Boolean(
+    st.saves != null ||
+    st.save_count != null ||
+    st.saveCount != null ||
+    pin.save_count != null ||
+    pin.saveCount != null ||
+    pin.saves != null ||
+    pin.aggregated_pin_data?.saves != null ||
+    pin.aggregated_pin_data?.save_count != null ||
+    pin.aggregated_pin_data?.aggregated_stats?.saves != null ||
+    pin.aggregated_pin_data?.aggregated_stats?.save_count != null ||
+    pin.aggregatedStats?.saves != null ||
+    pin.aggregatedStats?.save_count != null ||
+    pin.aggregatedPinData?.aggregatedStats?.saves != null ||
+    pin.aggregatedPinData?.saveCount != null
+  );
+  const hasExplicitSaves = rawSaves > 0 || hasExplicitSavesField;
   // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
   // Never conflate saves with repins, and never assume saves >= repins.
-  // When an endpoint does not return explicit saves (rawSaves === 0), saves is 0 (or preserves prior known value in caller).
+  // When an endpoint does not return explicit saves (!hasExplicitSaves), caller can preserve prior known value; when explicit saves is returned (even 0), caller can self-heal.
   const saves = rawSaves;
   const repins = rawRepins;
 
@@ -1908,7 +1930,7 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
     const html = await res.text();
     let parsed = extractPinData(html, pinId);
 
-    const isSuspicious = !parsed || (parsed.saves === 0 && parsed.repins === 0) || (!parsed.has_explicit_saves && parsed.repins > 0);
+    const isSuspicious = !parsed || (!parsed.has_explicit_saves && (parsed.repins > 0 || parsed.saves === 0));
     if (isSuspicious) {
       const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
       if (fallbackPin && (fallbackPin.saves > 0 || fallbackPin.repins > 0)) {

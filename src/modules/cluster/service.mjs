@@ -771,7 +771,7 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
       const title = (p.title || p.grid_title || p.auto_alt_text || p.description || '').slice(0, 255).trim() || `Pin ${candidatePinId}`;
       const domain = p.domain || p.link_domain?.id || 'Uploaded by user';
       const dominantColor = (p.dominant_color && typeof p.dominant_color === 'string') ? p.dominant_color : '#888888';
-      const saves = Number(p.aggregated_pin_data?.aggregated_stats?.saves ?? (p.repin_count || 0));
+      const saves = Number(p.aggregated_pin_data?.aggregated_stats?.saves ?? p.save_count ?? p.saves ?? 0);
       const repins = Number(p.repin_count || 0);
       const saveRate = saves > 0 ? Number(((repins / saves) * 100).toFixed(2)) : 0;
       const isProduct = Boolean(p.is_eligible_for_pdp || (p.price_value && Number(p.price_value) > 0) || p.product_metadata || (Array.isArray(p.shopping_flags) && p.shopping_flags.length > 0));

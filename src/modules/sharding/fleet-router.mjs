@@ -2585,6 +2585,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   const newSaves = Number.isFinite(Number(scrapedPin.saves)) 
     ? Math.max(0, Number(scrapedPin.saves)) 
     : (Number.isFinite(Number(scrapedPin.save_count)) ? Math.max(0, Number(scrapedPin.save_count)) : 0);
+  const hasExplicitScrapedSaves = Boolean(scrapedPin.has_explicit_saves) || newSaves > 0;
   const newRepins = Number.isFinite(Number(scrapedPin.repins)) 
     ? Math.max(0, Number(scrapedPin.repins)) 
     : (Number.isFinite(Number(scrapedPin.repin_count)) ? Math.max(0, Number(scrapedPin.repin_count)) : 0);
@@ -2899,14 +2900,20 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
 
   // Intraday Ratchet & Exact 24h Window Calculation:
   // 1. If a prior-day snapshot exists (baselineDateIso < todayUtcStr), computedVelocity is the exact 24h gain against prior day.
-  // 2. If only a same-day baseline exists (!baselineDateIso || baselineDateIso === todayUtcStr), add any positive intraday gain to today's existing velocity.
-  const intradayStepGain = Math.max(0, newSaves - Number(todayShardRow?.save_count || baselineSaves || 0));
-  const intradayRepinStepGain = Math.max(0, newRepins - Number(todayShardRow?.repin_count || targetBaselineRepins || 0));
-  const syncVelocity = (!baselineDateIso || baselineDateIso === todayUtcStr)
-    ? Math.max(existingPositiveVelocity + intradayStepGain, computedVelocity)
-    : computedVelocity;
+  // 2. If only a same-day baseline exists (!baselineDateIso || baselineDateIso === todayUtcStr), preserve the max of existing velocity, computedVelocity, and intradayStepGain without compounding.
+  const intradayStepGain = todayShardRow
+    ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
+    : 0;
+  const intradayRepinStepGain = todayShardRow
+    ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
+    : 0;
+  const syncVelocity = (hasExplicitScrapedSaves && newSaves < baselineSaves)
+    ? 0
+    : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+      ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
+      : computedVelocity);
   const syncRepinsDelta = (!baselineDateIso || baselineDateIso === todayUtcStr)
-    ? Math.max(existingPositiveRepinDelta + intradayRepinStepGain, rawRepinDelta)
+    ? Math.max(existingPositiveRepinDelta, rawRepinDelta, intradayRepinStepGain)
     : rawRepinDelta;
 
   // 7. Shard: Upsert two-tier modern snapshot metrics (pins_daily_metrics)
@@ -2920,8 +2927,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       ${newComments}, ${newShares}, ${totalReactions}, ${syncVelocity}, NOW()
     )
     ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-      save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-      repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+      save_count = CASE WHEN ${hasExplicitScrapedSaves} OR EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+      repin_count = CASE WHEN EXCLUDED.repin_count > 0 OR ${hasExplicitScrapedSaves} THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -2972,8 +2979,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
              )
              ELSE '{}'::jsonb
            END,
-      save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), ${newSaves}::bigint),
-      repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), ${newRepins}::int),
+      save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE COALESCE(universal_master_pins.save_count, 0) END,
+      repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::int ELSE COALESCE(universal_master_pins.repin_count, 0) END,
       comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), ${newComments}::int),
       share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), ${newShares}::int),
       reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
@@ -3076,11 +3083,18 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
           THEN ${incomingSyncMethod}
           ELSE COALESCE(NULLIF(creation_method, ''), ${incomingSyncMethod}, 'pinterest_platform')
         END,
-        save_count = GREATEST(save_count, ${newSaves}),
-        repin_count = GREATEST(repin_count, ${newRepins}),
+        save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE save_count END,
+        repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repin_count END,
+        baseline_day_saves = CASE
+          WHEN (${hasExplicitScrapedSaves} OR ${newSaves} > 0) AND baseline_day_saves > ${newSaves}::bigint
+          THEN ${newSaves}::bigint
+          ELSE baseline_day_saves
+        END,
         comment_count = GREATEST(comment_count, ${newComments}),
         share_count = GREATEST(share_count, ${newShares}),
         daily_save_velocity = CASE
+          WHEN (${hasExplicitScrapedSaves} OR ${newSaves} > 0) AND baseline_day_saves > ${newSaves}::bigint
+          THEN 0
           WHEN (crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
           THEN GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(${syncVelocity}::numeric, 0))
           WHEN ${syncVelocity} IS NOT NULL AND (${syncVelocity} > 0 OR COALESCE((crawled_at AT TIME ZONE 'UTC')::date, baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
@@ -3120,8 +3134,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     await hubSql`
       UPDATE keyword_displaced_index
       SET
-        save_count = GREATEST(COALESCE(save_count, 0), ${newSaves}),
-        repin_count = GREATEST(COALESCE(repin_count, 0), ${newRepins}),
+        save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE COALESCE(save_count, 0) END,
+        repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE COALESCE(repin_count, 0) END,
         comment_count = GREATEST(COALESCE(comment_count, 0), ${newComments}),
         share_count = GREATEST(COALESCE(share_count, 0), ${newShares}),
         daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity, 0),
@@ -3141,8 +3155,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       link_domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), link_domain),
       destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
       image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
-      save_count = GREATEST(save_count, ${newSaves}),
-      repin_count = GREATEST(repin_count, ${newRepins}),
+      save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE save_count END,
+      repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repin_count END,
       comment_count = GREATEST(comment_count, ${newComments}),
       metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
       updated_at = NOW()
@@ -3157,8 +3171,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
       link = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), link),
       image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
-      saves = GREATEST(saves, ${newSaves}),
-      repins = GREATEST(repins, ${newRepins}),
+      saves = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE saves END,
+      repins = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repins END,
       comments = GREATEST(comments, ${newComments}),
       share_count = GREATEST(share_count, ${newShares}),
       velocity = COALESCE(${syncVelocity}::numeric, 0),
@@ -3362,8 +3376,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
           metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-          save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
-          repin_count = GREATEST(COALESCE(universal_master_pins.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
           comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
           reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
@@ -3431,8 +3445,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
         ) prev ON TRUE
         ORDER BY u.pin_id ASC
         ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
           comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
           share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
           reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -3593,8 +3607,8 @@ export async function writeBatchToDeterministicShards(params = {}) {
           )
           ORDER BY u.pin_id ASC
           ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-            save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
-            repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
             comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
             share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
             reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
