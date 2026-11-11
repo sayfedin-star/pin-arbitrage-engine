@@ -14,10 +14,13 @@
 
 BEGIN;
 
--- 1. Drop legacy Neon registry & both signatures of CRC32 sharding function
+-- 1. Drop legacy Neon registry & both signatures of CRC32 sharding function and legacy shard/monotonic trigger functions
 DROP TABLE IF EXISTS public.neon_projects_registry CASCADE;
 DROP FUNCTION IF EXISTS public.pae_crc32_shard_id(text, integer) CASCADE;
 DROP FUNCTION IF EXISTS public.pae_crc32_shard_id(text) CASCADE;
+DROP FUNCTION IF EXISTS public.trg_set_deterministic_pin_shard_id() CASCADE;
+DROP FUNCTION IF EXISTS public.trg_enforce_monotonic_metrics() CASCADE;
+DROP FUNCTION IF EXISTS public.trg_pa_pins_enforce_monotonic_metrics() CASCADE;
 
 -- 2. Drop legacy shard_id indexes and columns across operational tables
 DROP INDEX IF EXISTS public.idx_pa_pins_shard_id;

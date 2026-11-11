@@ -390,9 +390,26 @@ export async function applyMigration(sql, migration, { dryRun = false, force = f
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      for (const stmt of statements) {
-        // Execute each discrete statement
-        await sql(stmt);
+      if (typeof sql.begin === 'function' && typeof sql.unsafe === 'function') {
+        await sql.begin(async (tx) => {
+          for (const stmt of statements) {
+            const cleanToken = stmt
+              .replace(/\/\*[\s\S]*?\*\//g, '')
+              .replace(/--.*$/gm, '')
+              .trim();
+            if (/^(BEGIN|COMMIT)(\s+TRANSACTION)?$/i.test(cleanToken)) continue;
+            await tx.unsafe(stmt);
+          }
+        });
+      } else {
+        for (const stmt of statements) {
+          // Execute each discrete statement
+          if (typeof sql.unsafe === 'function') {
+            await sql.unsafe(stmt);
+          } else {
+            await sql(stmt);
+          }
+        }
       }
 
       // Record in schema_migrations
@@ -554,14 +571,19 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const dbUrl = urlArg ? urlArg.split('=')[1] : process.env.DATABASE_URL;
 
   if (isList) {
-    listMigrations({ dbUrl }).catch(err => {
-      console.error('[-] Fatal error listing migrations:', err.message);
-      process.exit(1);
-    });
+    listMigrations({ dbUrl })
+      .then(() => process.exit(0))
+      .catch(err => {
+        console.error('[-] Fatal error listing migrations:', err.message);
+        process.exit(1);
+      });
   } else {
-    runMigrations({ dbUrl, dryRun, force, upToVersion, singleFile }).catch(err => {
-      console.error('[-] Fatal error running migrations:', err.message);
-      process.exit(1);
-    });
+    runMigrations({ dbUrl, dryRun, force, upToVersion, singleFile })
+      .then(() => process.exit(0))
+      .catch(err => {
+        console.error('[-] Fatal error running migrations:', err.message);
+        process.exit(1);
+      });
   }
 }
+
