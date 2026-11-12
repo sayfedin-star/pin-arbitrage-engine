@@ -617,12 +617,14 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
   }
 
-  // 5. Non-blocking VACUUM (ANALYZE) on target Hub tables
+  // 5. Non-blocking VACUUM (ANALYZE) on target Hub physical tables (skip views like keyword_pins_snapshots)
   const tablesToVacuum = [
     ['tracked_keywords', () => sql`VACUUM (ANALYZE) tracked_keywords;`],
     ['keyword_serp_current', () => sql`VACUUM (ANALYZE) keyword_serp_current;`],
     ['keyword_displaced_index', () => sql`VACUUM (ANALYZE) keyword_displaced_index;`],
-    ['keyword_pins_snapshots', () => sql`VACUUM (ANALYZE) keyword_pins_snapshots;`],
+    ['pin_serp_positions', () => sql`VACUUM (ANALYZE) pin_serp_positions;`],
+    ['pins_daily_metrics', () => sql`VACUUM (ANALYZE) pins_daily_metrics;`],
+    ['universal_master_pins', () => sql`VACUUM (ANALYZE) universal_master_pins;`],
     ['competitor_profiles', () => sql`VACUUM (ANALYZE) competitor_profiles;`],
     ['competitor_history_snapshots', () => sql`VACUUM (ANALYZE) competitor_history_snapshots;`],
     ['competitor_pins', () => sql`VACUUM (ANALYZE) competitor_pins;`],

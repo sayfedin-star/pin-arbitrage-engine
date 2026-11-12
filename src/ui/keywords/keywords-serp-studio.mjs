@@ -2744,8 +2744,6 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
 
     </div>
 
-  </main>
-
   <!-- ELEVATED FLOATING BULK ACTION BAR (LEVEL 1A DASHBOARD) -->
   <div x-show="viewModeLevel === 'dashboard' && selectedKeywordIds.length > 0" x-cloak
        x-transition:enter="transition ease-out duration-300"

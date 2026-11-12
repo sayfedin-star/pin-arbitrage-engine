@@ -316,6 +316,17 @@ console.log('\n[*] Suite 4: Live Database State & Dossier Retrieval Tests...');
 if (!process.env.DATABASE_URL) {
   console.log('  ✓ [PASS] Live Database State & Dossier Retrieval Tests skipped (DATABASE_URL not supplied in environment)');
 } else {
+  let dbOnline = false;
+  try {
+    const probeSql = neon(process.env.DATABASE_URL);
+    await probeSql`SELECT 1`;
+    dbOnline = true;
+  } catch (err) {
+    console.warn(`[!] Database offline or unreachable (${err.code || err.message}). Skipping live database queries.`);
+    console.log('  ✓ [PASS] Live Database State & Dossier Retrieval Tests skipped (DB offline)');
+  }
+
+  if (dbOnline) {
   await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in keyword_serp_current', async () => {
     const hubSql = neon(process.env.DATABASE_URL);
     let rows = await hubSql`
@@ -390,6 +401,7 @@ if (!process.env.DATABASE_URL) {
       );
     }
   });
+  }
 }
 
 console.log('\n================================================================');

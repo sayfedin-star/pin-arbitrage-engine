@@ -2216,7 +2216,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM keyword_serp_current ksc
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-      WHERE (LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain))) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain))) = 'uploaded by user'))
+      WHERE (ksc.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND ksc.clean_domain = 'uploaded by user'))
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, COALESCE(NULLIF(ump.save_count, 0), ksc.save_count, 0) DESC
@@ -2242,7 +2242,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.annotations AS visual_annotations,
         pa.created_at_pinterest
       FROM pa_pins pa
-      WHERE (LOWER(TRIM(pa.domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(pa.domain)) = 'uploaded by user'))
+      WHERE (pa.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND pa.domain = 'uploaded by user'))
       ORDER BY pa.saves DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'pa_pins')),
@@ -2274,7 +2274,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-      WHERE (LOWER(TRIM(cp.link_domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(cp.link_domain)) = 'uploaded by user'))
+      WHERE (cp.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND cp.clean_domain = 'uploaded by user'))
       ORDER BY COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0) DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'competitor_pins')),
@@ -2302,7 +2302,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM keyword_displaced_index kdi
       LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      WHERE (LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain))) = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain))) = 'uploaded by user'))
+      WHERE (kdi.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND kdi.clean_domain = 'uploaded by user'))
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
       ORDER BY COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) DESC
@@ -2324,7 +2324,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
       FROM universal_master_pins ump
-      WHERE (ump.clean_domain = ${cleanDomain} OR LOWER(TRIM(ump.domain)) = ${cleanDomain} OR (${isOrganicVault}::boolean AND (ump.clean_domain = 'uploaded by user' OR LOWER(TRIM(ump.domain)) = 'uploaded by user')))
+      WHERE (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND ump.clean_domain = 'uploaded by user'))
       ORDER BY COALESCE(ump.save_count, 0) DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'universal_master_pins')) : Promise.resolve([])

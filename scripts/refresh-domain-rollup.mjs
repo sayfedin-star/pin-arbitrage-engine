@@ -28,6 +28,21 @@ const startTime = Date.now();
 
 try {
   const res = await refreshDomainIntelligenceRollup(sql);
+
+  // [INVARIANT: REFRESH-PULSE-MV] Refresh Materialized View for Pulse 24h Summary
+  try {
+    console.log('[DomainRollup] Refreshing mv_pulse_24h_summary...');
+    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
+    console.log('[DomainRollup] Successfully refreshed mv_pulse_24h_summary.');
+  } catch (mvErr) {
+    try {
+      await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+      console.log('[DomainRollup] Refreshed mv_pulse_24h_summary (standard mode).');
+    } catch (e) {
+      console.warn('[DomainRollup] Notice: mv_pulse_24h_summary refresh skipped:', e.message);
+    }
+  }
+
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   if (res.success) {
     console.log(`[DomainRollup] Successfully refreshed domain intelligence rollup in ${elapsed}s.`);

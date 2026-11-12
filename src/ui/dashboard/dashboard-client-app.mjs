@@ -3448,10 +3448,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               this.showToast('Background crawl started!');
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Failed to trigger crawl: ' + (err?.error || res.statusText || 'Failed'));
+              this.showToast('Failed to trigger crawl: ' + (err?.error || res.statusText || 'Failed'), 'error');
             }
           } catch (e) {
-            alert('Failed to trigger crawl: ' + e.message);
+            this.showToast('Failed to trigger crawl: ' + e.message, 'error');
           }
         },
 
@@ -5129,7 +5129,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         async submitBulkSeeds() {
           const pinIds = this.bulkParsedPinIds;
           if (pinIds.length === 0) {
-            alert('No valid Pin IDs detected');
+            this.showToast('No valid Pin IDs detected', 'error');
             return;
           }
           this.isSubmittingBulk = true;
@@ -5160,10 +5160,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               }
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Error importing bulk seeds: ' + (err?.error || res.statusText || 'Failed'));
+              this.showToast('Error importing bulk seeds: ' + (err?.error || res.statusText || 'Failed'), 'error');
             }
           } catch (e) {
-            alert('Failed to import bulk seeds: ' + e.message);
+            this.showToast('Failed to import bulk seeds: ' + e.message, 'error');
           } finally {
             this.isSubmittingBulk = false;
           }
@@ -5206,12 +5206,12 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           if (this.crawlTargetScope === 'selected') {
             targetIds = [...this.selectedSeedIds];
             if (targetIds.length === 0) {
-              alert('Please select at least one seed to crawl.');
+              this.showToast('Please select at least one seed to crawl.', 'error');
               return;
             }
           } else if (this.crawlTargetScope === 'single') {
             if (!this.crawlCustomPinId.trim()) {
-              alert('Please enter a target Pin ID.');
+              this.showToast('Please enter a target Pin ID.', 'error');
               return;
             }
             targetIds = [this.crawlCustomPinId.trim()];
@@ -5247,10 +5247,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               this.crawlModalTab = 'history';
               setTimeout(() => this.fetchWorkflowRuns(), 2000);
             } else {
-              alert('Failed to trigger workflow: ' + (data?.error || res.statusText || 'Unknown error'));
+              this.showToast('Failed to trigger workflow: ' + (data?.error || res.statusText || 'Unknown error'), 'error');
             }
           } catch (e) {
-            alert('Workflow dispatch network error: ' + e.message);
+            this.showToast('Workflow dispatch network error: ' + e.message, 'error');
           } finally {
             this.isTriggeringWorkflow = false;
           }
@@ -5300,10 +5300,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               await this.refreshAll();
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Error deleting seeds: ' + (err?.error || res.statusText || 'Failed'));
+              this.showToast('Error deleting seeds: ' + (err?.error || res.statusText || 'Failed'), 'error');
             }
           } catch (e) {
-            alert('Failed to delete seeds: ' + e.message);
+            this.showToast('Failed to delete seeds: ' + e.message, 'error');
           } finally {
             this.isDeleting = false;
           }
@@ -5339,7 +5339,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
 
         async addSeed() {
           if (!this.newSeed.pin_id.trim()) {
-            alert('Please enter a valid Pinterest Pin ID');
+            this.showToast('Please enter a valid Pinterest Pin ID', 'error');
             return;
           }
           try {
@@ -5363,10 +5363,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               }
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Error adding seed: ' + (err?.error || res.statusText || 'Unknown error'));
+              this.showToast('Error adding seed: ' + (err?.error || res.statusText || 'Unknown error'), 'error');
             }
           } catch (e) {
-            alert('Failed to add seed: ' + e.message);
+            this.showToast('Failed to add seed: ' + e.message, 'error');
           }
         },
 
@@ -5393,7 +5393,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         exportCsv(list, filename) {
           const fname = filename || 'arbitrage-candidates.csv';
           if (!list || list.length === 0) {
-            alert('No data to export.');
+            this.showToast('No data to export.', 'error');
             return;
           }
           const headers = [

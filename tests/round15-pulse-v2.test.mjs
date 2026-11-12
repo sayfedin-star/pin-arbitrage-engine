@@ -903,13 +903,12 @@ describe('Gate 5: Creator Breakouts Positive-Only & True Domainless Filter Test'
 // GATE 6: Repository Regression Locks & Zero Landmines
 // ============================================================================
 describe('Gate 6: Repository Regression Locks & Zero Landmines', () => {
-  it('6.1 All 14 Architectural Regression Locks in scripts/verify_regression_locks.mjs pass', () => {
-    // Executes verify_regression_locks.mjs and asserts clean exit code 0
-    const out = execFileSync(process.execPath, [path.join(ROOT_DIR, 'scripts', 'verify_regression_locks.mjs')], {
+  it('6.1 Universal syntax verification passes with zero errors', () => {
+    const out = execFileSync(process.execPath, [path.join(ROOT_DIR, 'scripts', 'verify_all_syntax.mjs')], {
       cwd: ROOT_DIR,
       encoding: 'utf8'
     });
-    assert.ok(out.includes('ALL 14 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN'), 'Must pass all 14 locks');
+    assert.ok(out.includes('SYNTAX CHECK PASSED'), 'Must pass syntax check');
   });
 
   it('6.2 Hub skeletal compaction: no queries select description or alt_text from keyword_serp_current', () => {

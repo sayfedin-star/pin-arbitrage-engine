@@ -9,7 +9,7 @@
 
 import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import fs from 'fs';
-import { sanitizeForJsonb } from './crawler-engine.mjs';
+import { sanitizeForJsonb } from '../src/utils.mjs';
 
 let undiciAgent = null;
 try {

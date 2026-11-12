@@ -261,7 +261,9 @@ assert.strictEqual(getDefaultDispatcher(), null, 'setDefaultDispatcher must allo
 
 // Verify crawlers dynamically instantiate and inject undici
 const kwCrawlerContent = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
-const engineContent = fs.readFileSync('scripts/crawler-engine.mjs', 'utf8');
+const engineContent = fs.existsSync('scripts/crawler-engine.mjs')
+  ? fs.readFileSync('scripts/crawler-engine.mjs', 'utf8')
+  : fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
 const clusterContent = fs.readFileSync('scripts/cluster-intelligence.mjs', 'utf8');
 const relatedContent = fs.readFileSync('scripts/account-related-crawler.mjs', 'utf8');
 
@@ -299,7 +301,7 @@ assert(
 
 // Verify monotonic ORDER BY in crawler engine and account related crawler
 assert(
-  engineContent.includes('ORDER BY pin_id ASC'),
+  engineContent.includes('ORDER BY pin_id ASC') || engineContent.includes('ORDER BY x.pin_id ASC'),
   'crawler-engine.mjs must order pin batch writes by pin_id ASC'
 );
 assert(

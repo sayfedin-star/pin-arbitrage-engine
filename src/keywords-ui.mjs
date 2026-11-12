@@ -197,10 +197,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     ${getKeywordsDashboardViewHtml({ safeFolderId })}
 
     ${getKeywordsSerpStudioViewHtml({ safeFolderId })}
-
-      </div>
-    </main>
-  </div>
+  </main>
 
   ${getKeywordsModalsHtml()}
 

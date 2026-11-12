@@ -340,7 +340,7 @@ export function createUniversalSqlClient(dsn, options = {}) {
     throw new Error('createUniversalSqlClient requires a valid PostgreSQL connection string');
   }
   const cleanDsn = dsn.trim();
-  return wrapShardNeonTransaction(createSqlClient(cleanDsn, options));
+  return createSqlClient(cleanDsn, options);
 }
 
 export function getOrCreateShardSqlClient(pooledDsn) {
@@ -2995,11 +2995,6 @@ export async function writeBatchToDeterministicShards(params = {}) {
     return confirmedPinIds;
   }
 
-  const totalShards = options.totalShards || 99;
-  const virtualShardGroups = batchGroupByShard(pins, totalShards);
-  const physicalShardGroups = coalesceShardGroupsByPhysical(virtualShardGroups);
-  const concurrency = Math.max(1, Math.min(8, options.concurrency || 4));
-
   const formatPinForMasterPayload = (p) => {
     const pid = String(p.pin_id || p.id || '').trim();
     const reactions = p.reactions && typeof p.reactions === 'object' ? p.reactions : {};
@@ -3040,6 +3035,211 @@ export async function writeBatchToDeterministicShards(params = {}) {
       canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
     };
   };
+
+  // [INVARIANT: UNIFIED-POSTGRES-DIRECT-BATCH] Fast path: Single direct atomic batch write on unified DB
+  if (isUnifiedPostgres(env) && hubSql) {
+    const pinMap = new Map();
+    for (const p of pins) {
+      const pid = String(p?.pin_id || p?.id || '').trim();
+      if (pid) pinMap.set(pid, p);
+    }
+    if (pinMap.size === 0) return confirmedPinIds;
+
+    const deduplicatedPins = Array.from(pinMap.values());
+    deduplicatedPins.sort((a, b) => String(a.pin_id || a.id).localeCompare(String(b.pin_id || b.id)));
+
+    for (let i = 0; i < deduplicatedPins.length; i += 500) {
+      const chunk = deduplicatedPins.slice(i, i + 500);
+      const masterPayload = JSON.stringify(chunk.map(formatPinForMasterPayload));
+
+      try {
+        await hubSql`
+          INSERT INTO universal_master_pins (
+            pin_id, creator_username, board_name, title, domain, destination_url,
+            image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
+            save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+            delta_saves_24h, delta_repins_24h,
+            is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+            first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
+          )
+          SELECT DISTINCT ON (u.pin_id)
+            u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
+            u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+            NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
+            COALESCE(u.save_count, 0)::bigint, COALESCE(u.repin_count, 0)::int, COALESCE(u.comment_count, 0)::int,
+            COALESCE(u.share_count, 0)::int, COALESCE(u.reaction_count, 0)::int,
+            COALESCE(
+              CASE
+                WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+                THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+                ELSE NULL
+              END,
+              u.daily_save_velocity,
+              0
+            )::numeric,
+            COALESCE(
+              CASE
+                WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+                THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+                ELSE NULL
+              END,
+              u.daily_save_velocity,
+              0
+            )::numeric,
+            COALESCE(
+              CASE
+                WHEN prev.repin_count IS NOT NULL AND prev.repin_count > 0 AND prev.snapshot_date IS NOT NULL
+                THEN ROUND(GREATEST(0, COALESCE(u.repin_count, 0) - prev.repin_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)))::int
+                WHEN prev.repin_count IS NOT NULL AND prev.repin_count > 0
+                THEN GREATEST(0, COALESCE(u.repin_count, 0) - prev.repin_count)::int
+                ELSE 0
+              END,
+              0
+            )::int,
+            COALESCE(u.is_product, FALSE), COALESCE(u.is_video, FALSE), u.creation_method, u.image_signature,
+            u.seo_noindex_reason, COALESCE(u.is_repin, FALSE), u.canonical_pin_id,
+            'batch_ingest', NOW(), NOW(), NOW()
+          FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
+            pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
+            image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
+            created_at_pinterest text, metadata jsonb,
+            save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int,
+            daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
+            image_signature text, seo_noindex_reason text, is_repin boolean, canonical_pin_id text
+          )
+          LEFT JOIN LATERAL (
+            SELECT pm.save_count, pm.repin_count, pm.snapshot_date
+            FROM pins_daily_metrics pm
+            WHERE pm.pin_id = u.pin_id
+              AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+            ORDER BY pm.snapshot_date DESC
+            LIMIT 1
+          ) prev ON TRUE
+          ORDER BY u.pin_id ASC
+          ON CONFLICT (pin_id) DO UPDATE SET
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+            title = CASE
+              WHEN EXCLUDED.title IS NOT NULL
+               AND BTRIM(EXCLUDED.title) <> ''
+               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+              THEN EXCLUDED.title
+              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+            END,
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+            visual_annotations = CASE 
+              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+              THEN EXCLUDED.visual_annotations 
+              ELSE universal_master_pins.visual_annotations 
+            END,
+            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
+            comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+            share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+            reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+            daily_save_velocity = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
+              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+              ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+            END,
+            delta_saves_24h = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.delta_saves_24h, 0), COALESCE(EXCLUDED.delta_saves_24h, 0))
+              WHEN EXCLUDED.delta_saves_24h IS NOT NULL THEN EXCLUDED.delta_saves_24h
+              ELSE COALESCE(universal_master_pins.delta_saves_24h, 0)
+            END,
+            delta_repins_24h = CASE
+              WHEN (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(universal_master_pins.delta_repins_24h, 0), COALESCE(EXCLUDED.delta_repins_24h, 0))
+              WHEN EXCLUDED.delta_repins_24h IS NOT NULL THEN EXCLUDED.delta_repins_24h
+              ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
+            END,
+            is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
+            is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
+            creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
+            image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+            seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+            is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
+            canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+            updated_at = NOW(),
+            last_scraped_at = NOW();
+        `;
+
+        // 2. Batch Upsert into pins_daily_metrics
+        await hubSql`
+          INSERT INTO pins_daily_metrics (
+            pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+          )
+          SELECT DISTINCT ON (u.pin_id)
+            u.pin_id,
+            (NOW() AT TIME ZONE 'UTC')::date,
+            COALESCE(u.save_count, 0)::bigint,
+            COALESCE(u.repin_count, 0)::int,
+            COALESCE(u.comment_count, 0)::int,
+            COALESCE(u.share_count, 0)::int,
+            COALESCE(u.reaction_count, 0)::int,
+            COALESCE(
+              CASE
+                WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 AND prev.snapshot_date IS NOT NULL
+                THEN ROUND(GREATEST(0, COALESCE(u.save_count, 0) - prev.save_count)::numeric / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)), 1)
+                ELSE NULL
+              END,
+              u.daily_save_velocity,
+              0
+            )::numeric,
+            NOW()
+          FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
+            pin_id text, save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric
+          )
+          LEFT JOIN LATERAL (
+            SELECT pm.save_count, pm.snapshot_date
+            FROM pins_daily_metrics pm
+            WHERE pm.pin_id = u.pin_id
+              AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+            ORDER BY pm.snapshot_date DESC
+            LIMIT 1
+          ) prev ON TRUE
+          ORDER BY u.pin_id ASC
+          ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
+            comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+            share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+            reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+            daily_save_velocity = CASE
+              WHEN (pins_daily_metrics.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+              THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), COALESCE(EXCLUDED.daily_save_velocity, 0))
+              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+              ELSE pins_daily_metrics.daily_save_velocity
+            END,
+            updated_at = NOW();
+        `;
+
+        for (const p of chunk) {
+          const pid = String(p?.pin_id || p?.id || '').trim();
+          if (pid) confirmedPinIds.add(pid);
+        }
+      } catch (err) {
+        console.warn('[writeBatchToDeterministicShards] Unified direct batch write failed:', err.message);
+      }
+    }
+
+    return confirmedPinIds;
+  }
+
+  const totalShards = options.totalShards || 99;
+  const virtualShardGroups = batchGroupByShard(pins, totalShards);
+  const physicalShardGroups = coalesceShardGroupsByPhysical(virtualShardGroups);
+  const concurrency = Math.max(1, Math.min(8, options.concurrency || 4));
 
   const entries = Array.from(physicalShardGroups.entries());
   for (let i = 0; i < entries.length; i += concurrency) {

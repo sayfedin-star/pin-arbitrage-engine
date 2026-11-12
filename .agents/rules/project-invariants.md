@@ -12,10 +12,10 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **SSR & PinResource Fallback:** Extract pin metadata from embedded SSR JSON (`__PWS_DATA__`) and use `PinResource/get/?data=...` as a fast fallback.
 - **Deep 48-Field Extraction:** Always preserve carousel detection (`method === 'carousel'`), affiliate/arbitrage links (`utmLink`, `trackedLink`), and real-time creator audience (`closeupUnifiedAttribution.followerCount`).
 
-## 2. Neon Serverless Distributed Sharding (Hub vs 99 Shards)
-- **Central Hub Authority:** Stores active keyword state (`tracked_keywords`), real-time SERP rankings (`keyword_serp_current`), monitored competitors (`competitor_pins`), and PinArchive (`pa_pins`).
-- **99 Storage Shards Authority:** Houses `universal_master_pins` and all historical time-series snapshots (`pins_daily_metrics`, `pin_serp_positions`). Handled exclusively via `fleet-router.mjs`.
-- **Zero Historical Writes to Hub:** Never write historical daily snapshots directly into the Central Hub in application code.
+## 2. Unified Native PostgreSQL Architecture (SSOT Single-Database)
+- **Unified Engine Authority:** All PAE services, crawlers, and routes execute against a single unified PostgreSQL database (`unified_postgres` on Instabox VM via `postgres.js`).
+- **Schema Single Source of Truth:** `universal_master_pins`, `pins_daily_metrics`, `pin_serp_positions`, `keyword_serp_current`, `tracked_keywords`, `competitor_pins`, and `pa_pins` reside within the same unified relational schema.
+- **Direct Atomic Writes:** Operations execute directly and atomically with zero external shard hops, zero virtual routing fragmentation, and zero multi-database round trips.
 
 ## 3. Four-Pillar Sync Parity (Live Deep Sync)
 - Any pin refresh or live sync MUST synchronously update all applicable pillars:
@@ -35,10 +35,10 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **No Error Swallowing on DDL/DML:** Never swallow SQL syntax or non-existent column errors with `.catch(() => {})`. All database operations must log errors explicitly.
 - **UI AbortSignal Protection:** All frontend mutation fetches MUST use `AbortSignal.timeout(15000)` and check `res.ok` before decoding JSON to survive 502/504 errors cleanly.
 
-## 6. Absolute Zero-Snapshot Hub Invariant (NO SNAPSHOT WRITES OR READS ON HUB)
-- **Zero Snapshot Writes to Central Hub:** Application code MUST NEVER insert or update historical daily snapshots (`keyword_pins_snapshots`, `pa_pin_metrics`) on the Central Hub. All daily time-series metrics belong exclusively to the 99 Storage Shards (`pins_daily_metrics`, `pin_serp_positions`).
-- **Zero Snapshot Reads from Central Hub:** All trajectory graphs, PinArchive velocity charts, and historical rank queries MUST read exclusively from the Storage Shards via deterministic `(crc32(pin_id) % 99) + 1` or D1/KV edge cache.
-- **Hub Operational State Only:** The Hub is strictly an ultra-slim operational state catalog ($\le 25\text{ MB}$). `keyword_displaced_index` stores numeric indicators + `domain VARCHAR(128)` + `creator_username VARCHAR(64)` ONLY; it MUST NEVER store heavy creative metadata (`title`, `image_url`, `description`, `alt_text`).
+## 6. Two-Tier Metric & SERP History Storage Model
+- **Normalized Two-Tier Tables:** Historical time-series metrics belong to `pins_daily_metrics` (save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity), while historical SERP ranking positions belong to `pin_serp_positions` (pin_id, snapshot_date, keyword_id, rank_position, is_displaced).
+- **Compatibility View:** `keyword_pins_snapshots` is a PostgreSQL VIEW joining `pin_serp_positions`, `pins_daily_metrics`, and `universal_master_pins`. Never execute direct INSERT, UPDATE, DELETE, or VACUUM operations on `keyword_pins_snapshots`; mutate the underlying physical tables directly.
+- **Hub Operational State:** `keyword_displaced_index` stores numeric indicators + `domain` + `clean_domain` + `creator_username` ONLY; it MUST NEVER store heavy creative metadata (`title`, `image_url`, `description`, `alt_text`).
 
 ## 7. Single-Operator & Safe Prefetching (NO BACKGROUND LIVE CRAWLS ON HOVER)
 - **Single-Operator Profile:** The platform is engineered for a single operator ($\le 6$ hours/day). All databases must scale to zero after 5 minutes of inactivity.

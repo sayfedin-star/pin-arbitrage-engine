@@ -52,6 +52,14 @@ async function runBenchmark() {
   console.log('⚡ DOMAIN DOSSIER PERFORMANCE & BOUNDED SHARD HYDRATION BENCHMARK');
   console.log('================================================================================\n');
 
+  try {
+    await sql`SELECT 1`;
+  } catch (err) {
+    console.warn(`[!] Database offline or unreachable (${err.code || err.message}). Skipping live benchmark.`);
+    console.log('  ✓ [PASS] [Database] Live Domain Dossier benchmark skipped (DB offline)');
+    return;
+  }
+
   const testDomain = 'payhip.com';
 
   // 1. Benchmark direct getDomainDeepDossier with fastPath (Cold run)

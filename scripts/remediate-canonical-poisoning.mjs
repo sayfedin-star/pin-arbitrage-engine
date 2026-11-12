@@ -12,7 +12,11 @@ import postgres from 'postgres';
 import { fetchPinHybrid, sleep } from './lib/pinterest.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:pae_secure_password_2026@127.0.0.1:5432/pin_arbitrage';
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('[-] FATAL: DATABASE_URL environment variable is required.');
+  process.exit(1);
+}
 const sql = postgres(DATABASE_URL, { max: 20 });
 
 async function remediate() {

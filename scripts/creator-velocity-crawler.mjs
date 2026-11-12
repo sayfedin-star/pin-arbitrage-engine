@@ -276,7 +276,14 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
   let totalSynced = 0;
 
   if (isUnifiedPostgres()) {
-    const sortedPins = [...enrichedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+    // [INVARIANT: MAP-DEDUPLICATION-ANTI-21000] Deduplicate by pin_id to prevent PostgreSQL Error 21000
+    const uniquePinsMap = new Map();
+    for (const p of enrichedPins) {
+      if (p && p.pin_id) {
+        uniquePinsMap.set(String(p.pin_id), p);
+      }
+    }
+    const sortedPins = Array.from(uniquePinsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
     const cleanPins = sortedPins.map(p => {
       const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
         ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)

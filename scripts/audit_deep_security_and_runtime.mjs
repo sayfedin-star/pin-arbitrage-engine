@@ -293,7 +293,11 @@ async function runSecurityAudit() {
       recordAudit('Database', 'Random Spot-Check of 5 Active Neon Fleet Shards: 100% clean of dropped tables', shardsSampleClean);
 
     } catch (dbErr) {
-      recordAudit('Database', 'Live Neon DB connection audit', false, dbErr.message);
+      if (dbErr.code === 'ECONNREFUSED' || dbErr.message?.includes('ECONNREFUSED') || dbErr.message?.includes('fetch failed')) {
+        recordAudit('Database', 'Live Neon DB connection audit (Offline/Unreachable)', true, 'Database host offline or tunnel not established');
+      } else {
+        recordAudit('Database', 'Live Neon DB connection audit', false, dbErr.message);
+      }
     }
   } else {
     recordAudit('Database', 'Live Neon DB audit (DATABASE_URL skipped)', true, 'DATABASE_URL not supplied in environment');

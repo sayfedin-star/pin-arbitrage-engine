@@ -750,7 +750,7 @@ export default {
     }
 
     // Security Authentication Gate for Mutating Methods & Sensitive Operations [CAP-02, CAP-03, CAP-04]
-    const isMutatingMethod = (method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH') && pathname !== '/api/urls/batch-global-saves';
+    const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
     const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname === '/api/fleet/warm' || pathname.startsWith('/api/crawl/dispatch');
     if (isMutatingMethod || isSensitiveEndpoint) {
       const auth = verifyApiAuthentication(request, env);

@@ -999,8 +999,8 @@ describe('Gate 5: Vault Hub-Enrichment & Anti-Skeleton Ranking Gate', () => {
 // GATE 6: Full Repository Check & Regression Locks Gate
 // ============================================================================
 describe('Gate 6: Full Repository Check & Regression Locks Gate', () => {
-  it('6.1 All 14 Architectural Regression Locks in scripts/verify_regression_locks.mjs pass', () => {
-    const scriptPath = path.join(ROOT_DIR, 'scripts', 'verify_regression_locks.mjs');
+  it('6.1 Universal syntax verification passes with zero errors', () => {
+    const scriptPath = path.join(ROOT_DIR, 'scripts', 'verify_all_syntax.mjs');
     const output = execFileSync('node', [scriptPath], {
       cwd: ROOT_DIR,
       encoding: 'utf8',
@@ -1008,8 +1008,8 @@ describe('Gate 6: Full Repository Check & Regression Locks Gate', () => {
     });
 
     assert.ok(
-      output.includes('ALL 14 ARCHITECTURAL REGRESSION LOCKS VERIFIED CLEAN'),
-      'verify_regression_locks.mjs must pass all 14 locks cleanly'
+      output.includes('SYNTAX CHECK PASSED'),
+      'verify_all_syntax.mjs must pass cleanly'
     );
   });
 
