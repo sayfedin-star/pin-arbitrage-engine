@@ -1330,7 +1330,7 @@ export function getPulsePageHtml(folderId = '') {
         loadFolderInfo: async function() {
           try {
             if (!this.scopedFolderId) return;
-            const res = await fetch('/api/keywords/folders');
+            const res = await fetch('/api/folders');
             const data = await res.json();
             if (data && Array.isArray(data.folders)) {
               this.foldersList = data.folders;
