@@ -202,7 +202,7 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
-          skip-wakeup: 'true'
+          skip-wakeup: 'false'
 
       - name: 4. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
         env:

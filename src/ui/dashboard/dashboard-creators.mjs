@@ -2492,12 +2492,6 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
       </template>
     </div>
 
-
-
-    </div> <!-- Close !activePinId wrapper -->
-
-  </main>
-
   <!-- Modal: Assign Existing Creators to Campaign Folder -->
   <div x-show="isAssignExistingCreatorModalOpen" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"

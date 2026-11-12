@@ -567,6 +567,7 @@ export async function getFleetShardsMap(env = null, _hubSql = null) {
  */
 export async function preloadNeonRegistry(hubSql, env = null) {
   if (typeof hubSql !== 'function') return 0;
+  if (isUnifiedPostgres(env)) return 0;
   try {
     const res = hubSql`
       SELECT id, project_name, database_url, assigned_shards

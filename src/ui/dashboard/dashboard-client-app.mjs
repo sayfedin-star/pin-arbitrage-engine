@@ -16,6 +16,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
 
     function dashboardApp() {
       return {
+        _hasInitialized: false,
         safeUrl,
         creatorDiscoveryFilter: 'all',
         isDark: (() => {
@@ -1989,7 +1990,13 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           setTimeout(() => { this.toastMessage = null; }, 2500);
         },
 
+        async init() {
+          return this.initDashboard();
+        },
+
         async initDashboard() {
+          if (this._hasInitialized) return;
+          this._hasInitialized = true;
           try {
             const savedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') : null;
             if (savedTheme) {

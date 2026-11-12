@@ -80,6 +80,7 @@ export function createSqlClient(dsn, options = {}) {
 
   const pgClient = postgres(cleanDsn, {
     max: maxConnections,
+    timeout: Number(options.timeout ?? 15), // [INVARIANT: NON-BLOCKING-QUERY-TIMEOUT]
     idle_timeout: Number(options.idle_timeout ?? 20),
     connect_timeout: Number(options.connect_timeout ?? 10),
     max_lifetime: Number(options.max_lifetime ?? 300),
@@ -87,6 +88,8 @@ export function createSqlClient(dsn, options = {}) {
     onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
     connection: {
       ...(options.connection || {}),
+      statement_timeout: Number(options.connection?.statement_timeout ?? 15000),
+      idle_in_transaction_session_timeout: Number(options.connection?.idle_in_transaction_session_timeout ?? 10000),
       max_parallel_workers_per_gather: 0
     },
     prepare: false,

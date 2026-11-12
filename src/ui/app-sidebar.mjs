@@ -186,7 +186,7 @@ export function renderAppSidebar({
 
   <!-- Desktop Permanent Sidebar (<aside>) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <aside 
-    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    class="w-64 lg:w-72 hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
     :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
     <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
     <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">

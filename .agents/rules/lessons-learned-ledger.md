@@ -31,6 +31,7 @@ trigger: always_on
 | **Round 30 (Canonical De-Poisoning & Independence)** | Eradication of Canonical Save-Stealing, Repin Conflation & GREATEST Ratchets | Invariant 28, Lock 14 | **SEALED** |
 | **Round 31 (Unified Single-DB Consolidation)** | Single VPS PostgreSQL Database Architecture & Removal of Multi-Shard Branches | Invariants 1–44, Locks 1–14 | **SEALED** |
 | **Round 32 (Frontend UI Hydration & Consolidation)** | Hydration Chart Zero-Exclusion, Pulse Transient Retry, Shared Formatters & Canonical PinRow | Rule 31, Invariants 28, 31, Locks 1–14 | **SEALED** |
+| **Round 33 (Milestone 2)** | Pipeline Performance, Stream Stability, InstaBox Keepalive & DB Resiliency | Invariants 4, 14, 28, 44, Locks 1–14 | **SEALED** |
 
 ---
 
@@ -663,4 +664,36 @@ trigger: always_on
 - **Verification Command**:
   - `node scripts/test_ui_architect_deliverables.mjs` (100% PASS).
   - `npm run check` (109 files, 14/14 regression locks PASS).
+
+---
+
+## Round 33 (Milestone 2): Pipeline Performance, Stream Stability, InstaBox Keepalive & DB Resiliency
+- **Round / Feature**: Milestone 2: Pipeline Performance, Stream Stability & DB Resiliency
+- **Trap / Failure Mode**:
+  1. *Crawler Runtime Inflation (4m -> 34m) via Live Fetch Cache Bypass*: `evaluateHydrationGuard` was hardcoded to `{ shouldFetch: true }`, forcing 20 parallel runner VMs to execute live unauthenticated Pinterest scrapes with 2500ms-4000ms jitter sleep delays on every pin, inflating execution time by 8.5x.
+  2. *Stage 2 Telemetry Consolidation ECONNRESET Crash*: Machine `m_agq2t32m5xv5joj67rqoze5h4u` suspended after 30 minutes of worker runtime. Stage 2 used `skip-wakeup: 'true'`, so the Cloudflare TCP proxy accepted local connections on `127.0.0.1:5432` but could not establish an upstream session with the suspended VPS, causing `backfill_rolling_window_gains.mjs` to crash with unhandled `read ECONNRESET`.
+  3. *Dead Socket False-Pass in CI Setup Action*: `.github/actions/setup-instabox-db/action.yml` printed a warning and exited 0 when the 20s wire handshake probe timed out, allowing downstream steps to execute blindly against a dead socket.
+  4. *Indefinite Half-Open Sockets in `src/db/client.mjs`*: `postgres.js` lacked query-level `timeout` and database-level `statement_timeout` and `idle_in_transaction_session_timeout`, leaving connection handles suspended indefinitely during tunnel flaps.
+  5. *Unbounded 5,000-Pin Burst in Backfill Script*: `backfill_rolling_window_gains.mjs` issued a single unbounded `WHERE pin_id = ANY(...)` query across 5,000 pins over the tunnel and lacked connection pool drainage (`await hubSql.end()`) in a `finally` block.
+  6. *PostgreSQL NOT NULL Constraint Violation on `pins_daily_metrics.save_count`*: Unhydrated pins with `save_count: null` triggered SQLSTATE 23502 during batch inserts, silently dropping daily snapshot rows.
+  7. *Dropped `neon_projects_registry` SQL Errors*: `preloadNeonRegistry` in `fleet-router.mjs` executed `SELECT ... FROM neon_projects_registry` on cold boot even in Unified PostgreSQL mode where the table was eradicated by Migration 050.
+- **Root Cause & Technical Mechanism**:
+  - Disabled hydration guard cache;
+  - Asymmetric CI wakeup topology where Stage 2 assumed Stage 1 completed under 30 minutes;
+  - Permissive handshake probe exit code;
+  - Missing socket timeouts on `postgres.js` connection pool;
+  - Unchunked queries over TCP tunnel without retry wrappers;
+  - Inserting bare `cb.save_count` without `COALESCE` into NOT NULL column.
+- **Verified Solution & Invariant Codification**:
+  1. **Crawler Hydration Cache (`scripts/keyword-velocity-crawler.mjs`)**: Restored authentic 18-hour hydration cache logic in `evaluateHydrationGuard` using `shouldSkipFreshPinEnrichment`, 4h hard floor, and same-calendar-day checks.
+  2. **InstaBox Wakeup Topology (`.github/workflows/keyword-intelligence-velocity.yml`)**: Set `skip-wakeup: 'false'` on Stage 2 `consolidate` job.
+  3. **Tunnel Handshake & Resilience (`.github/actions/setup-instabox-db/action.yml`)**: Implemented emergency wakeup retry and fail-fast `exit 1` with diagnostics when wire handshake probe fails.
+  4. **Database Query Timeouts (`src/db/client.mjs`)**: Injected `timeout: 15`, `statement_timeout: 15000`, `idle_in_transaction_session_timeout: 10000`, and `max_parallel_workers_per_gather: 0` (`// [INVARIANT: NON-BLOCKING-QUERY-TIMEOUT]`).
+  5. **Backfill Script Chunking & Retry Resilience (`scripts/backfill_rolling_window_gains.mjs`)**: Wrapped Phase 1 query in exponential backoff retry loop (3 attempts, 3s backoff), chunked Phase 2 snapshot queries into batches of $\le 500$ pins, added clean connection pool drainage (`await hubSql.end()`) in `finally` block, and implemented `--dry-run` validation.
+  6. **Not-Null Value Safety (`src/modules/pins/repository.mjs`)**: Wrapped `cb.save_count`, `cb.repin_count`, and all counters with `COALESCE(..., 0)` across `insertNewPinsBatch`, `resavePinsMetricsBatch`, and `ingestPinsBatch`.
+  7. **Dropped Registry Fast-Path (`src/modules/sharding/fleet-router.mjs`)**: Added `if (isUnifiedPostgres(env)) return 0;` to `preloadNeonRegistry`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings, 133 files, 14/14 locks PASS).
+  - `node scripts/verify_regression_locks.mjs` (14/14 PASS).
+  - `node scripts/backfill_rolling_window_gains.mjs --dry-run` (100% PASS).
 

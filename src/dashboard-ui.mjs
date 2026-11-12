@@ -101,10 +101,10 @@ title="Inspect Pin Dossier">
 */
 
 export function getDashboardHtml(folderId = '') {
-  const safeFolderId = String(folderId || '').trim();
+  const safeFolderId = String(folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -116,11 +116,11 @@ export function getDashboardHtml(folderId = '') {
   <script>
     (function() {
       try {
-        var t = localStorage.getItem('pin_theme');
-        if (t === 'dark' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-          document.documentElement.classList.add('dark');
-        } else {
+        var t = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+        if (t === 'light') {
           document.documentElement.classList.remove('dark');
+        } else {
+          document.documentElement.classList.add('dark');
         }
       } catch (_) {}
     })();
@@ -225,7 +225,7 @@ export function getDashboardHtml(folderId = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
+<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200" :class="(isDark || darkMode) ? 'dark' : ''" x-data="dashboardApp('${safeFolderId}')" x-init="initDashboard()">
 
   <!-- Mobile Top Header (Visible on screens < md) -->
   <header class="md:hidden border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/90 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
@@ -365,10 +365,10 @@ export function getDashboardHtml(folderId = '') {
 
   <!-- Desktop Permanent Sidebar (<aside>) -->
   <aside 
-    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    class="w-64 lg:w-72 hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
     :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
     <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
-    <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
+    <div class="p-4 lg:p-5 space-y-4 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
       <!-- App Brand & Title + Collapse Toggle -->
       <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
         <!-- Logo & Title -->
@@ -412,14 +412,14 @@ export function getDashboardHtml(folderId = '') {
         <!-- + Track Creator (Unified Modal) -->
         <button 
           @click="openAddCompetitorModal()" 
-          class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          class="w-full px-3 py-2 space-x-2 text-xs font-semibold flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
           title="Track Creator">
           <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
           <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
         </button>
 
-        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
+        <div class="grid grid-cols-2 gap-1.5" :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
           <!-- + Add Seeds -->
           <button 
             @click="openAddSeedModal()" 
@@ -452,7 +452,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Overview & Command Center (Home) -->
         <button 
           @click="switchTab('overview')" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             currentTab === 'overview' 
@@ -470,7 +470,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Creator Hub (/accounts) -->
         <button 
           @click="switchTab('creators_archive')" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             (currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') 
@@ -491,7 +491,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Keywords Fleet Dashboard (/keywords - Dedicated Studio) -->
         <a 
           href="/keywords" 
-          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Keywords Fleet">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -505,7 +505,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Domain Radar (/domains - Dedicated Studio) -->
         <a 
           href="/domains" 
-          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Domain Radar">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -518,7 +518,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Related Pins Tab (/related-pins) -->
         <button 
           @click="switchTab('related_pins')" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             (currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') 
@@ -540,7 +540,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- 24h Pulse Studio (/pulse) -->
         <a 
           href="/pulse" 
-          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          class="w-full justify-between px-3 py-2.5 relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="24h Pulse Studio">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -597,7 +597,7 @@ export function getDashboardHtml(folderId = '') {
   </aside>
 
   <!-- Main Content Area (Offset for Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="md:ml-64 lg:ml-72 flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- Active Crawl Notification Banner -->
     <div x-show="crawlStatus.is_crawling" x-cloak class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 backdrop-blur-sm animate-pulse">
@@ -623,7 +623,7 @@ export function getDashboardHtml(folderId = '') {
 
     </div>
 
-  </div>
+  </main>
 
   ${getDashboardModalsHtml()}
 

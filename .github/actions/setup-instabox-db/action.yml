@@ -64,6 +64,10 @@ runs:
 
     - name: 2. Install and launch Cloudflare Access TCP Tunnel + Verify PostgreSQL Handshake
       shell: bash
+      env:
+        IB_API_KEY: ${{ inputs.instabox-api-key }}
+        IB_MACHINE_ID: ${{ inputs.machine-id }}
+        DB_HOSTNAME: ${{ inputs.db-hostname }}
       run: |
         if ! command -v cloudflared &> /dev/null; then
           echo "Installing cloudflared client..."
@@ -72,11 +76,12 @@ runs:
           rm -f /tmp/cloudflared.deb
         fi
 
-        echo "Starting Cloudflare TCP proxy to ${{ inputs.db-hostname }} on 127.0.0.1:5432..."
-        cloudflared access tcp --hostname "${{ inputs.db-hostname }}" --url 127.0.0.1:5432 > /dev/null 2>&1 &
+        echo "Starting Cloudflare TCP proxy to ${DB_HOSTNAME} on 127.0.0.1:5432..."
+        cloudflared access tcp --hostname "${DB_HOSTNAME}" --url 127.0.0.1:5432 > /dev/null 2>&1 &
 
         # End-to-End PostgreSQL Wire Handshake Probe (sends 8-byte SSLRequest packet through tunnel to remote Postgres)
-        echo "Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel..."
+        echo "Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel (127.0.0.1:5432 -> ${DB_HOSTNAME})..."
+        HANDSHAKE_OK=false
         for i in {1..20}; do
           if node -e '
             const net = require("node:net");
@@ -91,8 +96,65 @@ runs:
             sock.on("error", () => { sock.destroy(); process.exit(1); });
           ' 2>/dev/null; then
             echo "✅ End-to-end PostgreSQL tunnel verified and responsive on 127.0.0.1:5432 in ${i}s!"
+            HANDSHAKE_OK=true
             exit 0
           fi
           sleep 1
         done
-        echo "⚠️ Remote PostgreSQL handshake did not complete within 20s, proceeding with execution."
+
+        # If 20s probe failed, retry machine wakeup if API key is provided
+        if [ "${HANDSHAKE_OK}" != "true" ] && [ -n "${IB_API_KEY}" ]; then
+          echo "⚠️ Initial 20s probe failed. Attempting emergency InstaBox machine wakeup/resume on ${IB_MACHINE_ID}..."
+          RETRY_IDEMP_KEY="gha-retry-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%s)"
+          RETRY_START=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+            -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: ${RETRY_IDEMP_KEY}" \
+            -d '{}' || echo "{}")
+
+          RETRY_OP_ID=$(node -e '
+            try {
+              const d = JSON.parse(process.argv[1] || "{}");
+              console.log(d.id || (d.error && d.error.operationId) || "");
+            } catch (_) { console.log(""); }
+          ' "${RETRY_START}")
+
+          if [ -n "${RETRY_OP_ID}" ]; then
+            echo "Waiting for InstaBox resume operation ${RETRY_OP_ID} (?wait=25s)..."
+            curl -s "https://api.instabox.sh/v1/operations/${RETRY_OP_ID}?wait=25s" \
+              -H "Authorization: Bearer ${IB_API_KEY}" > /dev/null 2>&1 || true
+          fi
+
+          echo "Re-probing PostgreSQL wire protocol after machine wakeup..."
+          for i in {1..15}; do
+            if node -e '
+              const net = require("node:net");
+              const sock = net.connect({ host: "127.0.0.1", port: 5432, timeout: 1500 }, () => {
+                sock.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));
+              });
+              sock.on("data", (buf) => {
+                sock.destroy();
+                process.exit(buf.length > 0 && (buf[0] === 0x4e || buf[0] === 0x53) ? 0 : 1);
+              });
+              sock.on("timeout", () => { sock.destroy(); process.exit(1); });
+              sock.on("error", () => { sock.destroy(); process.exit(1); });
+            ' 2>/dev/null; then
+              echo "✅ End-to-end PostgreSQL tunnel verified and responsive after wakeup retry in ${i}s!"
+              HANDSHAKE_OK=true
+              exit 0
+            fi
+            sleep 1
+          done
+        fi
+
+        if [ "${HANDSHAKE_OK}" != "true" ]; then
+          echo "❌ FATAL: Remote PostgreSQL handshake over Cloudflare Tunnel (127.0.0.1:5432 -> ${DB_HOSTNAME}) failed to respond."
+          echo "--- Diagnostic Information ---"
+          echo "cloudflared processes:"
+          ps aux | grep "[c]loudflared" || echo "No running cloudflared process found!"
+          echo "Network listening ports:"
+          netstat -tulpn 2>/dev/null | grep 5432 || ss -tulpn 2>/dev/null | grep 5432 || echo "Port 5432 not listening!"
+          echo "------------------------------"
+          echo "Failing fast to prevent silent connection drop or unhandled stream ECONNRESET crash."
+          exit 1
+        fi

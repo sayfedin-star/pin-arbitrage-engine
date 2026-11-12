@@ -56,7 +56,7 @@ import {
 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
-import { buildRichPinMetadataPayload } from '../src/domain/pin-intelligence.mjs';
+import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -183,13 +183,129 @@ let consecutiveErrors = 0;
 const CIRCUIT_BREAKER_LIMIT = 25;
 let circuitBroken = false;
 
+const HARD_COOLDOWN_MS = 4 * 60 * 60 * 1000;    // 4 Hours Hard Floor
+const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Cache
+
 /**
- * Live Fetch Mode (Hydration Cache Disabled):
- * Always fetch live telemetry from Pinterest whenever the workflow runs,
- * recording intraday timestamps or updating the crawl hour if unchanged.
+ * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
+ * Eliminates redundant live scrapes and 2.5s-4.0s jitter sleep delays by reusing
+ * authentic telemetry if freshly enriched within 18h or within hard cooldown.
  */
-function evaluateHydrationGuard(_pin, _currentUtcTimestamp = Date.now()) {
-  return { shouldFetch: true, reason: 'live_fetch_enabled', reuseTelemetry: null };
+export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
+  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
+    return {
+      shouldFetch: false,
+      reason: 'ssot_freshness_gate_18h',
+      reuseTelemetry: {
+        save_count: Number(pin.save_count || 0),
+        repin_count: Number(pin.repin_count || 0),
+        comment_count: Number(pin.comment_count || 0),
+        share_count: Number(pin.share_count || 0),
+        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+      }
+    };
+  }
+  const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
+  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const isDeepHydrated = Boolean(
+    pin.is_deep_hydrated === true ||
+    pin.is_deep_hydrated === 'true' ||
+    meta.is_deep_hydrated === true ||
+    meta.is_deep_hydrated === 'true'
+  );
+  const imgSig = pin.image_signature || meta.image_signature || '';
+  const hasRichTreasures = Boolean(
+    meta.has_treasures === true ||
+    imgSig ||
+    pin.has_visual_annotations === true ||
+    meta.canonical_pin_id ||
+    meta.board_pin_count
+  );
+  const isDisplaced = Boolean(pin.is_displaced);
+
+  const lastCrawlMs = crawlTime ? new Date(crawlTime).getTime() : NaN;
+  const elapsedMs = !isNaN(lastCrawlMs) ? (currentUtcTimestamp - lastCrawlMs) : Infinity;
+
+  // Self-Healing: Invalidate cache and fetch if original Pinterest creation date is missing
+  if (!pin.created_at_pinterest) {
+    return { shouldFetch: true, reason: 'missing_created_at_pinterest', reuseTelemetry: null };
+  }
+
+  // Displaced pins lack full metadata column in keyword_displaced_index; guard by crawlTime / updated_at cooldown
+  if (isDisplaced && !isNaN(lastCrawlMs) && pin.save_count != null && elapsedMs < HARD_COOLDOWN_MS) {
+    return {
+      shouldFetch: false,
+      reason: 'displaced_cooldown_active',
+      reuseTelemetry: {
+        save_count: Number(pin.save_count || 0),
+        repin_count: Number(pin.repin_count || 0),
+        comment_count: Number(pin.comment_count || 0),
+        share_count: Number(pin.share_count || 0),
+        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+      }
+    };
+  }
+
+  // Do not invalidate cache merely because save_count === 0 if the pin is verified deep-hydrated
+  if (!crawlTime || isNaN(lastCrawlMs) || !isDeepHydrated || !hasRichTreasures || pin.save_count == null) {
+    return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
+  }
+
+  // Self-Healing: Invalidate cache if pin creation_method is missing or degraded to generic 'pinterest_platform'
+  const currentMethod = pin.creation_method || pin.method || meta.creation_method || meta.method;
+  const isGenericOrMissingMethod = !currentMethod || currentMethod === 'pinterest_platform';
+  if (isGenericOrMissingMethod) {
+    return { shouldFetch: true, reason: 'missing_or_generic_creation_method', reuseTelemetry: null };
+  }
+
+  const lastCrawlDateStr = new Date(lastCrawlMs).toISOString().slice(0, 10);
+  const currentUtcDateStr = new Date(currentUtcTimestamp).toISOString().slice(0, 10);
+  const isSameCalendarDay = (lastCrawlDateStr === currentUtcDateStr);
+
+  // 1. Hard Cooldown: Under 4 hours, preserve known saves so pins_daily_metrics is never dropped
+  if (elapsedMs < HARD_COOLDOWN_MS) {
+    if (!isSameCalendarDay) {
+      return {
+        shouldFetch: false,
+        reason: 'hard_cooldown_cross_midnight_preserve_metrics',
+        reuseTelemetry: {
+          save_count: Number(pin.save_count || 0),
+          repin_count: Number(pin.repin_count || 0),
+          comment_count: Number(pin.comment_count || 0),
+          share_count: Number(pin.share_count || 0),
+          daily_save_velocity: 0
+        }
+      };
+    }
+    return {
+      shouldFetch: false,
+      reason: 'hard_cooldown_under_4h',
+      reuseTelemetry: {
+        save_count: Number(pin.save_count || 0),
+        repin_count: Number(pin.repin_count || 0),
+        comment_count: Number(pin.comment_count || 0),
+        share_count: Number(pin.share_count || 0),
+        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+      }
+    };
+  }
+
+  // 2. Same-Day Cache: If within same calendar day and under 18 hours
+  if (isSameCalendarDay && elapsedMs < MAX_SAME_DAY_TTL_MS) {
+    return {
+      shouldFetch: false,
+      reason: 'fresh_same_day_cache',
+      reuseTelemetry: {
+        save_count: Number(pin.save_count),
+        repin_count: Number(pin.repin_count || 0),
+        comment_count: Number(pin.comment_count || 0),
+        share_count: Number(pin.share_count || 0),
+        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+      }
+    };
+  }
+
+  return { shouldFetch: true, reason: 'stale_or_new_day', reuseTelemetry: null };
 }
 
 /**

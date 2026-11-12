@@ -147,11 +147,11 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
       SELECT
         u.pin_id,
         (NOW() AT TIME ZONE 'UTC')::date,
-        u.save_count,
-        u.repin_count,
-        u.comment_count,
-        u.share_count,
-        u.reaction_count,
+        COALESCE(u.save_count, 0),
+        COALESCE(u.repin_count, 0),
+        COALESCE(u.comment_count, 0),
+        COALESCE(u.share_count, 0),
+        COALESCE(u.reaction_count, 0),
         0,
         NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
@@ -340,12 +340,12 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       SELECT
         cb.pin_id,
         (NOW() AT TIME ZONE 'UTC')::date,
-        cb.save_count,
-        cb.repin_count,
-        cb.comment_count,
-        cb.share_count,
-        cb.reaction_count,
-        cb.effective_velocity,
+        COALESCE(cb.save_count, 0),
+        COALESCE(cb.repin_count, 0),
+        COALESCE(cb.comment_count, 0),
+        COALESCE(cb.share_count, 0),
+        COALESCE(cb.reaction_count, 0),
+        COALESCE(cb.effective_velocity, 0),
         NOW()
       FROM computed_batch cb
       ORDER BY cb.pin_id ASC
@@ -538,12 +538,12 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
       SELECT
         cb.pin_id,
         (NOW() AT TIME ZONE 'UTC')::date,
-        cb.save_count,
-        cb.repin_count,
-        cb.comment_count,
-        cb.share_count,
-        cb.reaction_count,
-        cb.effective_velocity,
+        COALESCE(cb.save_count, 0),
+        COALESCE(cb.repin_count, 0),
+        COALESCE(cb.comment_count, 0),
+        COALESCE(cb.share_count, 0),
+        COALESCE(cb.reaction_count, 0),
+        COALESCE(cb.effective_velocity, 0),
         NOW()
       FROM computed_batch cb
       ORDER BY cb.pin_id ASC
