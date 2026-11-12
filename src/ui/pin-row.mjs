@@ -35,38 +35,59 @@
 export function renderPinRowTemplate({
   pinVar = 'pin',
   indexVar = 'idx',
+  pinIdExpr = '',
   showCheckbox = false,
   showRank = true,
+  rankPosition = 'beforeThumb',
+  showThumb = true,
+  showTitle = true,
   showBoard = false,
+  boardPosition = 'afterDomain',
   showDomain = true,
+  showVelocity = true,
+  velocityPosition = 'beforeSaves',
+  showSaves = true,
   showRepins = true,
   showAge = true,
+  agePosition = 'beforeActions',
   showActions = true,
   onRowClick = '',
   onBlueprintClick = 'openBlueprintModal(pin)',
   onTagClick = 'setTagFilter(tag)',
-  dossierUrlExpr = '"/pins/" + pin.pin_id'
+  dossierUrlExpr = '"/pins/" + pin.pin_id',
+  rowClass = 'hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition border-b border-slate-100 dark:border-[#27272A]/60 group cursor-pointer',
+  rowDynamicClass = '',
+  checkboxTdAttrs = '',
+  checkboxHtml = '',
+  rankHtml = '',
+  thumbTdAttrs = '',
+  thumbHtml = '',
+  titleTdAttrs = '',
+  titleHtml = '',
+  extraCellsAfterTitle = '',
+  domainHtml = '',
+  boardTdAttrs = '',
+  boardHtml = '',
+  velocityHtml = '',
+  savesTdAttrs = '',
+  savesHtml = '',
+  repinsTdAttrs = '',
+  repinsHtml = '',
+  extraCellsAfterRepins = '',
+  ageTdAttrs = '',
+  ageHtml = '',
+  extraCellsBeforeAge = '',
+  extraCellsBeforeActions = '',
+  actionsTdAttrs = '',
+  actionsHtml = ''
 } = {}) {
   const p = pinVar;
   const idx = indexVar;
+  const idExpr = pinIdExpr || `${p}.pin_id`;
   const clickHandler = onRowClick ? `@click="${onRowClick}"` : '';
+  const dynClassAttr = rowDynamicClass ? ` :class="${rowDynamicClass}"` : '';
 
-  return `
-    <tr :data-pin-id="${p}.pin_id"
-        class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition border-b border-slate-100 dark:border-[#27272A]/60 group cursor-pointer"
-        ${clickHandler}>
-      
-      ${showCheckbox ? `
-      <!-- Selection Checkbox -->
-      <td class="py-2.5 px-3 text-center" @click.stop>
-        <input type="checkbox" 
-               :checked="isPinSelected ? isPinSelected(${p}.pin_id) : false" 
-               @click="togglePinSelection ? togglePinSelection(${p}.pin_id) : null"
-               class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-[#27272A] bg-white dark:bg-[#121215]">
-      </td>
-      ` : ''}
-
-      ${showRank ? `
+  const rankCell = showRank ? (rankHtml ? rankHtml : `
       <!-- Rank / Index Cell -->
       <td class="py-2.5 px-3 text-center font-mono font-bold text-slate-400 text-xs tabular-nums">
         <template x-if="${p}.rank_position">
@@ -75,11 +96,48 @@ export function renderPinRowTemplate({
         <template x-if="!${p}.rank_position">
           <span x-text="${idx} !== undefined ? (${idx} + 1) : '—'"></span>
         </template>
-      </td>
-      ` : ''}
+      </td>`) : '';
 
+  const boardCell = showBoard ? (boardHtml ? boardHtml : `
+      <!-- Board Column -->
+      <td ${boardTdAttrs} class="py-2.5 px-3">
+        <div class="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[130px] text-xs" 
+             x-text="${p}.board_name || ${p}.metadata?.board_name || '—'"></div>
+      </td>`) : '';
+
+  const velocityCell = showVelocity ? (velocityHtml ? velocityHtml : `
+      <!-- Velocity / Window Saves Gain -->
+      <td class="py-2.5 px-3 text-right">
+        <div class="font-mono tabular-nums font-bold text-xs text-rose-600 dark:text-rose-400"
+             x-text="'+' + (typeof formatNumber === 'function' ? formatNumber(${p}.window_saves_gain ?? ${p}.effective_velocity ?? ${p}.daily_save_velocity ?? ${p}.delta_saves_24h ?? 0) : (${p}.daily_save_velocity || 0)) + '/d'">
+        </div>
+        <div class="text-[9px] font-mono text-slate-400 uppercase">Velocity</div>
+      </td>`) : '';
+
+  const ageCell = showAge ? (ageHtml ? ageHtml : `
+      <!-- Age (Strict Rule 31) -->
+      <td ${ageTdAttrs} class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
+          x-text="typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days ? ${p}.pin_age_days + 'd' : '—')"></td>`) : '';
+
+  return `
+    <tr :data-pin-id="${idExpr}"
+        class="${rowClass}"${dynClassAttr}
+        ${clickHandler}>
+      
+      ${showCheckbox ? (checkboxHtml ? checkboxHtml : `
+      <!-- Selection Checkbox -->
+      <td ${checkboxTdAttrs} class="py-2.5 px-3 text-center" @click.stop>
+        <input type="checkbox" 
+               :checked="isPinSelected ? isPinSelected(${idExpr}) : false" 
+               @click="togglePinSelection ? togglePinSelection(${idExpr}) : null"
+               class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-[#27272A] bg-white dark:bg-[#121215]">
+      </td>`) : ''}
+
+      ${rankPosition === 'beforeThumb' ? rankCell : ''}
+
+      ${showThumb ? (thumbHtml ? thumbHtml : `
       <!-- Thumbnail Preview with Fallback Waterfall -->
-      <td class="py-2.5 px-3" @click.stop>
+      <td ${thumbTdAttrs} class="py-2.5 px-3" @click.stop>
         <div class="flex items-center space-x-2">
           <a :href="${dossierUrlExpr}" 
              class="w-10 h-14 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden relative shrink-0 block group/img"
@@ -104,7 +162,7 @@ export function renderPinRowTemplate({
               <span>/pin</span>
               <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>
             </a>
-            <a :href="'https://www.pinterest.com/pin/' + ${p}.pin_id + '/'" 
+            <a :href="'https://www.pinterest.com/pin/' + ${idExpr} + '/'" 
                target="_blank" 
                rel="noopener noreferrer" 
                class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center space-x-0.5"
@@ -113,10 +171,11 @@ export function renderPinRowTemplate({
             </a>
           </div>
         </div>
-      </td>
+      </td>`) : ''}
 
+      ${showTitle ? (titleHtml ? titleHtml : `
       <!-- Pin Title, ID & Badges -->
-      <td class="py-2.5 px-3 min-w-[200px]">
+      <td ${titleTdAttrs} class="py-2.5 px-3 min-w-[200px]">
         <div class="space-y-1">
           <a :href="${dossierUrlExpr}" 
              class="font-semibold text-slate-900 dark:text-[#FAFAFA] line-clamp-1 hover:text-rose-600 dark:hover:text-rose-400 transition text-xs block" 
@@ -126,7 +185,7 @@ export function renderPinRowTemplate({
           <div class="flex items-center gap-1.5 flex-wrap text-[10px] font-mono tabular-nums text-slate-400">
             <a :href="${dossierUrlExpr}" 
                class="hover:text-rose-500 truncate" 
-               x-text="'ID: ' + ${p}.pin_id"></a>
+               x-text="'ID: ' + ${idExpr}"></a>
 
             <!-- Creation Method Badge -->
             <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border shrink-0"
@@ -161,53 +220,45 @@ export function renderPinRowTemplate({
             </div>
           </template>
         </div>
-      </td>
+      </td>`) : ''}
 
-      ${showDomain ? `
+      ${rankPosition === 'afterTitle' ? rankCell : ''}
+      ${boardPosition === 'afterTitle' ? boardCell : ''}
+      ${extraCellsAfterTitle}
+
+      ${showDomain ? (domainHtml ? domainHtml : `
       <!-- Domain / Creator Column -->
       <td class="py-2.5 px-3">
         <div class="text-slate-800 dark:text-slate-200 font-medium truncate max-w-[130px] text-xs" 
              x-text="${p}.domain || 'Uploaded by user'"></div>
         <div class="text-[10px] text-slate-400 truncate max-w-[130px] font-mono tabular-nums" 
              x-text="${p}.creator_username ? '@' + ${p}.creator_username : (${p}.metadata?.pinner?.username ? '@' + ${p}.metadata.pinner.username : 'unknown')"></div>
-      </td>
-      ` : ''}
+      </td>`) : ''}
 
-      ${showBoard ? `
-      <!-- Board Column -->
-      <td class="py-2.5 px-3">
-        <div class="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[130px] text-xs" 
-             x-text="${p}.board_name || ${p}.metadata?.board_name || '—'"></div>
-      </td>
-      ` : ''}
+      ${boardPosition === 'afterDomain' ? boardCell : ''}
+      ${agePosition === 'afterDomain' ? ageCell : ''}
 
-      <!-- Velocity / Window Saves Gain -->
-      <td class="py-2.5 px-3 text-right">
-        <div class="font-mono tabular-nums font-bold text-xs text-rose-600 dark:text-rose-400"
-             x-text="'+' + (typeof formatNumber === 'function' ? formatNumber(${p}.window_saves_gain ?? ${p}.effective_velocity ?? ${p}.daily_save_velocity ?? ${p}.delta_saves_24h ?? 0) : (${p}.daily_save_velocity || 0)) + '/d'">
-        </div>
-        <div class="text-[9px] font-mono text-slate-400 uppercase">Velocity</div>
-      </td>
+      ${velocityPosition === 'beforeSaves' ? velocityCell : ''}
 
+      ${showSaves ? (savesHtml ? savesHtml : `
       <!-- Total Saves -->
-      <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200 text-xs" 
-          x-text="typeof formatNumber === 'function' ? formatNumber(${p}.save_count || 0) : (${p}.save_count || 0)"></td>
+      <td ${savesTdAttrs} class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200 text-xs" 
+          x-text="typeof formatNumber === 'function' ? formatNumber(${p}.save_count || 0) : (${p}.save_count || 0)"></td>`) : ''}
 
-      ${showRepins ? `
+      ${showRepins ? (repinsHtml ? repinsHtml : `
       <!-- Repins Delta -->
-      <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400 text-xs" 
-          x-text="'+' + (typeof formatNumber === 'function' ? formatNumber(${p}.delta_repins_24h || 0) : (${p}.delta_repins_24h || 0))"></td>
-      ` : ''}
+      <td ${repinsTdAttrs} class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400 text-xs" 
+          x-text="'+' + (typeof formatNumber === 'function' ? formatNumber(${p}.delta_repins_24h || 0) : (${p}.delta_repins_24h || 0))"></td>`) : ''}
 
-      ${showAge ? `
-      <!-- Age (Strict Rule 31) -->
-      <td class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
-          x-text="typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days ? ${p}.pin_age_days + 'd' : '—')"></td>
-      ` : ''}
+      ${extraCellsAfterRepins}
+      ${velocityPosition === 'afterRepins' ? velocityCell : ''}
+      ${extraCellsBeforeAge}
+      ${agePosition === 'beforeActions' ? ageCell : ''}
+      ${extraCellsBeforeActions}
 
-      ${showActions ? `
+      ${showActions ? (actionsHtml ? actionsHtml : `
       <!-- Actions -->
-      <td class="py-2.5 px-3 text-right" @click.stop>
+      <td ${actionsTdAttrs} class="py-2.5 px-3 text-right" @click.stop>
         <div class="flex items-center justify-end gap-1.5">
           <button type="button" 
                   @click="${onBlueprintClick}" 
@@ -221,8 +272,7 @@ export function renderPinRowTemplate({
             <span>↗</span>
           </a>
         </div>
-      </td>
-      ` : ''}
+      </td>`) : ''}
     </tr>
   `;
 }

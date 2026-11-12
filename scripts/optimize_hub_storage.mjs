@@ -617,14 +617,20 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
   }
 
-  // 5. Non-blocking VACUUM (ANALYZE) on target Hub physical tables (skip views like keyword_pins_snapshots)
+  // 5. Non-blocking VACUUM (ANALYZE) on target tables (exclude keyword_pins_snapshots VIEW in unified_postgres mode; Migration 051)
+  const unifiedMode = isUnifiedPostgres();
   const tablesToVacuum = [
     ['tracked_keywords', () => sql`VACUUM (ANALYZE) tracked_keywords;`],
     ['keyword_serp_current', () => sql`VACUUM (ANALYZE) keyword_serp_current;`],
     ['keyword_displaced_index', () => sql`VACUUM (ANALYZE) keyword_displaced_index;`],
-    ['pin_serp_positions', () => sql`VACUUM (ANALYZE) pin_serp_positions;`],
-    ['pins_daily_metrics', () => sql`VACUUM (ANALYZE) pins_daily_metrics;`],
-    ['universal_master_pins', () => sql`VACUUM (ANALYZE) universal_master_pins;`],
+    ...(unifiedMode
+      ? [
+          ['pin_serp_positions', () => sql`VACUUM (ANALYZE) pin_serp_positions;`],
+          ['pins_daily_metrics', () => sql`VACUUM (ANALYZE) pins_daily_metrics;`]
+        ]
+      : [
+          ['keyword_pins_snapshots', () => sql`VACUUM (ANALYZE) keyword_pins_snapshots;`]
+        ]),
     ['competitor_profiles', () => sql`VACUUM (ANALYZE) competitor_profiles;`],
     ['competitor_history_snapshots', () => sql`VACUUM (ANALYZE) competitor_history_snapshots;`],
     ['competitor_pins', () => sql`VACUUM (ANALYZE) competitor_pins;`],

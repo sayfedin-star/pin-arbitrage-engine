@@ -49,7 +49,7 @@ import {
   updateCreatorHubSettings
 } from '../modules/creators/service.mjs';
 import { syncCompetitorAcrossFleet } from '../modules/fleet/service.mjs';
-import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../../scripts/lib/pinterest.mjs';
+import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 
 /**
  * Fast URI discriminator for Creators & Competitors routes
@@ -57,7 +57,6 @@ import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../..
 export function isCreatorsRoute(pathname) {
   return pathname.startsWith('/api/creators') ||
     pathname.startsWith('/api/competitors') ||
-    pathname.startsWith('/api/pinarchive') ||
     pathname.startsWith('/api/boards');
 }
 
@@ -476,26 +475,47 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/rules
+  // GET /api/competitors/rules (and /api/creators/rules) -> per-creator when id/username provided, else global qualification rules
   if (method === 'GET' && pathname === '/api/competitors/rules') {
     const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
-    if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
-      const result = await getCompetitorRules(targetSql, id);
-      return jsonResponse({ success: true, ...result });
+      if (id) {
+        const result = await getCompetitorRules(targetSql, id);
+        return jsonResponse({ success: true, ...result });
+      }
+      const rules = await getQualificationRules(targetSql);
+      return jsonResponse({ success: true, rules });
     } catch (err) {
+      if (!id) {
+        console.error('[Creator Rules Error]', err.message);
+        return jsonResponse({ success: true, degraded: true, rules: {} }, 200, 0);
+      }
       return jsonResponse({ success: false, error: err.message }, 500);
     }
   }
 
-  // POST /api/competitors/rules and /api/creators/rules
+  // POST /api/competitors/rules and /api/creators/rules -> per-creator when competitor_id (or creator-scoped id) provided, else global qualification rules
   if (method === 'POST' && (pathname === '/api/competitors/rules' || pathname === '/api/creators/rules')) {
     const body = await request.json().catch(() => ({}));
-    const id = body.competitor_id || body.id;
-    if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+    const isGlobalPayload = body.scope === 'global' || (
+      !body.competitor_id && (
+        body.tier1_min_saves !== undefined ||
+        body.tier2_min_repins !== undefined ||
+        body.tier3_max_age_days !== undefined ||
+        body.tier3_min_saves !== undefined ||
+        body.master_ingest_enabled !== undefined ||
+        body.cron_enabled !== undefined ||
+        body.paused_policy !== undefined
+      )
+    );
+    const id = body.competitor_id || (!isGlobalPayload ? body.id : null);
     try {
-      const result = await saveCompetitorRules(targetSql, id, body.rules || body);
-      return jsonResponse({ success: true, ...result });
+      if (id) {
+        const result = await saveCompetitorRules(targetSql, id, body.rules || body);
+        return jsonResponse({ success: true, ...result });
+      }
+      const rules = await updateQualificationRules(targetSql, body);
+      return jsonResponse({ success: true, rules });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
     } finally {
@@ -503,14 +523,39 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/re-evaluate and /api/creators/re-evaluate
+  // POST /api/competitors/re-evaluate and /api/creators/re-evaluate -> per-creator when competitor_id (or creator-scoped id) provided, else global archive evaluation
   if (method === 'POST' && (pathname === '/api/competitors/re-evaluate' || pathname === '/api/creators/re-evaluate')) {
     const body = await request.json().catch(() => ({}));
-    const id = body.competitor_id || body.id;
-    if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+    const isGlobalPayload = body.scope === 'global' || (
+      !body.competitor_id && (
+        body.tier1_min_saves !== undefined ||
+        body.tier2_min_repins !== undefined ||
+        body.tier3_max_age_days !== undefined ||
+        body.tier3_min_saves !== undefined ||
+        body.master_ingest_enabled !== undefined ||
+        body.cron_enabled !== undefined ||
+        (body.rules && typeof body.rules === 'object')
+      )
+    );
+    const id = body.competitor_id || (!isGlobalPayload ? body.id : null);
     try {
-      const result = await reEvaluateCompetitorPins(targetSql, id);
-      return jsonResponse({ success: true, ...result });
+      if (id) {
+        const result = await reEvaluateCompetitorPins(targetSql, id);
+        return jsonResponse({ success: true, ...result });
+      }
+      const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
+      const hasRuleOverride = Boolean(body && (
+        body.tier1_min_saves !== undefined ||
+        body.tier2_min_repins !== undefined ||
+        body.tier3_max_age_days !== undefined ||
+        body.tier3_min_saves !== undefined ||
+        body.master_ingest_enabled !== undefined ||
+        body.cron_enabled !== undefined ||
+        (body.rules && typeof body.rules === 'object')
+      ));
+      const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
+      const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
+      return jsonResponse({ success: true, ...audit });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
     } finally {
@@ -833,12 +878,11 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   
   // =========================================================================
-  // PINARCHIVE ROUTING INTEGRATION
+  // UNIFIED CREATOR ARCHIVE, TOPICS, PINS & SNAPSHOT ROUTES
   // =========================================================================
 
-
-  // 1. PinArchive Overview
-  if (method === 'GET' && (pathname === '/api/pinarchive/overview' || pathname === '/api/competitors/archive-overview' || originalPathname === '/api/creators/archive-overview' || originalPathname === '/api/creators/pinarchive-overview')) {
+  // 1. Archive Overview (GET /api/creators/archive-overview & /api/competitors/archive-overview)
+  if (method === 'GET' && (pathname === '/api/competitors/archive-overview' || originalPathname === '/api/creators/archive-overview' || originalPathname === '/api/creators/pinarchive-overview')) {
     const shardKey = reqProjectId || 'hub';
     const cacheKey = buildCanonicalCacheKey(`pinarchive:overview:${shardKey}`, {});
     try {
@@ -847,7 +891,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       }, 15000, 60000);
       return jsonResponse({ success: true, overview }, 200, 15);
     } catch (err) {
-      console.error('[PinArchive Overview Error]', err.message);
+      console.error('[Creator Archive Overview Error]', err.message);
       return jsonResponse({
         success: true,
         degraded: true,
@@ -863,51 +907,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 2. Qualification Rules (GET)
-  if (method === 'GET' && pathname === '/api/pinarchive/rules') {
-    try {
-      const rules = await getQualificationRules(targetSql);
-      return jsonResponse({ success: true, rules });
-    } catch (err) {
-      console.error('[PinArchive Rules Error]', err.message);
-      return jsonResponse({ success: true, degraded: true, rules: {} }, 200, 0);
-    }
-  }
-
-  // 3. Qualification Rules (POST)
-  if (method === 'POST' && pathname === '/api/pinarchive/rules') {
-    try {
-      const body = await request.json().catch(() => ({}));
-      const rules = await updateQualificationRules(targetSql, body);
-      return jsonResponse({ success: true, rules });
-    } finally {
-      invalidateCreatorsCache();
-    }
-  }
-
-  // 4. Re-evaluate Archived Pins
-  if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
-    try {
-      const body = await request.json().catch(() => ({}));
-      const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
-      const hasRuleOverride = Boolean(body && (
-        body.tier1_min_saves !== undefined ||
-        body.tier2_min_repins !== undefined ||
-        body.tier3_max_age_days !== undefined ||
-        body.tier3_min_saves !== undefined ||
-        body.master_ingest_enabled !== undefined ||
-        (body.rules && typeof body.rules === 'object')
-      ));
-      const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
-      const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
-      return jsonResponse({ success: true, ...audit });
-    } finally {
-      invalidateCreatorsCache();
-    }
-  }
-
-  // 5. Topic Clusters API
-  if (method === 'GET' && (pathname === '/api/pinarchive/topics' || pathname === '/api/competitors/topics' || originalPathname === '/api/creators/topics')) {
+  // 2. Topic Clusters API (GET /api/creators/topics & /api/competitors/topics)
+  if (method === 'GET' && (pathname === '/api/competitors/topics' || originalPathname === '/api/creators/topics')) {
     const shardKey = reqProjectId || 'hub';
     const minPins = Number(searchParams.get('min_pins') || 1);
     const search = searchParams.get('search') || '';
@@ -934,8 +935,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 6. Archived Pins Listing
-  if (method === 'GET' && (pathname === '/api/pinarchive/pins' || pathname === '/api/competitors/pins' || originalPathname === '/api/creators/pins')) {
+  // 3. Archived Pins Listing (GET /api/creators/pins & /api/competitors/pins)
+  if (method === 'GET' && (pathname === '/api/competitors/pins' || originalPathname === '/api/creators/pins')) {
     const search = searchParams.get('search') || '';
     const topic = searchParams.get('topic') || '';
     const board = searchParams.get('board') || '';
@@ -989,8 +990,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse(data, 200, 10);
   }
 
-  // 7. Pin Detail With Metrics
-  if (method === 'GET' && (pathname === '/api/pinarchive/pin-detail' || pathname === '/api/competitors/pin-detail' || originalPathname === '/api/creators/pin-detail')) {
+  // 4. Pin Detail With Metrics (GET /api/creators/pin-detail & /api/competitors/pin-detail)
+  if (method === 'GET' && (pathname === '/api/competitors/pin-detail' || originalPathname === '/api/creators/pin-detail')) {
     const pinId = searchParams.get('pin_id') || searchParams.get('id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true';
@@ -1000,8 +1001,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
   }
 
-  // 8. Delete Pin Metric Snapshot
-  if (method === 'DELETE' && (pathname === '/api/pinarchive/pin-snapshot' || pathname === '/api/competitors/pin-snapshot' || originalPathname === '/api/creators/pin-snapshot')) {
+  // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot & /api/competitors/pin-snapshot)
+  if (method === 'DELETE' && (pathname === '/api/competitors/pin-snapshot' || originalPathname === '/api/creators/pin-snapshot')) {
     invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
@@ -1011,7 +1012,6 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse(result);
   }
 
-  
   return null;
 }
 

@@ -442,6 +442,24 @@ async function main() {
     console.warn('[!] Hub Vacuum non-fatal warning:', vacErr.message);
   }
 
+  // 7. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
+  try {
+    console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
+    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
+    console.log('  ✓ mv_pulse_24h_summary refreshed cleanly.');
+  } catch (mvErr) {
+    if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
+      try {
+        await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+        console.log('  ✓ mv_pulse_24h_summary populated via initial non-concurrent refresh.');
+      } catch (fallbackErr) {
+        console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+      }
+    } else {
+      console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
+    }
+  }
+
   // Write to GITHUB_STEP_SUMMARY
   if (stepSummaryPath) {
     try {

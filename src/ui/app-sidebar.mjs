@@ -11,8 +11,9 @@
  */
 
 export function renderAppSidebar({
-  activeNav = 'overview', // 'overview' | 'creators' | 'keywords' | 'domains' | 'related_pins'
-  refreshHandler = 'window.location.reload()'
+  activeNav = 'overview', // 'overview' | 'pulse' | 'creators' | 'keywords' | 'domains' | 'related_pins' | 'folders'
+  refreshHandler = 'window.location.reload()',
+  isDashboardSpa = false
 } = {}) {
   const isOverview = activeNav === 'overview';
   const isPulse = activeNav === 'pulse' || activeNav === '24h';
@@ -40,11 +41,46 @@ export function renderAppSidebar({
   const badgeActive = 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20';
   const badgeInactive = 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-medium bg-slate-100 dark:bg-[#18181B] text-slate-500 dark:text-[#71717A] border border-slate-200/80 dark:border-[#27272A]';
 
+  const spaCreatorsExpr = `(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive')`;
+  const spaRelatedExpr = `(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer')`;
+  const darkExpr = `(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false))`;
+  const loadingSpinAttr = isDashboardSpa ? ` :class="{'animate-spin': isLoading}"` : '';
+  const disabledRefreshAttr = isDashboardSpa ? ` :disabled="isLoading"` : '';
+
+  const renderFooterStatus = (isMobile) => isDashboardSpa ? `
+        <button
+          type="button"
+          @click="isCookieModalOpen = true${isMobile ? '; isMobileMenuOpen = false' : ''}"
+          class="flex items-center rounded-xl border transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="[
+            ${isMobile ? "'w-full justify-between px-3 py-2 text-xs font-semibold'" : "isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold'"},
+            cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
+          ]"
+          :title="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'">
+          <span class="flex items-center truncate font-mono tabular-nums" ${isMobile ? 'class="space-x-2"' : ':class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+            <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
+            <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? '${isMobile ? 'Session: Authenticated' : 'Pinterest: Authenticated'}' : 'Guest Mode (No Cookie)'"></span>
+          </span>
+          <i ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}data-lucide="key" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+        </button>
+  ` : `
+        <div
+          class="flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums"
+          ${isMobile ? 'class="w-full justify-between px-3 py-2 text-xs font-semibold"' : ':class="isSidebarCollapsed ? \'w-10 h-10 p-0 justify-center mx-auto\' : \'w-full justify-between px-3 py-2 text-xs font-semibold\'"'}
+          title="PAE Distributed System: Active">
+          <span class="flex items-center truncate" ${isMobile ? 'class="space-x-2"' : ':class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+            <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 motion-safe:animate-pulse"></span>
+            <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]">System: Operational</span>
+          </span>
+          <i ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}data-lucide="shield-check" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+        </div>
+  `;
+
   return `
   <!-- Mobile Top Header (Visible on screens < md) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <header class="md:hidden border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-xs">
     <div class="flex items-center space-x-2.5">
-      <button @click="isMobileMenuOpen = !isMobileMenuOpen" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Toggle Navigation Menu">
+      <button type="button" @click="isMobileMenuOpen = !isMobileMenuOpen" aria-label="Toggle Navigation Menu" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Toggle Navigation Menu">
         <i data-lucide="menu" class="w-5 h-5"></i>
       </button>
       <a href="/" class="flex items-center space-x-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg">
@@ -58,11 +94,11 @@ export function renderAppSidebar({
       </a>
     </div>
     <div class="flex items-center space-x-2">
-      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :title="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'Light Mode' : 'Dark Mode'">
-        <i :data-lucide="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'sun' : 'moon'" class="w-4 h-4"></i>
+      <button type="button" @click="toggleTheme()" aria-label="Toggle Theme" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :title="${darkExpr} ? 'Light Mode' : 'Dark Mode'">
+        <i :data-lucide="${darkExpr} ? 'sun' : 'moon'" class="w-4 h-4"></i>
       </button>
-      <button @click="${refreshHandler}" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Refresh Data">
-        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+      <button type="button" @click="${refreshHandler}"${disabledRefreshAttr} aria-label="Refresh Data" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Refresh Data">
+        <i data-lucide="rotate-cw"${loadingSpinAttr} class="w-4 h-4"></i>
       </button>
     </div>
   </header>
@@ -81,13 +117,28 @@ export function renderAppSidebar({
             <div class="text-[10px] text-slate-500 dark:text-[#71717A] font-mono tabular-nums">V3 Predictive</div>
           </div>
         </a>
-        <button @click="isMobileMenuOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+        <button type="button" @click="isMobileMenuOpen = false" aria-label="Close Navigation Menu" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <!-- Mobile Quick Actions -->
       <div class="space-y-1.5">
+        ${isDashboardSpa ? `
+        <button type="button" @click="openAddCompetitorModal(); isMobileMenuOpen = false" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+          <span>+ Track Creator</span>
+        </button>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button type="button" @click="openAddSeedModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
+            <span>Add Seeds</span>
+          </button>
+          <button type="button" @click="openCrawlModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+            <i data-lucide="zap" class="w-3 h-3"></i>
+            <span>Crawl</span>
+          </button>
+        </div>` : `
         <a href="/accounts?action=new" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
           <span>+ Track Creator</span>
@@ -101,19 +152,26 @@ export function renderAppSidebar({
             <i data-lucide="zap" class="w-3 h-3"></i>
             <span>Crawl</span>
           </a>
-        </div>
+        </div>`}
       </div>
 
       <!-- Mobile Navigation Links -->
       <nav class="space-y-1">
-        <!-- Overview & Command Center (Home) -->
+        ${isDashboardSpa ? `
+        <button type="button" @click="switchTab('overview'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="currentTab === 'overview' ? '${activeClass}' : '${inactiveClass}'">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0" :class="currentTab === 'overview' ? '${iconActive}' : '${iconInactive}'"></i>
+            <span>Overview & Hub</span>
+          </div>
+          <span :class="currentTab === 'overview' ? '${badgeActive}' : '${badgeInactive}'">Home</span>
+        </button>` : `
         <a href="/" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${overviewActive}">
           <div class="flex items-center space-x-2.5">
             <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0 ${isOverview ? iconActive : iconInactive}"></i>
             <span>Overview & Hub</span>
           </div>
           <span class="${isOverview ? badgeActive : badgeInactive}">Home</span>
-        </a>
+        </a>`}
 
         <!-- 24h Pulse Studio -->
         <a href="/pulse" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}">
@@ -124,14 +182,21 @@ export function renderAppSidebar({
           <span class="${isPulse ? badgeActive : badgeInactive}">Live</span>
         </a>
 
-        <!-- Creator Hub -->
+        ${isDashboardSpa ? `
+        <button type="button" @click="switchTab('creators_archive'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="${spaCreatorsExpr} ? '${activeClass}' : '${inactiveClass}'">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="users" class="w-4 h-4 shrink-0" :class="${spaCreatorsExpr} ? '${iconActive}' : '${iconInactive}'"></i>
+            <span>Creator Hub</span>
+          </div>
+          <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="competitors.length"></span>
+        </button>` : `
         <a href="/accounts" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}">
           <div class="flex items-center space-x-2.5">
             <i data-lucide="users" class="w-4 h-4 shrink-0 ${isCreators ? iconActive : iconInactive}"></i>
             <span>Creator Hub</span>
           </div>
           <span class="${isCreators ? badgeActive : badgeInactive}">Ledger</span>
-        </a>
+        </a>`}
 
         <!-- Keywords Fleet Dashboard -->
         <a href="/keywords" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${keywordsActive}">
@@ -139,7 +204,7 @@ export function renderAppSidebar({
             <i data-lucide="search" class="w-4 h-4 shrink-0 ${isKeywords ? iconActive : iconInactive}"></i>
             <span>Keywords Fleet</span>
           </div>
-          <span class="${isKeywords ? badgeActive : badgeInactive}">SERP</span>
+          ${isDashboardSpa ? `<span class="${badgeInactive}" x-text="keywords.length"></span>` : `<span class="${isKeywords ? badgeActive : badgeInactive}">SERP</span>`}
         </a>
 
         <!-- Domain Radar -->
@@ -151,14 +216,24 @@ export function renderAppSidebar({
           <span class="${isDomains ? badgeActive : badgeInactive}">WHOIS</span>
         </a>
 
-        <!-- Related Pins Tab -->
+        ${isDashboardSpa ? `
+        <button type="button" @click="switchTab('related_pins'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="${spaRelatedExpr} ? '${activeClass}' : '${inactiveClass}'">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="git-fork" class="w-4 h-4 shrink-0" :class="${spaRelatedExpr} ? '${iconActive}' : '${iconInactive}'"></i>
+            <span>Related Pins</span>
+          </div>
+          <div class="flex items-center space-x-1 font-mono tabular-nums">
+            <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="seeds.length + 's'"></span>
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
+          </div>
+        </button>` : `
         <a href="/related-pins" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}">
           <div class="flex items-center space-x-2.5">
             <i data-lucide="git-fork" class="w-4 h-4 shrink-0 ${isRelated ? iconActive : iconInactive}"></i>
             <span>Related Pins</span>
           </div>
           <span class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
-        </a>
+        </a>`}
 
         <!-- Campaign Folders Tab -->
         <a href="/folders" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}">
@@ -173,26 +248,19 @@ export function renderAppSidebar({
 
       <!-- Mobile Drawer Footer -->
       <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] space-y-2">
-        <div class="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
-          <span class="flex items-center space-x-2 truncate">
-            <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 motion-safe:animate-pulse"></span>
-            <span class="truncate">System: Operational</span>
-          </span>
-          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-        </div>
+        ${renderFooterStatus(true)}
       </div>
     </div>
   </div>
 
   <!-- Desktop Permanent Sidebar (<aside>) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <aside 
+  <aside
     class="w-64 lg:w-72 hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
     :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
     <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
     <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
       <!-- App Brand & Title + Collapse Toggle -->
       <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
-        <!-- Logo & Title -->
         <a href="/" class="flex items-center space-x-3 overflow-hidden group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-xl">
           <div class="h-10 w-10 rounded-xl bg-rose-600 flex items-center justify-center shadow-xs text-white shrink-0 group-hover:scale-102 transition">
             <i data-lucide="cpu" class="w-5 h-5"></i>
@@ -207,14 +275,22 @@ export function renderAppSidebar({
               <span class="px-1.5 py-0.5 text-[9px] font-mono tabular-nums font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
                 V3 Predictive
               </span>
+              ${isDashboardSpa ? `
+              <template x-if="crawlStatus.is_crawling">
+                <span class="px-1.5 py-0.5 text-[9px] font-mono tabular-nums font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 motion-safe:animate-pulse">
+                  <span class="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-ping"></span>
+                  <span>Active</span>
+                </span>
+              </template>` : ''}
             </div>
           </div>
         </a>
 
         <!-- Sideways Collapse / Expand Toggle Button -->
-        <button 
-          @click="toggleSidebar()" 
-          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-[#FAFAFA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+        <button
+          type="button"
+          @click="toggleSidebar()"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-[#FAFAFA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-8 h-8 flex items-center justify-center' : ''"
           :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
           aria-label="Toggle Sidebar">
@@ -225,9 +301,45 @@ export function renderAppSidebar({
 
       <!-- Quick Action Buttons -->
       <div class="pt-1 transition-all duration-300" :class="isSidebarCollapsed ? 'space-y-2 flex flex-col items-center' : 'space-y-1.5'">
-        <!-- + Track Creator -->
-        <a 
-          href="/accounts?action=new" 
+        ${isDashboardSpa ? `
+        <button
+          type="button"
+          @click="openAddCompetitorModal()"
+          class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
+          title="Track Creator">
+          <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
+          <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
+        </button>
+
+        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
+          <button
+            type="button"
+            @click="openAddSeedModal()"
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
+            title="Add Seeds">
+            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
+          </button>
+
+          <button
+            type="button"
+            @click="openCrawlModal()"
+            class="flex items-center justify-center rounded-xl transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+            :class="[
+              isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-bold',
+              crawlStatus.is_crawling
+                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A]'
+            ]"
+            title="Crawl">
+            <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
+          </button>
+        </div>` : `
+        <a
+          href="/accounts?action=new"
           class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
           title="Track Creator">
@@ -236,9 +348,8 @@ export function renderAppSidebar({
         </a>
 
         <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
-          <!-- + Add Seeds -->
-          <a 
-            href="/related-pins" 
+          <a
+            href="/related-pins"
             class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
             :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-medium'"
             title="Add Seeds">
@@ -246,24 +357,38 @@ export function renderAppSidebar({
             <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
           </a>
 
-          <!-- Crawl -->
-          <a 
-            href="/" 
-            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+          <a
+            href="/"
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
             :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
             title="Crawl">
             <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
           </a>
-        </div>
+        </div>`}
       </div>
 
       <!-- Navigation Links (Desktop) -->
       <nav class="space-y-1 pt-2" :class="isSidebarCollapsed ? 'flex flex-col items-center' : ''">
-        <!-- Overview & Command Center (Home) -->
-        <a 
-          href="/" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${overviewActive}" 
+        ${isDashboardSpa ? `
+        <button
+          type="button"
+          @click="switchTab('overview')"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            currentTab === 'overview' ? '${activeClass}' : '${inactiveClass}'
+          ]"
+          title="Overview & Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0" :class="currentTab === 'overview' ? '${iconActive}' : '${iconInactive}'"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
+          </div>
+          <span x-show="!isSidebarCollapsed" :class="currentTab === 'overview' ? '${badgeActive}' : '${badgeInactive}'">Home</span>
+        </button>` : `
+        <a
+          href="/"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${overviewActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Overview & Hub">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -272,12 +397,12 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed" class="${isOverview ? badgeActive : badgeInactive}">Home</span>
           ${isOverview ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
-        </a>
+        </a>`}
 
         <!-- 24h Pulse Studio (/pulse) -->
-        <a 
-          href="/pulse" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}" 
+        <a
+          href="/pulse"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="24h Pulse Studio">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -288,10 +413,28 @@ export function renderAppSidebar({
           ${isPulse ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
-        <!-- Creator Hub (/accounts) -->
-        <a 
-          href="/accounts" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}" 
+        ${isDashboardSpa ? `
+        <button
+          type="button"
+          @click="switchTab('creators_archive')"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            ${spaCreatorsExpr} ? '${activeClass}' : '${inactiveClass}'
+          ]"
+          title="Creator Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="users" class="w-4 h-4 shrink-0" :class="${spaCreatorsExpr} ? '${iconActive}' : '${iconInactive}'"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
+          </div>
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
+            <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="competitors.length"></span>
+          </div>
+          <span x-show="isSidebarCollapsed && competitors.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+        </button>` : `
+        <a
+          href="/accounts"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Creator Hub">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -301,12 +444,12 @@ export function renderAppSidebar({
           <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="${isCreators ? badgeActive : badgeInactive}" x-text="(typeof competitors !== 'undefined' && competitors) ? competitors.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof competitors === 'undefined' || !competitors || !competitors.length)" class="${isCreators ? badgeActive : badgeInactive}">Ledger</span>
           ${isCreators ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
-        </a>
+        </a>`}
 
         <!-- Keywords Fleet Dashboard (/keywords) -->
-        <a 
-          href="/keywords" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${keywordsActive}" 
+        <a
+          href="/keywords"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${keywordsActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Keywords Fleet">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -315,13 +458,13 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="${isKeywords ? badgeActive : badgeInactive}" x-text="(typeof keywords !== 'undefined' && keywords) ? keywords.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof keywords === 'undefined' || !keywords || !keywords.length)" class="${isKeywords ? badgeActive : badgeInactive}">SERP</span>
-          ${isKeywords ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+          <span x-show="isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
         </a>
 
         <!-- Domain Radar (/domains) -->
-        <a 
-          href="/domains" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${domainsActive}" 
+        <a
+          href="/domains"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${domainsActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Domain Radar">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -333,10 +476,29 @@ export function renderAppSidebar({
           ${isDomains ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
-        <!-- Related Pins Tab (/related-pins) -->
-        <a 
-          href="/related-pins" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}" 
+        ${isDashboardSpa ? `
+        <button
+          type="button"
+          @click="switchTab('related_pins')"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            ${spaRelatedExpr} ? '${activeClass}' : '${inactiveClass}'
+          ]"
+          title="Related Pins">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="git-fork" class="w-4 h-4 shrink-0" :class="${spaRelatedExpr} ? '${iconActive}' : '${iconInactive}'"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
+          </div>
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
+            <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="seeds.length + 's'"></span>
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
+          </div>
+          <span x-show="isSidebarCollapsed && (seeds.length > 0 || intersections.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+        </button>` : `
+        <a
+          href="/related-pins"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Related Pins">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -345,12 +507,12 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed" class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
           ${isRelated ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
-        </a>
+        </a>`}
 
         <!-- Campaign Folders Tab (/folders) -->
-        <a 
-          href="/folders" 
-          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}" 
+        <a
+          href="/folders"
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Campaign Folders">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
@@ -364,42 +526,32 @@ export function renderAppSidebar({
       </nav>
     </div>
 
-    <!-- Bottom Footer section: Pinterest Auth Status, Theme toggle, Refresh -->
+    <!-- Bottom Footer section: Auth Status, Theme toggle, Refresh -->
     <div class="border-t border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-[#09090B]/60 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
-      <!-- Status Indicator -->
-      <div 
-        class="flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums" 
-        :class="isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold'" 
-        title="PAE Distributed System: Active">
-        <span class="flex items-center truncate" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2'">
-          <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 motion-safe:animate-pulse"></span>
-          <span x-show="!isSidebarCollapsed" class="truncate text-[11px]">System: Operational</span>
-        </span>
-        <i x-show="!isSidebarCollapsed" data-lucide="shield-check" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
-      </div>
+      ${renderFooterStatus(false)}
 
       <!-- Theme Toggle & Refresh -->
       <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 items-center' : 'flex items-center justify-between pt-1'">
-        <!-- Theme Toggle -->
-        <button 
-          @click="toggleTheme()" 
-          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] text-xs font-medium hover:bg-slate-100 dark:hover:bg-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+        <button
+          type="button"
+          @click="toggleTheme()"
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] text-xs font-medium hover:bg-slate-100 dark:hover:bg-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
           title="Switch Theme"
           aria-label="Toggle theme">
-          <i x-show="!(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false))" data-lucide="moon" class="w-3.5 h-3.5"></i>
-          <i x-show="typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)" data-lucide="sun" class="w-3.5 h-3.5"></i>
-          <span x-show="!isSidebarCollapsed" x-text="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'Light' : 'Dark'"></span>
+          <i x-show="!${darkExpr}" data-lucide="moon" class="w-3.5 h-3.5"></i>
+          <i x-show="${darkExpr}" data-lucide="sun" class="w-3.5 h-3.5"></i>
+          <span x-show="!isSidebarCollapsed" x-text="${darkExpr} ? 'Light' : 'Dark'"></span>
         </button>
 
-        <!-- Refresh Data -->
-        <button 
-          @click="${refreshHandler}" 
-          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
+        <button
+          type="button"
+          @click="${refreshHandler}"${disabledRefreshAttr}
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'p-2'"
-          title="Refresh Studio Data"
+          title="Refresh Data"
           aria-label="Refresh Data">
-          <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+          <i data-lucide="rotate-cw"${loadingSpinAttr} class="w-4 h-4"></i>
         </button>
       </div>
     </div>

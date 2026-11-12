@@ -12,9 +12,9 @@ import postgres from 'postgres';
 import { fetchPinHybrid, sleep } from './lib/pinterest.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 if (!DATABASE_URL) {
-  console.error('[-] FATAL: DATABASE_URL environment variable is required.');
+  console.error('[-] FATAL: process.env.DATABASE_URL is required (hardcoded fallback credentials removed).');
   process.exit(1);
 }
 const sql = postgres(DATABASE_URL, { max: 20 });

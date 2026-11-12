@@ -1572,21 +1572,21 @@ async function run() {
     }
 
     console.log(`[*] Target Folder Identified: "${folderRow.name}" (ID: ${folderRow.id})`);
+    const runStartTime = new Date();
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion Across 20 Egress IPs
     // -------------------------------------------------------------------------
-    const runStartTime = new Date();
     // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
-    const runToken = String(
+    const folderRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_folder_${folderRow.id}_matrix`
+      `run_folder_${fid}_matrix`
     );
 
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
-      console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
+      console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel (token: ${folderRunToken})...`);
       let fatalSerpDbErr = null;
       let serpSuccessCount = 0;
       let serpErrorCount = 0;
@@ -1613,14 +1613,13 @@ async function run() {
             fatalSerpDbErr = err;
           }
         } finally {
-          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
+          // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so failure or clock skew never blocks cluster barrier
           await sql`
             UPDATE tracked_keywords
-            SET 
-              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
-              updated_at = NOW(),
-              crawl_lease_token = NULL,
-              crawl_lease_until = NULL
+            SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
+                updated_at = NOW(),
+                crawl_lease_token = NULL,
+                crawl_lease_until = NULL
             WHERE id = ${kid}
               AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
           `.catch(() => {});
@@ -1638,9 +1637,9 @@ async function run() {
       console.log(`[Phase 1A] No keywords assigned to this runner. Waiting for peers at barrier sync...`);
     }
 
-    // Lightweight Barrier Sync: Wait for peer runners to complete parallel SERP ingestion
+    // Logical Token Barrier Sync: Wait for peer runners to complete parallel SERP ingestion
     if (enableSerpHarvest) {
-      console.log(`[Phase 1A] Barrier Sync: Waiting for peer runners to complete parallel SERP ingestion...`);
+      console.log(`[Phase 1A] Barrier Sync: Waiting for peer runners to complete parallel SERP ingestion (token: ${folderRunToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 45000;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
@@ -1650,11 +1649,7 @@ async function run() {
           JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
           WHERE kfi.folder_id = ${fid}
             AND tk.is_active = TRUE
-            AND (tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${runToken}
-            AND GREATEST(
-              COALESCE(tk.last_crawled_at, '1970-01-01'::timestamptz),
-              COALESCE(tk.updated_at, '1970-01-01'::timestamptz)
-            ) < ${runStartTime};
+            AND (tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${folderRunToken};
         `;
         const pendingCount = Number(pendingRow?.pending || 0);
         if (pendingCount === 0) {
@@ -2108,13 +2103,13 @@ async function run() {
           ? [keywordIdInput]
           : allFleetKeywordIds.filter((_, idx) => idx % workerTotal === workerIndex));
 
-    const runStartTime = new Date();
     // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
-    const runToken = String(
+    const runStartTime = new Date();
+    const fleetRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_fleet_matrix`
+      `run_fleet_${crawlScope}_matrix`
     );
 
     // -------------------------------------------------------------------------
@@ -2125,7 +2120,7 @@ async function run() {
       if (effectiveSerpCookie) {
         process.env.PINTEREST_COOKIE = effectiveSerpCookie;
       }
-      console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords...`);
+      console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords (token: ${fleetRunToken})...`);
       const serpSem = new Semaphore(2);
       let fatalSerpDbErr = null;
       let serpSuccessCount = 0;
@@ -2153,14 +2148,13 @@ async function run() {
               fatalSerpDbErr = err;
             }
           } finally {
-            // Landmine #1 Guard: Always stamp updated_at & logical token so a failed keyword never blocks the 20-worker barrier
+            // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so a failed keyword or clock skew never blocks the 20-worker barrier
             await sql`
               UPDATE tracked_keywords
-              SET 
-                metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
-                updated_at = NOW(),
-                crawl_lease_token = NULL,
-                crawl_lease_until = NULL
+              SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
+                  updated_at = NOW(),
+                  crawl_lease_token = NULL,
+                  crawl_lease_until = NULL
               WHERE id = ${kid}
                 AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
             `.catch(() => {});
@@ -2177,9 +2171,9 @@ async function run() {
       console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Proceeding directly to Phase 1B.`);
     }
 
-    // Failure-Immune Barrier Sync across all 20 fleet workers
+    // Failure-Immune Logical Token Barrier Sync across all 20 fleet workers
     if (enableSerpHarvest && workerTotal > 1) {
-      console.log(`[Phase 1A] Barrier Sync: Waiting for peer workers to complete SERP ingestion across ${allFleetKeywordIds.length} keywords...`);
+      console.log(`[Phase 1A] Barrier Sync: Waiting for peer workers to complete SERP ingestion across ${allFleetKeywordIds.length} keywords (token: ${fleetRunToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 45000;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
@@ -2188,11 +2182,7 @@ async function run() {
           FROM tracked_keywords
           WHERE id = ANY(${allFleetKeywordIds})
             AND is_active = TRUE
-            AND (metadata->>'phase1a_completed_token') IS DISTINCT FROM ${runToken}
-            AND GREATEST(
-              COALESCE(last_crawled_at, '1970-01-01'::timestamptz),
-              COALESCE(updated_at, '1970-01-01'::timestamptz)
-            ) < ${runStartTime};
+            AND (metadata->>'phase1a_completed_token') IS DISTINCT FROM ${fleetRunToken};
         `;
         const pendingCount = Number(pendingRow?.pending || 0);
         if (pendingCount === 0) {

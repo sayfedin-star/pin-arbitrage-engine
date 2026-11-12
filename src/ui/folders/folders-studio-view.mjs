@@ -3,6 +3,7 @@
  * Enforces Sibling DOM hierarchy for Room 1 & Room 5.
  */
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
+import { renderPinRowTemplate } from '../pin-row.mjs';
 
 export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderId = '' } = {}) {
   return `    <!-- ========================================================================= -->
@@ -286,8 +287,26 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
              </thead>
              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
-                 <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors">
-                   <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
+                 ${renderPinRowTemplate({
+                   pinVar: 'sp',
+                   indexVar: 'idx',
+                   showCheckbox: false,
+                   showRank: true,
+                   rankPosition: 'beforeThumb',
+                   showThumb: false,
+                   showTitle: true,
+                   showDomain: true,
+                   agePosition: 'afterDomain',
+                   showSaves: true,
+                   showRepins: false,
+                   showVelocity: true,
+                   velocityPosition: 'afterRepins',
+                   showAge: true,
+                   showActions: true,
+                   rowClass: 'hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors',
+                   rankHtml: `
+                   <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>`,
+                   titleHtml: `
                    <td class="p-3.5">
                      <div class="flex items-center gap-3">
                        <a :href="'/pins/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="w-10 h-14 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0 block hover:ring-2 hover:ring-indigo-500 transition">
@@ -336,8 +355,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          </div>
                        </div>
                      </div>
-                   </td>
-
+                   </td>`,
+                   extraCellsAfterTitle: `
                    <td class="p-3.5">
                      <div class="flex flex-col gap-1.5">
                        <div class="flex items-center gap-1.5 flex-wrap">
@@ -372,8 +391,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          </template>
                        </div>
                      </div>
-                   </td>
-
+                   </td>`,
+                   domainHtml: `
                    <td class="p-3.5 font-sans">
                      <div class="flex flex-col gap-0.5">
                        <button @click="setEntityFilter('domain', sp.domain)" 
@@ -392,8 +411,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          </template>
                        </div>
                      </div>
-                   </td>
-
+                   </td>`,
+                   ageHtml: `
                    <td class="p-3.5 font-mono tabular-nums">
                      <div class="flex flex-col gap-1">
                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 w-fit"
@@ -409,9 +428,10 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          </span>
                        </template>
                      </div>
-                   </td>
-
-                   <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
+                   </td>`,
+                   savesHtml: `
+                   <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>`,
+                   velocityHtml: `
                    <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
                      <div class="flex flex-col gap-0.5">
                        <span class="font-bold" x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d'"></span>
@@ -422,8 +442,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
                        </template>
                      </div>
-                   </td>
-
+                   </td>`,
+                   actionsHtml: `
                    <td class="p-3.5 text-right font-sans">
                      <div class="flex items-center justify-end gap-1.5">
                        <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
@@ -434,8 +454,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <span>↗</span>
                        </a>
                      </div>
-                   </td>
-                 </tr>
+                   </td>`
+                 })}
                </template>
 
               <tr x-show="crossoverLoading">

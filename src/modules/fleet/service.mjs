@@ -4,7 +4,7 @@
  */
 
 import { getCompetitorsOverview, listCompetitors } from '../creators/service.mjs';
-import { getShardNumberForEntity, enforceNeonPoolerUrl, createUniversalSqlClient } from '../sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../../db/client.mjs';
 import { maskDatabaseUrl } from '../../utils.mjs';
 export { enforceNeonPoolerUrl, maskDatabaseUrl };
 
@@ -100,7 +100,8 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
     const cleanUser = String(competitorUsernameOrId).replace(/^@+/, '').trim().toLowerCase();
     const [p] = await hubSql`
       SELECT id, username FROM competitor_profiles 
-      WHERE LOWER(username) = ${cleanUser} OR id::text = ${String(competitorUsernameOrId)} 
+      WHERE (LOWER(username) = ${cleanUser} OR id::text = ${String(competitorUsernameOrId)})
+        AND COALESCE(account_type, 'competitor') <> 'system'
       LIMIT 1;
     `;
     if (!p) return { ok: false, error: 'Competitor profile not found on Hub' };
@@ -123,7 +124,7 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
 // [INVARIANT: ZERO-ACCOUNT-SHARDING-SSOT]
 // Competitor intelligence (profiles, boards, rules) resides strictly on Central Hub (SSOT).
 export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}) {
-  const profiles = await hubSql`SELECT COUNT(*)::int AS count FROM competitor_profiles WHERE is_active = TRUE;`.catch(() => [{ count: 0 }]);
+  const profiles = await hubSql`SELECT COUNT(*)::int AS count FROM competitor_profiles WHERE is_active = TRUE AND COALESCE(account_type, 'competitor') <> 'system';`.catch(() => [{ count: 0 }]);
   const boards = await hubSql`SELECT COUNT(*)::int AS count FROM competitor_boards;`.catch(() => [{ count: 0 }]);
   const [{ count: pinsCount }] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pins;`.catch(() => [{ count: 0 }]);
   const metricsCount = 0;

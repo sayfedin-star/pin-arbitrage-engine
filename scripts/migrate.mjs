@@ -267,6 +267,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '056',
     name: 'create_mv_pulse_24h_summary',
     aliases: ['056', '056_create_mv_pulse_24h_summary', 'mv_pulse_24h_summary']
+  },
+  '057_pa_pins_clean_domain_and_indexes.sql': {
+    version: '057',
+    name: 'pa_pins_clean_domain_and_indexes',
+    aliases: ['057', '057_pa_pins_clean_domain_and_indexes', 'pa_pins_clean_domain_and_indexes']
   }
 };
 

@@ -68,28 +68,28 @@ assert(
   'POST /api/competitors/status must invalidate competitors cache'
 );
 
-// PinArchive caching & invalidations
+// Unified Creator Archive & Rules caching & invalidations
 assert(
-  workerContent.includes("pathname === '/api/pinarchive/overview'") &&
+  workerContent.includes("pathname === '/api/competitors/archive-overview'") &&
   workerContent.includes("buildCanonicalCacheKey(`pinarchive:overview:"),
-  'GET /api/pinarchive/overview must use canonical cache key'
+  'GET /api/creators/archive-overview must use canonical cache key'
 );
 assert(
-  workerContent.includes("pathname === '/api/pinarchive/rules'") &&
+  workerContent.includes("pathname === '/api/creators/rules'") &&
   workerContent.includes("invalidateEdgeCache('pinarchive')") &&
   workerContent.includes("invalidateEdgeCache('topics')"),
-  'POST /api/pinarchive/rules must invalidate pinarchive and topics caches'
+  'POST /api/creators/rules must invalidate pinarchive and topics caches'
 );
 assert(
-  workerContent.includes("pathname === '/api/pinarchive/re-evaluate'") &&
+  workerContent.includes("pathname === '/api/creators/re-evaluate'") &&
   workerContent.includes("invalidateEdgeCache('pinarchive')") &&
   workerContent.includes("invalidateEdgeCache('topics')"),
-  'POST /api/pinarchive/re-evaluate must invalidate pinarchive and topics caches'
+  'POST /api/creators/re-evaluate must invalidate pinarchive and topics caches'
 );
 assert(
-  workerContent.includes("pathname === '/api/pinarchive/pin-snapshot'") &&
+  workerContent.includes("originalPathname === '/api/creators/pin-snapshot'") &&
   workerContent.includes("invalidateEdgeCache('pinarchive')"),
-  'DELETE /api/pinarchive/pin-snapshot must invalidate pinarchive cache'
+  'DELETE /api/creators/pin-snapshot must invalidate pinarchive cache'
 );
 
 console.log('  ✓ Full-suite 100% cache parity confirmed across Competitors, Board Ideas, and PinArchive');
@@ -244,12 +244,19 @@ console.log('\n[Test 5] Verifying undici Agent injection & Zero Static Import sa
 
 import { setDefaultDispatcher, getDefaultDispatcher, pinterestFetch } from './lib/pinterest.mjs';
 
-const pinterestLibContent = fs.readFileSync('scripts/lib/pinterest.mjs', 'utf8');
+const pinterestLibContent = [
+  'scripts/lib/pinterest.mjs',
+  'src/core/pinterest/client.mjs',
+  'src/core/pinterest/urls.mjs',
+  'src/core/pinterest/pins.mjs',
+  'src/core/pinterest/creators.mjs',
+  'src/core/pinterest/index.mjs'
+].map((relPath) => fs.readFileSync(relPath, 'utf8')).join('\n');
 
-// Strict Red Line: Zero static import of undici in scripts/lib/pinterest.mjs
+// Strict Red Line: Zero static import of undici in scripts/lib/pinterest.mjs or src/core/pinterest/
 assert(
   !pinterestLibContent.includes("from 'undici'") && !pinterestLibContent.includes('from "undici"'),
-  'scripts/lib/pinterest.mjs MUST NOT contain static imports of undici (preserves Cloudflare Worker bundle)'
+  'scripts/lib/pinterest.mjs and src/core/pinterest/ MUST NOT contain static imports of undici (preserves Cloudflare Worker bundle)'
 );
 
 // Verify Dispatcher Injection
@@ -261,17 +268,15 @@ assert.strictEqual(getDefaultDispatcher(), null, 'setDefaultDispatcher must allo
 
 // Verify crawlers dynamically instantiate and inject undici
 const kwCrawlerContent = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
-const engineContent = fs.existsSync('scripts/crawler-engine.mjs')
-  ? fs.readFileSync('scripts/crawler-engine.mjs', 'utf8')
-  : fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
+const creatorCrawlerContent = fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
 const clusterContent = fs.readFileSync('scripts/cluster-intelligence.mjs', 'utf8');
 const relatedContent = fs.readFileSync('scripts/account-related-crawler.mjs', 'utf8');
 
 assert(kwCrawlerContent.includes("await import('undici')"), 'keyword-velocity-crawler.mjs must dynamically load undici');
 assert(kwCrawlerContent.includes('setDefaultDispatcher(undiciAgent)'), 'keyword-velocity-crawler.mjs must register dispatcher');
 
-assert(engineContent.includes("await import('undici')"), 'crawler-engine.mjs must dynamically load undici');
-assert(engineContent.includes('setDefaultDispatcher(undiciAgent)'), 'crawler-engine.mjs must register dispatcher');
+assert(creatorCrawlerContent.includes("await import('undici')"), 'creator-velocity-crawler.mjs must dynamically load undici');
+assert(creatorCrawlerContent.includes('setDefaultDispatcher(undiciAgent)'), 'creator-velocity-crawler.mjs must register dispatcher');
 
 assert(clusterContent.includes("await import('undici')"), 'cluster-intelligence.mjs must dynamically load undici');
 assert(clusterContent.includes('dispatcher: undiciAgent'), 'cluster-intelligence.mjs must pass dispatcher to fetch');
@@ -299,10 +304,10 @@ assert(
   'keyword-velocity-crawler.mjs must combine q1, q2, q3 into single shardSql.transaction'
 );
 
-// Verify monotonic ORDER BY in crawler engine and account related crawler
+// Verify monotonic ORDER BY in creator velocity crawler and account related crawler
 assert(
-  engineContent.includes('ORDER BY pin_id ASC') || engineContent.includes('ORDER BY x.pin_id ASC'),
-  'crawler-engine.mjs must order pin batch writes by pin_id ASC'
+  creatorCrawlerContent.includes('ORDER BY x.pin_id ASC'),
+  'creator-velocity-crawler.mjs must order pin batch writes by x.pin_id ASC'
 );
 assert(
   relatedContent.includes('ORDER BY x.candidate_pin_id ASC'),

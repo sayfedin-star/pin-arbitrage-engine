@@ -10,7 +10,7 @@
  * - Deep Domain Dossier: Ranked Pins per Keyword, Top Money Article Slugs (with creative pin variations), and Keyword Monopoly Matrix.
  */
 
-import { sleep, randomJitterMs } from '../../core/index.mjs';
+import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { hydrateDisplacedIndexFromShards } from '../keywords/service.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
@@ -881,8 +881,8 @@ export async function listDomainsIntelligence(sql, {
       -- Pillar 4: PinArchive Winning Pins
       SELECT
         CASE 
-          WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE LOWER(TRIM(pa.domain))
+          WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE pa.clean_domain
         END AS clean_domain,
         pa.pin_id,
         NULL::int AS keyword_id,
@@ -892,9 +892,9 @@ export async function listDomainsIntelligence(sql, {
         COALESCE(pa.repins, 0)::bigint AS repins,
         COALESCE(pa.velocity, 0)::numeric AS velocity,
         CASE
-          WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
-          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
-          WHEN RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+          WHEN RTRIM(SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
           ELSE ''
         END AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
@@ -902,15 +902,15 @@ export async function listDomainsIntelligence(sql, {
       FROM pa_pins pa
       WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'archive'))
-        AND pa.domain IS NOT NULL AND pa.domain <> ''
+        AND pa.clean_domain IS NOT NULL AND pa.clean_domain <> ''
 
       UNION ALL
 
       -- Pillar 1: Competitor Catalog Pins
       SELECT
         CASE 
-          WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE LOWER(TRIM(cp.link_domain))
+          WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE cp.clean_domain
         END AS clean_domain,
         cp.pin_id,
         NULL::int AS keyword_id,
@@ -925,9 +925,9 @@ export async function listDomainsIntelligence(sql, {
           0::numeric
         ) AS velocity,
         CASE
-          WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(COALESCE(prof.username, ''))
-          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || LOWER(TRIM(cp.link_domain)) || '%' THEN LOWER(COALESCE(prof.username, ''))
-          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(cp.link_domain)), '-', ''), '.', 1) THEN LOWER(COALESCE(prof.username, ''))
+          WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(COALESCE(prof.username, ''))
+          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(COALESCE(prof.username, ''))
+          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(cp.clean_domain, '-', ''), '.', 1) THEN LOWER(COALESCE(prof.username, ''))
           ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
         END AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
@@ -937,7 +937,7 @@ export async function listDomainsIntelligence(sql, {
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
       WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'competitors'))
-        AND cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+        AND cp.clean_domain IS NOT NULL AND cp.clean_domain <> ''
 
       UNION ALL
 
@@ -1405,8 +1405,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
         SELECT
           CASE 
-            WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(TRIM(pa.domain))
+            WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE pa.clean_domain
           END AS clean_domain,
           pa.pin_id,
           NULL::int AS keyword_id,
@@ -1416,23 +1416,23 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(pa.repins, 0)::bigint AS repins,
           COALESCE(pa.velocity, 0)::numeric AS velocity,
           CASE
-            WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
-            WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
-            WHEN RTRIM(SPLIT_PART(REPLACE(LOWER(TRIM(pa.domain)), '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
+            WHEN RTRIM(SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', ''))
             ELSE ''
           END AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
         FROM pa_pins pa
-        WHERE pa.domain IS NOT NULL AND pa.domain <> ''
+        WHERE pa.clean_domain IS NOT NULL AND pa.clean_domain <> ''
 
         UNION ALL
 
         -- Competitor Pins
         SELECT
           CASE 
-            WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(TRIM(cp.link_domain))
+            WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE cp.clean_domain
           END AS clean_domain,
           cp.pin_id,
           NULL::int AS keyword_id,
@@ -1448,9 +1448,9 @@ export async function refreshDomainIntelligenceRollup(sql) {
             0::numeric
           ) AS velocity,
           CASE
-            WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
-            WHEN cprof.website_url IS NOT NULL AND cprof.website_url <> '' AND LOWER(cprof.website_url) LIKE '%' || LOWER(TRIM(cp.link_domain)) || '%' THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
-            WHEN REPLACE(LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(LOWER(TRIM(cp.link_domain)), '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            WHEN cprof.website_url IS NOT NULL AND cprof.website_url <> '' AND LOWER(cprof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
+            WHEN REPLACE(LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(cp.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
             ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
           END AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
@@ -1458,7 +1458,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-        WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+        WHERE cp.clean_domain IS NOT NULL AND cp.clean_domain <> ''
 
         UNION ALL
 
@@ -2216,7 +2216,11 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM keyword_serp_current ksc
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-      WHERE (ksc.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND ksc.clean_domain = 'uploaded by user'))
+      WHERE (
+          ksc.clean_domain = ${cleanDomain}
+          OR (ksc.clean_domain IS NULL AND ump.clean_domain = ${cleanDomain})
+          OR (${isOrganicVault}::boolean AND (ksc.clean_domain = 'uploaded by user' OR (ksc.clean_domain IS NULL AND ump.clean_domain = 'uploaded by user')))
+        )
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, COALESCE(NULLIF(ump.save_count, 0), ksc.save_count, 0) DESC
@@ -2242,7 +2246,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.annotations AS visual_annotations,
         pa.created_at_pinterest
       FROM pa_pins pa
-      WHERE (pa.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND pa.domain = 'uploaded by user'))
+      WHERE (pa.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND pa.clean_domain = 'uploaded by user'))
       ORDER BY pa.saves DESC
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'pa_pins')),
@@ -2302,7 +2306,11 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       FROM keyword_displaced_index kdi
       LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      WHERE (kdi.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND kdi.clean_domain = 'uploaded by user'))
+      WHERE (
+          kdi.clean_domain = ${cleanDomain}
+          OR (kdi.clean_domain IS NULL AND ump.clean_domain = ${cleanDomain})
+          OR (${isOrganicVault}::boolean AND (kdi.clean_domain = 'uploaded by user' OR (kdi.clean_domain IS NULL AND ump.clean_domain = 'uploaded by user')))
+        )
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
       ORDER BY COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) DESC

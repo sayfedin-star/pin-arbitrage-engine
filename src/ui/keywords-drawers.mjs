@@ -5,35 +5,16 @@
  * Extracted from monolithic src/keywords-ui.mjs for Package P3 structural re-organization.
  */
 
-export function getKeywordDrawersAndModalsHtml() {
-  return `  <!-- PIN DETAIL SLIDE-OVER INSPECTOR DRAWER (PinClicks Parity - Image 5) -->
-  <!-- PIN DEEP DOSSIER SLIDE-OVER INSPECTOR (Image 2 Parity) -->
-  <div x-show="isPinDrawerOpen" x-cloak class="relative z-50" @keydown.escape.window="closePinInspector()">
-    <div x-show="isPinDrawerOpen"
-         x-transition:enter="transition-opacity ease-linear duration-300"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition-opacity ease-linear duration-300"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @click="closePinInspector()"
-         class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
+import {
+  renderPinDossierDrawer,
+  renderPinDossierHeader,
+  renderPinDossierTextBlock,
+  renderPinDossierKpiGrid
+} from './pin-dossier-drawer.mjs';
 
-    <div class="fixed inset-y-0 right-0 max-w-full flex pl-8 sm:pl-16">
-      <div x-show="isPinDrawerOpen"
-           x-transition:enter="transform transition ease-in-out duration-300"
-           x-transition:enter-start="translate-x-full"
-           x-transition:enter-end="translate-x-0"
-           x-transition:leave="transform transition ease-in-out duration-300"
-           x-transition:leave-start="translate-x-0"
-           x-transition:leave-end="translate-x-full"
-           class="w-screen max-w-xl md:max-w-2xl bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] shadow-2xl flex flex-col h-full overflow-hidden" role="dialog" aria-modal="true" aria-label="Pin Deep Dossier">
-        
-        <!-- Drawer Header with Quick-Copy Toolbar (Image 2 Parity) -->
-        <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-[#27272A] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#18181B]/40 shrink-0">
-          
-          <div class="flex items-center space-x-2">
-            <template x-if="activeInspectorPin?.is_displaced || (!activeInspectorPin?.rank_position && activeInspectorPin?.last_known_rank)">
+export function getKeywordDrawersAndModalsHtml() {
+  const pinInspectorHeaderHtml = renderPinDossierHeader({
+    badgesHtml: `<template x-if="activeInspectorPin?.is_displaced || (!activeInspectorPin?.rank_position && activeInspectorPin?.last_known_rank)">
               <div class="flex items-center space-x-1.5">
                 <span class="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-black text-xs border border-amber-500/30"
                       x-text="'#' + (activeInspectorPin?.catalog_rank || 101) + ' [Vault]'"></span>
@@ -49,12 +30,8 @@ export function getKeywordDrawersAndModalsHtml() {
             <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
                   :class="getPinMethodBadgeClass(activeInspectorPin)"
                   :title="'Method: ' + formatPinMethodLabel(activeInspectorPin)"
-                  x-text="getPinMethod(activeInspectorPin)"></span>
-          </div>
-
-          <!-- Quick-Copy Buttons Bar (Image 2 Parity) -->
-          <div class="flex flex-wrap items-center gap-1.5">
-            <!-- Open Full Dossier Page (Level 3) -->
+                  x-text="getPinMethod(activeInspectorPin)"></span>`,
+    actionsHtml: `<!-- Open Full Dossier Page (Level 3) -->
             <a :href="getPinDossierUrl(activeInspectorPin)"
                class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition flex items-center space-x-1"
                title="Open Dedicated Full Dossier Page (/pins/:pin_id)">
@@ -120,16 +97,97 @@ export function getKeywordDrawersAndModalsHtml() {
                  title="Open Pin on Pinterest">
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
-              <button @click="closePinInspector()" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white transition cursor-pointer">
-                <i data-lucide="x" class="w-4 h-4"></i>
-              </button>
-            </div>
-          </div>
+            </div>`,
+    closeExpr: 'closePinInspector()',
+    closeLabel: 'Close Pin Deep Dossier'
+  });
 
-        </div>
+  const pinInspectorSeoAltBlock = renderPinDossierTextBlock({
+    title: 'Pinterest SEO Alt Text',
+    badgeText: 'Official Context',
+    badgeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    iconName: 'file-text',
+    iconClass: 'w-4 h-4 text-amber-500',
+    copyExpr: "copyToClipboard(dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || '', 'Copied SEO Alt Text!')",
+    copyButtonLabel: 'Copy Alt Text',
+    copyButtonClass: 'px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer',
+    bodyTextExpr: "dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || (isDossierLoading ? 'Extracting official Pinterest SEO Alt text...' : 'No SEO Alt Text detected for this creative.')"
+  });
 
-        <!-- Drawer Scrollable Body -->
-        <div class="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+  const pinInspectorDescBlock = renderPinDossierTextBlock({
+    title: 'Pin Closeup Description',
+    badgeText: 'Full Body',
+    badgeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+    iconName: 'align-left',
+    iconClass: 'w-4 h-4 text-emerald-500',
+    copyExpr: "copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')",
+    copyButtonLabel: 'Copy Description',
+    copyButtonClass: 'px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer',
+    bodyTextExpr: "dossierData?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"
+  });
+
+  const pinInspectorKpiGridHtml = renderPinDossierKpiGrid({
+    title: 'Creative Performance KPIs',
+    items: [
+      {
+        label: 'Total Saves',
+        valueExpr: 'formatNumber(dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count ?? activeInspectorPin?.metadata?.raw_saves ?? 0)',
+        valueClass: 'text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums block',
+        extraHtml: `<template x-if="dossierData?.deltas?.saves_24h">
+                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.saves_24h + ' 24h'"></span>
+                </template>
+                <template x-if="dossierData?.url_global_saves || activeInspectorPin?.url_global_saves">
+                  <span class="text-[9px] font-bold text-sky-400 font-mono block truncate" :title="'Global Article Saves: ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves)"
+                        x-text="'🌐 ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves) + ' Art.'"></span>
+                </template>
+                <template x-if="computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) >= 5.0">
+                  <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono inline-block mt-0.5"
+                        x-text="'[' + computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) + 'x Alpha Breakout]'"></span>
+                </template>`
+      },
+      {
+        label: 'Repins',
+        valueExpr: 'formatNumber(dossierData?.kpis?.repins ?? activeInspectorPin?.repin_count ?? 0)',
+        valueClass: 'text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 font-mono tabular-nums block',
+        extraHtml: `<template x-if="dossierData?.deltas?.repins_24h">
+                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.repins_24h + ' 24h'"></span>
+                </template>`
+      },
+      {
+        label: 'Comments',
+        valueExpr: 'dossierData?.kpis?.comments ?? activeInspectorPin?.comment_count ?? 0',
+        valueClass: 'text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono tabular-nums block'
+      },
+      {
+        label: 'Shares',
+        valueExpr: 'formatNumber(dossierData?.kpis?.shares ?? activeInspectorPin?.share_count ?? 0)',
+        valueClass: 'text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono tabular-nums block',
+        extraHtml: `<template x-if="dossierData?.deltas?.shares_24h">
+                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.shares_24h + ' 24h'"></span>
+                </template>`
+      },
+      {
+        label: 'Velocity',
+        valueExpr: "(Number(dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) > 0 ? '+' : '') + (dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) + ' /d'",
+        valueClass: 'text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums block'
+      },
+      {
+        label: 'Reactions',
+        valueExpr: 'formatNumber(dossierData?.kpis?.reactions ?? activeInspectorPin?.reaction_count ?? activeInspectorPin?.metadata?.reactions ?? 0)',
+        valueClass: 'text-sm sm:text-base font-black text-rose-500 font-mono tabular-nums block',
+        extraHtml: `<template x-if="dossierData?.deltas?.reactions_24h">
+                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.reactions_24h + ' 24h'"></span>
+                </template>`
+      }
+    ]
+  });
+
+  const pinInspectorDrawerHtml = renderPinDossierDrawer({
+    showExpr: 'isPinDrawerOpen',
+    closeExpr: 'closePinInspector()',
+    ariaLabel: 'Pin Deep Dossier',
+    headerHtml: pinInspectorHeaderHtml,
+    bodyHtml: `
           
           <!-- Large Pin Creative, Dominant Color Accent & Meta -->
           <div class="space-y-3">
@@ -232,43 +290,9 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
           </div>
 
-          <!-- PINTEREST SEO ALT TEXT CONTAINER (Image 2 Exact Parity) -->
-          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-2">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-1.5">
-                <i data-lucide="file-text" class="w-4 h-4 text-amber-500"></i>
-                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Pinterest SEO Alt Text</h4>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">Official Context</span>
-              </div>
-              <button @click="copyToClipboard(dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || '', 'Copied SEO Alt Text!')"
-                      class="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer">
-                <i data-lucide="copy" class="w-3 h-3"></i>
-                <span>Copy Alt Text</span>
-              </button>
-            </div>
+          ${pinInspectorSeoAltBlock}
 
-            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-[#27272A]/80"
-               x-text="dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || (isDossierLoading ? 'Extracting official Pinterest SEO Alt text...' : 'No SEO Alt Text detected for this creative.')"></p>
-          </div>
-
-          <!-- PIN CLOSEUP BODY DESCRIPTION CONTAINER -->
-          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-2">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-1.5">
-                <i data-lucide="align-left" class="w-4 h-4 text-emerald-500"></i>
-                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Pin Closeup Description</h4>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Full Body</span>
-              </div>
-              <button @click="copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')"
-                      class="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer">
-                <i data-lucide="copy" class="w-3 h-3"></i>
-                <span>Copy Description</span>
-              </button>
-            </div>
-
-            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-[#27272A]/80"
-               x-text="dossierData?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"></p>
-          </div>
+          ${pinInspectorDescBlock}
 
           <!-- ANNOTATIONS & SEO KEYWORDS (Linked Ideas - Image 2 Exact Parity) -->
           <div class="space-y-2.5">
@@ -297,75 +321,7 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
           </div>
 
-          <!-- 6 KPI CARDS (Image 2 Exact Parity) -->
-          <div class="space-y-2">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Creative Performance KPIs</h4>
-            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              
-              <!-- Total Saves -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Total Saves</span>
-                <span class="text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 font-mono block"
-                      x-text="formatNumber(dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count ?? activeInspectorPin?.metadata?.raw_saves ?? 0)"></span>
-                <template x-if="dossierData?.deltas?.saves_24h">
-                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.saves_24h + ' 24h'"></span>
-                </template>
-                <template x-if="dossierData?.url_global_saves || activeInspectorPin?.url_global_saves">
-                  <span class="text-[9px] font-bold text-sky-400 font-mono block truncate" :title="'Global Article Saves: ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves)"
-                        x-text="'🌐 ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves) + ' Art.'"></span>
-                </template>
-                <template x-if="computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) >= 5.0">
-                  <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono inline-block mt-0.5"
-                        x-text="'[' + computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) + 'x Alpha Breakout]'"></span>
-                </template>
-              </div>
-
-              <!-- Repins -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Repins</span>
-                <span class="text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 font-mono block"
-                      x-text="formatNumber(dossierData?.kpis?.repins ?? activeInspectorPin?.repin_count ?? 0)"></span>
-                <template x-if="dossierData?.deltas?.repins_24h">
-                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.repins_24h + ' 24h'"></span>
-                </template>
-              </div>
-
-              <!-- Comments -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Comments</span>
-                <span class="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono block"
-                      x-text="dossierData?.kpis?.comments ?? activeInspectorPin?.comment_count ?? 0"></span>
-              </div>
-
-              <!-- Shares -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Shares</span>
-                <span class="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono block"
-                      x-text="formatNumber(dossierData?.kpis?.shares ?? activeInspectorPin?.share_count ?? 0)"></span>
-                <template x-if="dossierData?.deltas?.shares_24h">
-                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.shares_24h + ' 24h'"></span>
-                </template>
-              </div>
-
-              <!-- Velocity -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Velocity</span>
-                <span class="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 font-mono block"
-                      x-text="(Number(dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) > 0 ? '+' : '') + (dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) + ' /d'"></span>
-              </div>
-
-              <!-- Reactions -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
-                <span class="text-[10px] font-bold text-slate-400 block">Reactions</span>
-                <span class="text-sm sm:text-base font-black text-rose-500 font-mono block"
-                      x-text="formatNumber(dossierData?.kpis?.reactions ?? activeInspectorPin?.reaction_count ?? activeInspectorPin?.metadata?.reactions ?? 0)"></span>
-                <template x-if="dossierData?.deltas?.reactions_24h">
-                  <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.reactions_24h + ' 24h'"></span>
-                </template>
-              </div>
-
-            </div>
-          </div>
+          ${pinInspectorKpiGridHtml}
 
           <!-- PERFORMANCE TRAJECTORY DUAL-LINE SVG (Image 2 Exact Parity) -->
           <div class="p-5 rounded-2xl bg-slate-100/80 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-4">
@@ -490,11 +446,11 @@ export function getKeywordDrawersAndModalsHtml() {
             </button>
           </div>
 
-        </div>
+    `
+  });
 
-      </div>
-    </div>
-  </div>
+  return `  <!-- PIN DEEP DOSSIER SLIDE-OVER INSPECTOR (Shared Drawer Component) -->
+  ${pinInspectorDrawerHtml}
 
   <!-- Engine & Crawl Depth Settings Modal (Global Scope) -->
   <div x-show="isSettingsModalOpen" x-cloak class="relative z-50" @keydown.escape.window="isSettingsModalOpen = false">

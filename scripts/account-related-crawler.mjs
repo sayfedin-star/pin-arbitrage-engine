@@ -7,7 +7,7 @@
  * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Neon Postgres.
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createUniversalSqlClient } from '../src/db/client.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
 

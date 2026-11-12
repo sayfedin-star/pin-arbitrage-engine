@@ -341,7 +341,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'created_at_pinterest',
     'first_seen_at',
     'last_updated_at',
-    'alt_text'
+    'alt_text',
+    'clean_domain'
   ]),
   pa_qualification_rules: new Set([
     'id',

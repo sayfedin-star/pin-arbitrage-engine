@@ -308,7 +308,7 @@ runTest('src/dashboard-ui.mjs: All mutation endpoints use safeApiFetch', () => {
     '/api/workflow/trigger',
     '/api/seeds/bulk-delete',
     '/api/seeds',
-    '/api/pinarchive/pin-snapshot',
+    '/api/creators/pin-snapshot',
     '/api/crawl'
   ];
 
@@ -409,8 +409,15 @@ runTest('src/campaign-folders-ui.mjs: Mutation and analysis operations use safeA
 // =============================================================================
 console.log('\n[*] Section 5: 48-Field Telemetry & Affiliate Link Preservation...');
 
-const pinterestLibCode = fs.readFileSync(path.resolve('scripts/lib/pinterest.mjs'), 'utf8');
-const fleetRouterCode = fs.readFileSync(path.resolve('src/modules/sharding/fleet-router.mjs'), 'utf8');
+const pinterestLibCode = [
+  'scripts/lib/pinterest.mjs',
+  'src/core/pinterest/client.mjs',
+  'src/core/pinterest/urls.mjs',
+  'src/core/pinterest/pins.mjs',
+  'src/core/pinterest/creators.mjs',
+  'src/core/pinterest/index.mjs'
+].map((relPath) => fs.readFileSync(path.resolve(relPath), 'utf8')).join('\n');
+const pinRepositoryCode = fs.readFileSync(path.resolve('src/modules/pins/repository.mjs'), 'utf8');
 
 runTest('scripts/lib/pinterest.mjs: formatPin and extractPinData preserve affiliate/arbitrage tracking links', () => {
   assert(
@@ -544,25 +551,25 @@ runTest('scripts/lib/pinterest.mjs: fetchPinFromPinterest enforces strict unauth
   );
 });
 
-runTest('src/modules/sharding/fleet-router.mjs: syncPinAcrossAllFourPillars preserves 48-field telemetry', () => {
+runTest('src/modules/pins/repository.mjs: syncPinAcrossAllFourPillars preserves 48-field telemetry', () => {
   assert(
-    fleetRouterCode.includes('// [INVARIANT: 48-FIELD-TELEMETRY-PRESERVATION] Preserve carousel detection, affiliate tracking links, and creator audience'),
+    pinRepositoryCode.includes('// [INVARIANT: 48-FIELD-TELEMETRY-PRESERVATION] Preserve carousel detection, affiliate tracking links, and creator audience'),
     'Must include 48-FIELD-TELEMETRY-PRESERVATION tag in syncPinAcrossAllFourPillars'
   );
   assert(
-    fleetRouterCode.includes('is_carousel: isCarousel'),
+    pinRepositoryCode.includes('is_carousel: isCarousel'),
     'Must store is_carousel in rawMetaToStore'
   );
   assert(
-    fleetRouterCode.includes('utm_link: scrapedPin.utm_link || scrapedPin.utmLink || null'),
+    pinRepositoryCode.includes('utm_link: scrapedPin.utm_link || scrapedPin.utmLink || null'),
     'Must store utm_link in rawMetaToStore'
   );
   assert(
-    fleetRouterCode.includes('tracked_link: scrapedPin.tracked_link || scrapedPin.trackedLink || null'),
+    pinRepositoryCode.includes('tracked_link: scrapedPin.tracked_link || scrapedPin.trackedLink || null'),
     'Must store tracked_link in rawMetaToStore'
   );
   assert(
-    fleetRouterCode.includes('creator_followers: scrapedPin.creator_followers ?? scrapedPin.pinner?.follower_count ?? null'),
+    pinRepositoryCode.includes('creator_followers: scrapedPin.creator_followers ?? scrapedPin.pinner?.follower_count ?? null'),
     'Must store creator_followers in rawMetaToStore'
   );
 });
@@ -662,9 +669,9 @@ runTest('scripts/lib/pinterest.mjs: extractPinData preserves 48-field telemetry 
   assert.strictEqual(extracted.creator_followers, 34000, 'creator_followers MUST NOT be wiped by JSON-LD fallback');
 });
 
-runTest('src/modules/sharding/fleet-router.mjs: universal_master_pins update query uses COALESCE on metadata to prevent NULL poisoning', () => {
+runTest('src/modules/pins/repository.mjs: universal_master_pins update query uses COALESCE on metadata to prevent NULL poisoning', () => {
   assert(
-    fleetRouterCode.includes("metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata"),
+    pinRepositoryCode.includes("metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata"),
     'Must use COALESCE on metadata in universal_master_pins update to prevent NULL poisoning'
   );
 });

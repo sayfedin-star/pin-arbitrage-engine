@@ -435,11 +435,11 @@ console.log('\n[AXIS 2] Elevated Floating Bulk Operations & Mutation Hardening')
   let folderPayload = null;
 
   const mockFetch = async (url, opts) => {
-    if (url.includes('/api/keywords/folders/items')) {
+    if (url.includes('/api/folders/items')) {
       folderPayload = JSON.parse(opts.body);
       return { ok: true, status: 200, json: async () => ({ success: true }) };
     }
-    if (url.includes('/api/keywords/folders')) {
+    if (url.includes('/api/folders')) {
       return { ok: true, status: 200, json: async () => ({ success: true, folders: [] }) };
     }
   };

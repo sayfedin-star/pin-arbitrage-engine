@@ -182,6 +182,8 @@ async function runTests() {
     assert(ciCode.includes('api.instabox.sh/v1/operations/${OP_ID}?wait=25s'), 'Must long-poll InstaBox Operation endpoint');
     assert(ciCode.includes('instabox-boot-sync.sh --install-hook'), 'Must install Layer 2 boot-sync hook');
     assert(ciCode.includes('/api/internal/self-update'), 'Must include Layer 3 self-update webhook fallback');
+    assert(!/\\"cmd\\"\s*:\s*\[|'cmd':\s*\[|"cmd"\s*:\s*\[/.test(ciCode), 'InstaBox /exec cmd MUST be a string (use argv for array)');
+    assert(ciCode.includes('cwd: "/data/app"') && ciCode.includes('timeoutSeconds: 300'), 'Must pass valid cwd and timeoutSeconds to ExecRequest');
   });
 
   test('scripts/instabox-boot-sync.sh exists and POST /api/internal/self-update route is registered', () => {

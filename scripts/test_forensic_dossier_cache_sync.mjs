@@ -44,7 +44,10 @@ function readWorkerAndRoutes() {
   const shardingContent = fs.existsSync('src/modules/sharding')
     ? fs.readdirSync('src/modules/sharding').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/modules/sharding/${f}`, 'utf8')).join('\n')
     : '';
-  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent + '\n' + shardingContent;
+  const pinsRepoContent = fs.existsSync('src/modules/pins/repository.mjs')
+    ? fs.readFileSync('src/modules/pins/repository.mjs', 'utf8')
+    : '';
+  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent + '\n' + shardingContent + '\n' + pinsRepoContent;
 }
 
 async function runForensicAudit() {

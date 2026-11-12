@@ -535,7 +535,7 @@ async function runAdversarialPenetrationSuite() {
       'https://worker.test/api/non-existent-endpoint',
       'https://worker.test/api/pins/not_numeric_id',
       'https://worker.test/api/folders/not_a_number/raw-visual-crossover',
-      'https://worker.test/api/keywords/folders/crossover' // Missing folder_id
+      'https://worker.test/api/folders/crossover' // Missing folder_id
     ];
 
     let allReturnedJson = true;

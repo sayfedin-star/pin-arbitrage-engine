@@ -82,11 +82,21 @@ export function getDashboardOverviewHtml() {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(competitorsOverview.combined_reach || 13895921)"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-7 w-24 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading combined reach"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(competitorsOverview.combined_reach || 0)"></span>
+            </template>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
-            <span class="text-slate-500" x-text="(competitors.length || 4) + ' Creators'"></span>
-            <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold" x-text="competitors[0] ? '@' + competitors[0].username : 'Active'"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-3.5 w-20 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-slate-500" x-text="(competitorsOverview.tracked_profiles || competitors.length || 0) + ' Creators'"></span>
+            </template>
+            <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold" x-text="!isOverviewLoaded ? '...' : (competitors[0] ? '@' + competitors[0].username : 'Active')"></span>
           </div>
         </div>
 
@@ -99,10 +109,20 @@ export function getDashboardOverviewHtml() {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono tabular-nums" x-text="formatNumber(pinarchiveOverview.total_pins || 797)"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-7 w-20 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading archived pins"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono tabular-nums" x-text="formatNumber(pinarchiveOverview.total_pins || 0)"></span>
+            </template>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
-            <span class="text-slate-500" x-text="formatNumber(pinarchiveOverview.total_saves || 1301989) + ' Saves'"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-3.5 w-20 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-slate-500" x-text="formatNumber(pinarchiveOverview.total_saves || 0) + ' Saves'"></span>
+            </template>
             <span class="font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold">3-Tier Rules</span>
           </div>
         </div>
@@ -116,10 +136,20 @@ export function getDashboardOverviewHtml() {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="keywords.length + ' Queries'"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-7 w-24 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading keywords fleet"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="(keywords.length || 0) + ' Queries'"></span>
+            </template>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
-            <span class="text-slate-500">32.5k Pins Monitored</span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-3.5 w-24 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-slate-500" x-text="formatNumber(overview.total_candidates || keywords.reduce((sum, k) => sum + Number(k.total_pins_tracked || k.pins_count || 0), 0) || 0) + ' Pins Monitored'"></span>
+            </template>
             <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold">Studio ↗</span>
           </div>
         </a>
@@ -133,11 +163,21 @@ export function getDashboardOverviewHtml() {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="seeds.length + ' Seeds'"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-7 w-20 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading related clusters"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="(seeds.length || 0) + ' Seeds'"></span>
+            </template>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
-            <span class="text-slate-500" x-text="intersections.length + ' Intersecting Hubs'"></span>
-            <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold" x-text="'Gap: ' + (overview.avg_commercial_gap || 0.6)"></span>
+            <template x-if="!isOverviewLoaded">
+              <span class="inline-block h-3.5 w-24 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
+            </template>
+            <template x-if="isOverviewLoaded">
+              <span class="text-slate-500" x-text="(intersections.length || 0) + ' Intersecting Hubs'"></span>
+            </template>
+            <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold" x-text="!isOverviewLoaded ? '...' : ('Gap: ' + (overview.avg_commercial_gap ?? 0))"></span>
           </div>
         </div>
       </div>

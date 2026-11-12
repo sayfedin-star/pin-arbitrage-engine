@@ -47,12 +47,20 @@ jobs:
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
         run: |
           echo "=== Layer 1: Triggering Cloudflare Wake-Shield Pulse (${APP_PUBLIC_URL}/api/health) ==="
-          curl -s --max-time 8 "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
+          if [ -n "${API_SECRET_KEY}" ]; then
+            curl -s --max-time 8 -H "x-api-key: ${API_SECRET_KEY}" "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
+          else
+            curl -s --max-time 8 "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
+          fi
 
           if [ -z "${IB_API_KEY}" ]; then
             echo "⚠️ INSTABOX_API_KEY is not configured; falling back to Layer 2 (Wake-Shield Boot-Sync) & Layer 3 (Self-Update Webhook)..."
             for i in $(seq 1 12); do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${APP_PUBLIC_URL}/api/health" || echo "000")
+              if [ -n "${API_SECRET_KEY}" ]; then
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 -H "x-api-key: ${API_SECRET_KEY}" "${APP_PUBLIC_URL}/api/health" || echo "000")
+              else
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${APP_PUBLIC_URL}/api/health" || echo "000")
+              fi
               if [ "${HTTP_CODE}" = "200" ]; then
                 echo "✅ InstaBox VM is awake via Wake-Shield (HTTP 200)."
                 break
@@ -99,14 +107,16 @@ jobs:
             done
           fi
 
-          # Verify machine reached running state
+          # Verify machine reached running state & runtime.ready when reported
           STATE=""
+          RUNTIME_READY=""
           for i in $(seq 1 12); do
             INFO=$(curl -s -X GET "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
               -H "Authorization: Bearer ${IB_API_KEY}")
             STATE=$(echo "${INFO}" | jq -r '.state // empty')
+            RUNTIME_READY=$(echo "${INFO}" | jq -r '.runtime.ready // empty')
             if [ "${STATE}" = "running" ]; then
-              echo "✅ Machine ${IB_MACHINE_ID} is running."
+              echo "✅ Machine ${IB_MACHINE_ID} is running (runtime.ready=${RUNTIME_READY:-unknown})."
               break
             fi
             echo "Attempt $i/12: Machine state is '${STATE}', waiting 4s..."
@@ -118,30 +128,47 @@ jobs:
             exit 1
           fi
 
-          # Verify internal /exec agent is ready after cold boot before dispatching deploy command
+          # Verify internal /exec guest agent is ready (InstaBox ExecRequest requires string 'cmd' or array 'argv')
           echo "Probing InstaBox /exec agent readiness..."
+          AGENT_READY=0
           for i in $(seq 1 12); do
-            READY_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+            READY_RAW=$(curl -s -w "\n%{http_code}" -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
               -H "Authorization: Bearer ${IB_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d '{"cmd": ["echo", "ready"]}')
-            READY_EXIT=$(echo "${READY_RESP}" | jq -r '.exitCode // -1')
-            if [ "${READY_EXIT}" = "0" ]; then
-              echo "✅ InstaBox /exec agent is ready."
+              -d '{"argv": ["echo", "ready"], "noHistory": true, "timeoutSeconds": 15}')
+            READY_HTTP=$(echo "${READY_RAW}" | tail -n 1)
+            READY_BODY=$(echo "${READY_RAW}" | sed '$d')
+            READY_EXIT=$(echo "${READY_BODY}" | jq -r '.exitCode // -1' 2>/dev/null || echo "-1")
+            if [ "${READY_HTTP}" = "200" ] && [ "${READY_EXIT}" = "0" ]; then
+              echo "✅ InstaBox /exec agent is ready (attempt ${i}/12)."
+              AGENT_READY=1
               break
             fi
-            echo "Attempt $i/12: Waiting for /exec agent readiness..."
+            echo "Attempt $i/12: Waiting for /exec agent readiness (HTTP ${READY_HTTP}, exit=${READY_EXIT})..."
             sleep 3
           done
 
+          if [ "${AGENT_READY}" != "1" ]; then
+            echo "⚠️ Warning: /exec readiness probe did not return 200; proceeding to dispatch deploy command with full error reporting..."
+          fi
+
           # 2. Dispatch deployment commands inside /data/app with automated migrations, boot-sync hook installation, and sudo restart
-          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && (npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund) && node scripts/migrate.mjs && (bash scripts/instabox-boot-sync.sh --install-hook || true) && sudo systemctl restart pae-server"
+          DEPLOY_CMD="git -c safe.directory=/data/app fetch origin main && git -c safe.directory=/data/app reset --hard origin/main && (npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund) && node scripts/migrate.mjs && (bash scripts/instabox-boot-sync.sh --install-hook || true) && sudo systemctl restart pae-server"
+          DEPLOY_PAYLOAD=$(jq -nc --arg cmd "${DEPLOY_CMD}" '{cmd: $cmd, cwd: "/data/app", timeoutSeconds: 300}')
 
           echo "Executing deployment, boot-hook installation, and migration command in /data/app..."
-          EXEC_RESP=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+          EXEC_RAW=$(curl -s -w "\n%{http_code}" -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "{\"cmd\": [\"bash\", \"-c\", \"${DEPLOY_CMD}\"]}")
+            -d "${DEPLOY_PAYLOAD}")
+
+          EXEC_HTTP=$(echo "${EXEC_RAW}" | tail -n 1)
+          EXEC_RESP=$(echo "${EXEC_RAW}" | sed '$d')
+
+          if [ "${EXEC_HTTP}" != "200" ]; then
+            echo "❌ InstaBox /exec API failed with HTTP ${EXEC_HTTP}: ${EXEC_RESP}"
+            exit 1
+          fi
 
           EXIT_CODE=$(echo "${EXEC_RESP}" | jq -r '.exitCode // 1')
           TIMED_OUT=$(echo "${EXEC_RESP}" | jq -r '.timedOut // false')
@@ -162,14 +189,16 @@ jobs:
           VERIFIED=0
           for i in $(seq 1 12); do
             sleep 3
-            HEALTH_EXEC=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+            HEALTH_RAW_RESP=$(curl -s -w "\n%{http_code}" -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
               -H "Authorization: Bearer ${IB_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d "{\"cmd\": [\"curl\", \"-s\", \"http://127.0.0.1:3000/api/health\"]}")
+              -d '{"argv": ["curl", "-s", "http://127.0.0.1:3000/api/health"], "noHistory": true, "timeoutSeconds": 15}')
 
-            HEALTH_RAW=$(echo "${HEALTH_EXEC}" | jq -r '.stdout // empty')
-            HEALTH_STATUS=$(echo "${HEALTH_RAW}" | jq -r '.status // empty')
-            HEALTH_COMMIT=$(echo "${HEALTH_RAW}" | jq -r '.commit // empty')
+            HEALTH_HTTP=$(echo "${HEALTH_RAW_RESP}" | tail -n 1)
+            HEALTH_EXEC=$(echo "${HEALTH_RAW_RESP}" | sed '$d')
+            HEALTH_RAW=$(echo "${HEALTH_EXEC}" | jq -r '.stdout // empty' 2>/dev/null || echo "")
+            HEALTH_STATUS=$(echo "${HEALTH_RAW}" | jq -r '.status // empty' 2>/dev/null || echo "")
+            HEALTH_COMMIT=$(echo "${HEALTH_RAW}" | jq -r '.commit // empty' 2>/dev/null || echo "")
 
             if [ "${HEALTH_STATUS}" = "healthy" ]; then
               echo "Health check succeeded: status=${HEALTH_STATUS}, commit=${HEALTH_COMMIT}"
@@ -185,7 +214,7 @@ jobs:
                 break
               fi
             fi
-            echo "Attempt $i: waiting for healthy service (status=${HEALTH_STATUS}, commit=${HEALTH_COMMIT})..."
+            echo "Attempt $i/12: waiting for healthy service (exec_http=${HEALTH_HTTP}, status=${HEALTH_STATUS}, commit=${HEALTH_COMMIT})..."
           done
 
           if [ "${VERIFIED}" != "1" ]; then

@@ -10,6 +10,8 @@
 
 set -uo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
 APP_DIR="${INSTABOX_APP_DIR:-/data/app}"
 MODE="${1:---sync}"
 
@@ -39,20 +41,26 @@ if [ ! -d "${APP_DIR}/.git" ]; then
   exit 0
 fi
 
+# Preserve repository owner if systemd runs ExecStartPre as root while repo is owned by dev
+APP_OWNER=$(stat -c '%U' "${APP_DIR}" 2>/dev/null || echo "")
+if [ "$(id -u 2>/dev/null || echo 1)" = "0" ] && [ -n "${APP_OWNER}" ] && [ "${APP_OWNER}" != "root" ]; then
+  exec su -s /bin/bash "${APP_OWNER}" -c "INSTABOX_APP_DIR='${APP_DIR}' bash '${APP_DIR}/scripts/instabox-boot-sync.sh' '${MODE}'"
+fi
+
 cd "${APP_DIR}" || exit 0
 
-OLD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+OLD_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
 echo "[instabox-boot-sync] Checking origin/main updates (current SHA: ${OLD_SHA})..."
 
-if git fetch origin main --quiet 2>/dev/null; then
-  REMOTE_SHA=$(git rev-parse origin/main 2>/dev/null || echo "${OLD_SHA}")
+if git -c safe.directory="${APP_DIR}" fetch origin main --quiet 2>/dev/null; then
+  REMOTE_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse origin/main 2>/dev/null || echo "${OLD_SHA}")
   if [ "${OLD_SHA}" != "${REMOTE_SHA}" ] || [ "${MODE}" = "--force" ]; then
     echo "[instabox-boot-sync] 🔄 Updating ${APP_DIR} from ${OLD_SHA} -> ${REMOTE_SHA}..."
-    git reset --hard origin/main
+    git -c safe.directory="${APP_DIR}" reset --hard origin/main
     chmod +x "${APP_DIR}/scripts/instabox-boot-sync.sh" 2>/dev/null || true
 
     # Install dependencies if package.json / package-lock.json changed or node_modules/fastify is missing
-    if [ ! -d "${APP_DIR}/node_modules/fastify" ] || git diff --name-only "${OLD_SHA}" "${REMOTE_SHA}" 2>/dev/null | grep -qE '^package(-lock)?\.json$'; then
+    if [ ! -d "${APP_DIR}/node_modules/fastify" ] || git -c safe.directory="${APP_DIR}" diff --name-only "${OLD_SHA}" "${REMOTE_SHA}" 2>/dev/null | grep -qE '^package(-lock)?\.json$'; then
       echo "[instabox-boot-sync] 📦 Synchronizing production dependencies..."
       npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund || true
     fi
@@ -61,7 +69,7 @@ if git fetch origin main --quiet 2>/dev/null; then
     node scripts/migrate.mjs || true
     echo "[instabox-boot-sync] ✅ Synchronized to ${REMOTE_SHA}."
   else
-    # Even if SHA matches, ensure fastify is installed and migrations are up to date
+    # Even if SHA matches, ensure fastify is installed
     if [ ! -d "${APP_DIR}/node_modules/fastify" ]; then
       echo "[instabox-boot-sync] 📦 Installing missing production dependencies..."
       npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund || true

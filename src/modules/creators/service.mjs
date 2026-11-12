@@ -16,11 +16,13 @@
  */
 
 import { formatPinterestCookie, sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
-import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import crypto from 'node:crypto';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectoryFromShard, fetchUniversalPinDossier } from '../sharding/fleet-router.mjs';
 import { insertNewPinsBatch } from '../pins/repository.mjs';
 import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
+
+export const SYSTEM_RULES_USERNAME = '__system_qualification_rules__';
 
 /**
  * Deterministic Synthetic Board ID Generator
@@ -102,7 +104,8 @@ export async function getCompetitorsOverview(sql) {
         COALESCE(SUM(profile_views), 0)::bigint AS total_impressions,
         COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
         COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
-      FROM competitor_profiles;
+      FROM competitor_profiles
+      WHERE COALESCE(account_type, 'competitor') <> 'system';
     `;
     const totals = totalsRes?.[0] || {};
 
@@ -110,6 +113,7 @@ export async function getCompetitorsOverview(sql) {
       SELECT username, monthly_reach
       FROM competitor_profiles
       WHERE monthly_reach > 0
+        AND COALESCE(account_type, 'competitor') <> 'system'
       ORDER BY monthly_reach DESC
       LIMIT 1;
     `;
@@ -169,7 +173,8 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
             total_boards, delta_boards_24h, boards_delta_7d,
             follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
-          WHERE account_type = ${account_type}
+          WHERE COALESCE(account_type, 'competitor') <> 'system'
+            AND account_type = ${account_type}
             AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
@@ -185,7 +190,8 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
             total_boards, delta_boards_24h, boards_delta_7d,
             follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
-          WHERE account_type = ${account_type}
+          WHERE COALESCE(account_type, 'competitor') <> 'system'
+            AND account_type = ${account_type}
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
         `;
@@ -202,7 +208,8 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
             total_boards, delta_boards_24h, boards_delta_7d,
             follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
-          WHERE (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
+          WHERE COALESCE(account_type, 'competitor') <> 'system'
+            AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
         `;
@@ -217,6 +224,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
             total_boards, delta_boards_24h, boards_delta_7d,
             follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
+          WHERE COALESCE(account_type, 'competitor') <> 'system'
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
         `;
@@ -270,6 +278,10 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, ingest_interval = 'daily', auto_archive_winning = true }) {
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
+  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
+  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
+  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
+  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
 
   const metaPayload = {
     auto_archive_winning: auto_archive_winning !== false
@@ -3386,7 +3398,9 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
   // If competitorIdOrUsername is null, execute per-account evaluation across all active accounts
   if (!competitorIdOrUsername) {
     const competitors = await sql`
-      SELECT id, username FROM competitor_profiles WHERE is_active = TRUE;
+      SELECT id, username FROM competitor_profiles
+      WHERE is_active = TRUE
+        AND COALESCE(account_type, 'competitor') <> 'system';
     `;
     let totalPromoted = 0;
     for (const comp of competitors) {
@@ -4324,27 +4338,33 @@ export const DEFAULT_QUALIFICATION_RULES = {
 };
 
 /**
- * Get active Pin Qualification Rules from Neon Postgres
+ * Get active Pin Qualification Rules from competitor_profiles.metadata->'global_qualification_rules'
  */
 export async function getQualificationRules(sql) {
   try {
-    const [row] = await sql`SELECT * FROM pa_qualification_rules WHERE id = 1;`;
-    if (row) {
+    const [row] = await sql`
+      SELECT metadata->'global_qualification_rules' AS rules, updated_at
+      FROM competitor_profiles
+      WHERE username = ${SYSTEM_RULES_USERNAME}
+      LIMIT 1;
+    `;
+    if (row?.rules && typeof row.rules === 'object') {
+      const r = row.rules;
       return {
         id: 1,
-        tier1_min_saves: Number(row.tier1_min_saves ?? 100),
-        tier2_min_repins: Number(row.tier2_min_repins ?? 100),
-        tier2_min_velocity: Number(row.tier2_min_velocity ?? 3.5),
-        tier2_max_age_days: Number(row.tier2_max_age_days ?? 60),
-        tier3_max_age_days: Number(row.tier3_max_age_days ?? 14),
-        tier3_min_saves: Number(row.tier3_min_saves ?? 25),
-        master_ingest_enabled: Boolean(row.master_ingest_enabled ?? true),
-        cron_enabled: Boolean(row.master_ingest_enabled ?? true),
-        early_stop_pages: Number(row.early_stop_pages ?? 3),
-        max_batch_pins: Number(row.max_batch_pins ?? 500),
-        discovery_max_pages: Number(row.discovery_max_pages ?? 500),
-        refresh_max_pins: Number(row.refresh_max_pins ?? 0),
-        paused_policy: String(row.paused_policy ?? 'reject'),
+        tier1_min_saves: Number(r.tier1_min_saves ?? 100),
+        tier2_min_repins: Number(r.tier2_min_repins ?? 100),
+        tier2_min_velocity: Number(r.tier2_min_velocity ?? 3.5),
+        tier2_max_age_days: Number(r.tier2_max_age_days ?? 60),
+        tier3_max_age_days: Number(r.tier3_max_age_days ?? 14),
+        tier3_min_saves: Number(r.tier3_min_saves ?? 25),
+        master_ingest_enabled: Boolean(r.master_ingest_enabled ?? true),
+        cron_enabled: Boolean(r.master_ingest_enabled ?? true),
+        early_stop_pages: Number(r.early_stop_pages ?? 3),
+        max_batch_pins: Number(r.max_batch_pins ?? 500),
+        discovery_max_pages: Number(r.discovery_max_pages ?? 500),
+        refresh_max_pins: Number(r.refresh_max_pins ?? 0),
+        paused_policy: String(r.paused_policy ?? 'reject'),
         updated_at: row.updated_at
       };
     }
@@ -4353,7 +4373,7 @@ export async function getQualificationRules(sql) {
 }
 
 /**
- * Update and persist Pin Qualification Rules
+ * Update and persist Pin Qualification Rules in competitor_profiles.metadata
  */
 export async function updateQualificationRules(sql, rules = {}) {
   const current = await getQualificationRules(sql);
@@ -4363,8 +4383,8 @@ export async function updateQualificationRules(sql, rules = {}) {
   const t2Days = Math.max(1, Number(rules.tier2_max_age_days ?? current.tier2_max_age_days ?? 60));
   const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? current.tier3_max_age_days ?? 14));
   const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? current.tier3_min_saves ?? 25));
-  const masterEnabled = rules.master_ingest_enabled !== undefined 
-    ? Boolean(rules.master_ingest_enabled) 
+  const masterEnabled = rules.master_ingest_enabled !== undefined
+    ? Boolean(rules.master_ingest_enabled)
     : (rules.cron_enabled !== undefined ? Boolean(rules.cron_enabled) : Boolean(current.master_ingest_enabled));
   const earlyStop = Math.max(1, Math.min(Number(rules.early_stop_pages ?? current.early_stop_pages ?? 3), 100));
   const maxBatch = Math.max(10, Math.min(Number(rules.max_batch_pins ?? current.max_batch_pins ?? 500), 5000));
@@ -4372,53 +4392,64 @@ export async function updateQualificationRules(sql, rules = {}) {
   const refreshMax = Math.max(0, Number(rules.refresh_max_pins ?? current.refresh_max_pins ?? 0));
   const pausedPol = String(rules.paused_policy ?? current.paused_policy ?? 'reject');
 
+  const sanitizedRules = {
+    tier1_min_saves: t1Saves,
+    tier2_min_repins: t2Repins,
+    tier2_min_velocity: t2Vel,
+    tier2_max_age_days: t2Days,
+    tier3_max_age_days: t3Days,
+    tier3_min_saves: t3Saves,
+    master_ingest_enabled: masterEnabled,
+    early_stop_pages: earlyStop,
+    max_batch_pins: maxBatch,
+    discovery_max_pages: discMax,
+    refresh_max_pins: refreshMax,
+    paused_policy: pausedPol
+  };
+
   const [updated] = await sql`
-    INSERT INTO pa_qualification_rules (
-      id,
-      tier1_min_saves,
-      tier2_min_repins,
-      tier3_max_age_days,
-      tier3_min_saves,
-      master_ingest_enabled,
-      early_stop_pages,
-      max_batch_pins,
-      discovery_max_pages,
-      refresh_max_pins,
-      paused_policy,
+    INSERT INTO competitor_profiles (
+      username,
+      display_name,
+      account_type,
+      is_active,
+      monthly_reach,
+      profile_views,
+      total_pins,
+      total_boards,
+      metadata,
       updated_at
     ) VALUES (
-      1,
-      ${t1Saves},
-      ${t2Repins},
-      ${t3Days},
-      ${t3Saves},
-      ${masterEnabled},
-      ${earlyStop},
-      ${maxBatch},
-      ${discMax},
-      ${refreshMax},
-      ${pausedPol},
+      ${SYSTEM_RULES_USERNAME},
+      'System Qualification Rules',
+      'system',
+      FALSE,
+      0,
+      0,
+      0,
+      0,
+      jsonb_build_object('global_qualification_rules', ${JSON.stringify(sanitizedRules)}::jsonb),
       NOW()
     )
-    ON CONFLICT (id) DO UPDATE SET
-      tier1_min_saves = EXCLUDED.tier1_min_saves,
-      tier2_min_repins = EXCLUDED.tier2_min_repins,
-      tier3_max_age_days = EXCLUDED.tier3_max_age_days,
-      tier3_min_saves = EXCLUDED.tier3_min_saves,
-      master_ingest_enabled = EXCLUDED.master_ingest_enabled,
-      early_stop_pages = EXCLUDED.early_stop_pages,
-      max_batch_pins = EXCLUDED.max_batch_pins,
-      discovery_max_pages = EXCLUDED.discovery_max_pages,
-      refresh_max_pins = EXCLUDED.refresh_max_pins,
-      paused_policy = EXCLUDED.paused_policy,
+    ON CONFLICT (username) DO UPDATE SET
+      account_type = 'system',
+      is_active = FALSE,
+      monthly_reach = 0,
+      profile_views = 0,
+      total_pins = 0,
+      total_boards = 0,
+      metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || jsonb_build_object('global_qualification_rules', ${JSON.stringify(sanitizedRules)}::jsonb),
       updated_at = NOW()
-    RETURNING *;
+    RETURNING metadata->'global_qualification_rules' AS rules, updated_at;
   `;
 
   return {
-    ...(updated || { ...DEFAULT_QUALIFICATION_RULES, ...rules }),
+    id: 1,
+    ...sanitizedRules,
+    ...(updated?.rules && typeof updated.rules === 'object' ? updated.rules : {}),
     master_ingest_enabled: masterEnabled,
-    cron_enabled: masterEnabled
+    cron_enabled: masterEnabled,
+    updated_at: updated?.updated_at || new Date().toISOString()
   };
 }
 

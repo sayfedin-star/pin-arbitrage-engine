@@ -21,6 +21,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { createSqlClient, getSqlClient } from './db/client.mjs';
+import { apiRoutesPlugin } from './plugins/api-routes.mjs';
 import worker from './worker.mjs';
 
 export { createSqlClient, getSqlClient };
@@ -628,7 +629,10 @@ export function createFastifyApp(customEnv = {}) {
     });
   });
 
-  // 4. Fallback Handler for Cloudflare Worker entrypoint & edge routes
+  // 3c. Native Fastify Domain API Plugin (eliminates Web-Request / Readable.fromWeb bridge for /api/*)
+  app.register(apiRoutesPlugin, { env, ctx });
+
+  // 4. UI Pages & Cloudflare Worker Fallback Handler (non-API routes)
   app.all('/*', async (request, reply) => {
     const host = request.headers.host || `127.0.0.1:${process.env.PORT || 3000}`;
     const fullUrl = `${request.protocol}://${host}${request.raw.url}`;
@@ -713,7 +717,8 @@ export async function startServer(
   // Layer 2: Ensure systemd ExecStartPre boot-sync hook is installed on InstaBox VPS (/data/app)
   if (fs.existsSync('/data/app/.git') && process.env.INSTABOX_BOOT_SYNC !== 'false') {
     const bootSyncScript = '/data/app/scripts/instabox-boot-sync.sh';
-    if (fs.existsSync(bootSyncScript)) {
+    const hookDropIn = '/etc/systemd/system/pae-server.service.d/boot-sync.conf';
+    if (fs.existsSync(bootSyncScript) && !fs.existsSync(hookDropIn)) {
       execFile('bash', [bootSyncScript, '--install-hook'], { timeout: 15000 }, () => {});
     }
   }

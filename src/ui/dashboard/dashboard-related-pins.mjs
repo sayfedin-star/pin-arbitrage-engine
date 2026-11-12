@@ -1,6 +1,8 @@
 /**
  * Unified Related Pins Hub (Seeds view, candidates table, 24 hubs intersections, master explorer)
  */
+import { renderPinRowTemplate } from '../pin-row.mjs';
+
 export function getDashboardRelatedPinsHtml() {
   return `    <!-- ======================================================== -->
     <!-- UNIFIED TAB: 🌿 RELATED PINS HUB (SEEDS, INTERSECTIONS, EXPLORER) -->
@@ -816,8 +818,22 @@ export function getDashboardRelatedPinsHtml() {
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
                   <template x-for="item in filteredDossierCandidates" :key="item.candidate_pin_id">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                      
+                    ${renderPinRowTemplate({
+                      pinVar: 'item',
+                      pinIdExpr: 'item.candidate_pin_id',
+                      showCheckbox: false,
+                      showRank: false,
+                      showThumb: true,
+                      showTitle: true,
+                      showDomain: false,
+                      showVelocity: true,
+                      velocityPosition: 'beforeSaves',
+                      showSaves: true,
+                      showRepins: false,
+                      showAge: false,
+                      showActions: true,
+                      rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition',
+                      thumbHtml: `
                       <!-- 1. Preview & Format -->
                       <td class="py-3 px-3 whitespace-nowrap">
                         <div class="flex items-center space-x-2.5">
@@ -855,8 +871,8 @@ export function getDashboardRelatedPinsHtml() {
                             </template>
                           </div>
                         </div>
-                      </td>
-
+                      </td>`,
+                      titleHtml: `
                       <!-- 2. Title & Vision OCR -->
                       <td class="py-3 px-3">
                         <div class="space-y-1">
@@ -891,8 +907,8 @@ export function getDashboardRelatedPinsHtml() {
                             </div>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      velocityHtml: `
                       <!-- 3. Pin Age & Velocity -->
                       <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
                         <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
@@ -907,8 +923,8 @@ export function getDashboardRelatedPinsHtml() {
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      savesHtml: `
                       <!-- 4. Metrics -->
                       <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
                         <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
@@ -918,8 +934,8 @@ export function getDashboardRelatedPinsHtml() {
                         <template x-if="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)) === 0">
                           <div class="text-[10px] text-slate-500" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></div>
                         </template>
-                      </td>
-
+                      </td>`,
+                      extraCellsBeforeActions: `
                       <!-- 5. Dominant Color -->
                       <td class="py-3 px-3 whitespace-nowrap">
                         <div class="flex items-center space-x-2">
@@ -951,15 +967,15 @@ export function getDashboardRelatedPinsHtml() {
                         <template x-if="item.is_product">
                           <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]">0.0 Net</span>
                         </template>
-                      </td>
-
+                      </td>`,
+                      actionsHtml: `
                       <!-- 8. Inspect Action -->
                       <td class="py-3 px-3 text-right whitespace-nowrap">
                         <button @click="inspectCandidate(item)" class="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 transition">
                           <i data-lucide="eye" class="w-4 h-4"></i>
                         </button>
-                      </td>
-                    </tr>
+                      </td>`
+                    })}
                   </template>
                 </tbody>
               </table>
@@ -1420,8 +1436,22 @@ export function getDashboardRelatedPinsHtml() {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
               <template x-for="item in paginatedIntersections" :key="item.candidate_pin_id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                  
+                ${renderPinRowTemplate({
+                  pinVar: 'item',
+                  pinIdExpr: 'item.candidate_pin_id',
+                  showCheckbox: false,
+                  showRank: false,
+                  showThumb: true,
+                  showTitle: true,
+                  showDomain: false,
+                  showVelocity: true,
+                  velocityPosition: 'beforeSaves',
+                  showSaves: true,
+                  showRepins: false,
+                  showAge: false,
+                  showActions: true,
+                  rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition',
+                  thumbHtml: `
                   <!-- 1. Preview & Format -->
                   <td class="py-3 px-3 whitespace-nowrap">
                     <div class="flex items-center space-x-2.5">
@@ -1459,8 +1489,8 @@ export function getDashboardRelatedPinsHtml() {
                         </template>
                       </div>
                     </div>
-                  </td>
-
+                  </td>`,
+                  titleHtml: `
                   <!-- 2. Title & OCR -->
                   <td class="py-3 px-3 min-w-[260px]">
                     <div class="space-y-1">
@@ -1491,8 +1521,8 @@ export function getDashboardRelatedPinsHtml() {
                         </div>
                       </template>
                     </div>
-                  </td>
-
+                  </td>`,
+                  extraCellsAfterTitle: `
                   <!-- 3. Overlapping Originating Seeds (Compact with Expand/Collapse) -->
                   <td class="py-3 px-3 min-w-[220px] max-w-[280px]">
                     <div class="space-y-1">
@@ -1537,8 +1567,8 @@ export function getDashboardRelatedPinsHtml() {
                         </template>
                       </div>
                     </div>
-                  </td>
-
+                  </td>`,
+                  velocityHtml: `
                   <!-- 4. Pixie Multi-Hit Score & Energy Bar -->
                   <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums min-w-[170px]">
                     <div class="space-y-1">
@@ -1552,8 +1582,8 @@ export function getDashboardRelatedPinsHtml() {
                       </div>
                       <div class="text-[9px] text-slate-400">Random Walk Mass</div>
                     </div>
-                  </td>
-
+                  </td>`,
+                  savesHtml: `
                   <!-- 5. Metrics -->
                   <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums min-w-[150px]">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
@@ -1561,8 +1591,8 @@ export function getDashboardRelatedPinsHtml() {
                     <template x-if="Number(item.daily_velocity || 0) > 0">
                       <div class="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="'🔥 ' + item.daily_velocity + '/day'"></div>
                     </template>
-                  </td>
-
+                  </td>`,
+                  extraCellsBeforeActions: `
                   <!-- 6. Color DNA -->
                   <td class="py-3 px-3 whitespace-nowrap min-w-[120px]">
                     <div class="flex items-center space-x-2">
@@ -1572,8 +1602,8 @@ export function getDashboardRelatedPinsHtml() {
                         <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[110px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                       </div>
                     </div>
-                  </td>
-
+                  </td>`,
+                  actionsHtml: `
                   <!-- 7. Action -->
                   <td class="py-3 px-3 text-right whitespace-nowrap">
                     <div class="flex items-center justify-end space-x-1">
@@ -1585,8 +1615,8 @@ export function getDashboardRelatedPinsHtml() {
                         <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                       </button>
                     </div>
-                  </td>
-                </tr>
+                  </td>`
+                })}
               </template>
 
               <!-- Empty Table Placeholder -->
@@ -1806,8 +1836,22 @@ export function getDashboardRelatedPinsHtml() {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
               <template x-for="item in filteredExplorerCandidates" :key="item.candidate_pin_id + '-' + item.seed_pin_id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                  
+                ${renderPinRowTemplate({
+                  pinVar: 'item',
+                  pinIdExpr: 'item.candidate_pin_id',
+                  showCheckbox: false,
+                  showRank: false,
+                  showThumb: true,
+                  showTitle: true,
+                  showDomain: false,
+                  showVelocity: true,
+                  velocityPosition: 'beforeSaves',
+                  showSaves: true,
+                  showRepins: false,
+                  showAge: false,
+                  showActions: true,
+                  rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition',
+                  thumbHtml: `
                   <!-- 1. Preview & Format -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-2.5">
@@ -1845,8 +1889,8 @@ export function getDashboardRelatedPinsHtml() {
                         </template>
                       </div>
                     </div>
-                  </td>
-
+                  </td>`,
+                  titleHtml: `
                   <!-- 2. Title & OCR -->
                   <td class="py-3.5 px-4">
                     <div class="space-y-1">
@@ -1881,14 +1925,14 @@ export function getDashboardRelatedPinsHtml() {
                         </div>
                       </template>
                     </div>
-                  </td>
-
+                  </td>`,
+                  extraCellsAfterTitle: `
                   <!-- 3. Origin Seed -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums text-xs">
                     <span class="text-slate-500" x-text="'Seed: '"></span>
                     <strong class="text-slate-800 dark:text-slate-200" x-text="item.seed_pin_id"></strong>
-                  </td>
-
+                  </td>`,
+                  velocityHtml: `
                   <!-- 4. Pin Age & Velocity -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums">
                     <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
@@ -1903,14 +1947,14 @@ export function getDashboardRelatedPinsHtml() {
                         <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
                       </template>
                     </div>
-                  </td>
-
+                  </td>`,
+                  savesHtml: `
                   <!-- 5. Metrics -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
-                  </td>
-
+                  </td>`,
+                  extraCellsBeforeActions: `
                   <!-- 6. Dominant Color Swatch -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-2">
@@ -1942,15 +1986,15 @@ export function getDashboardRelatedPinsHtml() {
                     <template x-if="item.is_product">
                       <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]">0.0 Net</span>
                     </template>
-                  </td>
-
+                  </td>`,
+                  actionsHtml: `
                   <!-- 9. Inspect Action -->
                   <td class="py-3.5 px-4 text-right whitespace-nowrap">
                     <button @click="inspectCandidate(item)" class="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 transition">
                       <i data-lucide="eye" class="w-4 h-4"></i>
                     </button>
-                  </td>
-                </tr>
+                  </td>`
+                })}
               </template>
             </tbody>
           </table>

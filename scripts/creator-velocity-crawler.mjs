@@ -276,14 +276,38 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
   let totalSynced = 0;
 
   if (isUnifiedPostgres()) {
-    // [INVARIANT: MAP-DEDUPLICATION-ANTI-21000] Deduplicate by pin_id to prevent PostgreSQL Error 21000
-    const uniquePinsMap = new Map();
+    // [INVARIANT: PG-21000-MAP-DEDUP] Pre-serialization Map deduplication + DISTINCT ON prevents SQLSTATE 21000 when a pin appears across multiple boards
+    const pinDedupMap = new Map();
     for (const p of enrichedPins) {
-      if (p && p.pin_id) {
-        uniquePinsMap.set(String(p.pin_id), p);
+      const pid = String(p?.pin_id || '').trim();
+      if (!pid) continue;
+      const existing = pinDedupMap.get(pid);
+      if (!existing) {
+        pinDedupMap.set(pid, p);
+      } else {
+        const curSaves = Number(p.saves ?? p.save_count ?? 0);
+        const prevSaves = Number(existing.saves ?? existing.save_count ?? 0);
+        const curRepins = Number(p.repins ?? p.repin_count ?? 0);
+        const prevRepins = Number(existing.repins ?? existing.repin_count ?? 0);
+        pinDedupMap.set(pid, {
+          ...existing,
+          ...p,
+          title: p.title || existing.title,
+          domain: p.domain || p.link_domain || existing.domain || existing.link_domain,
+          destination_url: p.link || p.destination_url || existing.link || existing.destination_url,
+          image_url: p.image_url || existing.image_url,
+          description: p.description || existing.description,
+          alt_text: p.alt_text || existing.alt_text,
+          board_name: p.board_name || existing.board_name,
+          saves: Math.max(curSaves, prevSaves),
+          repins: Math.max(curRepins, prevRepins),
+          comments: Math.max(Number(p.comments ?? p.comment_count ?? 0), Number(existing.comments ?? existing.comment_count ?? 0)),
+          shares: Math.max(Number(p.shares ?? p.share_count ?? 0), Number(existing.shares ?? existing.share_count ?? 0))
+        });
       }
     }
-    const sortedPins = Array.from(uniquePinsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+
+    const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
     const cleanPins = sortedPins.map(p => {
       const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
         ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -291,7 +315,7 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
       const richMeta = buildRichPinMetadataPayload(p);
 
       return {
-        pin_id: String(p.pin_id),
+        pin_id: String(p.pin_id).trim(),
         creator_username: String(p.account_username || p.creator_username || ''),
         board_name: String(p.board_name || ''),
         title: String(p.title || ''),
@@ -330,7 +354,7 @@ async function syncPinsToMasterShards(hubSql, enrichedPins) {
           is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
           first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
         )
-        SELECT 
+        SELECT DISTINCT ON (x.pin_id)
           x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
           COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
           COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric,
@@ -1020,6 +1044,7 @@ async function run() {
           SELECT id, (ROW_NUMBER() OVER (ORDER BY last_synced_at ASC NULLS FIRST, id ASC) - 1) AS row_idx
           FROM competitor_profiles
           WHERE is_active = TRUE
+            AND COALESCE(account_type, 'competitor') <> 'system'
         )
         SELECT id FROM ordered_creators
         WHERE MOD(row_idx, ${workerTotal}) = ${workerIndex};

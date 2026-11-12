@@ -3,6 +3,7 @@
  * (4-Card KPI Analytics Ribbon, SERP Matrix, Domain Intel, PinClicks, Displaced Vault)
  */
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
+import { renderPinRowTemplate } from '../pin-row.mjs';
 
 export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
   return `    <!-- ========================================================================= -->
@@ -602,16 +603,32 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 <template x-for="(pin, idx) in paginatedPins" :key="pin.pin_id">
-                  <tr :data-pin-id="pin.pin_id"
-                      class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
-                      @click="openPinInspector(pin)">
-                    
+                  ${renderPinRowTemplate({
+                    pinVar: 'pin',
+                    indexVar: 'idx',
+                    showCheckbox: true,
+                    showRank: true,
+                    rankPosition: 'afterTitle',
+                    showThumb: true,
+                    showTitle: true,
+                    showBoard: true,
+                    boardPosition: 'afterTitle',
+                    showDomain: false,
+                    showVelocity: true,
+                    velocityPosition: 'afterRepins',
+                    showSaves: true,
+                    showRepins: true,
+                    showAge: false,
+                    showActions: true,
+                    onRowClick: 'openPinInspector(pin)',
+                    rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer',
+                    checkboxHtml: `
                     <!-- Checkbox -->
                     <td class="py-3.5 px-3 text-center" @click.stop>
                       <input type="checkbox" :checked="isPinSelected(pin.pin_id)" @click="togglePinSelection(pin.pin_id)"
                              class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A]">
-                    </td>
-
+                    </td>`,
+                    thumbHtml: `
                     <!-- Preview Thumbnail -->
                     <td class="py-3.5 px-3">
                       <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
@@ -624,8 +641,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           </div>
                         </template>
                       </a>
-                    </td>
-
+                    </td>`,
+                    titleHtml: `
                     <!-- Pin Title, ID & Creator -->
                     <td class="py-3.5 px-4 min-w-[260px]">
                       <div class="space-y-1">
@@ -689,8 +706,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           </div>
                         </template>
                       </div>
-                    </td>
-
+                    </td>`,
+                    rankHtml: `
                     <!-- # Rank & Delta Movement -->
                     <td class="py-3.5 px-3 font-mono tabular-nums font-bold">
                       <template x-if="!pin.is_displaced">
@@ -738,15 +755,15 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           </template>
                         </div>
                       </template>
-                    </td>
-
+                    </td>`,
+                    boardHtml: `
                     <!-- Board Name -->
                     <td class="py-3.5 px-3">
                       <span class="text-xs text-slate-600 dark:text-slate-300 font-medium truncate max-w-[130px] block"
                             :title="pin.board_name || pin.metadata?.board_name || 'General Board'"
                             x-text="pin.board_name || pin.metadata?.board_name || 'General Board'"></span>
-                    </td>
-
+                    </td>`,
+                    savesHtml: `
                     <!-- Saves & Growth Pace Delta (Image 1 Parity) -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-900 dark:text-white"
@@ -755,8 +772,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'saves')"></span>
                       </template>
-                    </td>
-
+                    </td>`,
+                    repinsHtml: `
                     <!-- Repins & Growth Pace Delta -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-700 dark:text-slate-300"
@@ -765,29 +782,29 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'repins')"></span>
                       </template>
-                    </td>
-
+                    </td>`,
+                    extraCellsAfterRepins: `
                     <!-- Comments -->
                     <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.comment_count || 0"></td>
 
                     <!-- Shares -->
                     <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
-                        x-text="pin.share_count || 0"></td>
-
+                        x-text="pin.share_count || 0"></td>`,
+                    velocityHtml: `
                     <!-- 24h Velocity -->
                     <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2 py-0.5 rounded-lg text-xs font-black block w-fit"
                             :class="Number(pin.daily_save_velocity || 0) >= 10 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : (Number(pin.daily_save_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
                             x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + ' /d'"></span>
-                    </td>
-
+                    </td>`,
+                    extraCellsBeforeActions: `
                     <!-- Domain Authority -->
                     <td class="py-3.5 px-3">
                       <span class="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
                             x-text="pin.domain || 'Pinterest Direct'"></span>
-                    </td>
-
+                    </td>`,
+                    actionsHtml: `
                     <!-- Actions -->
                     <td class="py-3.5 px-3 text-right">
                       <div class="flex items-center justify-end space-x-1" @click.stop>
@@ -812,9 +829,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                         </a>
                       </div>
-                    </td>
-
-                  </tr>
+                    </td>`
+                  })}
                 </template>
               </tbody>
             </table>
@@ -2099,15 +2115,30 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 <template x-for="(pin, idx) in paginatedDisplacedPins" :key="pin.pin_id">
-                  <tr :data-pin-id="pin.pin_id"
-                      class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
-                      @click="openPinInspector(pin)">
-                    
+                  ${renderPinRowTemplate({
+                    pinVar: 'pin',
+                    indexVar: 'idx',
+                    showCheckbox: true,
+                    showRank: true,
+                    rankPosition: 'afterTitle',
+                    showThumb: true,
+                    showTitle: true,
+                    showBoard: false,
+                    showDomain: false,
+                    showVelocity: true,
+                    velocityPosition: 'afterRepins',
+                    showSaves: true,
+                    showRepins: true,
+                    showAge: false,
+                    showActions: true,
+                    onRowClick: 'openPinInspector(pin)',
+                    rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer',
+                    checkboxHtml: `
                     <td class="py-3.5 px-3 text-center" @click.stop>
                       <input type="checkbox" :checked="isPinSelected(pin.pin_id)" @click="togglePinSelection(pin.pin_id)"
                              class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-[#27272A]">
-                    </td>
-
+                    </td>`,
+                    thumbHtml: `
                     <td class="py-3.5 px-3">
                       <div class="relative group/img shrink-0">
                         <template x-if="pin.image_url">
@@ -2119,8 +2150,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           </div>
                         </template>
                       </div>
-                    </td>
-
+                    </td>`,
+                    titleHtml: `
                     <td class="py-3.5 px-4 min-w-[260px]">
                       <div class="space-y-1">
                         <span class="font-bold text-slate-900 dark:text-white group-hover:text-rose-500 line-clamp-2 block transition"
@@ -2141,8 +2172,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           </template>
                         </div>
                       </div>
-                    </td>
-
+                    </td>`,
+                    rankHtml: `
                     <!-- Status & Last Known Rank -->
                     <td class="py-3.5 px-3 font-mono tabular-nums space-y-1">
                       <template x-if="pin.status === 're_entered_serp'">
@@ -2156,15 +2187,15 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         </span>
                       </template>
                       <span class="text-[10px] text-slate-400 block" x-text="'Was Rank #' + (pin.last_known_rank || '?')"></span>
-                    </td>
-
+                    </td>`,
+                    extraCellsAfterTitle: `
                     <!-- Vacuum Opportunity Score -->
                     <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2.5 py-1 rounded-xl text-xs font-black block w-fit"
                             :class="Number(pin.vacuum_opportunity_score || 0) >= 70 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40' : (Number(pin.vacuum_opportunity_score || 0) >= 40 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
                             x-text="(pin.vacuum_opportunity_score || 50) + '/100'"></span>
-                    </td>
-
+                    </td>`,
+                    savesHtml: `
                     <!-- Saves & Growth Pace Delta -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-900 dark:text-white"
@@ -2173,8 +2204,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'saves')"></span>
                       </template>
-                    </td>
-
+                    </td>`,
+                    repinsHtml: `
                     <!-- Repins & Growth Pace Delta -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-700 dark:text-slate-300"
@@ -2183,29 +2214,29 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'repins')"></span>
                       </template>
-                    </td>
-
+                    </td>`,
+                    extraCellsAfterRepins: `
                     <!-- Comments -->
                     <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.comment_count ?? pin.current_comments ?? 0"></td>
 
                     <!-- Shares -->
                     <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
-                        x-text="pin.share_count ?? pin.current_shares ?? 0"></td>
-
+                        x-text="pin.share_count ?? pin.current_shares ?? 0"></td>`,
+                    velocityHtml: `
                     <!-- Velocity -->
                     <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2 py-0.5 rounded-lg text-xs font-black block w-fit"
                             :class="Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
                             x-text="(Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || pin.calculated_velocity || 0) + ' /d'"></span>
-                    </td>
-
+                    </td>`,
+                    extraCellsBeforeActions: `
                     <!-- Domain -->
                     <td class="py-3.5 px-3">
                       <span class="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
                             x-text="pin.domain || 'Pinterest Direct'"></span>
-                    </td>
-
+                    </td>`,
+                    actionsHtml: `
                     <!-- Actions -->
                     <td class="py-3.5 px-3 text-right">
                       <div class="flex items-center justify-end space-x-1" @click.stop>
@@ -2225,9 +2256,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                         </a>
                       </div>
-                    </td>
-
-                  </tr>
+                    </td>`
+                  })}
                 </template>
               </tbody>
             </table>
@@ -2743,6 +2773,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
     </section>
 
     </div>
+
+
 
   <!-- ELEVATED FLOATING BULK ACTION BAR (LEVEL 1A DASHBOARD) -->
   <div x-show="viewModeLevel === 'dashboard' && selectedKeywordIds.length > 0" x-cloak

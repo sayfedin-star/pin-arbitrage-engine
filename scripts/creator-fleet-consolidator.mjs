@@ -234,6 +234,7 @@ async function main() {
     LEFT JOIN catalog_agg ca ON ca.competitor_id = cp.id
     WHERE (${targetAccount} = '' OR cp.username = ${targetAccount})
       AND cp.is_active = TRUE
+      AND COALESCE(cp.account_type, 'competitor') <> 'system'
     ORDER BY cp.monthly_reach DESC NULLS LAST, cp.id ASC;
   `;
 
@@ -335,6 +336,24 @@ async function main() {
     console.log('[✓] VACUUM (ANALYZE) successfully performed on competitor_pins, competitor_profiles, and pa_pins.');
   } catch (vErr) {
     console.warn('[!] VACUUM warning (non-fatal):', vErr.message);
+  }
+
+  // 6. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
+  try {
+    console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
+    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
+    console.log('[✓] mv_pulse_24h_summary refreshed cleanly.');
+  } catch (mvErr) {
+    if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
+      try {
+        await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+        console.log('[✓] mv_pulse_24h_summary populated via initial non-concurrent refresh.');
+      } catch (fallbackErr) {
+        console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+      }
+    } else {
+      console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
+    }
   }
 
   console.log('\n================================================================');

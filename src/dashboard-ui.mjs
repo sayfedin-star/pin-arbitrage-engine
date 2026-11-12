@@ -9,9 +9,8 @@
  */
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
 import { getDashboardModalsHtml } from './ui/dashboard-modals.mjs';
-import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 import { getDashboardBoardViewHtml } from './ui/dashboard/dashboard-board-view.mjs';
 import { getDashboardOverviewHtml } from './ui/dashboard/dashboard-overview.mjs';
 import { getDashboardRelatedPinsHtml } from './ui/dashboard/dashboard-related-pins.mjs';
@@ -53,7 +52,7 @@ import { getDashboardClientAppScript } from './ui/dashboard/dashboard-client-app
 // '/api/workflow/trigger'
 // '/api/seeds/bulk-delete'
 // '/api/seeds'
-// '/api/pinarchive/pin-snapshot'
+// '/api/creators/pin-snapshot'
 // '/api/crawl'
 // (window.safeApiFetch || fetch)(this.getApiUrl('/api/seeds')
 // (window.safeApiFetch || fetch)(this.getApiUrl('/api/seeds/bulk')
@@ -228,7 +227,7 @@ export function getDashboardHtml(folderId = '') {
 </head>
 <body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200" :class="(isDark || darkMode) ? 'dark' : ''" x-data="dashboardApp('${safeFolderId}')" x-init="initDashboard()">
 
-  ${renderAppSidebar({ activeNav: 'overview', refreshHandler: 'refreshAll()' })}
+  ${renderAppSidebar({ activeNav: 'overview', isDashboardSpa: true, refreshHandler: 'refreshAll()' })}
 
   <!-- Main Content Area (Offset for Desktop Sidebar) -->
   <main class="md:ml-64 lg:ml-72 flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
@@ -262,9 +261,16 @@ export function getDashboardHtml(folderId = '') {
   ${getDashboardModalsHtml()}
 
   <!-- Toast Notification -->
-  <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono tabular-nums text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
-    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
-    <span x-text="toastMessage"></span>
+  <div x-show="toastMessage"
+       x-cloak
+       role="status"
+       aria-live="polite"
+       :class="toastType === 'error' ? 'bg-rose-950 text-rose-100 border border-rose-500/40 dark:bg-rose-900 dark:text-white' : (toastType === 'warning' || toastType === 'info' ? 'bg-amber-950 text-amber-100 border border-amber-500/40 dark:bg-amber-900 dark:text-white' : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border border-slate-700/60 dark:border-slate-200')"
+       class="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl shadow-2xl font-mono tabular-nums text-xs flex items-center space-x-2 max-w-md animate-in fade-in slide-in-from-bottom-5">
+    <i x-show="toastType === 'error'" data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+    <i x-show="toastType === 'warning' || toastType === 'info'" data-lucide="info" class="w-4 h-4 text-amber-400 shrink-0"></i>
+    <i x-show="toastType !== 'error' && toastType !== 'warning' && toastType !== 'info'" data-lucide="check-circle" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+    <span x-text="toastMessage" class="leading-snug"></span>
   </div>
 
   ${getDashboardClientAppScript({ safeFolderId })}

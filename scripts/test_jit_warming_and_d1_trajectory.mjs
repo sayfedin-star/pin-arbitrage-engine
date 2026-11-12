@@ -14,15 +14,16 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import path from 'node:path';
 import worker from '../src/worker.mjs';
-import {
+import * as fleetRouter from '../src/modules/sharding/fleet-router.mjs';
+import { getEdgeShieldClientScript } from '../src/edge-shield-client.mjs';
+
+const {
   fetchUniversalPinDossier,
-  getFastEdgeDossier,
   getPinShardId,
   getPhysicalShardId,
   globalShardMap,
   _setShardSqlClient
-} from '../src/modules/sharding/fleet-router.mjs';
-import { getEdgeShieldClientScript } from '../src/edge-shield-client.mjs';
+} = fleetRouter;
 
 console.log('='.repeat(80));
 console.log('   DEEP FORENSIC AUDIT: NEON SNAPSHOT ARCHITECTURE & HOVER JIT WARMING');
@@ -65,18 +66,12 @@ runTest('d1-metadata.mjs is permanently purged in pure Neon architecture', () =>
 });
 
 // =============================================================================
-// Section 2: Fast Edge Dossier Resolver (< 3ms)
+// Section 2: Ghost Edge Prefetch Decommissioned (Phase 3)
 // =============================================================================
-console.log('\n[*] Section 2: Fast Edge Dossier Resolver (< 3ms)...');
+console.log('\n[*] Section 2: Ghost Edge Prefetch Decommissioned...');
 
-await runAsyncTest('getFastEdgeDossier executes in sub-3ms and returns safe non-blocking response', async () => {
-  const tStart = performance.now();
-  const fastDossier = await getFastEdgeDossier('1098245059167667976', {});
-  const tElapsed = performance.now() - tStart;
-
-  assert.strictEqual(fastDossier.success, false);
-  assert.strictEqual(fastDossier.not_cached, true);
-  assert.ok(tElapsed < 15, `Execution time was ${tElapsed}ms`);
+await runAsyncTest('getFastEdgeDossier is removed from fleet-router.mjs exports', async () => {
+  assert.strictEqual('getFastEdgeDossier' in fleetRouter, false, 'getFastEdgeDossier must be removed');
 });
 
 // =============================================================================
@@ -266,13 +261,12 @@ runTest('getEdgeShieldClientScript produces 100% syntactically valid JavaScript'
   new vm.Script(code); // Throws SyntaxError if invalid
 });
 
-runTest('getEdgeShieldClientScript includes predictive JIT warming call with 120-150ms debounce', () => {
+runTest('getEdgeShieldClientScript omits ghost hoverPrefetchTimer and mouseover/mouseout hover listeners', () => {
   const html = getEdgeShieldClientScript();
-  assert.ok(html.includes('/api/fleet/warm?pin_id='), 'Must call /api/fleet/warm?pin_id=');
-  assert.ok(html.includes('130'), 'Must use 130ms debounce (within 120-150ms window)');
-  assert.ok(html.includes('/api/pins/'), 'Must preserve fast edge prefetch');
-  assert.ok(html.includes('warmCache'), 'Must maintain deduplication set for warm calls');
-  assert.ok(html.includes('mouseout'), 'Must cancel debounce timer on mouseout');
+  assert.strictEqual(html.includes('hoverPrefetchTimer'), false, 'Ghost hoverPrefetchTimer must be removed');
+  assert.strictEqual(html.includes("addEventListener('mouseover'"), false, 'Mouseover hover listener must be removed');
+  assert.strictEqual(html.includes("addEventListener('mouseout'"), false, 'Mouseout hover listener must be removed');
+  assert.ok(html.includes('window.safeApiFetch'), 'Must preserve window.safeApiFetch edge shield');
 });
 
 // =============================================================================

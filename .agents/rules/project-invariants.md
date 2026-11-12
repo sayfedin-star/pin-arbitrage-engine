@@ -12,57 +12,42 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **SSR & PinResource Fallback:** Extract pin metadata from embedded SSR JSON (`__PWS_DATA__`) and use `PinResource/get/?data=...` as a fast fallback.
 - **Deep 48-Field Extraction:** Always preserve carousel detection (`method === 'carousel'`), affiliate/arbitrage links (`utmLink`, `trackedLink`), and real-time creator audience (`closeupUnifiedAttribution.followerCount`).
 
-## 2. Unified Native PostgreSQL Architecture (SSOT Single-Database)
-- **Unified Engine Authority:** All PAE services, crawlers, and routes execute against a single unified PostgreSQL database (`unified_postgres` on Instabox VM via `postgres.js`).
-- **Schema Single Source of Truth:** `universal_master_pins`, `pins_daily_metrics`, `pin_serp_positions`, `keyword_serp_current`, `tracked_keywords`, `competitor_pins`, and `pa_pins` reside within the same unified relational schema.
-- **Direct Atomic Writes:** Operations execute directly and atomically with zero external shard hops, zero virtual routing fragmentation, and zero multi-database round trips.
+## 2. Unified Single-DB PostgreSQL Architecture (Local VPS SSOT)
+- **Single-Database Authority:** Active runtime topology is `DATABASE_TOPOLOGY = "unified_postgres"`. All keyword state (`tracked_keywords`), real-time SERP rankings (`keyword_serp_current`), displaced vault (`keyword_displaced_index`), monitored competitors (`competitor_pins`), PinArchive (`pa_pins`), master pin catalog (`universal_master_pins`), and time-series tables (`pins_daily_metrics`, `pin_serp_positions`) reside in a single unified PostgreSQL database managed via `src/db/client.mjs` and `src/modules/pins/repository.mjs`.
+- **Single-Pass Reads & Writes:** Never fan out 20–99 parallel shard connections when `isUnifiedPostgres()` is active. Use bounded single-pass queries and `jsonb_to_recordset` batch upserts.
 
 ## 3. Four-Pillar Sync Parity (Live Deep Sync)
 - Any pin refresh or live sync MUST synchronously update all applicable pillars:
-  1. `universal_master_pins` on the designated Storage Shard.
-  2. `keyword_serp_current` on the Central Hub.
-  3. `competitor_pins` on the Central Hub (if pin belongs to a tracked competitor).
-  4. `pa_pins` on the Central Hub (if pin is archived in PinArchive).
-  5. `pins_daily_metrics` on the Shard, with today's snapshot preserving reaction count and velocity.
+  1. `universal_master_pins` (Central SSOT catalog).
+  2. `keyword_serp_current` (active keyword SERP rankings).
+  3. `competitor_pins` (if pin belongs to a tracked competitor).
+  4. `pa_pins` (if pin is archived in PinArchive).
+  5. `pins_daily_metrics` (with today's snapshot preserving reaction count and velocity).
 
-## 4. Edge Caching & D1/KV Eviction Integrity
-- **D1 Stale Ghosting Prevention:** `fleet-router.mjs` caches pin metadata in Cloudflare D1 `edge_pins_metadata` for 12 hours. Any live sync MUST execute:
-  `DELETE FROM edge_pins_metadata WHERE pin_id = ?` on D1 immediately to ensure subsequent page refreshes do not display stale data.
-- **KV SERP Eviction:** Evict `serp:comp:${kid}` from `PIN_ENGINE_KV` alongside individual dossier keys (`dossier:pin:*`, `traj:pin:*`).
+## 4. In-Memory Edge Caching & Invalidations Integrity
+- **Stale Ghosting Prevention:** Live pin syncs and mutations must invalidate L0 in-memory edge caches cleanly via `invalidateEdgeCache` / cache epoch bumps so subsequent page refreshes do not display stale data.
+- **No Cloudflare D1/KV Bindings:** Legacy Cloudflare D1 (`PIN_D1_DB`), Workers KV (`PIN_ENGINE_KV`), and Hyperdrive (`HYPERDRIVE`) bindings are permanently retired.
 
 ## 5. Defensive SQL & UI Resiliency
 - **Anti-22007 Timestamp Guard:** Never pass empty strings `""` to PostgreSQL `::timestamptz`. Sanitize dates with `safeIsoDate()` or pass explicit `null`.
 - **No Error Swallowing on DDL/DML:** Never swallow SQL syntax or non-existent column errors with `.catch(() => {})`. All database operations must log errors explicitly.
 - **UI AbortSignal Protection:** All frontend mutation fetches MUST use `AbortSignal.timeout(15000)` and check `res.ok` before decoding JSON to survive 502/504 errors cleanly.
 
-## 6. Two-Tier Metric & SERP History Storage Model
-- **Normalized Two-Tier Tables:** Historical time-series metrics belong to `pins_daily_metrics` (save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity), while historical SERP ranking positions belong to `pin_serp_positions` (pin_id, snapshot_date, keyword_id, rank_position, is_displaced).
-- **Compatibility View:** `keyword_pins_snapshots` is a PostgreSQL VIEW joining `pin_serp_positions`, `pins_daily_metrics`, and `universal_master_pins`. Never execute direct INSERT, UPDATE, DELETE, or VACUUM operations on `keyword_pins_snapshots`; mutate the underlying physical tables directly.
-- **Hub Operational State:** `keyword_displaced_index` stores numeric indicators + `domain` + `clean_domain` + `creator_username` ONLY; it MUST NEVER store heavy creative metadata (`title`, `image_url`, `description`, `alt_text`).
+## 6. Clean Separation Between Operational SERP State & Historical Time-Series
+- **Normalized Storage:** Operational SERP state (`keyword_serp_current`) and displaced summaries (`keyword_displaced_index`) stay lean while historical time-series belong to normalized `pins_daily_metrics` and `pin_serp_positions` (`keyword_pins_snapshots` is a read-only compatibility `VIEW`, Migration `051`; never `DELETE`, `INSERT`, or `VACUUM` it).
+- **Clean Repository Layer:** Route `universal_master_pins`, `pins_daily_metrics`, and `pin_serp_positions` mutations through `src/modules/pins/repository.mjs`.
 
 ## 7. Single-Operator & Safe Prefetching (NO BACKGROUND LIVE CRAWLS ON HOVER)
-- **Single-Operator Profile:** The platform is engineered for a single operator ($\le 6$ hours/day). All databases must scale to zero after 5 minutes of inactivity.
-- **Safe Hover Prefetch:** `mouseover` prefetching in `edge-shield-client.mjs` MUST be served strictly from Cloudflare D1 / KV cache in $< 3\text{ms}$.
-- **Prefetch Live Crawl Ban:** `GET /api/pins/:id` MUST inspect `searchParams.get('prefetch') === 'true'`. When true, it MUST NEVER trigger background live Pinterest scraping (`bgEnrichPromise`) and MUST NEVER wake up Shard databases.
+- **Single-Operator Profile:** The platform is engineered for a single operator.
+- **Safe Hover Prefetch:** `mouseover` UI hooks in `edge-shield-client.mjs` must never flood backend scrape endpoints.
+- **Prefetch Live Crawl Ban:** `GET /api/pins/:id` MUST inspect `searchParams.get('prefetch') === 'true'`. When true, it MUST NEVER trigger background live Pinterest scraping (`bgEnrichPromise`).
 
-## 8. Hyperdrive Atomic Query Builders (NO RAW PROMISE.ALL TRANSACTIONS)
-- **Lazy Query Builders:** In `postgres.js`, raw query promises `sql\`...\`` created outside a transaction execute against the connection pool. To guarantee single-connection atomic execution, all multi-statement transactions MUST use Lazy Query Builders:
-  ```javascript
-  const builders = [
-    (db) => db`INSERT INTO ...`,
-    (db) => db`DELETE FROM ...`
-  ];
-  if (typeof sql.begin === 'function') {
-    await sql.begin(async (tx) => { for (const b of builders) await b(tx); });
-  } else if (typeof sql.transaction === 'function') {
-    await sql.transaction(builders.map(b => b(sql)));
-  }
-  ```
+## 8. Atomic Query Builders (NO RAW PROMISE.ALL TRANSACTIONS)
+- **Lazy Query Builders:** In `postgres.js`, raw query promises `sql\`...\`` created outside a transaction execute against the connection pool. To guarantee single-connection atomic execution, all multi-statement transactions MUST use Lazy Query Builders inside `sql.begin(...)` or `sql.transaction(...)`.
 
-## 9. Cloudflare Edge & Subrequest Concurrency Shield
-- **Pagination Required:** Displaced pin listings and historical SERP tables must paginate at $\le 30$ pins per page. Never request 150 pins in a single unbounded burst.
-- **Concurrency Semaphore:** Any scatter-gather hydration from Shards must be capped at $\le 4$ parallel connections with `AbortSignal.timeout(2000)`.
-- **D1 Read-Through:** D1 `edge_pins_metadata` must always be consulted first. Shard queries are executed only for cache misses, with results lazily backfilled to D1.
+## 9. Subrequest & Concurrency Shield
+- **Pagination Required:** Displaced pin listings and historical SERP tables must paginate cleanly (`<= 30`–`50` pins per page) rather than unbounded bursts.
+- **Bounded Pool:** PostgreSQL connections use `PG_POOL_MAX` (`2`–`4` in GitHub Actions CI, `10`–`15` on server) with `SQLSTATE 53300` exponential-backoff + jitter retry in `src/db/client.mjs`.
 
 ## 10. Mandatory In-Code Explanatory Comments (INVARIANT TAGGING)
 - **The "WHY" Requirement:** Every modified or created function, transaction, and query MUST include explanatory in-line comments detailing the architectural rationale.
@@ -78,11 +63,9 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Intelligent 20-Runner Pin Partitioning:** Mode B (`single-keyword`) slices whatever pin volume is requested (50 to 5,000 pins) dynamically and deterministically across the 20 isolated Azure runner VMs (`crc32(pin_id) % 20 === workerIndex`).
 - **Re-Crawl Button Cloudflare Edge Boundary:** The `Re-Crawl` button in the UI table row is strictly designated for fast, immediate Cloudflare Edge SERP discovery (< 2s). The 20-runner fleet pipeline is preserved for daily scheduled deep sweeps and explicit bulk operations.
 
-## 12. Strict Internal Routing Credential Hygiene (ANTI-POISONING KV INVARIANT)
-- **Zero Masked URLs in Internal KV:** The Workers KV key `'fleet:shards_map'` and all internal shard routing tables MUST strictly contain raw, unmasked PostgreSQL connection strings. Masking (`maskDatabaseUrl`) with Unicode bullets (`••••••••`) is reserved EXCLUSIVELY for client-facing JSON responses (`clientProjects`).
-- **The ByteString Header Invariant:** `@neondatabase/serverless` communicates over HTTP by setting `headers: { "Neon-Connection-String": dsn }`. Non-ASCII characters (such as bullet `•` charCode 8226) or redacted placeholders cannot be converted to a ByteString in HTTP headers and will throw `NeonDbError: invalid header: neon-connection-string`, causing complete shard query failures and false 2-day fallback degradations.
-- **Mandatory DSN Sanitization:** All connection strings read from KV or cache MUST be validated with `isValidShardDsn()` before invoking `neon()`. Any poisoned entry must be purged from KV immediately and reloaded from the Central Hub `neon_projects_registry`.
-- **Array Format Parity:** Postgres `assigned_shards` can be returned as string `"{11}"` or array `[11]`. All routing checks MUST normalize with `normalizeAssignedShards()`.
+## 12. Strict Connection Hygiene & Credential Safety
+- **Zero Masking Leaks & Zero Hardcoded DSNs:** Masked URLs (`maskDatabaseUrl` with Unicode bullets) are strictly for UI display only. Production scripts must read `process.env.DATABASE_URL` directly and never embed fallback passwords or DSN literals.
+- **Array Format Parity:** Normalize PostgreSQL array fields safely in helpers.
 
 ## 13. Creator Hub Unified Architecture, Pinterest Naming & One-Way Promotion
 - **Official Pinterest Business Analytics Parity:** Column headers and metrics MUST strictly align with official Pinterest Business terminology:
@@ -98,38 +81,33 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
   - `pa_pins` is strictly an operational winner showcase for qualified pins (~2.3% of catalog).
   - Pins flow strictly in one direction: `competitor_pins` $\xrightarrow{\text{qualify}}$ `pa_pins`. Re-hydrating catalog pins back from `pa_pins` is strictly prohibited.
 
-## 14. Hyperdrive Non-Blocking Drain Loop & Crawl Fencing (Wave 1 Invariant)
-- **Non-Blocking Socket Drain:** Sockets must never block HTTP responses. `src/worker.mjs` must drain pending Hyperdrive promises iteratively up to a 26,000ms ceiling using `while (processedCount < store.bgPromises.length)` with guaranteed `clearTimeout(drainTimerId)` cleanup, delegated exclusively to `ctx.waitUntil(closePromise)` under the comment `// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]`.
+## 14. Non-Blocking Fastify Execution & Crawl Fencing (Wave 1 Invariant)
+- **Non-Blocking Task Queue:** Long-running background tasks in Fastify (`src/server.mjs`) use `serverBackgroundTaskQueue` (`p-limit(4)`) and bounded timeouts in `src/worker.mjs` so HTTP responses never stall on background cleanup.
 - **Crawl Lease Fencing & Heartbeat:** Crawl tasks must acquire a UUID fencing token and emit a heartbeat every 5 pages. Forced crawls (`force = true`) must be restricted to active leaseholders or expired leases (> 300s) to prevent concurrent split-brain crawling.
-- **Shard-Affine Runner Partitioning:** Fleet crawlers must deterministically partition target shards using `(s - 1) % workerTotal === workerIndex % workerTotal`. Workers must only connect to their assigned subset of shards, capping peak fleet connections at 99 instead of 1,980.
 
 ## 15. SSOT Dossier Retrieval & confirmedPinIds Batch Commits (Wave 2 Invariant)
-- **SSOT Dossier Wrapper:** `getPinDeepDossier` and `getPinDetailWithMetrics` must remain thin wrappers around `fetchUniversalPinDossier`, using Schema Projection Adapters to preserve UI and test contracts.
-- **Atomic Batch Commits with Confirmation:** Batch shard writes via `writeBatchToDeterministicShards` must use `jsonb_to_recordset` and return `confirmedPinIds`. Only successfully confirmed pin IDs may be acknowledged or pruned from upstream processing queues.
-- **KV Dual Trajectory Contract:** Edge KV caches storing pin trajectory must preserve the dual contract (`trajectory.snapshots = trajectory`). Deserialization layers must explicitly re-attach `.snapshots` to prevent breaking frontend chart components.
+- **SSOT Dossier Wrapper:** `getPinDeepDossier` and `getPinDetailWithMetrics` must remain thin wrappers around `fetchUniversalPinDossier` / `getPinDossier`, using Schema Projection Adapters to preserve UI and test contracts.
+- **Atomic Batch Commits with Confirmation:** Batch writes via `writeBatchToDeterministicShards` / `repository.mjs` must use `jsonb_to_recordset` and return `confirmedPinIds`.
 
-## 16. Database Acceleration: HOT Updates, Fillfactor 80 & Skeletal Compaction (Wave 3 Invariant)
-- **PostgreSQL 100% HOT Updates:** Tables receiving high-frequency updates (`competitor_pins`, `keyword_serp_current`) must maintain `fillfactor = 80` and remain free of secondary indexes covering updated columns (such as `idx_cp_domain_rollup_covering`).
-- **IEEE 802.3 Bitwise CRC32 Sharding:** All database triggers and functions computing shard IDs must use `pae_crc32_shard_id(pin_id, 99)`, strictly implementing IEEE 802.3 CRC32 polynomial `0xEDB88320` with 100% bit-for-bit parity to Node.js `@node-rs/crc32`. `hashtext()` is strictly prohibited.
-- **Skeletal Compaction on Central Hub:** `competitor_pins` on Central Hub must store only numeric telemetry and identity references (`pin_id`, `competitor_id`, `board_name`, `save_count`, `repin_count`, `created_at_pinterest`). Large text and creative assets must reside exclusively on the 99 Storage Shards.
+## 16. Database Acceleration: HOT Updates & Fillfactor (Wave 3 Invariant)
+- **PostgreSQL 100% HOT Updates:** Tables receiving high-frequency updates (`competitor_pins`, `keyword_serp_current`, `keyword_displaced_index`) must maintain `fillfactor` headroom (`70`–`80`) and remain free of secondary indexes covering updated volatile counters.
 
-## 17. Edge Route Lazy Loading & Memory Shield (Wave 4 Invariant)
-- **Dynamic Route Imports:** Static top-level page imports are prohibited in `src/routes/pages.mjs`. All HTML view renderers must be imported on demand via `await import(...)` inside the route handler to keep Worker isolate boot memory footprint under 5MB (saving 1.65MB per isolate).
+## 17. Dynamic Route Imports & Single-DB Creator Queries (Wave 4 Invariant)
+- **Dynamic Route Imports:** Static top-level page imports are prohibited in `src/routes/pages.mjs`. All HTML view renderers must be imported on demand via `await import(...)` inside the route handler.
 - **Instant HEAD 200 OK:** Static page routes must return an immediate HTTP 200 OK on `HEAD` requests with standard headers, avoiding template execution and database queries.
-- **Zero-Account-Sharding SSOT:** All competitor intelligence functions (`getFleetCompetitors`, `listCompetitors`, `getCompetitorsOverview`) query Central Hub directly. Never query or loop through Storage Shards for competitor profiles or boards.
+- **Zero-Account-Sharding SSOT:** All competitor intelligence functions (`getFleetCompetitors`, `listCompetitors`, `getCompetitorsOverview`) query PostgreSQL directly without fan-out shard loops.
 
 ## 18. Clock-Skew Immune Distributed Barrier Synchronization (Option B Invariant)
-- **Elimination of Timestamp Math:** Multi-phase crawlers must never synchronize distributed runners using relative timestamp subtraction (`new Date(Date.now() - 300000)`). NTP clock drift and virtualization scheduling delays cause premature barrier collapses ($\Delta t < 0$) or permanent 60-second timeouts ($\Delta t > 0$).
-- **Mandatory Logical State Tokens:** Phase barriers must be sealed with a unique logical token stamped in the database (`UPDATE tracked_keywords SET metadata = jsonb_set(metadata, '{phase1a_completed_token}', to_jsonb(${runToken}::text))`).
-- **Explicit Run-ID Parameter Passing:** Runners must propagate `process.env.CRAWL_RUN_ID` or GitHub Run ID to guarantee barrier token parity across minute boundaries.
+- **Elimination of Timestamp Math:** Multi-phase crawlers must never synchronize distributed runners using relative timestamp subtraction (`new Date(Date.now() - 300000)` or `< runStartTime`).
+- **Mandatory Logical State Tokens:** All Phase 1A barriers (Folder Mode, Mode A, Mode B) must be sealed with a unique logical token (`UPDATE tracked_keywords SET metadata = jsonb_set(..., '{phase1a_completed_token}', to_jsonb(${runToken}::text))`) and polled via `(metadata->>'phase1a_completed_token') IS DISTINCT FROM ${runToken}`.
+- **Explicit Run-ID Parameter Passing:** Runners propagate `process.env.CRAWL_RUN_ID` or `GITHUB_RUN_ID` to guarantee barrier token parity across minute boundaries.
 
-## 19. Shard-Affine Partitioning & Connection Cap (Anti-Blast Invariant)
-- **The GCD Connection Blast Trap:** When partitioning tasks across $W$ workers and $S$ storage shards, if $\gcd(W, S) = 1$, random item hashing (`crc32(id) % W`) scatters work across all $S$ shards for every worker, generating $W \times S$ concurrent connections ($20 \times 99 = 1{,}980$ connections).
-- **Mandatory Shard-Affine Slicing:** Workers must be assigned a fixed subset of shards: $S_w = \{s \in [1, 99] \mid (s - 1) \bmod W === w\}$. Each worker opens connections exclusively to its designated $\le \lceil S/W \rceil$ shards, capping fleet database connections to $S$ (99 connections, a 95% reduction).
+## 19. Deterministic PostgreSQL Runner Partitioning (`MD5` Modulo)
+- **Zero Legacy Shard Columns:** Following Migration `052`, `shard_id` columns and `pae_crc32_shard_id()` are dropped. Distributed runners partition pin workloads directly in PostgreSQL using `MOD(ABS(('x' || SUBSTR(MD5(pin_id::text), 1, 8))::bit(32)::int), workerTotal) = workerIndex`.
 
 ## 20. PostgreSQL Error 21000 Map Deduplication in Batch Upserts
-- **The Cardinality Landmine:** In multi-row batch upserts using `jsonb_to_recordset` with `ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE`, duplicate compound keys within the same payload trigger fatal `PostgreSQL Error 21000: ON CONFLICT DO UPDATE command cannot affect row a second time`.
-- **Pre-Serialization Map Deduplication:** All payload rows must be deduplicated in-memory via `Map` keyed by target compound identifiers prior to JSON stringification, supported by database-level `DISTINCT ON` clauses.
+- **The Cardinality Landmine:** In multi-row batch upserts using `jsonb_to_recordset` with `ON CONFLICT DO UPDATE`, duplicate keys within the same payload trigger fatal `PostgreSQL Error 21000: ON CONFLICT DO UPDATE command cannot affect row a second time`.
+- **Pre-Serialization Map Deduplication:** All payload rows must be deduplicated in-memory via `Map` keyed by target unique identifiers prior to JSON stringification, supported by SQL `DISTINCT ON` clauses and deterministic ordering (`ORDER BY pin_id ASC`).
 
 ## 21. PostgreSQL 100% HOT Updates & Zero Volatile Index Columns
 - **The HOT Blocking Mechanism:** In PostgreSQL (`nbtinsert.c`), Heap-Only Tuple (HOT) updates are strictly forbidden if any modified column belongs to any secondary index on the table, even if the column is merely in an `INCLUDE` clause.
@@ -189,19 +167,18 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Direct Sibling Isolation:** In `src/campaign-folders-ui.mjs`, Room 5 (`x-show="currentRoom === 'settings'"`) MUST remain a direct sibling of Room 1 (`x-show="currentRoom !== 'settings'"`), enclosed exclusively within VIEW A (`x-show="activeFolderId"`). Room 5 must never be nested inside Room 1, preventing conflicting Alpine visibility evaluations.
 - **Unclipped Header Geometry:** In `src/ui/campaign-workspace-header.mjs`, the outer workspace header container (`.rounded-2xl`) must NEVER specify `overflow-hidden` or `overflow-x-hidden`. Workspace headers house floating relative/absolute elements (such as the folder switcher dropdown and export menus) that must render unobstructed with zero pixel clipping.
 
-## 33. Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
-- **Zero Whole-Table Scans across Distributed Runners:** Distributed fleet runners (such as `scripts/creator-velocity-crawler.mjs`) MUST NEVER query full Hub tables (`pa_pins`, `competitor_pins`) into Node.js memory to filter by assigned shards.
-- **Mandatory Storage Shard Predicates:** All runner queries against `pa_pins` and `competitor_pins` must push shard filtering down to the database engine via stored generated `shard_id` (`WHERE shard_id = ANY(${assignedShards}::smallint[])`), utilizing physical B-tree indexes (`idx_pa_pins_shard_id`, `idx_competitor_pins_shard_id`) to eliminate 95% of egress transfer.
-- **CRC32 Shard Function Parity:** All shard-assignment and partitioning logic in SQL queries must use canonical `pae_crc32_shard_id(pin_id, 99)`. Bob Jenkins' `hashtext` is strictly banned.
+## 33. Unified Clean Schema SARGable Domain & Index Pushdown
+- **SARGable `clean_domain` Index Seeks:** All pin/domain tables (`keyword_serp_current`, `keyword_displaced_index`, `universal_master_pins`, `competitor_pins`, `pa_pins`) maintain indexed `clean_domain` columns synchronized via `pae_sync_clean_domain()` (Migrations `052`, `053`, `057`). Never wrap `domain` in `LOWER(TRIM(...))` inside hot lookup `WHERE` clauses.
+- **Partitioning Parity:** Use PostgreSQL native `SUBSTR(MD5(pin_id::text), 1, 8)` modulo slicing for parallel runner pin batches (`shard_id` / `pae_crc32_shard_id` are dropped).
 
 ## 34. Authentic Rolling Multi-Window Gains (Anti-Linear-Multiplier Invariant)
 - **Ban on Linear Extrapolation:** Multi-window velocity gains (`delta_repins_24h`, `gains_5d`, `gains_7d`, `gains_10d`, `gains_15d`) MUST NEVER be synthesized via linear multiplication (`Math.round(vel * 7)`).
-- **Physical Column Pre-Computation:** Central Hub tables (`keyword_serp_current`, `keyword_displaced_index`) maintain physical rolling window columns populated from authentic historical shard snapshots via scheduled fleet crawlers.
+- **Physical Column Pre-Computation:** Central operational tables (`keyword_serp_current`, `keyword_displaced_index`, `universal_master_pins`) maintain physical rolling window columns populated from authentic historical snapshots (`pins_daily_metrics`) via scheduled fleet crawlers.
 - **Crossover & Rollup Wiring:** `_executeFolderCrossover` in `src/modules/keywords/folders-service.mjs` must project `row.gains_7d` directly, and wire `top_creators: creatorMonopoly` with joined `competitor_profiles` audience deltas so cluster rollup bars display authentic growth deltas instead of static zeroes.
 
 ## 35. Lightweight SERP Business Creator Pulse
-- **Fast-Path Profile Monitoring:** Auto-discovered ranking creators linked from SERPs default to `tracking_mode = 'pulse_only'`. Crawler loops (`scripts/creator-velocity-crawler.mjs`, `scripts/crawler-engine.mjs`) MUST bypass pin harvesting, board crawling, and `pa_pins` reconciliation for pulse-only accounts.
-- **24h & 7d Metric Deltas:** Profile syncs update `competitor_profiles` with authentic daily deltas (`delta_reach_24h`, `delta_views_24h`, `reach_delta_7d`, `views_delta_7d`, `pins_delta_7d`, `boards_delta_7d`) derived from `competitor_history_snapshots`, consuming less than 1 KB per account without database bloat.
+- **Fast-Path Profile Monitoring:** Auto-discovered ranking creators linked from SERPs default to `tracking_mode = 'pulse_only'`. Crawler loops (`scripts/creator-velocity-crawler.mjs`) MUST bypass pin harvesting, board crawling, and `pa_pins` reconciliation for pulse-only accounts.
+- **24h & 7d Metric Deltas:** Profile syncs update `competitor_profiles` with authentic daily deltas (`delta_reach_24h`, `delta_views_24h`, `reach_delta_7d`, `views_delta_7d`, `pins_delta_7d`, `boards_delta_7d`) derived from `competitor_history_snapshots`.
 - **Room 3 Discovery Parity:** The Creator Hub UI (`src/dashboard-ui.mjs`) must preserve `creatorDiscoveryFilter` ('all', 'tracked', 'auto_discovered') and display auto-discovered creators with custom label badges (`SERP Auto • ...`) and delta telemetry.
 
 ## 36. Context-Preserving Pin Dossier Navigation & Untracked Creator Guard
@@ -210,15 +187,13 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Untracked Competitor Shield:** Tier 4 fallback in `src/pin-details-ui.mjs` must strictly verify `creatorCtx?.is_tracked_competitor === true`. Guest-scraped creators must never set `originSource = 'creator'`.
 - **Ghost Board Execution Prevention:** In `src/dashboard-ui.mjs`, all `openCreatorByHandle(...).then(...)` callbacks MUST guard with `if (!this.activeCreator) return;` to prevent opening 404 ghost boards when navigating to untracked creator routes.
 
-## 37. Defensive D1 Coalescence & Epoch Cache Coherency
-- **Defensive D1 Count Coalescence:** `syncFolderToD1` in `src/worker.mjs` must use `COALESCE(excluded.creator_count, edge_campaign_folders.creator_count)` and `COALESCE(excluded.unique_pins_count, edge_campaign_folders.unique_pins_count)`. Incoming undefined counts must never overwrite D1 edge caches with `0`.
-- **Global Epoch Invalidation:** Edge caches for folder crossover and creator listings are namespaced with `fleet:cache_epoch` in Workers KV (`fep:${epoch}:folder:${id}:*`). Scheduled crawler consolidators invalidate all Cloudflare edge PoPs globally via authenticated `POST /api/fleet/cache-invalidate`.
-- **Full Catalog Guard:** `syncKeywordsCatalogToD1` must only prune obsolete records when `options.isFullCatalog === true` is explicitly provided, never defaulting to full catalog based on arbitrary array lengths (`keywords.length >= 20`).
-- **Cache Eviction v3 Parity:** `getPinKvKeysToEvict` must purge both v1/v2 and active v3 dossier keys (`pin:dossier:v3?pin_id=...`, `dossier:v3:pin:...`).
+## 37. Defensive Count Coalescence & Epoch Cache Coherency
+- **Defensive Folder Count Coalescence:** Folder metadata sync helpers must coalesce nullable counts rather than overwriting existing values with `0` on partial updates.
+- **Standalone MV & Cache Refresh:** Consolidators refresh `mv_pulse_24h_summary` concurrently outside transaction blocks (`SQLSTATE 25001` safe) and hit `POST /api/fleet/cache-invalidate` with InstaBox wake-up active (`skip-wakeup: 'false'`).
 
-## 38. Daily Multi-Window Rolling Gains Automation & Shard Ingestion Parity (Lock 8)
-- **Mandatory Workflow Step (`[INVARIANT: ROLLING-GAINS-WORKFLOW-AUTOMATION]`):** The daily GitHub Actions crawling workflow (`.github/workflows/keyword-intelligence-velocity.yml`) MUST execute `node scripts/backfill_rolling_window_gains.mjs` in Stage 2 (`consolidate` job) immediately following `keyword-fleet-consolidator.mjs` and prior to edge fleet cache invalidation. Execution must be guaranteed (with `if: always()` or unconditional workflow sequencing) so newly ranked pins never suffer from stale or null multi-window rolling telemetry (`gains_5d`, `gains_7d`, `gains_10d`, `gains_15d`, `delta_repins_24h`).
-- **Deterministic Shard Partitioning & Shard Fallback:** Backfill calculations map pins to their designated Neon Storage Shards using canonical `getPinShardId(pin_id, 99)` / `pae_crc32_shard_id`. In ingestion queries or fallback handlers where a legacy or unpartitioned row lacks a computed `shard_id`, systems MUST use `COALESCE(shard_id, 1)` or fallback to `pae_crc32_shard_id(pin_id, 99)` to prevent null-pointer dereferences or omitted shard queries, ensuring zero dropped rows during shard history collection.
+## 38. Daily Multi-Window Rolling Gains Automation & Anti-Hydration Parity (Lock 8)
+- **Mandatory Workflow Step (`[INVARIANT: ROLLING-GAINS-WORKFLOW-AUTOMATION]`):** The daily GitHub Actions crawling workflow (`.github/workflows/keyword-intelligence-velocity.yml`) MUST execute `node scripts/backfill_rolling_window_gains.mjs` in Stage 2 (`consolidate` job) immediately following `keyword-fleet-consolidator.mjs` and prior to edge fleet cache invalidation.
+- **Single-DB Rolling Calculation:** Backfill calculations join normalized `pins_daily_metrics` directly inside Unified PostgreSQL without multi-shard fan-out.
 - **Anti-Hydration Suppression Invariant (`[INVARIANT: ANTI-HYDRATION-SPIKE]`):** Multi-window gain computation must evaluate `isMultiStageHydrationJump(bestSnap, latest)`. Any transition where baseline saves are 0 or unhydrated while current saves are large must be suppressed to 0, ensuring authentic day-over-day save deltas without artificial inflation.
 
 ## 39. Time-Window Synchronized Audience Gains & Zero-Floor Clamping (Lock 9)

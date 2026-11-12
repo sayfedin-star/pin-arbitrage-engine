@@ -58,26 +58,25 @@ console.log('\n[TEST 2] Auditing Regex & Route Matching for /dispatch-audit & Al
 
 const testPaths = [
   { path: '/api/folders/5/dispatch-audit', method: 'POST', expectedAudit: true, id: '5' },
-  { path: '/api/campaign-folders/42/dispatch-audit', method: 'POST', expectedAudit: true, id: '42' },
-  { path: '/api/keywords/folders/108/dispatch-audit', method: 'POST', expectedAudit: true, id: '108' },
+  { path: '/api/folders/42/dispatch-audit', method: 'POST', expectedAudit: true, id: '42' },
+  { path: '/api/folders/108/dispatch-audit', method: 'POST', expectedAudit: true, id: '108' },
   { path: '/api/folders/5/dispatch-audit', method: 'GET', expectedAudit: false },
   { path: '/api/folders/5', method: 'GET', expectedAudit: false, isFolder: true, id: 5 },
   { path: '/api/folders', method: 'POST', expectedAudit: false, isFolder: true, isCreate: true },
   { path: '/api/folders/5', method: 'DELETE', expectedAudit: false, isFolder: true, id: 5 },
-  { path: '/api/campaign-folders/5/raw-visual-crossover', method: 'GET', expectedAudit: false, isCrossover: true, id: '5' }
+  { path: '/api/folders/5/raw-visual-crossover', method: 'GET', expectedAudit: false, isCrossover: true, id: '5' }
 ];
 
 for (const tc of testPaths) {
-  const auditMatch = tc.method === 'POST' && tc.path.match(/^\/api\/(?:folders|campaign-folders|keywords\/folders)\/(\d+)\/dispatch-audit$/);
+  const auditMatch = tc.method === 'POST' && tc.path.match(/^\/api\/folders\/(\d+)\/dispatch-audit$/);
   assert.equal(Boolean(auditMatch), tc.expectedAudit, `Path ${tc.path} audit match mismatch`);
   if (auditMatch) {
     assert.equal(auditMatch[1], tc.id, `Extracted ID mismatch for ${tc.path}`);
   }
 
-  // Verify that isFoldersRoute excludes dispatch-audit
+  // Verify that isFoldersRoute excludes dispatch-audit and crossover
   const isFoldersRoute = (
-    tc.path === '/api/folders' || tc.path.startsWith('/api/folders/') ||
-    tc.path === '/api/campaign-folders' || tc.path.startsWith('/api/campaign-folders/')
+    tc.path === '/api/folders' || tc.path.startsWith('/api/folders/')
   ) && !tc.path.includes('crossover') && !tc.path.includes('dispatch-audit');
 
   if (tc.expectedAudit) {
@@ -85,8 +84,7 @@ for (const tc of testPaths) {
   }
 
   if (tc.isCreate) {
-    const basePrefix = tc.path.startsWith('/api/campaign-folders') ? '/api/campaign-folders' : '/api/folders';
-    const parts = tc.path.slice(basePrefix.length).split('/').filter(Boolean);
+    const parts = tc.path.slice('/api/folders'.length).split('/').filter(Boolean);
     assert.equal(parts.length === 0, true, `POST /api/folders create should have parts.length === 0`);
   }
 }

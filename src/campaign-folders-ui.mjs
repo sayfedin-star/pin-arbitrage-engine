@@ -210,10 +210,6 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 
     ${getFoldersHubViewHtml()}
 
-      </div>
-
-    </div>
-
   </main>
 
   ${getFoldersModalsHtml()}

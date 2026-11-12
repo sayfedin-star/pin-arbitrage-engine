@@ -63,6 +63,28 @@ export function parseHtmlElementTree(html) {
   return root;
 }
 
+import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
+import { getDashboardHtml } from '../src/dashboard-ui.mjs';
+import { getDomainsPageHtml } from '../src/domains-ui.mjs';
+import { getPulsePageHtml } from '../src/pulse-ui.mjs';
+import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
+import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
+
+export function countTagBalance(html, label) {
+  const openMain = (html.match(/<main\b/gi) || []).length;
+  const closeMain = (html.match(/<\/main>/gi) || []).length;
+  const openDiv = (html.match(/<div\b/gi) || []).length;
+  const closeDiv = (html.match(/<\/div>/gi) || []).length;
+
+  if (openMain !== 1 || closeMain !== 1) {
+    throw new Error(`FAIL [${label}]: <main> count imbalance detected (open=${openMain}, close=${closeMain}, expected 1/1)!`);
+  }
+  if (openDiv !== closeDiv) {
+    throw new Error(`FAIL [${label}]: <div> tag imbalance detected (open=${openDiv}, close=${closeDiv})!`);
+  }
+  return { openMain, closeMain, openDiv, closeDiv };
+}
+
 export function runDomNestingVerification() {
   const html = getCampaignFoldersPageHtml('test_folder_123', 'settings');
   const root = parseHtmlElementTree(html);
@@ -131,15 +153,34 @@ export function runDomNestingVerification() {
     throw new Error('FAIL: VIEW A and VIEW B must share the same parent container!');
   }
 
+  // 5. Numeric tag balance across ALL SSR UI views [LND-DOM-08]
+  const ssrPages = [
+    ['campaign-folders-ui', html],
+    ['keywords-ui', getKeywordsPageHtml()],
+    ['keywords-ui (folder-scoped)', getKeywordsPageHtml('test_folder_123')],
+    ['dashboard-ui', getDashboardHtml('test_folder_123')],
+    ['domains-ui', getDomainsPageHtml('example.com')],
+    ['pulse-ui', getPulsePageHtml()],
+    ['pin-details-ui', getPinDetailPageHtml('1234567890')],
+    ['discovery-ui', getDiscoveryPageHtml()]
+  ];
+
+  for (const [label, pageHtml] of ssrPages) {
+    countTagBalance(pageHtml, label);
+  }
+
   console.log('✅ [DOM NESTING VERIFIED] Room 5 has x-show="activeFolderId" as its ONLY x-show ancestor.');
   console.log('✅ [DOM NESTING VERIFIED] Room 1 and Room 5 are direct siblings inside VIEW A.');
   console.log('✅ [DOM NESTING VERIFIED] VIEW A closes cleanly before VIEW B.');
+  console.log(`✅ [DOM BALANCE VERIFIED] All ${ssrPages.length} SSR views maintain exact <main>(1/1) & <div> tag parity.`);
   return true;
 }
 
-try {
-  runDomNestingVerification();
-} catch (err) {
-  console.error(err.message);
-  process.exit(1);
+if (import.meta.url === `file://${process.argv[1]}`) {
+  try {
+    runDomNestingVerification();
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
 }

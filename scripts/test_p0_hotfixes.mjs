@@ -256,12 +256,11 @@ runTest('Intraday SQL logic: Same-day crawl preserves existing baseline', () => 
 });
 
 // -----------------------------------------------------------------------------
-// 4. Task 4 Verification: Fast Edge Gate for Hover Prefetch
+// 4. Task 4 Verification: Ghost Prefetch Gate Removed from Edge Worker
 // -----------------------------------------------------------------------------
-console.log('\n[*] Task 4: Fast Edge Gate Prefetch Scale-to-Zero Verification...');
+console.log('\n[*] Task 4: Ghost Prefetch Gate Removal Verification...');
 
-await runAsyncTest('Worker prefetch intercept returns from edge cache before SQL initialization', async () => {
-  // Import worker module
+await runAsyncTest('Worker pin dossier routes do not short-circuit on prefetch=true cache_miss', async () => {
   const worker = await import('../src/worker.mjs');
   assert(worker.default && typeof worker.default.fetch === 'function', 'Worker must export default.fetch');
 
@@ -271,37 +270,12 @@ await runAsyncTest('Worker prefetch intercept returns from edge cache before SQL
     SQL_CLIENT: null
   };
 
-  // Test 1: prefetch=true with cache miss returns 200 { status: 'cache_miss' } without touching database
-  const reqMiss = new Request(`https://pin-engine.local/api/pins/${samplePin}?prefetch=true`, {
+  const reqPin = new Request(`https://pin-engine.local/api/pins/${samplePin}?prefetch=true`, {
     method: 'GET'
   });
-  const resMiss = await worker.default.fetch(reqMiss, fakeEnv, { waitUntil: () => {} });
-  assert.strictEqual(resMiss.status, 200);
-  const dataMiss = await resMiss.json();
-  assert.strictEqual(dataMiss.not_cached, true);
-  assert.strictEqual(dataMiss.status, 'cache_miss');
-
-  // Test 2: POST /api/pins/:id/sync?prefetch=true MUST NOT be intercepted by prefetch fast gate
-  const reqPost = new Request(`https://pin-engine.local/api/pins/${samplePin}/sync?prefetch=true`, {
-    method: 'POST'
-  });
-  const resPost = await worker.default.fetch(reqPost, fakeEnv, { waitUntil: () => {} });
-  const postData = await resPost.json();
-  assert(
-    resPost.status !== 200 || postData.status !== 'cache_miss',
-    'POST /api/pins/:id/sync?prefetch=true must bypass edge prefetch gate and proceed to sync handler'
-  );
-
-  // Test 3: Sub-paths like /api/pins/:id/snapshots/:snapshot_id?prefetch=true MUST NOT be intercepted
-  const reqSubpath = new Request(`https://pin-engine.local/api/pins/${samplePin}/snapshots/2026-10-20?prefetch=true`, {
-    method: 'DELETE'
-  });
-  const resSubpath = await worker.default.fetch(reqSubpath, fakeEnv, { waitUntil: () => {} });
-  const subpathData = await resSubpath.json();
-  assert(
-    resSubpath.status !== 200 || subpathData.status !== 'cache_miss',
-    'Subpath /api/pins/:id/snapshots/... must bypass edge prefetch gate'
-  );
+  const resPin = await worker.default.fetch(reqPin, fakeEnv, { waitUntil: () => {} });
+  const dataPin = await resPin.json();
+  assert.notStrictEqual(dataPin.status, 'cache_miss', 'Ghost prefetch cache_miss fast gate must be removed');
 });
 
 // -----------------------------------------------------------------------------

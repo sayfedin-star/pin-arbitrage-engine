@@ -12,7 +12,7 @@
  * - Fully isolated non-destructive module targeting Neon Serverless Postgres.
  */
 
-import { sleep, randomJitterMs } from '../../core/index.mjs';
+import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import {
   normalizeCleanDomain,
   IGNORED_INTERNAL_DOMAINS,

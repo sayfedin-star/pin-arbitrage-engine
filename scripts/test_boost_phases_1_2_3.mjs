@@ -96,52 +96,34 @@ runTest('Phase 1.6: activeCreatorAllPinsBoards option binding extracts b.board_n
 // -----------------------------------------------------------------------------
 // SECTION 2: Phase 2 100% Daily Qualification Refresh Verification
 // -----------------------------------------------------------------------------
-const crawlerCode = fs.existsSync('scripts/crawler-engine.mjs')
-  ? fs.readFileSync('scripts/crawler-engine.mjs', 'utf8')
-  : fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
+const crawlerCode = fs.readFileSync(path.resolve('scripts/creator-velocity-crawler.mjs'), 'utf8');
 
-runTest('Phase 2.1: crawler-engine.mjs calls reconcileQualifiedCatalogPins before Step 4', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
-  const reconIdx = crawlerCode.indexOf('await reconcileQualifiedCatalogPins(sqlClient, acc.id);');
-  const step4Idx = crawlerCode.indexOf('[4/4 Winning Pins]');
-  assert.ok(reconIdx !== -1, 'Must call reconcileQualifiedCatalogPins');
-  assert.ok(step4Idx !== -1, 'Must have Step 4 Winning Pins');
-  assert.ok(reconIdx < step4Idx, 'reconcileQualifiedCatalogPins must be called before Step 4');
+runTest('Phase 2.1: creator-velocity-crawler.mjs calls reconcileQualifiedCatalogPins during discovery', () => {
+  assert.ok(crawlerCode.includes('reconcileQualifiedCatalogPins'), 'Must reference reconcileQualifiedCatalogPins');
+  assert.ok(crawlerCode.includes('await reconcileQualifiedCatalogPins(sql, acc.id);'), 'Must reconcile qualified pins');
 });
 
-runTest('Phase 2.2: crawler-engine.mjs eliminates LIMIT 50 bottleneck and uses LOWER(REPLACE(...))', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
-  assert.ok(crawlerCode.includes("LOWER(REPLACE(account_username, '@', '')) = ${username.toLowerCase()}"), 'Must normalize account_username');
-  assert.ok(!crawlerCode.includes('LIMIT 50'), 'Must eradicate LIMIT 50 bottleneck');
+runTest('Phase 2.2: creator-velocity-crawler.mjs eliminates LIMIT 50 bottleneck across winning pins slice', () => {
+  assert.ok(crawlerCode.includes('FROM pa_pins p'), 'Must query winning pins from pa_pins');
+  assert.ok(!crawlerCode.includes('SELECT pin_id, account_username FROM pa_pins LIMIT 50'), 'Must avoid legacy LIMIT 50 bottleneck');
 });
 
-runTest('Phase 2.3: crawler-engine.mjs implements 4-worker concurrent pool and two-speed fetch', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
-  assert.ok(crawlerCode.includes('const CONCURRENCY = 4;'), 'Must define CONCURRENCY = 4');
+runTest('Phase 2.3: creator-velocity-crawler.mjs implements 8-worker concurrent pool and two-speed fetch', () => {
+  assert.ok(crawlerCode.includes('const CONCURRENCY = 8;'), 'Must define CONCURRENCY = 8');
   assert.ok(crawlerCode.includes('fetchPinFromPinResource(p.pin_id)'), 'Must call fetchPinFromPinResource first');
   assert.ok(crawlerCode.includes('fetchPinFromPinterest(p.pin_id, cookie)'), 'Must fallback to fetchPinFromPinterest');
-  assert.ok(crawlerCode.includes('randomJitterMs(200, 400)'), 'Must use 200-400ms jitter');
 });
 
-runTest('Phase 2.4: crawler-engine.mjs implements monotonic ratchet and atomic batch commits', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
-  assert.ok(crawlerCode.includes('const freshSaves = Math.max(prevSaves, rawFreshSaves);'), 'Must ratchet saves monotonically');
-  assert.ok(crawlerCode.includes('const freshRepins = Math.max(prevRepins, rawFreshRepins);'), 'Must ratchet repins monotonically');
-  assert.ok(crawlerCode.includes('UPDATE pa_pins AS p'), 'Must batch update pa_pins');
-  assert.ok(crawlerCode.includes('UPDATE competitor_pins AS cp'), 'Must batch update competitor_pins');
-  assert.ok(crawlerCode.includes('bulkInsertMetrics(sqlClient, metricSnapshots);'), 'Must route snapshots to shards');
-  assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC') || crawlerCode.includes('.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)))'), 'Must sort by pin_id ASC to prevent deadlocks');
+runTest('Phase 2.4: creator-velocity-crawler.mjs implements monotonic saves fallback and atomic shard writes', () => {
+  assert.ok(crawlerCode.includes('const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;'), 'Must preserve saves monotonically');
+  assert.ok(crawlerCode.includes('const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;'), 'Must preserve repins monotonically');
+  assert.ok(crawlerCode.includes('bulkInsertMetrics(sql, metricSnapshots'), 'Must route snapshots to shards');
+  assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC'), 'Must sort by pin_id ASC to prevent deadlocks');
 });
 
-runTest('Phase 2.5: crawler-engine.mjs normalizes daily refresh velocity by elapsed UTC days and resets cross-day zero-delta velocity', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
-  assert.ok(crawlerCode.includes('last_updated_at, created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
-  assert.ok(crawlerCode.includes('elapsedDays'), 'Must compute elapsedDays between baseline date and crawl time');
-  assert.ok(crawlerCode.includes('isSameDay && deltaSaves === 0'), 'Must implement intraday ratchet protection when running same UTC day');
-  assert.ok(crawlerCode.includes('velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10') || crawlerCode.includes('calculateDailyVelocity('), 'Must normalize deltaSaves by elapsedDays');
-  assert.ok(crawlerCode.includes('velocity = x.velocity,'), 'UPDATE clause must set velocity = x.velocity directly to allow cross-day reset to 0');
-  assert.ok(crawlerCode.includes('Number.isFinite(Number(p.velocity))'), 'Velocity must be guarded with Number.isFinite');
-  assert.ok(crawlerCode.includes('Number.isFinite(Number(p.saves))'), 'Saves must be guarded with Number.isFinite');
+runTest('Phase 2.5: creator-velocity-crawler.mjs normalizes daily refresh velocity via computeNormalized24hVelocity', () => {
+  assert.ok(crawlerCode.includes('p.velocity, p.last_updated_at, p.created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
+  assert.ok(crawlerCode.includes('computeNormalized24hVelocity'), 'Must compute normalized 24h velocity');
 
   // Functional simulation of velocity normalization math
   const simulateVelocity = (prevVel, deltaSaves, isSameDay, elapsedDays) => {

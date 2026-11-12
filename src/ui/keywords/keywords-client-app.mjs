@@ -1444,7 +1444,7 @@ export function getKeywordsClientAppScript() {
           if (!this.bulkTargetFolderId || this.selectedKeywordIds.length === 0) return;
           this.isBulkLoading = true;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders/items'), {
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -2807,7 +2807,7 @@ export function getKeywordsClientAppScript() {
 
         async fetchFolders() {
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/folders'));
+            const res = await fetch(this.getApiUrl('/api/folders'));
             if (res.ok) {
               const data = await res.json();
               this.folders = data.folders || [];
@@ -2856,7 +2856,7 @@ export function getKeywordsClientAppScript() {
           if (!folderId) return;
           this.isCrossoverLoading = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/folders/crossover?folder_id=' + folderId));
+            const res = await fetch(this.getApiUrl('/api/folders/crossover?folder_id=' + folderId));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             this.crossoverData = data.crossover || null;
@@ -2876,7 +2876,7 @@ export function getKeywordsClientAppScript() {
         async saveNewCampaignFolder() {
           if (!this.newFolder.name?.trim()) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders'), {
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.newFolder)
@@ -2901,7 +2901,7 @@ export function getKeywordsClientAppScript() {
         async deleteCampaignFolder(folderId) {
           if (!confirm('Are you sure you want to delete this campaign folder? Keywords will remain tracked.')) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders?id=' + folderId), { method: 'DELETE' });
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders?id=' + folderId), { method: 'DELETE' });
             if (!res.ok) {
               const errPayload = await res.json().catch(() => ({}));
               throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
@@ -2923,7 +2923,7 @@ export function getKeywordsClientAppScript() {
             return;
           }
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders/by-keyword?keyword_id=' + this.selectedKeyword.id));
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/by-keyword?keyword_id=' + this.selectedKeyword.id));
             if (res.ok) {
               const data = await res.json();
               this.currentKeywordFolders = data.folders || [];
@@ -2940,14 +2940,14 @@ export function getKeywordsClientAppScript() {
           const inFolder = this.isKeywordInFolder(folderId);
           try {
             if (inFolder) {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders/items'), {
+              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
               });
               this.showToast('Removed from folder', 'info');
             } else {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders/items'), {
+              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
@@ -2968,7 +2968,7 @@ export function getKeywordsClientAppScript() {
           if (!this.activeFolder) return;
           this.folderKeywordSearch = '';
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders?id=' + this.activeFolder.id));
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders?id=' + this.activeFolder.id));
             if (res.ok) {
               const data = await res.json();
               this.selectedFolderKeywordIds = (data.folder?.items || []).map(i => i.keyword_id);
@@ -2996,7 +2996,7 @@ export function getKeywordsClientAppScript() {
         async commitFolderKeywords() {
           if (!this.activeFolder) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/folders/items'), {
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

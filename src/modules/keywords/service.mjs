@@ -24,7 +24,7 @@ import {
   PINTEREST_PAGE_HEADERS,
   fetchPinFromPinterest,
   fetchPinsBatchFromPidgets
-} from '../../../scripts/lib/pinterest.mjs';
+} from '../../core/pinterest/index.mjs';
 import { isSyntheticPinTitle, derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import {

@@ -81,9 +81,7 @@ if (competitorsCode.includes("from '../creators/service.mjs'")) {
   competitorsCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 }
 const fleetCode = fs.readFileSync(path.resolve('src/modules/fleet/service.mjs'), 'utf8');
-const crawlerCode = fs.existsSync('scripts/crawler-engine.mjs')
-  ? fs.readFileSync('scripts/crawler-engine.mjs', 'utf8')
-  : fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
+const crawlerCode = fs.readFileSync(path.resolve('scripts/creator-velocity-crawler.mjs'), 'utf8');
 
 runTest('src/modules/pinarchive/service.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
   const sqlMatch = /(?:FROM|INTO|UPDATE|JOIN)\s+pa_pin_metrics\b/i.test(pinarchiveCode);
@@ -115,9 +113,9 @@ runTest('src/modules/fleet/service.mjs: Zero SQL queries targeting pa_pin_metric
   assert.strictEqual(sqlMatch, false, 'fleet service must contain zero SQL operations referencing pa_pin_metrics');
 });
 
-runTest('scripts/crawler-engine.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
+runTest('scripts/creator-velocity-crawler.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
   const sqlMatch = /(?:FROM|INTO|UPDATE|JOIN)\s+pa_pin_metrics\b/i.test(crawlerCode);
-  assert.strictEqual(sqlMatch, false, 'crawler-engine.mjs must contain zero SQL operations referencing pa_pin_metrics');
+  assert.strictEqual(sqlMatch, false, 'creator-velocity-crawler.mjs must contain zero SQL operations referencing pa_pin_metrics');
 });
 
 // =============================================================================
@@ -157,8 +155,7 @@ runTest('batchGroupByShard: Correctly groups pins by CRC32 shard ID without data
   assert.strictEqual(totalReconstructed, pins.length, 'All pins must be partitioned without loss');
 });
 
-runTest('scripts/crawler-engine.mjs: Competitor pins routed to Shards via batchGroupByShard', () => {
-  if (!fs.existsSync('scripts/crawler-engine.mjs')) return;
+runTest('scripts/creator-velocity-crawler.mjs: Competitor pins routed to Shards via batchGroupByShard', () => {
   assert(crawlerCode.includes('batchGroupByShard(sortedMetrics, 99)'), 'bulkInsertMetrics must partition by CRC32');
   assert(crawlerCode.includes('batchGroupByShard(enrichedPins, 99)'), 'bulkSyncPinsToDeterministicShards must partition by CRC32');
   assert(crawlerCode.includes('universal_master_pins'), 'Must upsert to universal_master_pins on Shard');

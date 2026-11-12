@@ -2536,7 +2536,7 @@ export function getPinDetailPageHtml(pinId = '') {
 
           if (!isVel) {
             const firstPosIdx = snaps.findIndex(s => Number(s?.save_count || 0) > 0);
-            if (firstPosIdx > 0 && (snaps.length - firstPosIdx >= 2)) {
+            if (firstPosIdx > 0 && (snaps.length - firstPosIdx) >= 2) {
               snaps = snaps.slice(firstPosIdx);
             }
           }

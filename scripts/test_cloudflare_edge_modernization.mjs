@@ -212,10 +212,10 @@ async function runModernizationTests() {
       resFList.status === 200
     );
 
-    const reqCFList = new Request('https://worker.test/api/campaign-folders');
+    const reqCFList = new Request('https://worker.test/api/folders/by-keyword?keyword_id=1');
     const resCFList = await worker.fetch(reqCFList, env);
     assert(
-      'GET /api/campaign-folders alias responds with HTTP 200',
+      'GET /api/folders/by-keyword unified endpoint responds with HTTP 200',
       resCFList.status === 200
     );
   }

@@ -297,7 +297,7 @@ async function runRealBrowserVerification() {
     { name: 'Folders Hub', path: '/folders' },
     { name: 'Room 5 Settings', path: `/folders/${TEST_FOLDER_ID}/settings` },
     { name: 'Pin Detail Page', path: `/pins/${TEST_PIN_ID}` },
-    { name: 'API Pin Dossier', path: `/api/pins/${TEST_PIN_ID}?prefetch=true` }
+    { name: 'API Pin Dossier', path: `/api/pins/${TEST_PIN_ID}` }
   ];
 
   for (const ep of benchmarkEndpoints) {

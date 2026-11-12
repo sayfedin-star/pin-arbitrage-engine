@@ -282,49 +282,6 @@ export function getEdgeShieldClientScript() {
 
     if (window.__edgeShieldInstalled) return;
     window.__edgeShieldInstalled = true;
-
-    // Smart Prefetch & Predictive JIT Warming on Hover (130ms debounce)
-    // [INVARIANT: PREDICTIVE-HOVER-JIT-WARMING]
-    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
-    // 1. Fast Edge Prefetch (< 3ms) from Cloudflare D1 / KV cache
-    // 2. Predictive JIT Warming ping to background-wake target shard before click navigation
-    var hoverPrefetchTimer = null;
-    var prefetchCache = new Set();
-    var warmCache = new Set();
-
-    document.addEventListener('mouseover', function(e) {
-      var pinCard = e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]');
-      if (!pinCard) {
-        if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
-        return;
-      }
-      var pid = pinCard.getAttribute('data-pin-id');
-      if (!pid && pinCard.href) {
-        var match = pinCard.href.match(/\\/pins?\\/([0-9]{10,})/);
-        if (match) pid = match[1];
-      }
-      if (pid && pid.length >= 10 && !isNaN(Number(pid))) {
-        if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
-        hoverPrefetchTimer = setTimeout(function() {
-          // A. [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
-          // Network hover requests to /api/pins/ (prefetch=true) are removed to eliminate useless cache_miss network overhead
-          if (!prefetchCache.has(pid)) {
-            prefetchCache.add(pid);
-          }
-          // B. [INVARIANT: SAFE-PREFETCH-EDGE-ONLY - ZERO NETWORK HOVER WAKEUPS]
-          // Hover requests to /api/fleet/warm?pin_id= are permanently eradicated to protect sleeping shards
-          if (!warmCache.has(pid)) {
-            warmCache.add(pid);
-          }
-        }, 130);
-      }
-    }, { passive: true });
-
-    document.addEventListener('mouseout', function(e) {
-      if (e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]')) {
-        if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
-      }
-    }, { passive: true });
   })();
 </script>`;
 }

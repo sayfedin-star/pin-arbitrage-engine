@@ -5,106 +5,114 @@
  * Extracted from monolithic src/dashboard-ui.mjs for Package P3 structural re-organization.
  */
 
+import {
+  renderPinDossierDrawer,
+  renderPinDossierHeader,
+  renderPinDossierTextBlock,
+  renderPinDossierKpiGrid
+} from './pin-dossier-drawer.mjs';
+
 export function getDashboardModalsHtml() {
-  return `  <!-- ======================================================== -->
-  <!-- FULL IMAGE LIGHTBOX MODAL (Enlarge and browse images)      -->
-  <!-- ======================================================== -->
-  <div x-show="isLightboxOpen" x-cloak 
-       class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
-       @keydown.escape.window="closeLightbox()"
-       @keydown.arrow-left.window="if (isLightboxOpen) prevLightboxImage()"
-       @keydown.arrow-right.window="if (isLightboxOpen) nextLightboxImage()">
-    
-    <!-- Lightbox Top Navigation Bar -->
-    <div class="flex items-center justify-between text-white border-b border-slate-800/80 pb-3 max-w-5xl w-full mx-auto">
-      <div class="flex items-center space-x-3">
-        <span class="px-2.5 py-1 rounded-md text-[10px] font-mono tabular-nums font-bold uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-          EXPLORE ARTICLE CAPSULE
-        </span>
-        <span class="text-xs font-mono tabular-nums text-slate-400" x-text="'Image ' + (lightboxIndex + 1) + ' of ' + (dossierGuidedCapsules ? dossierGuidedCapsules.length : 0)"></span>
-      </div>
-
-      <button @click="closeLightbox()" class="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition flex items-center space-x-1.5 font-mono text-xs">
-        <span class="hidden sm:inline text-slate-500 text-[11px]">(ESC)</span>
-        <i data-lucide="x" class="w-5 h-5"></i>
-      </button>
-    </div>
-
-    <!-- Lightbox Center: Image with Prev/Next Navigation Buttons -->
-    <div class="relative flex items-center justify-center flex-1 my-4 max-w-5xl w-full mx-auto overflow-hidden">
-      <!-- Previous Button -->
-      <button @click="prevLightboxImage()" 
-              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
-              class="absolute left-2 sm:left-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
-              title="Previous Image (Arrow Left)">
-        <i data-lucide="chevron-left" class="w-6 h-6 group-hover:-translate-x-0.5 transition-transform"></i>
-      </button>
-
-      <!-- The Active Full-Size Image -->
-      <template x-if="currentLightboxCapsule && currentLightboxCapsule.image_url">
-        <img :src="currentLightboxCapsule.image_url" 
-             :alt="currentLightboxCapsule.query_term" 
-             class="max-h-[70vh] sm:max-h-[75vh] max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800 transition-all duration-300">
-      </template>
-
-      <!-- Next Button -->
-      <button @click="nextLightboxImage()" 
-              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
-              class="absolute right-2 sm:right-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
-              title="Next Image (Arrow Right)">
-        <i data-lucide="chevron-right" class="w-6 h-6 group-hover:translate-x-0.5 transition-transform"></i>
-      </button>
-    </div>
-
-    <!-- Lightbox Footer Info & Actions -->
-    <div class="max-w-5xl w-full mx-auto bg-white/95 dark:bg-[#121215]/95 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 text-slate-900 dark:text-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
-      <div class="space-y-1">
-        <h4 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA] tracking-wide flex items-center space-x-2">
-          <i data-lucide="compass" class="w-4 h-4 text-rose-500"></i>
-          <span x-text="currentLightboxCapsule?.query_term"></span>
-        </h4>
-        <p class="text-xs text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums">
-          <span>Seed Pin ID:</span>
-          <span class="text-rose-600 dark:text-rose-400 font-bold" x-text="activeDossierSeed?.pin_id"></span>
-        </p>
-      </div>
-
-      <div class="flex items-center space-x-2">
-        <button @click="copyGuidedPrompt(currentLightboxCapsule?.query_term)" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs font-mono tabular-nums transition active:scale-95 flex items-center space-x-1.5 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-          <span>Copy Midjourney Prompt</span>
-        </button>
-        <a :href="currentLightboxCapsule?.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(currentLightboxCapsule?.query_term || ''))" target="_blank" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] text-xs font-mono tabular-nums transition flex items-center space-x-1.5 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Open Pinterest Search">
-          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-          <span>Pinterest Search</span>
-        </a>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ======================================================== -->
-  <!-- CANDIDATE DEEP-INSPECTION SLIDE-OVER & MENU MATRIX       -->
-  <!-- ======================================================== -->
-  <div x-show="isDossierOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex justify-end" @keydown.escape.window="isDossierOpen = false">
-    <div class="bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] w-full max-w-2xl h-full min-h-screen shadow-2xl overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right duration-200" role="dialog" aria-modal="true" aria-label="Candidate Pin Deep-Inspection Dossier" @click.away="isDossierOpen = false">
-      
-      <!-- Slide-over Header -->
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-4">
-        <div class="flex items-center space-x-3">
-          <div class="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+  const candidateDossierHeaderHtml = renderPinDossierHeader({
+    iconHtml: `<div class="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
             <i data-lucide="eye" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <h3 class="font-bold text-slate-900 dark:text-[#FAFAFA] text-base">Candidate Pin Deep-Inspection Dossier</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="'Pin ID: ' + selectedCandidate?.candidate_pin_id"></p>
-          </div>
-        </div>
-        <button @click="isDossierOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
+          </div>`,
+    titleHtml: `<h3 class="font-bold text-slate-900 dark:text-[#FAFAFA] text-base">Candidate Pin Deep-Inspection Dossier</h3>`,
+    subtitleHtml: `<p class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Pin ID: ' + selectedCandidate?.candidate_pin_id"></p>`,
+    closeExpr: 'isDossierOpen = false',
+    closeLabel: 'Close Candidate Pin Deep-Inspection Dossier'
+  });
 
+  const candidateSeoTitleBlock = renderPinDossierTextBlock({
+    title: 'Algorithmic SEO Title',
+    iconName: 'type',
+    iconClass: 'w-3.5 h-3.5 text-rose-500',
+    copyExpr: "copyToClipboard(blueprintSeoTitle, 'seo')",
+    copyButtonLabelExpr: "copiedField === 'seo' ? 'Copied!' : 'Copy'",
+    copyButtonClass: 'text-rose-600 hover:underline font-mono text-[11px] flex items-center space-x-1 cursor-pointer',
+    bodyTextExpr: 'blueprintSeoTitle',
+    bodyClass: 'p-2.5 rounded-lg bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-[#27272A] font-mono text-xs text-slate-800 dark:text-slate-200',
+    containerClass: 'space-y-1'
+  });
+
+  const candidateMidjourneyBlock = renderPinDossierTextBlock({
+    title: 'Midjourney v6.1 Generation Prompt (--ar 9:16)',
+    iconName: 'camera',
+    iconClass: 'w-3.5 h-3.5 text-amber-500',
+    copyExpr: "copyToClipboard(blueprintMidjourney, 'midjourney')",
+    copyButtonLabelExpr: "copiedField === 'midjourney' ? 'Copied!' : 'Copy'",
+    copyButtonClass: 'text-amber-600 hover:underline font-mono text-[11px] flex items-center space-x-1 cursor-pointer',
+    bodyTextExpr: 'blueprintMidjourney',
+    bodyClass: 'p-2.5 rounded-lg bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-[#27272A] font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-300',
+    containerClass: 'space-y-1'
+  });
+
+  const candidateSchemaBlock = renderPinDossierTextBlock({
+    title: 'Dual JSON-LD Schema (Product + Recipe)',
+    iconName: 'braces',
+    iconClass: 'w-3.5 h-3.5 text-emerald-500',
+    copyExpr: "copyToClipboard(blueprintJsonLd, 'jsonld')",
+    copyButtonLabelExpr: "copiedField === 'jsonld' ? 'Copied Schema!' : '1-Click Copy Schema'",
+    copyButtonClass: 'text-emerald-600 hover:underline font-mono text-[11px] flex items-center space-x-1 cursor-pointer',
+    bodyHtml: `<pre class="p-3 rounded-lg bg-slate-100 dark:bg-black/60 border border-slate-200 dark:border-[#27272A] font-mono text-[10px] leading-relaxed max-h-40 overflow-y-auto text-slate-700 dark:text-slate-300" x-text="blueprintJsonLd"></pre>`,
+    containerClass: 'space-y-1'
+  });
+
+  const hubDossierHeaderHtml = renderPinDossierHeader({
+    iconHtml: `<div class="w-10 h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <i data-lucide="git-merge" class="w-5 h-5"></i>
+          </div>`,
+    titleHtml: `<h3 class="font-bold text-slate-900 dark:text-white text-base">Pixie Gravitational Centroid Dossier</h3>`,
+    badgesHtml: `<template x-if="selectedHub">
+                <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider" :class="getPixieResonance(selectedHub).badgeClass" x-text="getPixieResonance(selectedHub).label"></span>
+              </template>`,
+    subtitleHtml: `<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+              <span>Section 4.3 Multi-Query Bipartite Random Walk Centroid</span>
+            </p>`,
+    closeExpr: 'closeHubDrawer()',
+    closeLabel: 'Close Pixie Gravitational Centroid Dossier'
+  });
+
+  const hubKpiMiniGridHtml = renderPinDossierKpiGrid({
+    gridClass: 'grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/80 dark:border-[#27272A]/80 font-mono text-xs',
+    cardClass: 'text-left space-y-0.5',
+    items: [
+      {
+        label: 'Total Saves',
+        valueExpr: 'Number(selectedHub.total_saves != null ? selectedHub.total_saves : (selectedHub.saves || 0)).toLocaleString()',
+        valueClass: 'font-bold text-slate-900 dark:text-white font-mono tabular-nums block'
+      },
+      {
+        label: 'Repin Rate',
+        valueExpr: "(selectedHub.avg_save_rate || selectedHub.save_rate || 0) + '%'",
+        valueClass: 'font-bold text-slate-900 dark:text-white font-mono tabular-nums block'
+      },
+      {
+        label: 'Velocity',
+        valueExpr: "Number(selectedHub.daily_velocity || 0) > 0 ? ('🔥 ' + selectedHub.daily_velocity + '/d') : 'Stagnant'",
+        valueClass: 'font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums block'
+      }
+    ]
+  });
+
+  const hubOcrBlockHtml = renderPinDossierTextBlock({
+    title: 'Pinterest Vision Pipeline OCR Text',
+    iconName: 'scan-text',
+    iconClass: 'w-3.5 h-3.5 text-rose-500',
+    copyExpr: "copyToClipboard(selectedHub.ocr_text, 'drawer-ocr')",
+    copyButtonLabelExpr: "copiedField === 'drawer-ocr' ? 'Copied!' : 'Copy OCR'",
+    copyButtonClass: 'text-rose-600 dark:text-rose-400 hover:underline font-mono text-[10px] flex items-center space-x-1 cursor-pointer',
+    bodyTextExpr: 'selectedHub.ocr_text',
+    bodyClass: 'text-xs font-mono text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-[#27272A]',
+    containerClass: 'p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900/60 space-y-2'
+  });
+
+  const candidateDossierDrawerHtml = renderPinDossierDrawer({
+    showExpr: 'isDossierOpen',
+    closeExpr: 'isDossierOpen = false',
+    ariaLabel: 'Candidate Pin Deep-Inspection Dossier',
+    headerHtml: candidateDossierHeaderHtml,
+    bodyHtml: `
       <!-- Pin Visual Dossier -->
       <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900/60 space-y-3">
         <div class="flex items-start justify-between gap-3">
@@ -281,77 +289,20 @@ export function getDashboardModalsHtml() {
           </span>
         </div>
 
-        <!-- 1. SEO Title -->
-        <div class="space-y-1">
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="font-semibold text-slate-600 dark:text-slate-400">Algorithmic SEO Title</span>
-            <button @click="copyToClipboard(blueprintSeoTitle, 'seo')" class="text-rose-600 hover:underline font-mono">
-              <span x-text="copiedField === 'seo' ? 'Copied!' : 'Copy'"></span>
-            </button>
-          </div>
-          <div class="p-2.5 rounded-lg bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-[#27272A] font-mono text-xs text-slate-800 dark:text-slate-200" x-text="blueprintSeoTitle"></div>
-        </div>
+        ${candidateSeoTitleBlock}
 
-        <!-- 2. Midjourney Prompt -->
-        <div class="space-y-1">
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="font-semibold text-slate-600 dark:text-slate-400">Midjourney v6.1 Generation Prompt (--ar 9:16)</span>
-            <button @click="copyToClipboard(blueprintMidjourney, 'midjourney')" class="text-amber-600 hover:underline font-mono">
-              <span x-text="copiedField === 'midjourney' ? 'Copied!' : 'Copy'"></span>
-            </button>
-          </div>
-          <div class="p-2.5 rounded-lg bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-[#27272A] font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-300" x-text="blueprintMidjourney"></div>
-        </div>
+        ${candidateMidjourneyBlock}
 
-        <!-- 3. Dual JSON-LD Schema -->
-        <div class="space-y-1">
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="font-semibold text-slate-600 dark:text-slate-400">Dual JSON-LD Schema (Product + Recipe)</span>
-            <button @click="copyToClipboard(blueprintJsonLd, 'jsonld')" class="text-emerald-600 hover:underline font-mono">
-              <span x-text="copiedField === 'jsonld' ? 'Copied Schema!' : '1-Click Copy Schema'"></span>
-            </button>
-          </div>
-          <pre class="p-3 rounded-lg bg-slate-100 dark:bg-black/60 border border-slate-200 dark:border-[#27272A] font-mono text-[10px] leading-relaxed max-h-40 overflow-y-auto text-slate-700 dark:text-slate-300" x-text="blueprintJsonLd"></pre>
-        </div>
-      </div>
+        ${candidateSchemaBlock}
+      </div>`
+  });
 
-    </div>
-  </div>
-
-  <!-- ======================================================== -->
-  <!-- PIXIE MULTI-HIT CENTROID DOSSIER (SLIDE-OVER DRAWER)     -->
-  <!-- Grounded in Pinterest Pixie WWW 2018 Paper (Sec 4.3)     -->
-  <!-- ======================================================== -->
-  <div x-show="isHubDrawerOpen" x-cloak 
-       class="fixed inset-0 z-50 overflow-hidden bg-slate-950/75 backdrop-blur-sm flex justify-end" 
-       @keydown.escape.window="closeHubDrawer()">
-    <div class="bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] w-full max-w-2xl h-full shadow-2xl overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right duration-200" role="dialog" aria-modal="true" aria-label="Pixie Gravitational Centroid Dossier" 
-         @click.away="closeHubDrawer()">
-      
-      <!-- Drawer Header -->
-      <div class="flex items-start justify-between border-b border-slate-200 dark:border-[#27272A] pb-4">
-        <div class="flex items-center space-x-3">
-          <div class="w-10 h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
-            <i data-lucide="git-merge" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <div class="flex items-center space-x-2">
-              <h3 class="font-bold text-slate-900 dark:text-white text-base">Pixie Gravitational Centroid Dossier</h3>
-              <template x-if="selectedHub">
-                <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider" :class="getPixieResonance(selectedHub).badgeClass" x-text="getPixieResonance(selectedHub).label"></span>
-              </template>
-            </div>
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-              <span>Section 4.3 Multi-Query Bipartite Random Walk Centroid</span>
-            </p>
-          </div>
-        </div>
-        <button @click="closeHubDrawer()" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <template x-if="selectedHub">
+  const hubDossierDrawerHtml = renderPinDossierDrawer({
+    showExpr: 'isHubDrawerOpen',
+    closeExpr: 'closeHubDrawer()',
+    ariaLabel: 'Pixie Gravitational Centroid Dossier',
+    headerHtml: hubDossierHeaderHtml,
+    bodyHtml: `      <template x-if="selectedHub">
         <div class="space-y-6">
 
           <!-- 1. Media Preview & Key Identifiers -->
@@ -402,21 +353,7 @@ export function getDashboardModalsHtml() {
                 </button>
               </div>
 
-              <!-- Metrics Mini Bar -->
-              <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/80 dark:border-[#27272A]/80 font-mono text-xs">
-                <div>
-                  <div class="text-[9px] uppercase text-slate-400">Total Saves</div>
-                  <div class="font-bold text-slate-900 dark:text-white" x-text="Number(selectedHub.total_saves != null ? selectedHub.total_saves : (selectedHub.saves || 0)).toLocaleString()"></div>
-                </div>
-                <div>
-                  <div class="text-[9px] uppercase text-slate-400">Repin Rate</div>
-                  <div class="font-bold text-slate-900 dark:text-white" x-text="(selectedHub.avg_save_rate || selectedHub.save_rate || 0) + '%'"></div>
-                </div>
-                <div>
-                  <div class="text-[9px] uppercase text-slate-400">Velocity</div>
-                  <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="Number(selectedHub.daily_velocity || 0) > 0 ? ('🔥 ' + selectedHub.daily_velocity + '/d') : 'Stagnant'"></div>
-                </div>
-              </div>
+              ${hubKpiMiniGridHtml}
             </div>
           </div>
 
@@ -481,19 +418,7 @@ export function getDashboardModalsHtml() {
 
           <!-- 4. Pinterest Vision Model OCR Text Block -->
           <template x-if="selectedHub.ocr_text">
-            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900/60 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-500 flex items-center space-x-1">
-                  <i data-lucide="scan-text" class="w-3.5 h-3.5"></i>
-                  <span>Pinterest Vision Pipeline OCR Text</span>
-                </span>
-                <button @click="copyToClipboard(selectedHub.ocr_text, 'drawer-ocr')" class="text-rose-600 dark:text-rose-400 hover:underline font-mono text-[10px] flex items-center space-x-1">
-                  <i data-lucide="copy" class="w-2.5 h-2.5"></i>
-                  <span x-text="copiedField === 'drawer-ocr' ? 'Copied!' : 'Copy OCR'"></span>
-                </button>
-              </div>
-              <div class="text-xs font-mono text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-[#27272A]" x-text="selectedHub.ocr_text"></div>
-            </div>
+            ${hubOcrBlockHtml}
           </template>
 
           <!-- 5. Arbitrage Action Hub (One-Click Copy AI Prompts) -->
@@ -531,10 +456,92 @@ export function getDashboardModalsHtml() {
           </div>
 
         </div>
+      </template>`
+  });
+
+  return `  <!-- ======================================================== -->
+  <!-- FULL IMAGE LIGHTBOX MODAL (Enlarge and browse images)      -->
+  <!-- ======================================================== -->
+  <div x-show="isLightboxOpen" x-cloak 
+       class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
+       @keydown.escape.window="closeLightbox()"
+       @keydown.arrow-left.window="if (isLightboxOpen) prevLightboxImage()"
+       @keydown.arrow-right.window="if (isLightboxOpen) nextLightboxImage()">
+    
+    <!-- Lightbox Top Navigation Bar -->
+    <div class="flex items-center justify-between text-white border-b border-slate-800/80 pb-3 max-w-5xl w-full mx-auto">
+      <div class="flex items-center space-x-3">
+        <span class="px-2.5 py-1 rounded-md text-[10px] font-mono tabular-nums font-bold uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+          EXPLORE ARTICLE CAPSULE
+        </span>
+        <span class="text-xs font-mono tabular-nums text-slate-400" x-text="'Image ' + (lightboxIndex + 1) + ' of ' + (dossierGuidedCapsules ? dossierGuidedCapsules.length : 0)"></span>
+      </div>
+
+      <button @click="closeLightbox()" class="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition flex items-center space-x-1.5 font-mono text-xs">
+        <span class="hidden sm:inline text-slate-500 text-[11px]">(ESC)</span>
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- Lightbox Center: Image with Prev/Next Navigation Buttons -->
+    <div class="relative flex items-center justify-center flex-1 my-4 max-w-5xl w-full mx-auto overflow-hidden">
+      <!-- Previous Button -->
+      <button @click="prevLightboxImage()" 
+              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
+              class="absolute left-2 sm:left-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
+              title="Previous Image (Arrow Left)">
+        <i data-lucide="chevron-left" class="w-6 h-6 group-hover:-translate-x-0.5 transition-transform"></i>
+      </button>
+
+      <!-- The Active Full-Size Image -->
+      <template x-if="currentLightboxCapsule && currentLightboxCapsule.image_url">
+        <img :src="currentLightboxCapsule.image_url" 
+             :alt="currentLightboxCapsule.query_term" 
+             class="max-h-[70vh] sm:max-h-[75vh] max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800 transition-all duration-300">
       </template>
 
+      <!-- Next Button -->
+      <button @click="nextLightboxImage()" 
+              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
+              class="absolute right-2 sm:right-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
+              title="Next Image (Arrow Right)">
+        <i data-lucide="chevron-right" class="w-6 h-6 group-hover:translate-x-0.5 transition-transform"></i>
+      </button>
     </div>
+
+    <!-- Lightbox Footer Info & Actions -->
+    <div class="max-w-5xl w-full mx-auto bg-white/95 dark:bg-[#121215]/95 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 text-slate-900 dark:text-[#FAFAFA] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+      <div class="space-y-1">
+        <h4 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA] tracking-wide flex items-center space-x-2">
+          <i data-lucide="compass" class="w-4 h-4 text-rose-500"></i>
+          <span x-text="currentLightboxCapsule?.query_term"></span>
+        </h4>
+        <p class="text-xs text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums">
+          <span>Seed Pin ID:</span>
+          <span class="text-rose-600 dark:text-rose-400 font-bold" x-text="activeDossierSeed?.pin_id"></span>
+        </p>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button @click="copyGuidedPrompt(currentLightboxCapsule?.query_term)" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs font-mono tabular-nums transition active:scale-95 flex items-center space-x-1.5 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          <span>Copy Midjourney Prompt</span>
+        </button>
+        <a :href="currentLightboxCapsule?.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(currentLightboxCapsule?.query_term || ''))" target="_blank" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] text-xs font-mono tabular-nums transition flex items-center space-x-1.5 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Open Pinterest Search">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          <span>Pinterest Search</span>
+        </a>
+      </div>
+    </div>
+
   </div>
+
+  <!-- ======================================================== -->
+  <!-- CANDIDATE DEEP-INSPECTION & PIXIE SLIDE-OVER DRAWERS     -->
+  <!-- ======================================================== -->
+  ${candidateDossierDrawerHtml}
+
+  ${hubDossierDrawerHtml}
 
   <!-- Add Seed Modal (Single Pin & Bulk Pins Mode) -->
   <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isAddSeedOpen = false">

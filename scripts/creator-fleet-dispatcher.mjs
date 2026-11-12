@@ -219,6 +219,7 @@ async function main() {
       SELECT id, username, tracking_mode, last_synced_at
       FROM competitor_profiles
       WHERE is_active = TRUE
+        AND COALESCE(account_type, 'competitor') <> 'system'
       ORDER BY (CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, last_synced_at ASC NULLS FIRST, id ASC;
     `;
 

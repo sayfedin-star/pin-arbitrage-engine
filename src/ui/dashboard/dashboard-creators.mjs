@@ -4,6 +4,7 @@
  * View B: Dedicated Creator Profile Page (Overview, All Pins, Top URLs, Boards Strategy)
  */
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
+import { renderPinRowTemplate } from '../pin-row.mjs';
 
 export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
   return `    <!-- ======================================================== -->
@@ -1530,11 +1531,29 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                   <template x-for="p in activeCreatorAllPins.slice(0, creatorAllPinsLimit)" :key="p.pin_id">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''">
+                    ${renderPinRowTemplate({
+                      pinVar: 'p',
+                      showCheckbox: true,
+                      showRank: false,
+                      showThumb: true,
+                      showTitle: true,
+                      showBoard: true,
+                      boardPosition: 'afterTitle',
+                      showDomain: false,
+                      showVelocity: false,
+                      showSaves: true,
+                      showRepins: true,
+                      showAge: true,
+                      agePosition: 'beforeActions',
+                      showActions: true,
+                      rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition',
+                      rowDynamicClass: "isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''",
+                      checkboxHtml: `
                       <!-- Selection Checkbox -->
                       <td class="py-2.5 px-3 text-center">
                         <input type="checkbox" :checked="isPinSelected(p.pin_id)" @change="togglePinSelection(p.pin_id)" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
-                      </td>
+                      </td>`,
+                      thumbHtml: `
                       <!-- Thumbnail with hover preview -->
                       <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
@@ -1543,8 +1562,8 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             <img :src="p.image_url" class="w-full h-auto object-cover" onerror="window.handlePinImgError(this)" />
                           </div>
                         </div>
-                      </td>
-
+                      </td>`,
+                      titleHtml: `
                       <!-- Title & Destination -->
                       <td x-show="visibleMasterColumns.title" class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
                         <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
@@ -1562,13 +1581,13 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             </a>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      boardHtml: `
                       <!-- Board Name -->
                       <td x-show="visibleMasterColumns.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]">
                         <button type="button" @click="openBoardPage(p.board_name, activeCreator)" class="inline-block px-2 py-0.5 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-950/40 hover:text-purple-600 dark:hover:text-purple-400 border border-slate-200 dark:border-[#27272A]/60 transition cursor-pointer" x-text="p.board_name || 'General'"></button>
-                      </td>
-
+                      </td>`,
+                      savesHtml: `
                       <!-- Saves + 24h delta -->
                       <td x-show="visibleMasterColumns.saves" class="py-2.5 px-3 text-right">
                         <div class="flex flex-col items-end">
@@ -1577,8 +1596,8 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             <span class="inline-flex items-center text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60 mt-0.5" x-text="'+' + (Number(p.delta_saves_24h || p.velocity || 0) >= 1 ? formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) : Number(p.delta_saves_24h || p.velocity || 0).toFixed(1)) + ' 24h'"></span>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      repinsHtml: `
                       <!-- Repins + 24h delta -->
                       <td x-show="visibleMasterColumns.repins" class="py-2.5 px-3 text-right">
                         <div class="flex flex-col items-end">
@@ -1587,8 +1606,8 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             <span class="inline-flex items-center text-[10px] font-semibold text-pink-700 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-1.5 py-0.2 rounded border border-pink-200/60 dark:border-pink-800/60 mt-0.5" x-text="'+' + formatNumber(Math.round(p.delta_repins_24h)) + ' 24h'"></span>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      extraCellsBeforeAge: `
                       <!-- Status Badge (Clean: 🏆, 🎯, Product) -->
                       <td x-show="visibleMasterColumns.status" class="py-2.5 px-3 text-center">
                         <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
@@ -1615,13 +1634,13 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             </span>
                           </template>
                         </div>
-                      </td>
-
+                      </td>`,
+                      ageHtml: `
                       <!-- Created / Discovered -->
                       <td x-show="visibleMasterColumns.created_at" class="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
                         <span x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></span>
-                      </td>
-
+                      </td>`,
+                      actionsHtml: `
                       <!-- Actions: Eye icon and External Link -->
                       <td x-show="visibleMasterColumns.actions" class="py-2.5 px-3 text-center">
                         <div class="inline-flex items-center gap-1.5 justify-center">
@@ -1632,8 +1651,8 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
                         </div>
-                      </td>
-                    </tr>
+                      </td>`
+                    })}
                   </template>
                 </tbody>
               </table>

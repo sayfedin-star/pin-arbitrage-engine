@@ -15,7 +15,17 @@ import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handleCreatorsRoutes } from './routes/creators.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
-import { createUniversalSqlClient, enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards, isUnifiedPostgres } from './modules/sharding/fleet-router.mjs';
+import {
+  createUniversalSqlClient,
+  enforceNeonPoolerUrl,
+  getOrCreateShardSqlClient,
+  getCachedShardSqlClient,
+  setCachedShardSqlClient,
+  shardSqlClients,
+  wrapShardNeonTransaction,
+  isValidShardDsn
+} from './db/client.mjs';
+import { normalizeAssignedShards, isUnifiedPostgres } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 
@@ -768,7 +778,6 @@ export default {
     const isLiveScrapeGet = method === 'GET' && searchParams.get('refresh') === 'true' && (
       pathname === '/api/competitors/board-detail' ||
       pathname === '/api/creators/board-detail' ||
-      pathname === '/api/pinarchive/pin-detail' ||
       pathname === '/api/creators/pin-detail' ||
       pathname.startsWith('/api/pins/')
     );
@@ -835,21 +844,6 @@ export default {
         preview: cookie ? `${cookie.slice(0, 42)}...` : '',
         source: 'cloudflare_env'
       });
-    }
-
-    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY] Return immediately if cached
-    if (method === 'GET' && searchParams.get('prefetch') === 'true' && isPinsRoute(pathname)) {
-      const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
-      if (parts.length === 1) {
-        const pinId = parts[0];
-        if (pinId && isValidPinId(pinId)) {
-          const edgeFast = await getFastEdgeDossier(pinId, env);
-          if (!edgeFast || !edgeFast.success) {
-            return jsonResponse({ success: false, not_cached: true, status: 'cache_miss' }, 200, 0);
-          }
-          return jsonResponse(edgeFast, 200, 300);
-        }
-      }
     }
 
     let sql = env?.SQL_CLIENT;
@@ -953,8 +947,8 @@ export default {
         if (clusterRes) return clusterRes;
       }
 
-      // 15. Creator Hub Sub-Router (/api/creators/*, /api/competitors/*, /api/pinarchive/*, /api/boards/*)
-      if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/pinarchive') || pathname.startsWith('/api/boards')) {
+      // 15. Creator Hub Sub-Router (/api/creators/*, /api/competitors/*, /api/boards/*)
+      if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/boards')) {
         const creatorsRes = await handleCreatorsRoutes({
           pathname,
           method,

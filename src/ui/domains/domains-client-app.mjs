@@ -773,7 +773,8 @@ export function getDomainsClientAppScript() {
                   try {
                     const batchRes = await (window.safeApiFetch || fetch)('/api/urls/batch-global-saves', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'same-origin',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                       body: JSON.stringify({ urls: sampleUrls })
                     });
                     if (batchRes.ok) {

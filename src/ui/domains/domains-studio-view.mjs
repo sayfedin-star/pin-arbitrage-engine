@@ -1,6 +1,8 @@
 /**
  * Dedicated Full-Page Domain Intelligence Studio View
  */
+import { renderPinRowTemplate } from '../pin-row.mjs';
+
 export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
   return `    <!-- DEDICATED FULL-PAGE DOMAIN INTELLIGENCE STUDIO VIEW -->
     <div x-show="isDossierOpen" x-cloak class="flex flex-col gap-6 w-full" ${hasInitialDomain ? 'style="display:flex;"' : ''}>
@@ -381,83 +383,129 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <div class="flex flex-col gap-4">
               <!-- TAB 1: Ranked Pins -->
               <div x-show="dossierTab === 'pins'" class="space-y-3">
-                <template x-for="p in paginatedDossierPins()" :key="p.pin_id">
-                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
-                    <div class="flex items-center gap-3.5 min-w-0">
-                      <img :src="p.image_url"
-                           referrerpolicy="no-referrer"
-                           class="w-14 h-20 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
-                           loading="lazy"
-                           onerror="window.handlePinImgError(this)">
-                      <div class="flex flex-col min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-sm font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
-                          <template x-if="p.is_vulnerable">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
-                                  title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
-                              ⚡ Decaying Monopoly
-                            </span>
-                          </template>
-                          <!-- Pin Age Badge -->
-                          <template x-if="getPinAgeBadge(p.created_at_pinterest)">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums shrink-0"
-                                  :class="getPinAgeBadge(p.created_at_pinterest).class"
-                                  :title="getPinAgeBadge(p.created_at_pinterest).title"
-                                  x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
-                          </template>
-                        </div>
-                        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums mt-1 flex-wrap">
-                          <span x-text="'Pin #' + p.pin_id"></span>
-                          <span class="text-slate-300 dark:text-slate-600">•</span>
-                          <template x-if="p.creator_username">
-                            <a :href="safeUrl('/accounts?creator=' + encodeURIComponent(p.creator_username.replace(/^@+/, '')))"
+                <div class="overflow-x-auto bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-sm">
+                  <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[10.5px] uppercase tracking-wider">
+                      <tr>
+                        <th class="py-3 px-3 w-10 text-center">#</th>
+                        <th class="py-3 px-3 w-16">Preview</th>
+                        <th class="py-3 px-3 min-w-[260px]">Pin &amp; SERP Appearances</th>
+                        <th class="py-3 px-3 min-w-[130px]">Creator</th>
+                        <th class="py-3 px-3 text-right">Saves</th>
+                        <th class="py-3 px-3 text-right">Age</th>
+                        <th class="py-3 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      <template x-for="(p, idx) in paginatedDossierPins()" :key="p.pin_id">
+                        ${renderPinRowTemplate({
+                          pinVar: 'p',
+                          indexVar: 'idx',
+                          showCheckbox: false,
+                          showRank: true,
+                          rankPosition: 'beforeThumb',
+                          showThumb: true,
+                          showTitle: true,
+                          showDomain: true,
+                          showVelocity: false,
+                          showSaves: true,
+                          showRepins: false,
+                          showAge: true,
+                          agePosition: 'beforeActions',
+                          showActions: true,
+                          rowClass: 'hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition',
+                          rankHtml: `
+                          <td class="py-3 px-3 text-center font-mono tabular-nums text-slate-400 text-xs" x-text="idx + 1"></td>`,
+                          thumbHtml: `
+                          <td class="py-3 px-3">
+                            <img :src="p.image_url"
+                                 referrerpolicy="no-referrer"
+                                 class="w-12 h-16 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
+                                 loading="lazy"
+                                 onerror="window.handlePinImgError(this)">
+                          </td>`,
+                          titleHtml: `
+                          <td class="py-3 px-3 min-w-[260px]">
+                            <div class="flex flex-col min-w-0">
+                              <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-sm font-bold text-slate-900 dark:text-white truncate max-w-md" x-text="p.title"></span>
+                                <template x-if="p.is_vulnerable">
+                                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
+                                        title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
+                                    ⚡ Decaying Monopoly
+                                  </span>
+                                </template>
+                              </div>
+                              <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums mt-1 flex-wrap">
+                                <span x-text="'Pin #' + p.pin_id"></span>
+                                <template x-if="p.dominant_color && p.dominant_color.toLowerCase() !== '#888888' && p.dominant_color.toLowerCase() !== '#1e1e24'">
+                                  <span class="inline-flex items-center gap-1 text-[10px]">
+                                    <span>•</span>
+                                    <span class="w-2.5 h-2.5 rounded-full border border-slate-400/40 inline-block shadow-sm" :style="'background-color: ' + p.dominant_color"></span>
+                                    <span x-text="p.dominant_color"></span>
+                                  </span>
+                                </template>
+                                <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
+                                  <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
+                                        :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).join(', ')"
+                                        x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
+                                </template>
+                              </div>
+                              <!-- SERP Appearances Badges (Clickable with drilldown) -->
+                              <div class="flex items-center gap-1.5 flex-wrap mt-2">
+                                <template x-for="app in (p.serp_appearances || []).slice(0, 6)" :key="app.keyword_id">
+                                  <button @click="filterToKeyword(app.keyword_name)"
+                                          class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                          :title="'Drilldown to keyword monopoly for ' + app.keyword_name">
+                                    <span x-text="app.rank_position ? '#' + app.rank_position : (app.last_known_rank ? 'Vault #' + app.last_known_rank : 'Displaced')" class="font-bold"></span>
+                                    <span class="text-slate-500 dark:text-slate-400 truncate max-w-[150px]" x-text="app.keyword_name"></span>
+                                    <span class="text-[9px]">→</span>
+                                  </button>
+                                </template>
+                              </div>
+                            </div>
+                          </td>`,
+                          domainHtml: `
+                          <td class="py-3 px-3 font-mono tabular-nums text-xs">
+                            <template x-if="p.creator_username">
+                              <a :href="safeUrl('/accounts?creator=' + encodeURIComponent(p.creator_username.replace(/^@+/, '')))"
+                                 target="_blank"
+                                 class="text-purple-600 dark:text-purple-400 hover:underline truncate max-w-[140px] block"
+                                 :title="'Inspect creator @' + p.creator_username"
+                                 x-text="'@' + p.creator_username"></a>
+                            </template>
+                            <template x-if="!p.creator_username">
+                              <span class="text-slate-400">Unknown</span>
+                            </template>
+                          </td>`,
+                          savesHtml: `
+                          <td class="py-3 px-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400 text-xs"
+                              x-text="formatNumber(p.saves) + ' saves'"></td>`,
+                          ageHtml: `
+                          <td class="py-3 px-3 text-right font-mono tabular-nums text-xs">
+                            <template x-if="getPinAgeBadge(p.created_at_pinterest)">
+                              <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums inline-block"
+                                    :class="getPinAgeBadge(p.created_at_pinterest).class"
+                                    :title="getPinAgeBadge(p.created_at_pinterest).title"
+                                    x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
+                            </template>
+                            <template x-if="!getPinAgeBadge(p.created_at_pinterest)">
+                              <span class="text-slate-400">—</span>
+                            </template>
+                          </td>`,
+                          actionsHtml: `
+                          <td class="py-3 px-3 text-right">
+                            <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (activeFolderId ? '&folder_id=' + encodeURIComponent(activeFolderId) : '') + '&return_url=' + encodeURIComponent(activeFolderId ? ('/folders/' + activeFolderId + '/domains') : ('/domains/' + dossierDomain)))"
                                target="_blank"
-                               class="text-purple-600 dark:text-purple-400 hover:underline"
-                               :title="'Inspect creator @' + p.creator_username"
-                               x-text="'@' + p.creator_username"></a>
-                          </template>
-                          <template x-if="!p.creator_username">
-                            <span class="text-slate-400">Unknown</span>
-                          </template>
-                          <span class="text-slate-300 dark:text-slate-600">•</span>
-                          <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(p.saves) + ' saves'"></span>
-                          <template x-if="p.dominant_color && p.dominant_color.toLowerCase() !== '#888888' && p.dominant_color.toLowerCase() !== '#1e1e24'">
-                            <span class="inline-flex items-center gap-1 text-[10px]">
-                              <span>•</span>
-                              <span class="w-2.5 h-2.5 rounded-full border border-slate-400/40 inline-block shadow-sm" :style="'background-color: ' + p.dominant_color"></span>
-                              <span x-text="p.dominant_color"></span>
-                            </span>
-                          </template>
-                          <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
-                            <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
-                                  :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).join(', ')"
-                                  x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
-                          </template>
-                        </div>
-                        <!-- SERP Appearances Badges (Clickable with drilldown) -->
-                        <div class="flex items-center gap-1.5 flex-wrap mt-2">
-                          <template x-for="app in (p.serp_appearances || []).slice(0, 6)" :key="app.keyword_id">
-                            <button @click="filterToKeyword(app.keyword_name)"
-                                    class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
-                                    :title="'Drilldown to keyword monopoly for ' + app.keyword_name">
-                              <span x-text="app.rank_position ? '#' + app.rank_position : (app.last_known_rank ? 'Vault #' + app.last_known_rank : 'Displaced')" class="font-bold"></span>
-                              <span class="text-slate-500 dark:text-slate-400 truncate max-w-[150px]" x-text="app.keyword_name"></span>
-                              <span class="text-[9px]">→</span>
-                            </button>
-                          </template>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="flex items-center gap-2 shrink-0">
-                      <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (activeFolderId ? '&folder_id=' + encodeURIComponent(activeFolderId) : '') + '&return_url=' + encodeURIComponent(activeFolderId ? ('/folders/' + activeFolderId + '/domains') : ('/domains/' + dossierDomain)))"
-                         target="_blank"
-                         class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums">
-                        Inspect ↗
-                      </a>
-                    </div>
-                  </div>
-                </template>
+                               class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums inline-block">
+                              Inspect ↗
+                            </a>
+                          </td>`
+                        })}
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
                 <template x-if="filteredDossierPins().length === 0">
                   <div class="py-12 text-center text-slate-400 font-mono tabular-nums text-xs">No ranked pins matched your search or filters.</div>
                 </template>
