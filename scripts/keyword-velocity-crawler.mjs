@@ -1613,7 +1613,7 @@ async function run() {
             fatalSerpDbErr = err;
           }
         } finally {
-          // Failure-Immune Barrier Sync Guard: Always stamp updated_at & logical token so failure or incomplete crawl never blocks cluster barrier
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
           await sql`
             UPDATE tracked_keywords
             SET 

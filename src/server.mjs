@@ -700,10 +700,14 @@ export function createServer(customEnv = {}) {
 /**
  * Boots the Fastify HTTP server
  */
-export async function startServer(port = 3456, host = '0.0.0.0', customEnv = {}) {
+export async function startServer(
+  port = 3456,
+  host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
+  customEnv = {}
+) {
   const app = createFastifyApp(customEnv);
   await app.listen({ port: Number(port), host });
-  const boundHost = host === '0.0.0.0' ? 'localhost' : host;
+  const boundHost = (host === '0.0.0.0' || host === '::') ? 'localhost' : host;
   console.log(`[PAE Server] Running at http://${boundHost}:${port}`);
 
   // Layer 2: Ensure systemd ExecStartPre boot-sync hook is installed on InstaBox VPS (/data/app)
@@ -727,7 +731,7 @@ const isDirectExecution = process.argv[1] && (
 
 if (isDirectExecution) {
   const port = Number(process.env.PORT || 3000);
-  const host = process.env.HOST || '0.0.0.0';
+  const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
   startServer(port, host).catch(err => {
     console.error('[PAE Server] Fatal boot error:', err);
     process.exit(1);
