@@ -156,13 +156,15 @@ async function runPhase2Verification() {
     // Clear map to test warmup
     globalShardMap.clear();
 
+    const shardedEnv = { DATABASE_TOPOLOGY: 'sharded_neon' };
+
     // Concurrently trigger 5 warmup calls at the exact same moment
     await Promise.all([
-      warmGlobalShardMap(mockHubSql),
-      warmGlobalShardMap(mockHubSql),
-      warmGlobalShardMap(mockHubSql),
-      warmGlobalShardMap(mockHubSql),
-      warmGlobalShardMap(mockHubSql)
+      warmGlobalShardMap(mockHubSql, shardedEnv),
+      warmGlobalShardMap(mockHubSql, shardedEnv),
+      warmGlobalShardMap(mockHubSql, shardedEnv),
+      warmGlobalShardMap(mockHubSql, shardedEnv),
+      warmGlobalShardMap(mockHubSql, shardedEnv)
     ]);
 
     assert.strictEqual(mockHubQueries, 1, 'Singleflight must coalesce concurrent warmups into exactly 1 query');
@@ -179,7 +181,8 @@ async function runPhase2Verification() {
     };
 
     // Shard 1 is already in globalShardMap from previous test
-    const client = await resolveShardConnection({ hubSql: trackingSql, shardId: 1 });
+    const shardedEnv = { DATABASE_TOPOLOGY: 'sharded_neon' };
+    const client = await resolveShardConnection({ hubSql: trackingSql, shardId: 1, env: shardedEnv });
     assert(typeof client === 'function', 'Must resolve shard SQL client');
     assert.strictEqual(queryCalled, false, 'Cached shard resolution must make 0 SQL queries');
   });
