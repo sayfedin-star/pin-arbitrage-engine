@@ -132,17 +132,31 @@ async function main() {
       UPDATE competitor_history_snapshots chs
       SET
         monthly_reach = CASE
+          WHEN (chs.monthly_reach = 0 AND cp.monthly_reach > 0) THEN cp.monthly_reach
           WHEN chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001 THEN cp.monthly_reach
           ELSE chs.monthly_reach
         END,
         profile_views = CASE
+          WHEN (chs.profile_views = 0 AND cp.profile_views > 0) THEN cp.profile_views
           WHEN chs.profile_views = 10000001 AND cp.profile_views > 10000001 THEN cp.profile_views
           ELSE chs.profile_views
+        END,
+        total_pins = CASE
+          WHEN chs.total_pins = 0 AND cp.total_pins > 0 THEN cp.total_pins
+          ELSE chs.total_pins
+        END,
+        total_boards = CASE
+          WHEN chs.total_boards = 0 AND cp.total_boards > 0 THEN cp.total_boards
+          ELSE chs.total_boards
         END
       FROM competitor_profiles cp
       WHERE chs.competitor_id = cp.id
         AND (
-          (chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001)
+          (chs.monthly_reach = 0 AND cp.monthly_reach > 0)
+          OR (chs.profile_views = 0 AND cp.profile_views > 0)
+          OR (chs.total_pins = 0 AND cp.total_pins > 0)
+          OR (chs.total_boards = 0 AND cp.total_boards > 0)
+          OR (chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001)
           OR (chs.profile_views = 10000001 AND cp.profile_views > 10000001)
         );
     `;

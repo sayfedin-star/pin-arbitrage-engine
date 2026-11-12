@@ -827,11 +827,12 @@ export default {
       });
     }
 
-    if (method === 'GET' && pathname === '/api/settings/cookie') {
-      const cookie = env.PINTEREST_COOKIE || '';
+    if (method === 'GET' && pathname === '/api/settings/cookie' && !env?.DATABASE_URL && !env?.SQL_CLIENT && !(typeof process !== 'undefined' && process.env?.DATABASE_URL)) {
+      const cookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
       return jsonResponse({
         has_cookie: Boolean(cookie && cookie.trim().length > 10),
         is_configured: Boolean(cookie && cookie.trim().length > 10),
+        preview: cookie ? `${cookie.slice(0, 42)}...` : '',
         source: 'cloudflare_env'
       });
     }

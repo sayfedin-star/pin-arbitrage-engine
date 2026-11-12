@@ -8,9 +8,15 @@ export function formatPinterestCookie(rawCookie) {
   if (cookie.startsWith('"') && cookie.endsWith('"')) {
     cookie = cookie.slice(1, -1).trim();
   }
+  if (!cookie) return '';
   // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
   cookie = cookie.replace(/_auth="?[^;"]+"?;?\s*/g, '').trim();
-  if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
+  if (
+    !cookie.includes('=') ||
+    cookie.startsWith('TWc9') ||
+    cookie.startsWith('Mg==') ||
+    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
+  ) {
     return `_pinterest_sess="${cookie.replace(/"/g, '')}"; _auth=0;`;
   }
   cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');

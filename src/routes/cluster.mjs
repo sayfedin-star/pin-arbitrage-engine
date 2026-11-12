@@ -546,23 +546,43 @@ export async function handleClusterRoutes({
 
   // 12. GET /api/settings/cookie
   if (method === 'GET' && pathname === '/api/settings/cookie') {
-    const cookie = env.PINTEREST_COOKIE || '';
+    const { getEffectivePinterestCookie, DEFAULT_PINTEREST_SESSION_COOKIE } = await import('../modules/keywords/settings.mjs');
+    const envCookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
+    const effective = await getEffectivePinterestCookie(targetSql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
+    const hasCookie = Boolean(effective && effective.trim().length > 10);
     return jsonResponse({
-      has_cookie: Boolean(cookie && cookie.trim().length > 10),
-      is_configured: Boolean(cookie && cookie.trim().length > 10),
-      source: 'cloudflare_env'
+      has_cookie: hasCookie,
+      is_configured: hasCookie,
+      preview: hasCookie ? `${effective.slice(0, 42)}...` : '',
+      source: targetSql ? 'database_or_env' : 'cloudflare_env'
     });
   }
 
   // 13. POST /api/settings/cookie
   if (method === 'POST' && pathname === '/api/settings/cookie') {
+    const { savePinterestCookie } = await import('../modules/keywords/settings.mjs');
     const body = await request.json().catch(() => ({}));
-    const cookie = String(body.cookie || '').trim();
+    const rawCookie = String(body.cookie || '').trim();
+    const saved = await savePinterestCookie(targetSql, rawCookie).catch((err) => {
+      console.warn('[Cookie Save Warning]', err.message);
+      return {
+        raw: rawCookie,
+        formatted: rawCookie,
+        has_cookie: Boolean(rawCookie && rawCookie.length > 10),
+        preview: rawCookie ? `${rawCookie.slice(0, 42)}...` : ''
+      };
+    });
+    if (env && typeof env === 'object') {
+      env.PINTEREST_COOKIE = saved.formatted;
+    }
     return jsonResponse({
       success: true,
-      has_cookie: Boolean(cookie && cookie.length > 10),
-      is_configured: Boolean(cookie && cookie.length > 10),
-      note: 'For edge worker execution, add PINTEREST_COOKIE in Cloudflare Worker Secrets.'
+      has_cookie: saved.has_cookie,
+      is_configured: saved.has_cookie,
+      preview: saved.preview,
+      formatted_cookie: saved.formatted,
+      source: 'database',
+      note: 'Cookie persisted to PostgreSQL app_settings and activated for SERP & Competitor crawlers.'
     });
   }
 

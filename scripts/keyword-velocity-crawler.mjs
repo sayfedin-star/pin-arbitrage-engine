@@ -25,6 +25,7 @@ import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.m
 import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
+import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
 import {
   pinterestFetch,
@@ -2103,6 +2104,10 @@ async function run() {
     // PHASE 1A: Distributed Parallel SERP Ingestion (Barrier-Safe)
     // -------------------------------------------------------------------------
     if (enableSerpHarvest && mySerpKeywordIds.length > 0) {
+      const effectiveSerpCookie = await getEffectivePinterestCookie(sql, cookie);
+      if (effectiveSerpCookie) {
+        process.env.PINTEREST_COOKIE = effectiveSerpCookie;
+      }
       console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords...`);
       const serpSem = new Semaphore(2);
       let fatalSerpDbErr = null;
@@ -2113,7 +2118,7 @@ async function run() {
           const effectiveToken = crypto.randomUUID();
           try {
             const res = await crawlKeywordSERP(sql, kid, {
-              cookie,
+              cookie: effectiveSerpCookie,
               max_serp_pins: maxSerpPins,
               skip_top_enrich: true,
               skip_shard_offload: true,

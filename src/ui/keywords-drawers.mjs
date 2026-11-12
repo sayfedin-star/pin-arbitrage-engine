@@ -707,6 +707,34 @@ export function getKeywordDrawersAndModalsHtml() {
           </div>
         </details>
 
+        <!-- PART 4: Pinterest Session Cookie (Prevent e1_ Obfuscated Pin IDs) -->
+        <div class="space-y-3 p-4 rounded-2xl border border-amber-500/25 bg-amber-500/5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="key" class="w-4 h-4 text-amber-500"></i>
+              <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono tracking-wider">
+                4. Pinterest Session Cookie (PINTEREST_COOKIE)
+              </label>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border"
+                  :class="settingsPinterestCookie && settingsPinterestCookie.trim().length > 20 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'"
+                  x-text="settingsPinterestCookie && settingsPinterestCookie.trim().length > 20 ? 'Authenticated Session' : 'Default Session Active'"></span>
+          </div>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            Paste your raw <code class="font-mono text-amber-600 dark:text-amber-400">_pinterest_sess</code> token or full <code class="font-mono">Cookie:</code> header to prevent Pinterest from returning obfuscated <code class="font-mono text-rose-500">e1_</code> pin IDs during SERP search crawls. Stored persistently in PostgreSQL for both live UI and GitHub Actions 20-runner fleets.
+          </p>
+          <textarea x-model="settingsPinterestCookie" rows="3"
+                    placeholder="Paste raw _pinterest_sess value (TWc9PS...) or _auth=0; _pinterest_sess=&quot;...&quot;"
+                    class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-amber-500"></textarea>
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono text-slate-400" x-text="settingsPinterestCookie ? ('Length: ' + settingsPinterestCookie.trim().length + ' chars') : 'Using built-in authenticated fallback cookie'"></span>
+            <button type="button" @click="savePinterestCookieSetting()" :disabled="isSavingPinterestCookie"
+                    class="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-600 hover:bg-amber-500 text-white transition cursor-pointer disabled:opacity-50">
+              <span x-text="isSavingPinterestCookie ? 'Saving Cookie...' : 'Update Session Cookie'"></span>
+            </button>
+          </div>
+        </div>
+
         <!-- Footer Actions -->
         <div class="flex items-center justify-end space-x-2 pt-2">
           <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer">

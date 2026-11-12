@@ -65,6 +65,7 @@ import {
 import { formatPinterestCookie, sanitizeForJsonb } from '../src/utils.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
+import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
 // Setup optional Undici keep-alive agent
 let undiciAgent = null;
@@ -1140,7 +1141,8 @@ async function run() {
         console.warn(`[Phase 1A] Batch history baseline lookup warning:`, hErr.message);
       }
 
-      const formattedCookie = formatPinterestCookie(cookie);
+      const resolvedPulseCookie = await getEffectivePinterestCookie(sql, cookie);
+      const formattedCookie = formatPinterestCookie(resolvedPulseCookie);
       const PULSE_BATCH_SIZE = 100;
       let pulseBuffer = [];
 
@@ -1292,26 +1294,39 @@ async function run() {
           const res = await fetchUserResource(cleanUser, formattedCookie);
           if (!res?.ok) return;
 
-          const rawReach = Number(res.monthly_reach || 0);
-          const rawViews = Number(res.profile_views || 0);
-          const totalPins = Number(res.total_pins || 0);
-          const totalBoards = Number(res.total_boards || 0);
-          const followers = Number(res.follower_count || 0);
+          const rawReach = Number(res.monthly_reach ?? res.total_audience ?? 0);
+          const rawViews = Number(res.profile_views ?? res.monthly_views ?? 0);
+          const rawPins = Number(res.total_pins ?? res.pin_count ?? 0);
+          const rawBoards = Number(res.total_boards ?? res.board_count ?? 0);
+          const rawFollowers = Number(res.follower_count ?? 0);
           const avatarUrl = res.avatar_url || acc.avatar_url || null;
           const displayName = res.display_name || acc.display_name || cleanUser;
 
           const prevExistingReach = Number(acc.monthly_reach || 0);
           const prevExistingViews = Number(acc.profile_views || 0);
-          let monthlyReach = (rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach;
-          let profileViews = (rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews;
+          const prevExistingPins = Number(acc.total_pins || 0);
+          const prevExistingBoards = Number(acc.total_boards || 0);
+          const prevExistingFollowers = Number(acc.follower_count || 0);
+
+          let monthlyReach = rawReach <= 0
+            ? prevExistingReach
+            : ((rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach);
+          let profileViews = rawViews <= 0
+            ? prevExistingViews
+            : ((rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews);
+          const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
+          const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
+          const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
 
           const hist = historyMap.get(Number(acc.id)) || {};
           const prior24h = hist.prior24h || null;
           const baseline7d = hist.baseline7d || null;
 
           const priorReach = Number(prior24h?.monthly_reach || 0);
+          if (monthlyReach <= 0 && priorReach > 0) monthlyReach = priorReach;
           if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) monthlyReach = priorReach;
           const priorViews = Number(prior24h?.profile_views || 0);
+          if (profileViews <= 0 && priorViews > 0) profileViews = priorViews;
           if (rawViews === 10000001 && priorViews > 10000001 && profileViews <= 10000001) profileViews = priorViews;
 
           let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;

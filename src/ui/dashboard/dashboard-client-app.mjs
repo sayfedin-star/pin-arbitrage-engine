@@ -3521,14 +3521,18 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           try {
             const res = await fetch(this.getApiUrl('/api/settings/cookie'));
             if (res.ok) {
-              this.cookieStatus = await res.json();
+              const data = await res.json();
+              this.cookieStatus = data;
+              if (data.cookie && !this.cookieInput) {
+                this.cookieInput = data.cookie;
+              }
             }
           } catch (e) {}
         },
 
         async saveCookie() {
-          if (!this.cookieInput.trim()) {
-            alert('يرجى لصق الكوكيز أولاً.');
+          if (!this.cookieInput || !this.cookieInput.trim()) {
+            this.showToast('Please paste a valid Pinterest session cookie first.');
             return;
           }
           this.isSavingCookie = true;
@@ -3540,15 +3544,19 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
             });
             if (res.ok) {
               const data = await res.json();
-              this.cookieStatus = { has_cookie: data.has_cookie, preview: this.cookieInput.slice(0, 30) + '...' };
+              this.cookieStatus = {
+                has_cookie: data.has_cookie,
+                preview: data.preview || (this.cookieInput.slice(0, 30) + '...'),
+                cookie: data.cookie || this.cookieInput.trim()
+              };
               this.isCookieModalOpen = false;
-              this.showToast('✅ تم حفظ وتفعيل كوكيز بينترست بنجاح!');
+              this.showToast('Pinterest session cookie saved and activated across all crawlers!');
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('فشل حفظ الكوكيز: ' + (err.error || err.message || 'HTTP ' + res.status));
+              this.showToast('Failed to save cookie: ' + (err.error || err.message || 'HTTP ' + res.status));
             }
           } catch (err) {
-            alert('حدث خطأ أثناء حفظ الكوكيز: ' + err.message);
+            this.showToast('Error saving cookie: ' + err.message);
           } finally {
             this.isSavingCookie = false;
           }

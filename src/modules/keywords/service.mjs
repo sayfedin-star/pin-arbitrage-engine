@@ -568,14 +568,20 @@ export {
   updateAppSettings,
   updateKeywordSettings,
   addKeyword,
-  resolveKeywordBySlug
+  resolveKeywordBySlug,
+  getEffectivePinterestCookie,
+  savePinterestCookie,
+  DEFAULT_PINTEREST_SESSION_COOKIE
 } from './settings.mjs';
 import {
   getAppSettings,
   updateAppSettings,
   updateKeywordSettings,
   addKeyword,
-  resolveKeywordBySlug
+  resolveKeywordBySlug,
+  getEffectivePinterestCookie,
+  savePinterestCookie,
+  DEFAULT_PINTEREST_SESSION_COOKIE
 } from './settings.mjs';
 
 // Modular Predictive Autocomplete & Typeahead
@@ -978,11 +984,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Replenishment Guard: Dynamic maxPages ensures excluded ads/boards/tombstone never starve targetCount
     const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 12)));
 
-    // Resolve Filtration Exceptions from options -> app_settings -> default true
+    // Resolve Filtration Exceptions & Persistent Cookie from options -> app_settings -> default
     const appSettings = await getAppSettings(sql);
     const excludePromoted = options.exclude_promoted ?? appSettings.exclude_promoted ?? true;
     const excludeBoardsAndSuggestions = options.exclude_boards_and_suggestions ?? appSettings.exclude_boards_and_suggestions ?? true;
     const excludeIgnoredPins = options.exclude_ignored_pins ?? appSettings.exclude_ignored_pins ?? true;
+
+    cookie = formatPinterestCookie(
+      cookie || appSettings.pinterest_cookie || await getEffectivePinterestCookie(sql, cookie)
+    );
 
     // Phase 2 Tombstone Architecture: Pre-fetch Ignored Pins Registry to accurately gate paging quota
     const ignoredPinRows = await sql`
@@ -1060,21 +1070,37 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           break;
         }
 
-        const data = await res.json();
-        if (page === 1) {
-          rawGuides = data?.resource_response?.data?.rankedGuides || [];
-        }
-
-        const pageItems = data?.resource_response?.data?.results || [];
-        if (pageItems.length === 0) break;
-        rawResults = rawResults.concat(pageItems);
+        let data = await res.json();
+        let pageItems = data?.resource_response?.data?.results || [];
 
         if (page === 1 && pageItems.length > 0) {
           const hasObfuscated = pageItems.some(it => String(it?.id || '').startsWith('e1_'));
           if (hasObfuscated) {
-            console.warn(`[BaseSearchResource] WARNING: Pinterest returned encrypted e1_ pin IDs for query "${query}". Your PINTEREST_COOKIE may be expired, invalid, or missing.`);
+            const fallbackCookie = formatPinterestCookie(DEFAULT_PINTEREST_SESSION_COOKIE);
+            if (fallbackCookie && headers['Cookie'] !== fallbackCookie) {
+              console.warn(`[BaseSearchResource] Encrypted e1_ pin IDs detected on page 1 for "${query}" — retrying with fallback authenticated session cookie...`);
+              headers['Cookie'] = fallbackCookie;
+              cookie = fallbackCookie;
+              const retryRes = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+              if (retryRes.ok) {
+                const retryData = await retryRes.json();
+                const retryItems = retryData?.resource_response?.data?.results || [];
+                if (retryItems.length > 0 && !retryItems.some(it => String(it?.id || '').startsWith('e1_'))) {
+                  data = retryData;
+                  pageItems = retryItems;
+                }
+              }
+            } else {
+              console.warn(`[BaseSearchResource] WARNING: Pinterest returned encrypted e1_ pin IDs for query "${query}". Your PINTEREST_COOKIE may be expired, invalid, or missing.`);
+            }
           }
         }
+
+        if (page === 1) {
+          rawGuides = data?.resource_response?.data?.rankedGuides || [];
+        }
+        if (pageItems.length === 0) break;
+        rawResults = rawResults.concat(pageItems);
 
         for (const it of pageItems) {
           if (!it || it.type !== 'pin') continue;
@@ -2115,6 +2141,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       // 2. Dynamic SERP Guard: Move displaced pins into slim keyword_displaced_index & delete from keyword_serp_current
       const pinIds = preparedPins.map(p => p.pin_id);
+      const hasNumericPins = pinIds.some(id => /^\d+$/.test(String(id)));
+      if (hasNumericPins) {
+        // Purge any stale encrypted e1_ pin rows from unauthenticated crawls so they never pollute SERP or Displaced Vault
+        txBatch.push((db) => db`
+          DELETE FROM keyword_serp_current
+          WHERE keyword_id = ${kid}
+            AND pin_id LIKE 'e1_%';
+        `);
+        txBatch.push((db) => db`
+          DELETE FROM keyword_displaced_index
+          WHERE keyword_id = ${kid}
+            AND pin_id LIKE 'e1_%';
+        `);
+      }
+
       const shouldApplyDisplacement = !isSuspectedIncompleteCrawl && pinIds.length >= minRequiredForEviction;
 
       if (shouldApplyDisplacement) {

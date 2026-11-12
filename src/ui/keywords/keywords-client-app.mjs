@@ -174,6 +174,8 @@ export function getKeywordsClientAppScript() {
         settingsExcludeIgnoredPins: true,
         settingsMaxPinAgeDays: 30,
         settingsMinVelocity: 1.5,
+        settingsPinterestCookie: '',
+        isSavingPinterestCookie: false,
         settingsApplyGlobal: true,
         settingsLoading: false,
         appSettings: {
@@ -188,7 +190,8 @@ export function getKeywordsClientAppScript() {
           exclude_boards_and_suggestions: true,
           exclude_ignored_pins: true,
           breakout_max_pin_age_days: 30,
-          breakout_min_velocity: 1.5
+          breakout_min_velocity: 1.5,
+          pinterest_cookie: ''
         },
 
         // UI Tabs & State
@@ -1967,6 +1970,9 @@ export function getKeywordsClientAppScript() {
                 this.settingsExcludeIgnoredPins = data.settings.exclude_ignored_pins !== undefined ? Boolean(data.settings.exclude_ignored_pins) : true;
                 this.settingsMaxPinAgeDays = Number(data.settings.breakout_max_pin_age_days || data.settings.breakout_rules?.max_pin_age_days || 30);
                 this.settingsMinVelocity = Number(data.settings.breakout_min_velocity || data.settings.breakout_rules?.min_daily_save_velocity || 1.5);
+                if (data.settings.pinterest_cookie) {
+                  this.settingsPinterestCookie = String(data.settings.pinterest_cookie);
+                }
               }
             }
           } catch (e) {
@@ -2001,8 +2007,34 @@ export function getKeywordsClientAppScript() {
           this.settingsExcludeIgnoredPins = this.appSettings.exclude_ignored_pins !== undefined ? Boolean(this.appSettings.exclude_ignored_pins) : true;
           this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
           this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
+          this.settingsPinterestCookie = String(this.appSettings.pinterest_cookie || this.settingsPinterestCookie || '');
           this.isSettingsModalOpen = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async savePinterestCookieSetting() {
+          if (!this.settingsPinterestCookie || !this.settingsPinterestCookie.trim()) {
+            this.showToast('Please paste a valid Pinterest cookie or _pinterest_sess token first.', 'warning');
+            return;
+          }
+          this.isSavingPinterestCookie = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings/cookie'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cookie: this.settingsPinterestCookie.trim() })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) {
+              throw new Error(data.error || data.message || 'Failed to save Pinterest cookie');
+            }
+            this.appSettings.pinterest_cookie = data.cookie || this.settingsPinterestCookie.trim();
+            this.showToast('Pinterest session cookie saved & activated across all crawlers!', 'success');
+          } catch (err) {
+            this.showToast('Error saving cookie: ' + err.message, 'error');
+          } finally {
+            this.isSavingPinterestCookie = false;
+          }
         },
 
         async saveSettings() {
@@ -2025,7 +2057,8 @@ export function getKeywordsClientAppScript() {
                 breakout_rules: {
                   max_pin_age_days: this.settingsMaxPinAgeDays,
                   min_daily_save_velocity: this.settingsMinVelocity
-                }
+                },
+                pinterest_cookie: (this.settingsPinterestCookie || '').trim() || undefined
               };
               const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings'), {
                 method: 'POST',

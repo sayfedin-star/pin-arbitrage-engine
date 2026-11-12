@@ -900,6 +900,31 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                 </label>
               </div>
+
+              <!-- Global Pinterest Session Cookie (PINTEREST_COOKIE) -->
+              <div class="p-4 rounded-xl border border-amber-500/25 bg-amber-500/5 space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>🔑 Pinterest Session Cookie (PINTEREST_COOKIE)</span>
+                  </div>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border"
+                        :class="pinterestCookieStatus?.has_cookie ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'"
+                        x-text="pinterestCookieStatus?.has_cookie ? 'Authenticated' : 'Guest Mode'"></span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Paste your raw <code class="font-mono text-amber-600 dark:text-amber-400">_pinterest_sess</code> value or full cookie string to authenticate SERP search crawls and eliminate <code class="font-mono text-rose-500">e1_</code> encrypted pin IDs.
+                </p>
+                <textarea x-model="pinterestCookieInput" rows="3"
+                          placeholder="Paste raw _pinterest_sess token (TWc9PS...) or _auth=0; _pinterest_sess=&quot;...&quot;"
+                          class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-amber-500"></textarea>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[10px] font-mono text-slate-400" x-text="pinterestCookieStatus?.preview ? ('Active: ' + pinterestCookieStatus.preview) : 'Ready'"></span>
+                  <button type="button" @click="savePinterestCookie()" :disabled="isSavingCookie"
+                          class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition cursor-pointer disabled:opacity-50">
+                    <span x-text="isSavingCookie ? 'Saving...' : 'Save & Activate Cookie'"></span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- Right: Quotas & Smart Bulk Pin Pruning -->

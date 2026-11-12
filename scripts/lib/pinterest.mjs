@@ -1042,19 +1042,39 @@ export async function fetchUserProfileUnauth(username, options = {}) {
       return { ok: false, error: 'user_not_found', status: 404 };
     }
 
+    const monthlyViews = parseCleanMetric(userData.profile_views ?? userData.monthly_views ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const monthlyReach = parseCleanMetric(userData.profile_reach ?? userData.monthly_reach ?? userData.reach ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const followerCount = parseCleanMetric(userData.follower_count ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const followingCount = parseCleanMetric(userData.following_count ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const pinCount = parseCleanMetric(userData.pin_count ?? userData.total_pins ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const boardCount = parseCleanMetric(userData.board_count ?? userData.total_boards ?? initialBoards.length, 0, { preserveCeiling: true, cap: 0 });
+
     return {
       ok: true,
       username: cleanUser,
       display_name: userData.full_name || cleanUser,
       avatar_url: userData.image_xlarge_url || userData.image_large_url || userData.image_medium_url || null,
       bio: userData.about || '',
-      website_url: userData.website_url || null,
-      monthly_views: parseCleanMetric(userData.profile_views || 0),
-      total_audience: parseCleanMetric(userData.monthly_reach || 0),
-      follower_count: parseCleanMetric(userData.follower_count || 0),
-      following_count: parseCleanMetric(userData.following_count || 0),
-      pin_count: parseCleanMetric(userData.pin_count || 0),
-      board_count: parseCleanMetric(userData.board_count || initialBoards.length),
+      website_url: userData.website_url || userData.domain_url || null,
+      monthly_views: monthlyViews,
+      profile_views: monthlyViews,
+      total_audience: monthlyReach,
+      monthly_reach: monthlyReach,
+      follower_count: followerCount,
+      following_count: followingCount,
+      pin_count: pinCount,
+      total_pins: pinCount,
+      board_count: boardCount,
+      total_boards: boardCount,
+      account_created_at: userData.created_at || null,
+      last_pin_save_time: userData.last_pin_save_time || null,
+      pinterest_id: userData.id ? String(userData.id) : null,
+      group_board_count: userData.group_board_count !== undefined ? parseCleanMetric(userData.group_board_count, 0) : undefined,
+      domain_verified: userData.domain_verified !== undefined ? Boolean(userData.domain_verified) : undefined,
+      is_verified_merchant: userData.is_verified_merchant !== undefined ? Boolean(userData.is_verified_merchant) : undefined,
+      has_catalog: userData.has_catalog !== undefined ? Boolean(userData.has_catalog) : undefined,
+      video_pin_count: userData.video_pin_count !== undefined ? parseCleanMetric(userData.video_pin_count, 0) : undefined,
+      story_pin_count: userData.story_pin_count !== undefined ? parseCleanMetric(userData.story_pin_count, 0) : undefined,
       initial_boards: initialBoards
     };
   } catch (err) {
@@ -1099,19 +1119,39 @@ export async function fetchUserResource(username, activeCookie = '', options = {
       return { ok: false, error: 'no_data' };
     }
 
+    const monthlyViews = parseCleanMetric(data.profile_views ?? data.monthly_views ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const monthlyReach = parseCleanMetric(data.profile_reach ?? data.monthly_reach ?? data.reach ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const followerCount = parseCleanMetric(data.follower_count ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const followingCount = parseCleanMetric(data.following_count ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const pinCount = parseCleanMetric(data.pin_count ?? data.total_pins ?? 0, 0, { preserveCeiling: true, cap: 0 });
+    const boardCount = parseCleanMetric(data.board_count ?? data.total_boards ?? 0, 0, { preserveCeiling: true, cap: 0 });
+
     return {
       ok: true,
       username: cleanUser,
       display_name: data.full_name || cleanUser,
-      avatar_url: data.image_large_url || data.image_medium_url || null,
+      avatar_url: data.image_xlarge_url || data.image_large_url || data.image_medium_url || null,
       bio: data.about || '',
-      website_url: data.website_url || null,
-      monthly_views: parseCleanMetric(data.profile_views || 0),
-      total_audience: parseCleanMetric(data.monthly_reach || 0),
-      follower_count: parseCleanMetric(data.follower_count || 0),
-      following_count: parseCleanMetric(data.following_count || 0),
-      pin_count: parseCleanMetric(data.pin_count || 0),
-      board_count: parseCleanMetric(data.board_count || 0)
+      website_url: data.website_url || data.domain_url || null,
+      monthly_views: monthlyViews,
+      profile_views: monthlyViews,
+      total_audience: monthlyReach,
+      monthly_reach: monthlyReach,
+      follower_count: followerCount,
+      following_count: followingCount,
+      pin_count: pinCount,
+      total_pins: pinCount,
+      board_count: boardCount,
+      total_boards: boardCount,
+      account_created_at: data.created_at || null,
+      last_pin_save_time: data.last_pin_save_time || null,
+      pinterest_id: data.id ? String(data.id) : null,
+      group_board_count: data.group_board_count !== undefined ? parseCleanMetric(data.group_board_count, 0) : undefined,
+      domain_verified: data.domain_verified !== undefined ? Boolean(data.domain_verified) : undefined,
+      is_verified_merchant: data.is_verified_merchant !== undefined ? Boolean(data.is_verified_merchant) : undefined,
+      has_catalog: data.has_catalog !== undefined ? Boolean(data.has_catalog) : undefined,
+      video_pin_count: data.video_pin_count !== undefined ? parseCleanMetric(data.video_pin_count, 0) : undefined,
+      story_pin_count: data.story_pin_count !== undefined ? parseCleanMetric(data.story_pin_count, 0) : undefined
     };
   } catch (err) {
     const unauthRes = await fetchUserProfileUnauth(cleanUser);

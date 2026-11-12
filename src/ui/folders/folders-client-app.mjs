@@ -38,6 +38,9 @@ export function getFoldersClientAppScript() {
         selectedTimeWindow: '24h',
         pruningLoading: false,
         prunePreviewResult: null,
+        pinterestCookieInput: '',
+        pinterestCookieStatus: { has_cookie: true, preview: '' },
+        isSavingCookie: false,
         pruneForm: {
           scope: 'displaced',
           min_pin_age_days: 30,
@@ -990,6 +993,7 @@ export function getFoldersClientAppScript() {
           }
 
           // Unnecessary 30s Crossover fetch bypassed when in settings room
+          this.fetchPinterestCookieStatus().catch(() => {});
           if (this.currentRoom === 'settings') {
             this.crossoverLoading = false;
             return;
@@ -1096,7 +1100,50 @@ export function getFoldersClientAppScript() {
         openFolderSettingsModal() {
           if (!this.activeFolder) return;
           this.syncFolderSettingsFromActive();
+          this.fetchPinterestCookieStatus().catch(() => {});
           this.isSettingsModalOpen = true;
+        },
+
+        async fetchPinterestCookieStatus() {
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/settings/cookie');
+            if (res.ok) {
+              const data = await res.json();
+              this.pinterestCookieStatus = data;
+              if (data.cookie && !this.pinterestCookieInput) {
+                this.pinterestCookieInput = data.cookie;
+              }
+            }
+          } catch (_) {}
+        },
+
+        async savePinterestCookie() {
+          if (!this.pinterestCookieInput || !this.pinterestCookieInput.trim()) {
+            this.showToast('Please paste a Pinterest session cookie first', 'warning');
+            return;
+          }
+          this.isSavingCookie = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/settings/cookie', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cookie: this.pinterestCookieInput.trim() })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              this.pinterestCookieStatus = {
+                has_cookie: data.has_cookie,
+                preview: data.preview || (this.pinterestCookieInput.trim().slice(0, 32) + '...')
+              };
+              this.showToast('Pinterest session cookie saved & activated across all crawlers!', 'success');
+            } else {
+              this.showToast(data.error || data.message || 'Failed to save cookie', 'error');
+            }
+          } catch (err) {
+            this.showToast('Error saving cookie: ' + err.message, 'error');
+          } finally {
+            this.isSavingCookie = false;
+          }
         },
 
         async saveFolderSettings(andLaunchAudit = false) {

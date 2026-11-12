@@ -28,11 +28,26 @@ export function sanitizeGuestCookie(rawCookie) {
     return '';
   }
   let cookie = rawCookie.trim();
+  if (cookie.startsWith('"') && cookie.endsWith('"')) {
+    cookie = cookie.slice(1, -1).trim();
+  }
   if (!cookie) return '';
+
+  // Support raw _pinterest_sess token values (e.g. TWc9PS... or Mg==... without key=value format)
+  if (
+    !cookie.includes('=') ||
+    cookie.startsWith('TWc9') ||
+    cookie.startsWith('Mg==') ||
+    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
+  ) {
+    const cleanToken = cookie.replace(/"/g, '').trim();
+    return `_auth=0; _pinterest_sess="${cleanToken}"`;
+  }
 
   // [INVARIANT: STRICT-GUEST-SCRAPING]
   // Never allow _auth=1 (logged-in session). Strip any _auth key and enforce _auth=0.
   cookie = cookie.replace(/_auth\s*=\s*"?1"?;?\s*/gi, '').trim();
+  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
   if (!/_auth\s*=\s*"?0"?/i.test(cookie)) {
     cookie = `_auth=0; ${cookie}`.trim();
   }

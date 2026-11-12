@@ -20,6 +20,7 @@ import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUs
 import crypto from 'node:crypto';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectoryFromShard, fetchUniversalPinDossier } from '../sharding/fleet-router.mjs';
 import { insertNewPinsBatch } from '../pins/repository.mjs';
+import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
 
 /**
  * Deterministic Synthetic Board ID Generator
@@ -330,7 +331,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     existingProfile?.metadata?.profile_pulse_only === true
   );
 
-  const formattedCookie = formatPinterestCookie(cookie);
+  const resolvedCookie = cookie || await getEffectivePinterestCookie(sql, cookie);
+  const formattedCookie = formatPinterestCookie(resolvedCookie);
   const res = await fetchUserResource(cleanUsername, formattedCookie);
   if (!res.ok) {
     if (res.status === 404) {
@@ -343,21 +345,31 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     throw new Error(`Pinterest API returned error for @${cleanUsername}: ${res.error || res.status}`);
   }
 
-  const rawReach = Number(res.monthly_reach || 0);
-  const rawViews = Number(res.profile_views || 0);
-  const totalPins = Number(res.total_pins || 0);
-  const totalBoards = Number(res.total_boards || 0);
-  const followers = Number(res.follower_count || 0);
-  const avatarUrl = res.avatar_url || null;
-  const displayName = res.display_name || cleanUsername;
+  const rawReach = Number(res.monthly_reach ?? res.total_audience ?? 0);
+  const rawViews = Number(res.profile_views ?? res.monthly_views ?? 0);
+  const rawPins = Number(res.total_pins ?? res.pin_count ?? 0);
+  const rawBoards = Number(res.total_boards ?? res.board_count ?? 0);
+  const rawFollowers = Number(res.follower_count ?? 0);
+  const avatarUrl = res.avatar_url || existingProfile?.avatar_url || null;
+  const displayName = res.display_name || existingProfile?.display_name || cleanUsername;
 
-  // [INVARIANT: PINTEREST-10M-CEILING-GUARD]
-  // Pinterest unauthenticated profile scraping caps reach/views at 10,000,001 (representing 10M+).
-  // Retain higher authentic historical values and prevent bogus -10.1M delta spikes.
+  // [INVARIANT: PINTEREST-10M-CEILING-GUARD & ZERO-DROP-SHIELD]
+  // Never overwrite positive historical metrics with transient 0 values or unauthenticated 10,000,001 caps.
   const prevExistingReach = Number(existingProfile?.monthly_reach || 0);
   const prevExistingViews = Number(existingProfile?.profile_views || 0);
-  let monthlyReach = (rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach;
-  let profileViews = (rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews;
+  const prevExistingPins = Number(existingProfile?.total_pins || 0);
+  const prevExistingBoards = Number(existingProfile?.total_boards || 0);
+  const prevExistingFollowers = Number(existingProfile?.follower_count || 0);
+
+  let monthlyReach = rawReach <= 0
+    ? prevExistingReach
+    : ((rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach);
+  let profileViews = rawViews <= 0
+    ? prevExistingViews
+    : ((rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews);
+  const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
+  const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
+  const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
 
   // [INVARIANT: LIGHTWEIGHT-CREATOR-PULSE]
   // 1. Query prior 24h snapshot and 7d baseline in 1 single roundtrip via CTE
@@ -632,6 +644,18 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         OR competitor_history_snapshots.total_pins IS DISTINCT FROM EXCLUDED.total_pins
         OR competitor_history_snapshots.total_boards IS DISTINCT FROM EXCLUDED.total_boards;
     `;
+
+    // Self-heal any corrupted 0-metric historical snapshots for this competitor
+    await sql`
+      UPDATE competitor_history_snapshots
+      SET
+        monthly_reach = CASE WHEN monthly_reach = 0 AND ${Number(updated.monthly_reach || monthlyReach || 0)} > 0 THEN ${Number(updated.monthly_reach || monthlyReach || 0)} ELSE monthly_reach END,
+        profile_views = CASE WHEN profile_views = 0 AND ${Number(updated.profile_views || profileViews || 0)} > 0 THEN ${Number(updated.profile_views || profileViews || 0)} ELSE profile_views END,
+        total_pins = CASE WHEN total_pins = 0 AND ${Number(updated.total_pins || totalPins || 0)} > 0 THEN ${Number(updated.total_pins || totalPins || 0)} ELSE total_pins END,
+        total_boards = CASE WHEN total_boards = 0 AND ${Number(updated.total_boards || totalBoards || 0)} > 0 THEN ${Number(updated.total_boards || totalBoards || 0)} ELSE total_boards END
+      WHERE competitor_id = ${updated.id}
+        AND (monthly_reach = 0 OR profile_views = 0 OR total_pins = 0);
+    `.catch(() => {});
 
     // Atomic batch upsert for initial boards via jsonb_to_recordset (1 single roundtrip instead of N queries)
     // Strictly skipped when pulse_only is active
@@ -1773,23 +1797,47 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     } catch (_) {}
   }
 
-  // Monotonic 10M+ ceiling guard for snapshots so unauthenticated 10,000,001 dips never corrupt trajectory charts or deltas
+  // Monotonic 10M+ ceiling & Zero-Drop guard for snapshots so unauthenticated 10,000,001 or transient 0 dips never corrupt trajectory charts or deltas
   const profReach = Number(profile.monthly_reach || 0);
   const profViews = Number(profile.profile_views || 0);
+  const profPins = Number(profile.total_pins || 0);
+  const profBoards = Number(profile.total_boards || 0);
   let runningMaxReach = profReach > 10000001 ? profReach : 0;
   let runningMaxViews = profViews > 10000001 ? profViews : 0;
+  let lastValidReach = profReach > 0 ? profReach : 0;
+  let lastValidViews = profViews > 0 ? profViews : 0;
+  let lastValidPins = profPins > 0 ? profPins : 0;
+  let lastValidBoards = profBoards > 0 ? profBoards : 0;
   for (const snap of (snapshots || [])) {
     const r = Number(snap.monthly_reach || 0);
     const v = Number(snap.profile_views || 0);
-    if (r === 10000001 && runningMaxReach > 10000001) {
+    const p = Number(snap.total_pins || 0);
+    const b = Number(snap.total_boards || 0);
+    if (r <= 0 && lastValidReach > 0) {
+      snap.monthly_reach = lastValidReach;
+    } else if (r === 10000001 && runningMaxReach > 10000001) {
       snap.monthly_reach = runningMaxReach;
-    } else if (r > runningMaxReach) {
-      runningMaxReach = r;
+    } else if (r > 0) {
+      lastValidReach = r;
+      if (r > runningMaxReach) runningMaxReach = r;
     }
-    if (v === 10000001 && runningMaxViews > 10000001) {
+    if (v <= 0 && lastValidViews > 0) {
+      snap.profile_views = lastValidViews;
+    } else if (v === 10000001 && runningMaxViews > 10000001) {
       snap.profile_views = runningMaxViews;
-    } else if (v > runningMaxViews) {
-      runningMaxViews = v;
+    } else if (v > 0) {
+      lastValidViews = v;
+      if (v > runningMaxViews) runningMaxViews = v;
+    }
+    if (p <= 0 && lastValidPins > 0) {
+      snap.total_pins = lastValidPins;
+    } else if (p > 0) {
+      lastValidPins = p;
+    }
+    if (b <= 0 && lastValidBoards > 0) {
+      snap.total_boards = lastValidBoards;
+    } else if (b > 0) {
+      lastValidBoards = b;
     }
   }
   if (Number(profile.monthly_reach || 0) === 10000001 && runningMaxReach > 10000001) {
