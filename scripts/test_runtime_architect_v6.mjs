@@ -169,16 +169,25 @@ async function runTests() {
     assert(shieldCode.includes('if (vpsAwake) {'), 'Must check if vps is awake');
   });
 
-  console.log('\n[AXIS 5] CI/CD Workflow Auto-Deploy to InstaBox VPS (/data/app)');
+  console.log('\n[AXIS 5] CI/CD Workflow Auto-Deploy & 3-Layer Wakeup to InstaBox VPS (/data/app)');
   const ciCode = fs.readFileSync(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8');
 
   test('ci.yml contains auto-deploy step targeting /data/app', () => {
     assert(ciCode.includes('/data/app'), 'Must target /data/app');
   });
 
-  test('ci.yml targets InstaBox machine m_agq2t32m5xv5joj67rqoze5h4u via Exec API', () => {
+  test('ci.yml targets InstaBox machine m_agq2t32m5xv5joj67rqoze5h4u via Exec API and Operation Long-Polling', () => {
     assert(ciCode.includes('m_agq2t32m5xv5joj67rqoze5h4u'), 'Must target correct machine ID');
     assert(ciCode.includes('api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec'), 'Must use InstaBox Exec API');
+    assert(ciCode.includes('api.instabox.sh/v1/operations/${OP_ID}?wait=25s'), 'Must long-poll InstaBox Operation endpoint');
+    assert(ciCode.includes('instabox-boot-sync.sh --install-hook'), 'Must install Layer 2 boot-sync hook');
+    assert(ciCode.includes('/api/internal/self-update'), 'Must include Layer 3 self-update webhook fallback');
+  });
+
+  test('scripts/instabox-boot-sync.sh exists and POST /api/internal/self-update route is registered', () => {
+    assert(fs.existsSync(path.join(rootDir, 'scripts/instabox-boot-sync.sh')), 'instabox-boot-sync.sh must exist');
+    const selfUpdateRoute = declarativeRoutes.find(r => r.method === 'POST' && r.path === '/api/internal/self-update');
+    assert(selfUpdateRoute, 'POST /api/internal/self-update must be registered');
   });
 
   console.log('\n================================================================================');

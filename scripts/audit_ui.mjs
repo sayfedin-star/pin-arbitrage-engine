@@ -32,6 +32,22 @@ console.log('=============================================================');
 console.log('🔍 Pin Arbitrage Engine - Automated UI & Pipeline Security Audit');
 console.log('=============================================================\n');
 
+function readUiBundle(relFile) {
+  const filePath = path.join(rootDir, relFile);
+  if (!fs.existsSync(filePath)) return '';
+  const baseDir = path.dirname(filePath);
+  let combined = fs.readFileSync(filePath, 'utf8');
+  const importRegex = /from\s+['"](\.\/ui\/[^'"]+)['"]/g;
+  let match;
+  while ((match = importRegex.exec(combined)) !== null) {
+    const subPath = path.resolve(baseDir, match[1]);
+    if (fs.existsSync(subPath)) {
+      combined += '\n' + fs.readFileSync(subPath, 'utf8');
+    }
+  }
+  return combined;
+}
+
 // --------------------------------------------------------------------------
 // 1. Asset Pinning & CDN Integrity (CAP-48)
 // --------------------------------------------------------------------------
@@ -51,7 +67,7 @@ for (const file of uiFiles) {
     check(`File exists: ${file}`, false, 'File not found');
     continue;
   }
-  const content = fs.readFileSync(filePath, 'utf8');
+  const content = readUiBundle(file);
 
   check(`${file}: Alpine.js pinned to 3.14.8`, content.includes('alpinejs@3.14.8'), 'Must pin to 3.14.8');
   check(`${file}: No unpinned alpinejs@3.x.x`, !content.includes('alpinejs@3.x.x'), 'Unpinned 3.x.x found');
@@ -70,7 +86,7 @@ console.log('\n[*] Auditing Dynamic URL Bindings (safeUrl Defense)...');
 for (const file of uiFiles) {
   const filePath = path.join(rootDir, file);
   if (!fs.existsSync(filePath)) continue;
-  const content = fs.readFileSync(filePath, 'utf8');
+  const content = readUiBundle(file);
 
   // Check for raw un-sanitized :href bindings to destination_url, sample_url, creator_url
   const dangerousPatterns = [
@@ -89,7 +105,7 @@ for (const file of uiFiles) {
 // Verify safeUrl implementation in relevant templates
 const safeUrlFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/pin-details-ui.mjs', 'src/domains-ui.mjs'];
 for (const file of safeUrlFiles) {
-  const content = fs.readFileSync(path.join(rootDir, file), 'utf8');
+  const content = readUiBundle(file);
   check(`${file}: Declares safeUrl method`, content.includes('safeUrl(url)'), 'Must define safeUrl helper');
 }
 
@@ -99,7 +115,7 @@ for (const file of safeUrlFiles) {
 console.log('\n[*] Auditing CSV Formula Injection Protections...');
 const csvExportFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/campaign-folders-ui.mjs', 'src/domains-ui.mjs'];
 for (const file of csvExportFiles) {
-  const content = fs.readFileSync(path.join(rootDir, file), 'utf8');
+  const content = readUiBundle(file);
   check(`${file}: Declares sanitizeCsvCell method`, content.includes('sanitizeCsvCell(val)'), 'Must declare sanitizeCsvCell');
   check(`${file}: sanitizeCsvCell protects against '=', '+', '-', '@'`, 
     content.includes('61') && content.includes('43') && content.includes('45') && content.includes('64'),

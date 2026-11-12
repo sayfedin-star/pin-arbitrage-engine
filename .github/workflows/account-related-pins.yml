@@ -54,7 +54,7 @@ jobs:
           echo "======================================="
 
       - name: 4. Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
 
       - name: 4b. Setup InstaBox DB Tunnel
         uses: ./.github/actions/setup-instabox-db

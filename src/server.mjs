@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
@@ -135,13 +136,13 @@ export const serverBackgroundTaskQueue = new AsyncTaskQueue(4);
  */
 let cachedGitCommitSha = null;
 
-export function getGitCommitSha() {
-  if (cachedGitCommitSha) return cachedGitCommitSha;
-  if (process.env.COMMIT_SHA) {
+export function getGitCommitSha(forceRefresh = false) {
+  if (cachedGitCommitSha && !forceRefresh) return cachedGitCommitSha;
+  if (process.env.COMMIT_SHA && !forceRefresh) {
     cachedGitCommitSha = process.env.COMMIT_SHA.trim();
     return cachedGitCommitSha;
   }
-  if (process.env.GITHUB_SHA) {
+  if (process.env.GITHUB_SHA && !forceRefresh) {
     cachedGitCommitSha = process.env.GITHUB_SHA.trim();
     return cachedGitCommitSha;
   }
@@ -353,6 +354,76 @@ registerRoute('GET', '/api/internal/queue', async () => {
   });
 });
 
+// -------------------------------------------------------------
+// Declarative Endpoint: POST /api/internal/self-update
+// Authenticated Layer-3 Self-Update & Migration Webhook for InstaBox VM
+// -------------------------------------------------------------
+registerRoute('POST', '/api/internal/self-update', async ({ env = {}, webRequest }) => {
+  const secretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY) : '') || '';
+  const isTestOrDev = env.NODE_ENV === 'test' || env.ENVIRONMENT === 'test' || Boolean(globalThis.__PAE_TEST_MODE__);
+
+  const authHeader = webRequest.headers.get('authorization') || '';
+  const headerKey = webRequest.headers.get('x-api-key') || '';
+  let bearerToken = '';
+  if (authHeader.toLowerCase().startsWith('bearer ')) {
+    bearerToken = authHeader.slice(7).trim();
+  }
+  const token = headerKey.trim() || bearerToken;
+
+  if (!secretKey && !isTestOrDev) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'AUTH_NOT_CONFIGURED',
+      message: 'API_SECRET_KEY is not configured on server.'
+    }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (secretKey) {
+    const isMatch = token && timingSafeEqualStr(token, secretKey);
+    if (!isMatch) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'Unauthorized: Invalid self-update authentication token.'
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  const currentSha = getGitCommitSha(true);
+  serverBackgroundTaskQueue.add(async () => {
+    const scriptPath = path.resolve(process.cwd(), 'scripts/instabox-boot-sync.sh');
+    if (fs.existsSync(scriptPath)) {
+      await new Promise((resolve) => {
+        execFile('bash', [scriptPath, '--force'], { timeout: 120000 }, () => {
+          const updatedSha = getGitCommitSha(true);
+          if (updatedSha !== currentSha && fs.existsSync('/data/app/.git')) {
+            setTimeout(() => {
+              execFile('sudo', ['systemctl', 'restart', 'pae-server'], () => {});
+            }, 1000);
+          }
+          resolve();
+        });
+      });
+    }
+  });
+
+  return new Response(JSON.stringify({
+    success: true,
+    queued: true,
+    previous_commit: currentSha,
+    message: 'Self-update and migration check queued in background.'
+  }), {
+    status: 202,
+    headers: { 'Content-Type': 'application/json' }
+  });
+});
+
 /**
  * Creates and configures the native Fastify application instance.
  * Eliminates double Web-fetch bridge bottlenecks for declarative routes.
@@ -499,6 +570,64 @@ export function createFastifyApp(customEnv = {}) {
     });
   });
 
+  // 3b. Native Fastify POST /api/internal/self-update (Layer 3 Webhook Self-Sync)
+  app.post('/api/internal/self-update', async (request, reply) => {
+    const secretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY) : '') || '';
+    const isTestOrDev = env.NODE_ENV === 'test' || env.ENVIRONMENT === 'test' || Boolean(globalThis.__PAE_TEST_MODE__);
+
+    const authHeader = request.headers.authorization || '';
+    const headerKey = request.headers['x-api-key'] || '';
+    let bearerToken = '';
+    if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
+      bearerToken = authHeader.slice(7).trim();
+    }
+    const token = (typeof headerKey === 'string' ? headerKey.trim() : '') || bearerToken;
+
+    if (!secretKey && !isTestOrDev) {
+      return reply.code(503).header('Content-Type', 'application/json').send({
+        success: false,
+        error: 'AUTH_NOT_CONFIGURED',
+        message: 'API_SECRET_KEY is not configured on server.'
+      });
+    }
+
+    if (secretKey) {
+      const isMatch = token && timingSafeEqualStr(token, secretKey);
+      if (!isMatch) {
+        return reply.code(401).header('Content-Type', 'application/json').send({
+          success: false,
+          error: 'UNAUTHORIZED',
+          message: 'Unauthorized: Invalid self-update authentication token.'
+        });
+      }
+    }
+
+    const currentSha = getGitCommitSha(true);
+    serverBackgroundTaskQueue.add(async () => {
+      const scriptPath = path.resolve(process.cwd(), 'scripts/instabox-boot-sync.sh');
+      if (fs.existsSync(scriptPath)) {
+        await new Promise((resolve) => {
+          execFile('bash', [scriptPath, '--force'], { timeout: 120000 }, () => {
+            const updatedSha = getGitCommitSha(true);
+            if (updatedSha !== currentSha && fs.existsSync('/data/app/.git')) {
+              setTimeout(() => {
+                execFile('sudo', ['systemctl', 'restart', 'pae-server'], () => {});
+              }, 1000);
+            }
+            resolve();
+          });
+        });
+      }
+    });
+
+    return reply.code(202).header('Content-Type', 'application/json').send({
+      success: true,
+      queued: true,
+      previous_commit: currentSha,
+      message: 'Self-update and migration check queued in background.'
+    });
+  });
+
   // 4. Fallback Handler for Cloudflare Worker entrypoint & edge routes
   app.all('/*', async (request, reply) => {
     const host = request.headers.host || `127.0.0.1:${process.env.PORT || 3000}`;
@@ -576,6 +705,15 @@ export async function startServer(port = 3456, host = '0.0.0.0', customEnv = {})
   await app.listen({ port: Number(port), host });
   const boundHost = host === '0.0.0.0' ? 'localhost' : host;
   console.log(`[PAE Server] Running at http://${boundHost}:${port}`);
+
+  // Layer 2: Ensure systemd ExecStartPre boot-sync hook is installed on InstaBox VPS (/data/app)
+  if (fs.existsSync('/data/app/.git') && process.env.INSTABOX_BOOT_SYNC !== 'false') {
+    const bootSyncScript = '/data/app/scripts/instabox-boot-sync.sh';
+    if (fs.existsSync(bootSyncScript)) {
+      execFile('bash', [bootSyncScript, '--install-hook'], { timeout: 15000 }, () => {});
+    }
+  }
+
   const server = app.server;
   server.fastify = app;
   return server;

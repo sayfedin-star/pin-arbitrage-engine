@@ -30,7 +30,7 @@ jobs:
           cache: 'npm'
 
       - name: 3. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
 
       - name: 4. Run syntax & inline script checks
         run: npm run check
@@ -43,48 +43,106 @@ jobs:
         env:
           IB_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           IB_MACHINE_ID: 'm_agq2t32m5xv5joj67rqoze5h4u'
+          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
         run: |
+          echo "=== Layer 1: Triggering Cloudflare Wake-Shield Pulse (${APP_PUBLIC_URL}/api/health) ==="
+          curl -s --max-time 8 "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
+
           if [ -z "${IB_API_KEY}" ]; then
-            echo "⚠️ INSTABOX_API_KEY is not configured in repository secrets; skipping auto-deployment."
+            echo "⚠️ INSTABOX_API_KEY is not configured; falling back to Layer 2 (Wake-Shield Boot-Sync) & Layer 3 (Self-Update Webhook)..."
+            for i in $(seq 1 12); do
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${APP_PUBLIC_URL}/api/health" || echo "000")
+              if [ "${HTTP_CODE}" = "200" ]; then
+                echo "✅ InstaBox VM is awake via Wake-Shield (HTTP 200)."
+                break
+              fi
+              echo "Attempt $i/12: Waiting for Wake-Shield to boot InstaBox VM (HTTP ${HTTP_CODE})..."
+              sleep 5
+            done
+            if [ -n "${API_SECRET_KEY}" ]; then
+              echo "Triggering Layer 3 /api/internal/self-update webhook..."
+              curl -s -X POST "${APP_PUBLIC_URL}/api/internal/self-update" \
+                -H "x-api-key: ${API_SECRET_KEY}" \
+                -H "Content-Type: application/json" \
+                -d "{\"commit\":\"${{ github.sha }}\"}" || true
+            fi
             exit 0
           fi
-          echo "Initiating production auto-deploy to InstaBox machine: ${IB_MACHINE_ID}..."
+
+          echo "=== Layer 1 & 2: Initiating InstaBox API Wakeup & Long-Polling for ${IB_MACHINE_ID} ==="
           IDEMP_KEY="gha-deploy-${IB_MACHINE_ID}-$(date +%s)"
-          
-          # 1. Wake or ensure InstaBox VM is awake with 25s long polling
-          START_RESP=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start?wait=25s" \
+
+          # 1. Wake or ensure InstaBox VM is awake (gracefully handling 409 if Wake-Shield already started it)
+          START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Idempotency-Key: ${IDEMP_KEY}" \
             -d '{}')
-          
+
           echo "Machine wake response: ${START_RESP}"
-          
-          # Verify machine reached running state
-          STATE=$(echo "${START_RESP}" | jq -r '.state // empty')
-          if [ "${STATE}" != "running" ]; then
-            for i in $(seq 1 6); do
-              sleep 5
-              INFO=$(curl -s -f -X GET "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
+
+          OP_ID=$(echo "${START_RESP}" | jq -r '.id // .error.operationId // empty')
+          OP_STATE=$(echo "${START_RESP}" | jq -r '.state // empty')
+
+          # Long-poll operation endpoint if wake operation is pending
+          if [ -n "${OP_ID}" ] && [ "${OP_ID}" != "null" ] && [ "${OP_STATE}" != "succeeded" ]; then
+            for poll in 1 2 3; do
+              echo "Long-polling wake operation ${OP_ID} (poll ${poll}/3)..."
+              OP_RESP=$(curl -s -X GET "https://api.instabox.sh/v1/operations/${OP_ID}?wait=25s" \
                 -H "Authorization: Bearer ${IB_API_KEY}")
-              STATE=$(echo "${INFO}" | jq -r '.state // empty')
-              [ "${STATE}" = "running" ] && break
+              OP_STATE=$(echo "${OP_RESP}" | jq -r '.state // empty')
+              echo "Operation state: ${OP_STATE}"
+              if [ "${OP_STATE}" = "succeeded" ] || [ "${OP_STATE}" = "failed" ]; then
+                break
+              fi
             done
           fi
+
+          # Verify machine reached running state
+          STATE=""
+          for i in $(seq 1 12); do
+            INFO=$(curl -s -X GET "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
+              -H "Authorization: Bearer ${IB_API_KEY}")
+            STATE=$(echo "${INFO}" | jq -r '.state // empty')
+            if [ "${STATE}" = "running" ]; then
+              echo "✅ Machine ${IB_MACHINE_ID} is running."
+              break
+            fi
+            echo "Attempt $i/12: Machine state is '${STATE}', waiting 4s..."
+            sleep 4
+          done
+
           if [ "${STATE}" != "running" ]; then
             echo "❌ Machine ${IB_MACHINE_ID} failed to reach running state (current: ${STATE})"
             exit 1
           fi
 
-          # 2. Dispatch deployment commands inside /data/app with automated migrations and sudo restart
-          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && npm ci --omit=dev && node scripts/migrate.mjs && sudo systemctl restart pae-server"
-          
-          echo "Executing deployment and migration command in /data/app..."
+          # Verify internal /exec agent is ready after cold boot before dispatching deploy command
+          echo "Probing InstaBox /exec agent readiness..."
+          for i in $(seq 1 12); do
+            READY_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+              -H "Authorization: Bearer ${IB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"cmd": ["echo", "ready"]}')
+            READY_EXIT=$(echo "${READY_RESP}" | jq -r '.exitCode // -1')
+            if [ "${READY_EXIT}" = "0" ]; then
+              echo "✅ InstaBox /exec agent is ready."
+              break
+            fi
+            echo "Attempt $i/12: Waiting for /exec agent readiness..."
+            sleep 3
+          done
+
+          # 2. Dispatch deployment commands inside /data/app with automated migrations, boot-sync hook installation, and sudo restart
+          DEPLOY_CMD="cd /data/app && git fetch origin main && git reset --hard origin/main && (npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund) && node scripts/migrate.mjs && (bash scripts/instabox-boot-sync.sh --install-hook || true) && sudo systemctl restart pae-server"
+
+          echo "Executing deployment, boot-hook installation, and migration command in /data/app..."
           EXEC_RESP=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
             -d "{\"cmd\": [\"bash\", \"-c\", \"${DEPLOY_CMD}\"]}")
-          
+
           EXIT_CODE=$(echo "${EXEC_RESP}" | jq -r '.exitCode // 1')
           TIMED_OUT=$(echo "${EXEC_RESP}" | jq -r '.timedOut // false')
           STDOUT=$(echo "${EXEC_RESP}" | jq -r '.stdout // empty')
@@ -102,13 +160,13 @@ jobs:
           EXPECTED_SHA="${{ github.sha }}"
           echo "Verifying health endpoint for deployed commit ${EXPECTED_SHA}..."
           VERIFIED=0
-          for i in $(seq 1 10); do
+          for i in $(seq 1 12); do
             sleep 3
-            HEALTH_EXEC=$(curl -s -f -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+            HEALTH_EXEC=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
               -H "Authorization: Bearer ${IB_API_KEY}" \
               -H "Content-Type: application/json" \
               -d "{\"cmd\": [\"curl\", \"-s\", \"http://127.0.0.1:3000/api/health\"]}")
-            
+
             HEALTH_RAW=$(echo "${HEALTH_EXEC}" | jq -r '.stdout // empty')
             HEALTH_STATUS=$(echo "${HEALTH_RAW}" | jq -r '.status // empty')
             HEALTH_COMMIT=$(echo "${HEALTH_RAW}" | jq -r '.commit // empty')
@@ -135,4 +193,5 @@ jobs:
             exit 1
           fi
 
-          echo "✅ Production on InstaBox machine ${IB_MACHINE_ID} successfully deployed, migrated, and verified."
+          echo "✅ Production on InstaBox machine ${IB_MACHINE_ID} successfully woken, deployed, boot-hooked, migrated, and verified."
+
