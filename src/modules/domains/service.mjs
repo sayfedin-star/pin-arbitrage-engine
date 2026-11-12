@@ -10,7 +10,7 @@
  * - Deep Domain Dossier: Ranked Pins per Keyword, Top Money Article Slugs (with creative pin variations), and Keyword Monopoly Matrix.
  */
 
-import { sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { sleep, randomJitterMs } from '../../core/index.mjs';
 import { hydrateDisplacedIndexFromShards } from '../keywords/service.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
