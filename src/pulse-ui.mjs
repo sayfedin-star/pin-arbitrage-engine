@@ -21,6 +21,7 @@
 
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
+import { renderPinRowTemplate } from './ui/pin-row.mjs';
 
 export function getPulsePageHtml(folderId = '') {
   const rawFolderId = String(folderId || '').trim();
@@ -418,134 +419,20 @@ export function getPulsePageHtml(folderId = '') {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-[#27272A]/60">
               <template x-for="(pin, idx) in getFilteredRadarPins().slice(0, displayLimits.radar)" :key="pin.pin_id || idx">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition">
-                  <td class="py-2.5 px-3 text-center font-mono font-bold text-slate-400 text-xs" x-text="idx + 1"></td>
-                  
-                  <!-- Thumbnail & Dual Links (Internal /pin/:id + Pinterest) [Bug 9 Fix] -->
-                  <td class="py-2.5 px-3">
-                    <div class="flex items-center space-x-2">
-                      <div class="w-10 h-14 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden relative shrink-0 cursor-pointer group"
-                           @click="openBlueprintModal(pin)">
-                        <img :src="window.resolvePinImageUrl(pin.image_url, '236x')" 
-                             alt="Pin preview" 
-                             loading="lazy" 
-                             class="w-full h-full object-cover group-hover:scale-105 transition" 
-                             onerror="window.handlePinImgError(this)" />
-                      </div>
-                      <div class="flex flex-col space-y-1">
-                        <!-- Direct link to /pin/:id -->
-                        <a :href="'/pin/' + pin.pin_id" 
-                           class="text-[10px] font-mono text-rose-600 dark:text-rose-400 hover:underline flex items-center space-x-0.5" 
-                           title="Open PAE Internal Pin Dossier">
-                          <span>/pin</span>
-                          <i data-lucide="arrow-up-right" class="w-3 h-3"></i>
-                        </a>
-                        <!-- External Pinterest Link -->
-                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" 
-                           target="_blank" 
-                           rel="noopener noreferrer" 
-                           class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center space-x-0.5"
-                           title="View on Pinterest">
-                          <i data-lucide="external-link" class="w-3 h-3"></i>
-                        </a>
-                      </div>
-                    </div>
-                  </td>
-
-                  <!-- Pin Title, Keywords & Clickable Visual Annotations -->
-                  <td class="py-2.5 px-3">
-                    <a :href="'/pin/' + pin.pin_id" 
-                       class="font-semibold text-slate-900 dark:text-white line-clamp-1 hover:text-rose-600 transition text-xs" 
-                       :title="pin.title"
-                       x-text="pin.title || 'Untitled Pin'"></a>
-                    
-                    <div class="flex items-center gap-1.5 mt-1 flex-wrap">
-                      <!-- Keyword Context Badge -->
-                      <template x-if="pin.keyword_text">
-                        <a :href="getKeywordUrl(pin.keyword_slug || pin.keyword_text, pin.keyword_id)" 
-                           class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-[10px] font-mono text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/40">
-                          <span x-text="pin.keyword_text"></span>
-                          <template x-if="pin.rank_position">
-                            <span class="text-rose-500 font-bold" x-text="' #' + pin.rank_position"></span>
-                          </template>
-                        </a>
-                      </template>
-
-                      <!-- Fresh Rocket Badge -->
-                      <template x-if="pin.is_fresh_14d || pin.is_fresh_breakout || (pin.pin_age_days !== null && pin.pin_age_days !== undefined && pin.pin_age_days !== '' && Number(pin.pin_age_days) >= 0 && Number(pin.pin_age_days) <= 14)">
-                        <span class="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold border border-amber-500/20">🚀 Rocket (≤14d)</span>
-                      </template>
-
-                      <!-- Pixie Bridge Badge -->
-                      <template x-if="pin.overlap_count > 1 || (pin.keywords && pin.keywords.length > 1) || pin.keyword_count > 1">
-                        <span class="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-mono font-bold border border-indigo-500/20" 
-                              x-text="(pin.overlap_count || (pin.keywords && pin.keywords.length) || pin.keyword_count || 2) + ' Keywords Bridge'"></span>
-                      </template>
-
-                      <!-- Alt-Text Indicator Badge -->
-                      <template x-if="pin.alt_text">
-                        <span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9.5px] font-mono border border-emerald-500/20 font-bold" 
-                              title="SEO Alt-Text Verified">✓ Alt-Text</span>
-                      </template>
-
-                      <!-- Vault Surge Badge -->
-                      <template x-if="pin.is_vault_surge || pin.is_displaced">
-                        <span class="px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[9.5px] font-mono border border-purple-500/20 font-bold">📦 Vault Surge</span>
-                      </template>
-                    </div>
-
-                    <!-- Clickable Visual Annotation Pills (Sets activeTagFilter) [Bug 2 Fix] -->
-                    <div class="flex items-center gap-1 mt-1.5 flex-wrap">
-                      <template x-for="(tag, tidx) in (pin.visual_annotations || pin.annotations || []).slice(0, 4)" :key="tidx">
-                        <button type="button" 
-                                @click.stop="setTagFilter(tag.display || tag.norm || tag)"
-                                class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-rose-50 dark:bg-[#18181B] dark:hover:bg-rose-950/30 text-[9.5px] font-mono text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/30 transition cursor-pointer"
-                                title="Filter feed by this visual annotation">
-                          <span x-text="'#' + (tag.display || tag.norm || tag)"></span>
-                        </button>
-                      </template>
-                    </div>
-                  </td>
-
-                  <!-- Domain / Creator -->
-                  <td class="py-2.5 px-3">
-                    <div class="text-slate-800 dark:text-slate-200 font-medium truncate max-w-[130px] text-xs" 
-                         x-text="pin.domain || 'Uploaded by user'"></div>
-                    <div class="text-[10.5px] text-slate-400 truncate max-w-[130px] font-mono" 
-                         x-text="pin.creator_username ? '@' + pin.creator_username : 'unknown'"></div>
-                  </td>
-
-                  <!-- Unified 24H / Window Gain Column -->
-                  <td class="py-2.5 px-3 text-right">
-                    <div class="font-mono tabular-nums font-bold text-xs text-rose-600 dark:text-rose-400"
-                         x-text="(selectedWindow && selectedWindow !== '24h') ? ('+' + formatNumber(Number(pin.window_saves_gain ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0))) : ('+' + formatNumber(Number(pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0)) + '/d')">
-                    </div>
-                    <div class="text-[9px] font-mono text-slate-400 uppercase" 
-                         x-text="(selectedWindow && selectedWindow !== '24h') ? (selectedWindow.toUpperCase() + ' Saves') : 'Save Velocity'"></div>
-                  </td>
-
-                  <!-- Total Saves -->
-                  <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200 text-xs" 
-                      x-text="formatNumber(pin.save_count || 0)"></td>
-
-                  <!-- 24H Repins Δ -->
-                  <td class="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400 text-xs" 
-                      x-text="'+' + formatNumber(pin.delta_repins_24h || 0)"></td>
-
-                  <!-- Age (Rule 31 Compliant) -->
-                  <td class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
-                      x-text="(pin.pin_age_days !== null && pin.pin_age_days !== undefined && pin.pin_age_days !== '') ? formatAge(pin.pin_age_days) : '—'"></td>
-
-                  <!-- Actions -->
-                  <td class="py-2.5 px-3 text-right">
-                    <button type="button" 
-                            @click="openBlueprintModal(pin)" 
-                            class="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                            title="Inspect pin dossier and generate production blueprint">
-                      <span>⚡ Blueprint</span>
-                    </button>
-                  </td>
-                </tr>
+                                ${renderPinRowTemplate({
+                  pinVar: 'pin',
+                  indexVar: 'idx',
+                  showCheckbox: false,
+                  showRank: true,
+                  showBoard: false,
+                  showDomain: true,
+                  showRepins: true,
+                  showAge: true,
+                  showActions: true,
+                  onBlueprintClick: 'openBlueprintModal(pin)',
+                  onTagClick: 'setTagFilter(tag)',
+                  dossierUrlExpr: "'/pin/' + pin.pin_id"
+                })}
               </template>
             </tbody>
           </table>
@@ -2194,7 +2081,10 @@ export function getPulsePageHtml(folderId = '') {
           var num = Number(vel || 0);
           if (!isFinite(num) || num <= 0) return '0.0/d';
           return num.toFixed(1) + '/d';
+        },        formatUniversalAge: function(days) {
+          return this.formatAge(days);
         },
+
 
         // Rule 31 Universal Strict Time Formatting Rule
         formatAge: function(days) {
