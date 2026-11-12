@@ -1577,6 +1577,13 @@ async function run() {
     // PHASE 1A: Distributed Parallel SERP Ingestion Across 20 Egress IPs
     // -------------------------------------------------------------------------
     const runStartTime = new Date();
+    // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
+    const runToken = String(
+      process.env.CRAWL_RUN_ID ||
+      (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
+      globalThis.__PAE_LOCAL_RUN_ID ||
+      `run_folder_${folderRow.id}_matrix`
+    );
 
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
       console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
@@ -1606,12 +1613,14 @@ async function run() {
             fatalSerpDbErr = err;
           }
         } finally {
-          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at & logical token so failure or incomplete crawl never blocks cluster barrier
           await sql`
             UPDATE tracked_keywords
-            SET updated_at = NOW(),
-                crawl_lease_token = NULL,
-                crawl_lease_until = NULL
+            SET 
+              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
+              updated_at = NOW(),
+              crawl_lease_token = NULL,
+              crawl_lease_until = NULL
             WHERE id = ${kid}
               AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
           `.catch(() => {});
@@ -1641,6 +1650,7 @@ async function run() {
           JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
           WHERE kfi.folder_id = ${fid}
             AND tk.is_active = TRUE
+            AND (tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${runToken}
             AND GREATEST(
               COALESCE(tk.last_crawled_at, '1970-01-01'::timestamptz),
               COALESCE(tk.updated_at, '1970-01-01'::timestamptz)
@@ -2099,6 +2109,13 @@ async function run() {
           : allFleetKeywordIds.filter((_, idx) => idx % workerTotal === workerIndex));
 
     const runStartTime = new Date();
+    // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
+    const runToken = String(
+      process.env.CRAWL_RUN_ID ||
+      (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
+      globalThis.__PAE_LOCAL_RUN_ID ||
+      `run_fleet_matrix`
+    );
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion (Barrier-Safe)
@@ -2136,12 +2153,14 @@ async function run() {
               fatalSerpDbErr = err;
             }
           } finally {
-            // Landmine #1 Guard: Always stamp updated_at so a failed keyword never blocks the 20-worker barrier
+            // Landmine #1 Guard: Always stamp updated_at & logical token so a failed keyword never blocks the 20-worker barrier
             await sql`
               UPDATE tracked_keywords
-              SET updated_at = NOW(),
-                  crawl_lease_token = NULL,
-                  crawl_lease_until = NULL
+              SET 
+                metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
+                updated_at = NOW(),
+                crawl_lease_token = NULL,
+                crawl_lease_until = NULL
               WHERE id = ${kid}
                 AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
             `.catch(() => {});
@@ -2169,6 +2188,7 @@ async function run() {
           FROM tracked_keywords
           WHERE id = ANY(${allFleetKeywordIds})
             AND is_active = TRUE
+            AND (metadata->>'phase1a_completed_token') IS DISTINCT FROM ${runToken}
             AND GREATEST(
               COALESCE(last_crawled_at, '1970-01-01'::timestamptz),
               COALESCE(updated_at, '1970-01-01'::timestamptz)
