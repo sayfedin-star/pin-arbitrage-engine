@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -503,8 +503,7 @@ export async function runMigrations({
     throw new Error('DATABASE_URL is required to run migrations.');
   }
 
-  const pooledUrl = enforceNeonPoolerUrl(dbUrl);
-  const sql = createUniversalSqlClient(pooledUrl);
+  const sql = createSqlClient(dbUrl);
 
   await ensureSchemaMigrationsTable(sql);
   const applied = await getAppliedMigrations(sql);
@@ -513,7 +512,7 @@ export async function runMigrations({
   console.log('================================================================================');
   console.log('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
   console.log('================================================================================');
-  console.log(`[*] Target Database:     ${pooledUrl.replace(/:[^:@]+@/, ':***@')}`);
+  console.log(`[*] Target Database:     ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
   console.log(`[*] Migrations Directory: ${migrationsDir}`);
   console.log(`[*] Discovered Files:    ${allFiles.length}`);
   console.log(`[*] Currently Applied:   ${applied.size}`);
@@ -584,8 +583,7 @@ export async function listMigrations({
     throw new Error('DATABASE_URL is required to list migrations.');
   }
 
-  const pooledUrl = enforceNeonPoolerUrl(dbUrl);
-  const sql = createUniversalSqlClient(pooledUrl);
+  const sql = createSqlClient(dbUrl);
   const applied = await getAppliedMigrations(sql);
   const allFiles = getMigrationFiles(migrationsDir);
 

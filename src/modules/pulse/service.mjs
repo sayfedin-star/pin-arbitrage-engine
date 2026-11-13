@@ -17,7 +17,6 @@
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
 
-import { isUnifiedPostgres } from '../sharding/fleet-router.mjs';
 import { normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)

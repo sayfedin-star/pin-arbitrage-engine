@@ -16,17 +16,17 @@
  *    - Barrier Sync: Workers synchronize completion of Phase 1 before starting Phase 2.
  *    - Phase 2: Global winning pins slice (crc32(pin_id) % 20 === worker_index) refreshing metrics
  *      via PinResource fast path (~90ms), computing 24h save velocity, committing active records
- *      to Hub and daily snapshots to target Neon Shards via batchGroupByShard(pins, 99).
+ *      and daily snapshots to Unified PostgreSQL.
  * 
  * 2. MODE='single_account_swarm' (Single-Account 20-Worker Swarm):
  *    - Phase 1: Worker 0 conducts board and feed discovery up to max_pages.
  *      Workers 1..19 wait for Worker 0 via Barrier Sync.
  *    - Phase 2: All 20 runners slice the pin catalog (crc32(pin_id) % 20 === worker_index)
- *      for parallel enrichment, shard sync, and qualification reconciliation.
+ *      for parallel enrichment, repository sync, and qualification reconciliation.
  */
 
-// [INVARIANT: UNIVERSAL-SQL-CLIENT] Dual Neon / TCP Postgres
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+// [INVARIANT: UNIFIED-POSTGRES-CLIENT]
+import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import {
   syncCompetitorProfile,
@@ -53,15 +53,6 @@ import {
   fetchUserResource,
   fetchPinFromPinterest
 } from './lib/pinterest.mjs';
-import {
-  batchGroupByShard,
-  coalesceShardGroupsByPhysical,
-  resolveShardConnection,
-  preloadNeonRegistry,
-  getPinShardId,
-  crc32,
-  isUnifiedPostgres
-} from '../src/modules/sharding/fleet-router.mjs';
 import { formatPinterestCookie, sanitizeForJsonb } from '../src/utils.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
@@ -89,7 +80,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = createSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -169,345 +160,176 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
   const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   if (sortedMetrics.length === 0) return 0;
 
-  await preloadNeonRegistry(hubSql);
-  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
-  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(sortedMetrics, 99));
   let totalCommitted = 0;
-
-  if (isUnifiedPostgres()) {
-    const cleanMetrics = sanitizeForJsonb(sortedMetrics);
-    for (let i = 0; i < cleanMetrics.length; i += 500) {
-      const chunk = cleanMetrics.slice(i, i + 500);
-      const jsonPayload = JSON.stringify(chunk);
-      await hubSql`
-        INSERT INTO pins_daily_metrics (
-          pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
-        )
-        SELECT 
-          x.pin_id, 
-          (NOW() AT TIME ZONE 'UTC')::date, 
-          COALESCE(x.saves, 0)::bigint, 
-          COALESCE(x.repins, 0)::int, 
-          COALESCE(x.comments, 0)::int,
-          COALESCE(x.share_count, 0)::int,
-          COALESCE(x.reaction_count, 0)::int,
-          COALESCE(x.velocity, 0)::numeric,
-          NOW()
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-          pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC
-        )
-        ORDER BY x.pin_id ASC
-        ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
-          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
-          comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
-          share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
-          reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
-          daily_save_velocity = EXCLUDED.daily_save_velocity,
-          updated_at = NOW();
-      `;
-      totalCommitted += chunk.length;
-    }
-    return totalCommitted;
+  const cleanMetrics = sanitizeForJsonb(sortedMetrics);
+  for (let i = 0; i < cleanMetrics.length; i += 500) {
+    const chunk = cleanMetrics.slice(i, i + 500);
+    const jsonPayload = JSON.stringify(chunk);
+    await hubSql`
+      INSERT INTO pins_daily_metrics (
+        pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+      )
+      SELECT 
+        x.pin_id, 
+        (NOW() AT TIME ZONE 'UTC')::date, 
+        COALESCE(x.saves, 0)::bigint, 
+        COALESCE(x.repins, 0)::int, 
+        COALESCE(x.comments, 0)::int,
+        COALESCE(x.share_count, 0)::int,
+        COALESCE(x.reaction_count, 0)::int,
+        COALESCE(x.velocity, 0)::numeric,
+        NOW()
+      FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
+        pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC
+      )
+      ORDER BY x.pin_id ASC
+      ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
+        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
+        comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
+        share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
+        reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
+        daily_save_velocity = EXCLUDED.daily_save_velocity,
+        updated_at = NOW();
+    `;
+    totalCommitted += chunk.length;
   }
-
-  const shardEntries = Array.from(shardGroups.entries());
-  const SHARD_CONCURRENCY = 10;
-  for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
-    const chunk = shardEntries.slice(i, i + SHARD_CONCURRENCY);
-    await Promise.allSettled(chunk.map(async ([shardId, shardMetrics]) => {
-      try {
-        const shardSql = await resolveShardConnection({ hubSql, shardId }).catch(() => null);
-        if (!shardSql) return;
-
-        const cleanMetrics = sanitizeForJsonb(shardMetrics);
-        const jsonPayload = JSON.stringify(cleanMetrics);
-
-        await shardSql`
-          INSERT INTO pins_daily_metrics (
-            pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
-          )
-          SELECT 
-            x.pin_id, 
-            (NOW() AT TIME ZONE 'UTC')::date, 
-            COALESCE(x.saves, 0)::bigint, 
-            COALESCE(x.repins, 0)::int, 
-            COALESCE(x.comments, 0)::int,
-            COALESCE(x.share_count, 0)::int,
-            COALESCE(x.reaction_count, 0)::int,
-            COALESCE(x.velocity, 0)::numeric,
-            NOW()
-          FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-            pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC
-          )
-          ORDER BY x.pin_id ASC
-          ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
-            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
-            comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
-            share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
-            reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
-            daily_save_velocity = CASE
-              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-              ELSE pins_daily_metrics.daily_save_velocity
-            END,
-            updated_at = NOW();
-        `;
-        totalCommitted += cleanMetrics.length;
-      } catch (err) {
-        console.warn(`[commitSnapshotsToStorageShards] Warning for shard #${shardId}:`, err.message);
-      }
-    }));
-  }
-
   return totalCommitted;
 }
 
 /**
- * Route enriched pins to universal_master_pins on designated Neon Storage Shards.
- * [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ * Route enriched pins to universal_master_pins in Unified PostgreSQL.
  * [INVARIANT: ZERO-HUB-SNAPSHOTS]
  */
 async function syncPinsToMasterShards(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
-  await preloadNeonRegistry(hubSql);
-  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
-  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(enrichedPins, 99));
   let totalSynced = 0;
 
-  if (isUnifiedPostgres()) {
-    // [INVARIANT: PG-21000-MAP-DEDUP] Pre-serialization Map deduplication + DISTINCT ON prevents SQLSTATE 21000 when a pin appears across multiple boards
-    const pinDedupMap = new Map();
-    for (const p of enrichedPins) {
-      const pid = String(p?.pin_id || '').trim();
-      if (!pid) continue;
-      const existing = pinDedupMap.get(pid);
-      if (!existing) {
-        pinDedupMap.set(pid, p);
-      } else {
-        const curSaves = Number(p.saves ?? p.save_count ?? 0);
-        const prevSaves = Number(existing.saves ?? existing.save_count ?? 0);
-        const curRepins = Number(p.repins ?? p.repin_count ?? 0);
-        const prevRepins = Number(existing.repins ?? existing.repin_count ?? 0);
-        pinDedupMap.set(pid, {
-          ...existing,
-          ...p,
-          title: p.title || existing.title,
-          domain: p.domain || p.link_domain || existing.domain || existing.link_domain,
-          destination_url: p.link || p.destination_url || existing.link || existing.destination_url,
-          image_url: p.image_url || existing.image_url,
-          description: p.description || existing.description,
-          alt_text: p.alt_text || existing.alt_text,
-          board_name: p.board_name || existing.board_name,
-          saves: Math.max(curSaves, prevSaves),
-          repins: Math.max(curRepins, prevRepins),
-          comments: Math.max(Number(p.comments ?? p.comment_count ?? 0), Number(existing.comments ?? existing.comment_count ?? 0)),
-          shares: Math.max(Number(p.shares ?? p.share_count ?? 0), Number(existing.shares ?? existing.share_count ?? 0))
-        });
-      }
+  // [INVARIANT: PG-21000-MAP-DEDUP] Pre-serialization Map deduplication + DISTINCT ON prevents SQLSTATE 21000 when a pin appears across multiple boards
+  const pinDedupMap = new Map();
+  for (const p of enrichedPins) {
+    const pid = String(p?.pin_id || '').trim();
+    if (!pid) continue;
+    const existing = pinDedupMap.get(pid);
+    if (!existing) {
+      pinDedupMap.set(pid, p);
+    } else {
+      const curSaves = Number(p.saves ?? p.save_count ?? 0);
+      const prevSaves = Number(existing.saves ?? existing.save_count ?? 0);
+      const curRepins = Number(p.repins ?? p.repin_count ?? 0);
+      const prevRepins = Number(existing.repins ?? existing.repin_count ?? 0);
+      pinDedupMap.set(pid, {
+        ...existing,
+        ...p,
+        title: p.title || existing.title,
+        domain: p.domain || p.link_domain || existing.domain || existing.link_domain,
+        destination_url: p.link || p.destination_url || existing.link || existing.destination_url,
+        image_url: p.image_url || existing.image_url,
+        description: p.description || existing.description,
+        alt_text: p.alt_text || existing.alt_text,
+        board_name: p.board_name || existing.board_name,
+        saves: Math.max(curSaves, prevSaves),
+        repins: Math.max(curRepins, prevRepins),
+        comments: Math.max(Number(p.comments ?? p.comment_count ?? 0), Number(existing.comments ?? existing.comment_count ?? 0)),
+        shares: Math.max(Number(p.shares ?? p.share_count ?? 0), Number(existing.shares ?? existing.share_count ?? 0))
+      });
     }
-
-    const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-    const cleanPins = sortedPins.map(p => {
-      const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
-        ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-        : (Number(p.reactions) || 0);
-      const richMeta = buildRichPinMetadataPayload(p);
-
-      return {
-        pin_id: String(p.pin_id).trim(),
-        creator_username: String(p.account_username || p.creator_username || ''),
-        board_name: String(p.board_name || ''),
-        title: String(p.title || ''),
-        domain: String(p.domain || p.link_domain || ''),
-        destination_url: String(p.link || p.destination_url || ''),
-        image_url: String(p.image_url || ''),
-        description: String(p.description || ''),
-        alt_text: String(p.alt_text || ''),
-        dominant_color: String(p.dominant_color || '#888888'),
-        visual_annotations: p.annotations || p.visual_annotations || [],
-        created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-        metadata: richMeta,
-        save_count: Math.max(0, Number(p.saves ?? p.save_count ?? 0)),
-        repin_count: Math.max(0, Number(p.repins ?? p.repin_count ?? 0)),
-        comment_count: Math.max(0, Number(p.comments ?? p.comment_count ?? 0)),
-        share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
-        reaction_count: Math.max(0, Number(reactionCount || 0)),
-        daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
-        is_product: Boolean(richMeta.is_product),
-        is_video: Boolean(richMeta.is_video),
-        creation_method: richMeta.creation_method || null,
-        image_signature: richMeta.image_signature || null,
-        seo_noindex_reason: richMeta.seo_noindex_reason || null,
-        is_repin: Boolean(richMeta.is_repin),
-        canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
-      };
-    });
-
-    for (let i = 0; i < cleanPins.length; i += 500) {
-      const chunk = cleanPins.slice(i, i + 500);
-      const payload = JSON.stringify(chunk);
-      await hubSql`
-        INSERT INTO universal_master_pins (
-          pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-          save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
-          is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
-          first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
-        )
-        SELECT DISTINCT ON (x.pin_id)
-          x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
-          COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
-          COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric,
-          COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
-          x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
-          'creator_hub', NOW(), NOW(), NOW()
-        FROM jsonb_to_recordset(${payload}::jsonb) AS x(
-          pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
-          save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC,
-          is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
-        )
-        ORDER BY x.pin_id ASC
-        ON CONFLICT (pin_id) DO UPDATE SET
-          creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-          board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-          title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
-          domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-          destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-          image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-          description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-          alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
-          visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
-          created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-          metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-          save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
-          repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
-          comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
-          share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
-          reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
-          daily_save_velocity = CASE
-            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
-            ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
-          END,
-          is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
-          is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
-          creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
-          image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
-          seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
-          is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
-          canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
-          updated_at = NOW(),
-          last_scraped_at = NOW();
-      `;
-      totalSynced += chunk.length;
-    }
-    return totalSynced;
   }
 
-  const shardEntries = Array.from(shardGroups.entries());
-  const SHARD_CONCURRENCY = 10;
-  for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
-    const chunk = shardEntries.slice(i, i + SHARD_CONCURRENCY);
-    await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
-      try {
-        const shardSql = await resolveShardConnection({ hubSql, shardId }).catch(() => null);
-        if (!shardSql) return;
+  const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+  const cleanPins = sortedPins.map(p => {
+    const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
+      ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+      : (Number(p.reactions) || 0);
+    const richMeta = buildRichPinMetadataPayload(p);
 
-        const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-        const payload = JSON.stringify(sortedPins.map(p => {
-          const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
-            ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-            : (Number(p.reactions) || 0);
+    return {
+      pin_id: String(p.pin_id).trim(),
+      creator_username: String(p.account_username || p.creator_username || ''),
+      board_name: String(p.board_name || ''),
+      title: String(p.title || ''),
+      domain: String(p.domain || p.link_domain || ''),
+      destination_url: String(p.link || p.destination_url || ''),
+      image_url: String(p.image_url || ''),
+      description: String(p.description || ''),
+      alt_text: String(p.alt_text || ''),
+      dominant_color: String(p.dominant_color || '#888888'),
+      visual_annotations: p.annotations || p.visual_annotations || [],
+      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+      metadata: richMeta,
+      save_count: Math.max(0, Number(p.saves ?? p.save_count ?? 0)),
+      repin_count: Math.max(0, Number(p.repins ?? p.repin_count ?? 0)),
+      comment_count: Math.max(0, Number(p.comments ?? p.comment_count ?? 0)),
+      share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
+      reaction_count: Math.max(0, Number(reactionCount || 0)),
+      daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
+      is_product: Boolean(richMeta.is_product),
+      is_video: Boolean(richMeta.is_video),
+      creation_method: richMeta.creation_method || null,
+      image_signature: richMeta.image_signature || null,
+      seo_noindex_reason: richMeta.seo_noindex_reason || null,
+      is_repin: Boolean(richMeta.is_repin),
+      canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
+    };
+  });
 
-          return {
-            pin_id: String(p.pin_id),
-            creator_username: String(p.account_username || p.creator_username || ''),
-            board_name: String(p.board_name || ''),
-            title: String(p.title || ''),
-            domain: String(p.domain || p.link_domain || ''),
-            destination_url: String(p.link || p.destination_url || ''),
-            image_url: String(p.image_url || ''),
-            description: String(p.description || ''),
-            alt_text: String(p.alt_text || ''),
-            dominant_color: String(p.dominant_color || '#888888'),
-            visual_annotations: p.annotations || p.visual_annotations || [],
-            created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-            metadata: {
-              is_product: Boolean(p.is_product),
-              is_video: Boolean(p.is_video),
-              reactions: p.reactions || {}
-            },
-            save_count: Number(p.saves || p.save_count || 0),
-            repin_count: Number(p.repins || p.repin_count || 0),
-            comment_count: Number(p.comments || p.comment_count || 0),
-            share_count: Number(p.share_count || 0),
-            reaction_count: reactionCount,
-            daily_save_velocity: Number(p.velocity || p.daily_save_velocity || 0)
-          };
-        }));
-
-        await shardSql`
-          INSERT INTO universal_master_pins (
-            pin_id, creator_username, board_name, title, domain, destination_url,
-            image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-            first_discovered_pillar, first_discovered_at, updated_at
-          )
-          SELECT DISTINCT ON (u.pin_id)
-            u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
-            u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-            NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
-            'competitor', NOW(), NOW()
-          FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-            pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
-            image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
-            created_at_pinterest text, metadata jsonb
-          )
-          ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
-          ON CONFLICT (pin_id) DO UPDATE SET
-            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = CASE
-              WHEN EXCLUDED.title IS NOT NULL
-               AND BTRIM(EXCLUDED.title) <> ''
-               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
-               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
-              THEN EXCLUDED.title
-              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
-            END,
-            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
-            visual_annotations = CASE 
-              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-              THEN EXCLUDED.visual_annotations 
-              ELSE universal_master_pins.visual_annotations 
-            END,
-            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
-              || CASE
-                   WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
-                    AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
-                    AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL 
-                         OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
-                   THEN jsonb_build_object(
-                     'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
-                     'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
-                   )
-                   ELSE '{}'::jsonb
-                 END,
-            updated_at = NOW();
-        `;
-
-        totalSynced += sortedPins.length;
-      } catch (err) {
-        console.warn(`[syncPinsToMasterShards] Warning for shard #${shardId}:`, err.message);
-      }
-    }));
+  for (let i = 0; i < cleanPins.length; i += 500) {
+    const chunk = cleanPins.slice(i, i + 500);
+    const payload = JSON.stringify(chunk);
+    await hubSql`
+      INSERT INTO universal_master_pins (
+        pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
+        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+        is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
+        first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
+      )
+      SELECT DISTINCT ON (x.pin_id)
+        x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
+        COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
+        COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric,
+        COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
+        x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
+        'creator_hub', NOW(), NOW(), NOW()
+      FROM jsonb_to_recordset(${payload}::jsonb) AS x(
+        pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
+        save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC,
+        is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
+      )
+      ORDER BY x.pin_id ASC
+      ON CONFLICT (pin_id) DO UPDATE SET
+        creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+        board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+        title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+        domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+        destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+        image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+        description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+        dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
+        visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
+        created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+        metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
+        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
+        comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
+        share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
+        reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
+        daily_save_velocity = CASE
+          WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+          ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
+        END,
+        is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
+        is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
+        creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
+        image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+        seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
+        is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
+        canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+        updated_at = NOW(),
+        last_scraped_at = NOW();
+    `;
+    totalSynced += chunk.length;
   }
-
   return totalSynced;
 }
 

@@ -11,20 +11,11 @@
  *    - Composite 52-Week Seasonality Wave & Peak Month Launch Calendar
  *    - 1-Click Topic Cluster Blueprint & Content Generator (Pillar + Spoke pins with exportable CSV)
  *
- * Hardened with Neon Serverless Postgres (@neondatabase/serverless).
+ * Unified PostgreSQL Crossover & Campaign Folder Engine.
  */
 
 import { fetchPinterestTrends } from './trends-service.mjs';
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
-import {
-  safeWaitUntil,
-  batchGroupByShard,
-  coalesceShardGroupsByPhysical,
-  resolveShardConnection,
-  executeShardQueryWithCircuitBreaker,
-  preloadNeonRegistry,
-  isUnifiedPostgres
-} from '../sharding/fleet-router.mjs';
 import { extractCanonicalAnnotations, normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
 import { getFolderPulseCrossoverAnalytics } from '../pulse/service.mjs';
 

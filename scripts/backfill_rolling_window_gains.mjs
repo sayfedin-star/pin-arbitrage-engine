@@ -11,15 +11,12 @@
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  *
  * Computes authentic historical save deltas (gains_5d, gains_7d, gains_10d, gains_15d)
- * and 24h repin deltas (delta_repins_24h) from 99 Storage Shards pins_daily_metrics,
- * and persists them into Central Hub keyword_serp_current & keyword_displaced_index.
+ * and 24h repin deltas (delta_repins_24h) from Unified PostgreSQL pins_daily_metrics,
+ * and persists them into keyword_serp_current & keyword_displaced_index.
  */
 
-import {
-  createUniversalSqlClient,
-  isMultiStageHydrationJump,
-  enforceNeonPoolerUrl
-} from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
+import { isMultiStageHydrationJump } from '../src/lib/math.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +44,7 @@ if (fs.existsSync(envPath)) {
   } catch (_) {}
 }
 
-const hubSql = process.env.DATABASE_URL ? createUniversalSqlClient(process.env.DATABASE_URL) : null;
+const hubSql = process.env.DATABASE_URL ? createSqlClient(process.env.DATABASE_URL) : null;
 
 /**
  * Computes authentic rolling deltas across multi-day windows from raw snapshot history.

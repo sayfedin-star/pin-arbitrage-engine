@@ -11,7 +11,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import worker from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}

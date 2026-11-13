@@ -16,7 +16,7 @@
  *   node scripts/enrich_all_domains.mjs --batch=30 --concurrency=4
  */
 
-import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import {
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch
@@ -32,7 +32,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = createSqlClient(DATABASE_URL);
 
 // Parse CLI flags
 const args = process.argv.slice(2);

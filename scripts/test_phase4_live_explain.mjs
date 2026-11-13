@@ -141,15 +141,12 @@ async function main() {
   ));
 
   // -------------------------------------------------------------
-  // Test 6: Optimized View pins_daily_rollups_v2 on Storage Shard 1
+  // Test 4: Optimized View pins_daily_rollups_v2 in Unified PostgreSQL
   // -------------------------------------------------------------
   try {
-    const { preloadNeonRegistry, resolveShardConnection } = await import('../src/modules/sharding/fleet-router.mjs');
-    await preloadNeonRegistry(sql);
-    const shardSql = await resolveShardConnection({ hubSql: sql, shardId: 1 });
     results.push(await runExplainTest(
-      '4. Pins Daily Rollups v2 Consolidated View Query (Storage Shard 1)',
-      () => shardSql`
+      '4. Pins Daily Rollups v2 Consolidated View Query (Unified PostgreSQL)',
+      () => sql`
         EXPLAIN (ANALYZE, BUFFERS)
         SELECT pin_id, snapshot_date, save_count, serp_rankings
         FROM pins_daily_rollups_v2
@@ -158,8 +155,8 @@ async function main() {
       `,
       /pins_daily_metrics|pin_serp_positions|Index Scan|Seq Scan/i
     ));
-  } catch (shardErr) {
-    console.warn('[-] Note on Shard 1 connection:', shardErr.message);
+  } catch (rollupErr) {
+    console.warn('[-] Note on pins_daily_rollups_v2 query:', rollupErr.message);
   }
 
   // -------------------------------------------------------------

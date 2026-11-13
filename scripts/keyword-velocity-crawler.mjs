@@ -21,8 +21,8 @@
  * - Jitter backoff (2500ms-4000ms) with AbortSignal.timeout(8000).
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
 import {
+  createSqlClient,
   withDbRetry,
   isTransientPgConnectionError,
   isStatementTimeoutError
@@ -50,33 +50,12 @@ import {
   resavePinsMetricsBatch,
   ingestPinsBatch
 } from '../src/modules/pins/repository.mjs';
-import {
-  batchGroupByShard,
-  coalesceShardGroupsByPhysical,
-  resolveShardConnection,
-  preloadNeonRegistry,
-  getPinShardId,
-  getPhysicalShardId,
-  crc32,
-  isUnifiedPostgres
-} from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 
-const activeTargetShards = new Set();
-let crawlerKeepAlive = null;
-
-function registerTargetShards(pins) {
-  if (!pins || !Array.isArray(pins)) return;
-  for (const p of pins) {
-    if (p && p.pin_id) {
-      try {
-        const sid = getPhysicalShardId(getPinShardId(p.pin_id, 99));
-        activeTargetShards.add(sid);
-      } catch (_) {}
-    }
-  }
+function registerTargetShards(_pins) {
+  // Unified single-database mode: no per-shard tracking needed.
 }
 
 let undiciAgent = null;
@@ -105,7 +84,7 @@ if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env
   process.exit(1);
 }
 
-const sql = DATABASE_URL ? createUniversalSqlClient(DATABASE_URL) : null;
+const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
 async function closeCrawlerDb(exitCode = 0) {
   try {
     if (sql && typeof sql.end === 'function') {
@@ -1243,198 +1222,168 @@ async function flushToStorageShards(enrichedPins, kw = null) {
     }
   }
 
-  await preloadNeonRegistry(sql);
-  const virtualGroups = batchGroupByShard(enrichedPins, 99);
-  const shardGroups = coalesceShardGroupsByPhysical(virtualGroups);
-  let shardsSynchronized = 0;
+  const FLUSH_TIMEOUT_MS = 65000;
+  let timedOut = false;
+  let timerId;
 
-  const shardEntries = Array.from(shardGroups.entries());
-  const SHARD_CONCURRENCY = 10;
-  const SHARD_FLUSH_TIMEOUT_MS = isUnifiedPostgres() ? 65000 : 25000;
-  const shardErrors = [];
+  const syncTask = withDbRetry(async () => {
+    if (timedOut) {
+      throw new Error(`Unified Postgres flush aborted after timeout (${FLUSH_TIMEOUT_MS}ms limit)`);
+    }
 
-  for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
-    const chunk = shardEntries.slice(i, i + SHARD_CONCURRENCY);
-    await Promise.allSettled(
-      chunk.map(async ([shardId, shardPins]) => {
-        let timedOut = false;
-        try {
-          const syncTask = withDbRetry(async () => {
-            if (timedOut) {
-              throw new Error(`Shard #${shardId} flush aborted after timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`);
-            }
-            const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-            const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+    const sortedPins = [...enrichedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
 
-            // 1. Fetch 16-day historical snapshots for rolling gains computation (satisfies up to 15-day window)
-            const pinIds = sortedPins.map(sp => String(sp.pin_id));
-            let snapshots = [];
-            let snapQueryFailed = false;
-            try {
-              snapshots = await shardSql`
-                SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
-                FROM pins_daily_metrics
-                WHERE pin_id = ANY(${pinIds}::text[])
-                  AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-                ORDER BY snapshot_date DESC;
-              `;
-            } catch (snapErr) {
-              if (isTransientPgConnectionError(snapErr) || isStatementTimeoutError(snapErr)) {
-                throw snapErr;
-              }
-              snapQueryFailed = true;
-              console.warn(`    [Shard ${shardId}] Snapshots query warning: ${snapErr.message}`);
-            }
-
-            const pinSnapshotsMap = new Map();
-            for (const snap of (snapshots || [])) {
-              if (!snap || !snap.pin_id) continue;
-              if (!pinSnapshotsMap.has(snap.pin_id)) {
-                pinSnapshotsMap.set(snap.pin_id, []);
-              }
-              pinSnapshotsMap.get(snap.pin_id).push(snap);
-            }
-
-            // 2. Compute authentic rolling deltas in-memory from distinct-date snapshots in pins_daily_metrics
-            const todayUtcIso = new Date().toISOString().slice(0, 10);
-            for (const sp of sortedPins) {
-              const allSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
-              // Strictly separate today's existing snapshot from prior-day snapshots (< todayUtcIso)
-              // to prevent compounding yesterday's velocity onto today's delta!
-              const priorDaySnaps = [];
-              let todayPrevSnap = null;
-              for (const snap of allSnaps) {
-                const snapIso = snap?.snapshot_date
-                  ? (snap.snapshot_date instanceof Date ? snap.snapshot_date.toISOString().slice(0, 10) : String(snap.snapshot_date).slice(0, 10))
-                  : null;
-                if (snapIso === todayUtcIso) {
-                  if (!todayPrevSnap) todayPrevSnap = snap;
-                } else if (snapIso && snapIso < todayUtcIso) {
-                  priorDaySnaps.push(snap);
-                }
-              }
-
-              const currentSnap = {
-                snapshot_date: todayUtcIso,
-                save_count: sp.save_count != null ? Number(sp.save_count) : 0,
-                repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
-              };
-              const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
-              if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
-                if (sp.was_live_scraped !== false) {
-                  sp.daily_save_velocity = Number(gains.daily_save_velocity);
-                } else {
-                  sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
-                }
-              } else if (todayPrevSnap && sp.was_live_scraped !== false) {
-                // Only when no prior-day snapshot exists in pins_daily_metrics:
-                // Never treat a 0-save SERP skeleton from Phase 1A as a valid baseline for intradayDelta!
-                const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
-                if (prevTodaySaves > 0) {
-                  const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
-                  const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
-                    ? Number(todayPrevSnap.daily_save_velocity || 0)
-                    : 0;
-                  sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
-                } else {
-                  sp.daily_save_velocity = 0;
-                }
-              } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
-                sp.daily_save_velocity = 0;
-              }
-              sp.delta_repins_24h = gains.delta_repins_24h;
-              sp.gains_5d = gains.gains_5d;
-              sp.gains_7d = gains.gains_7d;
-              sp.gains_10d = gains.gains_10d;
-              sp.gains_15d = gains.gains_15d;
-            }
-
-            if (timedOut) {
-              throw new Error(`Shard #${shardId} flush aborted after timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`);
-            }
-
-            const sanitizeShardMeta = (raw) => {
-              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-              const clean = {};
-              for (const [k, v] of Object.entries(raw)) {
-                if (v === null || v === undefined || v === '') continue;
-                if (Array.isArray(v) && v.length === 0) continue;
-                if (k === 'board_pin_count' && (Number(v) === 0 || isNaN(Number(v)))) continue;
-                clean[k] = v;
-              }
-              return clean;
-            };
-
-            for (const sp of sortedPins) {
-              const rawMeta = (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {});
-              sp.metadata = sanitizeShardMeta({
-                ...buildRichPinMetadataPayload(sp, rawMeta),
-                ...rawMeta
-              });
-            }
-
-            // [INVARIANT: PIN-REPOSITORY-SSOT-INGESTION]
-            // Wire crawler ingestion directly to PinRepository SSOT (ingestPinsBatch / insertNewPinsBatch / resavePinsMetricsBatch)
-            // Eliminates comment-based bypass and unhydrated NULL saves violations (preserves save_count = null)
-            // Invariant: jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, '{}'::jsonb))
-            // Invariant: dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color)
-            if (process.env.INGEST_MODE === 'discrete') {
-              await insertNewPinsBatch(shardSql, sortedPins, 'keyword');
-              await resavePinsMetricsBatch(shardSql, sortedPins);
-            } else if (typeof shardSql.transaction === 'function' && process.env.INGEST_MODE === 'neon_http_tx') {
-              await shardSql.transaction([
-                (tx) => ingestPinsBatch(tx, sortedPins, { pillar: 'keyword' })
-              ]);
-            } else {
-              await ingestPinsBatch(shardSql, sortedPins, { pillar: 'keyword' });
-            }
-
-            if (kw) {
-              try {
-                const uniqueHubPinsMap = new Map();
-                for (const sp of sortedPins) {
-                  if (sp && sp.pin_id && !uniqueHubPinsMap.has(String(sp.pin_id))) {
-                    uniqueHubPinsMap.set(String(sp.pin_id), sp);
-                  }
-                }
-                await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw);
-              } catch (hubErr) {
-                if (isUnifiedPostgres() || isTransientPgConnectionError(hubErr) || isStatementTimeoutError(hubErr)) {
-                  throw hubErr;
-                }
-                console.warn(`    [Hub Rolling Gains Flush Warning]: ${hubErr.message}`);
-              }
-            }
-          }, { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 4000 });
-
-          let timerId;
-          const timeoutTask = new Promise((_, reject) => {
-            timerId = setTimeout(() => {
-              timedOut = true;
-              reject(new Error(`Shard #${shardId} flush timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`));
-            }, SHARD_FLUSH_TIMEOUT_MS);
-          });
-
-          try {
-            await Promise.race([syncTask, timeoutTask]);
-            shardsSynchronized++;
-          } finally {
-            if (timerId) clearTimeout(timerId);
-            syncTask.catch(() => {});
-          }
-        } catch (shardErr) {
-          shardErrors.push({ shardId, message: shardErr.message });
-          console.error(`    [Shard ${shardId} Flush Error] Shard write failed: ${shardErr.message}`);
+    // 1. Fetch 16-day historical snapshots for rolling gains computation (satisfies up to 15-day window)
+    const pinIds = sortedPins.map(sp => String(sp.pin_id));
+    let snapshots = [];
+    let snapQueryFailed = false;
+    try {
+      for (let i = 0; i < pinIds.length; i += 500) {
+        const idChunk = pinIds.slice(i, i + 500);
+        const chunkSnaps = await sql`
+          SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+          FROM pins_daily_metrics
+          WHERE pin_id = ANY(${idChunk}::text[])
+            AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
+          ORDER BY snapshot_date DESC;
+        `;
+        if (Array.isArray(chunkSnaps) && chunkSnaps.length > 0) {
+          snapshots.push(...chunkSnaps);
         }
-      })
-    );
-  }
+      }
+    } catch (snapErr) {
+      if (isTransientPgConnectionError(snapErr) || isStatementTimeoutError(snapErr)) {
+        throw snapErr;
+      }
+      snapQueryFailed = true;
+      console.warn(`    [Unified DB] Snapshots query warning: ${snapErr.message}`);
+    }
 
-  if (isUnifiedPostgres() && shardsSynchronized === 0 && shardErrors.length > 0) {
-    throw new Error(`[Shard Flush Fatal] Unified Postgres write failed for all ${enrichedPins.length} pins: ${shardErrors[0].message}`);
-  }
+    const pinSnapshotsMap = new Map();
+    for (const snap of snapshots) {
+      if (!snap || !snap.pin_id) continue;
+      if (!pinSnapshotsMap.has(snap.pin_id)) {
+        pinSnapshotsMap.set(snap.pin_id, []);
+      }
+      pinSnapshotsMap.get(snap.pin_id).push(snap);
+    }
 
-  return shardsSynchronized;
+    // 2. Compute authentic rolling deltas in-memory from distinct-date snapshots in pins_daily_metrics
+    const todayUtcIso = new Date().toISOString().slice(0, 10);
+    for (const sp of sortedPins) {
+      const allSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
+      const priorDaySnaps = [];
+      let todayPrevSnap = null;
+      for (const snap of allSnaps) {
+        const snapIso = snap?.snapshot_date
+          ? (snap.snapshot_date instanceof Date ? snap.snapshot_date.toISOString().slice(0, 10) : String(snap.snapshot_date).slice(0, 10))
+          : null;
+        if (snapIso === todayUtcIso) {
+          if (!todayPrevSnap) todayPrevSnap = snap;
+        } else if (snapIso && snapIso < todayUtcIso) {
+          priorDaySnaps.push(snap);
+        }
+      }
+
+      const currentSnap = {
+        snapshot_date: todayUtcIso,
+        save_count: sp.save_count != null ? Number(sp.save_count) : 0,
+        repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
+      };
+      const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
+      if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
+        if (sp.was_live_scraped !== false) {
+          sp.daily_save_velocity = Number(gains.daily_save_velocity);
+        } else {
+          sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
+        }
+      } else if (todayPrevSnap && sp.was_live_scraped !== false) {
+        const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
+        if (prevTodaySaves > 0) {
+          const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
+          const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
+            ? Number(todayPrevSnap.daily_save_velocity || 0)
+            : 0;
+          sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
+        } else {
+          sp.daily_save_velocity = 0;
+        }
+      } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
+        sp.daily_save_velocity = 0;
+      }
+      sp.delta_repins_24h = gains.delta_repins_24h;
+      sp.gains_5d = gains.gains_5d;
+      sp.gains_7d = gains.gains_7d;
+      sp.gains_10d = gains.gains_10d;
+      sp.gains_15d = gains.gains_15d;
+    }
+
+    if (timedOut) {
+      throw new Error(`Unified Postgres flush aborted after timeout (${FLUSH_TIMEOUT_MS}ms limit)`);
+    }
+
+    const sanitizePinMeta = (raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      const clean = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (v === null || v === undefined || v === '') continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        if (k === 'board_pin_count' && (Number(v) === 0 || isNaN(Number(v)))) continue;
+        clean[k] = v;
+      }
+      return clean;
+    };
+
+    for (const sp of sortedPins) {
+      const rawMeta = (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {});
+      sp.metadata = sanitizePinMeta({
+        ...buildRichPinMetadataPayload(sp, rawMeta),
+        ...rawMeta
+      });
+    }
+
+    // [INVARIANT: PIN-REPOSITORY-SSOT-INGESTION]
+    for (let i = 0; i < sortedPins.length; i += 500) {
+      const batchSlice = sortedPins.slice(i, i + 500);
+      if (process.env.INGEST_MODE === 'discrete') {
+        await insertNewPinsBatch(sql, batchSlice, 'keyword');
+        await resavePinsMetricsBatch(sql, batchSlice);
+      } else if (typeof sql.transaction === 'function' && process.env.INGEST_MODE === 'tx') {
+        await sql.transaction([
+          (tx) => ingestPinsBatch(tx, batchSlice, { pillar: 'keyword' })
+        ]);
+      } else {
+        await ingestPinsBatch(sql, batchSlice, { pillar: 'keyword' });
+      }
+    }
+
+    if (kw) {
+      const uniqueHubPinsMap = new Map();
+      for (const sp of sortedPins) {
+        if (sp && sp.pin_id && !uniqueHubPinsMap.has(String(sp.pin_id))) {
+          uniqueHubPinsMap.set(String(sp.pin_id), sp);
+        }
+      }
+      await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw);
+    }
+  }, { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 4000 });
+
+  const timeoutTask = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`Unified Postgres flush timeout (${FLUSH_TIMEOUT_MS}ms limit)`));
+    }, FLUSH_TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([syncTask, timeoutTask]);
+    return 1;
+  } catch (err) {
+    syncTask.catch(() => {});
+    throw new Error(`[DB Flush Fatal] Unified Postgres write failed for ${enrichedPins.length} pins: ${err.message}`);
+  } finally {
+    if (timerId) clearTimeout(timerId);
+  }
 }
 
 /**
@@ -1528,30 +1477,6 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
       console.warn(`    [!] Pin #${p.pin_id} inspect error:`, err.message);
     } finally {
       completedCount++;
-      if (!jitPrewarmFired && !isUnifiedPostgres() && total >= 1 && (completedCount / total) >= 0.8) {
-        jitPrewarmFired = true;
-        // JIT Pre-warming pulse (SELECT 1) across target shards 3-5s before flushToStorageShards
-        const targetShardIds = new Set();
-        for (const targetPin of pins) {
-          if (targetPin && targetPin.pin_id && /^(?:\d+|e1_[A-Za-z0-9_-]+)$/.test(String(targetPin.pin_id))) {
-            const sid = getPinShardId(targetPin.pin_id, 99);
-            targetShardIds.add(getPhysicalShardId(sid));
-          }
-        }
-        if (targetShardIds.size > 0) {
-          (async () => {
-            try {
-              await preloadNeonRegistry(sql);
-              await Promise.allSettled(Array.from(targetShardIds).map(async (shardId) => {
-                try {
-                  const prewarmSql = await resolveShardConnection({ hubSql: sql, shardId });
-                  await prewarmSql`SELECT 1;`;
-                } catch (_) {}
-              }));
-            } catch (_) {}
-          })().catch(() => {});
-        }
-      }
       if (completedCount % 50 === 0 || completedCount === total) {
         console.log(`  [Progress] ${label}: Inspected ${completedCount}/${total} pins (${Math.round((completedCount / total) * 100)}%)...`);
       }
@@ -1571,25 +1496,6 @@ async function run() {
   console.log(`[Config] Worker Slot:     ${workerIndex + 1} / ${workerTotal}`);
   console.log(`[Config] Target Keyword:  "${targetKeyword || '<AUTO-RESOLVE>'}"`);
   console.log(`[Config] Crawl Scope:     ${crawlScope}`);
-
-  // Initialize In-Crawler Keep-Alive Heartbeat (every 3.5 min / 210s) to prevent Neon compute scale-to-zero
-  if (!isUnifiedPostgres()) {
-    crawlerKeepAlive = setInterval(async () => {
-      if (activeTargetShards.size === 0) return;
-      const shards = Array.from(new Set(Array.from(activeTargetShards).map(s => getPhysicalShardId(s))));
-      const chunkSem = new Semaphore(5);
-      await Promise.allSettled(
-        shards.map((shardId) => chunkSem.run(async () => {
-          try {
-            const shardConn = await resolveShardConnection({ hubSql: sql, shardId });
-            await shardConn`SELECT 1;`;
-          } catch (_) {}
-        }))
-      );
-    }, 210000);
-    if (typeof crawlerKeepAlive.unref === 'function') crawlerKeepAlive.unref();
-    process.on('exit', () => { if (crawlerKeepAlive) clearInterval(crawlerKeepAlive); });
-  }
 
   if (mode === 'folder_pin_partition') {
     // =========================================================================

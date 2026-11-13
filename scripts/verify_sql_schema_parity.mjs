@@ -527,7 +527,7 @@ for (const file of filesToScan) {
     if (!isTestOrMigrationOrSeed && /\bINSERT\s+INTO\s+keyword_pins_snapshots\b/i.test(query)) {
       console.error(`🚨 [ARCHITECTURAL GUARD] Direct INSERT INTO keyword_pins_snapshots on Central Hub!`);
       console.error(`   File: ${file}:${line}`);
-      console.error(`   Fix:  Historical snapshots must be routed exclusively to Storage Shards via fleet-router.\n`);
+      console.error(`   Fix:  Historical snapshots must be routed exclusively to PinRepository in Unified PostgreSQL.\n`);
       violationCount++;
     }
 

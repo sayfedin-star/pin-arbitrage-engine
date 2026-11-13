@@ -16,35 +16,34 @@ import path from 'path';
 console.log('=== Running Phase 3 Verification Suite ===\n');
 
 // -------------------------------------------------------------
-// Test 1: L1 Edge Cache Request Method Safety (RFC & Cache API compliance)
+// Test 1: Pure L0 Edge Cache SWR & Canonical Invalidation
 // -------------------------------------------------------------
-console.log('[Test 1] Verifying L1 Edge Cache Request method GET wrapping in src/worker.mjs...');
+console.log('[Test 1] Verifying L0 Edge Cache SWR in src/http/security-and-response.mjs...');
 
 const routesContent = fs.existsSync('src/routes')
   ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
   : '';
-const workerContent = fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent;
+const securityHttpContent = fs.readFileSync('src/http/security-and-response.mjs', 'utf8');
+const apiRoutesContent = fs.readFileSync('src/plugins/api-routes.mjs', 'utf8');
+const serverContent = fs.readFileSync('src/server.mjs', 'utf8');
+const workerContent = securityHttpContent + '\n' + apiRoutesContent + '\n' + serverContent + '\n' + routesContent;
 
-// Ensure all l1Cache calls operate on a Request with method GET
 assert(
-  workerContent.includes("new Request(cacheUrl, { method: 'GET' })"),
-  'src/worker.mjs must wrap cacheUrl in new Request(cacheUrl, { method: "GET" })'
+  securityHttpContent.includes('export const edgeCache = new Map()') &&
+  securityHttpContent.includes('buildCanonicalCacheKey') &&
+  securityHttpContent.includes('invalidateEdgeCache'),
+  'src/http/security-and-response.mjs must provide pure L0 edgeCache Map, buildCanonicalCacheKey, and invalidateEdgeCache'
 );
-
-// Verify l1Cache calls in getCachedOrFetch and invalidateEdgeCache use the Request object
-const putReqMatch = /l1Cache\.put\(cacheReq,/.test(workerContent);
-const matchReqMatch = /l1Cache\.match\(cacheReq\)/.test(workerContent);
-const delReqMatch = /l1Cache\.delete\(cacheReq\)/.test(workerContent);
-
-assert(putReqMatch, 'l1Cache.put must be called with cacheReq (Request with method GET)');
-assert(matchReqMatch, 'l1Cache.match must be called with cacheReq (Request with method GET)');
-assert(delReqMatch, 'l1Cache.delete must be called with cacheReq (Request with method GET)');
-console.log('  ✓ L1 Cache API calls guaranteed to use Request with method: "GET"');
+assert(
+  !securityHttpContent.includes('l1Cache') && !securityHttpContent.includes('caches.default'),
+  'src/http/security-and-response.mjs must not contain Cloudflare l1Cache or caches.default'
+);
+console.log('  ✓ Pure L0 SWR edgeCache verified (Cloudflare Cache API eradicated)');
 
 // -------------------------------------------------------------
-// Test 2: Full-Suite Cache Parity & Invalidation in Worker Routes
+// Test 2: Full-Suite Cache Parity & Invalidation in Fastify Routes
 // -------------------------------------------------------------
-console.log('\n[Test 2] Verifying cache wrapping & invalidations across 4 pillars in src/worker.mjs...');
+console.log('\n[Test 2] Verifying cache wrapping & invalidations across 4 pillars in Fastify routes...');
 
 // Competitors invalidations
 assert(
@@ -287,21 +286,17 @@ assert(relatedContent.includes('dispatcher: undiciAgent'), 'account-related-craw
 console.log('  ✓ Zero static import invariant preserved; dynamic undici injection verified across all 4 crawlers');
 
 // -------------------------------------------------------------
-// Test 6: Shard Transactions & Prewarming in Fleet Crawlers
+// Test 6: PinRepository SSOT Ingestion & Monotonic Batch Ordering
 // -------------------------------------------------------------
-console.log('\n[Test 6] Verifying shard prewarming & combined transactions in fleet crawlers...');
+console.log('\n[Test 6] Verifying PinRepository SSOT ingestion & monotonic batch ordering...');
 
-// Verify parallel prewarming pulse in keyword-velocity-crawler.mjs
+// Verify PinRepository ingestion calls in keyword-velocity-crawler.mjs
 assert(
-  kwCrawlerContent.includes('prewarmSql`SELECT 1;`'),
-  'keyword-velocity-crawler.mjs must issue parallel SELECT 1 prewarming pulse across affected shards'
-);
-
-// Verify combined shard transaction in flushToStorageShards
-assert(
-  kwCrawlerContent.includes('shardSql.transaction([q1, q2, q3])') ||
-  kwCrawlerContent.includes('shardSql.transaction(['),
-  'keyword-velocity-crawler.mjs must combine q1, q2, q3 into single shardSql.transaction'
+  kwCrawlerContent.includes('insertNewPinsBatch') &&
+  kwCrawlerContent.includes('resavePinsMetricsBatch') &&
+  kwCrawlerContent.includes('ingestPinsBatch') &&
+  kwCrawlerContent.includes('flushBatchToHub'),
+  'keyword-velocity-crawler.mjs must route batch writes through PinRepository SSOT helpers and flushBatchToHub'
 );
 
 // Verify monotonic ORDER BY in creator velocity crawler and account related crawler
@@ -326,23 +321,18 @@ assert(
   'cluster-intelligence.mjs must use bulk jsonb_to_recordset for seed_guided_search_capsules ordered by normalized_query ASC'
 );
 
-console.log('  ✓ Parallel SELECT 1 prewarming and atomic shard transactions verified');
+console.log('  ✓ PinRepository SSOT ingestion and monotonic batch ordering verified');
 
 // -------------------------------------------------------------
-// Test 7: Sharding Hash Parity & Zero Split-Brain Invariant
+// Test 7: 20-Worker Matrix CRC32 Determinism & Zero Split-Brain Invariant
 // -------------------------------------------------------------
-console.log('\n[Test 7] Verifying Hash Parity & Zero Split-Brain Invariant across JIT Pre-warming...');
+console.log('\n[Test 7] Verifying 20-Worker Matrix CRC32 Determinism & Zero Split-Brain Invariant...');
 
-const { getPinShardId, parseD1DateMs } = await import('../src/modules/sharding/fleet-router.mjs');
+const { crc32 } = await import('../src/lib/math.mjs');
 
-// Verify crawler source code uses getPinShardId and eliminated BigInt % 99n landmine
 assert(
-  kwCrawlerContent.includes('const sid = getPinShardId(targetPin.pin_id, 99);'),
-  'keyword-velocity-crawler.mjs must use getPinShardId(targetPin.pin_id, 99) in JIT prewarming'
-);
-assert(
-  !kwCrawlerContent.includes('BigInt(targetPin.pin_id) % 99n'),
-  'keyword-velocity-crawler.mjs must NOT use BigInt % 99n (prevents Hash Split-Brain)'
+  !kwCrawlerContent.includes('BigInt('),
+  'keyword-velocity-crawler.mjs must NOT use BigInt modulo arithmetic (prevents Hash Split-Brain)'
 );
 
 const samplePins = [
@@ -354,12 +344,11 @@ const samplePins = [
 ];
 
 for (const pid of samplePins) {
-  const shardId = getPinShardId(pid, 99);
-  assert(Number.isInteger(shardId) && shardId >= 1 && shardId <= 99, `Shard ID for ${pid} must be in [1, 99]`);
-  // Deterministic invariant: repeatedly calling getPinShardId yields identical shard
-  assert.strictEqual(getPinShardId(pid, 99), shardId, 'getPinShardId must be strictly deterministic');
+  const workerIdx = crc32(pid) % 20;
+  assert(Number.isInteger(workerIdx) && workerIdx >= 0 && workerIdx < 20, `Worker index for ${pid} must be in [0, 19]`);
+  assert.strictEqual(crc32(pid) % 20, workerIdx, 'crc32 % 20 must be strictly deterministic');
 }
-console.log('  ✓ Deterministic Hash Parity confirmed; Zero Split-Brain invariant verified across 99 shards');
+console.log('  ✓ Deterministic 20-worker crc32 partitioning confirmed; Zero Split-Brain invariant verified');
 
 // -------------------------------------------------------------
 // Test 8: Dispatcher Step Summary Zero ReferenceError & Output Contract
@@ -465,55 +454,43 @@ assert(
   'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on tracked_keywords'
 );
 
-// D1 UTC Date Parsing Precision
-const expectedUtcMs = Date.UTC(2026, 9, 17, 12, 0, 0); // 2026-10-17 12:00:00 UTC
-const sqliteFormat = '2026-10-17 12:00:00';
-const isoFormat = '2026-10-17T12:00:00Z';
+// Verify obsolete fleet-router.mjs has been permanently deleted
+assert.strictEqual(fs.existsSync('src/modules/sharding/fleet-router.mjs'), false, 'fleet-router.mjs must be deleted');
 
-assert.strictEqual(parseD1DateMs(sqliteFormat), expectedUtcMs, 'parseD1DateMs must parse SQLite datetime as exact UTC ms');
-assert.strictEqual(parseD1DateMs(isoFormat), expectedUtcMs, 'parseD1DateMs must parse ISO datetime as exact UTC ms');
-assert.strictEqual(parseD1DateMs(null), 0, 'parseD1DateMs must return 0 for null/undefined');
-assert.strictEqual(parseD1DateMs(1770000000000), 1770000000000, 'parseD1DateMs must pass through raw numeric ms');
-
-console.log('  ✓ Consolidator Hub Table Vacuum & D1 UTC Date Parser verified (Zero local timezone skew)');
+console.log('  ✓ Consolidator Hub Table Vacuum & fleet-router eradication verified');
 
 // -------------------------------------------------------------
-// Test 11: Unified PostgreSQL Direct Resolution & Clean Auto-Backfill Suppression
+// Test 11: Unified PostgreSQL Direct Repository & De-Sharded Exports
 // -------------------------------------------------------------
-console.log('\n[Test 11] Verifying Unified PostgreSQL Direct Resolution & Clean Auto-Backfill Suppression...');
+console.log('\n[Test 11] Verifying Unified PostgreSQL PinRepository exports & De-Sharded SSOT...');
 
-const fleetRouterContent = fs.readFileSync('src/modules/sharding/fleet-router.mjs', 'utf8');
+const pinRepoContent = fs.readFileSync('src/modules/pins/repository.mjs', 'utf8');
+const pinRepoMod = await import('../src/modules/pins/repository.mjs');
 
-// Assert Unified Postgres resolution in fleet-router.mjs
+assert.strictEqual(typeof pinRepoMod.fetchUniversalPinDossier, 'function', 'PinRepository must export fetchUniversalPinDossier');
+assert.strictEqual(typeof pinRepoMod.ingestPinsBatch, 'function', 'PinRepository must export ingestPinsBatch');
 assert(
-  fleetRouterContent.includes('isUnifiedPostgres') && fleetRouterContent.includes('resolveShardConnection'),
-  'fleet-router.mjs must support Unified Postgres direct resolution'
+  !pinRepoContent.includes('resolveShardConnection') && !pinRepoContent.includes('shouldBackfillShard'),
+  'PinRepository must not contain legacy sharding resolution or shard backfill logic'
 );
 
-// Assert Auto-Backfill is strictly guarded against write churn on Hub
-assert(
-  fleetRouterContent.includes('const shouldBackfillShard =') && fleetRouterContent.includes('shardSql !== hubSql'),
-  'fleet-router.mjs must prevent write churn on read when shardSql === hubSql'
-);
-
-console.log('  ✓ Unified PostgreSQL Direct Resolution & Auto-Backfill suppression verified');
+console.log('  ✓ Unified PostgreSQL PinRepository SSOT verified');
 
 // -------------------------------------------------------------
-// Test 12: snapMeta Supreme Shard Priority & Shard Crawl Metadata Sanitization
+// Test 12: masterRecord.metadata Priority & Crawl Metadata Sanitization
 // -------------------------------------------------------------
-console.log('\n[Test 12] Verifying snapMeta Supreme Shard Priority & Shard Crawl Metadata Sanitization...');
+console.log('\n[Test 12] Verifying masterRecord.metadata Priority & Crawl Metadata Sanitization...');
 
-// Assert snapMeta merge order in fleet-router.mjs gives supreme priority to masterRecord.metadata
+// Assert metadata merge order in repository.mjs gives supreme priority to masterMetaObj (from masterRecord.metadata)
 assert(
-  fleetRouterContent.includes('...cleanMeta(hubSerpRows[0]?.metadata)') &&
-  fleetRouterContent.includes('...cleanMeta(masterRecord?.metadata)'),
-  'fleet-router.mjs must merge cleanMeta(masterRecord?.metadata) LAST to give supreme priority to shard treasures'
+  pinRepoContent.includes('{ ...topHubMeta, ...masterMetaObj,'),
+  'src/modules/pins/repository.mjs must merge masterMetaObj AFTER topHubMeta to give supreme priority to master treasures'
 );
 
-// Functional test of snapMeta priority
+// Functional test of metadata merge priority
 const dummyHubHistory = { image_signature: '', board_pin_count: 0, seo_title: 'Old Hub Title' };
 const dummyHubSerp = { image_signature: '', board_pin_count: 0, seo_title: '' };
-const dummyShardMaster = { image_signature: 'SHARD_SIG_VALID', board_pin_count: 550, seo_title: 'Rich Master Pin' };
+const dummyMaster = { image_signature: 'SHARD_SIG_VALID', board_pin_count: 550, seo_title: 'Rich Master Pin' };
 
 const cleanMetaFn = (obj) => {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
@@ -525,29 +502,26 @@ const cleanMetaFn = (obj) => {
 const mergedResult = {
   ...cleanMetaFn(dummyHubHistory),
   ...cleanMetaFn(dummyHubSerp),
-  ...cleanMetaFn(dummyShardMaster)
+  ...cleanMetaFn(dummyMaster)
 };
 
-assert.strictEqual(mergedResult.image_signature, 'SHARD_SIG_VALID', 'Shard image_signature must not be overwritten by Hub');
-assert.strictEqual(mergedResult.board_pin_count, 550, 'Shard board_pin_count must not be overwritten by Hub 0');
-assert.strictEqual(mergedResult.seo_title, 'Rich Master Pin', 'Shard seo_title must prevail over Hub');
+assert.strictEqual(mergedResult.image_signature, 'SHARD_SIG_VALID', 'Master image_signature must not be overwritten');
+assert.strictEqual(mergedResult.board_pin_count, 550, 'Master board_pin_count must not be overwritten by 0');
+assert.strictEqual(mergedResult.seo_title, 'Rich Master Pin', 'Master seo_title must prevail');
 
-// Shard crawler sanitization assertions in keyword-velocity-crawler.mjs
+// Crawler & repository sanitization assertions
 const crawlerContent = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
 
 assert(
-  crawlerContent.includes('sanitizeShardMeta'),
-  'keyword-velocity-crawler.mjs must define sanitizeShardMeta in flushToStorageShards'
+  crawlerContent.includes('sanitizePinMeta'),
+  'keyword-velocity-crawler.mjs must define sanitizePinMeta in Unified Postgres flush'
 );
 assert(
-  crawlerContent.includes('jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, \'{}\'::jsonb))'),
-  'keyword-velocity-crawler.mjs must use jsonb_strip_nulls on EXCLUDED.metadata in universal_master_pins upsert'
-);
-assert(
-  crawlerContent.includes('dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, \'\'), universal_master_pins.dominant_color)'),
-  'keyword-velocity-crawler.mjs must guard dominant_color with NULLIF in universal_master_pins upsert'
+  pinRepoContent.includes("dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color)") &&
+  pinRepoContent.includes("dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888')"),
+  'src/modules/pins/repository.mjs must guard dominant_color against empty/default values in universal_master_pins upsert'
 );
 
-console.log('  ✓ snapMeta supreme priority & crawler metadata sanitization verified (100% treasure safe)');
+console.log('  ✓ masterMetaObj supreme priority & crawler metadata sanitization verified (100% treasure safe)');
 
 console.log('\n🎉 ALL Phase 3 Verification Assertions Passed Successfully (100% Green)!');

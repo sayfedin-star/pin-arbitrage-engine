@@ -18,7 +18,7 @@
  *   Partitions a campaign folder's keywords and unique pins across 20 runners.
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import { getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
 
@@ -33,7 +33,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = createSqlClient(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
 const rawFolderId = (process.env.FOLDER_ID || '').trim();
 const githubOutputPath = process.env.GITHUB_OUTPUT || null;

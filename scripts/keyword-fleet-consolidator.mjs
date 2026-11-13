@@ -12,7 +12,7 @@
  * 4. Renders the unified Executive Markdown Report to $GITHUB_STEP_SUMMARY.
  */
 
-import { createUniversalSqlClient, preloadNeonRegistry, resolveShardConnection, isUnifiedPostgres } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 import { winsorize } from '../src/modules/keywords/service.mjs';
@@ -27,7 +27,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL, {
+const sql = createSqlClient(DATABASE_URL, {
   connection: {
     statement_timeout: 120000
   }
@@ -536,27 +536,12 @@ async function runShardJanitorGC() {
     }
 
     const purgeIds = pendingTombstones.map(r => Number(r.keyword_id)).filter(id => id && !isNaN(id));
-    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
+    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Purging pin_serp_positions in Unified PostgreSQL...`);
 
-    await preloadNeonRegistry(sql);
-    // [INVARIANT: 20-PHYSICAL-SHARD-CONSOLIDATION] Coalesce to 1 pass on unified PostgreSQL
-    const shardIds = isUnifiedPostgres() ? [1] : Array.from({ length: 20 }, (_, i) => i + 1);
-    const SHARD_CONCURRENCY = 10;
-    let purgedShardsCount = 0;
-
-    for (let i = 0; i < shardIds.length; i += SHARD_CONCURRENCY) {
-      const chunk = shardIds.slice(i, i + SHARD_CONCURRENCY);
-      await Promise.allSettled(chunk.map(async (shardId) => {
-        try {
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-          await shardSql`
-            DELETE FROM pin_serp_positions
-            WHERE keyword_id = ANY(${purgeIds});
-          `;
-          purgedShardsCount++;
-        } catch (_) {}
-      }));
-    }
+    await sql`
+      DELETE FROM pin_serp_positions
+      WHERE keyword_id = ANY(${purgeIds});
+    `;
 
     // Atomic State Transition: Mark shards_purged = true to guarantee strictly-once execution
     await sql`
@@ -568,10 +553,10 @@ async function runShardJanitorGC() {
       console.warn('    [!] Failed marking shards_purged on keyword_tombstones:', err.message);
     });
 
-    // Clean any lingering Hub records for purged tombstones
+    // Clean any lingering records for purged tombstones
     await sql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${purgeIds});`.catch(() => {});
 
-    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards. Marked ${purgeIds.length} tombstones as shards_purged.`);
+    console.log(`    [+] Janitor GC: Purged ${purgeIds.length} tombstone keywords and marked shards_purged = TRUE.`);
     return purgeIds.length;
   } catch (gcErr) {
     console.warn('    [!] Shard Janitor GC non-fatal warning:', gcErr.message);

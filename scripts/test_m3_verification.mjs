@@ -1,6 +1,5 @@
 import assert from 'node:assert';
-import { detectHydrationJump, calculateDailyVelocity } from '../src/lib/math.mjs';
-import { isMultiStageHydrationJump } from '../src/modules/sharding/fleet-router.mjs';
+import { detectHydrationJump, calculateDailyVelocity, isMultiStageHydrationJump } from '../src/lib/math.mjs';
 
 console.log('=== Verifying Milestone 3 Hydration Jump & Ingestion Integrity ===\n');
 
@@ -23,8 +22,8 @@ assert.strictEqual(c6, true, 'Condition 6 must detect hydration jump (20x delta 
 assert.strictEqual(normal, false, 'Normal growth must NOT be flagged as hydration jump');
 console.log('  ✓ All 6 hydration conditions verified in src/lib/math.mjs');
 
-// 2. FleetRouter isMultiStageHydrationJump conditions 1 to 6
-console.log('\n[Test 2] Verifying src/modules/sharding/fleet-router.mjs isMultiStageHydrationJump conditions 1-6...');
+// 2. Unified Math isMultiStageHydrationJump conditions 1 to 6
+console.log('\n[Test 2] Verifying src/lib/math.mjs isMultiStageHydrationJump conditions 1-6...');
 const f_c1 = isMultiStageHydrationJump({ save_count: 0, repin_count: 0 }, { save_count: 100, repin_count: 10 });
 const f_c2 = isMultiStageHydrationJump({ save_count: 9, repin_count: 20 }, { save_count: 45, repin_count: 45 });
 const f_c3 = isMultiStageHydrationJump({ save_count: 10, repin_count: 10 }, { save_count: 150, repin_count: 10 });
@@ -33,14 +32,14 @@ const f_c5 = isMultiStageHydrationJump({ save_count: 138, repin_count: 20 }, { s
 const f_c6 = isMultiStageHydrationJump({ save_count: 50, repin_count: 0 }, { save_count: 2500, repin_count: 10 });
 const f_normal = isMultiStageHydrationJump({ save_count: 500, repin_count: 50 }, { save_count: 525, repin_count: 53 });
 
-assert.strictEqual(f_c1, true, 'Condition 1 must detect hydration jump in fleet-router');
-assert.strictEqual(f_c2, true, 'Condition 2 must detect hydration jump in fleet-router');
-assert.strictEqual(f_c3, true, 'Condition 3 must detect hydration jump in fleet-router');
-assert.strictEqual(f_c4, true, 'Condition 4 must detect hydration jump in fleet-router');
-assert.strictEqual(f_c5, true, 'Condition 5 must detect hydration jump on Pin 46373071159685897 in fleet-router');
-assert.strictEqual(f_c6, true, 'Condition 6 must detect hydration jump in fleet-router');
-assert.strictEqual(f_normal, false, 'Normal growth must NOT be flagged as hydration jump in fleet-router');
-console.log('  ✓ All 6 hydration conditions verified in src/modules/sharding/fleet-router.mjs');
+assert.strictEqual(f_c1, true, 'Condition 1 must detect hydration jump in math.mjs');
+assert.strictEqual(f_c2, true, 'Condition 2 must detect hydration jump in math.mjs');
+assert.strictEqual(f_c3, true, 'Condition 3 must detect hydration jump in math.mjs');
+assert.strictEqual(f_c4, true, 'Condition 4 must detect hydration jump in math.mjs');
+assert.strictEqual(f_c5, true, 'Condition 5 must detect hydration jump on Pin 46373071159685897 in math.mjs');
+assert.strictEqual(f_c6, true, 'Condition 6 must detect hydration jump in math.mjs');
+assert.strictEqual(f_normal, false, 'Normal growth must NOT be flagged as hydration jump in math.mjs');
+console.log('  ✓ All 6 hydration conditions verified in src/lib/math.mjs');
 
 // 3. Object unpack safety in isMultiStageHydrationJump
 console.log('\n[Test 3] Verifying object unpack type safety in isMultiStageHydrationJump...');

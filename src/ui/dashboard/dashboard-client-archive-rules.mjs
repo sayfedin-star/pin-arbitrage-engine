@@ -1,121 +1,13 @@
 /**
  * src/ui/dashboard/dashboard-client-archive-rules.mjs
  *
- * Modular Client Subsystem: Fleet Project Views, PinArchive Exploration,
+ * Modular Client Subsystem: PinArchive Exploration,
  * Qualification Rules Management & Competitor Crawl Dispatch.
  * Extracted incrementally from dashboard-client-app.mjs (Phase 3 decomposition).
  */
 
 export function getDashboardArchiveRulesMethods() {
-  return `        async fetchFleetProjects() {
-          this.fleetProjects = [{
-            id: 1,
-            project_id: 'unified-vps-hub',
-            project_name: 'Native VPS PostgreSQL SSOT',
-            status: 'active',
-            is_hub: true,
-            ping_latency: 1
-          }];
-        },
-
-        formatFleetHost(url) {
-          if (!url) return 'vps-postgres-ssot';
-          const match = url.match(/@([^/:]+)/);
-          if (match && match[1]) {
-            const host = match[1];
-            if (host.length > 24) {
-              return host.slice(0, 10) + '...' + host.slice(-10);
-            }
-            return host;
-          }
-          return 'vps-postgres-ssot';
-        },
-
-        inspectFleetNode(project) {
-          this.inspectedNode = project;
-          this.isInspectingNodeModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-        },
-
-        async pingFleetBatchAction() {
-          if (this.isPingingAllFleet) return;
-          this.isPingingAllFleet = true;
-          try {
-            for (const node of this.fleetProjects) {
-              node.ping_latency = 1;
-            }
-            this.fleetPingSummary = {
-              avg_ms: 1,
-              total_tested: this.fleetProjects.length || 1,
-              healthy_count: this.fleetProjects.length || 1
-            };
-            this.showToast('⚡ Unified VPS PostgreSQL SSOT online (1ms)');
-          } finally {
-            this.isPingingAllFleet = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
-        },
-
-        pingingProjectId: null,
-
-        async pingFleetShard(project) {
-          if (!project || !project.project_id) return;
-          project.ping_latency = 1;
-          this.showToast('⚡ ' + (project.project_name || 'Unified VPS DB') + ' active: 1ms latency');
-        },
-
-        async copyFleetUrl(project) {
-          if (!project) return;
-          if (project.masked_url) {
-            await navigator.clipboard.writeText(project.masked_url);
-            this.copiedField = 'url-' + project.id;
-            this.showToast('Copied connection URL for ' + project.project_name + '!');
-            setTimeout(() => { if (this.copiedField === 'url-' + project.id) this.copiedField = null; }, 2000);
-          }
-        },
-
-        async syncAllFleetDatabasesAction() {
-          this.isSyncingFleet = true;
-          try {
-            await this.fetchFleetProjects();
-            await this.fetchCompetitors();
-            this.showToast('🎉 Unified VPS PostgreSQL SSOT is already synchronized!');
-          } finally {
-            this.isSyncingFleet = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
-        },
-
-        async switchProject(projId) {
-          this.selectedProject = projId;
-          this.activeCreator = null;
-          this.activeCreatorDetail = null;
-          this.activeCreatorPins = [];
-          this.activeCreatorAllPins = [];
-          this.activeCreatorAllPinsTotal = 0;
-          this.activeCreatorCatalogTotal = 0;
-          this.activeCreatorWinningPinsTotal = 0;
-          this.activeCreatorRankedTotal = 0;
-          this.activeCreatorHighVelocityTotal = 0;
-          this.activeCreatorAllPinsBoards = [];
-          this.activeCreatorTopics = [];
-          this.activeCreatorBoards = [];
-          this.activeCreatorSnapshots = [];
-          this.activeDossierSeed = null;
-          this.dossierCandidates = [];
-          this.competitors = [];
-          this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
-          this.seeds = [];
-          this.overview = { total_seeds: 0, total_candidates: 0, commercial_gaps: 0, top_clusters: [] };
-          this.intersections = [];
-          this.pinarchivePins = [];
-          this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null };
-          this.pinarchiveTopics = [];
-          this.showToast('Switched view to project: ' + projId);
-          await this.refreshAll();
-        },
-
-        async fetchPinArchiveOverview() {
+  return `        async fetchPinArchiveOverview() {
           try {
             const res = await fetch(this.getApiUrl('/api/creators/archive-overview'));
             if (res.ok) {

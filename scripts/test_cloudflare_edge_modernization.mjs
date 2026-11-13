@@ -7,37 +7,19 @@
  * - Snowflake numeric pin ID enforcement
  */
 
-import worker, {
+import { handleAppRequest } from '../src/server.mjs';
+import {
   checkPinterestCircuitBreaker,
   tripPinterestCircuitBreaker
-} from '../src/worker.mjs';
-import { resolveShardConnection, isUnifiedPostgres } from '../src/modules/sharding/fleet-router.mjs';
+} from '../src/http/security-and-response.mjs';
+const worker = { fetch: handleAppRequest };
+import { createSqlClient, getSqlClient } from '../src/db/client.mjs';
 
 function createMockSql() {
   const mockFn = async (strings, ...values) => {
     const query = Array.isArray(strings) ? strings.join('?') : String(strings);
     if (query.includes('SELECT 1 as alive')) {
       return [{ alive: 1 }];
-    }
-    if (query.includes('FROM neon_projects_registry')) {
-      return [
-        {
-          id: 1,
-          project_id: 'shard-01',
-          project_name: 'pin-arbitrage-shard-01',
-          database_url: 'postgres://user:pass@ep-shard-01.aws.neon.tech/neondb',
-          status: 'active',
-          assigned_shards: [1]
-        },
-        {
-          id: 2,
-          project_id: 'shard-02',
-          project_name: 'pin-arbitrage-shard-02',
-          database_url: 'postgres://user:pass@ep-shard-02.aws.neon.tech/neondb',
-          status: 'active',
-          assigned_shards: [2]
-        }
-      ];
     }
     if (query.includes('FROM tracked_keywords') || query.includes('FROM keywords')) {
       return [
@@ -94,31 +76,39 @@ async function runModernizationTests() {
       JSON.stringify(data)
     );
     assert(
-      'Health check confirms unified_postgres topology and direct Neon connection',
-      data.topology === 'unified_postgres' && data.database === 'connected' && data.direct_neon_configured === true,
+      'Health check confirms unified_postgres topology and native Fastify server',
+      data.topology === 'unified_postgres' && data.database === 'connected' && data.server === 'node_native_pae_server',
       JSON.stringify(data)
     );
   }
 
   // =========================================================================
-  // 2. UNIFIED POSTGRES SHARD ROUTING
+  // 2. UNIFIED POSTGRES CLIENT RESOLUTION
   // =========================================================================
-  console.log('\n[AXIS 2] Unified Postgres Shard Routing Parity');
+  console.log('\n[AXIS 2] Unified Postgres Client Resolution Parity');
 
   {
     const mockSql = createMockSql();
     const env = {
-      DATABASE_URL: 'postgres://dummy@neon.tech/db',
+      DATABASE_URL: 'postgres://dummy:pass@127.0.0.1:5432/pin_arbitrage',
       SQL_CLIENT: mockSql
     };
 
-    assert('isUnifiedPostgres defaults to true in pure Neon environment', isUnifiedPostgres(env) === true);
-
-    const shardConn = await resolveShardConnection({ hubSql: mockSql, shardId: 1, env });
+    const resolvedFromInjected = getSqlClient(env);
     assert(
-      'resolveShardConnection resolves shard cleanly to unified Neon SQL connection',
-      typeof shardConn === 'function'
+      'getSqlClient returns injected SQL_CLIENT directly',
+      resolvedFromInjected === mockSql
     );
+
+    const freshClient = createSqlClient('postgres://user:pass@127.0.0.1:5432/pin_arbitrage');
+    try {
+      assert(
+        'createSqlClient creates bridged PostgreSQL client cleanly',
+        typeof freshClient === 'function' && freshClient.__unifiedTxAttached === true
+      );
+    } finally {
+      await freshClient.end({ timeout: 0 }).catch(() => {});
+    }
   }
 
   // =========================================================================
@@ -167,12 +157,12 @@ async function runModernizationTests() {
   // =========================================================================
   // 4. AUTOCOMPLETE RESOLUTION
   // =========================================================================
-  console.log('\n[AXIS 4] Autocomplete Query Resolution via Pure Neon Hub');
+  console.log('\n[AXIS 4] Autocomplete Query Resolution via Unified PostgreSQL');
 
   {
     const mockSql = createMockSql();
     const env = {
-      DATABASE_URL: 'postgres://dummy@neon.tech/db',
+      DATABASE_URL: 'postgres://dummy@127.0.0.1:5432/pin_arbitrage',
       SQL_CLIENT: mockSql
     };
 
@@ -180,16 +170,16 @@ async function runModernizationTests() {
     const resFallback = await worker.fetch(reqFallback, env);
     const dataFallback = await resFallback.json();
     assert(
-      'GET /api/search/autocomplete resolves cleanly from Neon Hub',
-      resFallback.status === 200 && dataFallback.source === 'neon_hub' && dataFallback.results?.length > 0
+      'GET /api/search/autocomplete resolves cleanly from unified PostgreSQL',
+      resFallback.status === 200 && dataFallback.source === 'unified_postgres' && dataFallback.results?.length > 0
     );
 
     const reqAlias = new Request('https://worker.test/api/keywords/autocomplete?q=sour');
     const resAlias = await worker.fetch(reqAlias, env);
     const dataAlias = await resAlias.json();
     assert(
-      'GET /api/keywords/autocomplete alias resolves cleanly from Neon Hub',
-      resAlias.status === 200 && dataAlias.source === 'neon_hub'
+      'GET /api/keywords/autocomplete alias resolves cleanly from unified PostgreSQL',
+      resAlias.status === 200 && dataAlias.source === 'unified_postgres'
     );
   }
 

@@ -42,7 +42,7 @@ export default [
       'no-loss-of-precision': 'error'
     }
   },
-  // 2. Cloudflare Worker & API Services
+  // 2. Fastify Server & API Services (src/) and Edge Wake Shield (workers/)
   {
     files: ['src/**/*.mjs'],
     languageOptions: {
@@ -50,13 +50,10 @@ export default [
       sourceType: 'module',
       globals: {
         ...globals.node,
-        ...globals.worker,
-        // Cloudflare Worker Runtime
         Response: 'readonly',
         Request: 'readonly',
         Headers: 'readonly',
         fetch: 'readonly',
-        caches: 'readonly',
         crypto: 'readonly',
         structuredClone: 'readonly',
         AbortController: 'readonly',

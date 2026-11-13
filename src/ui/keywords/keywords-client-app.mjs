@@ -197,8 +197,6 @@ export function getKeywordsClientAppScript() {
         // UI Tabs & State
         activeTab: 'serp',
         popularPinsView: 'full',
-        selectedProjectId: '',
-        fleetProjects: [],
         toast: { show: false, message: '', type: 'info' },
 
         // Campaign Folders & Crossover Engine State
@@ -1201,7 +1199,6 @@ export function getKeywordsClientAppScript() {
         },
 
         init() {
-          this.selectedProjectId = ''; // Keywords & SERP studio strictly bind to Central Metadata Hub
           this.darkMode = typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
           this.isDark = this.darkMode;
           this.applyTheme();
@@ -1567,23 +1564,6 @@ export function getKeywordsClientAppScript() {
 
         getApiUrl(path) {
           return path;
-        },
-
-        onProjectChange() {
-          localStorage.setItem('pa_selected_project_id', this.selectedProjectId);
-          this.selectedKeyword = null;
-          this.selectedKeywordDetails = null;
-          this.fetchKeywords();
-        },
-
-        async fetchFleetProjects() {
-          this.fleetProjects = [{
-            id: 1,
-            project_id: 'unified-vps-hub',
-            project_name: 'Native VPS PostgreSQL SSOT',
-            status: 'active',
-            is_hub: true
-          }];
         },
 
         normalizeKeyword(k) {

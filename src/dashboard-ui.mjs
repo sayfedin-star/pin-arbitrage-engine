@@ -47,7 +47,6 @@ import { getDashboardClientAppScript } from './ui/dashboard/dashboard-client-app
 // '/api/competitors/status'
 // '/api/competitors/dispatch-crawl'
 // '/api/keywords'
-// '/api/fleet/projects'
 // '/api/seeds/bulk'
 // '/api/workflow/trigger'
 // '/api/seeds/bulk-delete'
@@ -59,7 +58,6 @@ import { getDashboardClientAppScript } from './ui/dashboard/dashboard-client-app
 // (window.safeApiFetch || fetch)(this.getApiUrl('/api/seeds/bulk-delete')
 // (window.safeApiFetch || fetch)(this.getApiUrl('/api/workflow/trigger')
 // (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors')
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/fleet/projects')
 
 // [INVARIANT-LOCK: ENFORCED BY test_boost_phases_1_2_3.mjs]
 // Master Pin Ledger filter contracts and reactive state:

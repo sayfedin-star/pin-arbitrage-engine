@@ -66,8 +66,7 @@ export async function handleClusterRoutes({
   searchParams,
   env,
   ctx,
-  targetSql,
-  reqProjectId,
+  sql,
   jsonResponse,
   methodNotAllowedResponse,
   clampLimit,
@@ -88,7 +87,7 @@ export async function handleClusterRoutes({
     const minAudience = Number(searchParams.get('min_audience') || searchParams.get('minAudience') || 0);
 
     try {
-      const payload = await getGlobal24hPulseService(targetSql, env, {
+      const payload = await getGlobal24hPulseService(sql, env, {
         folderId,
         window: windowParam,
         forceRefresh,
@@ -119,7 +118,7 @@ export async function handleClusterRoutes({
     const windowParam = searchParams.get('window') || '24h';
 
     try {
-      const pulseData = await getGlobal24hPulseService(targetSql, env, {
+      const pulseData = await getGlobal24hPulseService(sql, env, {
         folderId,
         window: windowParam,
         ctx
@@ -143,7 +142,7 @@ export async function handleClusterRoutes({
   if (method === 'GET' && pathname === '/api/overview') {
     const cacheKey = buildCanonicalCacheKey('api:overview', {});
     const payload = await getCachedOrFetch(cacheKey, async () => {
-      return await getClusterOverviewService(targetSql);
+      return await getClusterOverviewService(sql);
     }, 30000, 120000);
 
     return jsonResponse(payload);
@@ -188,7 +187,7 @@ export async function handleClusterRoutes({
       if (s?.pin_id) dedupSeedsMap.set(String(s.pin_id), s);
     }
     const uniqueSeeds = Array.from(dedupSeedsMap.values());
-    const inserted = await bulkCreateClusterSeedsService(targetSql, uniqueSeeds);
+    const inserted = await bulkCreateClusterSeedsService(sql, uniqueSeeds);
 
     await invalidateEdgeCache('api:overview');
     await invalidateEdgeCache('api:seeds');
@@ -210,7 +209,7 @@ export async function handleClusterRoutes({
       return jsonResponse({ error: 'pin_ids array is required' }, 400);
     }
 
-    await bulkDeleteClusterSeedsService(targetSql, { pinIds, purgeDatabase });
+    await bulkDeleteClusterSeedsService(sql, { pinIds, purgeDatabase });
 
     await invalidateEdgeCache('api:overview');
     await invalidateEdgeCache('api:seeds');
@@ -252,7 +251,7 @@ export async function handleClusterRoutes({
     }
 
     try {
-      const res = await importRawJsonClusterDataService(targetSql, { seedPinId, parsedBlocks });
+      const res = await importRawJsonClusterDataService(sql, { seedPinId, parsedBlocks });
       invalidateEdgeCache('api:recgpt-playbook');
       invalidateEdgeCache('api:cluster-telemetry');
       invalidateEdgeCache('api:guided-search');
@@ -272,7 +271,7 @@ export async function handleClusterRoutes({
     if (method === 'GET') {
       const cacheKey = buildCanonicalCacheKey('api:seeds', {});
       const seeds = await getCachedOrFetch(cacheKey, async () => {
-        return await getClusterSeedsService(targetSql);
+        return await getClusterSeedsService(sql);
       }, 30000, 120000);
 
       return jsonResponse(seeds);
@@ -288,7 +287,7 @@ export async function handleClusterRoutes({
         return jsonResponse({ error: 'pin_id is required' }, 400);
       }
 
-      const seed = await createClusterSeedService(targetSql, { pinId, label, isCompetitor });
+      const seed = await createClusterSeedService(sql, { pinId, label, isCompetitor });
       await invalidateEdgeCache('api:overview');
       await invalidateEdgeCache('api:seeds');
       await invalidateEdgeCache('candidates');
@@ -305,7 +304,7 @@ export async function handleClusterRoutes({
       if (!pinId) {
         return jsonResponse({ error: 'pin_id query parameter is required' }, 400);
       }
-      await deleteClusterSeedService(targetSql, { pinId, purgeData });
+      await deleteClusterSeedService(sql, { pinId, purgeData });
       await invalidateEdgeCache('api:overview');
       await invalidateEdgeCache('api:seeds');
       await invalidateEdgeCache('candidates');
@@ -328,7 +327,7 @@ export async function handleClusterRoutes({
       return jsonResponse({ error: 'candidate_pin_ids array is required' }, 400);
     }
 
-    await deleteCandidatesService(targetSql, { candIds, seedPinId });
+    await deleteCandidatesService(sql, { candIds, seedPinId });
 
     invalidateEdgeCache('api:recgpt-playbook');
     invalidateEdgeCache('api:cluster-telemetry');
@@ -343,9 +342,8 @@ export async function handleClusterRoutes({
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const query = (searchParams.get('q') || '').trim();
     const sort = (searchParams.get('sort') || 'saves').toLowerCase();
-    const shardKey = reqProjectId || 'hub';
 
-    const cacheKey = buildCanonicalCacheKey(`candidates:${shardKey}`, {
+    const cacheKey = buildCanonicalCacheKey('candidates', {
       seed_pin_id: seedPinId,
       limit,
       offset,
@@ -354,7 +352,7 @@ export async function handleClusterRoutes({
     });
 
     const enriched = await getCachedOrFetch(cacheKey, async () => {
-      return await getCandidatesService(targetSql, { seedPinId, limit, offset, query, sort });
+      return await getCandidatesService(sql, { seedPinId, limit, offset, query, sort });
     }, 8000, 30000);
 
     return jsonResponse(enriched, 200, 8);
@@ -462,12 +460,11 @@ export async function handleClusterRoutes({
   if (method === 'GET' && pathname === '/api/recgpt-playbook') {
     const seedPinId = searchParams.get('seed_pin_id');
     const cacheKey = buildCanonicalCacheKey('api:recgpt-playbook', {
-      seed_pin_id: seedPinId || 'all',
-      shard: reqProjectId || 'hub'
+      seed_pin_id: seedPinId || 'all'
     });
 
     const playbookData = await getCachedOrFetch(cacheKey, async () => {
-      return await getRecgptPlaybookService(targetSql, { seedPinId });
+      return await getRecgptPlaybookService(sql, { seedPinId });
     }, 20000, 60000);
 
     return jsonResponse(playbookData, 200, 20);
@@ -477,12 +474,11 @@ export async function handleClusterRoutes({
   if (method === 'GET' && pathname === '/api/cluster-telemetry') {
     const seedPinIdParam = searchParams.get('seed_pin_id') || '';
     const cacheKey = buildCanonicalCacheKey('api:cluster-telemetry', {
-      seed_pin_id: seedPinIdParam,
-      shard: reqProjectId || 'hub'
+      seed_pin_id: seedPinIdParam
     });
 
     const telemetryData = await getCachedOrFetch(cacheKey, async () => {
-      return await getClusterTelemetryService(targetSql, { seedPinIdParam });
+      return await getClusterTelemetryService(sql, { seedPinIdParam });
     }, 20000, 60000);
 
     return jsonResponse(telemetryData, 200, 20);
@@ -492,12 +488,11 @@ export async function handleClusterRoutes({
   if (method === 'GET' && pathname === '/api/guided-search') {
     const seedPinId = searchParams.get('seed_pin_id');
     const cacheKey = buildCanonicalCacheKey('api:guided-search', {
-      seed_pin_id: seedPinId || 'all',
-      shard: reqProjectId || 'hub'
+      seed_pin_id: seedPinId || 'all'
     });
 
     const rows = await getCachedOrFetch(cacheKey, async () => {
-      return await getGuidedSearchService(targetSql, { seedPinId });
+      return await getGuidedSearchService(sql, { seedPinId });
     }, 20000, 60000);
 
     return jsonResponse(rows, 200, 20);
@@ -505,18 +500,17 @@ export async function handleClusterRoutes({
 
   // 9. GET /api/intersections
   if (method === 'GET' && pathname === '/api/intersections') {
-    const shardKey = reqProjectId || 'hub';
     const minOverlap = Number(searchParams.get('min_overlap')) || 2;
     const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
 
-    const cacheKey = buildCanonicalCacheKey(`intersections:${shardKey}`, {
+    const cacheKey = buildCanonicalCacheKey('intersections', {
       min_overlap: minOverlap,
       limit
     });
 
     try {
       const enrichedRows = await getCachedOrFetch(cacheKey, async () => {
-        return await getIntersectionsService(targetSql, { minOverlap, limit });
+        return await getIntersectionsService(sql, { minOverlap, limit });
       }, 8000, 30000);
 
       return jsonResponse(Array.isArray(enrichedRows) ? enrichedRows : [], 200, 8);
@@ -548,13 +542,13 @@ export async function handleClusterRoutes({
   if (method === 'GET' && pathname === '/api/settings/cookie') {
     const { getEffectivePinterestCookie, DEFAULT_PINTEREST_SESSION_COOKIE } = await import('../modules/keywords/settings.mjs');
     const envCookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
-    const effective = await getEffectivePinterestCookie(targetSql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
+    const effective = await getEffectivePinterestCookie(sql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
     const hasCookie = Boolean(effective && effective.trim().length > 10);
     return jsonResponse({
       has_cookie: hasCookie,
       is_configured: hasCookie,
       preview: hasCookie ? `${effective.slice(0, 42)}...` : '',
-      source: targetSql ? 'database_or_env' : 'cloudflare_env'
+      source: sql ? 'database_or_env' : 'cloudflare_env'
     });
   }
 
@@ -563,7 +557,7 @@ export async function handleClusterRoutes({
     const { savePinterestCookie } = await import('../modules/keywords/settings.mjs');
     const body = await request.json().catch(() => ({}));
     const rawCookie = String(body.cookie || '').trim();
-    const saved = await savePinterestCookie(targetSql, rawCookie).catch((err) => {
+    const saved = await savePinterestCookie(sql, rawCookie).catch((err) => {
       console.warn('[Cookie Save Warning]', err.message);
       return {
         raw: rawCookie,

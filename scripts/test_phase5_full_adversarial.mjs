@@ -15,7 +15,8 @@
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { performance } from 'node:perf_hooks';
-import worker from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
 
 console.log('================================================================================');

@@ -420,21 +420,18 @@ export function getPinDetailPageHtml(pinId = '') {
     <!-- Center: Storage Topology Badge & Status Dot -->
     <div class="hidden lg:flex items-center gap-2">
       <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#27272A] bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-300">
-        <span class="w-2 h-2 rounded-full" :class="isShardWarming ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
+        <span class="w-2 h-2 rounded-full" :class="isDbBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
         <span>Native VPS PostgreSQL</span>
       </div>
-      <template x-if="dossier?.from_shard_snapshots">
-        <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">VPS PostgreSQL SSOT</span>
-      </template>
     </div>
 
     <!-- Right: Command Actions -->
     <div class="flex items-center gap-2 shrink-0">
-      <!-- Silent Background Warming Indicator -->
+      <!-- Silent Background Refresh Indicator -->
       <template x-if="isSilentRefreshing">
         <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800 shadow-xs">
           <svg class="w-3.5 h-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-          <span class="hidden sm:inline">Warming shard...</span>
+          <span class="hidden sm:inline">Refreshing...</span>
         </div>
       </template>
 
@@ -455,7 +452,7 @@ export function getPinDetailPageHtml(pinId = '') {
         type="button"
         @click="requestPurgePin()"
         class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-900/60 bg-red-950/30 hover:bg-red-900/50 text-red-400 text-xs font-semibold transition-all active:scale-95 cursor-pointer"
-        title="Permanently delete this pin from target Shard, Central Hub, and Edge Caches"
+        title="Permanently delete this pin from PostgreSQL and Edge Caches"
       >
         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         <span class="hidden sm:inline">Purge Pin</span>
@@ -521,18 +518,18 @@ export function getPinDetailPageHtml(pinId = '') {
     <div class="bg-[#121215] border border-[#27272A] rounded-2xl max-w-md w-full p-8 text-center flex flex-col items-center gap-4 shadow-xl">
       <div 
         class="w-14 h-14 rounded-full flex items-center justify-center text-2xl border"
-        :class="isShardWarming ? 'bg-amber-950/40 border-amber-800 text-amber-400' : 'bg-red-950/40 border-red-800 text-red-400'"
+        :class="isDbBusy ? 'bg-amber-950/40 border-amber-800 text-amber-400' : 'bg-red-950/40 border-red-800 text-red-400'"
       >
-        <span x-text="isShardWarming ? '⏳' : '⚠️'"></span>
+        <span x-text="isDbBusy ? '⏳' : '⚠️'"></span>
       </div>
       <div>
-        <h2 class="text-base font-bold text-white" x-text="isShardWarming ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
-        <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="isShardWarming ? 'The database is temporarily busy processing a heavy query. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
+        <h2 class="text-base font-bold text-white" x-text="isDbBusy ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
+        <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="isDbBusy ? 'The database is temporarily busy processing a heavy query. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
       </div>
       <div class="flex items-center gap-3 pt-2">
         <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer">
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-          <span x-text="isShardWarming ? 'Retry Shard Fetch' : 'Try Force Refresh'"></span>
+          <span x-text="isDbBusy ? 'Retry Fetch' : 'Try Force Refresh'"></span>
         </button>
         <a href="/keywords" class="px-4 py-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs font-medium transition">
           Return to Radar
@@ -1715,7 +1712,7 @@ export function getPinDetailPageHtml(pinId = '') {
           }
         },
         loading: true,
-        isShardWarming: false,
+        isDbBusy: false,
         isSilentRefreshing: false,
         dossier: null,
         activeTab: 'ledger',
@@ -2230,19 +2227,15 @@ export function getPinDetailPageHtml(pinId = '') {
             if (res.ok) {
               const data = await res.json();
               this.dossier = data;
-              this.isShardWarming = Boolean(data?.is_degraded || data?.shard_cold);
+              this.isDbBusy = Boolean(data?.is_degraded);
               this.rebuildDateMapCache();
               const days = this.filteredDays();
               if (days.length > 0 && Object.keys(this.expandedDays).length === 0) {
                 this.expandedDays = { [days[0].snapshot_date]: true };
               }
 
-              // Non-Disruptive Background Healing (L-09)
-              const isIncompleteFallback = Boolean(
-                data?.is_degraded ||
-                data?.shard_cold ||
-                (days.length <= 2 && (data?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1 && !data?.from_shard_snapshots)
-              );
+              // Non-Disruptive Background Healing
+              const isIncompleteFallback = Boolean(data?.is_degraded);
               if (isIncompleteFallback) {
                 this._autoRefreshAttempts = (this._autoRefreshAttempts || 0) + 1;
                 if (this._autoRefreshAttempts <= 3) {
@@ -2258,17 +2251,17 @@ export function getPinDetailPageHtml(pinId = '') {
                 this.hydrateUrlGlobalSaves(this.dossier.creative.destination_url);
               }
             } else {
-              this.isShardWarming = (res.status === 503);
+              this.isDbBusy = (res.status === 503);
               if (!silent) {
                 this.dossier = null;
-                this.showToast(res.status === 503 ? 'Pin storage shard is warming up from sleep.' : 'Pin not found.', 'error');
+                this.showToast(res.status === 503 ? 'Database is temporarily busy. Please retry.' : 'Pin not found.', 'error');
               }
             }
           } catch (e) {
             console.error('Error fetching pin dossier:', e);
             if (!silent) {
               this.dossier = null;
-              this.isShardWarming = false;
+              this.isDbBusy = false;
               this.showToast('Network error loading pin dossier', 'error');
             }
           } finally {
@@ -3005,7 +2998,7 @@ export function getPinDetailPageHtml(pinId = '') {
               });
               const data = await res.json().catch(() => ({}));
               if (res.ok && data?.success) {
-                this.showToast('Pin #' + this.pinId + ' permanently purged from Shards and Hub');
+                this.showToast('Pin #' + this.pinId + ' permanently purged from PostgreSQL');
                 this.deleteModalOpen = false;
                 if (typeof window !== 'undefined') {
                   setTimeout(() => {

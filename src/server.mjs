@@ -17,12 +17,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { createSqlClient, getSqlClient } from './db/client.mjs';
 import { apiRoutesPlugin } from './plugins/api-routes.mjs';
-import worker from './worker.mjs';
+import { handlePagesRoutes } from './routes/pages.mjs';
+import {
+  HTML_HEADERS,
+  RESERVED_KEYWORD_SLUGS,
+  requestContextStorage,
+  redactSecrets,
+  normalizePath,
+  isValidPinId,
+  getCorsHeaders,
+  jsonResponse,
+  methodNotAllowedResponse,
+  corsOptionsResponse
+} from './http/security-and-response.mjs';
 
 export { createSqlClient, getSqlClient };
 
@@ -41,7 +52,7 @@ let cachedServerDsn = '';
 
 export function getServerSqlClient(dsn) {
   const targetDsn = dsn || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
-  if (!targetDsn) return createMockSql();
+  if (!targetDsn) return null;
   if (cachedServerSqlClient && cachedServerDsn === targetDsn) {
     return cachedServerSqlClient;
   }
@@ -52,17 +63,7 @@ export function getServerSqlClient(dsn) {
   return cachedServerSqlClient;
 }
 
-/**
- * Fallback SQL client for offline local dev and test harnesses
- */
-export function createMockSql() {
-  const mockSql = async () => [];
-  mockSql.begin = async (cb) => cb(mockSql);
-  mockSql.transaction = async (cb) => (typeof cb === 'function' ? cb(mockSql) : Promise.all(cb));
-  return mockSql;
-}
-
-export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL) ? getServerSqlClient() : createMockSql();
+export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL) ? getServerSqlClient() : null;
 
 export async function dbHealthCheck(client) {
   const sqlClient = client || getServerSqlClient();
@@ -319,8 +320,8 @@ registerRoute('POST', '/api/internal/ingest', async ({ env = {}, webRequest, bod
           const { ingestPinsBatch } = await import('./modules/creators/service.mjs');
           await ingestPinsBatch(sqlClient, items, creator, { filterQualified: Boolean(payload.filterQualified) });
         } else {
-          const { writeBatchToDeterministicShards } = await import('./modules/sharding/fleet-router.mjs');
-          await writeBatchToDeterministicShards({ pins: items, hubSql: sqlClient, env });
+          const { ingestPinsBatch } = await import('./modules/pins/repository.mjs');
+          await ingestPinsBatch(sqlClient, items, { pillar: 'internal_ingest' });
         }
       } catch (ingestErr) {
         console.error('[POST /api/internal/ingest background note]:', ingestErr?.message || ingestErr);
@@ -433,7 +434,55 @@ export function createFastifyApp(customEnv = {}) {
   const app = Fastify({
     logger: false,
     keepAliveTimeout: 60000,
-    bodyLimit: 10 * 1024 * 1024
+    bodyLimit: 10 * 1024 * 1024,
+    trustProxy: true,
+    rewriteUrl(req) {
+      const raw = req.url || '/';
+      const qIdx = raw.indexOf('?');
+      const pathPart = qIdx === -1 ? raw : raw.slice(0, qIdx);
+      const queryPart = qIdx === -1 ? '' : raw.slice(qIdx);
+      return normalizePath(pathPart) + queryPart;
+    }
+  });
+
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (!body || !body.trim()) {
+      return done(null, {});
+    }
+    try {
+      done(null, JSON.parse(body));
+    } catch (err) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
+  app.setErrorHandler((err, _request, reply) => {
+    const isSyntax = err instanceof SyntaxError || err?.name === 'SyntaxError' || err?.code === 'FST_ERR_CTP_INVALID_JSON_BODY';
+    const status = isSyntax ? 400 : (err?.statusCode || err?.status || 500);
+    const errorCode = status === 400 ? 'BAD_REQUEST'
+      : status === 401 ? 'UNAUTHORIZED'
+      : status === 403 ? 'FORBIDDEN'
+      : status === 404 ? 'NOT_FOUND'
+      : status === 405 ? 'METHOD_NOT_ALLOWED'
+      : status === 413 ? 'PAYLOAD_TOO_LARGE'
+      : status === 503 ? 'SERVICE_UNAVAILABLE'
+      : 'INTERNAL_SERVER_ERROR';
+    return reply
+      .code(status)
+      .header('Content-Type', 'application/json; charset=utf-8')
+      .send({
+        success: false,
+        error: errorCode,
+        message: redactSecrets(err?.message || 'An unexpected internal error occurred')
+      });
+  });
+
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (!reply.hasHeader('X-Content-Type-Options')) reply.header('X-Content-Type-Options', 'nosniff');
+    if (!reply.hasHeader('X-Frame-Options')) reply.header('X-Frame-Options', 'DENY');
+    if (!reply.hasHeader('Referrer-Policy')) reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return payload;
   });
 
   const sqlClient = customEnv.SQL_CLIENT || getServerSqlClient(process.env.DATABASE_URL);
@@ -451,8 +500,12 @@ export function createFastifyApp(customEnv = {}) {
   // Non-blocking background task queue context
   const ctx = {
     waitUntil(p) {
+      const store = requestContextStorage?.getStore?.();
+      if (store?.customCtx && store.customCtx !== ctx && typeof store.customCtx.waitUntil === 'function') {
+        return store.customCtx.waitUntil(p);
+      }
       if (p) {
-        serverBackgroundTaskQueue.add(p).catch((err) => {
+        serverBackgroundTaskQueue.add(typeof p === 'function' ? p : () => p).catch((err) => {
           console.warn('[server.mjs background task note]:', err?.message || err);
         });
       }
@@ -543,8 +596,8 @@ export function createFastifyApp(customEnv = {}) {
             const { ingestPinsBatch } = await import('./modules/creators/service.mjs');
             await ingestPinsBatch(currentSql, items, creator, { filterQualified: Boolean(payload.filterQualified) });
           } else {
-            const { writeBatchToDeterministicShards } = await import('./modules/sharding/fleet-router.mjs');
-            await writeBatchToDeterministicShards({ pins: items, hubSql: currentSql, env });
+            const { ingestPinsBatch } = await import('./modules/pins/repository.mjs');
+            await ingestPinsBatch(currentSql, items, { pillar: 'internal_ingest' });
           }
         } catch (ingestErr) {
           console.error('[POST /api/internal/ingest background note]:', ingestErr?.message || ingestErr);
@@ -632,50 +685,197 @@ export function createFastifyApp(customEnv = {}) {
   // 3c. Native Fastify Domain API Plugin (eliminates Web-Request / Readable.fromWeb bridge for /api/*)
   app.register(apiRoutesPlugin, { env, ctx });
 
-  // 4. UI Pages & Cloudflare Worker Fallback Handler (non-API routes)
+  // 4. Native Fastify UI Pages Handler (non-API routes)
   app.all('/*', async (request, reply) => {
-    const host = request.headers.host || `127.0.0.1:${process.env.PORT || 3000}`;
-    const fullUrl = `${request.protocol}://${host}${request.raw.url}`;
-    const webHeaders = new Headers();
-    for (const [key, value] of Object.entries(request.headers)) {
-      if (Array.isArray(value)) {
-        for (const v of value) webHeaders.append(key, v);
-      } else if (value !== undefined) {
-        webHeaders.set(key, value);
-      }
+    const rawUrl = request.raw?.url || request.url || '/';
+    const host = request.headers?.host || `127.0.0.1:${process.env.PORT || 3000}`;
+    const protocol = request.protocol || 'http';
+    const fullUrl = `${protocol}://${host}${rawUrl}`;
+    const method = (request.method || 'GET').toUpperCase();
+    const requestOrigin = request.headers?.origin || null;
+    const dynamicCors = getCorsHeaders(requestOrigin, env);
+    const outerStore = requestContextStorage.getStore();
+    const externalCustomCtx = outerStore?.customCtx && outerStore.customCtx !== ctx ? outerStore.customCtx : null;
+    const effectiveCtx = externalCustomCtx || ctx;
+
+    if (method === 'OPTIONS') {
+      const optRes = corsOptionsResponse(requestOrigin, env, 'GET, POST, DELETE, OPTIONS');
+      reply.code(optRes.status);
+      optRes.headers.forEach((val, key) => reply.header(key, val));
+      return reply.send();
     }
 
-    let body = null;
-    const method = (request.method || 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD') {
-      if (request.body !== undefined && request.body !== null) {
-        if (Buffer.isBuffer(request.body) || typeof request.body === 'string') {
-          body = request.body;
-        } else {
-          body = JSON.stringify(request.body);
+    const webResponse = await requestContextStorage.run(
+      { request, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] },
+      async () => {
+        try {
+          const url = new URL(fullUrl);
+          const normalizedPath = normalizePath(url.pathname);
+          const pathLower = normalizedPath.toLowerCase();
+          const { searchParams } = url;
+
+          const pageResponse = await handlePagesRoutes({
+            pathLower,
+            normalizedPath,
+            pathname: normalizedPath,
+            method,
+            searchParams,
+            HTML_HEADERS,
+            RESERVED_KEYWORD_SLUGS,
+            methodNotAllowedResponse,
+            jsonResponse,
+            isValidPinId
+          });
+          if (pageResponse) return pageResponse;
+
+          return jsonResponse({
+            success: false,
+            error: 'NOT_FOUND',
+            message: `Endpoint '${normalizedPath}' not found on pin-arbitrage-engine.`
+          }, 404);
+        } finally {
+          const store = requestContextStorage.getStore();
+          if (store?.bgPromises?.length) {
+            // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
+            // Drain in-flight background promises iteratively with a 26-second ceiling. Offloaded completely to ctx.waitUntil
+            // so the HTTP response stream is returned immediately to the client without stalling.
+            const closePromise = (async () => {
+              let drainTimerId = null;
+              try {
+                const deadlineMs = Date.now() + 26000;
+                let processedCount = 0;
+
+                while (
+                  Array.isArray(store.bgPromises) &&
+                  processedCount < store.bgPromises.length &&
+                  Date.now() < deadlineMs
+                ) {
+                  const batch = store.bgPromises.slice(processedCount);
+                  processedCount = store.bgPromises.length;
+                  const remainingMs = Math.max(50, deadlineMs - Date.now());
+
+                  const timeoutGuard = new Promise((resolve) => {
+                    drainTimerId = setTimeout(resolve, remainingMs);
+                    if (drainTimerId && typeof drainTimerId.unref === 'function') drainTimerId.unref();
+                  });
+
+                  try {
+                    await Promise.race([
+                      Promise.allSettled(batch),
+                      timeoutGuard
+                    ]);
+                  } finally {
+                    if (drainTimerId !== null) {
+                      clearTimeout(drainTimerId);
+                      drainTimerId = null;
+                    }
+                  }
+                }
+              } catch (drainErr) {
+                console.warn('[Drain] Background tasks drain warning:', redactSecrets(drainErr?.message || String(drainErr)));
+              } finally {
+                if (drainTimerId !== null) {
+                  clearTimeout(drainTimerId);
+                  drainTimerId = null;
+                }
+              }
+            })();
+
+            if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
+              effectiveCtx.waitUntil(closePromise);
+            }
+          }
         }
       }
-    }
+    );
 
-    const webRequest = new Request(fullUrl, {
-      method,
-      headers: webHeaders,
-      body
-    });
-
-    const response = await worker.fetch(webRequest, env, ctx);
-    reply.code(response.status);
-    response.headers.forEach((val, key) => {
+    reply.code(webResponse.status);
+    webResponse.headers.forEach((val, key) => {
       reply.header(key, val);
     });
 
-    if (response.body) {
-      return reply.send(Readable.fromWeb(response.body));
+    if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302 || !webResponse.body) {
+      return reply.send();
     }
-    return reply.send();
+    const buf = Buffer.from(await webResponse.arrayBuffer());
+    return reply.send(buf);
   });
 
   return app;
+}
+
+const injectedAppCache = new WeakMap();
+let defaultInjectedAppEntry = null;
+
+function getOrCreateInjectedApp(customEnv) {
+  if (customEnv && typeof customEnv === 'object') {
+    let entry = injectedAppCache.get(customEnv);
+    if (!entry) {
+      const app = createFastifyApp(customEnv);
+      entry = { app, readyPromise: app.ready() };
+      injectedAppCache.set(customEnv, entry);
+    }
+    return entry;
+  }
+  if (!defaultInjectedAppEntry) {
+    const app = createFastifyApp({});
+    defaultInjectedAppEntry = { app, readyPromise: app.ready() };
+  }
+  return defaultInjectedAppEntry;
+}
+
+/**
+ * Unified Web-Request <-> Fastify adapter for programmatic callers & test suites.
+ */
+export async function handleAppRequest(request, customEnv = {}, customCtx = null) {
+  const { app, readyPromise } = getOrCreateInjectedApp(customEnv);
+  await readyPromise;
+
+  const parsedUrl = new URL(request.url);
+  const headers = {};
+  request.headers.forEach((val, key) => {
+    headers[key] = val;
+  });
+  if (!headers.host) headers.host = parsedUrl.host;
+  if (!headers['x-forwarded-proto']) {
+    headers['x-forwarded-proto'] = parsedUrl.protocol.replace(':', '');
+  }
+
+  const method = (request.method || 'GET').toUpperCase();
+  let payload;
+  if (method !== 'GET' && method !== 'HEAD') {
+    const ab = await request.arrayBuffer();
+    if (ab.byteLength > 0) {
+      payload = Buffer.from(ab);
+    }
+  }
+
+  const runInject = () => app.inject({
+    method,
+    url: `${parsedUrl.pathname}${parsedUrl.search}`,
+    headers,
+    payload
+  });
+
+  const injectRes = customCtx
+    ? await requestContextStorage.run({ customCtx }, runInject)
+    : await runInject();
+
+  const resHeaders = new Headers();
+  for (const [key, val] of Object.entries(injectRes.headers)) {
+    if (val === undefined) continue;
+    if (Array.isArray(val)) {
+      for (const item of val) resHeaders.append(key, String(item));
+    } else {
+      resHeaders.set(key, String(val));
+    }
+  }
+
+  const isNullBodyStatus = method === 'HEAD' || injectRes.statusCode === 204 || injectRes.statusCode === 304;
+  return new Response(isNullBodyStatus ? null : injectRes.rawPayload, {
+    status: injectRes.statusCode,
+    headers: resHeaders
+  });
 }
 
 /**
@@ -709,6 +909,11 @@ export async function startServer(
   host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
   customEnv = {}
 ) {
+  const resolvedDsn = customEnv.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
+  const isTestEnv = (customEnv.NODE_ENV || process.env.NODE_ENV) === 'test';
+  if (!customEnv.SQL_CLIENT && !resolvedDsn && !isTestEnv) {
+    throw new Error('DATABASE_URL is not configured. Refusing to boot PAE Server without a PostgreSQL connection.');
+  }
   const app = createFastifyApp(customEnv);
   await app.listen({ port: Number(port), host });
   const boundHost = (host === '0.0.0.0' || host === '::') ? 'localhost' : host;
@@ -745,6 +950,7 @@ if (isDirectExecution) {
 
 export default {
   createFastifyApp,
+  handleAppRequest,
   createServer,
   createRequestListener,
   startServer,

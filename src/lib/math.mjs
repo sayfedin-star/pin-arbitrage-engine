@@ -1,10 +1,6 @@
 /**
  * Mathematical & Algorithmic Telemetry Utilities
  * Single Source of Truth (SSOT) for Pin Arbitrage Engine (PAE)
- * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
- * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
- * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
- * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
 /**
@@ -183,4 +179,190 @@ export function calculateDailyVelocity(params) {
     return 0;
   }
   return Math.min(velocity, capNum);
+}
+
+/**
+ * Multi-stage hydration jump detector for trajectory snapshots.
+ * Flags transitions where unhydrated stub records receive historical lifetime metric backfills.
+ */
+export function isMultiStageHydrationJump(prev, curr) {
+  if (!prev || !curr) return false;
+  const pSaves = typeof prev === 'number' ? prev : Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0);
+  const cSaves = typeof curr === 'number' ? curr : Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0);
+  const pRepins = typeof prev === 'object' ? Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0) : 0;
+  const cRepins = typeof curr === 'object' ? Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0) : 0;
+
+  if (!Number.isFinite(pSaves) || !Number.isFinite(cSaves)) return false;
+
+  const rawDelta = Math.max(0, cSaves - pSaves);
+  if (rawDelta === 0) return false;
+
+  // 1. prev.save_count <= 0 && curr.save_count > 0
+  if (pSaves <= 0 && cSaves > 0) return true;
+
+  // 2. prev.save_count < prev.repin_count
+  if (pRepins > 0 && pSaves < pRepins) return true;
+
+  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  const effCurRepins = cRepins > 0 ? cRepins : pRepins;
+  if (pRepins > 0 && pSaves === pRepins && cSaves > effCurRepins * 1.35) return true;
+
+  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
+  if (pRepins === 0 && cRepins >= 25 && cSaves >= pSaves * 2.5) return true;
+
+  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+  if (pSaves > 0 && (cSaves / pSaves) >= 4.0 && (cSaves - pSaves) >= 2500) return true;
+
+  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+  if (rawDelta > 2000 && pSaves < 500 && (pSaves <= 0 || (cSaves / Math.max(1, pSaves)) > 20)) return true;
+
+  return false;
+}
+
+/**
+ * In-memory trajectory sanitizer for Pin Dossier payloads.
+ * Preserves authentic historical save counts and computes clean daily save velocity:
+ * MAX(0, (curr_saves - prev_saves) / days_diff)
+ */
+// [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Pin Dossier Trajectory Sanitizer
+export function sanitizeDossierTrajectory(dossier) {
+  if (!dossier || typeof dossier !== 'object') return dossier;
+  const traj = Array.isArray(dossier.daily_trajectory)
+    ? dossier.daily_trajectory
+    : (Array.isArray(dossier.trajectory) ? dossier.trajectory : (Array.isArray(dossier.snapshots) ? dossier.snapshots : null));
+  if (!Array.isArray(traj) || traj.length === 0) return dossier;
+
+  const chrono = [...traj].sort((a, b) => {
+    const dCmp = String(a.snapshot_date || '').slice(0, 10).localeCompare(String(b.snapshot_date || '').slice(0, 10));
+    if (dCmp !== 0) return dCmp;
+    const tA = String(a.recorded_at || a.updated_at || a.crawled_at || '');
+    const tB = String(b.recorded_at || b.updated_at || b.crawled_at || '');
+    return tA.localeCompare(tB);
+  });
+
+  if (chrono[0] && chrono[0].is_hydration_jump === undefined) {
+    chrono[0].is_hydration_jump = false;
+  }
+  if (chrono.length === 1 && chrono[0]) {
+    const cSaves = Number(chrono[0].save_count || 0);
+    const cVel = Number(chrono[0].daily_save_velocity || 0);
+    if (cSaves > 0 && cVel >= cSaves) {
+      chrono[0].daily_save_velocity = 0;
+      chrono[0].window_24h_velocity = 0;
+      chrono[0].window_24h_delta = 0;
+    }
+  }
+
+  for (let i = 1; i < chrono.length; i++) {
+    const prev = chrono[i - 1];
+    const curr = chrono[i];
+    curr.is_hydration_jump = false;
+    curr.velocity_mode = 'normal';
+    const currDayStr = String(curr.snapshot_date || '').slice(0, 10);
+    const prevDayStr = String(prev.snapshot_date || '').slice(0, 10);
+    const isSameDayStep = Boolean(currDayStr && prevDayStr && currDayStr === prevDayStr);
+    const currDate = new Date(currDayStr);
+    const prevDate = new Date(prevDayStr);
+    const elapsed = Math.max(1, Math.round((currDate - prevDate) / 86400000));
+    const diff = Number(curr.save_count || 0) - Number(prev.save_count || 0);
+
+    let priorCalSnap = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const candDayStr = String(chrono[j].snapshot_date || '').slice(0, 10);
+      if (candDayStr && candDayStr < currDayStr) {
+        priorCalSnap = chrono[j];
+        break;
+      }
+    }
+
+    const isJump = isMultiStageHydrationJump(prev, curr) || (priorCalSnap && isMultiStageHydrationJump(priorCalSnap, curr));
+    if (isJump) {
+      curr.is_hydration_jump = true;
+      curr.velocity_mode = 'hydration_jump';
+      curr.step_save_delta = 0;
+      curr.daily_save_velocity = 0;
+      curr.window_24h_velocity = 0;
+      curr.window_24h_delta = 0;
+    } else {
+      curr.step_save_delta = diff;
+      if (Number(prev.save_count || 0) > 0) {
+        curr.daily_save_velocity = diff <= 0 ? 0 : Math.round((diff / elapsed) * 10) / 10;
+      } else {
+        curr.daily_save_velocity = 0;
+      }
+
+      if (priorCalSnap && Number(priorCalSnap.save_count || 0) > 0) {
+        const calElapsed = Math.max(1, Math.round((currDate - new Date(String(priorCalSnap.snapshot_date || '').slice(0, 10))) / 86400000));
+        const calDiff = Math.max(0, Number(curr.save_count || 0) - Number(priorCalSnap.save_count || 0));
+        curr.window_24h_delta = calDiff;
+        curr.window_24h_velocity = Math.round((calDiff / calElapsed) * 10) / 10;
+        if (isSameDayStep) {
+          curr.daily_save_velocity = curr.window_24h_velocity;
+        }
+      } else {
+        curr.window_24h_delta = Math.max(0, diff);
+        curr.window_24h_velocity = curr.daily_save_velocity;
+      }
+    }
+  }
+
+  for (const day of chrono) {
+    if (Array.isArray(day.ranking_keywords)) {
+      for (const kw of day.ranking_keywords) {
+        const rawRank = Number(kw.rank_position ?? kw.rank ?? kw.live_serp_rank);
+        const hasPos = Number.isFinite(rawRank) && rawRank >= 1;
+        if (!hasPos) {
+          kw.is_displaced = true;
+          const fallback = Number(kw.vault_rank || kw.last_known_rank || kw.rank || 1) || 1;
+          kw.last_known_rank = fallback;
+          kw.vault_rank = fallback;
+          kw.rank = fallback;
+          kw.live_serp_rank = null;
+        } else if (kw.is_displaced) {
+          kw.vault_rank = Number(kw.vault_rank || kw.last_known_rank || rawRank) || 1;
+          kw.live_serp_rank = null;
+        } else {
+          kw.live_serp_rank = rawRank;
+          kw.vault_rank = null;
+          kw.rank = rawRank;
+        }
+      }
+    }
+  }
+
+  const desc = [...chrono].reverse();
+  if (Array.isArray(dossier.daily_trajectory)) dossier.daily_trajectory = desc;
+  if (Array.isArray(dossier.trajectory)) dossier.trajectory = desc;
+  if (Array.isArray(dossier.snapshots)) dossier.snapshots = desc;
+  if (dossier.creative && desc[0]) {
+    dossier.creative.save_count = Number(dossier.creative.save_count || desc[0].save_count || 0);
+    dossier.creative.daily_save_velocity = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? dossier.creative.daily_save_velocity ?? 0);
+  }
+  return dossier;
+}
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+/**
+ * Deterministic IEEE 802.3 CRC32 unsigned 32-bit hash for worker slice partitioning.
+ * @param {string} input
+ * @returns {number}
+ */
+export function crc32(input) {
+  const str = String(input ?? '');
+  let crc = 0xffffffff;
+  for (let i = 0; i < str.length; i++) {
+    crc = CRC32_TABLE[(crc ^ str.charCodeAt(i)) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }

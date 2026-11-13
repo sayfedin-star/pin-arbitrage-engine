@@ -7,8 +7,8 @@
 
 import assert from 'node:assert';
 import { createSqlClient as neon } from '../src/db/client.mjs';
-import worker from '../src/worker.mjs';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 import {
   normalizeCleanDomain,
   escapeSqlLike,
@@ -33,7 +33,7 @@ if (!DATABASE_URL) {
   process.exit(0);
 }
 
-const sql = neon(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = neon(DATABASE_URL);
 const mockEnv = {
   DATABASE_URL,
   SQL_CLIENT: sql

@@ -18,7 +18,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { crc32, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { crc32 } from '../src/lib/math.mjs';
 
 console.log('================================================================');
 console.log('🧪 CREATOR INTELLIGENCE 20-WORKER SWARM VERIFICATION SUITE');

@@ -16,7 +16,7 @@
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 
@@ -31,7 +31,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = createSqlClient(DATABASE_URL);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawTargetAccount = (process.env.TARGET_ACCOUNT || '').trim();
 const isSweepAll = !rawTargetAccount ||

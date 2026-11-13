@@ -15,7 +15,6 @@
  */
 
 const MACHINE_ID = 'm_agq2t32m5xv5joj67rqoze5h4u';
-const DEFAULT_PIN = 'pae2026';
 const AUTH_COOKIE_NAME = 'pae_shield_auth';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const TUNNEL_DOWN_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
@@ -170,11 +169,23 @@ export default {
     const machineId = env.INSTABOX_MACHINE_ID || MACHINE_ID;
     const apiKey = env.INSTABOX_API_KEY;
 
-    // Only allow DEFAULT_PIN ('pae2026') as a fallback if neither SHIELD_PIN nor API_SECRET_KEY is configured
+    // Fail-closed: require explicit SHIELD_PIN or API_SECRET_KEY in Worker environment
     const validPins = [];
     if (env.SHIELD_PIN) validPins.push(env.SHIELD_PIN);
     if (env.API_SECRET_KEY && !validPins.includes(env.API_SECRET_KEY)) validPins.push(env.API_SECRET_KEY);
-    if (validPins.length === 0) validPins.push(DEFAULT_PIN);
+    if (validPins.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'AUTH_NOT_CONFIGURED',
+        message: 'Wake Shield misconfigured: SHIELD_PIN or API_SECRET_KEY is required.'
+      }), {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate'
+        }
+      });
+    }
 
     const expectedTokens = await Promise.all(
       validPins.map(pin => computeExpectedToken(pin))
@@ -285,7 +296,7 @@ export default {
 
     // Inject secret API key automatically for authenticated operator so UI never prompts
     const originHeaders = new Headers(request.headers);
-    const secretKeyToInject = env.API_SECRET_KEY || env.SHIELD_PIN || (validPins.includes(DEFAULT_PIN) ? DEFAULT_PIN : '');
+    const secretKeyToInject = env.API_SECRET_KEY || env.SHIELD_PIN || '';
     if (secretKeyToInject && !originHeaders.has('x-api-key')) {
       originHeaders.set('x-api-key', secretKeyToInject);
     }

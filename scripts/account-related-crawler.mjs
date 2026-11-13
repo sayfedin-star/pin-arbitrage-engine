@@ -4,10 +4,10 @@
  * Account-Scoped Related Pins & Intersections Crawler
  * 100% Zero-Cookie Architecture.
  * Extracts Pinterest RelatedModulesResource graph nodes for specific competitor seeds.
- * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Neon Postgres.
+ * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Unified PostgreSQL.
  */
 
-import { createUniversalSqlClient } from '../src/db/client.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
 
@@ -37,7 +37,7 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(dbUrl);
+const sql = createSqlClient(dbUrl);
 
 function getCliArg(flag) {
   const eq = process.argv.find(a => a.startsWith(`${flag}=`));

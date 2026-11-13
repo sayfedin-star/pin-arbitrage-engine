@@ -15,16 +15,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import worker from '../src/worker.mjs';
-import {
-  crc32,
-  getPinShardId,
-  enforceNeonPoolerUrl,
-  executeShardQueryWithCircuitBreaker,
-  circuitBreakers,
-  batchGroupByShard,
-  fetchUniversalPinDossier
-} from '../src/modules/sharding/fleet-router.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
+import { crc32 } from '../src/lib/math.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
+import { withDbRetry, isTransientPgConnectionError } from '../src/db/client.mjs';
+import { checkPinterestCircuitBreaker, tripPinterestCircuitBreaker } from '../src/http/security-and-response.mjs';
 
 async function runUnifiedChaosAndPenetrationAudit() {
   console.log('='.repeat(80));
@@ -65,9 +61,9 @@ async function runUnifiedChaosAndPenetrationAudit() {
   };
 
   // ============================================================================
-  // AXIS 1: E2E Pin Traversal & Shard Routing (1,000 Snowflake Pins)
+  // AXIS 1: E2E Pin Traversal & 20-Worker Partitioning (1,000 Snowflake Pins)
   // ============================================================================
-  console.log('\n[AXIS 1] Testing E2E Pin Traversal & Shard Routing (1,000 Snowflakes)...');
+  console.log('\n[AXIS 1] Testing E2E Pin Traversal & 20-Worker CRC32 Partitioning (1,000 Snowflakes)...');
   {
     const baseSnowflake = 1098245059167660000n;
     const testPins = [];
@@ -75,12 +71,10 @@ async function runUnifiedChaosAndPenetrationAudit() {
       testPins.push(String(baseSnowflake + BigInt(i)));
     }
 
-    const shardDistribution = new Map();
-    let totalRoutingTimeMs = 0;
+    const workerDistribution = new Map();
     let validDossierStructureCount = 0;
-    let poolerUrlsVerified = 0;
 
-    // Create a mock Hub SQL client with sample data for E2E traversal
+    // Create a mock Unified PostgreSQL client with sample data for E2E traversal
     const mockHubSql = async (strings, ...values) => {
       for (const val of values) {
         if (typeof val === 'number' && Number.isNaN(val)) {
@@ -91,15 +85,6 @@ async function runUnifiedChaosAndPenetrationAudit() {
         }
       }
       const q = strings.join('?');
-      if (q.includes('neon_projects_registry')) {
-        return [{
-          id: 1,
-          project_id: 'test-shard',
-          project_name: 'test-shard',
-          database_url: 'postgres://user:pass@ep-shard-compute.c-6.us-east-2.aws.neon.tech/db',
-          status: 'active'
-        }];
-      }
       if (q.includes('keyword_serp_current') || q.includes('universal_master_pins')) {
         return [{
           pin_id: String(values[0] || '1098245059167660000'),
@@ -131,20 +116,15 @@ async function runUnifiedChaosAndPenetrationAudit() {
 
     const t0 = performance.now();
     for (const pinId of testPins) {
-      const shardId = getPinShardId(pinId, 99);
-      shardDistribution.set(shardId, (shardDistribution.get(shardId) || 0) + 1);
-
-      // Verify Pooler attachment
-      const sampleDsn = `postgres://user:pass@ep-shard-${shardId}.c-6.us-east-2.aws.neon.tech/db`;
-      const pooledDsn = enforceNeonPoolerUrl(sampleDsn);
-      if (pooledDsn.includes('-pooler.')) poolerUrlsVerified++;
+      const workerIdx = crc32(pinId) % 20;
+      workerDistribution.set(workerIdx, (workerDistribution.get(workerIdx) || 0) + 1);
     }
     const tRouting = performance.now() - t0;
 
     // Perform full E2E dossier extraction on a subset of pins through fetchUniversalPinDossier
     const samplePinsToTest = testPins.slice(0, 10);
     for (const p of samplePinsToTest) {
-      const dossier = await fetchUniversalPinDossier({ hubSql: mockHubSql, pinId: p });
+      const dossier = await fetchUniversalPinDossier({ sql: mockHubSql, pinId: p });
       if (
         dossier.success === true &&
         dossier.pin_id === p &&
@@ -161,15 +141,14 @@ async function runUnifiedChaosAndPenetrationAudit() {
 
     record(
       'Axis 1',
-      '1,000 Pin Snowflakes CRC32 Shard Routing & Pooler Parcelling',
-      shardDistribution.size >= 80 && poolerUrlsVerified === 1000 && Number(avgRoutingLatencyMs) < 0.05,
+      '1,000 Pin Snowflakes CRC32 20-Worker Work Partitioning',
+      workerDistribution.size === 20 && Number(avgRoutingLatencyMs) < 0.05,
       {
         totalPins: 1000,
-        uniqueShardsPopulated: shardDistribution.size,
-        avgRoutingMs: `${avgRoutingLatencyMs} ms/pin`,
-        poolerEnforced: '100%'
+        uniqueWorkersPopulated: workerDistribution.size,
+        avgRoutingMs: `${avgRoutingLatencyMs} ms/pin`
       },
-      'Deterministic CRC32 routing across 99 shards at > 1,000,000 pins/sec with zero scatter-gather overhead'
+      'Deterministic CRC32 partitioning across 20 crawler workers directly targeting Unified PostgreSQL'
     );
 
     record(
@@ -182,74 +161,45 @@ async function runUnifiedChaosAndPenetrationAudit() {
   }
 
   // ============================================================================
-  // AXIS 2: Chaos & Cold-Start Fault Injection (Circuit Breaker & Fallback)
+  // AXIS 2: Chaos & Fault Injection (DB Retry, DB_UNAVAILABLE & 429 Circuit Breaker)
   // ============================================================================
-  console.log('\n[AXIS 2] Testing Chaos & Cold-Start Fault Injection (Circuit Breaker)...');
+  console.log('\n[AXIS 2] Testing Chaos & Fault Injection (DB Retry & Pinterest 429 Circuit Breaker)...');
   {
-    const chaosShardId = 77;
-    circuitBreakers.delete(chaosShardId); // Reset breaker for clean test
-
-    let fallbackTriggered = false;
-    let fallbackReason = null;
-
-    // 1. Simulate Dead Shard with 3,000ms delay exceeding 100ms test limit
+    let attempts = 0;
     const tStart = performance.now();
-    const result1 = await executeShardQueryWithCircuitBreaker({
-      shardId: chaosShardId,
-      shardSql: async () => {
-        await new Promise(r => setTimeout(r, 150)); // Exceeds timeoutMs: 80
-        return [{ dead: 'never_reached' }];
-      },
-      queryFn: async (sqlClient) => await sqlClient(),
-      fallbackFn: async (err) => {
-        fallbackTriggered = true;
-        fallbackReason = err.reason;
-        return [{ recovered_from_hub: true, pin_id: '1098245059167667976' }];
-      },
-      timeoutMs: 80
-    });
-    const duration1 = performance.now() - tStart;
+    const retryResult = await withDbRetry(async () => {
+      attempts++;
+      if (attempts === 1) {
+        const err = new Error('too many clients already');
+        err.code = '53300';
+        throw err;
+      }
+      return [{ recovered: true, pin_id: '1098245059167667976' }];
+    }, { maxRetries: 2, baseDelayMs: 5, sleepFn: async () => {} });
+    const retryDuration = performance.now() - tStart;
 
-    // Breaker should have logged failure 1
-    const cbAfter1 = circuitBreakers.get(chaosShardId);
+    const failingSql = async () => { throw new Error('connection refused (57P01)'); };
+    const unavailableRes = await fetchUniversalPinDossier({ sql: failingSql, pinId: '1098245059167667976', bypassEdgeCache: true });
 
-    // 2. Trigger Failure 2 to trip breaker to OPEN
-    await executeShardQueryWithCircuitBreaker({
-      shardId: chaosShardId,
-      shardSql: async () => { throw new Error('connection refused (57P01)'); },
-      queryFn: async (sqlClient) => await sqlClient(),
-      fallbackFn: async () => [{ fallback: true }],
-      timeoutMs: 80
-    }).catch(() => {});
-
-    const cbTripped = circuitBreakers.get(chaosShardId);
-    const isTrippedOpen = cbTripped?.state === 'OPEN';
-
-    // 3. Fast-Fail Benchmark in OPEN state: Must fail in < 0.1ms without touching network
+    await tripPinterestCircuitBreaker(mockEnv, 'HTTP 429 Chaos Test', 120);
     const tFast0 = performance.now();
-    const fastFailRes = await executeShardQueryWithCircuitBreaker({
-      shardId: chaosShardId,
-      shardSql: async () => { throw new Error('should not execute'); },
-      queryFn: async () => ({}),
-      fallbackFn: async (ctx) => ({ fast_fail_active: true, reason: ctx.reason }),
-      timeoutMs: 80
-    });
+    const activeCb = await checkPinterestCircuitBreaker(mockEnv);
     const fastFailDurationMs = performance.now() - tFast0;
 
     record(
       'Axis 2',
-      'Timeout & Fault Interception with Central Hub SERP Fallback',
-      fallbackTriggered && duration1 < 120 && result1[0]?.recovered_from_hub === true,
-      { timeoutInterceptedMs: duration1.toFixed(2), reason: fallbackReason },
-      'Exceeded query timeout gracefully intercepted; worker cleanly fell back to Hub SERP snapshot'
+      'Transient PostgreSQL 53300 Retry & DB_UNAVAILABLE Fault Isolation',
+      attempts === 2 && retryResult[0]?.recovered === true && unavailableRes.success === false && unavailableRes.error === 'DB_UNAVAILABLE' && isTransientPgConnectionError({ code: '53300' }),
+      { attempts, retryDurationMs: retryDuration.toFixed(2), unavailableError: unavailableRes.error },
+      'Transient 53300 recovers via withDbRetry and hard DB outages fail cleanly with DB_UNAVAILABLE'
     );
 
     record(
       'Axis 2',
-      'Circuit Breaker OPEN State & Fast-Fail Latency (< 0.1ms)',
-      isTrippedOpen && fastFailDurationMs < 1.0 && fastFailRes.fast_fail_active === true,
-      { cbState: cbTripped?.state, fastFailMs: fastFailDurationMs.toFixed(3) },
-      'Broken shard fast-fails in under 0.1ms without blocking V8 worker threads or leaking sockets'
+      'Pinterest 429 Circuit Breaker OPEN State & Fast-Fail Latency (< 1ms)',
+      activeCb?.active === true && fastFailDurationMs < 1.0,
+      { active: activeCb?.active, fastFailMs: fastFailDurationMs.toFixed(3) },
+      'Tripped Pinterest 429 circuit breaker short-circuits crawler traffic cleanly in sub-millisecond time'
     );
   }
 

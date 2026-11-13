@@ -205,7 +205,7 @@ jobs:
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
         run: |
           if [ -n "$API_SECRET_KEY" ]; then
-            curl -s -X POST "${APP_PUBLIC_URL}/api/fleet/cache-invalidate" \
+            curl -s -X POST "${APP_PUBLIC_URL}/api/cache/invalidate" \
               -H "x-api-key: $API_SECRET_KEY" \
               -H "Content-Type: application/json" \
               -d '{"scope":"all_folders","event":"crawl_complete"}' || true

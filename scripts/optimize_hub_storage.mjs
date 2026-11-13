@@ -22,14 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  batchGroupByShard,
-  coalesceShardGroupsByPhysical,
-  resolveShardConnection,
-  preloadNeonRegistry,
-  isUnifiedPostgres,
-  createUniversalSqlClient
-} from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');
@@ -93,12 +86,20 @@ export async function optimizeHubStorage(sql) {
     ON keyword_displaced_index (domain) WHERE domain IS NOT NULL AND domain <> '';
   `;
 
-  // 1. Archive any residual displaced rows in keyword_serp_current -> keyword_displaced_index & 99 Shards
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+  // 1. Archive any residual displaced rows in keyword_serp_current -> keyword_displaced_index & Unified PostgreSQL two-tier tables
   try {
-    await preloadNeonRegistry(sql);
     let totalDisplacedPurged = 0;
+
+    const sanitizeMeta = (raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      const clean = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (v !== null && v !== undefined && v !== '') {
+          clean[k] = v;
+        }
+      }
+      return clean;
+    };
 
     while (true) {
       const displacedRows = await sql`
@@ -110,234 +111,194 @@ export async function optimizeHubStorage(sql) {
           visual_annotations, created_at_pinterest, metadata, crawled_at
         FROM keyword_serp_current
         WHERE is_displaced = TRUE
-        LIMIT 5000;
+        LIMIT 2000;
       `;
 
       if (!displacedRows || displacedRows.length === 0) {
         break;
       }
 
-      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
-      const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(displacedRows, 99));
-      const shardEntries = Array.from(shardGroups.entries());
-      const confirmedPinIdsSet = new Set();
+      const sortedPins = [...displacedRows].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+      const payload = JSON.stringify(sortedPins.map(p => ({
+        pin_id: String(p.pin_id),
+        keyword_id: Number(p.keyword_id || 0),
+        creator_username: String(p.creator_username || ''),
+        board_name: String(p.board_name || ''),
+        title: String(p.title || ''),
+        domain: String(p.domain || ''),
+        destination_url: String(p.destination_url || ''),
+        image_url: String(p.image_url || ''),
+        description: String(p.metadata?.description || ''),
+        alt_text: String(p.metadata?.alt_text || ''),
+        dominant_color: String(p.dominant_color || '#888888'),
+        visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
+        created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+        metadata: sanitizeMeta(p.metadata),
+        last_known_rank: p.last_known_rank ? Number(p.last_known_rank) : (p.rank_position ? Number(p.rank_position) : null),
+        save_count: Number(p.save_count || 0),
+        repin_count: Number(p.repin_count || 0),
+        comment_count: Number(p.comment_count || 0),
+        share_count: Number(p.share_count || 0),
+        daily_save_velocity: Number(p.daily_save_velocity || 0),
+        snapshot_date: p.displaced_date instanceof Date
+          ? p.displaced_date.toISOString().slice(0, 10)
+          : String(p.displaced_date || new Date().toISOString()).slice(0, 10)
+      })));
 
-      for (let i = 0; i < shardEntries.length; i += 10) {
-        const chunk = shardEntries.slice(i, i + 10);
-        await Promise.allSettled(chunk.map(async ([shardId, pins]) => {
-          try {
-            const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-            if (!shardSql || (!isUnifiedPostgres() && shardSql === sql)) {
-              throw new Error(`Shard #${shardId} resolved to invalid or fallback Hub connection.`);
-            }
+      const buildMasterUpsert = (db) => db`
+        INSERT INTO universal_master_pins (
+          pin_id, creator_username, board_name, title, domain, destination_url,
+          image_url, description, alt_text, dominant_color, visual_annotations,
+          created_at_pinterest, metadata,
+          first_discovered_pillar, first_discovered_at, updated_at
+        )
+        SELECT DISTINCT ON (u.pin_id)
+          u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
+          u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+          NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
+          'keyword', NOW(), NOW()
+        FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+          pin_id text, creator_username text, board_name text, title text, domain text,
+          destination_url text, image_url text, description text, alt_text text,
+          dominant_color text, visual_annotations jsonb, created_at_pinterest text, metadata jsonb
+        )
+        ORDER BY u.pin_id ASC
+        ON CONFLICT (pin_id) DO UPDATE SET
+          creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+          board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+          title = CASE
+            WHEN EXCLUDED.title IS NOT NULL
+             AND BTRIM(EXCLUDED.title) <> ''
+             AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
+             AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
+            THEN EXCLUDED.title
+            ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
+          END,
+          domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+          destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+          image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+          description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+          alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+          visual_annotations = CASE 
+            WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+            THEN EXCLUDED.visual_annotations 
+            ELSE universal_master_pins.visual_annotations 
+          END,
+          created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+          metadata = CASE 
+            WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata <> '{}'::jsonb 
+            THEN COALESCE(universal_master_pins.metadata, '{}'::jsonb) || jsonb_strip_nulls(EXCLUDED.metadata)
+            ELSE COALESCE(universal_master_pins.metadata, '{}'::jsonb)
+          END,
+          updated_at = NOW();
+      `;
 
-            const sanitizeMeta = (raw) => {
-              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-              const clean = {};
-              for (const [k, v] of Object.entries(raw)) {
-                if (v !== null && v !== undefined && v !== '') {
-                  clean[k] = v;
-                }
-              }
-              return clean;
-            };
+      const buildTwoTierUpsert = (db) => db`
+        WITH raw_batch AS (
+          SELECT
+            u.pin_id,
+            COALESCE(NULLIF(TRIM(u.snapshot_date), '')::date, (NOW() AT TIME ZONE 'UTC')::date) AS snapshot_date,
+            u.keyword_id,
+            u.last_known_rank,
+            COALESCE(u.save_count, 0)::bigint AS save_count,
+            COALESCE(u.repin_count, 0)::int AS repin_count,
+            COALESCE(u.comment_count, 0)::int AS comment_count,
+            COALESCE(u.share_count, 0)::int AS share_count,
+            COALESCE(u.daily_save_velocity, 0)::numeric AS daily_save_velocity
+          FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+            pin_id text,
+            snapshot_date text,
+            keyword_id int,
+            last_known_rank int,
+            save_count bigint,
+            repin_count int,
+            comment_count int,
+            share_count int,
+            daily_save_velocity numeric
+          )
+        ),
+        dedup_metrics AS (
+          SELECT
+            pin_id,
+            snapshot_date,
+            MAX(save_count) AS save_count,
+            MAX(repin_count) AS repin_count,
+            MAX(comment_count) AS comment_count,
+            MAX(share_count) AS share_count,
+            MAX(daily_save_velocity) AS daily_save_velocity
+          FROM raw_batch
+          GROUP BY pin_id, snapshot_date
+        ),
+        upsert_metrics AS (
+          INSERT INTO pins_daily_metrics (
+            pin_id, snapshot_date, save_count, repin_count, comment_count,
+            share_count, reaction_count, daily_save_velocity, updated_at
+          )
+          SELECT
+            pin_id,
+            snapshot_date,
+            save_count,
+            repin_count,
+            comment_count,
+            share_count,
+            0,
+            daily_save_velocity,
+            NOW()
+          FROM dedup_metrics
+          ORDER BY pin_id ASC, snapshot_date ASC
+          ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+            save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
+            repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
+            reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+            comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+            share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+            daily_save_velocity = CASE
+              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+              ELSE pins_daily_metrics.daily_save_velocity
+            END,
+            updated_at = NOW()
+          RETURNING pin_id
+        ),
+        dedup_positions AS (
+          SELECT DISTINCT ON (pin_id, snapshot_date, keyword_id)
+            pin_id,
+            snapshot_date,
+            keyword_id,
+            COALESCE(last_known_rank, 100)::int AS last_known_rank
+          FROM raw_batch
+          WHERE keyword_id IS NOT NULL AND keyword_id > 0
+          ORDER BY pin_id ASC, snapshot_date ASC, keyword_id ASC, last_known_rank ASC NULLS LAST
+        )
+        INSERT INTO pin_serp_positions (
+          pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
+          last_known_rank, catalog_rank, updated_at
+        )
+        SELECT
+          pin_id,
+          snapshot_date,
+          keyword_id,
+          NULL,
+          TRUE,
+          last_known_rank,
+          COALESCE(last_known_rank, 100) + 250,
+          NOW()
+        FROM dedup_positions
+        ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+          rank_position = NULL,
+          is_displaced = TRUE,
+          last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+          updated_at = NOW();
+      `;
 
-            const sortedPins = [...pins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-            const payload = JSON.stringify(sortedPins.map(p => ({
-              pin_id: String(p.pin_id),
-              keyword_id: Number(p.keyword_id || 0),
-              creator_username: String(p.creator_username || ''),
-              board_name: String(p.board_name || ''),
-              title: String(p.title || ''),
-              domain: String(p.domain || ''),
-              destination_url: String(p.destination_url || ''),
-              image_url: String(p.image_url || ''),
-              description: String(p.metadata?.description || ''),
-              alt_text: String(p.metadata?.alt_text || ''),
-              dominant_color: String(p.dominant_color || '#888888'),
-              visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-              created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-              metadata: sanitizeMeta(p.metadata),
-              last_known_rank: p.last_known_rank ? Number(p.last_known_rank) : (p.rank_position ? Number(p.rank_position) : null),
-              save_count: Number(p.save_count || 0),
-              repin_count: Number(p.repin_count || 0),
-              comment_count: Number(p.comment_count || 0),
-              share_count: Number(p.share_count || 0),
-              daily_save_velocity: Number(p.daily_save_velocity || 0),
-              snapshot_date: p.displaced_date instanceof Date
-                ? p.displaced_date.toISOString().slice(0, 10)
-                : String(p.displaced_date || new Date().toISOString()).slice(0, 10)
-            })));
-
-            // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-            const buildMasterUpsert = (db) => db`
-              INSERT INTO universal_master_pins (
-                pin_id, creator_username, board_name, title, domain, destination_url,
-                image_url, description, alt_text, dominant_color, visual_annotations,
-                created_at_pinterest, metadata,
-                first_discovered_pillar, first_discovered_at, updated_at
-              )
-              SELECT DISTINCT ON (u.pin_id)
-                u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
-                u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-                NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
-                'keyword', NOW(), NOW()
-              FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-                pin_id text, creator_username text, board_name text, title text, domain text,
-                destination_url text, image_url text, description text, alt_text text,
-                dominant_color text, visual_annotations jsonb, created_at_pinterest text, metadata jsonb
-              )
-              ORDER BY u.pin_id ASC
-              ON CONFLICT (pin_id) DO UPDATE SET
-                creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-                board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-                title = CASE
-                  WHEN EXCLUDED.title IS NOT NULL
-                   AND BTRIM(EXCLUDED.title) <> ''
-                   AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
-                   AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
-                  THEN EXCLUDED.title
-                  ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
-                END,
-                domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-                destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-                image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-                description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-                alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
-                visual_annotations = CASE 
-                  WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-                  THEN EXCLUDED.visual_annotations 
-                  ELSE universal_master_pins.visual_annotations 
-                END,
-                created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-                metadata = CASE 
-                  WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata <> '{}'::jsonb 
-                  THEN COALESCE(universal_master_pins.metadata, '{}'::jsonb) || jsonb_strip_nulls(EXCLUDED.metadata)
-                  ELSE COALESCE(universal_master_pins.metadata, '{}'::jsonb)
-                END,
-                updated_at = NOW();
-            `;
-
-            // [INVARIANT: TWO-TIER-MODERN-SHARDING]
-            // Deduplicate by (pin_id, snapshot_date) via GROUP BY with MAX(save_count) to prevent SQLSTATE 21000
-            // when a pin is displaced across multiple keywords on the same date.
-            const buildTwoTierUpsert = (db) => db`
-              WITH raw_batch AS (
-                SELECT
-                  u.pin_id,
-                  COALESCE(NULLIF(TRIM(u.snapshot_date), '')::date, (NOW() AT TIME ZONE 'UTC')::date) AS snapshot_date,
-                  u.keyword_id,
-                  u.last_known_rank,
-                  COALESCE(u.save_count, 0)::bigint AS save_count,
-                  COALESCE(u.repin_count, 0)::int AS repin_count,
-                  COALESCE(u.comment_count, 0)::int AS comment_count,
-                  COALESCE(u.share_count, 0)::int AS share_count,
-                  COALESCE(u.daily_save_velocity, 0)::numeric AS daily_save_velocity
-                FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-                  pin_id text,
-                  snapshot_date text,
-                  keyword_id int,
-                  last_known_rank int,
-                  save_count bigint,
-                  repin_count int,
-                  comment_count int,
-                  share_count int,
-                  daily_save_velocity numeric
-                )
-              ),
-              dedup_metrics AS (
-                SELECT
-                  pin_id,
-                  snapshot_date,
-                  MAX(save_count) AS save_count,
-                  MAX(repin_count) AS repin_count,
-                  MAX(comment_count) AS comment_count,
-                  MAX(share_count) AS share_count,
-                  MAX(daily_save_velocity) AS daily_save_velocity
-                FROM raw_batch
-                GROUP BY pin_id, snapshot_date
-              ),
-              upsert_metrics AS (
-                INSERT INTO pins_daily_metrics (
-                  pin_id, snapshot_date, save_count, repin_count, comment_count,
-                  share_count, reaction_count, daily_save_velocity, updated_at
-                )
-                SELECT
-                  pin_id,
-                  snapshot_date,
-                  save_count,
-                  repin_count,
-                  comment_count,
-                  share_count,
-                  0,
-                  daily_save_velocity,
-                  NOW()
-                FROM dedup_metrics
-                ORDER BY pin_id ASC, snapshot_date ASC
-                ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-                  save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
-                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
-                  reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-                  comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-                  share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-                  daily_save_velocity = CASE
-                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-                    ELSE pins_daily_metrics.daily_save_velocity
-                  END,
-                  updated_at = NOW()
-                RETURNING pin_id
-              ),
-              dedup_positions AS (
-                SELECT DISTINCT ON (pin_id, snapshot_date, keyword_id)
-                  pin_id,
-                  snapshot_date,
-                  keyword_id,
-                  COALESCE(last_known_rank, 100)::int AS last_known_rank
-                FROM raw_batch
-                WHERE keyword_id IS NOT NULL AND keyword_id > 0
-                ORDER BY pin_id ASC, snapshot_date ASC, keyword_id ASC, last_known_rank ASC NULLS LAST
-              )
-              INSERT INTO pin_serp_positions (
-                pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
-                last_known_rank, catalog_rank, updated_at
-              )
-              SELECT
-                pin_id,
-                snapshot_date,
-                keyword_id,
-                NULL,
-                TRUE,
-                last_known_rank,
-                COALESCE(last_known_rank, 100) + 250,
-                NOW()
-              FROM dedup_positions
-              ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-                rank_position = NULL,
-                is_displaced = TRUE,
-                last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
-                updated_at = NOW();
-            `;
-
-            // Zero unchecked catches: if either query fails, throw and abort this shard batch
-            if (typeof shardSql.transaction === 'function') {
-              await shardSql.transaction([buildMasterUpsert, buildTwoTierUpsert]);
-            } else {
-              await buildMasterUpsert(shardSql);
-              await buildTwoTierUpsert(shardSql);
-            }
-
-            // Strictly record confirmed pin IDs only after 100% of Shard writes succeed
-            for (const p of sortedPins) {
-              if (p.pin_id) confirmedPinIdsSet.add(String(p.pin_id));
-            }
-          } catch (shardErr) {
-            console.warn(`[optimizeHubStorage] Aborted Hub deletion for shard #${shardId} due to shard write failure:`, shardErr.message);
-          }
-        }));
+      if (typeof sql.transaction === 'function') {
+        await sql.transaction([buildMasterUpsert, buildTwoTierUpsert]);
+      } else {
+        await buildMasterUpsert(sql);
+        await buildTwoTierUpsert(sql);
       }
 
-      const confirmedPinIds = Array.from(confirmedPinIdsSet);
+      const confirmedPinIds = Array.from(new Set(sortedPins.map(p => String(p.pin_id)).filter(Boolean)));
       if (confirmedPinIds.length > 0) {
         await sql`
           INSERT INTO keyword_displaced_index (
@@ -384,7 +345,6 @@ export async function optimizeHubStorage(sql) {
         `;
         totalDisplacedPurged += purged.length;
       } else {
-        // If no shards succeeded in this iteration, break to prevent an infinite loop
         break;
       }
     }
@@ -392,189 +352,6 @@ export async function optimizeHubStorage(sql) {
     results.archivedDisplaced = totalDisplacedPurged;
   } catch (err) {
     console.warn('[optimizeHubStorage] Displaced archive warning:', err.message);
-  }
-
-  // 2. Offload residual keyword_pins_snapshots to 99 Shards before pruning (Skip in Unified DB where keyword_pins_snapshots is a VIEW)
-  if (!isUnifiedPostgres()) try {
-    await preloadNeonRegistry(sql);
-    let totalSnapshotsPruned = 0;
-
-    while (true) {
-      const snapshotRows = await sql`
-        SELECT
-          id,
-          pin_id,
-          keyword_id,
-          rank_position,
-          COALESCE(save_count, 0) AS save_count,
-          COALESCE(repin_count, 0) AS repin_count,
-          COALESCE(comment_count, 0) AS comment_count,
-          COALESCE(share_count, 0) AS share_count,
-          0 AS reaction_count,
-          COALESCE(daily_save_velocity, 0) AS daily_save_velocity,
-          COALESCE(snapshot_date, CURRENT_DATE) AS snapshot_date,
-          COALESCE(is_displaced, FALSE) AS is_displaced,
-          last_known_rank,
-          COALESCE(created_at, NOW()) AS created_at
-        FROM keyword_pins_snapshots
-        WHERE is_displaced = TRUE
-           OR snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
-        LIMIT 5000;
-      `;
-
-      if (!snapshotRows || snapshotRows.length === 0) {
-        break;
-      }
-
-      // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
-      const snapShardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(snapshotRows, 99));
-      const snapShardEntries = Array.from(snapShardGroups.entries());
-      const confirmedSnapshotIds = [];
-
-      for (let i = 0; i < snapShardEntries.length; i += 10) {
-        const chunk = snapShardEntries.slice(i, i + 10);
-        await Promise.allSettled(chunk.map(async ([shardId, shardSnaps]) => {
-          try {
-            const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-            if (!shardSql || shardSql === sql) {
-              throw new Error(`Shard #${shardId} resolved to invalid or fallback Hub connection.`);
-            }
-
-            const payload = JSON.stringify(shardSnaps.map(s => ({
-              pin_id: String(s.pin_id),
-              keyword_id: Number(s.keyword_id || 0),
-              rank_position: s.rank_position ? Number(s.rank_position) : null,
-              save_count: Number(s.save_count || 0),
-              repin_count: Number(s.repin_count || 0),
-              comment_count: Number(s.comment_count || 0),
-              share_count: Number(s.share_count || 0),
-              reaction_count: Number(s.reaction_count || 0),
-              daily_save_velocity: Number(s.daily_save_velocity || 0),
-              snapshot_date: s.snapshot_date instanceof Date ? s.snapshot_date.toISOString().slice(0, 10) : String(s.snapshot_date).slice(0, 10),
-              is_displaced: Boolean(s.is_displaced),
-              last_known_rank: s.last_known_rank ? Number(s.last_known_rank) : null,
-              created_at: s.created_at ? new Date(s.created_at).toISOString() : new Date().toISOString()
-            })));
-
-            // Upsert into two-tier metrics + positions
-            await shardSql`
-              WITH raw_batch AS (
-                SELECT * FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-                  pin_id text,
-                  keyword_id int,
-                  rank_position int,
-                  is_displaced boolean,
-                  last_known_rank int,
-                  save_count bigint,
-                  repin_count int,
-                  comment_count int,
-                  share_count int,
-                  reaction_count int,
-                  daily_save_velocity numeric,
-                  snapshot_date date,
-                  created_at timestamptz
-                )
-              ),
-              dedup_metrics AS (
-                SELECT 
-                  pin_id,
-                  snapshot_date,
-                  MAX(save_count) AS save_count,
-                  MAX(repin_count) AS repin_count,
-                  MAX(comment_count) AS comment_count,
-                  MAX(share_count) AS share_count,
-                  MAX(reaction_count) AS reaction_count,
-                  MAX(daily_save_velocity) AS daily_save_velocity
-                FROM raw_batch
-                GROUP BY pin_id, snapshot_date
-              ),
-              upsert_metrics AS (
-                INSERT INTO pins_daily_metrics (
-                  pin_id, snapshot_date, save_count, repin_count, comment_count,
-                  share_count, reaction_count, daily_save_velocity, updated_at
-                )
-                SELECT 
-                  pin_id,
-                  snapshot_date,
-                  save_count,
-                  repin_count,
-                  comment_count,
-                  share_count,
-                  reaction_count,
-                  daily_save_velocity,
-                  NOW()
-                FROM dedup_metrics
-                ORDER BY pin_id ASC, snapshot_date ASC
-                ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-                  save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
-                  repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
-                  comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-                  share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-                  reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-                  daily_save_velocity = CASE 
-                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-                    ELSE pins_daily_metrics.daily_save_velocity 
-                  END,
-                  updated_at = NOW()
-                RETURNING pin_id
-              ),
-              dedup_positions AS (
-                SELECT DISTINCT ON (pin_id, snapshot_date, keyword_id)
-                  pin_id,
-                  snapshot_date,
-                  keyword_id,
-                  rank_position,
-                  is_displaced,
-                  last_known_rank
-                FROM raw_batch
-                WHERE keyword_id IS NOT NULL AND keyword_id > 0
-                ORDER BY pin_id ASC, snapshot_date ASC, keyword_id ASC, is_displaced ASC, rank_position ASC NULLS LAST
-              )
-              INSERT INTO pin_serp_positions (
-                pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
-                last_known_rank, catalog_rank, updated_at
-              )
-              SELECT 
-                pin_id,
-                snapshot_date,
-                keyword_id,
-                rank_position,
-                COALESCE(is_displaced, FALSE) AS is_displaced,
-                last_known_rank,
-                COALESCE(rank_position, CASE WHEN is_displaced THEN COALESCE(last_known_rank, 100) + 250 ELSE 1 END) AS catalog_rank,
-                NOW()
-              FROM dedup_positions
-              ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-                rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
-                is_displaced = EXCLUDED.is_displaced,
-                last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
-                updated_at = NOW();
-            `;
-
-            for (const s of shardSnaps) {
-              if (s.id) confirmedSnapshotIds.push(s.id);
-            }
-          } catch (shardErr) {
-            console.warn(`[optimizeHubStorage] Warning: Failed to offload snapshots to shard #${shardId}:`, shardErr.message);
-          }
-        }));
-      }
-
-      if (confirmedSnapshotIds.length > 0) {
-        const deleted = await sql`
-          DELETE FROM keyword_pins_snapshots
-          WHERE id = ANY(${confirmedSnapshotIds})
-          RETURNING id;
-        `;
-        totalSnapshotsPruned += deleted.length;
-      } else {
-        break;
-      }
-    }
-
-    results.prunedSnapshots = totalSnapshotsPruned;
-  } catch (err) {
-    console.warn('[optimizeHubStorage] Prune snapshots warning:', err.message);
   }
 
   // 3. Strip bloated JSONB keys ONLY on rows that actually contain them (prevents MVCC & TOAST churn)
@@ -617,20 +394,14 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
   }
 
-  // 5. Non-blocking VACUUM (ANALYZE) on target tables (exclude keyword_pins_snapshots VIEW in unified_postgres mode; Migration 051)
-  const unifiedMode = isUnifiedPostgres();
+  // 5. Non-blocking VACUUM (ANALYZE) on target tables (Unified PostgreSQL tables)
   const tablesToVacuum = [
     ['tracked_keywords', () => sql`VACUUM (ANALYZE) tracked_keywords;`],
     ['keyword_serp_current', () => sql`VACUUM (ANALYZE) keyword_serp_current;`],
     ['keyword_displaced_index', () => sql`VACUUM (ANALYZE) keyword_displaced_index;`],
-    ...(unifiedMode
-      ? [
-          ['pin_serp_positions', () => sql`VACUUM (ANALYZE) pin_serp_positions;`],
-          ['pins_daily_metrics', () => sql`VACUUM (ANALYZE) pins_daily_metrics;`]
-        ]
-      : [
-          ['keyword_pins_snapshots', () => sql`VACUUM (ANALYZE) keyword_pins_snapshots;`]
-        ]),
+    ['pin_serp_positions', () => sql`VACUUM (ANALYZE) pin_serp_positions;`],
+    ['pins_daily_metrics', () => sql`VACUUM (ANALYZE) pins_daily_metrics;`],
+    ['universal_master_pins', () => sql`VACUUM (ANALYZE) universal_master_pins;`],
     ['competitor_profiles', () => sql`VACUUM (ANALYZE) competitor_profiles;`],
     ['competitor_history_snapshots', () => sql`VACUUM (ANALYZE) competitor_history_snapshots;`],
     ['competitor_pins', () => sql`VACUUM (ANALYZE) competitor_pins;`],
@@ -658,7 +429,7 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = createUniversalSqlClient(process.env.DATABASE_URL);
+  const sql = createSqlClient(process.env.DATABASE_URL);
   console.log('[*] Running automated maintenance...');
   const res = await optimizeHubStorage(sql);
 

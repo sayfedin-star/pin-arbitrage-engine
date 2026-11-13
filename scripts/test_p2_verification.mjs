@@ -7,8 +7,8 @@
  *    - src/modules/keywords/service.mjs: getKeywordDisplacedPins clamps limit to Math.min(30, Math.max(1, Number(limit) || 24))
  *    - src/routes/keywords.mjs: GET /api/keywords/displaced clamps limit to Math.min(30, Math.max(1, Number(searchParams.get('limit')) || 24))
  *    - [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] tags verified in both files
- * 2. Concurrency Semaphore & Circuit Breaker Timeout for Scatter-Gather:
- *    - src/modules/keywords/service.mjs: hydrateDisplacedIndexFromShards enforces CONCURRENCY_LIMIT = 4 and timeoutMs = 2000
+ * 2. Unified PostgreSQL Displaced Pin Metadata Hydration:
+ *    - src/modules/keywords/service.mjs: hydrateDisplacedPinsMetadata batch-hydrates slim displaced rows via universal_master_pins
  * 3. Unified Safe API Fetch Client Helper:
  *    - src/edge-shield-client.mjs: safeApiFetch and apiFetch exported and injected on window
  *    - Handles AbortSignal.timeout(15000) default
@@ -20,7 +20,7 @@
  *    - scripts/lib/pinterest.mjs: extractPinFromEmbeddedData preserves utm_link / tracked_link intact
  *    - Detects carousel pins (method: 'carousel', is_carousel: true)
  *    - Guest session audience extraction from closeupUnifiedAttribution into creator_followers and pinner.follower_count
- *    - src/modules/sharding/fleet-router.mjs: syncPinAcrossAllFourPillars preserves is_carousel, utm_link, tracked_link, creator_followers, pinner
+ *    - src/modules/pins/repository.mjs: syncPinAcrossAllFourPillars preserves is_carousel, utm_link, tracked_link, creator_followers, pinner
  */
 
 import assert from 'node:assert';
@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { safeApiFetch, apiFetch, getEdgeShieldClientScript } from '../src/edge-shield-client.mjs';
 import { formatPin, extractPinData } from '../scripts/lib/pinterest.mjs';
+import { hydrateDisplacedPinsMetadata } from '../src/modules/keywords/service.mjs';
 
 console.log('================================================================================');
 console.log('🛡️  PACKAGE P2: READ ACCELERATION, EDGE SEMAPHORES & SAFE CLIENT AUDIT');
@@ -106,30 +107,50 @@ runTest('src/routes/keywords.mjs: GET /api/keywords/displaced clamps limit with 
 });
 
 // =============================================================================
-// Section 2: Concurrency Semaphore & Circuit Breaker Timeout for Scatter-Gather
+// Section 2: Unified PostgreSQL Displaced Pin Metadata Hydration
 // =============================================================================
-console.log('\n[*] Section 2: Concurrency Semaphore & Circuit Breaker Timeout for Scatter-Gather...');
+console.log('\n[*] Section 2: Unified PostgreSQL Displaced Pin Metadata Hydration...');
 
-runTest('src/modules/keywords/service.mjs: hydrateDisplacedIndexFromShards enforces CONCURRENCY_LIMIT = 4', () => {
+runTest('src/modules/keywords/service.mjs: hydrateDisplacedPinsMetadata queries universal_master_pins directly', () => {
   assert(
-    keywordsServiceCode.includes('const CONCURRENCY_LIMIT = 4;'),
-    'Must define CONCURRENCY_LIMIT = 4'
+    keywordsServiceCode.includes('export async function hydrateDisplacedPinsMetadata(sql, indexRows = [])'),
+    'Must export hydrateDisplacedPinsMetadata'
   );
   assert(
-    keywordsServiceCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4'),
-    'Must tag concurrency limiter with EDGE-SUBREQUEST-PAGINATION-SHIELD'
+    keywordsServiceCode.includes('FROM universal_master_pins ump'),
+    'hydrateDisplacedPinsMetadata must batch-query universal_master_pins'
+  );
+  assert.strictEqual(
+    keywordsServiceCode.includes('hydrateDisplacedIndexFromShards'),
+    false,
+    'Deleted hydrateDisplacedIndexFromShards must not exist'
   );
 });
 
-runTest('src/modules/keywords/service.mjs: hydrateDisplacedIndexFromShards enforces strict 2000ms timeout', () => {
-  assert(
-    keywordsServiceCode.includes('timeoutMs: 2000'),
-    'Must use timeoutMs: 2000 for fetchUniversalPinDossier in hydrateDisplacedIndexFromShards'
-  );
-  assert(
-    keywordsServiceCode.includes('// [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout'),
-    'Must tag timeoutMs: 2000 with EDGE-SUBREQUEST-PAGINATION-SHIELD'
-  );
+await runAsyncTest('hydrateDisplacedPinsMetadata functionally hydrates slim displaced rows from mock universal_master_pins', async () => {
+  const mockSql = async (strings) => {
+    const q = strings.join('?');
+    if (q.includes('universal_master_pins')) {
+      return [{
+        pin_id: '11223344556677',
+        title: 'Hydrated Artisan Bread Pin',
+        domain: 'bakery.example',
+        destination_url: 'https://bakery.example/bread',
+        image_url: 'https://i.pinimg.com/736x/bread.jpg',
+        creator_username: 'baker',
+        board_name: 'Loaves',
+        dominant_color: '#d4a373',
+        visual_annotations: ['sourdough', 'crust']
+      }];
+    }
+    return [];
+  };
+  const hydrated = await hydrateDisplacedPinsMetadata(mockSql, [
+    { pin_id: '11223344556677', title: '', image_url: '' }
+  ]);
+  assert.strictEqual(hydrated[0].title, 'Hydrated Artisan Bread Pin');
+  assert.strictEqual(hydrated[0].image_url, 'https://i.pinimg.com/736x/bread.jpg');
+  assert.strictEqual(hydrated[0].domain, 'bakery.example');
 });
 
 // =============================================================================
@@ -303,7 +324,6 @@ runTest('src/dashboard-ui.mjs: All mutation endpoints use safeApiFetch', () => {
     '/api/competitors/status',
     '/api/competitors/dispatch-crawl',
     '/api/keywords',
-    '/api/fleet/projects',
     '/api/seeds/bulk',
     '/api/workflow/trigger',
     '/api/seeds/bulk-delete',
@@ -339,10 +359,6 @@ runTest('src/dashboard-ui.mjs: All mutation endpoints use safeApiFetch', () => {
   assert(
     dashboardUiCode.includes('(window.safeApiFetch || fetch)(this.getApiUrl(\'/api/competitors\')'),
     'submitTrackCreatorUnified must use safeApiFetch'
-  );
-  assert(
-    dashboardUiCode.includes('(window.safeApiFetch || fetch)(this.getApiUrl(\'/api/fleet/projects\')'),
-    'submitAddFleetProject must use safeApiFetch'
   );
 });
 

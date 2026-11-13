@@ -67,8 +67,8 @@ jobs:
             exit 0
           fi
           SEED_COUNT=$(node --input-type=module -e "
-            import { createUniversalSqlClient } from './src/modules/sharding/fleet-router.mjs';
-            const sql = createUniversalSqlClient(process.env.DATABASE_URL, { max: 1 });
+            import { createSqlClient } from './src/db/client.mjs';
+            const sql = createSqlClient(process.env.DATABASE_URL, { max: 1 });
             const rows = await sql\`SELECT COUNT(*)::int AS cnt FROM cluster_seeds\`;
             console.log(rows[0]?.cnt || 0);
             process.exit(0);

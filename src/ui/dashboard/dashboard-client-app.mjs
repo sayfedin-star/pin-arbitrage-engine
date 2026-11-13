@@ -450,62 +450,6 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           return list;
         },
 
-        // Tab 6: Fleet State
-        fleetProjects: [],
-        fleetSearch: '',
-        fleetRoleFilter: 'all',
-        fleetRegionFilter: 'all',
-        fleetPage: 1,
-        fleetPageSize: 15,
-        isAddFleetModalOpen: false,
-        isInspectingNodeModalOpen: false,
-        inspectedNode: null,
-        isPingingAllFleet: false,
-        fleetPingSummary: null,
-        isSyncingFleet: false,
-        newFleetProjectId: '',
-        newFleetProjectName: '',
-        newFleetDatabaseUrl: '',
-        selectedProject: 'all',
-        showDevOpsFleetSelector: false,
-
-        get filteredFleetProjects() {
-          let list = this.fleetProjects || [];
-          if (this.fleetRoleFilter === 'hub') {
-            list = list.filter(p => p.is_hub);
-          } else if (this.fleetRoleFilter === 'shard') {
-            list = list.filter(p => !p.is_hub);
-          }
-          if (this.fleetRegionFilter !== 'all') {
-            list = list.filter(p => p.region_id === this.fleetRegionFilter);
-          }
-          if (this.fleetSearch && this.fleetSearch.trim()) {
-            const q = this.fleetSearch.toLowerCase().trim();
-            list = list.filter(p => 
-              (p.project_name && p.project_name.toLowerCase().includes(q)) ||
-              (p.project_id && p.project_id.toLowerCase().includes(q)) ||
-              (p.region_id && p.region_id.toLowerCase().includes(q)) ||
-              (p.masked_url && p.masked_url.toLowerCase().includes(q))
-            );
-          }
-          return list;
-        },
-
-        get paginatedFleetProjects() {
-          const list = this.filteredFleetProjects;
-          const ps = Number(this.fleetPageSize) || 15;
-          if (ps >= 100) return list;
-          const start = (this.fleetPage - 1) * ps;
-          return list.slice(start, start + ps);
-        },
-
-        get fleetTotalPages() {
-          const count = this.filteredFleetProjects.length;
-          const ps = Number(this.fleetPageSize) || 15;
-          if (ps >= 100 || count === 0) return 1;
-          return Math.max(1, Math.ceil(count / ps));
-        },
-
         _clientCache: {
           creators: new Map(),
           boards: new Map(),
@@ -1833,8 +1777,7 @@ ${getDashboardSeedComputedProperties()}
             if (this.scopedFolderId) {
               await Promise.all([
                 this.fetchCookieStatus(),
-                this.loadFolderCreators(this.scopedFolderId),
-                this.fetchFleetProjects()
+                this.loadFolderCreators(this.scopedFolderId)
               ]);
             } else {
               await Promise.all([
@@ -1843,8 +1786,7 @@ ${getDashboardSeedComputedProperties()}
                 this.fetchIntersections(),
                 this.fetchCookieStatus(),
                 (this.scopedFolderId || this.folderFilter) ? this.loadFolderCreators(this.scopedFolderId || this.folderFilter) : this.fetchCompetitors(),
-                this.fetchKeywords(),
-                this.fetchFleetProjects()
+                this.fetchKeywords()
               ]);
             }
             if (this.currentTab === 'explorer') {
@@ -1860,10 +1802,6 @@ ${getDashboardSeedComputedProperties()}
         },
 
         getApiUrl(base) {
-          if (this.selectedProject && this.selectedProject !== 'all') {
-            const sep = base.includes('?') ? '&' : '?';
-            return base + sep + 'project_id=' + encodeURIComponent(this.selectedProject);
-          }
           return base;
         },
 
@@ -4405,11 +4343,6 @@ ${getDashboardArchiveRulesMethods()}
           } catch (e) {
             this.showToast('Failed to track keyword: ' + e.message);
           }
-        },
-
-        async submitAddFleetProject() {
-          this.isAddFleetModalOpen = false;
-          this.showToast('Unified VPS PostgreSQL SSOT mode active — external shards disabled.');
         },
 
 ${getDashboardSeedActionMethods()}

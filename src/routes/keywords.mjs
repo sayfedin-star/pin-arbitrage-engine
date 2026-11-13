@@ -58,23 +58,10 @@ import {
   toggleFolderCreatorTracking
 } from '../modules/keywords/folders-service.mjs';
 
-import {
-  getPinShardId,
-  resolveShardConnection,
-  isUnifiedPostgres
-} from '../modules/sharding/fleet-router.mjs';
-
 import { escapeSqlWildcards } from '../utils.mjs';
 import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
 
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
-
-/**
- * Bumps the global fleet cache epoch in Workers KV to invalidate edge caches across all PoPs
- */
-export async function bumpFleetCacheEpoch(env) {
-  return '0';
-}
 
 const BATCH_GLOBAL_SAVES_WINDOW_MS = 60_000;
 const BATCH_GLOBAL_SAVES_MAX_REQUESTS = 20;
@@ -85,12 +72,6 @@ export function _resetBatchGlobalSavesRateLimit() {
 }
 
 export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
-  const apiKey = request.headers.get('x-api-key');
-  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
-  if ((apiKey && apiKey.trim()) || authHeader.toLowerCase().startsWith('bearer ')) {
-    return { allowed: true };
-  }
-
   const originHeader = (request.headers.get('Origin') || '').trim();
   const secFetchSite = (request.headers.get('Sec-Fetch-Site') || '').trim().toLowerCase();
   if (secFetchSite === 'cross-site') {
@@ -111,6 +92,12 @@ export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
     } catch (_) {
       return { allowed: false, reason: 'Malformed Origin header.' };
     }
+  }
+
+  const apiKey = request.headers.get('x-api-key');
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
+  if ((apiKey && apiKey.trim()) || authHeader.toLowerCase().startsWith('bearer ')) {
+    return { allowed: true };
   }
 
   return { allowed: true };
@@ -171,7 +158,6 @@ export async function handleKeywordsRoutes({
   env,
   ctx,
   sql,
-  targetSql,
   jsonResponse,
   methodNotAllowedResponse,
   clampLimit,
@@ -364,7 +350,7 @@ export async function handleKeywordsRoutes({
       return jsonResponse({
         success: true,
         keywords: Array.isArray(keywords) ? keywords : [],
-        source: 'neon_hub'
+        source: 'unified_postgres'
       }, 200, 8);
     } catch (err) {
       console.error('[Keywords Error]', err.message);
@@ -597,13 +583,13 @@ export async function handleKeywordsRoutes({
       SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
     `.catch(() => []);
 
-    // 3. Record tombstones for Shard Janitor GC (initiating 99 Shards cleanup lifecycle)
+    // 3. Record tombstones in unified keyword_tombstones audit trail
     if (existingKw.length > 0) {
       await sql`
-        INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged)
-        SELECT u.id, u.keyword, NOW(), FALSE
+        INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged, purged_at)
+        SELECT u.id, u.keyword, NOW(), TRUE, NOW()
         FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
-        ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), shards_purged = FALSE;
+        ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), shards_purged = TRUE, purged_at = NOW();
       `.catch(() => {});
     }
 
@@ -651,12 +637,7 @@ export async function handleKeywordsRoutes({
         WHERE keyword_id = ${keywordId} AND pin_id = ${pinId}
         RETURNING pin_id;
       `;
-      // [INVARIANT: ZERO-HUB-SNAPSHOTS] Target Shard pin_serp_positions directly; Central Hub has zero snapshots
-      const targetShardId = getPinShardId(pinId, 99);
-      const targetShardSql = await resolveShardConnection({ hubSql: sql, shardId: targetShardId, env }).catch(() => null);
-      if (targetShardSql) {
-        await targetShardSql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId} AND keyword_id = ${keywordId};`.catch(() => {});
-      }
+      await sql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId} AND keyword_id = ${keywordId};`.catch(() => {});
       await sql`
         DELETE FROM keyword_displaced_index
         WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
@@ -705,7 +686,7 @@ export async function handleKeywordsRoutes({
     }
 
 
-    // 2. Graceful Fallback: Neon Postgres Central Hub
+    // Unified Single-DB PostgreSQL Search Autocomplete
     try {
       const cleanQ = (q && typeof q === 'string' && q.trim()) ? escapeSqlWildcards(q.toLowerCase().trim()) : '';
       const likePattern = `${cleanQ}%`;
@@ -716,7 +697,7 @@ export async function handleKeywordsRoutes({
         ORDER BY keyword ASC
         LIMIT 10;
       ` : [];
-      return jsonResponse({ success: true, source: 'neon_hub', results: rows }, 200, 15);
+      return jsonResponse({ success: true, source: 'unified_postgres', results: rows }, 200, 15);
     } catch (_) {
       return jsonResponse({ success: true, source: 'empty_fallback', results: [], degraded: true }, 200, 0);
     }
@@ -1066,7 +1047,7 @@ export async function handleKeywordsRoutes({
   const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/folders\/(\d+)\/dispatch-audit$/);
   if (folderAuditMatch) {
     const folderId = folderAuditMatch[1];
-    const [folderRow] = await targetSql`SELECT id, name, metadata FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
+    const [folderRow] = await sql`SELECT id, name, metadata FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
     if (!folderRow) {
       return jsonResponse({ success: false, error: `Folder ${folderId} not found` }, 404);
     }
@@ -1491,7 +1472,7 @@ export async function handleKeywordsRoutes({
     const country = searchParams.get('country') || 'US';
     const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
     if (!term) return jsonResponse({ error: 'term is required' }, 400);
-    const result = await fetchPinterestTrendsPopularPins(targetSql, term, country, force);
+    const result = await fetchPinterestTrendsPopularPins(sql, term, country, force);
     return jsonResponse(result, result.success ? 200 : 400);
   }
 

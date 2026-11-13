@@ -21,7 +21,8 @@
 
 import { spawn } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
-import { offloadKeywordCrawlToShards, hydrateDisplacedIndexFromShards } from '../src/modules/keywords/service.mjs';
+import { hydrateDisplacedPinsMetadata } from '../src/modules/keywords/service.mjs';
+import { insertNewPinsBatch } from '../src/modules/pins/repository.mjs';
 
 const CHROME_PATH = process.env.CHROME_BIN || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = Number(process.env.E2E_PORT || 3491);
@@ -246,17 +247,16 @@ async function runRealBrowserVerification() {
   const testDisplaced = [{ pin_id: '987654321', last_known_rank: 5 }];
 
   // 4A. Test unified_postgres mode
-  const envUnified = { DATABASE_TOPOLOGY: 'unified_postgres' };
   mockQueries = [];
-  await offloadKeywordCrawlToShards(mockHubSql, 1, testPins, testDisplaced, envUnified).catch(e => console.error('offload error:', e));
+  await insertNewPinsBatch(mockHubSql, testPins, 'keyword').catch(e => console.error('ingest error:', e));
   const offloadUnifiedQueriesCount = mockQueries.length;
 
   mockQueries = [];
-  await hydrateDisplacedIndexFromShards(mockHubSql, [{ pin_id: '987654321' }], envUnified, false).catch(e => console.error('hydrate error:', e));
+  await hydrateDisplacedPinsMetadata(mockHubSql, [{ pin_id: '987654321' }]).catch(e => console.error('hydrate error:', e));
   const hydrateUnifiedQueriesCount = mockQueries.length;
 
   const unifiedPass = offloadUnifiedQueriesCount > 0 && hydrateUnifiedQueriesCount > 0;
-  console.log(`      ${unifiedPass ? '✓ PASS' : '✗ FAIL'} unified_postgres parity: offload queries=${offloadUnifiedQueriesCount}, hydrate queries=${hydrateUnifiedQueriesCount}`);
+  console.log(`      ${unifiedPass ? '✓ PASS' : '✗ FAIL'} unified_postgres parity: ingest queries=${offloadUnifiedQueriesCount}, hydrate queries=${hydrateUnifiedQueriesCount}`);
 
   // 1. Launch local server
   console.log(`\n[Server Setup] Spawning live application server on ${BASE_URL}...`);
@@ -439,7 +439,6 @@ async function runRealBrowserVerification() {
     const fixtureDossier = {
       success: true,
       pin_id: ADVERSARIAL_PIN_ID,
-      shard_id: 42,
       creative: {
         pin_id: ADVERSARIAL_PIN_ID,
         title: 'Adversarial Test Pin: Crockpot Chicken',

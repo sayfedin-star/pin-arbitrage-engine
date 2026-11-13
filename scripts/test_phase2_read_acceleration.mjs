@@ -16,17 +16,10 @@ import {
   getCachedOrFetch,
   invalidateEdgeCache,
   buildCanonicalCacheKey,
-  edgeCache,
-  l1Cache
-} from '../src/worker.mjs';
-import {
-  globalShardMap,
-  SHARD_MAP_TTL_MS,
-  warmGlobalShardMap,
-  resolveShardConnection,
-  fetchUniversalPinDossier,
-  _setShardSqlClient
-} from '../src/modules/sharding/fleet-router.mjs';
+  edgeCache
+} from '../src/http/security-and-response.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
+import { createSqlClient, getSqlClient } from '../src/db/client.mjs';
 import { getKeywordPins } from '../src/modules/keywords/service.mjs';
 
 async function runPhase2Verification() {
@@ -60,12 +53,13 @@ async function runPhase2Verification() {
   }
 
   // =========================================================================
-  // 1. Hyperdrive Client Scoping & Transaction Extension
+  // 1. Unified PostgreSQL Client & Transaction Extension
   // =========================================================================
-  console.log('\n[TEST 1] Hyperdrive Scoping & Transaction Flexibility');
+  console.log('\n[TEST 1] Unified PostgreSQL Client & Transaction Flexibility');
 
-  test('Pure Neon Serverless PostgreSQL initializes cleanly without Hyperdrive', () => {
-    assert.strictEqual(typeof resolveShardConnection, 'function');
+  test('Unified PostgreSQL client helpers initialize cleanly without Hyperdrive or Shards', () => {
+    assert.strictEqual(typeof createSqlClient, 'function');
+    assert.strictEqual(typeof getSqlClient, 'function');
   });
 
   await testAsync('client.transaction supports builder functions returning values', async () => {
@@ -98,8 +92,8 @@ async function runPhase2Verification() {
   // =========================================================================
   console.log('\n[TEST 2] Node.js Test Guard for L1 Cache & Canonical Keys');
 
-  test('l1Cache is null in Node.js runtime without throwing ReferenceError', () => {
-    assert.strictEqual(l1Cache, null, 'l1Cache must cleanly be null in Node.js');
+  test('edgeCache is an in-memory Map without Cloudflare l1Cache dependency', () => {
+    assert.strictEqual(edgeCache instanceof Map, true, 'edgeCache must be a pure Node.js Map');
   });
 
   test('buildCanonicalCacheKey formats query parameters deterministically', () => {
@@ -134,72 +128,39 @@ async function runPhase2Verification() {
   });
 
   // =========================================================================
-  // 3. Isolate-Level Shard Routing Cache (globalShardMap) & Singleflight
+  // 3. Unified PostgreSQL Missing-DSN Guard & Injected SQL_CLIENT
   // =========================================================================
-  console.log('\n[TEST 3] Isolate-Level Shard Routing Cache (globalShardMap)');
+  console.log('\n[TEST 3] Unified PostgreSQL Missing-DSN Guard & Direct Resolution');
 
-  test('globalShardMap is declared synchronously in isolate scope with 10m TTL', () => {
-    assert(globalShardMap instanceof Map, 'globalShardMap must be a Map');
-    assert.strictEqual(SHARD_MAP_TTL_MS, 600000, 'SHARD_MAP_TTL_MS must be 10 minutes (600,000ms)');
+  test('createSqlClient throws explicit error when DATABASE_URL is absent', () => {
+    const prevUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    try {
+      assert.throws(() => createSqlClient(''), /DATABASE_URL is required/);
+    } finally {
+      if (prevUrl !== undefined) process.env.DATABASE_URL = prevUrl;
+    }
   });
 
-  await testAsync('warmGlobalShardMap coalesces concurrent calls via singleflight', async () => {
-    let mockHubQueries = 0;
-    const mockHubSql = async () => {
-      mockHubQueries++;
-      return [
-        { id: 1, project_name: 'pin-arbitrage-shard-01', database_url: 'postgres://user:pass@ep-01.neon.tech/neondb', assigned_shards: [1] },
-        { id: 2, project_name: 'pin-arbitrage-shard-02', database_url: 'postgres://user:pass@ep-02.neon.tech/neondb', assigned_shards: [2] }
-      ];
-    };
-
-    // Clear map to test warmup
-    globalShardMap.clear();
-
-    const shardedEnv = { DATABASE_TOPOLOGY: 'sharded_neon' };
-
-    // Concurrently trigger 5 warmup calls at the exact same moment
-    await Promise.all([
-      warmGlobalShardMap(mockHubSql, shardedEnv),
-      warmGlobalShardMap(mockHubSql, shardedEnv),
-      warmGlobalShardMap(mockHubSql, shardedEnv),
-      warmGlobalShardMap(mockHubSql, shardedEnv),
-      warmGlobalShardMap(mockHubSql, shardedEnv)
-    ]);
-
-    assert.strictEqual(mockHubQueries, 1, 'Singleflight must coalesce concurrent warmups into exactly 1 query');
-    assert.strictEqual(globalShardMap.size, 2, 'globalShardMap must be populated with 2 shards');
-    assert(globalShardMap.has(1), 'Shard 1 must be present in map');
-    assert(globalShardMap.has(2), 'Shard 2 must be present in map');
-  });
-
-  await testAsync('resolveShardConnection returns cached shard client in 0ms', async () => {
-    let queryCalled = false;
-    const trackingSql = async () => {
-      queryCalled = true;
-      return [];
-    };
-
-    // Shard 1 is already in globalShardMap from previous test
-    const shardedEnv = { DATABASE_TOPOLOGY: 'sharded_neon' };
-    const client = await resolveShardConnection({ hubSql: trackingSql, shardId: 1, env: shardedEnv });
-    assert(typeof client === 'function', 'Must resolve shard SQL client');
-    assert.strictEqual(queryCalled, false, 'Cached shard resolution must make 0 SQL queries');
+  await testAsync('fetchUniversalPinDossier returns DB_UNAVAILABLE when SQL client is omitted', async () => {
+    const res = await fetchUniversalPinDossier({ sql: null, pinId: '999888777666' });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.error, 'DB_UNAVAILABLE');
   });
 
   // =========================================================================
-  // 4. Parallel Scatter-Gather & 650ms Circuit Breaker
+  // 4. Unified Parallel Query Execution in fetchUniversalPinDossier
   // =========================================================================
-  console.log('\n[TEST 4] fetchUniversalPinDossier Parallel Scatter-Gather & Resilience');
+  console.log('\n[TEST 4] fetchUniversalPinDossier Unified PostgreSQL Parallel Queries');
 
-  await testAsync('fetchUniversalPinDossier queries Shard and Hub concurrently at t=0', async () => {
-    let shardMasterQueried = false;
-    let hubSerpQueried = false;
+  await testAsync('fetchUniversalPinDossier queries universal_master_pins and keyword_serp_current concurrently', async () => {
+    let masterQueried = false;
+    let serpQueried = false;
 
-    const mockShardSql = async (strings) => {
+    const mockSql = async (strings) => {
       const q = String(strings);
       if (q.includes('FROM universal_master_pins')) {
-        shardMasterQueried = true;
+        masterQueried = true;
         return [{
           pin_id: '999888777666',
           title: 'Parallel Dossier Pin',
@@ -212,13 +173,8 @@ async function runPhase2Verification() {
           visual_annotations: ['baking', 'dessert']
         }];
       }
-      return [];
-    };
-
-    const mockHubSql = async (strings) => {
-      const q = String(strings);
       if (q.includes('FROM keyword_serp_current')) {
-        hubSerpQueried = true;
+        serpQueried = true;
         return [{
           keyword_id: 10,
           pin_id: '999888777666',
@@ -229,7 +185,7 @@ async function runPhase2Verification() {
           visual_annotations: ['dessert', 'pastry']
         }];
       }
-      if (q.includes('FROM keyword_pins_snapshots')) {
+      if (q.includes('FROM pins_daily_snapshots') || q.includes('FROM pins_daily_metrics')) {
         return [];
       }
       if (q.includes('FROM tracked_keywords')) {
@@ -238,17 +194,11 @@ async function runPhase2Verification() {
       return [];
     };
 
-    // Register mock client for Shard target
-    const targetShardId = (await import('../src/modules/sharding/fleet-router.mjs')).getPinShardId('999888777666', 99);
-    const mockDsn = 'postgres://user:pass@ep-test-shard.neon.tech/neondb';
-    _setShardSqlClient(mockDsn, mockShardSql);
-    globalShardMap.set(targetShardId, { database_url: mockDsn, cachedAt: Date.now() });
-
-    const dossier = await fetchUniversalPinDossier({ hubSql: mockHubSql, pinId: '999888777666' });
+    const dossier = await fetchUniversalPinDossier({ sql: mockSql, pinId: '999888777666', bypassEdgeCache: true });
     assert.strictEqual(dossier.success, true, 'Dossier must return success: true');
     assert.strictEqual(dossier.pin_id, '999888777666', 'Pin ID must match');
-    assert.strictEqual(shardMasterQueried, true, 'Shard master query must have executed');
-    assert.strictEqual(hubSerpQueried, true, 'Hub SERP query must have executed concurrently');
+    assert.strictEqual(masterQueried, true, 'universal_master_pins query must have executed');
+    assert.strictEqual(serpQueried, true, 'keyword_serp_current query must have executed concurrently');
     // Set union of visual annotations: ['baking', 'dessert'] + ['dessert', 'pastry'] -> 3 items
     assert.strictEqual(dossier.creative?.visual_annotations?.length, 3, 'Visual annotations must be unified set union');
   });

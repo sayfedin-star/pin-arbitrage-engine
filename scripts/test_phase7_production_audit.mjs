@@ -15,20 +15,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { performance } from 'node:perf_hooks';
-import worker, {
+import { handleAppRequest, createFastifyApp } from '../src/server.mjs';
+import {
   redactSecrets,
   normalizePath,
   timingSafeEqualStr,
   jsonResponse,
   RESERVED_KEYWORD_SLUGS
-} from '../src/worker.mjs';
-import {
-  getPinShardId,
-  batchGroupByShard,
-  fetchUniversalPinDossier,
-  _setShardSqlClient,
-  _resetCircuitBreakers
-} from '../src/modules/sharding/fleet-router.mjs';
+} from '../src/http/security-and-response.mjs';
+const worker = { fetch: handleAppRequest };
+import { crc32 } from '../src/lib/math.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 
 console.log('================================================================================');
 console.log('   PHASE 7 FINAL SYSTEM VERIFICATION & PRODUCTION AUDIT');
@@ -59,9 +56,6 @@ function recordTest(axis, name, status, durationMs, notes) {
 console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
 
 {
-  _resetCircuitBreakers();
-  const shardDsn = 'postgres://user:pass@ep-shard-compute.c-6.us-east-2.aws.neon.tech/db';
-
   const mockSql = async (strings, ...values) => {
     for (const val of values) {
       if (typeof val === 'number' && Number.isNaN(val)) {
@@ -72,16 +66,6 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
       }
     }
     const q = Array.isArray(strings) ? strings.join('?') : String(strings || '');
-
-    if (q.includes('neon_projects_registry')) {
-      return [{
-        id: 1,
-        project_id: 'test-shard',
-        project_name: 'test-shard',
-        database_url: 'postgres://user:pass@ep-shard-compute.c-6.us-east-2.aws.neon.tech/db',
-        status: 'active'
-      }];
-    }
 
     if (q.includes('INSERT INTO tracked_keywords')) {
       const kwList = values.find(v => Array.isArray(v)) || [values[0] || 'mock keyword'];
@@ -143,11 +127,9 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
     return [{ ranking_keywords: [{ keyword: 'sourdough bread', rank: 2, velocity: 18.5 }], competitor_info: null }];
   };
 
-  _setShardSqlClient(shardDsn, mockSql);
-
-  // Mock Edge Environment & In-Memory Database Connection
+  // Mock Environment & In-Memory Database Connection
   const mockEnv = {
-    DATABASE_URL: 'postgres://mock_user:mock_pass@ep-mock-hub.aws.neon.tech/neondb',
+    DATABASE_URL: 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage',
     SQL_CLIENT: mockSql
   };
 
@@ -204,10 +186,10 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   assert.ok(data2.success, 'Step 2: Bulk import success flag missing');
   assert.strictEqual(data2.count, 3, 'Step 2: Imported keyword count mismatch');
 
-  // Step 3: Universal Pin Dossier & CRC32 Shard Routing (Pillars 1, 2, 3, 4)
+  // Step 3: Universal Pin Dossier & 20-Worker CRC32 Partitioning (Pillars 1, 2, 3, 4)
   const targetPinId = '1098245059167667976';
-  const expectedShardId = getPinShardId(targetPinId);
-  assert.ok(expectedShardId >= 1 && expectedShardId <= 99, 'Shard ID out of 1..99 range');
+  const workerPartition = crc32(targetPinId) % 20;
+  assert.ok(workerPartition >= 0 && workerPartition < 20, 'Worker partition out of 0..19 range');
 
   const req3 = new Request(`https://engine.internal/api/pins/${targetPinId}`, {
     method: 'GET'
@@ -217,7 +199,6 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   const data3 = await res3.json();
   assert.ok(data3.success, 'Step 3: Dossier success flag missing');
   assert.strictEqual(data3.pin_id, targetPinId, 'Step 3: Pin ID mismatch');
-  assert.strictEqual(data3.shard_id, expectedShardId, 'Step 3: Shard ID calculation mismatch');
   assert.ok(data3.creative, 'Step 3: Creative canvas missing');
   assert.ok(data3.pillar_1_creator_context, 'Step 3: Pillar 1 context missing');
   assert.ok(data3.pillar_2_keywords_context, 'Step 3: Pillar 2 context missing');
@@ -239,7 +220,7 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   assert.ok(totalFlowDuration < 50, `Cross-pillar flow latency budget exceeded: ${totalFlowDuration.toFixed(2)}ms (expected < 50ms)`);
 
   recordTest('Axis 1', '1.1 End-to-End 4-Pillar Cross-Flow Execution Latency', 'PASS', totalFlowDuration,
-    `Completed full 4-step E2E flow in ${totalFlowDuration.toFixed(2)}ms (< 50ms SLA) with verified CRC32 shard routing to Shard #${expectedShardId}`);
+    `Completed full 4-step E2E flow in ${totalFlowDuration.toFixed(2)}ms (< 50ms SLA) via Unified PostgreSQL (worker partition #${workerPartition})`);
 }
 
 // =============================================================================
@@ -287,7 +268,7 @@ console.log('\n[AXIS 2] Cloudflare Workers Resource Guardrails (Bundle Size, Edg
 }
 
 {
-  // 2.2 Prohibited Edge Imports Audit
+  // 2.2 Prohibited Edge Imports Audit (Fastify runtime entrypoint src/server.mjs exempted for Node process/fs ops)
   const t0 = performance.now();
 
   const FORBIDDEN_BUILTINS = [
@@ -303,10 +284,11 @@ console.log('\n[AXIS 2] Cloudflare Workers Resource Guardrails (Bundle Size, Edg
       if (ent.isDirectory()) {
         checkImports(fullPath);
       } else if (ent.name.endsWith('.mjs') || ent.name.endsWith('.js')) {
+        if (path.resolve(fullPath) === path.resolve('src/server.mjs')) continue;
         const content = fs.readFileSync(fullPath, 'utf8');
         for (const forbidden of FORBIDDEN_BUILTINS) {
           const importRegex = new RegExp(`from\\s+['"]${forbidden}['"]|import\\s*\\(['"]${forbidden}['"]\\)`, 'g');
-          assert.strictEqual(importRegex.test(content), false, `Forbidden Edge import "${forbidden}" detected in ${fullPath}`);
+          assert.strictEqual(importRegex.test(content), false, `Forbidden module import "${forbidden}" detected in ${fullPath}`);
         }
       }
     }
@@ -314,24 +296,28 @@ console.log('\n[AXIS 2] Cloudflare Workers Resource Guardrails (Bundle Size, Edg
 
   checkImports(path.resolve('src'));
 
-  recordTest('Axis 2', '2.2 Edge Runtime Environment Compliance (Zero Forbidden Node Imports)', 'PASS', performance.now() - t0,
-    'Verified 0 forbidden Node.js built-ins across all files in src/ (100% V8 Edge isolate compliant)');
+  recordTest('Axis 2', '2.2 Domain & Route Module Boundary Compliance (Zero Side-Effect Builtins Outside server.mjs)', 'PASS', performance.now() - t0,
+    'Verified 0 forbidden Node.js built-ins across all domain/route/UI/HTTP files in src/ outside src/server.mjs');
 }
 
 {
-  // 2.3 Cold-Start Overhead Verification
+  // 2.3 Fastify Server Cold-Start Overhead Verification
   const t0 = performance.now();
 
-  // Test instantiation of Worker entrypoint
-  const workerObj = worker;
-  assert.ok(typeof workerObj.fetch === 'function', 'Worker fetch handler missing');
-  assert.ok(typeof workerObj.scheduled === 'function', 'Worker scheduled handler missing');
+  assert.ok(typeof handleAppRequest === 'function', 'handleAppRequest export missing');
+  assert.ok(typeof createFastifyApp === 'function', 'createFastifyApp export missing');
+  const fastifyApp = await createFastifyApp({
+    DATABASE_URL: 'postgres://mock_user:mock_pass@ep-mock-hub.aws.neon.tech/neondb',
+    SQL_CLIENT: async () => []
+  });
+  await fastifyApp.ready();
+  await fastifyApp.close();
 
   const coldStartMs = performance.now() - t0;
-  assert.ok(coldStartMs < 5.0, `Cold-start overhead exceeded 5ms: ${coldStartMs.toFixed(3)}ms`);
+  assert.ok(coldStartMs < 500.0, `Fastify cold-start overhead exceeded 500ms: ${coldStartMs.toFixed(3)}ms`);
 
-  recordTest('Axis 2', '2.3 Cloudflare Worker Isolate Cold-Start Overhead', 'PASS', coldStartMs,
-    `Worker entrypoint module resolution and instantiation took ${coldStartMs.toFixed(3)}ms (< 5ms SLA)`);
+  recordTest('Axis 2', '2.3 Fastify Application Instantiation & Cold-Start Overhead', 'PASS', coldStartMs,
+    `Fastify entrypoint resolution and .ready() instantiation took ${coldStartMs.toFixed(3)}ms (< 500ms SLA)`);
 }
 
 // =============================================================================
@@ -412,58 +398,53 @@ console.log('\n[AXIS 3] Final Security Audit, CSP & Zero Secret Leakage Defense'
 }
 
 // =============================================================================
-// AXIS 4: SHARD ROUTING MATHEMATICAL UNIFORMITY ACROSS 99 SHARDS
+// AXIS 4: 20-WORKER SWARM MATHEMATICAL UNIFORMITY (10,000 SNOWFLAKE IDS)
 // =============================================================================
-console.log('\n[AXIS 4] Shard Routing Mathematical Uniformity Across 99 Shards (10,000 Snowflake IDs)');
+console.log('\n[AXIS 4] 20-Worker Swarm Mathematical Uniformity via CRC32 (10,000 Snowflake IDs)');
 
 {
   const t0 = performance.now();
   const N_SAMPLES = 10000;
-  const shardDistribution = new Array(100).fill(0); // 1-indexed (indices 1..99)
+  const workerDistribution = new Array(20).fill(0);
 
-  // Generate 10,000 simulated 64-bit snowflake IDs (mimicking Pinterest ID generation: timestamp + sequence)
-  const baseTimestamp = 1735689600000n; // 2025-01-01 in ms
+  // Generate 10,000 simulated 64-bit snowflake IDs
+  const baseTimestamp = 1735689600000n;
   for (let i = 0; i < N_SAMPLES; i++) {
     const fakeSnowflake = (baseTimestamp + BigInt(i * 137)).toString() + String(i % 1000).padStart(3, '0');
-    const shardId = getPinShardId(fakeSnowflake);
-    shardDistribution[shardId]++;
+    const workerIdx = crc32(fakeSnowflake) % 20;
+    workerDistribution[workerIdx]++;
   }
 
-  // Verify all 99 shards received assignments
-  let emptyShards = 0;
-  for (let s = 1; s <= 99; s++) {
-    if (shardDistribution[s] === 0) emptyShards++;
+  let emptyBuckets = 0;
+  for (let w = 0; w < 20; w++) {
+    if (workerDistribution[w] === 0) emptyBuckets++;
   }
-  assert.strictEqual(emptyShards, 0, 'One or more shards received zero pin assignments');
+  assert.strictEqual(emptyBuckets, 0, 'One or more worker partitions received zero pin assignments');
 
-  // Verify Chi-Squared / Uniform Balance
-  // Expected pins per shard = 10,000 / 99 ≈ 101.01
-  const expectedPerShard = N_SAMPLES / 99;
+  const expectedPerWorker = N_SAMPLES / 20; // 500
   let chiSquared = 0;
   let minPins = Infinity;
   let maxPins = -Infinity;
 
-  for (let s = 1; s <= 99; s++) {
-    const count = shardDistribution[s];
+  for (let w = 0; w < 20; w++) {
+    const count = workerDistribution[w];
     if (count < minPins) minPins = count;
     if (count > maxPins) maxPins = count;
-    chiSquared += Math.pow(count - expectedPerShard, 2) / expectedPerShard;
+    chiSquared += Math.pow(count - expectedPerWorker, 2) / expectedPerWorker;
   }
 
-  // Degrees of freedom = 98. Critical value for p=0.001 at df=98 is ~146.
-  // A uniform hash should have chi-squared well within ordinary distribution.
-  assert.ok(chiSquared < 180, `Chi-squared ${chiSquared.toFixed(1)} indicates non-uniform shard distribution`);
-  assert.ok(minPins > 50, `Shard starvation detected: minPins=${minPins}`);
-  assert.ok(maxPins < 160, `Hot shard detected: maxPins=${maxPins}`);
+  assert.ok(chiSquared < 60, `Chi-squared ${chiSquared.toFixed(1)} indicates non-uniform worker distribution`);
+  assert.ok(minPins > 400, `Worker starvation detected: minPins=${minPins}`);
+  assert.ok(maxPins < 600, `Hot worker detected: maxPins=${maxPins}`);
 
-  recordTest('Axis 4', '4.1 99-Shard Fleet Mathematical Uniformity & Balance', 'PASS', performance.now() - t0,
-    `Tested 10,000 snowflake pins: 99/99 shards populated, Min=${minPins}, Max=${maxPins}, Mean=${expectedPerShard.toFixed(1)}, Chi²=${chiSquared.toFixed(1)}`);
+  recordTest('Axis 4', '4.1 20-Worker Swarm CRC32 Mathematical Uniformity & Balance', 'PASS', performance.now() - t0,
+    `Tested 10,000 snowflake pins: 20/20 worker buckets populated, Min=${minPins}, Max=${maxPins}, Mean=${expectedPerWorker.toFixed(1)}, Chi²=${chiSquared.toFixed(1)}`);
 }
 
 // =============================================================================
-// AXIS 5: BATCH GROUP BY SHARD EFFICIENCY AUDIT
+// AXIS 5: BATCH WORK PARTITIONING EFFICIENCY AUDIT
 // =============================================================================
-console.log('\n[AXIS 5] Batch Group By Shard Fleet Partitioning Efficiency');
+console.log('\n[AXIS 5] Batch 20-Worker CRC32 Work Partitioning Efficiency');
 
 {
   const t0 = performance.now();
@@ -473,23 +454,27 @@ console.log('\n[AXIS 5] Batch Group By Shard Fleet Partitioning Efficiency');
     '1098245059167667982', '1098245059167667983', '1098245059167667984'
   ];
 
-  const grouped = batchGroupByShard(testPinIds);
-  assert.ok(grouped instanceof Map, 'batchGroupByShard must return a Map');
+  const grouped = new Map();
+  for (const id of testPinIds) {
+    const workerIdx = crc32(id) % 20;
+    if (!grouped.has(workerIdx)) grouped.set(workerIdx, []);
+    grouped.get(workerIdx).push(id);
+  }
 
   let totalMapped = 0;
-  for (const [shardId, pins] of grouped.entries()) {
-    assert.ok(shardId >= 1 && shardId <= 99, `Invalid shardId: ${shardId}`);
-    assert.ok(pins.length > 0, 'Shard group cannot be empty');
+  for (const [workerIdx, pins] of grouped.entries()) {
+    assert.ok(workerIdx >= 0 && workerIdx < 20, `Invalid workerIdx: ${workerIdx}`);
+    assert.ok(pins.length > 0, 'Worker partition group cannot be empty');
     for (const p of pins) {
-      assert.strictEqual(getPinShardId(p), shardId, `Pin ${p} incorrectly mapped to Shard ${shardId}`);
+      assert.strictEqual(crc32(p) % 20, workerIdx, `Pin ${p} incorrectly mapped to Worker ${workerIdx}`);
       totalMapped++;
     }
   }
 
   assert.strictEqual(totalMapped, testPinIds.length, 'Total mapped pins mismatch');
 
-  recordTest('Axis 5', '5.1 batchGroupByShard O(N) Hash Partitioning Precision', 'PASS', performance.now() - t0,
-    `Correctly partitioned ${testPinIds.length} candidate pins across ${grouped.size} target shards with 100% CRC32 parity`);
+  recordTest('Axis 5', '5.1 O(N) CRC32 20-Worker Partitioning Precision', 'PASS', performance.now() - t0,
+    `Correctly partitioned ${testPinIds.length} candidate pins across ${grouped.size} worker buckets with 100% CRC32 parity`);
 }
 
 // =============================================================================

@@ -3,33 +3,22 @@
  *
  * Verifies:
  * 1. Total Eradication of Central Hub Snapshot Operations (pa_pin_metrics):
- *    - src/modules/pinarchive/service.mjs (Zero pa_pin_metrics queries, syncPinAcrossAllFourPillars, fetchPinTrajectoryFromShard)
- *    - src/modules/competitors/service.mjs (Zero pa_pin_metrics writes, syncPinAcrossAllFourPillars delegation)
- *    - src/modules/fleet/service.mjs (Zero pa_pin_metrics count queries)
- *    - scripts/crawler-engine.mjs (Zero pa_pin_metrics writes; historical snapshots to pins_daily_metrics)
- * 2. Unified Deterministic CRC32 Shard Routing ((crc32(pin_id) % 99) + 1):
- *    - crawler-engine.mjs partitions competitor pins via batchGroupByShard(pins, 99)
- *    - Upserts into universal_master_pins and pins_daily_metrics on deterministic Shards
- * 3. Unified Shard Connection Pooling & Lifecycle Cleanup:
- *    - Bounded LRU caching with canonical DSN normalization (enforceNeonPoolerUrl)
- *    - Explicit socket termination on eviction (client?.end?.({ timeout: 1 }))
- *    - src/worker.mjs unifies shardSqlCache with shardSqlClients
+ *    - src/modules/creators/service.mjs (Zero pa_pin_metrics queries, syncPinAcrossAllFourPillars, fetchPinTrajectory)
+ *    - scripts/creator-velocity-crawler.mjs (Zero pa_pin_metrics writes; historical snapshots to pins_daily_metrics)
+ * 2. Unified Deterministic CRC32 Work Partitioning (crc32(pin_id) % 20):
+ *    - creator-velocity-crawler.mjs commits snapshots via commitSnapshotsToStorageShards and syncPinsToMasterShards
+ *    - Upserts into universal_master_pins and pins_daily_metrics in Unified PostgreSQL
+ * 3. Unified PostgreSQL Connection Pooling & Transaction Bridge:
+ *    - createSqlClient & getSqlClient validate DSN and attach atomic transaction bridge
+ *    - attachTransactionBridge bridges .transaction() onto .begin() with idempotency guards
  */
 
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  getPinShardId,
-  batchGroupByShard,
-  enforceNeonPoolerUrl,
-  getCachedShardSqlClient,
-  setCachedShardSqlClient,
-  shardSqlClients,
-  MAX_SHARD_SQL_CLIENTS,
-  fetchPinTrajectoryFromShard
-} from '../src/modules/sharding/fleet-router.mjs';
-import { shardSqlCache, getCachedShardSql, setCachedShardSql } from '../src/worker.mjs';
+import { crc32 } from '../src/lib/math.mjs';
+import { fetchPinTrajectory } from '../src/modules/pins/repository.mjs';
+import { createSqlClient, getSqlClient, attachTransactionBridge } from '../src/db/client.mjs';
 import { ingestPinsBatch, getPinDetailWithMetrics, deletePinMetricSnapshot } from '../src/modules/creators/service.mjs';
 
 console.log('================================================================================');
@@ -80,37 +69,30 @@ let competitorsCode = fs.existsSync(path.resolve('src/modules/competitors/servic
 if (competitorsCode.includes("from '../creators/service.mjs'")) {
   competitorsCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 }
-const fleetCode = fs.readFileSync(path.resolve('src/modules/fleet/service.mjs'), 'utf8');
 const crawlerCode = fs.readFileSync(path.resolve('scripts/creator-velocity-crawler.mjs'), 'utf8');
 
-runTest('src/modules/pinarchive/service.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
+runTest('src/modules/creators/service.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
   const sqlMatch = /(?:FROM|INTO|UPDATE|JOIN)\s+pa_pin_metrics\b/i.test(pinarchiveCode);
-  assert.strictEqual(sqlMatch, false, 'pinarchive service must contain zero SQL operations referencing pa_pin_metrics');
+  assert.strictEqual(sqlMatch, false, 'creators service must contain zero SQL operations referencing pa_pin_metrics');
 });
 
-runTest('src/modules/pinarchive/service.mjs: Imports and delegates to syncPinAcrossAllFourPillars & fetchPinTrajectoryFromShard', () => {
+runTest('src/modules/creators/service.mjs: Imports and delegates to syncPinAcrossAllFourPillars & fetchPinTrajectory', () => {
   assert(pinarchiveCode.includes('syncPinAcrossAllFourPillars'), 'Must import syncPinAcrossAllFourPillars');
-  assert(pinarchiveCode.includes('fetchPinTrajectoryFromShard'), 'Must import fetchPinTrajectoryFromShard');
-  assert(pinarchiveCode.includes('fetchPinTrajectoryFromShard({ hubSql: sql, pinId: cleanId, env })'), 'getPinDetailWithMetrics must delegate trajectory retrieval to Shard');
+  assert(pinarchiveCode.includes('fetchPinTrajectory'), 'Must import fetchPinTrajectory');
+  assert(pinarchiveCode.includes('fetchPinTrajectory({ sql, pinId: cleanId })'), 'getPinDetailWithMetrics must delegate trajectory retrieval to PinRepository.fetchPinTrajectory');
 });
 
-runTest('src/modules/pinarchive/service.mjs: ingestPinsBatch executes only pa_pins query builder', () => {
+runTest('src/modules/creators/service.mjs: ingestPinsBatch executes only pa_pins query builder', () => {
   assert(pinarchiveCode.includes('(db) => buildPinsQuery(db)'), 'Transaction must execute buildPinsQuery');
   assert(!pinarchiveCode.includes('buildMetricsQuery'), 'Transaction must not contain buildMetricsQuery');
 });
 
-runTest('src/modules/competitors/service.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
-  const sqlMatch = /(?:FROM|INTO|UPDATE|JOIN)\s+pa_pin_metrics\b/i.test(competitorsCode);
-  assert.strictEqual(sqlMatch, false, 'competitors service must contain zero SQL operations referencing pa_pin_metrics');
-});
-
-runTest('src/modules/competitors/service.mjs: fastRefreshCompetitorArchivedPins delegates to syncPinAcrossAllFourPillars', () => {
+runTest('src/modules/creators/service.mjs: fastRefreshCompetitorArchivedPins delegates to syncPinAcrossAllFourPillars', () => {
   assert(competitorsCode.includes('syncPinAcrossAllFourPillars'), 'Must import and use syncPinAcrossAllFourPillars');
 });
 
-runTest('src/modules/fleet/service.mjs: Zero SQL queries targeting pa_pin_metrics on Hub', () => {
-  const sqlMatch = /(?:FROM|INTO|UPDATE|JOIN)\s+pa_pin_metrics\b/i.test(fleetCode);
-  assert.strictEqual(sqlMatch, false, 'fleet service must contain zero SQL operations referencing pa_pin_metrics');
+runTest('Phase 2 De-Sharding: legacy src/modules/fleet/service.mjs is deleted', () => {
+  assert.strictEqual(fs.existsSync(path.resolve('src/modules/fleet/service.mjs')), false, 'fleet/service.mjs must be deleted');
 });
 
 runTest('scripts/creator-velocity-crawler.mjs: Zero SQL queries targeting pa_pin_metrics', () => {
@@ -119,22 +101,21 @@ runTest('scripts/creator-velocity-crawler.mjs: Zero SQL queries targeting pa_pin
 });
 
 // =============================================================================
-// Section 2: Deterministic CRC32 Shard Routing Parity
+// Section 2: Deterministic CRC32 20-Worker Matrix Work Partitioning
 // =============================================================================
-console.log('\n[*] Section 2: Deterministic CRC32 Shard Routing Parity...');
+console.log('\n[*] Section 2: Deterministic CRC32 20-Worker Matrix Work Partitioning...');
 
-runTest('getPinShardId: Deterministically partitions pin IDs to shards 1..99', () => {
+runTest('crc32: Deterministically partitions pin IDs across 20 GitHub Actions workers (0..19)', () => {
   const testIds = ['123456789', '987654321012345678', '112233445566778899', 'pin-sample-abc'];
   for (const id of testIds) {
-    const shardId = getPinShardId(id, 99);
-    assert(Number.isInteger(shardId), `Shard ID must be an integer for ${id}`);
-    assert(shardId >= 1 && shardId <= 99, `Shard ID ${shardId} must be in [1, 99]`);
-    // Assert idempotency
-    assert.strictEqual(shardId, getPinShardId(id, 99), `Shard ID must be strictly idempotent`);
+    const workerIndex = crc32(id) % 20;
+    assert(Number.isInteger(workerIndex), `Worker index must be an integer for ${id}`);
+    assert(workerIndex >= 0 && workerIndex < 20, `Worker index ${workerIndex} must be in [0, 19]`);
+    assert.strictEqual(workerIndex, crc32(id) % 20, 'Worker partition must be strictly idempotent');
   }
 });
 
-runTest('batchGroupByShard: Correctly groups pins by CRC32 shard ID without data loss', () => {
+runTest('20-worker partition map: Correctly groups pins by crc32(pin_id) % 20 without data loss', () => {
   const pins = [
     { pin_id: '1001', title: 'Pin 1' },
     { pin_id: '1002', title: 'Pin 2' },
@@ -143,143 +124,74 @@ runTest('batchGroupByShard: Correctly groups pins by CRC32 shard ID without data
     { pin_id: '1005', title: 'Pin 5' }
   ];
 
-  const grouped = batchGroupByShard(pins, 99);
+  const grouped = new Map();
+  for (const p of pins) {
+    const w = crc32(p.pin_id) % 20;
+    if (!grouped.has(w)) grouped.set(w, []);
+    grouped.get(w).push(p);
+  }
   let totalReconstructed = 0;
-  for (const [shardId, shardPins] of grouped.entries()) {
-    assert(shardId >= 1 && shardId <= 99, `Shard ID ${shardId} must be in [1, 99]`);
-    for (const p of shardPins) {
-      assert.strictEqual(getPinShardId(p.pin_id, 99), shardId, 'Pin must belong to the mapped shard');
+  for (const [workerIdx, workerPins] of grouped.entries()) {
+    assert(workerIdx >= 0 && workerIdx < 20, `Worker index ${workerIdx} must be in [0, 19]`);
+    for (const p of workerPins) {
+      assert.strictEqual(crc32(p.pin_id) % 20, workerIdx, 'Pin must belong to the mapped worker');
       totalReconstructed++;
     }
   }
   assert.strictEqual(totalReconstructed, pins.length, 'All pins must be partitioned without loss');
 });
 
-runTest('scripts/creator-velocity-crawler.mjs: Competitor pins routed to Shards via batchGroupByShard', () => {
-  assert(crawlerCode.includes('batchGroupByShard(sortedMetrics, 99)'), 'bulkInsertMetrics must partition by CRC32');
-  assert(crawlerCode.includes('batchGroupByShard(enrichedPins, 99)'), 'bulkSyncPinsToDeterministicShards must partition by CRC32');
-  assert(crawlerCode.includes('universal_master_pins'), 'Must upsert to universal_master_pins on Shard');
-  assert(crawlerCode.includes('pins_daily_metrics'), 'Must upsert to pins_daily_metrics on Shard');
-  assert(crawlerCode.includes('allDiscoveredPins'), 'Must collect allDiscoveredPins for universal shard routing');
-  assert(crawlerCode.includes('reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count)'), 'Must preserve reaction_count on pins_daily_metrics');
+runTest('scripts/creator-velocity-crawler.mjs: Unified PostgreSQL bulk batch commits preserve reaction_count', () => {
+  assert(crawlerCode.includes('commitSnapshotsToStorageShards'), 'Must define commitSnapshotsToStorageShards');
+  assert(crawlerCode.includes('syncPinsToMasterShards'), 'Must define syncPinsToMasterShards');
+  assert(crawlerCode.includes('universal_master_pins'), 'Must upsert to universal_master_pins');
+  assert(crawlerCode.includes('pins_daily_metrics'), 'Must upsert to pins_daily_metrics');
+  assert(crawlerCode.includes('allDiscoveredPins'), 'Must collect allDiscoveredPins');
+  assert(crawlerCode.includes('reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count'), 'Must preserve reaction_count on pins_daily_metrics');
 });
 
 // =============================================================================
-// Section 3: Shard Connection Cache Hardening & Socket Termination
+// Section 3: Unified PostgreSQL Client & Transaction Bridge
 // =============================================================================
-console.log('\n[*] Section 3: Shard Connection Cache Hardening & Socket Termination...');
+console.log('\n[*] Section 3: Unified PostgreSQL Client & Transaction Bridge...');
 
-runTest('enforceNeonPoolerUrl: Converts direct Neon endpoints to pooled endpoints', () => {
-  const direct = 'postgres://user:secret@ep-cool-flower-123456.us-east-2.aws.neon.tech/neondb?sslmode=require';
-  const pooled = enforceNeonPoolerUrl(direct);
-  assert(pooled.includes('-pooler.'), `Pooled URL must contain -pooler.: ${pooled}`);
-
-  // Already pooled remains unchanged
-  const alreadyPooled = 'postgres://user:secret@ep-cool-flower-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require';
-  assert.strictEqual(enforceNeonPoolerUrl(alreadyPooled), alreadyPooled);
+runTest('createSqlClient & getSqlClient: Require DATABASE_URL and fail explicitly when absent', () => {
+  assert.strictEqual(typeof createSqlClient, 'function');
+  assert.strictEqual(typeof getSqlClient, 'function');
+  const prevUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  try {
+    assert.throws(
+      () => createSqlClient(''),
+      /DATABASE_URL is required/,
+      'createSqlClient must throw explicitly when DSN is empty'
+    );
+  } finally {
+    if (prevUrl !== undefined) process.env.DATABASE_URL = prevUrl;
+  }
 });
 
-runTest('getCachedShardSqlClient & setCachedShardSqlClient: Cache by canonical pooled URL', () => {
-  const rawUrl = 'postgres://u:p@ep-cache-test-999.us-east-1.aws.neon.tech/neondb';
-  const mockClient = { name: 'mock-client', end: () => {} };
-
-  setCachedShardSqlClient(rawUrl, mockClient);
-
-  // Both direct and pooled URL should resolve to the same cached instance
-  const pooledUrl = enforceNeonPoolerUrl(rawUrl);
-  const resolvedDirect = getCachedShardSqlClient(rawUrl);
-  const resolvedPooled = getCachedShardSqlClient(pooledUrl);
-
-  assert.strictEqual(resolvedDirect, mockClient);
-  assert.strictEqual(resolvedPooled, mockClient);
-
-  // Cleanup
-  shardSqlClients.delete(pooledUrl);
-});
-
-runTest('setCachedShardSqlClient: LRU Eviction explicitly closes socket via client.end({ timeout: 1 })', () => {
-  const initialCache = new Map(shardSqlClients);
-  shardSqlClients.clear();
-
-  let socketEnded = false;
-  let socketTimeout = null;
-
-  const mockVictimClient = {
-    name: 'victim-client',
-    end: (opts) => {
-      socketEnded = true;
-      socketTimeout = opts?.timeout;
+await runAsyncTest('attachTransactionBridge: Attaches __unifiedTxAttached and atomic .transaction() bridge', async () => {
+  const mockRawClient = Object.assign(
+    async () => [],
+    {
+      begin: async (fn) => await fn(async () => [{ ok: 1 }]),
+      unsafe: async () => []
     }
-  };
+  );
 
-  const victimDsn = 'postgres://u:p@ep-victim-001.us-east-1.aws.neon.tech/neondb';
-  setCachedShardSqlClient(victimDsn, mockVictimClient);
+  const bridged = attachTransactionBridge(mockRawClient);
+  assert.strictEqual(bridged.__unifiedTxAttached, true, 'Must set __unifiedTxAttached flag');
+  assert.strictEqual(bridged.__atomicBuilderWrapped, true, 'Must set __atomicBuilderWrapped flag');
+  assert.strictEqual(typeof bridged.transaction, 'function', 'Must attach .transaction() helper');
 
-  // Fill cache up to MAX_SHARD_SQL_CLIENTS
-  for (let i = 2; i <= MAX_SHARD_SQL_CLIENTS; i++) {
-    const fillerDsn = `postgres://u:p@ep-filler-${String(i).padStart(3, '0')}.us-east-1.aws.neon.tech/neondb`;
-    setCachedShardSqlClient(fillerDsn, { name: `filler-${i}`, end: () => {} });
-  }
+  const arrayRes = await bridged.transaction([(tx) => tx`SELECT 1`]);
+  assert(Array.isArray(arrayRes) && arrayRes.length === 1, 'Array transaction must execute lazy builder');
 
-  assert.strictEqual(shardSqlClients.size, MAX_SHARD_SQL_CLIENTS);
-  assert.strictEqual(socketEnded, false, 'Oldest client must not be ended before capacity overflow');
+  const cbRes = await bridged.transaction(async (tx) => await tx`SELECT 1`);
+  assert.strictEqual(cbRes[0].ok, 1, 'Callback transaction must execute cleanly');
 
-  // Add one more client to trigger eviction of oldest client
-  const overflowDsn = 'postgres://u:p@ep-overflow-999.us-east-1.aws.neon.tech/neondb';
-  setCachedShardSqlClient(overflowDsn, { name: 'overflow', end: () => {} });
-
-  assert.strictEqual(socketEnded, true, 'Evicted socket must have .end() called');
-  assert.strictEqual(socketTimeout, 1, 'Evicted socket must specify timeout: 1');
-
-  // Restore initial cache
-  shardSqlClients.clear();
-  for (const [k, v] of initialCache.entries()) {
-    shardSqlClients.set(k, v);
-  }
-});
-
-runTest('src/worker.mjs: shardSqlCache is an alias to fleet-router.shardSqlClients', () => {
-  assert.strictEqual(shardSqlCache, shardSqlClients, 'worker shardSqlCache must directly reference fleet-router shardSqlClients');
-});
-
-runTest('src/worker.mjs: setCachedShardSql and getCachedShardSql delegate to unified client cache', () => {
-  const testDsn = 'postgres://u:p@ep-worker-cache-test-111.us-east-1.aws.neon.tech/neondb';
-  const mockClient = { name: 'worker-client', end: () => {} };
-
-  setCachedShardSql(testDsn, mockClient);
-  const resolved = getCachedShardSql(testDsn);
-  assert.strictEqual(resolved, mockClient, 'getCachedShardSql must return client stored by setCachedShardSql');
-
-  // Cleanup
-  shardSqlClients.delete(enforceNeonPoolerUrl(testDsn));
-});
-
-runTest('src/worker.mjs: getCachedShardSql hits cache on non-DSN custom keys and wraps client transaction', () => {
-  let factoryCalls = 0;
-  const mockRawClient = {
-    name: 'custom-shard-client',
-    transaction: (fn) => fn('tx-conn'),
-    end: () => {}
-  };
-
-  const client1 = getCachedShardSql('custom_shard_key_99', () => {
-    factoryCalls++;
-    return mockRawClient;
-  });
-
-  assert.strictEqual(factoryCalls, 1, 'Factory must be called once on miss');
-  assert.strictEqual(client1.__atomicBuilderWrapped, true, 'Factory client must be wrapped with wrapShardNeonTransaction');
-
-  const client2 = getCachedShardSql('custom_shard_key_99', () => {
-    factoryCalls++;
-    return { name: 'unwanted' };
-  });
-
-  assert.strictEqual(factoryCalls, 1, 'Factory must NOT be called on subsequent cache hit for custom key');
-  assert.strictEqual(client2, client1, 'Cached client must be returned');
-
-  // Cleanup
-  shardSqlClients.delete('custom_shard_key_99');
+  assert.strictEqual(attachTransactionBridge(bridged), bridged, 'Re-wrapping bridged client must be idempotent');
 });
 
 // =============================================================================
@@ -361,15 +273,15 @@ runTest('deletePinMetricSnapshot: Safely completes without executing Central Hub
   assert.strictEqual(sqlExecuted, false, 'No Central Hub query must be executed on deletePinMetricSnapshot');
 });
 
-await runAsyncTest('fetchPinTrajectoryFromShard: selects comment_count and share_count', async () => {
+await runAsyncTest('fetchPinTrajectory: selects comment_count and share_count', async () => {
   let capturedQuery = null;
-  const mockShardSql = (strings, ...values) => {
+  const mockSql = (strings, ...values) => {
     capturedQuery = strings.join('?');
     return [{ snapshot_date: '2026-10-20', save_count: '10', daily_save_velocity: '1.0', reaction_count: 2, repin_count: 1, comment_count: 3, share_count: 4 }];
   };
 
-  const res = await fetchPinTrajectoryFromShard({
-    shardSql: mockShardSql,
+  const res = await fetchPinTrajectory({
+    sql: mockSql,
     pinId: '12345000'
   });
 

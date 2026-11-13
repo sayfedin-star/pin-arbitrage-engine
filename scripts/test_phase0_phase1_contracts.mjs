@@ -8,11 +8,11 @@ import {
   isStatementTimeoutError,
   withDbRetry,
   attachTransactionBridge,
-  wrapShardNeonTransaction,
   createSqlClient
 } from '../src/db/client.mjs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
-import worker from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 import {
   _resetBatchGlobalSavesRateLimit,
   verifySameOriginBrowserOrApiRequest,
@@ -190,13 +190,29 @@ test('Phase 1 [LND-SEC-07]: /api/urls/batch-global-saves enforces fail-closed au
   );
   assert.equal(unauthRes.status, 401);
 
-  // 2. Cookie-authenticated cross-site / evil Origin must return 403
-  const crossSiteRes = await worker.fetch(
+  // 1b. Spoofed pae_shield_auth cookie without x-api-key/Bearer MUST fail closed with 401
+  const spoofedCookieRes = await worker.fetch(
     new Request('https://app.hymum.com/api/urls/batch-global-saves', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Cookie: 'pae_shield_auth=verified',
+        Origin: 'https://app.hymum.com'
+      },
+      body: JSON.stringify({ urls: ['https://example.com/post'] })
+    }),
+    prodEnv,
+    { waitUntil() {} }
+  );
+  assert.equal(spoofedCookieRes.status, 401);
+
+  // 2. API-authenticated cross-site / evil Origin must return 403
+  const crossSiteRes = await worker.fetch(
+    new Request('https://app.hymum.com/api/urls/batch-global-saves', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': 'top-secret-key-xyz',
         Origin: 'https://evil.example',
         'cf-connecting-ip': '203.0.113.10'
       },
@@ -210,12 +226,12 @@ test('Phase 1 [LND-SEC-07]: /api/urls/batch-global-saves enforces fail-closed au
   const secFetchCheck = verifySameOriginBrowserOrApiRequest(
     new Request('https://app.hymum.com/api/urls/batch-global-saves', {
       method: 'POST',
-      headers: { Cookie: 'pae_shield_auth=verified', 'Sec-Fetch-Site': 'cross-site' }
+      headers: { 'x-api-key': 'top-secret-key-xyz', 'Sec-Fetch-Site': 'cross-site' }
     })
   );
   assert.equal(secFetchCheck.allowed, false);
 
-  // 3. Same-origin cookie-authenticated request succeeds and enforces 20 req/min sliding window
+  // 3. Same-origin authenticated request succeeds and enforces 20 req/min sliding window
   _resetBatchGlobalSavesRateLimit();
   for (let i = 0; i < 20; i++) {
     const okRes = await worker.fetch(
@@ -223,7 +239,7 @@ test('Phase 1 [LND-SEC-07]: /api/urls/batch-global-saves enforces fail-closed au
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Cookie: 'pae_shield_auth=verified',
+          'x-api-key': 'top-secret-key-xyz',
           Origin: 'https://app.hymum.com',
           'Sec-Fetch-Site': 'same-origin',
           'cf-connecting-ip': '203.0.113.42'
@@ -241,7 +257,7 @@ test('Phase 1 [LND-SEC-07]: /api/urls/batch-global-saves enforces fail-closed au
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Cookie: 'pae_shield_auth=verified',
+        'x-api-key': 'top-secret-key-xyz',
         Origin: 'https://app.hymum.com',
         'Sec-Fetch-Site': 'same-origin',
         'cf-connecting-ip': '203.0.113.42'
@@ -352,7 +368,7 @@ test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (beh
     await client.end({ timeout: 0 }).catch(() => {});
   }
 
-  // 3. Behavioral check: wrapShardNeonTransaction(attachTransactionBridge(...)) must pass scoped `tx` (NEVER outer pool client)
+  // 3. Behavioral check: attachTransactionBridge must pass scoped `tx` (NEVER outer pool client)
   //    to lazy array builders, and `noRetry.transaction` must bypass retry wrapper cleanly.
   let beginCalls = 0;
   let outerClientCalls = 0;
@@ -369,9 +385,8 @@ test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (beh
     };
     return await fn(txScoped);
   };
-  const universalMock = wrapShardNeonTransaction(
-    attachTransactionBridge(mockPoolClient, { maxRetries: 2, baseDelayMs: 1, sleepFn: async () => {} })
-  );
+  const universalMock = attachTransactionBridge(mockPoolClient, { maxRetries: 2, baseDelayMs: 1, sleepFn: async () => {} });
+  assert.equal(universalMock.__unifiedTxAttached, true);
   assert.equal(universalMock.__atomicBuilderWrapped, true);
   await universalMock.transaction([
     (tx) => tx`SELECT 1`,
@@ -422,15 +437,16 @@ test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (beh
   assert.match(dbClientSrc, /const defaultStatementTimeoutMs = isCi \? 45000 : 15000;/);
 
   const kwServiceSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/keywords/service.mjs'), 'utf8');
-  assert.match(kwServiceSrc, /const shouldSkipShard = Boolean\(options\?\.skip_shard_offload\);/);
+  assert.match(kwServiceSrc, /insertNewPinsBatch\(sql, newSerpPins/);
   assert.match(kwServiceSrc, /existingSerpPins\.length > 0 && !options\?\.skip_top_enrich/);
-  assert.equal(kwServiceSrc.includes('!isUnifiedPostgres(envObj) && Boolean(options?.skip_shard_offload)'), false);
+  assert.equal(kwServiceSrc.includes('shouldSkipShard'), false);
+  assert.equal(kwServiceSrc.includes('isUnifiedPostgres'), false);
 
   const crawlerSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/keyword-velocity-crawler.mjs'), 'utf8');
   assert.match(crawlerSrc, /const BARRIER_TIMEOUT_MS = 150000;/);
   assert.match(crawlerSrc, /await sleep\(workerIndex \* 350\);/);
   assert.match(crawlerSrc, /withDbRetry\(\(\) => phase1bSql/);
-  assert.match(crawlerSrc, /const SHARD_FLUSH_TIMEOUT_MS = isUnifiedPostgres\(\) \? 65000 : 25000;/);
+  assert.match(crawlerSrc, /const FLUSH_TIMEOUT_MS = 65000;/);
   assert.equal(crawlerSrc.includes('await syncTask.catch'), false, 'finally must never await syncTask synchronously after timeout');
   assert.equal(crawlerSrc.includes('${runStartTime}'), false, 'Displaced index SQL must not compare against VM runStartTime clock');
   assert.equal(crawlerSrc.includes('throw new Error(`[Phase 1A Total Failure]'), false);
@@ -438,6 +454,38 @@ test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (beh
   const workflowSrc = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/keyword-intelligence-velocity.yml'), 'utf8');
   assert.match(workflowSrc, /STAGE1_RESULT:\s*\$\{\{\s*needs\.crawl-fleet\.result\s*\}\}/);
   assert.match(workflowSrc, /SKIP_MV_REFRESH:\s*'true'/);
+});
+
+test('Phase 0 [SEC-HARDENING]: wake-shield fails closed (503) without PIN/key and server.mjs has zero createMockSql', async () => {
+  const wakeShieldMod = await import('../workers/wake-shield/src/index.mjs');
+  const res = await wakeShieldMod.default.fetch(
+    new Request('https://app.hymum.com/'),
+    {},
+    { waitUntil() {} }
+  );
+  assert.equal(res.status, 503);
+  const body = await res.json();
+  assert.equal(body.error, 'AUTH_NOT_CONFIGURED');
+
+  const serverMod = await import('../src/server.mjs');
+  assert.equal(typeof serverMod.createMockSql, 'undefined', 'createMockSql must be completely removed from src/server.mjs');
+
+  const prevDbUrl = process.env.DATABASE_URL;
+  const prevNodeEnv = process.env.NODE_ENV;
+  delete process.env.DATABASE_URL;
+  process.env.NODE_ENV = 'production';
+  try {
+    assert.equal(serverMod.getServerSqlClient(''), null, 'getServerSqlClient must return null when DATABASE_URL is absent');
+    await assert.rejects(
+      () => serverMod.startServer(0, '127.0.0.1', {}),
+      /DATABASE_URL is not configured/
+    );
+  } finally {
+    if (prevDbUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevDbUrl;
+    if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevNodeEnv;
+  }
 });
 
 

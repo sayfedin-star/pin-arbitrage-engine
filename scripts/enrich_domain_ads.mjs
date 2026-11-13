@@ -14,7 +14,7 @@
  *   node scripts/enrich_domain_ads.mjs --batch=15 --concurrency=3
  */
 
-import { enforceNeonPoolerUrl, createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   getDatabaseMonetizationStats,
@@ -37,7 +37,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = createSqlClient(DATABASE_URL);
 
 // Parse CLI flags
 const args = process.argv.slice(2);

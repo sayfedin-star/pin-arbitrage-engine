@@ -6,7 +6,7 @@
  */
 
 import fs from 'fs';
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 import { refreshDomainIntelligenceRollup } from '../src/modules/domains/service.mjs';
 
 let dbUrl = process.env.DATABASE_URL;
@@ -21,7 +21,7 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(dbUrl, {
+const sql = createSqlClient(dbUrl, {
   connection: {
     statement_timeout: 120000
   }

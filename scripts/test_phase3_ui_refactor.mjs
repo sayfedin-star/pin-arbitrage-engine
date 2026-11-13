@@ -131,9 +131,10 @@ test('Step 3.5: Ghost hover prefetch and getFastEdgeDossier are cleanly removed'
   assert.ok(runtimeEdgeScript.includes('window.safeApiFetch'), 'safeApiFetch must remain intact');
 
   for (const backendFile of [
-    'src/modules/sharding/fleet-router.mjs',
+    'src/modules/pins/repository.mjs',
     'src/routes/pins.mjs',
-    'src/worker.mjs',
+    'src/server.mjs',
+    'src/http/security-and-response.mjs',
     'src/plugins/api-routes.mjs'
   ]) {
     const code = readText(backendFile);

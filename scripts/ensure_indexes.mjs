@@ -8,7 +8,7 @@
  * - seed_guided_search_capsules (seed_pin_id, discovered_at DESC)
  */
 
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -20,7 +20,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = createSqlClient(DATABASE_URL);
 
 async function optimizeIndexes() {
   console.log('[*] Optimizing Neon Database Indexes...');

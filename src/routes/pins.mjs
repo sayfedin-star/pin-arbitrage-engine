@@ -2,26 +2,25 @@
  * Universal Pin Intelligence & Multi-Tier Routing Sub-Router
  * 
  * Handles:
- * - GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router - Zero-Blocking)
+ * - GET /api/pins/:pin_id (Universal 4-Pillar Dossier - Single Unified PostgreSQL)
  * - POST /api/pins/:pin_id/sync (Live Pinterest Deep Sync with 48 Algorithmic Fields)
- * - DELETE /api/pins/:pin_id/snapshots/:snapshot_id (Cascade delete across Shard base tables)
+ * - DELETE /api/pins/:pin_id/snapshots/:snapshot_id (Cascade delete across base tables)
  * - DELETE /api/pins/:pin_id/serp-positions
  * - DELETE /api/pins/:pin_id/daily-metrics/:date
  */
 
 import {
   fetchUniversalPinDossier,
-  getPinShardId,
-  resolveShardConnection
-} from '../modules/sharding/fleet-router.mjs';
-import { getPinDossier, syncPinAcrossAllFourPillars } from '../modules/pins/repository.mjs';
+  getPinDossier,
+  syncPinAcrossAllFourPillars
+} from '../modules/pins/repository.mjs';
 
 import { fetchPinFromPinterest, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 
-// [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard masterRecord and Central Hub keyword_serp_current (NL-04)
-async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetDate }) {
-  if (!targetDate) return;
-  const shardP = shardSql ? shardSql`
+// [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in universal_master_pins and keyword_serp_current
+async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
+  if (!sql || !targetDate) return;
+  const masterP = sql`
     INSERT INTO universal_master_pins (pin_id, metadata, updated_at)
     VALUES (${pinId}, jsonb_build_object('deleted_snapshot_dates', jsonb_build_array(${targetDate})), NOW())
     ON CONFLICT (pin_id) DO UPDATE
@@ -34,9 +33,9 @@ async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetD
       )
     ),
     updated_at = NOW();
-  `.catch((err) => { console.error(`[PinsRoute.tombstone] Shard tombstone write failed for pin ${pinId}:`, err?.message || err); }) : Promise.resolve();
+  `.catch((err) => { console.error(`[PinsRoute.tombstone] Master tombstone write failed for pin ${pinId}:`, err?.message || err); });
 
-  const hubP = hubSql ? hubSql`
+  const serpP = sql`
     UPDATE keyword_serp_current
     SET metadata = jsonb_set(
       COALESCE(metadata, '{}'::jsonb),
@@ -47,19 +46,19 @@ async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetD
       )
     )
     WHERE pin_id = ${pinId};
-  `.catch((err) => { console.error(`[PinsRoute.tombstone] Hub tombstone write failed for pin ${pinId}:`, err?.message || err); }) : Promise.resolve();
+  `.catch((err) => { console.error(`[PinsRoute.tombstone] SERP tombstone write failed for pin ${pinId}:`, err?.message || err); });
 
-  await Promise.all([shardP, hubP]);
+  await Promise.all([masterP, serpP]);
 }
 
 /**
  * Reconciles a pin's bridged daily_save_velocity and save_count across pins_daily_metrics,
  * universal_master_pins, keyword_serp_current, and keyword_displaced_index after any snapshot deletion.
  */
-async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId }) {
-  if (!shardSql || !pinId) return;
+async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
+  if (!sql || !pinId) return;
   try {
-    const remainingRows = await shardSql`
+    const remainingRows = await sql`
       SELECT snapshot_date, save_count, repin_count, comment_count, share_count, daily_save_velocity
       FROM pins_daily_metrics
       WHERE pin_id = ${pinId}
@@ -90,7 +89,7 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
       }
       curr.recomputed_velocity = newVel;
       if (Math.abs(Number(curr.daily_save_velocity || 0) - newVel) > 0.05) {
-        await shardSql`
+        await sql`
           UPDATE pins_daily_metrics
           SET daily_save_velocity = ${newVel}
           WHERE pin_id = ${pinId} AND snapshot_date = ${currDateStr}::date;
@@ -113,7 +112,7 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
     }
 
     await Promise.all([
-      shardSql`
+      sql`
         UPDATE universal_master_pins
         SET
           save_count = ${latestSaves},
@@ -124,7 +123,7 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
           updated_at = NOW()
         WHERE pin_id = ${pinId};
       `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating universal_master_pins for pin ${pinId}:`, err?.message || err); }),
-      hubSql ? hubSql`
+      sql`
         UPDATE keyword_serp_current
         SET
           save_count = ${latestSaves},
@@ -133,8 +132,8 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
           delta_repins_24h = ${latestDeltaRepins},
           updated_at = NOW()
         WHERE pin_id = ${pinId};
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_serp_current for pin ${pinId}:`, err?.message || err); }) : Promise.resolve(),
-      hubSql ? hubSql`
+      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_serp_current for pin ${pinId}:`, err?.message || err); }),
+      sql`
         UPDATE keyword_displaced_index
         SET
           save_count = ${latestSaves},
@@ -143,7 +142,7 @@ async function reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql, pinId 
           delta_repins_24h = ${latestDeltaRepins},
           updated_at = NOW()
         WHERE pin_id = ${pinId};
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_displaced_index for pin ${pinId}:`, err?.message || err); }) : Promise.resolve()
+      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_displaced_index for pin ${pinId}:`, err?.message || err); })
     ]);
   } catch (err) {
     console.error(`[PinsRoute.reconcile] Snapshot delete reconciliation failed for pin ${pinId}:`, err?.message || err);
@@ -169,7 +168,6 @@ export async function handlePinsRoutes({
   env,
   ctx,
   sql,
-  targetSql,
   jsonResponse,
   methodNotAllowedResponse,
   buildCanonicalCacheKey,
@@ -240,11 +238,8 @@ export async function handlePinsRoutes({
         message: 'Pin ID must be a valid identifier (numeric Snowflake, 10-30 digits)'
       }, 400);
     }
-    const shardId = getPinShardId(pinId, 99);
-    const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
-
-    if (isIntradayParam && shardSql) {
-      await shardSql`
+    if (isIntradayParam && sql) {
+      await sql`
         UPDATE universal_master_pins
         SET metadata = jsonb_set(
           COALESCE(metadata, '{}'::jsonb),
@@ -260,8 +255,8 @@ export async function handlePinsRoutes({
         updated_at = NOW()
         WHERE pin_id = ${pinId};
       `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Intraday update failed for pin ${pinId}:`, err?.message || err); });
-      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: rawSnapshotParam });
-      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: rawSnapshotParam });
+      await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache('keywords:pin-dossier');
@@ -271,49 +266,46 @@ export async function handlePinsRoutes({
     let targetDate = isDateParam ? rawSnapshotParam : null;
     let targetKwId = null;
 
-    // 1. If numeric ID passed, resolve date and keyword from shard view
-    if (!targetDate && shardSql) {
-      const [shardSnap] = await shardSql`
+    // 1. If numeric ID passed, resolve date and keyword from view
+    if (!targetDate && sql) {
+      const [snapRow] = await sql`
         SELECT snapshot_date, keyword_id FROM pins_daily_snapshots WHERE id = ${rawSnapshotParam}::bigint LIMIT 1;
       `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Lookup failed for snapshot ${rawSnapshotParam}:`, err?.message || err); return []; });
-      targetDate = shardSnap?.snapshot_date ? new Date(shardSnap.snapshot_date).toISOString().slice(0, 10) : null;
-      targetKwId = shardSnap?.keyword_id || null;
+      targetDate = snapRow?.snapshot_date ? new Date(snapRow.snapshot_date).toISOString().slice(0, 10) : null;
+      targetKwId = snapRow?.keyword_id || null;
     }
 
-    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Never touch Hub for snapshots
-    // [INVARIANT: SHARD-TABLES-DIRECT] Delete from base tables pin_serp_positions & pins_daily_metrics, NOT view
-    if (targetDate && shardSql) {
+    // Delete from base tables pin_serp_positions & pins_daily_metrics, NOT view
+    if (targetDate && sql) {
       if (targetKwId) {
-        await shardSql`
+        await sql`
           DELETE FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date AND keyword_id = ${targetKwId};
         `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
         // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
-        const [remaining] = await shardSql`
+        const [remaining] = await sql`
           SELECT COUNT(*)::int AS count FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
         `.catch(() => [{ count: 0 }]);
         if (!remaining || remaining.count === 0) {
-          await shardSql`
+          await sql`
             DELETE FROM pins_daily_metrics
             WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
           `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
-          // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
-          await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate });
+          await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
         }
       } else {
-        await shardSql`
+        await sql`
           DELETE FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Bulk pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
-        await shardSql`
+        await sql`
           DELETE FROM pins_daily_metrics
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Bulk pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
-        // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
-        await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate });
+        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
       }
-      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -351,28 +343,24 @@ export async function handlePinsRoutes({
       }, 400);
     }
 
-    const shardId = getPinShardId(pinId, 99);
-    const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
-
-    // Delete from Two-Tier positions table on shard
-    await shardSql`
+    // Delete from positions table
+    await sql`
       DELETE FROM pin_serp_positions
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
     `.catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, err?.message || err); });
 
     // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
-    const [remaining] = await shardSql`
+    const [remaining] = await sql`
       SELECT COUNT(*)::int AS count FROM pin_serp_positions
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
     `.catch(() => [{ count: 0 }]);
     if (!remaining || remaining.count === 0) {
-      await shardSql`
+      await sql`
         DELETE FROM pins_daily_metrics
         WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
       `.catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed pruning metrics for pin ${pinId}:`, err?.message || err); });
-      // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
-      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
-      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: snapshotDate });
+      await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -410,11 +398,8 @@ export async function handlePinsRoutes({
       }, 400);
     }
 
-    const shardId = getPinShardId(pinId, 99);
-    const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
-
     if (isIntradayTarget) {
-      await shardSql`
+      await sql`
         UPDATE universal_master_pins
         SET metadata = jsonb_set(
           COALESCE(metadata, '{}'::jsonb),
@@ -430,12 +415,12 @@ export async function handlePinsRoutes({
         updated_at = NOW()
         WHERE pin_id = ${pinId};
       `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] Intraday update failed for pin ${pinId}:`, err?.message || err); });
-      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: rawTarget });
-      await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+      await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: rawTarget });
+      await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
     } else {
       const snapshotDate = rawTarget;
       // Check if an earlier intraday checkpoint exists for this same date; if so, promote the latest intraday checkpoint into pins_daily_metrics
-      const [umpRow] = await shardSql`
+      const [umpRow] = await sql`
         SELECT metadata FROM universal_master_pins WHERE pin_id = ${pinId} LIMIT 1;
       `.catch(() => []);
       const intraArr = Array.isArray(umpRow?.metadata?.intraday_snapshots)
@@ -447,7 +432,7 @@ export async function handlePinsRoutes({
         intraArr.sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
         const promoted = intraArr[0];
         const promotedId = String(promoted.id || '');
-        await shardSql`
+        await sql`
           UPDATE pins_daily_metrics
           SET
             save_count = ${Number(promoted.save_count || 0)},
@@ -457,7 +442,7 @@ export async function handlePinsRoutes({
             updated_at = COALESCE(NULLIF(${String(promoted.recorded_at || '')}, '')::timestamptz, NOW())
           WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] Intraday promotion failed for pin ${pinId}:`, err?.message || err); });
-        await shardSql`
+        await sql`
           UPDATE universal_master_pins
           SET metadata = jsonb_set(
             COALESCE(metadata, '{}'::jsonb),
@@ -473,22 +458,21 @@ export async function handlePinsRoutes({
           updated_at = NOW()
           WHERE pin_id = ${pinId};
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] Intraday metadata prune failed for pin ${pinId}:`, err?.message || err); });
-        await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
       } else {
-        // Delete metrics and positions from shard for the entire date
-        await shardSql`
+        // Delete metrics and positions for the entire date
+        await sql`
           DELETE FROM pins_daily_metrics
           WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
 
-        await shardSql`
+        await sql`
           DELETE FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
 
-        // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
-        await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
-        await reconcilePinMetricsAfterSnapshotDelete({ shardSql, hubSql: sql, pinId });
+        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: snapshotDate });
+        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
       }
     }
 
@@ -505,7 +489,6 @@ export async function handlePinsRoutes({
 
   // 2. POST /api/pins/:pin_id/sync (Live Pinterest Deep Sync with 48 Algorithmic Fields)
   if (parts[1] === 'sync') {
-    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub snapshots are purged from sync; strictly offloaded to Shards
     if (method !== 'POST') {
       return methodNotAllowedResponse('POST, OPTIONS');
     }
@@ -527,7 +510,7 @@ export async function handlePinsRoutes({
         }, 502);
       }
       const syncResult = await syncPinAcrossAllFourPillars({
-        hubSql: sql,
+        sql,
         pinId,
         scrapedPin: pinResult.pin,
         env,
@@ -544,7 +527,6 @@ export async function handlePinsRoutes({
         success: true,
         synced: true,
         pin_id: pinId,
-        shard_id: syncResult.shard_id,
         pin: pinResult.pin,
         velocity: syncResult.syncVelocity,
         dossier: syncResult.dossier
@@ -569,15 +551,10 @@ export async function handlePinsRoutes({
           message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
         }, 400);
       }
-      const shardId = getPinShardId(pinId, 99);
-      const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
-      
-      // Cascade delete on target Shard
-      await shardSql`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] universal_master_pins delete failed for ${pinId}:`, err?.message || err); });
-      await shardSql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pins_daily_metrics delete failed for ${pinId}:`, err?.message || err); });
-      await shardSql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pin_serp_positions delete failed for ${pinId}:`, err?.message || err); });
-
-      // Delete from Central Hub operational tables
+      // Cascade delete across unified PostgreSQL tables
+      await sql`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] universal_master_pins delete failed for ${pinId}:`, err?.message || err); });
+      await sql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pins_daily_metrics delete failed for ${pinId}:`, err?.message || err); });
+      await sql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pin_serp_positions delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM keyword_serp_current WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_serp_current delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM keyword_displaced_index WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_displaced_index delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM competitor_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] competitor_pins delete failed for ${pinId}:`, err?.message || err); });
@@ -610,7 +587,7 @@ export async function handlePinsRoutes({
       }
 
       // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly (pure read-only SSOT)
-      const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
+      const dossier = await fetchUniversalPinDossier({ sql, pinId, ctx, env, bypassEdgeCache: true });
       if (dossier && !dossier.first_saved_at && dossier.creative) {
         dossier.first_saved_at = dossier.creative.first_saved_at || dossier.creative.first_discovered_at || null;
         dossier.last_resaved_at = dossier.creative.last_resaved_at || dossier.creative.updated_at || null;
@@ -622,13 +599,11 @@ export async function handlePinsRoutes({
         }
       }
 
-      // Edge cache poisoning guard: If dossier failed, has 0 snapshots, is degraded, or has an unverified fallback (<= 2 days while having rankings),
-      // invalidate cache so subsequent page loads can immediately fetch full history once shard is warm.
+      // Cache poisoning guard: If dossier failed, has 0 snapshots, or is degraded, invalidate cache
       if (
         !dossier?.success ||
         (!dossier?.daily_trajectory?.length && !dossier?.snapshots?.length) ||
-        dossier?.is_degraded ||
-        (dossier?.daily_trajectory?.length <= 2 && (dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1 && !dossier?.from_shard_snapshots)
+        dossier?.is_degraded
       ) {
         invalidateEdgeCache(dossierCacheKey);
       }
@@ -639,11 +614,11 @@ export async function handlePinsRoutes({
 
       if (!dossier || !dossier.pin_id || !dossier.success) {
         invalidateEdgeCache(dossierCacheKey);
-        const isUnavailable = dossier?.error === 'SHARD_UNAVAILABLE' || dossier?.circuit_broken || dossier?.is_degraded;
+        const isUnavailable = dossier?.error === 'DB_UNAVAILABLE' || dossier?.circuit_broken || dossier?.is_degraded;
         return jsonResponse({
           success: false,
-          error: isUnavailable ? 'SHARD_UNAVAILABLE' : 'NOT_FOUND',
-          message: dossier?.message || (isUnavailable ? `Pin storage shard is currently cold/unavailable. Please retry.` : `Pin dossier not found for pin_id: ${pinId}`)
+          error: isUnavailable ? 'DB_UNAVAILABLE' : 'NOT_FOUND',
+          message: dossier?.message || (isUnavailable ? 'Pin database is temporarily unavailable. Please retry.' : `Pin dossier not found for pin_id: ${pinId}`)
         }, isUnavailable ? 503 : 404);
       }
       return jsonResponse(dossier, 200, 15);

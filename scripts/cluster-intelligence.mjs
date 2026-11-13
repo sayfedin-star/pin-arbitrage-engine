@@ -12,8 +12,8 @@
  */
 
 import crypto from 'node:crypto';
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
-import { crc32 } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
+import { crc32 } from '../src/lib/math.mjs';
 import {
   pinterestFetch,
   getStandardPinterestHeaders,
@@ -53,7 +53,7 @@ function getSql() {
       console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
       process.exit(1);
     }
-    _sql = createUniversalSqlClient(url);
+    _sql = createSqlClient(url);
   }
   return _sql;
 }

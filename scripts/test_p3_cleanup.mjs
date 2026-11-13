@@ -16,14 +16,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  getPinShardId,
-  getShardNumberForEntity,
-  getResilientShardNumberForEntity,
-  crc32,
-  batchGroupByShard,
-  resolveShardConnection
-} from '../src/modules/sharding/fleet-router.mjs';
+import { crc32 } from '../src/lib/math.mjs';
 import {
   safeNormalizeMetadata,
   winsorize,
@@ -124,20 +117,18 @@ runTest('No files in codebase import from deprecated sharding.mjs', () => {
 });
 
 // --------------------------------------------------------------------------
-// SECTION 2: CANONICAL SHARDING EXPORTS & DRIFT INTEGRITY
+// SECTION 2: PHASE 2 DE-SHARDING & CRC32 WORK-PARTITIONING INTEGRITY
 // --------------------------------------------------------------------------
-console.log('\n[*] Section 2: Canonical Sharding Exports & Routing Integrity...');
+console.log('\n[*] Section 2: Phase 2 De-Sharding & CRC32 Work-Partitioning Integrity...');
 
-runTest('fleet-router.mjs exports canonical functions and aliases', () => {
-  assert.strictEqual(typeof getPinShardId, 'function');
-  assert.strictEqual(typeof getShardNumberForEntity, 'function');
-  assert.strictEqual(typeof getResilientShardNumberForEntity, 'function');
-  assert.strictEqual(typeof crc32, 'function');
-  assert.strictEqual(typeof batchGroupByShard, 'function');
-  assert.strictEqual(typeof resolveShardConnection, 'function');
+runTest('Legacy fleet-router.mjs, fleet/service.mjs, and routes/fleet.mjs are permanently deleted', () => {
+  assert.strictEqual(fs.existsSync(path.resolve('src/modules/sharding/fleet-router.mjs')), false, 'fleet-router.mjs must be deleted');
+  assert.strictEqual(fs.existsSync(path.resolve('src/modules/fleet/service.mjs')), false, 'fleet/service.mjs must be deleted');
+  assert.strictEqual(fs.existsSync(path.resolve('src/routes/fleet.mjs')), false, 'routes/fleet.mjs must be deleted');
+  assert.strictEqual(typeof crc32, 'function', 'crc32 must be exported from src/lib/math.mjs');
 });
 
-runTest('getShardNumberForEntity produces identical output to getPinShardId (Zero Drift)', () => {
+runTest('crc32 hashes entities deterministically across 20 GitHub Actions workers (0..19)', () => {
   const sampleEntities = [
     '123456789012345678',
     '987654321098765432',
@@ -146,20 +137,11 @@ runTest('getShardNumberForEntity produces identical output to getPinShardId (Zer
     'keto_recipes_daily'
   ];
   for (const entity of sampleEntities) {
-    const expected = getPinShardId(entity, 99);
-    const actual = getShardNumberForEntity(entity, 99);
-    assert.strictEqual(actual, expected, `Entity ${entity} must yield identical shard ID`);
-    assert(actual >= 1 && actual <= 99, `Shard ID ${actual} must be in range 1..99`);
+    const first = crc32(entity) % 20;
+    const second = crc32(entity) % 20;
+    assert.strictEqual(second, first, `Entity ${entity} must yield identical worker index`);
+    assert(first >= 0 && first < 20, `Worker index ${first} must be in range 0..19`);
   }
-});
-
-runTest('getResilientShardNumberForEntity respects quarantine lists with deterministic shift', () => {
-  const entity = 'test_sample_entity_42';
-  const normalShard = getShardNumberForEntity(entity, 99);
-  const quarantined = new Set([normalShard]);
-  const shiftedShard = getResilientShardNumberForEntity(entity, 99, quarantined);
-  assert.notStrictEqual(shiftedShard, normalShard, 'Resilient shard must not pick quarantined shard');
-  assert(shiftedShard >= 1 && shiftedShard <= 99, `Shifted shard ${shiftedShard} must be in range 1..99`);
 });
 
 // --------------------------------------------------------------------------
@@ -366,7 +348,7 @@ runTest('Modular UI components export non-empty HTML templates', () => {
   assert(dashModals.includes('isLightboxOpen'), 'dashboard-modals must include lightbox markup');
   assert(dashModals.includes('isBulkAddSeedsModalOpen'), 'dashboard-modals must include bulk add seeds modal markup');
   assert(dashModals.includes('isAddCompetitorModalOpen'), 'dashboard-modals must include competitor modal markup');
-  assert(dashModals.includes('isAddFleetModalOpen'), 'dashboard-modals must include fleet modal markup');
+  assert(!dashModals.includes('isAddFleetModalOpen'), 'dashboard-modals must not include legacy fleet modal markup');
 
   const kwDrawers = getKeywordDrawersAndModalsHtml();
   assert(kwDrawers.includes('isPinDrawerOpen'), 'keywords-drawers must include pin drawer markup');

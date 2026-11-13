@@ -2,7 +2,7 @@ import fs from 'fs';
 import assert from 'assert';
 import { createSqlClient as neon } from '../src/db/client.mjs';
 import { getPinDeepDossier } from '../src/modules/keywords/service.mjs';
-import { fetchUniversalPinDossier } from '../src/modules/sharding/fleet-router.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 
 let dbUrl = process.env.DATABASE_URL || '';
 if (!dbUrl && fs.existsSync('.env')) {
@@ -59,14 +59,13 @@ async function run() {
   assert(d1.trajectory, 'Must return trajectory block');
   assert(d1.annotations !== undefined, 'Must return annotations array');
 
-  // 2. Test fetchUniversalPinDossier (fleet-router)
+  // 2. Test fetchUniversalPinDossier (repository)
   console.log(`\n[2] Testing fetchUniversalPinDossier on Pin ID: ${sampleRow.pin_id}...`);
-  const d2 = await fetchUniversalPinDossier({ hubSql: sql, pinId: sampleRow.pin_id });
+  const d2 = await fetchUniversalPinDossier({ sql, pinId: sampleRow.pin_id });
   
   console.log('  ✓ Universal Dossier received successfully:');
   console.log('    - success:', d2.success);
   console.log('    - pin_id:', d2.pin_id);
-  console.log('    - shard_id:', d2.shard_id);
   console.log('    - creative title:', d2.creative?.title);
   console.log('    - creative description present:', Boolean(d2.creative?.description));
   console.log('    - creative alt_text present:', Boolean(d2.creative?.alt_text));

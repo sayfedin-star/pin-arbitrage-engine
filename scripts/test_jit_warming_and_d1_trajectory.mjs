@@ -13,17 +13,12 @@ import assert from 'node:assert';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import path from 'node:path';
-import worker from '../src/worker.mjs';
-import * as fleetRouter from '../src/modules/sharding/fleet-router.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
+import * as pinRepository from '../src/modules/pins/repository.mjs';
 import { getEdgeShieldClientScript } from '../src/edge-shield-client.mjs';
 
-const {
-  fetchUniversalPinDossier,
-  getPinShardId,
-  getPhysicalShardId,
-  globalShardMap,
-  _setShardSqlClient
-} = fleetRouter;
+const { fetchUniversalPinDossier } = pinRepository;
 
 console.log('='.repeat(80));
 console.log('   DEEP FORENSIC AUDIT: NEON SNAPSHOT ARCHITECTURE & HOVER JIT WARMING');
@@ -70,8 +65,9 @@ runTest('d1-metadata.mjs is permanently purged in pure Neon architecture', () =>
 // =============================================================================
 console.log('\n[*] Section 2: Ghost Edge Prefetch Decommissioned...');
 
-await runAsyncTest('getFastEdgeDossier is removed from fleet-router.mjs exports', async () => {
-  assert.strictEqual('getFastEdgeDossier' in fleetRouter, false, 'getFastEdgeDossier must be removed');
+await runAsyncTest('getFastEdgeDossier is removed and fleet-router.mjs is deleted', async () => {
+  assert.strictEqual('getFastEdgeDossier' in pinRepository, false, 'getFastEdgeDossier must be removed');
+  assert.strictEqual(fs.existsSync(path.resolve('src/modules/sharding/fleet-router.mjs')), false, 'fleet-router.mjs must be deleted');
 });
 
 // =============================================================================
@@ -79,18 +75,18 @@ await runAsyncTest('getFastEdgeDossier is removed from fleet-router.mjs exports'
 // =============================================================================
 console.log('\n[*] Section 3: Universal Dossier Trajectory Resolution & Fallbacks...');
 
-await runAsyncTest('fetchUniversalPinDossier resolves pin trajectory from Shards', async () => {
-  const mockShardSql = Object.assign(
+await runAsyncTest('fetchUniversalPinDossier resolves pin trajectory from Unified PostgreSQL', async () => {
+  const mockSql = Object.assign(
     async (strings) => {
       const q = strings.join('');
       if (q.includes('FROM universal_master_pins')) {
         return [{
           pin_id: '554433221100',
-          title: 'Shard Source Pin',
+          title: 'Unified PG Source Pin',
           domain: 'source.com',
           destination_url: 'https://source.com/item',
           image_url: 'https://i.pinimg.com/736x/source.jpg',
-          description: 'Descriptive text directly from Shard',
+          description: 'Descriptive text directly from Unified PostgreSQL',
           alt_text: 'Alt text',
           dominant_color: '#112233',
           visual_annotations: '[]',
@@ -98,7 +94,7 @@ await runAsyncTest('fetchUniversalPinDossier resolves pin trajectory from Shards
           metadata: {}
         }];
       }
-      if (q.includes('FROM pins_daily_rollups_v2') || q.includes('FROM pins_daily_snapshots') || q.includes('FROM pins_daily_metrics')) {
+      if (q.includes('FROM pins_daily_snapshots') || q.includes('FROM pins_daily_metrics')) {
         return [
           { snapshot_date: '2026-10-22', save_count: 950, repin_count: 120, daily_save_velocity: 20 },
           { snapshot_date: '2026-10-21', save_count: 930, repin_count: 115, daily_save_velocity: 18 }
@@ -109,16 +105,9 @@ await runAsyncTest('fetchUniversalPinDossier resolves pin trajectory from Shards
     { transaction: async () => [] }
   );
 
-  const mockHubSql = async () => [];
-  const targetShardId = getPinShardId('554433221100', 99);
-  const mockDsn = 'postgres://user:pass@ep-test-shard-warm.neon.tech/neondb';
-  _setShardSqlClient(mockDsn, mockShardSql);
-  globalShardMap.set(targetShardId, { database_url: mockDsn, cachedAt: Date.now() });
-
   const dossier = await fetchUniversalPinDossier({
-    hubSql: mockHubSql,
+    sql: mockSql,
     pinId: '554433221100',
-    env: { DATABASE_URL: mockDsn },
     bypassEdgeCache: true
   });
 
@@ -127,33 +116,31 @@ await runAsyncTest('fetchUniversalPinDossier resolves pin trajectory from Shards
   assert.ok(Array.isArray(dossier.daily_trajectory));
 });
 
-await runAsyncTest('fetchUniversalPinDossier DEGRADED FALLBACK: Correctly flags is_degraded: true when shard query returns empty', async () => {
-  const mockHubSql = async (strings) => {
-    const q = strings.join('');
-    if (q.includes('FROM keyword_serp_current')) {
-      return [{
-        keyword_id: 5,
-        pin_id: '998877665544',
-        title: 'Degraded Fallback Test Pin',
-        domain: 'fallback.com',
-        destination_url: 'https://fallback.com/item',
-        image_url: 'https://i.pinimg.com/736x/fb.jpg',
-        save_count: 500,
-        repin_count: 50,
-        daily_save_velocity: 10,
-        crawled_at: '2026-10-22T05:00:00.000Z',
-        updated_at: '2026-10-22T05:00:00.000Z',
-        baseline_day_date: '2026-10-21',
-        baseline_day_saves: 490,
-        metadata: {}
-      }];
-    }
-    return [];
-  };
-
-  const mockEmptyShardSql = Object.assign(
+await runAsyncTest('fetchUniversalPinDossier DEGRADED FALLBACK: Correctly flags is_degraded: true when snapshot query fails', async () => {
+  const mockSql = Object.assign(
     async (strings) => {
       const q = strings.join('');
+      if (q.includes('FROM pins_daily_snapshots')) {
+        throw new Error('simulated pins_daily_snapshots query failure');
+      }
+      if (q.includes('FROM keyword_serp_current')) {
+        return [{
+          keyword_id: 5,
+          pin_id: '998877665544',
+          title: 'Degraded Fallback Test Pin',
+          domain: 'fallback.com',
+          destination_url: 'https://fallback.com/item',
+          image_url: 'https://i.pinimg.com/736x/fb.jpg',
+          save_count: 500,
+          repin_count: 50,
+          daily_save_velocity: 10,
+          crawled_at: '2026-10-22T05:00:00.000Z',
+          updated_at: '2026-10-22T05:00:00.000Z',
+          baseline_day_date: '2026-10-21',
+          baseline_day_saves: 490,
+          metadata: {}
+        }];
+      }
       if (q.includes('FROM universal_master_pins')) {
         return [{ pin_id: '998877665544', title: 'Master' }];
       }
@@ -162,90 +149,66 @@ await runAsyncTest('fetchUniversalPinDossier DEGRADED FALLBACK: Correctly flags 
     { transaction: async () => [] }
   );
 
-  const targetShardId = getPinShardId('998877665544', 99);
-  const mockDsn = 'postgres://user:pass@ep-test-shard-degraded.neon.tech/neondb';
-  _setShardSqlClient(mockDsn, mockEmptyShardSql);
-  globalShardMap.set(targetShardId, { database_url: mockDsn, cachedAt: Date.now() });
-
   const dossier = await fetchUniversalPinDossier({
-    hubSql: mockHubSql,
+    sql: mockSql,
     pinId: '998877665544',
-    env: { DATABASE_URL: mockDsn },
     bypassEdgeCache: true
   });
 
   assert.strictEqual(dossier.success, true);
   assert.strictEqual(dossier.is_degraded, true);
-  assert.strictEqual(dossier.from_shard_snapshots, false);
 });
 
 // =============================================================================
-// Section 4: Predictive Hover JIT Warming Endpoint (/api/fleet/warm)
+// Section 4: Removed Fleet Warming Routes & Unified Health / Cache Endpoints
 // =============================================================================
-console.log('\n[*] Section 4: Predictive Hover JIT Warming Endpoint (/api/fleet/warm)...');
+console.log('\n[*] Section 4: Removed Fleet Routes & Unified Health/Cache Endpoints...');
 
-await runAsyncTest('GET /api/fleet/warm pings target shard deterministically and returns 200 JSON', async () => {
+await runAsyncTest('GET /api/fleet/warm is permanently decommissioned (returns 404 NOT_FOUND)', async () => {
   const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    PIN_ENGINE_KV: { get: async () => null, put: async () => {}, delete: async () => {} }
+    SQL_CLIENT: async () => [{ alive: 1 }]
   };
 
-  const pinId = '1098245059167667976';
-  const expectedShardId = getPinShardId(pinId, 99);
-  const expectedPhysicalShardId = getPhysicalShardId(expectedShardId);
-
-  const req = new Request(`https://worker.test/api/fleet/warm?pin_id=${pinId}`, { method: 'GET' });
+  const req = new Request('https://worker.test/api/fleet/warm?pin_id=1098245059167667976', { method: 'GET' });
   const res = await worker.fetch(req, mockEnv);
-
-  assert.strictEqual(res.status, 200, 'Warming endpoint must return HTTP 200 OK');
+  assert.strictEqual(res.status, 404, 'Removed fleet warming route must return HTTP 404');
   const data = await res.json();
-  assert.strictEqual(data.success, true);
-  assert.ok(data.shard_id === expectedShardId || data.shard_id === expectedPhysicalShardId, 'Target shard must match deterministic getPinShardId or consolidated physical shard');
-  assert.strictEqual(data.warmed, true);
+  assert.strictEqual(data.error, 'NOT_FOUND');
 });
 
-await runAsyncTest('GET /api/fleet/warm accepts explicit shard query parameter', async () => {
+await runAsyncTest('GET /api/health returns 200 with unified_postgres topology', async () => {
   const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    PIN_ENGINE_KV: { get: async () => null, put: async () => {}, delete: async () => {} }
+    SQL_CLIENT: async () => [{ alive: 1 }]
   };
 
-  const req = new Request('https://worker.test/api/fleet/warm?shard=42', { method: 'GET' });
+  const req = new Request('https://worker.test/api/health', { method: 'GET' });
   const res = await worker.fetch(req, mockEnv);
   assert.strictEqual(res.status, 200);
   const data = await res.json();
+  assert.strictEqual(data.status, 'healthy');
+  assert.strictEqual(data.topology, 'unified_postgres');
+});
+
+await runAsyncTest('POST /api/cache/invalidate enforces authentication (401 unauth, 200 with Bearer)', async () => {
+  const mockEnv = {
+    API_SECRET_KEY: 'test-secret-key-jit',
+    SQL_CLIENT: async () => [{ alive: 1 }]
+  };
+
+  const reqUnauth = new Request('https://worker.test/api/cache/invalidate', { method: 'POST' });
+  const resUnauth = await worker.fetch(reqUnauth, mockEnv);
+  assert.strictEqual(resUnauth.status, 401, 'Unauthenticated cache invalidation must return 401');
+
+  const reqAuth = new Request('https://worker.test/api/cache/invalidate', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer test-secret-key-jit', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: 'all', event: 'test' })
+  });
+  const resAuth = await worker.fetch(reqAuth, mockEnv);
+  assert.strictEqual(resAuth.status, 200, 'Authenticated cache invalidation must return 200');
+  const data = await resAuth.json();
   assert.strictEqual(data.success, true);
-  assert.ok(data.shard_id === 42 || data.shard_id === getPhysicalShardId(42), 'Target shard must match virtual shard 42 or physical shard 2');
-});
-
-await runAsyncTest('GET /api/fleet/warm 15-second deduplication cooldown protects against spamming', async () => {
-  const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    PIN_ENGINE_KV: { get: async () => null, put: async () => {}, delete: async () => {} }
-  };
-
-  // Immediate second call to shard 42
-  const req2 = new Request('https://worker.test/api/fleet/warm?shard=42', { method: 'GET' });
-  const res2 = await worker.fetch(req2, mockEnv);
-  assert.strictEqual(res2.status, 200);
-  const data2 = await res2.json();
-  assert.strictEqual(data2.success, true);
-  assert.strictEqual(data2.cached, true, 'Second ping within 15s must be flagged cached/cooldown');
-  assert.strictEqual(data2.warmed, false);
-});
-
-await runAsyncTest('GET /api/fleet/warm rejects missing pin_id and shard with 400 Bad Request', async () => {
-  const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    PIN_ENGINE_KV: { get: async () => null, put: async () => {}, delete: async () => {} }
-  };
-
-  const req = new Request('https://worker.test/api/fleet/warm', { method: 'GET' });
-  const res = await worker.fetch(req, mockEnv);
-  assert.strictEqual(res.status, 400);
-  const data = await res.json();
-  assert.strictEqual(data.success, false);
-  assert.strictEqual(data.error, 'INVALID_PARAM');
+  assert.strictEqual(data.invalidated, true);
 });
 
 // =============================================================================

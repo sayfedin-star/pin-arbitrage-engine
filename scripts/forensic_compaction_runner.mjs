@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import { createSqlClient } from '../src/db/client.mjs';
 
 // Load .env
 if (typeof process.loadEnvFile === 'function') {
@@ -25,7 +25,7 @@ if (!process.env.DATABASE_URL && fs.existsSync(envPath)) {
   }
 }
 
-const sql = process.env.DATABASE_URL ? createUniversalSqlClient(process.env.DATABASE_URL) : null;
+const sql = process.env.DATABASE_URL ? createSqlClient(process.env.DATABASE_URL) : null;
 
 export async function getStorageBreakdown() {
   const [dbSizeRow] = await sql`

@@ -1,5 +1,6 @@
 import assert from 'node:assert';
-import worker from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 
 async function testRoutes() {
   console.log('Testing Reorganized UI Routes...');
@@ -170,7 +171,7 @@ async function testRoutes() {
 
   // 13. HTML_HEADERS Compression & Edge Caching Configuration
   {
-    const { HTML_HEADERS } = await import('../src/worker.mjs');
+    const { HTML_HEADERS } = await import('../src/http/security-and-response.mjs');
     assert(!HTML_HEADERS['Cache-Control'].includes('no-transform'), 'HTML_HEADERS must NOT contain no-transform');
     assert.strictEqual(
       HTML_HEADERS['Cache-Control'],
@@ -214,21 +215,24 @@ async function testRoutes() {
   {
     const fs = await import('node:fs');
     const path = await import('node:path');
-    const workerContent = fs.readFileSync(path.resolve('src/worker.mjs'), 'utf8');
+    const serverContent = fs.readFileSync(path.resolve('src/server.mjs'), 'utf8');
+    const apiRoutesContent = fs.readFileSync(path.resolve('src/plugins/api-routes.mjs'), 'utf8');
 
     assert(
-      workerContent.includes('// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'),
-      'worker.mjs must contain invariant tag [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'
+      serverContent.includes('// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]') &&
+      apiRoutesContent.includes('// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'),
+      'server.mjs and api-routes.mjs must contain invariant tag [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'
     );
     assert(
-      workerContent.includes('ctx.waitUntil(closePromise);'),
-      'worker.mjs must offload socket teardown to ctx.waitUntil(closePromise)'
+      /(?:effectiveCtx|ctx)\.waitUntil\(closePromise\)/.test(serverContent) &&
+      /(?:effectiveCtx|ctx)\.waitUntil\(closePromise\)/.test(apiRoutesContent),
+      'server.mjs and api-routes.mjs must offload socket teardown to waitUntil(closePromise)'
     );
     assert(
-      !workerContent.includes('await closePromise;'),
-      'worker.mjs must NOT contain blocking await closePromise;'
+      !serverContent.includes('await closePromise;') && !apiRoutesContent.includes('await closePromise;'),
+      'server.mjs and api-routes.mjs must NOT contain blocking await closePromise;'
     );
-    console.log('  ✓ [PASS] Worker socket cleanup is non-blocking (await closePromise strictly eradicated)');
+    console.log('  ✓ [PASS] Fastify request cleanup is non-blocking (await closePromise strictly eradicated)');
   }
 
   // 16. Eliminate Render-Blocking Head Scripts & Ensure Lucide/Alpine Deferral Ordering

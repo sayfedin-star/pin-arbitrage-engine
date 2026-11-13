@@ -16,7 +16,9 @@
  *    - /api/folders/:id/raw-visual-crossover
  */
 
-import worker, { RESERVED_KEYWORD_SLUGS } from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+import { RESERVED_KEYWORD_SLUGS } from '../src/http/security-and-response.mjs';
+const worker = { fetch: handleAppRequest };
 
 async function runPhase2Tests() {
   console.log('='.repeat(80));

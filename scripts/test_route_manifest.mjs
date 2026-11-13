@@ -1,9 +1,10 @@
 import assert from 'node:assert';
-import worker from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 
 /**
  * Route Manifest Test Suite (109 Captured Route Signatures)
- * Ensures zero route regressions during modularization of src/worker.mjs.
+ * Ensures zero route regressions during Fastify runtime unification.
  */
 async function runRouteManifestTest() {
   console.log('='.repeat(80));
@@ -11,21 +12,8 @@ async function runRouteManifestTest() {
   console.log('='.repeat(80));
 
   const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    API_SECRET_KEY: 'test_secret_key',
-    PIN_ENGINE_KV: {
-      get: async () => null,
-      put: async () => {},
-      delete: async () => {}
-    },
-    PIN_D1_DB: {
-      prepare: () => ({
-        bind: () => ({
-          all: async () => ({ results: [] }),
-          run: async () => ({})
-        })
-      })
-    }
+    DATABASE_URL: 'postgres://dummy:dummy@127.0.0.1:5432/pin_arbitrage',
+    API_SECRET_KEY: 'test_secret_key'
   };
 
   const authHeaders = {
@@ -63,7 +51,7 @@ async function runRouteManifestTest() {
     record('POST /keywords returns 405 Method Not Allowed (before auth gate)', resPostKeywords.status === 405);
   }
 
-  // 3. Fast Edge non-DB endpoints return 200 without DB connection
+  // 3. Fast non-DB endpoints return 200 and removed fleet endpoints return 404
   {
     const resCrawlStatus = await worker.fetch(new Request('https://worker.test/api/crawl-status'), mockEnv);
     record('GET /api/crawl-status returns 200', resCrawlStatus.status === 200);
@@ -72,7 +60,7 @@ async function runRouteManifestTest() {
     record('GET /api/settings/cookie returns 200', resCookie.status === 200);
 
     const resKeepAlive = await worker.fetch(new Request('https://worker.test/api/fleet/keep-alive'), mockEnv);
-    record('GET /api/fleet/keep-alive (empty) returns 200', resKeepAlive.status === 200);
+    record('GET /api/fleet/keep-alive returns 404 after Phase 2 fleet removal', resKeepAlive.status === 404);
   }
 
   // 4. Mutating endpoint without auth returns 401

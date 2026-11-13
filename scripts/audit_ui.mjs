@@ -126,16 +126,16 @@ for (const file of csvExportFiles) {
 // 4. Server Security Headers & Content-Security-Policy (CAP-48)
 // --------------------------------------------------------------------------
 console.log('\n[*] Auditing Server CSP & Security Headers...');
-const workerPath = path.join(rootDir, 'src/worker.mjs');
-const workerContent = fs.readFileSync(workerPath, 'utf8');
+const securityHttpPath = path.join(rootDir, 'src/http/security-and-response.mjs');
+const securityHttpContent = fs.readFileSync(securityHttpPath, 'utf8');
 
-check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('Content-Security-Policy'), 'Must define CSP header');
-check('src/worker.mjs: X-Content-Type-Options is nosniff', workerContent.includes("'X-Content-Type-Options': 'nosniff'"), 'Must enforce nosniff');
-check('src/worker.mjs: X-Frame-Options is DENY', workerContent.includes("'X-Frame-Options': 'DENY'"), 'Must enforce DENY');
+check('src/http/security-and-response.mjs: Declares HTML_HEADERS with CSP', securityHttpContent.includes('Content-Security-Policy'), 'Must define CSP header');
+check('src/http/security-and-response.mjs: X-Content-Type-Options is nosniff', securityHttpContent.includes("'X-Content-Type-Options': 'nosniff'"), 'Must enforce nosniff');
+check('src/http/security-and-response.mjs: X-Frame-Options is DENY', securityHttpContent.includes("'X-Frame-Options': 'DENY'"), 'Must enforce DENY');
 
 const keywordsRoutePath = path.join(rootDir, 'src/routes/keywords.mjs');
 const keywordsRouteContent = fs.readFileSync(keywordsRoutePath, 'utf8');
-check('src/worker.mjs: Declares HTML_HEADERS with CSP', workerContent.includes('HTML_HEADERS') && workerContent.includes('Content-Security-Policy'), 'Must declare HTML_HEADERS');
+check('src/http/security-and-response.mjs: Declares HTML_HEADERS with CSP', securityHttpContent.includes('HTML_HEADERS') && securityHttpContent.includes('Content-Security-Policy'), 'Must declare HTML_HEADERS');
 
 // --------------------------------------------------------------------------
 // 5. GitHub Actions Workflows Least-Privilege Permissions (CAP-51)

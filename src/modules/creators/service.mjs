@@ -18,8 +18,7 @@
 import { formatPinterestCookie, sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
 import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import crypto from 'node:crypto';
-import { syncPinAcrossAllFourPillars, fetchPinTrajectoryFromShard, fetchUniversalPinDossier } from '../sharding/fleet-router.mjs';
-import { insertNewPinsBatch } from '../pins/repository.mjs';
+import { insertNewPinsBatch, syncPinAcrossAllFourPillars, fetchPinTrajectory, fetchUniversalPinDossier } from '../pins/repository.mjs';
 import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
 
 export const SYSTEM_RULES_USERNAME = '__system_qualification_rules__';
@@ -4053,12 +4052,9 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
     try {
       const live = await fetchPinFromPinResource(pin.pin_id);
       if (live && live.saves > 0) {
-        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
         // [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
-        // Route through syncPinAcrossAllFourPillars to update Shard universal_master_pins,
-        // Shard pins_daily_metrics, Hub pa_pins, Hub competitor_pins, Hub keyword_serp_current
         await syncPinAcrossAllFourPillars({
-          hubSql: sql,
+          sql,
           pinId: pin.pin_id,
           scrapedPin: live,
           env: options?.env || null
@@ -4283,9 +4279,8 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
           const live = await fetchPinFromPinResource(p.pin_id);
           if (live && live.saves > 0) {
             // [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
-            // [INVARIANT: ZERO-HUB-SNAPSHOTS]
             await syncPinAcrossAllFourPillars({
-              hubSql: sql,
+              sql,
               pinId: p.pin_id,
               scrapedPin: live,
               env
@@ -5249,7 +5244,7 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
       const pRes = await fetchPinFromPinterest(cleanId, '');
       if (pRes?.ok && pRes.pin) {
         await syncPinAcrossAllFourPillars({
-          hubSql: sql,
+          sql,
           pinId: cleanId,
           scrapedPin: pRes.pin,
           env,
@@ -5263,7 +5258,7 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
 
   // Canonical SSOT Dossier Retrieval
   const universal = await fetchUniversalPinDossier({
-    hubSql: sql,
+    sql,
     pinId: cleanId,
     ctx,
     env,
@@ -5294,20 +5289,18 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
   }
 
   // Trajectory retrieval fallback
-  // GUARDRAIL 4: Strictly retain the exact literal string:
-  // fetchPinTrajectoryFromShard({ hubSql: sql, pinId: cleanId, env })
   let rawSnaps = Array.isArray(universal?.snapshots) && universal.snapshots.length > 0
     ? universal.snapshots
     : (Array.isArray(universal?.daily_trajectory) ? universal.daily_trajectory : []);
 
   if (rawSnaps.length === 0) {
     try {
-      const trajRes = await fetchPinTrajectoryFromShard({ hubSql: sql, pinId: cleanId, env });
+      const trajRes = await fetchPinTrajectory({ sql, pinId: cleanId });
       if (trajRes?.success && Array.isArray(trajRes.snapshots)) {
         rawSnaps = trajRes.snapshots;
       }
     } catch (trajErr) {
-      console.warn(`[getPinDetailWithMetrics] Shard trajectory fetch warning for pin ${cleanId}:`, trajErr.message);
+      console.warn(`[getPinDetailWithMetrics] Trajectory fetch warning for pin ${cleanId}:`, trajErr.message);
     }
   }
 

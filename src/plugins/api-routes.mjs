@@ -6,16 +6,14 @@
  * Readable.fromWeb stream bridging or double JSON serialization.
  */
 
-import {
-  createUniversalSqlClient,
-  enforceNeonPoolerUrl
-} from '../db/client.mjs';
+import { getSqlClient } from '../db/client.mjs';
 import { isClusterRoute, handleClusterRoutes } from '../routes/cluster.mjs';
 import { handleCreatorsRoutes } from '../routes/creators.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from '../routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from '../routes/pins.mjs';
-import { handleFleetRoutes } from '../routes/fleet.mjs';
 import { handleDomainsRoutes } from '../routes/domains.mjs';
+import { invalidateFolderCache } from '../modules/keywords/folders-service.mjs';
+import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   requestContextStorage,
   redactSecrets,
@@ -30,11 +28,10 @@ import {
   jsonResponse,
   methodNotAllowedResponse,
   corsOptionsResponse,
-  getCachedShardSql,
   buildCanonicalCacheKey,
   getCachedOrFetch,
   invalidateEdgeCache
-} from '../worker.mjs';
+} from '../http/security-and-response.mjs';
 
 function buildFastifyHeaders(rawHeaders = {}) {
   const webHeaders = new Headers();
@@ -110,9 +107,19 @@ export async function apiRoutesPlugin(app, options = {}) {
     }
 
     const reqAdapter = buildNativeRequestAdapter(request, fullUrl, method, webHeaders);
+    const outerStore = requestContextStorage.getStore();
+    const externalCustomCtx = outerStore?.customCtx && outerStore.customCtx !== ctx ? outerStore.customCtx : null;
+    const effectiveCtx = externalCustomCtx || ctx;
 
     const webResponse = await requestContextStorage.run(
-      { request: reqAdapter, env, ctx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] },
+      {
+        request: reqAdapter,
+        env,
+        ctx: effectiveCtx,
+        customCtx: externalCustomCtx,
+        origin: dynamicCors['Access-Control-Allow-Origin'],
+        bgPromises: []
+      },
       async () => {
         try {
           const url = new URL(fullUrl);
@@ -121,7 +128,7 @@ export async function apiRoutesPlugin(app, options = {}) {
 
           // 1. Security Authentication Gate for Mutating Methods & Sensitive Endpoints
           const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
-          const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname === '/api/fleet/warm' || pathname.startsWith('/api/crawl/dispatch');
+          const isSensitiveEndpoint = pathname === '/api/cache/invalidate' || pathname.startsWith('/api/crawl/dispatch');
           if (isMutatingMethod || isSensitiveEndpoint) {
             const auth = verifyApiAuthentication(reqAdapter, env);
             if (!auth.authorized) {
@@ -206,14 +213,28 @@ export async function apiRoutesPlugin(app, options = {}) {
             });
           }
 
-          // 4. SQL Client Resolution
-          let sql = env?.SQL_CLIENT;
-          if (!sql) {
-            const directNeonUrl = env?.DATABASE_URL || process.env?.DATABASE_URL || null;
-            if (directNeonUrl) {
-              const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
-              sql = getCachedShardSql(pooledDirectUrl, () => createUniversalSqlClient(directNeonUrl));
+          // 3B. Authenticated Cache Invalidation Endpoint (for GitHub Actions & Internal Pipelines)
+          if (pathname === '/api/cache/invalidate') {
+            if (method !== 'POST') {
+              return methodNotAllowedResponse('POST, OPTIONS');
             }
+            const body = await reqAdapter.json().catch(() => ({}));
+            invalidateFolderCache();
+            await invalidateEdgeCache();
+            await invalidateGlobalPulseCache(env, ctx).catch(() => {});
+            return jsonResponse({
+              success: true,
+              invalidated: true,
+              epoch: String(Date.now()),
+              scope: body?.scope || 'all',
+              event: body?.event || 'manual'
+            });
+          }
+
+          // 4. Unified SQL Client Resolution
+          let sql = env?.SQL_CLIENT;
+          if (!sql && (env?.DATABASE_URL || process.env?.DATABASE_URL)) {
+            sql = getSqlClient(env);
           }
 
           if (!sql) {
@@ -232,16 +253,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             }
           }
 
-          let targetSql = sql;
-          const reqProjectId = searchParams.get('project_id') || (!pathname.startsWith('/api/fleet') ? searchParams.get('shard') : null) || webHeaders.get('x-target-project');
-          if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
-            const resolvedShardSql = getCachedShardSql(String(reqProjectId).trim());
-            if (resolvedShardSql) {
-              targetSql = resolvedShardSql;
-            }
-          }
-
-          // 6. Native Sub-Router Dispatch
+          // 5. Native Sub-Router Dispatch
           if (isClusterRoute(pathname)) {
             const clusterRes = await handleClusterRoutes({
               pathname,
@@ -251,8 +263,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              targetSql,
-              reqProjectId,
               jsonResponse,
               methodNotAllowedResponse,
               clampLimit,
@@ -274,8 +284,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              targetSql,
-              reqProjectId,
               jsonResponse,
               methodNotAllowedResponse,
               clampLimit,
@@ -297,7 +305,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              targetSql,
               jsonResponse,
               methodNotAllowedResponse,
               clampLimit,
@@ -321,7 +328,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              targetSql,
               jsonResponse,
               methodNotAllowedResponse,
               buildCanonicalCacheKey,
@@ -332,24 +338,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               redactSecrets
             });
             if (pinsRes) return pinsRes;
-          }
-
-          if (pathname.startsWith('/api/fleet')) {
-            const fleetRes = await handleFleetRoutes({
-              pathname,
-              method,
-              request: reqAdapter,
-              searchParams,
-              env,
-              ctx,
-              sql,
-              jsonResponse,
-              methodNotAllowedResponse,
-              getCachedOrFetch,
-              invalidateEdgeCache,
-              safeWaitUntil
-            });
-            if (fleetRes) return fleetRes;
           }
 
           if (pathname.startsWith('/api/domains')) {
@@ -390,6 +378,15 @@ export async function apiRoutesPlugin(app, options = {}) {
               : 'INTERNAL_SERVER_ERROR',
             message: redactSecrets(err?.message || 'An unexpected internal error occurred')
           }, status);
+        } finally {
+          const store = requestContextStorage.getStore();
+          if (store?.bgPromises?.length) {
+            // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
+            const closePromise = Promise.allSettled(store.bgPromises).catch(() => {});
+            if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
+              effectiveCtx.waitUntil(closePromise);
+            }
+          }
         }
       }
     );
@@ -411,7 +408,6 @@ export async function apiRoutesPlugin(app, options = {}) {
   app.all('/api/competitors', dispatchApiRequest);
   app.all('/api/competitors/*', dispatchApiRequest);
   app.all('/api/boards/*', dispatchApiRequest);
-  app.all('/api/fleet/*', dispatchApiRequest);
   app.all('/api/domains', dispatchApiRequest);
   app.all('/api/domains/*', dispatchApiRequest);
   app.all('/api/pulse/*', dispatchApiRequest);

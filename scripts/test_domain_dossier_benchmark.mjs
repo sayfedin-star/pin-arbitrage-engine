@@ -7,8 +7,8 @@
 import assert from 'node:assert';
 import { performance } from 'node:perf_hooks';
 import { createSqlClient as neon } from '../src/db/client.mjs';
-import worker from '../src/worker.mjs';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+const worker = { fetch: handleAppRequest };
 import { getDomainDeepDossier, fetchAndCacheDomainAge } from '../src/modules/domains/service.mjs';
 import { fetchAndCacheDomainAdNetwork } from '../src/modules/domains/ad-network-service.mjs';
 
@@ -22,7 +22,7 @@ if (!DATABASE_URL) {
   process.exit(0);
 }
 
-const sql = neon(enforceNeonPoolerUrl(DATABASE_URL));
+const sql = neon(DATABASE_URL);
 const mockKv = new Map();
 const mockKvOpts = new Map();
 const mockKvStore = {

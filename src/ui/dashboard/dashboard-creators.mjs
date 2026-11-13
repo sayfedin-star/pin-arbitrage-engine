@@ -277,9 +277,6 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                             <template x-if="!c.has_active_pins && c.has_vault_pins">
                               <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 whitespace-nowrap" :title="'Displaced Vault (' + (c.vault_pin_count || 0) + ' pins)'">🟣 Vault</span>
                             </template>
-                            <template x-if="c._shard_name && selectedProject === 'all'">
-                              <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
-                            </template>
                           </div>
                           <div class="text-[10px] text-slate-500 truncate max-w-[200px]" x-text="(c.pin_count > 0 && (scopedFolderId || folderFilter)) ? ((c.display_name || c.username) + ' • ' + c.pin_count + ' folder pins') : (c.display_name || c.username)"></div>
                         </div>
@@ -1248,7 +1245,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                       <h3 class="text-base font-bold text-slate-900 dark:text-white">Master Pin Ledger</h3>
                       <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
                     </div>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Discovered pins catalog for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span>. Deeply synchronized across Neon Shards.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Discovered pins catalog for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span>. Synchronized in Unified PostgreSQL.</p>
                   </div>
                 </div>
 

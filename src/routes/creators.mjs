@@ -48,7 +48,6 @@ import {
   getCreatorHubSettings,
   updateCreatorHubSettings
 } from '../modules/creators/service.mjs';
-import { syncCompetitorAcrossFleet } from '../modules/fleet/service.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 
 /**
@@ -78,8 +77,6 @@ export async function handleCreatorsRoutes(routeCtx) {
     env,
     ctx,
     sql,
-    targetSql,
-    reqProjectId,
     jsonResponse,
     clampLimit,
     buildCanonicalCacheKey,
@@ -103,15 +100,14 @@ export async function handleCreatorsRoutes(routeCtx) {
   // 0. GET & POST /api/competitors/settings (or /api/creators/settings)
   // [INVARIANT: LITERAL-MATCHES-FIRST] Handled strictly before root /api/competitors
   if (pathname === '/api/competitors/settings' || pathname === '/api/creators/settings' || originalPathname === '/api/creators/settings') {
-    const hubSql = sql || targetSql;
     if (method === 'GET') {
-      const settings = await getCreatorHubSettings(hubSql);
+      const settings = await getCreatorHubSettings(sql);
       return jsonResponse({ success: true, settings }, 200, 30);
     }
     if (method === 'POST') {
       invalidateCreatorsCache();
       const body = await request.json().catch(() => ({}));
-      const updated = await updateCreatorHubSettings(hubSql, body);
+      const updated = await updateCreatorHubSettings(sql, body);
       return jsonResponse({ success: true, settings: updated }, 200);
     }
     return (typeof routeCtx.methodNotAllowedResponse === 'function'
@@ -178,10 +174,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
     const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
     try {
-      const result = await quickPulseCreator(targetSql, targetId, cookie);
-      if (result?.username && typeof safeWaitUntil === 'function') {
-        safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, result.username), 'syncCompetitorAcrossFleet');
-      }
+      const result = await quickPulseCreator(sql, targetId, cookie);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
@@ -199,7 +192,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
     const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
     try {
-      const result = await deepHarvestCreator(targetSql, targetId, { cookie, env });
+      const result = await deepHarvestCreator(sql, targetId, { cookie, env });
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
@@ -220,10 +213,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
     const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
     try {
-      const updated = await syncCompetitorProfile(targetSql, username, cookie);
-      if (updated?.username) {
-        safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, updated.username), 'syncCompetitorAcrossFleet');
-      }
+      const updated = await syncCompetitorProfile(sql, username, cookie);
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
@@ -245,10 +235,9 @@ export async function handleCreatorsRoutes(routeCtx) {
     const competitorId = searchParams.get('competitor_id') || searchParams.get('id');
     const idOrUser = username || competitorId;
     if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
-    const shardKey = reqProjectId || 'hub';
-    const cacheKey = buildCanonicalCacheKey(`competitors:boards:${shardKey}`, { idOrUser, username: username || '' });
+    const cacheKey = buildCanonicalCacheKey('competitors:boards', { idOrUser, username: username || '' });
     const boardsData = await getCachedOrFetch(cacheKey, async () => {
-      const boards = await getCompetitorBoards(targetSql, idOrUser, { username });
+      const boards = await getCompetitorBoards(sql, idOrUser, { username });
       return { success: true, boards };
     }, 30000, 60000);
     return jsonResponse(boardsData, 200, 30);
@@ -261,10 +250,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       const { competitor_id, username } = body;
       if (!competitor_id && !username) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
       const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-      const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
-      if (result?.ok && (username || competitor_id)) {
-        syncCompetitorAcrossFleet(sql, username || competitor_id).catch(() => {});
-      }
+      const result = await syncCompetitorBoards(sql, competitor_id, username, cookie);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
@@ -281,7 +267,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       const { competitor_id, username, mode, max_pages } = body;
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
       const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-      const result = await syncCompetitorPins(targetSql, competitor_id, username, { mode, maxPages: max_pages, cookie });
+      const result = await syncCompetitorPins(sql, competitor_id, username, { mode, maxPages: max_pages, cookie });
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
@@ -301,7 +287,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         let totalRefreshed = 0;
         for (const cId of competitor_ids) {
           try {
-            const r = await fastRefreshCompetitorArchivedPins(targetSql, cId);
+            const r = await fastRefreshCompetitorArchivedPins(sql, cId);
             totalRefreshed += (r.refreshed_count || 0);
             results.push({ id: cId, ...r });
           } catch (itemErr) {
@@ -316,7 +302,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         });
       }
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-      const result = await fastRefreshCompetitorArchivedPins(targetSql, competitor_id || username, body);
+      const result = await fastRefreshCompetitorArchivedPins(sql, competitor_id || username, body);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
@@ -337,7 +323,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         let totalBoardsSynced = 0;
         for (const cId of competitor_ids) {
           try {
-            const r = await auditSweepCompetitor(targetSql, cId);
+            const r = await auditSweepCompetitor(sql, cId);
             totalPinsAudited += (r.total_pins_inventory || 0);
             totalBoardsSynced += (r.boards_synced || 0);
             results.push({ id: cId, ...r });
@@ -354,7 +340,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         });
       }
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-      const result = await auditSweepCompetitor(targetSql, competitor_id || username, body);
+      const result = await auditSweepCompetitor(sql, competitor_id || username, body);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
@@ -371,10 +357,9 @@ export async function handleCreatorsRoutes(routeCtx) {
     const idOrUser = username || id;
     if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
     try {
-      const shardKey = reqProjectId || 'hub';
-      const cacheKey = buildCanonicalCacheKey(`competitors:detail:${shardKey}`, { idOrUser, username: username || '' });
+      const cacheKey = buildCanonicalCacheKey('competitors:detail', { idOrUser, username: username || '' });
       const detailData = await getCachedOrFetch(cacheKey, async () => {
-        const detail = await getCompetitorDetail(targetSql, idOrUser, { username });
+        const detail = await getCompetitorDetail(sql, idOrUser, { username });
         return { success: true, ...detail };
       }, 20000, 60000);
       return jsonResponse(detailData, 200, 20);
@@ -392,7 +377,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const board = body.board || body.board_name || body.slug || searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh: true });
+      const boardData = await getOrSyncBoardDetail(sql, username, board, { forceRefresh: true });
       return jsonResponse({ success: true, board: boardData }, 200, 0);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -405,7 +390,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh: false });
+      const boardData = await getOrSyncBoardDetail(sql, username, board, { forceRefresh: false });
       return jsonResponse({ success: true, board: boardData }, 200, 60);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -419,7 +404,6 @@ export async function handleCreatorsRoutes(routeCtx) {
     const idOrUser = username || id;
     if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
     try {
-      const shardKey = reqProjectId || 'hub';
       const cacheParams = {
         idOrUser,
         username: username || '',
@@ -438,9 +422,9 @@ export async function handleCreatorsRoutes(routeCtx) {
         changed_only: searchParams.get('changed_only') === 'true',
         scope: searchParams.get('scope') || 'official'
       };
-      const cacheKey = buildCanonicalCacheKey(`competitors:all-pins:${shardKey}`, cacheParams);
+      const cacheKey = buildCanonicalCacheKey('competitors:all-pins', cacheParams);
       const allPinsData = await getCachedOrFetch(cacheKey, async () => {
-        const data = await listCompetitorAccountPins(targetSql, idOrUser, cacheParams);
+        const data = await listCompetitorAccountPins(sql, idOrUser, cacheParams);
         return { success: true, ...data };
       }, 20000, 60000);
       return jsonResponse(allPinsData, 200, 15);
@@ -454,7 +438,6 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
-      const shardKey = reqProjectId || 'hub';
       const cacheParams = {
         id,
         limit: clampLimit(searchParams.get('limit'), 50, 1000),
@@ -464,9 +447,9 @@ export async function handleCreatorsRoutes(routeCtx) {
         filter_type: searchParams.get('filter_type') || 'all',
         scope: searchParams.get('scope') || 'ecosystem'
       };
-      const cacheKey = buildCanonicalCacheKey(`competitors:top-urls:${shardKey}`, cacheParams);
+      const cacheKey = buildCanonicalCacheKey('competitors:top-urls', cacheParams);
       const topUrlsData = await getCachedOrFetch(cacheKey, async () => {
-        const result = await getTopDestinationUrls(targetSql, id, cacheParams);
+        const result = await getTopDestinationUrls(sql, id, cacheParams);
         return { success: true, ...result };
       }, 20000, 60000);
       return jsonResponse(topUrlsData, 200, 15);
@@ -480,10 +463,10 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
     try {
       if (id) {
-        const result = await getCompetitorRules(targetSql, id);
+        const result = await getCompetitorRules(sql, id);
         return jsonResponse({ success: true, ...result });
       }
-      const rules = await getQualificationRules(targetSql);
+      const rules = await getQualificationRules(sql);
       return jsonResponse({ success: true, rules });
     } catch (err) {
       if (!id) {
@@ -511,10 +494,10 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = body.competitor_id || (!isGlobalPayload ? body.id : null);
     try {
       if (id) {
-        const result = await saveCompetitorRules(targetSql, id, body.rules || body);
+        const result = await saveCompetitorRules(sql, id, body.rules || body);
         return jsonResponse({ success: true, ...result });
       }
-      const rules = await updateQualificationRules(targetSql, body);
+      const rules = await updateQualificationRules(sql, body);
       return jsonResponse({ success: true, rules });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -540,7 +523,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = body.competitor_id || (!isGlobalPayload ? body.id : null);
     try {
       if (id) {
-        const result = await reEvaluateCompetitorPins(targetSql, id);
+        const result = await reEvaluateCompetitorPins(sql, id);
         return jsonResponse({ success: true, ...result });
       }
       const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
@@ -554,7 +537,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         (body.rules && typeof body.rules === 'object')
       ));
       const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
-      const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
+      const audit = await reEvaluateArchivedPins(sql, rulesPayload, account);
       return jsonResponse({ success: true, ...audit });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -643,7 +626,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
-      const result = await getCompetitorSeeds(targetSql, id);
+      const result = await getCompetitorSeeds(sql, id);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -656,7 +639,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = body.competitor_id || body.id;
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
-      const result = await addCompetitorSeeds(targetSql, id, body.pin_ids || body.pins || []);
+      const result = await addCompetitorSeeds(sql, id, body.pin_ids || body.pins || []);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -674,7 +657,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
     if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
     try {
-      const result = await deleteCompetitorSeed(targetSql, id, pinId);
+      const result = await deleteCompetitorSeed(sql, id, pinId);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -686,7 +669,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
-      const result = await getCompetitorRelatedIntersections(targetSql, id, {
+      const result = await getCompetitorRelatedIntersections(sql, id, {
         min_overlap: Number(searchParams.get('min_overlap') || 2),
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 1000),
@@ -706,7 +689,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const pinId = body.pin_id;
     if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
     try {
-      const result = await harvestSinglePinRelatedLive(targetSql, id, pinId);
+      const result = await harvestSinglePinRelatedLive(sql, id, pinId);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -770,7 +753,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         } catch (_) {}
       }
       if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
-      await deleteCompetitorSnapshot(targetSql, snapshotId);
+      await deleteCompetitorSnapshot(sql, snapshotId);
       return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
     } finally {
       invalidateCreatorsCache();
@@ -783,7 +766,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       const body = await request.json();
       const idOrUser = body.username || body.id || body.competitor_id;
       if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
-      const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
+      const row = await updateCompetitorStatus(sql, idOrUser, body.is_active);
       return jsonResponse({ success: true, competitor: row });
     } finally {
       invalidateCreatorsCache();
@@ -794,13 +777,12 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // GET /api/competitors
   if (method === 'GET' && pathname === '/api/competitors') {
-    const shardKey = reqProjectId || 'hub';
     const account_type = searchParams.get('account_type') || 'all';
     const search = searchParams.get('search') || '';
     const limit = clampLimit(searchParams.get('limit'), 5000, 5000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
-    const cacheKey = buildCanonicalCacheKey(`competitors:${shardKey}`, {
+    const cacheKey = buildCanonicalCacheKey('competitors', {
       account_type,
       search,
       limit,
@@ -809,8 +791,8 @@ export async function handleCreatorsRoutes(routeCtx) {
 
     try {
       const data = await getCachedOrFetch(cacheKey, async () => {
-        const overview = await getCompetitorsOverview(targetSql);
-        const competitors = await listCompetitors(targetSql, {
+        const overview = await getCompetitorsOverview(sql);
+        const competitors = await listCompetitors(sql, {
           account_type,
           search,
           limit,
@@ -838,10 +820,7 @@ export async function handleCreatorsRoutes(routeCtx) {
   if (method === 'POST' && pathname === '/api/competitors') {
     try {
       const body = await request.json().catch(() => ({}));
-      const row = await trackCompetitor(targetSql, body);
-      if (row?.username) {
-        safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, row.username), 'syncCompetitorAcrossFleet');
-      }
+      const row = await trackCompetitor(sql, body);
       return jsonResponse({ success: true, competitor: row });
     } finally {
       invalidateCreatorsCache();
@@ -862,12 +841,12 @@ export async function handleCreatorsRoutes(routeCtx) {
       }
       if (username) {
         const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
-        await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
-        await targetSql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
+        await sql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+        await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
         return jsonResponse({ success: true, deleted_username: cleanUser });
       } else if (id && !isNaN(Number(id))) {
-        await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
-        await targetSql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
+        await sql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
         return jsonResponse({ success: true, deleted_id: Number(id) });
       }
       return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
@@ -883,11 +862,10 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // 1. Archive Overview (GET /api/creators/archive-overview & /api/competitors/archive-overview)
   if (method === 'GET' && (pathname === '/api/competitors/archive-overview' || originalPathname === '/api/creators/archive-overview' || originalPathname === '/api/creators/pinarchive-overview')) {
-    const shardKey = reqProjectId || 'hub';
-    const cacheKey = buildCanonicalCacheKey(`pinarchive:overview:${shardKey}`, {});
+    const cacheKey = buildCanonicalCacheKey('pinarchive:overview', {});
     try {
       const overview = await getCachedOrFetch(cacheKey, async () => {
-        return await getPinArchiveOverview(targetSql);
+        return await getPinArchiveOverview(sql);
       }, 15000, 60000);
       return jsonResponse({ success: true, overview }, 200, 15);
     } catch (err) {
@@ -909,14 +887,13 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // 2. Topic Clusters API (GET /api/creators/topics & /api/competitors/topics)
   if (method === 'GET' && (pathname === '/api/competitors/topics' || originalPathname === '/api/creators/topics')) {
-    const shardKey = reqProjectId || 'hub';
     const minPins = Number(searchParams.get('min_pins') || 1);
     const search = searchParams.get('search') || '';
     const account = searchParams.get('account') || '';
     const limit = clampLimit(searchParams.get('limit'), 50, 1000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
-    const cacheKey = buildCanonicalCacheKey(`topics:${shardKey}`, {
+    const cacheKey = buildCanonicalCacheKey('topics', {
       minPins,
       search,
       account,
@@ -926,7 +903,7 @@ export async function handleCreatorsRoutes(routeCtx) {
 
     try {
       const topics = await getCachedOrFetch(cacheKey, async () => {
-        return await getTopicClusters(targetSql, { minPins, search, account, limit, offset });
+        return await getTopicClusters(sql, { minPins, search, account, limit, offset });
       }, 8000, 30000);
       return jsonResponse({ success: true, topics: Array.isArray(topics) ? topics : [] }, 200, 8);
     } catch (err) {
@@ -951,8 +928,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const limit = clampLimit(searchParams.get('limit'), 50, 1000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
-    const shardKey = reqProjectId || 'hub';
-    const cacheKey = buildCanonicalCacheKey(`pinarchive:pins:${shardKey}`, {
+    const cacheKey = buildCanonicalCacheKey('pinarchive:pins', {
       search,
       topic,
       board,
@@ -969,7 +945,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     });
 
     const data = await getCachedOrFetch(cacheKey, async () => {
-      const pins = await listArchivedPins(targetSql, {
+      const pins = await listArchivedPins(sql, {
         search,
         topic,
         board,
@@ -996,7 +972,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true';
     // [INVARIANT: READ-ONLY-GET-SAFE] Read-only GET cache-busting without live scraping
-    const detail = await getPinDetailWithMetrics(targetSql, pinId, { refresh, env, isReadOnly: true });
+    const detail = await getPinDetailWithMetrics(sql, pinId, { refresh, env, isReadOnly: true });
     if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
     return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
   }
@@ -1008,7 +984,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
     const pinId = searchParams.get('pin_id') || body.pin_id;
     if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
-    const result = await deletePinMetricSnapshot(targetSql, snapshotId, pinId);
+    const result = await deletePinMetricSnapshot(sql, snapshotId, pinId);
     return jsonResponse(result);
   }
 

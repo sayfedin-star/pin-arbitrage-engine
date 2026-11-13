@@ -13,7 +13,7 @@
  * - Lock 3: Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
  * - Lock 4: Authentic Rolling Multi-Window Gains vs Fake Multiplier
  * - Lock 5: Context-Preserving Pin Navigation & Untracked Creator Shield
- * - Lock 6: Pure Neon PostgreSQL Architecture & Zero Cloudflare Footprint
+ * - Lock 6: Pure Unified PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint
  * - Lock 7: Room 3 Creator Hub Discovery & Lightweight SERP Creator Pulse
  * - Lock 8: Daily Rolling Gains Workflow Automation
  * - Lock 9: Window-Aware Competitor Audience Gains
@@ -86,7 +86,6 @@ try {
   console.log('\n[Lock 2] Verifying Pin Dossier Timeframe & SERP Badge Integrity...');
   const pinDetailsContent = readFile('src/pin-details-ui.mjs');
   const mathContent = readFile('src/lib/math.mjs');
-  const fleetRouterContent = readFile('src/modules/sharding/fleet-router.mjs');
 
   // 2A. Default timeframe must be '7d'
   const hasDefault7d = /chartTimeframe:\s*['"]7d['"]/.test(pinDetailsContent);
@@ -104,9 +103,9 @@ try {
   const hasHydrationJump = /export function detectHydrationJump\s*\(/.test(mathContent);
   check('Lock 2', hasHydrationJump, 'src/lib/math.mjs lacks detectHydrationJump function');
 
-  // 2E. Must contain sanitizeDossierTrajectory
-  const hasSanitizeDossier = /export function sanitizeDossierTrajectory\s*\(/.test(fleetRouterContent);
-  check('Lock 2', hasSanitizeDossier, 'src/modules/sharding/fleet-router.mjs lacks sanitizeDossierTrajectory function');
+  // 2E. Must contain sanitizeDossierTrajectory (moved to src/lib/math.mjs in Phase 1)
+  const hasSanitizeDossier = /export function sanitizeDossierTrajectory\s*\(/.test(mathContent);
+  check('Lock 2', hasSanitizeDossier, 'src/lib/math.mjs lacks sanitizeDossierTrajectory function');
 
   // =========================================================================
   // LOCK 3: Unified Single-DB SSOT & Eradication of Legacy Sharding / Neon Driver
@@ -116,7 +115,9 @@ try {
   const keywordCrawlerContent = readFile('scripts/keyword-velocity-crawler.mjs');
   const clusterCrawlerContent = readFile('scripts/cluster-intelligence.mjs');
   const pkgJsonContent = readFile('package.json');
-  const workerContent = readFile('src/worker.mjs');
+  const serverContent = readFile('src/server.mjs');
+  const securityHttpContent = readFile('src/http/security-and-response.mjs');
+  const apiRoutesContent = readFile('src/plugins/api-routes.mjs');
   const pinsRouteContent = readFile('src/routes/pins.mjs');
   const serviceKeywordsContent = readFile('src/modules/keywords/service.mjs');
   const serviceCreatorsContent = readFile('src/modules/creators/service.mjs');
@@ -145,21 +146,28 @@ try {
   const usesHashtext = /hashtext\s*\(/i.test(keywordCrawlerContent);
   check('Lock 3', !usesHashtext, 'scripts/keyword-velocity-crawler.mjs uses banned hashtext(');
 
-  // 3D. Zero @neondatabase/serverless dependency in package.json, src/worker.mjs, or src/modules/sharding/fleet-router.mjs
+  const dbClientContent = readFile('src/db/client.mjs');
+  const pinRepoContent = readFile('src/modules/pins/repository.mjs');
+
+  // 3D. Zero @neondatabase/serverless or legacy fleet-router dependency in package.json or src/
   const hasNeonServerless = (
     pkgJsonContent.includes('@neondatabase/serverless') ||
-    /from\s+['"]@neondatabase\/serverless['"]/.test(workerContent) ||
-    /from\s+['"]@neondatabase\/serverless['"]/.test(fleetRouterContent)
+    /from\s+['"]@neondatabase\/serverless['"]/.test(serverContent) ||
+    /from\s+['"]@neondatabase\/serverless['"]/.test(securityHttpContent) ||
+    /from\s+['"]@neondatabase\/serverless['"]/.test(dbClientContent) ||
+    /fleet-router\.mjs/.test(serverContent) ||
+    /fleet-router\.mjs/.test(pinsRouteContent)
   );
-  check('Lock 3', !hasNeonServerless, '@neondatabase/serverless must be completely removed from package.json, src/worker.mjs, and src/modules/sharding/fleet-router.mjs');
+  check('Lock 3', !hasNeonServerless, '@neondatabase/serverless and fleet-router.mjs must be completely removed from package.json and src/');
 
-  // 3E. src/db/client.mjs must be imported and wired into fleet-router.mjs and worker.mjs
+  // 3E. src/db/client.mjs must be imported and wired into server.mjs and api-routes.mjs
   const dbClientWired = (
-    fleetRouterContent.includes("from '../../db/client.mjs'") &&
-    fleetRouterContent.includes('createSqlClient') &&
-    workerContent.includes("from './db/client.mjs'")
+    dbClientContent.includes('createSqlClient') &&
+    dbClientContent.includes('getSqlClient') &&
+    serverContent.includes("from './db/client.mjs'") &&
+    apiRoutesContent.includes("from '../db/client.mjs'")
   );
-  check('Lock 3', dbClientWired, 'src/db/client.mjs is not actively imported and wired into src/modules/sharding/fleet-router.mjs and src/worker.mjs');
+  check('Lock 3', dbClientWired, 'src/db/client.mjs is not actively imported and wired into src/server.mjs and src/plugins/api-routes.mjs');
 
   // 3F. src/modules/pins/repository.mjs must be imported and wired across routes, services, and crawlers
   const pinRepoWired = (
@@ -229,17 +237,24 @@ try {
   check('Lock 5', !hasDeadPlaceholder, 'src/campaign-folders-ui.mjs contains dead via.placeholder.com URL');
 
   // =========================================================================
-  // LOCK 6: Pure Neon PostgreSQL Architecture & Zero Cloudflare Footprint
+  // LOCK 6: Pure Unified PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint
   // =========================================================================
-  console.log('\n[Lock 6] Verifying Pure Neon Architecture & Zero Cloudflare Footprint in src/...');
+  console.log('\n[Lock 6] Verifying Pure PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint in src/...');
   const d1MetadataExists = fs.existsSync(path.join(ROOT_DIR, 'src/modules/keywords/d1-metadata.mjs'));
-  check('Lock 6', !d1MetadataExists, 'src/modules/keywords/d1-metadata.mjs must be permanently deleted');
+  const legacyShardingExists = (
+    fs.existsSync(path.join(ROOT_DIR, 'src/modules/sharding/fleet-router.mjs')) ||
+    fs.existsSync(path.join(ROOT_DIR, 'src/routes/fleet.mjs')) ||
+    fs.existsSync(path.join(ROOT_DIR, 'src/modules/fleet/service.mjs'))
+  );
+  check('Lock 6', !d1MetadataExists && !legacyShardingExists, 'd1-metadata.mjs, fleet-router.mjs, routes/fleet.mjs, and modules/fleet/service.mjs must remain permanently deleted');
 
   // 6B. Verify zero references to PIN_ENGINE_KV, PIN_D1_DB, createHyperdriveClient, or getPinKvKeysToEvict in src/
   const srcFilesToCheck = [
-    'src/worker.mjs',
+    'src/http/security-and-response.mjs',
+    'src/plugins/api-routes.mjs',
     'src/server.mjs',
-    'src/modules/sharding/fleet-router.mjs',
+    'src/db/client.mjs',
+    'src/modules/pins/repository.mjs',
     'src/modules/keywords/service.mjs',
     'src/modules/keywords/folders-service.mjs',
     'src/modules/keywords/visual-lens-cache.mjs',
@@ -248,8 +263,7 @@ try {
     'src/routes/pins.mjs',
     'src/routes/cluster.mjs',
     'src/routes/creators.mjs',
-    'src/routes/domains.mjs',
-    'src/routes/fleet.mjs'
+    'src/routes/domains.mjs'
   ];
   for (const relFile of srcFilesToCheck) {
     const fileText = readFile(relFile);
@@ -271,9 +285,12 @@ try {
   const hasPulseOnlyBypass = /acc\.tracking_mode\s*===\s*['"]pulse_only['"]/.test(creatorCrawlerContent);
   check('Lock 7', hasPulseOnlyBypass, "scripts/creator-velocity-crawler.mjs lacks tracking_mode === 'pulse_only' fast-path bypass");
 
-  // 7C. keywords/service.mjs must support Unified PostgreSQL topology
-  const checksUnifiedPostgres = /isUnifiedPostgres\(\s*env\s*\)/.test(serviceContent);
-  check('Lock 7', checksUnifiedPostgres, 'src/modules/keywords/service.mjs lacks isUnifiedPostgres(env) guard');
+  // 7C. keywords/service.mjs must hydrate displaced pins directly from Unified PostgreSQL (zero shard scatter-gather)
+  const usesUnifiedDisplacedHydration = (
+    /hydrateDisplacedPinsMetadata/.test(serviceContent) &&
+    !/resolveShardConnection/.test(serviceContent)
+  );
+  check('Lock 7', usesUnifiedDisplacedHydration, 'src/modules/keywords/service.mjs must use hydrateDisplacedPinsMetadata without legacy shard routing');
 
   // =========================================================================
   // LOCK 8: Daily Rolling Gains Workflow Automation
@@ -307,8 +324,6 @@ try {
   // LOCK 11: Domain Studio -> /accounts Hydration & Crawler BigInt Parity
   // =========================================================================
   console.log('\n[Lock 11] Verifying /accounts Query Param Hydration & BigInt Parity...');
-  const pinRepoContent = readFile('src/modules/pins/repository.mjs');
-
   const parsesCreatorParam = /URLSearchParams\(\s*window\.location\.search[\s\S]*?['"]creator['"]/.test(dashboardContent);
   check('Lock 11', parsesCreatorParam, "src/dashboard-ui.mjs (initDashboard) omits URLSearchParams(window.location.search parsing for 'creator'");
 
@@ -423,7 +438,8 @@ try {
     keywordsServiceContent.includes('calculateDailyVelocity') &&
     keywordsServiceContent.includes('fetchPinsBatchFromPidgets') &&
     keywordsServiceContent.includes('ORDER BY u.pin_id ASC') &&
-    !workerContent.includes("pathname !== '/api/urls/batch-global-saves'") &&
+    !apiRoutesContent.includes("pathname !== '/api/urls/batch-global-saves'") &&
+    !securityHttpContent.includes("pathname !== '/api/urls/batch-global-saves'") &&
     keywordCrawlerContent.includes('phase1a_completed_token')
   );
   check(
@@ -505,10 +521,10 @@ try {
     !keywordCrawlerContent.includes('todayPrev.daily_save_velocity || 0) + intradayAdd') &&
     !keywordsServiceContent.includes('item?.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || item.repin_count') &&
     !clusterServiceContent.includes('p.aggregated_pin_data?.aggregated_stats?.saves ?? (p.repin_count || 0)') &&
-    !fleetRouterContent.includes('existingPositiveVelocity + intradayStepGain') &&
-    !fleetRouterContent.includes('save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))') &&
-    !fleetRouterContent.includes('runningMaxSaves') &&
-    !fleetRouterContent.includes('shouldBackfillUnified') &&
+    !pinRepoContent.includes('existingPositiveVelocity + intradayStepGain') &&
+    !pinRepoContent.includes('save_count = GREATEST(COALESCE(universal_master_pins.save_count, 0), COALESCE(EXCLUDED.save_count, 0))') &&
+    !pinRepoContent.includes('runningMaxSaves') &&
+    !pinRepoContent.includes('shouldBackfillUnified') &&
     !pulseServiceContent.includes('_warmupPins') &&
     !pulseServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))') &&
     !domainsServiceContent.includes('GREATEST(COALESCE(ksc.save_count, 0), COALESCE(ump.save_count, 0))') &&

@@ -6,13 +6,13 @@
  * 2. Monotonic Velocity Ratchet Release (Zero-Decay Lock on Hub & Shards)
  * 3. Guest Scraping Invariant (_auth=0 enforced, _auth=1 stripped)
  * 4. Fast Edge Gate for Hover Prefetch (Scale-to-Zero Defense)
- * 5. SSOT Trajectory Function (fetchPinTrajectoryFromShard)
+ * 5. SSOT Trajectory Function (fetchPinTrajectory)
  */
 
 import assert from 'node:assert';
 import { formatPinterestCookie as formatCookieUtils } from '../src/utils.mjs';
 import { formatPinterestCookie as formatCookieCluster } from './cluster-intelligence.mjs';
-import { fetchPinTrajectoryFromShard, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { fetchPinTrajectory } from '../src/modules/pins/repository.mjs';
 
 console.log('================================================================================');
 console.log('🔬 FORENSIC P0 HOTFIX BUNDLE VERIFICATION SUITE');
@@ -107,30 +107,28 @@ console.log('\n[*] Task 3: Enforcing Guest Scraping Invariant (_auth=0)...');
 });
 
 // -----------------------------------------------------------------------------
-// 2. Task 5 Verification: fetchPinTrajectoryFromShard
+// 2. Task 5 Verification: fetchPinTrajectory
 // -----------------------------------------------------------------------------
-console.log('\n[*] Task 5: SSOT fetchPinTrajectoryFromShard Verification...');
+console.log('\n[*] Task 5: SSOT fetchPinTrajectory Verification...');
 
-await runAsyncTest('fetchPinTrajectoryFromShard returns failure on empty pinId', async () => {
-  const res1 = await fetchPinTrajectoryFromShard({});
+await runAsyncTest('fetchPinTrajectory returns failure on empty pinId', async () => {
+  const res1 = await fetchPinTrajectory({});
   assert.strictEqual(res1.success, false);
   assert.deepStrictEqual(res1.trajectory, []);
   assert.deepStrictEqual(res1.snapshots, []);
 
-  const res2 = await fetchPinTrajectoryFromShard({ pinId: '' });
+  const res2 = await fetchPinTrajectory({ pinId: '' });
   assert.strictEqual(res2.success, false);
 });
 
-await runAsyncTest('fetchPinTrajectoryFromShard returns failure when no sqlClient is available', async () => {
-  const res = await fetchPinTrajectoryFromShard({ pinId: '123456789012' });
+await runAsyncTest('fetchPinTrajectory returns failure when no sqlClient is available', async () => {
+  const res = await fetchPinTrajectory({ pinId: '123456789012' });
   assert.strictEqual(res.success, false);
   assert.deepStrictEqual(res.trajectory, []);
 });
 
-await runAsyncTest('fetchPinTrajectoryFromShard executes against pins_daily_metrics on designated shard', async () => {
+await runAsyncTest('fetchPinTrajectory executes against pins_daily_metrics in Unified PostgreSQL', async () => {
   const samplePinId = '687502244051234567';
-  const expectedShardId = getPinShardId(samplePinId, 99);
-  assert(expectedShardId >= 1 && expectedShardId <= 99);
 
   let capturedQuery = null;
   const mockRows = [
@@ -139,20 +137,19 @@ await runAsyncTest('fetchPinTrajectoryFromShard executes against pins_daily_metr
     { snapshot_date: '2026-10-20', save_count: '18', daily_save_velocity: '3.0', reaction_count: 6, repin_count: 2 }
   ];
 
-  const mockShardSql = (strings, ...values) => {
+  const mockSql = (strings, ...values) => {
     const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
     capturedQuery = rawSql;
     return Promise.resolve(mockRows);
   };
 
-  const res = await fetchPinTrajectoryFromShard({
-    shardSql: mockShardSql,
+  const res = await fetchPinTrajectory({
+    sql: mockSql,
     pinId: samplePinId,
     timeframe: '30d'
   });
 
   assert.strictEqual(res.success, true);
-  assert.strictEqual(res.shard_id, expectedShardId);
   assert.strictEqual(res.timeframe, '30d');
   assert.strictEqual(res.trajectory.length, 3);
   assert.strictEqual(res.snapshots.length, 3);
@@ -161,14 +158,14 @@ await runAsyncTest('fetchPinTrajectoryFromShard executes against pins_daily_metr
   assert(!capturedQuery.includes('pa_pin_metrics'), 'ZERO-HUB-SNAPSHOTS: Must not query Hub tables');
 });
 
-await runAsyncTest('fetchPinTrajectoryFromShard safely catches shard execution errors', async () => {
+await runAsyncTest('fetchPinTrajectory safely catches SQL execution errors', async () => {
   const samplePinId = '687502244051234567';
   const mockFailingSql = () => {
-    return Promise.reject(new Error('Connection timeout to shard'));
+    return Promise.reject(new Error('Connection timeout to PostgreSQL'));
   };
 
-  const res = await fetchPinTrajectoryFromShard({
-    shardSql: mockFailingSql,
+  const res = await fetchPinTrajectory({
+    sql: mockFailingSql,
     pinId: samplePinId
   });
 
@@ -260,9 +257,9 @@ runTest('Intraday SQL logic: Same-day crawl preserves existing baseline', () => 
 // -----------------------------------------------------------------------------
 console.log('\n[*] Task 4: Ghost Prefetch Gate Removal Verification...');
 
-await runAsyncTest('Worker pin dossier routes do not short-circuit on prefetch=true cache_miss', async () => {
-  const worker = await import('../src/worker.mjs');
-  assert(worker.default && typeof worker.default.fetch === 'function', 'Worker must export default.fetch');
+await runAsyncTest('Server pin dossier routes do not short-circuit on prefetch=true cache_miss', async () => {
+  const { handleAppRequest } = await import('../src/server.mjs');
+  assert(typeof handleAppRequest === 'function', 'Server must export handleAppRequest');
 
   const samplePin = '687502244051234567';
   const fakeEnv = {
@@ -273,7 +270,7 @@ await runAsyncTest('Worker pin dossier routes do not short-circuit on prefetch=t
   const reqPin = new Request(`https://pin-engine.local/api/pins/${samplePin}?prefetch=true`, {
     method: 'GET'
   });
-  const resPin = await worker.default.fetch(reqPin, fakeEnv, { waitUntil: () => {} });
+  const resPin = await handleAppRequest(reqPin, fakeEnv, { waitUntil: () => {} });
   const dataPin = await resPin.json();
   assert.notStrictEqual(dataPin.status, 'cache_miss', 'Ghost prefetch cache_miss fast gate must be removed');
 });

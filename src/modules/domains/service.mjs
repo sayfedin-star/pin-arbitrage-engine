@@ -11,7 +11,7 @@
  */
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
-import { hydrateDisplacedIndexFromShards } from '../keywords/service.mjs';
+import { hydrateDisplacedPinsMetadata } from '../keywords/service.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
@@ -2151,7 +2151,7 @@ export function detectMarketingAngle({ title = '', keywords = [], annotations = 
  * 5. P2P Sybil Network (Primary Brand vs Satellite Creators & Cross-Domain Footprint)
  * 6. Reverse-Engineered Visual DNA (Computer Vision Annotations Cloud & Palette)
  */
-export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, skipShardHydration = false, fastPath = true, displacedLimit = 30 } = {}) {
+export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, fastPath = true, displacedLimit = 30 } = {}) {
   const isOrganicVault = typeof rawDomain === 'string' && (
     rawDomain.trim().toLowerCase() === 'uploaded by user' || 
     rawDomain.trim().toLowerCase() === 'uploaded-by-user' ||
@@ -2569,8 +2569,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
   }
 
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS] [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-  // Hydrate displaced pins lacking creative metadata from Shards / D1 in bounded parallel batches
+  // Hydrate displaced pins lacking creative metadata from universal_master_pins in bounded batches
   const missingDisplacedPids = new Set();
   for (const dp of displacedPins) {
     const pid = String(dp.pin_id || '').trim();
@@ -2581,18 +2580,17 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
   }
 
-  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Invariant 9: strictly bound displaced pin shard hydration (default top 30 pins, expandable on demand up to 200)
-  const MAX_DISPLACED_SHARD_HYDRATION = Math.min(200, Math.max(30, Number(displacedLimit || 30)));
-  if (missingDisplacedPids.size > 0 && !skipShardHydration) {
+  const MAX_DISPLACED_HYDRATION = Math.min(200, Math.max(30, Number(displacedLimit || 30)));
+  if (missingDisplacedPids.size > 0) {
     try {
       const sortedMissingPids = displacedPins
         .filter(dp => missingDisplacedPids.has(String(dp.pin_id || '').trim()))
         .sort((a, b) => Number(b.saves || 0) - Number(a.saves || 0))
         .map(dp => String(dp.pin_id).trim());
 
-      const boundedPids = Array.from(new Set(sortedMissingPids)).slice(0, MAX_DISPLACED_SHARD_HYDRATION);
+      const boundedPids = Array.from(new Set(sortedMissingPids)).slice(0, MAX_DISPLACED_HYDRATION);
       const rowsToHydrate = boundedPids.map(pid => ({ pin_id: pid }));
-      const hydratedRows = await hydrateDisplacedIndexFromShards(sql, rowsToHydrate, env, skipShardHydration);
+      const hydratedRows = await hydrateDisplacedPinsMetadata(sql, rowsToHydrate);
       const hydratedMap = new Map();
       for (const h of (hydratedRows || [])) {
         if (h && (h.destination_url || h.image_url || h.title)) {

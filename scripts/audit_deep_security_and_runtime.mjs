@@ -20,14 +20,16 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'node:vm';
 import { createSqlClient as neon } from '../src/db/client.mjs';
-import worker, { redactSecrets } from '../src/worker.mjs';
+import { handleAppRequest } from '../src/server.mjs';
+import { redactSecrets } from '../src/http/security-and-response.mjs';
+const worker = { fetch: handleAppRequest };
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS } from '../src/modules/creators/service.mjs';
-import { fetchUniversalPinDossier, enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');
@@ -218,7 +220,7 @@ async function runSecurityAudit() {
       ]);
     };
 
-    const dossier = await fetchUniversalPinDossier({ hubSql: mockHubSql, pinId: '1098245059167667976' });
+    const dossier = await fetchUniversalPinDossier({ sql: mockHubSql, pinId: '1098245059167667976' });
     const hasPillar1 = Boolean(dossier.pillar_1_creator_context);
     const hasPillar2 = Boolean(dossier.pillar_2_keywords_context);
     const hasPillar3 = Boolean(dossier.pillar_3_related_pins_context);
@@ -232,11 +234,11 @@ async function runSecurityAudit() {
   // --------------------------------------------------------------------------
   // SECTION 6: NEON DATABASE SCHEMA & MIGRATION 027 VERIFICATION
   // --------------------------------------------------------------------------
-  console.log('\n[*] Auditing Section 6: Live Neon Postgres Hub & Fleet Shard Parity...');
+  console.log('\n[*] Auditing Section 6: Live Unified PostgreSQL Parity...');
 
   if (DATABASE_URL) {
     try {
-      const sql = neon(enforceNeonPoolerUrl(DATABASE_URL));
+      const sql = neon(DATABASE_URL);
 
       // 6.1 Verify Central Hub table drops
       const [hubBis] = await sql`
@@ -264,33 +266,7 @@ async function runSecurityAudit() {
         SELECT version, name, applied_at FROM schema_migrations WHERE version = '027';
       `;
       const mig027Registered = Boolean(mig027 && mig027.version === '027');
-      recordAudit('Database', 'Neon Central Hub: Migration 027 registered in schema_migrations', mig027Registered, `Applied at: ${mig027?.applied_at}`);
-
-      // 6.4 Spot check on Fleet Shards
-      const sampleShards = await sql`
-        SELECT id, project_id, project_name, database_url 
-        FROM neon_projects_registry 
-        WHERE NOT is_hub AND status = 'active' AND database_url IS NOT NULL 
-        ORDER BY RANDOM() 
-        LIMIT 5;
-      `;
-      let shardsSampleClean = true;
-      for (const shard of sampleShards) {
-        const shardSql = neon(enforceNeonPoolerUrl(shard.database_url));
-        const [sBis] = await shardSql`
-          SELECT COUNT(*)::int as c FROM information_schema.tables 
-          WHERE table_schema = 'public' AND table_name = 'board_idea_snapshots';
-        `;
-        const [sTb] = await shardSql`
-          SELECT COUNT(*)::int as c FROM information_schema.tables 
-          WHERE table_schema = 'public' AND table_name = 'tracked_boards';
-        `;
-        if (sBis.c !== 0 || sTb.c !== 0) {
-          shardsSampleClean = false;
-          break;
-        }
-      }
-      recordAudit('Database', 'Random Spot-Check of 5 Active Neon Fleet Shards: 100% clean of dropped tables', shardsSampleClean);
+      recordAudit('Database', 'Unified PostgreSQL: Migration 027 registered in schema_migrations', mig027Registered, `Applied at: ${mig027?.applied_at}`);
 
     } catch (dbErr) {
       if (dbErr.code === 'ECONNREFUSED' || dbErr.message?.includes('ECONNREFUSED') || dbErr.message?.includes('fetch failed')) {

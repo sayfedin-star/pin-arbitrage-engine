@@ -21,7 +21,7 @@ import {
   generateDomainArbitrageBlueprint,
   refreshDomainIntelligenceRollup
 } from '../modules/domains/service.mjs';
-import { verifyApiAuthentication } from '../worker.mjs';
+import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 
 /**
  * Handles incoming /api/domains/* requests.

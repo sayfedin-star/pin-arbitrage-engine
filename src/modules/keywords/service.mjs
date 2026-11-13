@@ -26,350 +26,40 @@ import {
   fetchPinsBatchFromPidgets
 } from '../../core/pinterest/index.mjs';
 import { isSyntheticPinTitle, derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
-import { calculateDailyVelocity } from '../../lib/math.mjs';
+import { calculateDailyVelocity, isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
 import {
-  getPinShardId,
-  resolveShardConnection,
-  executeShardQueryWithCircuitBreaker,
-  batchGroupByShard,
-  coalesceShardGroupsByPhysical,
-  preloadNeonRegistry,
+  insertNewPinsBatch,
+  resavePinsMetricsBatch,
   syncPinAcrossAllFourPillars,
   fetchUniversalPinDossier,
-  fetchPinTrajectoryFromShard,
-  isUnifiedPostgres,
-  globalShardMap,
-  isMultiStageHydrationJump,
-  sanitizeDossierTrajectory,
-  safeWaitUntil
-} from '../sharding/fleet-router.mjs';
-
-import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
-import { insertNewPinsBatch, resavePinsMetricsBatch } from '../pins/repository.mjs';
+  fetchPinTrajectory
+} from '../pins/repository.mjs';
 
 /**
- * Offloads crawled active pins and newly displaced pins directly to the 99 Neon Storage Shards
- * (universal_master_pins, pins_daily_metrics, pin_serp_positions, and pins_daily_snapshots)
- * partitioned strictly by Shard_ID = (CRC32(pin_id) % 99) + 1.
+ * Batch-hydrates slim displaced index rows with creative metadata from universal_master_pins.
  */
-
-export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = [], env = null, ctx = null) {
-  const kid = Number(keywordId);
-  if (!hubSql || !kid) return 0;
-
-  const combined = [];
-  for (const p of (activePins || [])) {
-    if (!p || !p.pin_id) continue;
-    combined.push({
-      pin_id: String(p.pin_id),
-      keyword_id: kid,
-      creator_username: String(p.metadata?.pinner?.username || p.creator_username || ''),
-      board_name: String(p.metadata?.board_name || p.board_name || ''),
-      title: String(p.title || ''),
-      domain: String(p.domain || ''),
-      destination_url: String(p.destination_url || ''),
-      image_url: String(p.image_url || ''),
-      description: String(p.description || p.metadata?.description || '').slice(0, 500),
-      alt_text: String(p.alt_text || p.metadata?.alt_text || '').slice(0, 500),
-      dominant_color: String(p.dominant_color || '#888888'),
-      visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-      rank_position: p.rank_position ? Number(p.rank_position) : null,
-      last_known_rank: p.rank_position ? Number(p.rank_position) : null,
-      catalog_rank: p.rank_position ? Number(p.rank_position) : 1,
-      is_displaced: false,
-      save_count: Number(p.save_count || 0),
-      repin_count: Number(p.repin_count || 0),
-      reaction_count: Number(p.reaction_count || p.metadata?.reaction_count || 0),
-      comment_count: Number(p.comment_count || 0),
-      share_count: Number(p.metadata?.share_count || 0),
-      daily_save_velocity: Number(p.daily_save_velocity || 0),
-      delta_repins_24h: Number(p.delta_repins_24h || 0),
-      metadata: {
-        ...(p.metadata || {}),
-        creation_method: p.creation_method || p.metadata?.creation_method || null
-      }
-    });
-  }
-
-  for (const dp of (displacedPins || [])) {
-    if (!dp || !dp.pin_id) continue;
-    const lastRank = dp.last_known_rank || dp.rank_position || 100;
-    combined.push({
-      pin_id: String(dp.pin_id),
-      keyword_id: kid,
-      creator_username: String(dp.metadata?.pinner?.username || dp.creator_username || ''),
-      board_name: String(dp.board_name || dp.metadata?.board_name || ''),
-      title: String(dp.title || ''),
-      domain: String(dp.domain || ''),
-      destination_url: String(dp.destination_url || ''),
-      image_url: String(dp.image_url || ''),
-      description: String(dp.description || dp.metadata?.description || '').slice(0, 500),
-      alt_text: String(dp.alt_text || dp.metadata?.alt_text || '').slice(0, 500),
-      dominant_color: String(dp.dominant_color || '#888888'),
-      visual_annotations: Array.isArray(dp.visual_annotations) ? dp.visual_annotations : [],
-      created_at_pinterest: dp.created_at_pinterest ? new Date(dp.created_at_pinterest).toISOString() : null,
-      rank_position: null,
-      last_known_rank: Number(lastRank),
-      catalog_rank: Number(lastRank) + 250,
-      is_displaced: true,
-      save_count: Number(dp.save_count || 0),
-      repin_count: Number(dp.repin_count || 0),
-      reaction_count: Number(dp.reaction_count || dp.metadata?.reaction_count || 0),
-      comment_count: Number(dp.comment_count || 0),
-      share_count: Number(dp.metadata?.share_count || 0),
-      daily_save_velocity: Number(dp.daily_save_velocity || 0),
-      delta_repins_24h: Number(dp.delta_repins_24h || 0),
-      metadata: {
-        ...(dp.metadata || {}),
-        creation_method: dp.creation_method || dp.metadata?.creation_method || null
-      }
-    });
-  }
-
-  if (combined.length === 0) return 0;
-
-  try {
-    await preloadNeonRegistry(hubSql, env);
-  } catch (_) {}
-
-
-  const confirmedPinIds = new Set();
-  // [INVARIANT: PHYSICAL-SHARD-BATCH-COALESCENCE]
-  const shardGroups = coalesceShardGroupsByPhysical(batchGroupByShard(combined, 99));
-  const shardEntries = (isUnifiedPostgres(env) && globalShardMap.size === 0)
-    ? [[1, combined]]
-    : Array.from(shardGroups.entries());
-  let shardsSynced = 0;
-  // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
-  const CONCURRENCY = 4;
-
-  for (let i = 0; i < shardEntries.length; i += CONCURRENCY) {
-    const chunk = shardEntries.slice(i, i + CONCURRENCY);
-    await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
-      try {
-        const shardSql = await resolveShardConnection({ hubSql, shardId, env });
-        // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Unified Postgres Toplogy Check
-        if (!shardSql || (shardSql === hubSql && !isUnifiedPostgres(env))) return;
-        const sorted = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-        const payload = JSON.stringify(sorted);
-
-        // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-        // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-        // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
-        const buildMasterQuery = (db) => db`
-          INSERT INTO universal_master_pins (
-            pin_id, creator_username, board_name, title, domain, destination_url,
-            image_url, description, alt_text, dominant_color, visual_annotations,
-            save_count, repin_count, comment_count, daily_save_velocity, delta_repins_24h,
-            created_at_pinterest, first_discovered_pillar, first_discovered_at, metadata, updated_at
-          )
-          SELECT DISTINCT ON (u.pin_id)
-            u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
-            u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-            COALESCE(u.save_count, 0), COALESCE(u.repin_count, 0), COALESCE(u.comment_count, 0),
-            COALESCE(u.daily_save_velocity, 0), COALESCE(u.delta_repins_24h, 0),
-            u.created_at_pinterest::timestamptz, 'keyword', NOW(), COALESCE(u.metadata, '{}'::jsonb), NOW()
-          FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-            pin_id text, creator_username text, board_name text, title text, domain text,
-            destination_url text, image_url text, description text, alt_text text,
-            dominant_color text, visual_annotations jsonb,
-            save_count bigint, repin_count int, comment_count int, daily_save_velocity numeric, delta_repins_24h int,
-            created_at_pinterest text, metadata jsonb
-          )
-          ORDER BY u.pin_id ASC
-          ON CONFLICT (pin_id) DO UPDATE SET
-            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = CASE
-              WHEN EXCLUDED.title IS NOT NULL
-               AND BTRIM(EXCLUDED.title) <> ''
-               AND EXCLUDED.title !~* '(^|\s)(Inspiration|Idea)$'
-               AND EXCLUDED.title !~* '^(Untitled(\s+Pin)?|Pin(\s*#?\s*\w+)?|Pinterest\s+(Visual\s+Guide|Pin\s+Idea))$'
-              THEN EXCLUDED.title
-              ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
-            END,
-            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
-            visual_annotations = CASE 
-              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-              THEN EXCLUDED.visual_annotations
-              ELSE universal_master_pins.visual_annotations
-            END,
-            save_count = CASE WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
-            repin_count = CASE WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
-            comment_count = CASE WHEN COALESCE(EXCLUDED.comment_count, 0) > 0 THEN EXCLUDED.comment_count ELSE COALESCE(universal_master_pins.comment_count, 0) END,
-            daily_save_velocity = CASE
-              WHEN (universal_master_pins.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-                AND COALESCE(universal_master_pins.daily_save_velocity, 0) > 0
-                AND (COALESCE(EXCLUDED.daily_save_velocity, 0) <= 1 OR EXCLUDED.daily_save_velocity < universal_master_pins.daily_save_velocity)
-              THEN universal_master_pins.daily_save_velocity
-              WHEN COALESCE(EXCLUDED.daily_save_velocity, 0) > 0 THEN EXCLUDED.daily_save_velocity
-              ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
-            END,
-            delta_repins_24h = CASE
-              WHEN (universal_master_pins.updated_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-                AND COALESCE(universal_master_pins.delta_repins_24h, 0) > 0
-                AND COALESCE(EXCLUDED.delta_repins_24h, 0) < universal_master_pins.delta_repins_24h
-              THEN universal_master_pins.delta_repins_24h
-              WHEN COALESCE(EXCLUDED.delta_repins_24h, 0) > 0 THEN EXCLUDED.delta_repins_24h
-              ELSE COALESCE(universal_master_pins.delta_repins_24h, 0)
-            END,
-            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-            metadata = CASE 
-              WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata != '{}'::jsonb 
-              THEN COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata 
-              ELSE universal_master_pins.metadata 
-            END,
-            updated_at = NOW();
-        `;
-
-        const buildTwoTierQuery = (db) => db`
-          WITH raw_batch AS (
-            SELECT * FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-              pin_id text, keyword_id int, rank_position int, last_known_rank int,
-              catalog_rank int, is_displaced boolean, save_count bigint, repin_count int,
-              reaction_count int, comment_count int, share_count int, daily_save_velocity numeric
-            )
-          ),
-          dedup_metrics AS (
-            SELECT 
-              pin_id,
-              MAX(save_count) AS save_count,
-              MAX(repin_count) AS repin_count,
-              MAX(COALESCE(reaction_count, 0)) AS reaction_count,
-              MAX(comment_count) AS comment_count,
-              MAX(share_count) AS share_count,
-              MAX(daily_save_velocity) AS daily_save_velocity
-            FROM raw_batch
-            GROUP BY pin_id
-          ),
-          upsert_metrics AS (
-            INSERT INTO pins_daily_metrics (
-              pin_id, snapshot_date, save_count, repin_count, reaction_count, comment_count,
-              share_count, daily_save_velocity, updated_at
-            )
-            SELECT 
-              pin_id, (NOW() AT TIME ZONE 'UTC')::date, save_count, repin_count,
-              reaction_count, comment_count, share_count, daily_save_velocity, NOW()
-            FROM dedup_metrics
-            ORDER BY pin_id ASC
-            ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-              save_count = CASE WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
-              repin_count = CASE WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
-              reaction_count = CASE WHEN COALESCE(EXCLUDED.reaction_count, 0) > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
-              comment_count = CASE WHEN COALESCE(EXCLUDED.comment_count, 0) > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
-              share_count = CASE WHEN COALESCE(EXCLUDED.share_count, 0) > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
-              daily_save_velocity = CASE 
-                WHEN COALESCE(pins_daily_metrics.daily_save_velocity, 0) > 0
-                  AND (EXCLUDED.daily_save_velocity IS NULL OR EXCLUDED.daily_save_velocity <= 1 OR EXCLUDED.daily_save_velocity < pins_daily_metrics.daily_save_velocity)
-                THEN pins_daily_metrics.daily_save_velocity
-                WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
-                ELSE pins_daily_metrics.daily_save_velocity 
-              END,
-              updated_at = NOW()
-            RETURNING pin_id
-          )
-          INSERT INTO pin_serp_positions (
-            pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
-            last_known_rank, catalog_rank, updated_at
-          )
-          SELECT DISTINCT ON (pin_id, keyword_id)
-            pin_id, (NOW() AT TIME ZONE 'UTC')::date, keyword_id, rank_position,
-            COALESCE(is_displaced, FALSE), last_known_rank, catalog_rank, NOW()
-          FROM raw_batch
-          WHERE keyword_id IS NOT NULL AND keyword_id > 0
-          ORDER BY pin_id ASC, keyword_id ASC
-          ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-            rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
-            is_displaced = EXCLUDED.is_displaced,
-            last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
-            catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
-            updated_at = NOW();
-        `;
-
-        if (typeof shardSql.transaction === 'function') {
-          await shardSql.transaction([
-            (db) => buildMasterQuery(db),
-            (db) => buildTwoTierQuery(db)
-          ]);
-        } else if (typeof shardSql.begin === 'function') {
-          await shardSql.begin(async (tx) => {
-            await buildMasterQuery(tx);
-            await buildTwoTierQuery(tx);
-          });
-        } else {
-          await buildMasterQuery(shardSql);
-          await buildTwoTierQuery(shardSql);
-        }
-        for (const p of shardPins) {
-          if (p && p.pin_id) confirmedPinIds.add(String(p.pin_id));
-        }
-        shardsSynced++;
-      } catch (err) {
-        console.warn(`[offloadKeywordCrawlToShards] Shard #${shardId} write deferred:`, err.message);
-      }
-    }));
-  }
-  const res = new Number(shardsSynced);
-  res.confirmedPinIds = Array.from(confirmedPinIds);
-  return res;
-}
-
-/**
- * Batch-hydrates slim displaced index rows with creative metadata from Hub and deterministic shards
- */
-export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false, ctx = null) {
+export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
   if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
   const needsHydration = indexRows.filter(r => !r.title || !r.image_url || isSyntheticPinTitle(r.title));
-  if (needsHydration.length === 0) return indexRows;
+  if (needsHydration.length === 0 || !sql) return indexRows;
 
   try {
     const masterMap = new Map();
-
-
-    // Tier 0 (Hub Pre-Hydration): Check Central Hub tables (universal_master_pins, keyword_serp_current, competitor_pins, pa_pins) via single fast ANY($1) query
-    const missingAfterD1 = needsHydration.filter(r => {
-      const m = masterMap.get(String(r.pin_id));
-      return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
-    });
-    if (hubSql && missingAfterD1.length > 0) {
-      const missingIds = missingAfterD1.map(r => String(r.pin_id));
-      try {
-        const hubRows = await hubSql`
-          SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
-          FROM universal_master_pins ump
-          WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
-          LIMIT 2000;
-        `.catch(() => []);
-        for (const hr of (hubRows || [])) {
-          if (hr && (hr.title || hr.image_url)) {
-            const existing = masterMap.get(String(hr.pin_id)) || {};
-            masterMap.set(String(hr.pin_id), {
-              ...existing,
-              ...hr,
-              title: (!isSyntheticPinTitle(existing.title) ? existing.title : (!isSyntheticPinTitle(hr.title) ? hr.title : (existing.title || hr.title || ''))),
-              image_url: existing.image_url || hr.image_url || ''
-            });
-          }
+    const missingIds = needsHydration.map(r => String(r.pin_id)).filter(Boolean);
+    if (missingIds.length > 0) {
+      const masterRows = await sql`
+        SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
+        FROM universal_master_pins ump
+        WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
+        LIMIT 2000;
+      `.catch(() => []);
+      for (const hr of (masterRows || [])) {
+        if (hr && (hr.title || hr.image_url)) {
+          masterMap.set(String(hr.pin_id), hr);
         }
-      } catch (_) {}
+      }
     }
-
-    // 2. Only query Neon Shards for pins that were not found in Central Hub (when running in multi-shard topology)
-    const stillMissing = needsHydration.filter(r => {
-      const m = masterMap.get(String(r.pin_id));
-      return !m || !m.title || !m.image_url || isSyntheticPinTitle(m.title);
-    });
-    // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
-    const CONCURRENCY_LIMIT = 4;
-    // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
-    const circuitBreakerTimeout = { timeoutMs: 2000 };
 
     return indexRows.map(row => {
       const m = masterMap.get(String(row.pin_id));
@@ -2306,9 +1996,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Strictly separate First-Time Save (insertNewPinsBatch) from Re-Save / Metric Refresh (resavePinsMetricsBatch)
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
-    let confirmedPinIds = [];
-    const shouldSkipShard = Boolean(options?.skip_shard_offload);
-    if (!shouldSkipShard && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+    if (!isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       const newSerpPins = [];
       const existingSerpPins = [];
       for (const p of preparedPins) {
@@ -2342,26 +2030,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           console.warn(`[crawlKeywordSERP] resavePinsMetricsBatch warning for keyword ${kid}:`, err?.message || err);
         });
       }
-      if (isUnifiedPostgres(envObj)) {
-        confirmedPinIds = [...newSerpPins, ...existingSerpPins].map(p => String(p.pin_id));
-      } else {
-        const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj, ctxObj).catch(err => {
-          console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
-          return null;
-        });
-        if (offloadRes?.confirmedPinIds) {
-          confirmedPinIds = offloadRes.confirmedPinIds;
-        }
-      }
     }
 
-    if (confirmedPinIds.length > 0 || isUnifiedPostgres(envObj) || shouldSkipShard) {
-      await sql`
-        DELETE FROM keyword_serp_current
-        WHERE keyword_id = ${kid}
-          AND (is_displaced = TRUE OR rank_position IS NULL);
-      `.catch(() => {});
-    }
+    await sql`
+      DELETE FROM keyword_serp_current
+      WHERE keyword_id = ${kid}
+        AND (is_displaced = TRUE OR rank_position IS NULL);
+    `.catch(() => {});
 
 
     // Invalidate Global 24h Pulse Cache upon crawl completion
@@ -2498,7 +2173,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     `.catch(() => []),
     // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
     Promise.resolve([]),
-    getKeywordDisplacedPins(sql, kid, { limit: 500, env, skipShardHydration: true }).catch(() => null),
+    getKeywordDisplacedPins(sql, kid, { limit: 500, env }).catch(() => null),
     getKeywordGuides(sql, kid).catch(() => []),
     sql`
       SELECT COUNT(*)::int AS total 
@@ -2696,8 +2371,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] In Unified Single-DB mode, support up to 500 displaced pins in 1 query
-  const { status = 'ALL', limit = 500, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
+  const { status = 'ALL', limit = 500, offset = 0, env = null, forceRefresh = false } = options;
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 
@@ -2806,7 +2480,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     `.catch(() => []);
   }
 
-  const rows = await hydrateDisplacedIndexFromShards(sql, rawRows, env, skipShardHydration);
+  const rows = await hydrateDisplacedPinsMetadata(sql, rawRows);
 
   // Calculate live deltas and vacuum opportunity score for each pin
   for (const pin of rows) {
@@ -2861,44 +2535,30 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
 
 /**
  * Retrieve chronological Performance Trajectory time series
- * Cleanly delegates exclusively to fetchPinTrajectoryFromShard from fleet-router.mjs.
+ * Delegates to fetchPinTrajectory from pins/repository.mjs.
  * Supports range filtering: '7d', '14d', '30d', 'all'
  */
-// [INVARIANT: SSOT-TRAJECTORY-FROM-SHARD]
 export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId, range = 'all', options = {}) {
-  let hubSql = null;
-  let shardSql = null;
+  let dbSql = null;
   let cleanPin = null;
   let cleanRange = range;
-  let env = null;
-  let forceRefresh = false;
 
-  if (sqlOrParams && typeof sqlOrParams === 'object' && !sqlOrParams.apply && ('pinId' in sqlOrParams || 'shardSql' in sqlOrParams || 'hubSql' in sqlOrParams)) {
-    hubSql = sqlOrParams.hubSql || null;
-    shardSql = sqlOrParams.shardSql || null;
+  if (sqlOrParams && typeof sqlOrParams === 'object' && !sqlOrParams.apply && ('pinId' in sqlOrParams || 'sql' in sqlOrParams || 'hubSql' in sqlOrParams)) {
+    dbSql = sqlOrParams.sql || sqlOrParams.hubSql || null;
     cleanPin = String(sqlOrParams.pinId || '').trim();
     cleanRange = sqlOrParams.timeframe || sqlOrParams.range || 'all';
-    env = sqlOrParams.env || null;
-    forceRefresh = sqlOrParams.forceRefresh || false;
   } else {
-    hubSql = sqlOrParams;
+    dbSql = sqlOrParams;
     cleanPin = String(pinId || '').trim();
     cleanRange = range || 'all';
-    if (typeof options === 'object') {
-      env = options?.env || null;
-      forceRefresh = options?.forceRefresh || false;
-    }
   }
 
   if (!cleanPin) throw new Error('pin_id is required');
 
-
-  const rawTraj = await fetchPinTrajectoryFromShard({
-    hubSql,
-    shardSql,
+  const rawTraj = await fetchPinTrajectory({
+    sql: dbSql,
     pinId: cleanPin,
-    timeframe: cleanRange,
-    env
+    timeframe: cleanRange
   });
 
   let snapshots = Array.isArray(rawTraj?.snapshots) ? rawTraj.snapshots : (Array.isArray(rawTraj?.trajectory) ? rawTraj.trajectory : []);
@@ -2968,10 +2628,9 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
       const liveRes = await fetchPinFromPinterest(cleanPin);
       if (liveRes?.ok && liveRes.pin) {
         await syncPinAcrossAllFourPillars({
-          hubSql: sql,
+          sql,
           pinId: cleanPin,
           scrapedPin: liveRes.pin,
-          keywordId: kid,
           env,
           ctx
         });
@@ -2983,9 +2642,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
 
   // Canonical SSOT Dossier Retrieval
   const universal = await fetchUniversalPinDossier({
-    hubSql: sql,
+    sql,
     pinId: cleanPin,
-    keywordId: kid,
     ctx,
     env,
     bypassEdgeCache: Boolean(forceRefresh)

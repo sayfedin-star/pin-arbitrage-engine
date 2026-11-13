@@ -28,26 +28,28 @@ import {
   invalidateEdgeCache,
   buildCanonicalCacheKey,
   edgeCache
-} from '../src/worker.mjs';
+} from '../src/http/security-and-response.mjs';
 import {
-  executeShardQueryWithCircuitBreaker,
-  circuitBreakers,
-  _resetCircuitBreakers,
-  _getCircuitBreakerState,
-  CIRCUIT_FAILURE_THRESHOLD
-} from '../src/modules/sharding/fleet-router.mjs';
+  fetchUniversalPinDossier
+} from '../src/modules/pins/repository.mjs';
 
 function readWorkerAndRoutes() {
   const routesContent = fs.existsSync('src/routes')
     ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
     : '';
-  const shardingContent = fs.existsSync('src/modules/sharding')
-    ? fs.readdirSync('src/modules/sharding').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/modules/sharding/${f}`, 'utf8')).join('\n')
+  const creatorsContent = fs.existsSync('src/modules/creators/service.mjs')
+    ? fs.readFileSync('src/modules/creators/service.mjs', 'utf8')
     : '';
   const pinsRepoContent = fs.existsSync('src/modules/pins/repository.mjs')
     ? fs.readFileSync('src/modules/pins/repository.mjs', 'utf8')
     : '';
-  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent + '\n' + shardingContent + '\n' + pinsRepoContent;
+  const securityHttpContent = fs.existsSync('src/http/security-and-response.mjs')
+    ? fs.readFileSync('src/http/security-and-response.mjs', 'utf8')
+    : '';
+  const apiPluginContent = fs.existsSync('src/plugins/api-routes.mjs')
+    ? fs.readFileSync('src/plugins/api-routes.mjs', 'utf8')
+    : '';
+  return fs.readFileSync('src/server.mjs', 'utf8') + '\n' + securityHttpContent + '\n' + apiPluginContent + '\n' + routesContent + '\n' + creatorsContent + '\n' + pinsRepoContent;
 }
 
 async function runForensicAudit() {
@@ -111,7 +113,7 @@ async function runForensicAudit() {
     let failCalls = 0;
     const failFetcher = async () => {
       failCalls++;
-      return { success: false, error: 'SHARD_UNAVAILABLE' };
+      return { success: false, error: 'DB_UNAVAILABLE' };
     };
 
     const failResult = await getCachedOrFetch(failKey, failFetcher, 30000, 120000, { forceRefresh: false });
@@ -208,57 +210,35 @@ async function runForensicAudit() {
   }
 
   // =========================================================================
-  // SCENARIO 5: Cold-Start 503 vs 404 & Single-Request Circuit Breaker Immunity
+  // SCENARIO 5: DB Unavailable 503 vs 404 Immunity in Unified PostgreSQL
   // =========================================================================
-  console.log('\n[SCENARIO 5] Auditing Cold-Start 503 & Single-Request Circuit Breaker Immunity...');
+  console.log('\n[SCENARIO 5] Auditing Cold-Start / DB_UNAVAILABLE 503 Immunity...');
   {
-    _resetCircuitBreakers();
-    const testShardId = 88;
-
-    // Simulate 2 parallel queries failing simultaneously with the same batchId
-    const testBatchId = 'dossier_batch_test_123';
-
-    const failQuery1 = executeShardQueryWithCircuitBreaker({
-      shardId: testShardId,
-      shardSql: async () => { throw new Error('Shard scale-to-zero cold start timeout'); },
-      queryFn: async (sql) => await sql(),
-      fallbackFn: async (info) => null,
-      timeoutMs: 50,
-      batchId: testBatchId
-    });
-
-    const failQuery2 = executeShardQueryWithCircuitBreaker({
-      shardId: testShardId,
-      shardSql: async () => { throw new Error('Shard scale-to-zero cold start timeout'); },
-      queryFn: async (sql) => await sql(),
-      fallbackFn: async (info) => [],
-      timeoutMs: 50,
-      batchId: testBatchId
-    });
-
-    await Promise.all([failQuery1, failQuery2]);
-
-    const cbState = _getCircuitBreakerState(testShardId);
+    const missingClientRes = await fetchUniversalPinDossier({ sql: null, pinId: '1147784655065227471' });
     record(
       'Scenario 5',
-      'Concurrent parallel queries sharing batchId coalesce into 1 failure (failures === 1)',
-      cbState.failures === 1,
-      `Expected failures = 1, got ${cbState.failures}`
+      'Missing SQL client returns DB_UNAVAILABLE cleanly without throwing',
+      missingClientRes.success === false && missingClientRes.error === 'DB_UNAVAILABLE',
+      `Got ${JSON.stringify(missingClientRes)}`
     );
 
+    const failingSql = async () => {
+      throw new Error('PostgreSQL connection timeout');
+    };
+    const failingRes = await fetchUniversalPinDossier({ sql: failingSql, pinId: '1147784655065227471', bypassEdgeCache: true });
     record(
       'Scenario 5',
-      'Circuit Breaker remains CLOSED after single request with parallel failures (Immune to single-request trip)',
-      cbState.state === 'CLOSED',
-      `Expected state CLOSED, got ${cbState.state}`
+      'Failing PostgreSQL queries return DB_UNAVAILABLE instead of false 404',
+      failingRes.success === false && failingRes.error === 'DB_UNAVAILABLE',
+      `Got ${JSON.stringify(failingRes)}`
     );
 
-    // Verify GET /api/pins/:pin_id returns 503 for cold shard vs 404 for missing pin
+    // Verify GET /api/pins/:pin_id returns 503 when DB is unavailable vs 404 for missing pin
     const workerContent = readWorkerAndRoutes();
     const dossierRoute = workerContent.match(/if\s*\(!dossier\s*\|\|\s*!dossier\.pin_id\s*\|\|\s*!dossier\.success\)[\s\S]*?return jsonResponse[\s\S]*?isUnavailable \? 503 : 404\);/);
     record(
       'Scenario 5',
-      'Worker returns HTTP 503 when shard is cold/unavailable instead of misleading 404',
+      'Route returns HTTP 503 when PostgreSQL is unavailable instead of misleading 404',
       Boolean(dossierRoute)
     );
   }

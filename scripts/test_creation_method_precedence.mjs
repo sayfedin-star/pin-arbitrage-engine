@@ -19,12 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSqlClient as neon } from '../src/db/client.mjs';
-import {
-  resolveShardConnection,
-  preloadNeonRegistry,
-  getPinShardId,
-  fetchUniversalPinDossier
-} from '../src/modules/sharding/fleet-router.mjs';
+import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -357,9 +352,8 @@ if (!process.env.DATABASE_URL) {
     }
   });
 
-  await runAsyncTest('Live Storage Shards: universal_master_pins metadata has authentic creation_method', async () => {
+  await runAsyncTest('Live Unified PostgreSQL: universal_master_pins metadata has authentic creation_method', async () => {
     const hubSql = neon(process.env.DATABASE_URL);
-    await preloadNeonRegistry(hubSql);
 
     const targets = [
       { pinId: '330803535154760775', expectedMethod: 'uploaded' },
@@ -368,22 +362,19 @@ if (!process.env.DATABASE_URL) {
     ];
 
     for (const t of targets) {
-      const shardId = getPinShardId(t.pinId, 99);
-      const shardSql = await resolveShardConnection({ hubSql, shardId });
-      const rows = await shardSql`
+      const rows = await hubSql`
         SELECT pin_id, metadata->>'creation_method' as cm, metadata->>'method' as m
         FROM universal_master_pins
         WHERE pin_id = ${t.pinId};
       `;
-      assert(rows.length > 0, `Pin ${t.pinId} must exist on Shard ${shardId}`);
-      assert.strictEqual(rows[0].cm, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.creation_method must be '${t.expectedMethod}', got '${rows[0].cm}'`);
-      assert.strictEqual(rows[0].m, t.expectedMethod, `Shard ${shardId} pin ${t.pinId} metadata.method must be '${t.expectedMethod}', got '${rows[0].m}'`);
+      assert(rows.length > 0, `Pin ${t.pinId} must exist in universal_master_pins`);
+      assert.strictEqual(rows[0].cm, t.expectedMethod, `Unified PG pin ${t.pinId} metadata.creation_method must be '${t.expectedMethod}', got '${rows[0].cm}'`);
+      assert.strictEqual(rows[0].m, t.expectedMethod, `Unified PG pin ${t.pinId} metadata.method must be '${t.expectedMethod}', got '${rows[0].m}'`);
     }
   });
 
   await runAsyncTest('Universal Pin Dossier: fetchUniversalPinDossier resolves authentic creation_method', async () => {
     const hubSql = neon(process.env.DATABASE_URL);
-    await preloadNeonRegistry(hubSql);
 
     const targets = [
       { pinId: '330803535154760775', expectedMethod: 'uploaded' },
@@ -392,7 +383,7 @@ if (!process.env.DATABASE_URL) {
     ];
 
     for (const t of targets) {
-      const dossier = await fetchUniversalPinDossier({ hubSql, pinId: t.pinId, bypassEdgeCache: true });
+      const dossier = await fetchUniversalPinDossier({ sql: hubSql, pinId: t.pinId, bypassEdgeCache: true });
       assert(dossier && dossier.success, `Dossier for ${t.pinId} must succeed`);
       assert.strictEqual(
         dossier.algorithmic_intelligence.creation_method,
