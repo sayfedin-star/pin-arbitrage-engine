@@ -355,12 +355,13 @@ export async function optimizeHubStorage(sql) {
   }
 
   // 3. Strip bloated JSONB keys ONLY on rows that actually contain them (prevents MVCC & TOAST churn)
+  // [INVARIANT: PRESERVE-CREATION-METHOD-PRECEDENCE] Never strip 'method' or 'creation_method' from keyword_serp_current.metadata
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'share_count' - 'dominant_color' - 'board_name' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method','creation_method','share_count','dominant_color','board_name','description','alt_text','rich_metadata','visual_objects','seo_related_interests']
+        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','share_count','dominant_color','board_name','description','alt_text','rich_metadata','visual_objects','seo_related_interests']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;

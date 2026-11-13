@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Neon Postgres Index Optimization Script
+ * Unified PostgreSQL SSOT Index Optimization Script
  * Creates critical indexes for sub-millisecond query performance:
  * - cluster_arbitrage_metrics (seed_pin_id, analyzed_at DESC)
  * - candidate_graph_nodes (candidate_pin_id)
@@ -23,7 +23,7 @@ if (!DATABASE_URL) {
 const sql = createSqlClient(DATABASE_URL);
 
 async function optimizeIndexes() {
-  console.log('[*] Optimizing Neon Database Indexes...');
+  console.log('[*] Optimizing Unified PostgreSQL SSOT Database Indexes...');
 
   console.log('[*] 1. Indexing cluster_arbitrage_metrics(seed_pin_id, analyzed_at DESC)...');
   await sql`
@@ -38,6 +38,12 @@ async function optimizeIndexes() {
   `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 3. Indexing seed_guided_search_capsules(seed_pin_id, discovered_at DESC)...');
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS query_term TEXT;`.catch(() => {});
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS normalized_query TEXT;`.catch(() => {});
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS image_url TEXT;`.catch(() => {});
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS search_url TEXT;`.catch(() => {});
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS node_id TEXT;`.catch(() => {});
+  await sql`ALTER TABLE seed_guided_search_capsules ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMPTZ DEFAULT NOW();`.catch(() => {});
   await sql`
     CREATE INDEX IF NOT EXISTS idx_capsules_seed_discovered 
     ON seed_guided_search_capsules (seed_pin_id, discovered_at DESC);
@@ -114,13 +120,13 @@ async function optimizeIndexes() {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_seed_capsules_norm ON seed_guided_search_capsules (seed_pin_id, normalized_query);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(keyword_id, display_order ASC);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_kw_vacuum ON keyword_displaced_pins(keyword_id, status, vacuum_opportunity_score DESC, last_known_rank ASC);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_pin_id ON keyword_displaced_pins(pin_id);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kdi_kw_vacuum ON keyword_displaced_index(keyword_id, vacuum_opportunity_score DESC, last_known_rank ASC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kdi_pin_id ON keyword_displaced_index(pin_id);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 11. Ensuring created_at_pinterest and creation_method columns exist...');
   await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`ALTER TABLE keyword_displaced_pins ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 12. Ensuring trigram search and covering indexes [CAP-23, CAP-24, Migration 023]...');
   await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`.catch(err => console.warn('[Extension Notice]', err.message));
@@ -152,13 +158,16 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_date ON pins_daily_metrics(pin_id, snapshot_date ASC);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_psp_pin_date ON pin_serp_positions(pin_id, snapshot_date ASC);`.catch(() => {});
 
-  console.log('[*] 15. Ensuring clean_domain columns, B-Tree indexes, and pae_sync_clean_domain triggers [Migration 052/053]...');
+  console.log('[*] 15. Ensuring clean_domain columns, B-Tree indexes, and pae_sync_clean_domain triggers [Migration 052/053/057]...');
   await sql`ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
   await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
   await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
   await sql`ALTER TABLE keyword_displaced_index ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_competitor_clean_domain ON competitor_pins(competitor_id, clean_domain);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_clean_domain ON competitor_pins(clean_domain) WHERE clean_domain IS NOT NULL AND clean_domain <> '';`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_clean_domain ON pa_pins(clean_domain, saves DESC) WHERE clean_domain IS NOT NULL AND clean_domain <> '';`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksc_clean_domain ON keyword_serp_current(clean_domain);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_kdi_clean_domain ON keyword_displaced_index(clean_domain);`.catch(() => {});
   await sql`
@@ -178,7 +187,10 @@ async function optimizeIndexes() {
         NULLIF(BTRIM(COALESCE(NEW.clean_domain, '')), '')
       );
       IF raw_dom IS NULL OR raw_dom = '' THEN
-        dest_url := BTRIM(COALESCE(row_data->>'destination_url', ''));
+        dest_url := COALESCE(
+          NULLIF(BTRIM(COALESCE(row_data->>'destination_url', '')), ''),
+          BTRIM(COALESCE(row_data->>'link', ''))
+        );
         IF dest_url <> '' THEN
           raw_dom := SUBSTRING(LOWER(dest_url) FROM '^https?://(?:www\.)?([^/?#:]+)');
         END IF;
@@ -201,6 +213,12 @@ async function optimizeIndexes() {
   await sql`
     CREATE TRIGGER trg_cp_sync_clean_domain
       BEFORE INSERT OR UPDATE OF link_domain, destination_url, clean_domain ON competitor_pins
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_pa_pins_sync_clean_domain ON pa_pins;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_pa_pins_sync_clean_domain
+      BEFORE INSERT OR UPDATE OF domain, link, clean_domain ON pa_pins
       FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
   `.catch(err => console.warn('[Trigger Notice]', err.message));
   await sql`DROP TRIGGER IF EXISTS trg_ksc_sync_clean_domain ON keyword_serp_current;`.catch(() => {});

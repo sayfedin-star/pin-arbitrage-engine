@@ -707,7 +707,7 @@ export async function getDatabaseMonetizationStats(sql) {
       WITH all_distinct AS (
         SELECT ksc.domain AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
         UNION
-        SELECT pa.domain AS clean_domain FROM pa_pins pa WHERE pa.domain IS NOT NULL AND pa.domain <> ''
+        SELECT COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain FROM universal_master_pins ump WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
         UNION
         SELECT cp.link_domain AS clean_domain FROM competitor_pins cp WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
       ),
@@ -838,12 +838,12 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
       UNION ALL
 
       SELECT
-        pa.domain AS clean_domain,
+        COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain,
         0::bigint AS visibility_score,
-        SUM(COALESCE(pa.saves, 0))::bigint AS total_saves
-      FROM pa_pins pa
-      WHERE pa.domain IS NOT NULL AND pa.domain <> ''
-      GROUP BY pa.domain
+        SUM(COALESCE(ump.save_count, 0))::bigint AS total_saves
+      FROM universal_master_pins ump
+      WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
+      GROUP BY COALESCE(NULLIF(ump.clean_domain, ''), ump.domain)
 
       UNION ALL
 

@@ -387,21 +387,21 @@ async function queryViralCreatorPins(sql, folderIdNum) {
   return await sql`
     SELECT
       cpin.pin_id,
-      cpin.title,
-      cpin.description,
-      cpin.alt_text,
-      cpin.image_url,
-      cpin.destination_url,
-      cpin.link_domain AS domain,
-      cpin.board_name,
+      COALESCE(NULLIF(ump.title, ''), cpin.title, '') AS title,
+      COALESCE(NULLIF(ump.description, ''), cpin.description, '') AS description,
+      COALESCE(NULLIF(ump.alt_text, ''), cpin.alt_text, '') AS alt_text,
+      COALESCE(NULLIF(ump.image_url, ''), cpin.image_url, '') AS image_url,
+      COALESCE(NULLIF(ump.destination_url, ''), cpin.destination_url, '') AS destination_url,
+      COALESCE(NULLIF(ump.domain, ''), cpin.link_domain, '') AS domain,
+      COALESCE(NULLIF(cpin.board_name, ''), ump.board_name, '') AS board_name,
       cp.username AS creator_username,
-      COALESCE(cpin.save_count, 0) AS save_count,
-      COALESCE(cpin.repin_count, 0) AS repin_count,
+      GREATEST(COALESCE(ump.save_count, 0), COALESCE(cpin.save_count, 0)) AS save_count,
+      GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cpin.repin_count, 0)) AS repin_count,
       m.daily_save_velocity,
       m.delta_saves_24h,
       m.delta_repins_24h,
       COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-      COALESCE(NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(cpin.metadata->'annotations', '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations
+      COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(cpin.metadata->'annotations', '[]'::jsonb), '[]'::jsonb) AS visual_annotations
     FROM competitor_pins cpin
     JOIN competitor_profiles cp ON cp.id = cpin.competitor_id
     LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
@@ -531,44 +531,46 @@ async function queryBreakoutCreators(sql, folderIdNum) {
       SELECT
         cpin.competitor_id,
         cpin.pin_id,
-        cpin.title,
-        cpin.image_url,
-        cpin.board_name,
-        cpin.link_domain,
-        cpin.destination_url,
-        COALESCE(cpin.save_count, 0)::bigint AS save_count,
-        COALESCE(cpin.repin_count, 0)::int AS repin_count,
+        COALESCE(NULLIF(ump.title, ''), cpin.title) AS title,
+        COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) AS image_url,
+        COALESCE(NULLIF(cpin.board_name, ''), ump.board_name) AS board_name,
+        COALESCE(NULLIF(ump.domain, ''), cpin.link_domain) AS link_domain,
+        COALESCE(NULLIF(ump.destination_url, ''), cpin.destination_url) AS destination_url,
+        GREATEST(COALESCE(ump.save_count, 0), COALESCE(cpin.save_count, 0))::bigint AS save_count,
+        GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cpin.repin_count, 0))::int AS repin_count,
         COALESCE(clean_metrics.delta_saves_24h, clean_metrics.daily_save_velocity, 0)::numeric AS delta_saves_24h,
         clean_metrics.daily_save_velocity::numeric AS daily_save_velocity,
-        cpin.created_at_pinterest
+        COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
       FROM competitor_pins cpin
       JOIN top_creators tc ON tc.id = cpin.competitor_id
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
       CROSS JOIN LATERAL (
         SELECT
-          COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
-          COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h
+          COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
+          COALESCE(NULLIF(ump.delta_saves_24h, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h
       ) clean_metrics
       WHERE cpin.is_deleted = FALSE
-        AND cpin.image_url IS NOT NULL AND cpin.image_url <> ''
+        AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) IS NOT NULL AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) <> ''
 
       UNION ALL
 
       SELECT
         tc.id AS competitor_id,
         pa.pin_id,
-        pa.title,
-        pa.image_url,
-        pa.board_name,
-        pa.domain AS link_domain,
-        pa.link AS destination_url,
-        COALESCE(pa.saves, 0)::bigint AS save_count,
-        COALESCE(pa.repins, 0)::int AS repin_count,
-        COALESCE(pa.velocity, 0)::numeric AS delta_saves_24h,
-        COALESCE(pa.velocity, 0)::numeric AS daily_save_velocity,
-        pa.created_at_pinterest
+        COALESCE(NULLIF(ump.title, ''), pa.title) AS title,
+        COALESCE(NULLIF(ump.image_url, ''), pa.image_url) AS image_url,
+        COALESCE(NULLIF(pa.board_name, ''), ump.board_name) AS board_name,
+        COALESCE(NULLIF(ump.domain, ''), pa.domain) AS link_domain,
+        COALESCE(NULLIF(ump.destination_url, ''), pa.link) AS destination_url,
+        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS save_count,
+        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::int AS repin_count,
+        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS daily_save_velocity,
+        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest
       FROM pa_pins pa
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
       JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(pa.account_username, '@', '')))
-      WHERE pa.image_url IS NOT NULL AND pa.image_url <> ''
+      WHERE COALESCE(NULLIF(ump.image_url, ''), pa.image_url) IS NOT NULL AND COALESCE(NULLIF(ump.image_url, ''), pa.image_url) <> ''
 
       UNION ALL
 
@@ -712,25 +714,25 @@ async function queryWinnersAndDomains(sql) {
     sql`
       SELECT
         pa.pin_id,
-        pa.account_username,
-        pa.title,
-        pa.description,
-        pa.link,
-        pa.domain,
-        pa.board_name,
-        pa.image_url,
-        COALESCE(pa.dominant_color, '#888888') AS dominant_color,
+        COALESCE(NULLIF(pa.account_username, ''), ump.creator_username) AS account_username,
+        COALESCE(NULLIF(ump.title, ''), pa.title) AS title,
+        COALESCE(NULLIF(ump.description, ''), pa.description) AS description,
+        COALESCE(NULLIF(ump.destination_url, ''), pa.link) AS link,
+        COALESCE(NULLIF(ump.domain, ''), pa.domain) AS domain,
+        COALESCE(NULLIF(pa.board_name, ''), ump.board_name) AS board_name,
+        COALESCE(NULLIF(ump.image_url, ''), pa.image_url) AS image_url,
+        COALESCE(NULLIF(ump.dominant_color, '#888888'), pa.dominant_color, '#888888') AS dominant_color,
         COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0) AS repins,
         GREATEST(COALESCE(pa.comments, 0), COALESCE(ump.comment_count, 0)) AS comments,
         COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) AS velocity,
-        COALESCE(pa.annotations, '[]'::jsonb) AS annotations,
-        pa.created_at_pinterest,
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), pa.annotations, '[]'::jsonb) AS annotations,
+        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest,
         pa.first_seen_at,
         pa.last_updated_at
       FROM pa_pins pa
       LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      WHERE (COALESCE(ump.daily_save_velocity, pa.velocity, 0) > 0 OR COALESCE(pa.saves, 0) >= 100)
+      WHERE (COALESCE(ump.daily_save_velocity, pa.velocity, 0) > 0 OR COALESCE(ump.save_count, pa.saves, 0) >= 100)
       ORDER BY COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) DESC, COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
       LIMIT 100;
     `,

@@ -159,6 +159,8 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
 
   // Pre-warm V8 runtime inline caches to eliminate OS process thread scheduler jitter
   await worker.fetch(new Request('https://engine.internal/api/discovery/typeahead?q=warmup'), mockEnv).catch(() => {});
+  await worker.fetch(new Request('https://engine.internal/api/pins/1098245059167667976'), mockEnv).catch(() => {});
+  await worker.fetch(new Request('https://engine.internal/api/folders/42/raw-visual-crossover'), mockEnv).catch(() => {});
 
   const t0 = performance.now();
 

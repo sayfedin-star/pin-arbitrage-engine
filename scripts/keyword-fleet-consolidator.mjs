@@ -425,10 +425,10 @@ async function main() {
     mdReport += `\n`;
   }
 
-  // 4. Automated Shard Janitor GC: Clean orphan SERP positions for purged keywords across 99 shards
+  // 4. Automated Janitor GC: Clean orphan SERP positions for purged keywords in Unified PostgreSQL SSOT
   const gcPurgedKeywords = await runShardJanitorGC();
   if (gcPurgedKeywords > 0) {
-    mdReport += `\n> 🧹 **Automated Shard Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords across all 99 storage shards.\n\n`;
+    mdReport += `\n> 🧹 **Automated Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords in Unified PostgreSQL SSOT.\n\n`;
   }
 
   // 5. Automated Zero-Bloat Hub Storage Maintenance
@@ -492,7 +492,7 @@ async function main() {
 
 /**
  * Automated Shard Janitor Garbage Collection (Orphan SERP Positions GC)
- * Purges pin_serp_positions across all 99 shards for keywords tracked in keyword_tombstones.
+ * Purges pin_serp_positions in Unified PostgreSQL SSOT for keywords tracked in keyword_tombstones.
  * 
  * Production Inquest Guarantees:
  * 1. Real Lifecycle: Sourced directly from persistent `keyword_tombstones` populated upon keyword deletion.

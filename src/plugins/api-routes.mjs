@@ -126,6 +126,20 @@ export async function apiRoutesPlugin(app, options = {}) {
           const pathname = normalizePath(url.pathname);
           const { searchParams } = url;
 
+          // 0. Decommissioned Endpoints Gate (RFC 404 compliance before auth gate)
+          if (
+            pathname === '/api/board-ideas' ||
+            pathname.startsWith('/api/board-ideas/') ||
+            pathname === '/api/fleet' ||
+            pathname.startsWith('/api/fleet/')
+          ) {
+            return jsonResponse({
+              success: false,
+              error: 'NOT_FOUND',
+              message: `Endpoint '${pathname}' not found on pin-arbitrage-engine API.`
+            }, 404);
+          }
+
           // 1. Security Authentication Gate for Mutating Methods & Sensitive Endpoints
           const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
           const isSensitiveEndpoint = pathname === '/api/cache/invalidate' || pathname.startsWith('/api/crawl/dispatch');

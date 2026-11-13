@@ -272,6 +272,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '057',
     name: 'pa_pins_clean_domain_and_indexes',
     aliases: ['057', '057_pa_pins_clean_domain_and_indexes', 'pa_pins_clean_domain_and_indexes']
+  },
+  '058_phase4_ssot_compaction_and_cleanup.sql': {
+    version: '058',
+    name: 'phase4_ssot_compaction_and_cleanup',
+    aliases: ['058', '058_phase4_ssot_compaction_and_cleanup', 'phase4_ssot_compaction_and_cleanup']
   }
 };
 

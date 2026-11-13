@@ -2428,13 +2428,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       cp.pin_id,
       'official'::text AS attribution_source,
       ${cleanUsername || ''}::text AS curator_username,
-      COALESCE(NULLIF(cp.title, ''), ump.title, '') AS title,
-      COALESCE(NULLIF(cp.description, ''), ump.description, '') AS description,
-      COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
-      COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
+      COALESCE(NULLIF(ump.title, ''), cp.title, '') AS title,
+      COALESCE(NULLIF(ump.description, ''), cp.description, '') AS description,
+      COALESCE(NULLIF(ump.domain, ''), cp.link_domain, '') AS link_domain,
+      COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url, '') AS destination_url,
       COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
       cp.board_slug,
-      COALESCE(NULLIF(cp.image_url, ''), ump.image_url, '') AS image_url,
+      COALESCE(NULLIF(ump.image_url, ''), cp.image_url, '') AS image_url,
       COALESCE(NULLIF(ump.save_count, 0), NULLIF(cp.save_count, 0), pa.saves, 0)::bigint AS save_count,
       COALESCE(NULLIF(ump.repin_count, 0), NULLIF(cp.repin_count, 0), pa.repins, 0)::bigint AS repin_count,
       COALESCE(NULLIF(ump.comment_count, 0), NULLIF(cp.comment_count, 0), pa.comments, 0)::int AS comment_count,
@@ -2615,13 +2615,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         cp.pin_id,
         CASE WHEN ${activeScope} = 'external' THEN 'external'::text ELSE 'official'::text END AS attribution_source,
         ${cleanUsername || ''}::text AS curator_username,
-        COALESCE(NULLIF(cp.title, ''), ump.title, '') AS title,
-        COALESCE(NULLIF(cp.description, ''), ump.description, '') AS description,
-        COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
-        COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
+        COALESCE(NULLIF(ump.title, ''), cp.title, '') AS title,
+        COALESCE(NULLIF(ump.description, ''), cp.description, '') AS description,
+        COALESCE(NULLIF(ump.domain, ''), cp.link_domain, '') AS link_domain,
+        COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url, '') AS destination_url,
         COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
         cp.board_slug,
-        COALESCE(NULLIF(cp.image_url, ''), ump.image_url, '') AS image_url,
+        COALESCE(NULLIF(ump.image_url, ''), cp.image_url, '') AS image_url,
         COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS save_count,
         COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repin_count,
         COALESCE(NULLIF(ump.comment_count, 0), cp.comment_count, 0)::int AS comment_count,
@@ -3462,36 +3462,39 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
       WITH candidate_pins AS (
         SELECT DISTINCT ON (cp.pin_id)
           cp.pin_id,
-          COALESCE(prof.username, 'unknown') AS account_username,
-          COALESCE(cp.title, '') AS title,
-          COALESCE(cp.description, '') AS description,
-          COALESCE(cp.destination_url, '') AS link,
-          COALESCE(cp.link_domain, '') AS domain,
-          COALESCE(cp.board_name, 'General') AS board_name,
-          COALESCE(cp.image_url, '') AS image_url,
+          COALESCE(prof.username, NULLIF(ump.creator_username, ''), 'unknown') AS account_username,
+          COALESCE(NULLIF(ump.title, ''), cp.title, '') AS title,
+          COALESCE(NULLIF(ump.description, ''), cp.description, '') AS description,
+          COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url, '') AS link,
+          COALESCE(NULLIF(ump.domain, ''), cp.link_domain, '') AS domain,
+          COALESCE(NULLIF(cp.board_name, ''), NULLIF(ump.board_name, ''), 'General') AS board_name,
+          COALESCE(NULLIF(ump.image_url, ''), cp.image_url, '') AS image_url,
           COALESCE(NULLIF(ump.dominant_color, '#888888'), NULL) AS dominant_color,
-          COALESCE(cp.save_count, 0) AS saves,
-          COALESCE(cp.repin_count, 0) AS repins,
-          COALESCE(cp.comment_count, 0) AS comments,
-          0::bigint AS share_count,
+          GREATEST(COALESCE(ump.save_count, 0), COALESCE(cp.save_count, 0)) AS saves,
+          GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cp.repin_count, 0)) AS repins,
+          GREATEST(COALESCE(ump.comment_count, 0), COALESCE(cp.comment_count, 0)) AS comments,
+          COALESCE(ump.share_count, 0)::bigint AS share_count,
           '{}'::jsonb AS reactions,
           -- [INVARIANT: AGE-BOUNDED-VELOCITY-SHIELD] Prevent 10x multiplier explosion on recent/missing discovery dates
-          ROUND(
-            (COALESCE(cp.save_count, 0)::numeric / 
-             CASE 
-               WHEN cp.created_at_pinterest IS NOT NULL 
-               THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)
-               ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
-             END
-            ), 2
+          COALESCE(
+            NULLIF(ump.daily_save_velocity, 0),
+            ROUND(
+              (GREATEST(COALESCE(ump.save_count, 0), COALESCE(cp.save_count, 0))::numeric / 
+               CASE 
+                 WHEN COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) IS NOT NULL 
+                 THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.created_at_pinterest, ump.created_at_pinterest))) / 86400)
+                 ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
+               END
+              ), 2
+            )
           ) AS velocity,
-          '[]'::jsonb AS annotations,
+          COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS annotations,
           false AS is_video,
-          COALESCE(cp.is_product, false) AS is_product,
-          COALESCE(cp.created_at_pinterest, cp.first_seen_at, NOW()) AS created_at_pinterest,
+          (COALESCE(cp.is_product, false) OR COALESCE(ump.is_product, false)) AS is_product,
+          COALESCE(cp.created_at_pinterest, ump.created_at_pinterest, cp.first_seen_at, NOW()) AS created_at_pinterest,
           COALESCE(cp.first_seen_at, NOW()) AS first_seen_at,
           NOW() AS last_updated_at,
-          COALESCE(NULLIF(cp.alt_text, ''), cp.title, '') AS alt_text
+          COALESCE(NULLIF(ump.alt_text, ''), NULLIF(cp.alt_text, ''), ump.title, cp.title, '') AS alt_text
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -4848,6 +4851,32 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
     for (const r of (pinRows || [])) {
       if (r.is_inserted) addedCount++;
       else updatedCount++;
+    }
+
+    if (typeof sql?.unsafe === 'function') {
+      await insertNewPinsBatch(
+        sql,
+        dedupedPins.map(p => ({
+          pin_id: p.pinId,
+          title: p.title,
+          description: p.description,
+          destination_url: p.link,
+          link_domain: p.domain,
+          board_name: p.boardName,
+          image_url: p.imageUrl,
+          dominant_color: p.dominantColor,
+          save_count: p.saves,
+          repin_count: p.repins,
+          comment_count: p.comments,
+          share_count: p.shareCount,
+          daily_save_velocity: p.velocity,
+          visual_annotations: p.annotations,
+          is_product: p.isProduct,
+          creator_username: cleanAccount,
+          created_at_pinterest: p.createdAtPinterest
+        })),
+        'creator'
+      ).catch(() => {});
     }
 
     if (cleanAccount) {

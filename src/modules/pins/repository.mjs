@@ -1374,14 +1374,10 @@ export async function syncPinAcrossAllFourPillars({
     `;
   }
 
-  // 10. Update competitor_pins if tracked competitor pin
+  // 10. Update competitor_pins metric state if tracked competitor pin (creative SSOT lives in universal_master_pins)
   await dbSql`
     UPDATE competitor_pins
     SET
-      title = COALESCE(NULLIF(${scrapedPin.title || ''}, ''), title),
-      link_domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), link_domain),
-      destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
-      image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
       save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE save_count END,
       repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repin_count END,
       comment_count = GREATEST(comment_count, ${newComments}),
@@ -1390,14 +1386,10 @@ export async function syncPinAcrossAllFourPillars({
     WHERE pin_id = ${cleanPinId};
   `;
 
-  // 11. Update pa_pins if in PinArchive
+  // 11. Update pa_pins metric state if in PinArchive (creative SSOT lives in universal_master_pins)
   await dbSql`
     UPDATE pa_pins
     SET
-      title = COALESCE(NULLIF(${scrapedPin.title || ''}, ''), title),
-      domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
-      link = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), link),
-      image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
       saves = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE saves END,
       repins = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repins END,
       comments = GREATEST(comments, ${newComments}),
@@ -1507,22 +1499,23 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
   const hubCompetitorPromise = dbSql`
     SELECT 
       cp.pin_id, cp.competitor_id, cprof.username as competitor_username, cprof.display_name, cprof.is_active as competitor_active,
-      cp.title, cp.description, cp.alt_text, cp.image_url, cp.destination_url, cp.link_domain as domain,
-      cp.board_name, cp.save_count, cp.repin_count, cp.comment_count, cp.created_at_pinterest, cp.updated_at, cp.metadata
+      COALESCE(NULLIF(ump.title, ''), cp.title) as title,
+      COALESCE(NULLIF(ump.description, ''), cp.description) as description,
+      COALESCE(NULLIF(ump.alt_text, ''), cp.alt_text) as alt_text,
+      COALESCE(NULLIF(ump.image_url, ''), cp.image_url) as image_url,
+      COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url) as destination_url,
+      COALESCE(NULLIF(ump.domain, ''), cp.link_domain) as domain,
+      COALESCE(NULLIF(cp.board_name, ''), ump.board_name) as board_name,
+      GREATEST(COALESCE(ump.save_count, 0), COALESCE(cp.save_count, 0)) as save_count,
+      GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cp.repin_count, 0)) as repin_count,
+      GREATEST(COALESCE(ump.comment_count, 0), COALESCE(cp.comment_count, 0)) as comment_count,
+      COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) as created_at_pinterest,
+      cp.updated_at,
+      COALESCE(ump.metadata, '{}'::jsonb) || COALESCE(cp.metadata, '{}'::jsonb) as metadata
     FROM competitor_pins cp
     LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
     WHERE cp.pin_id = ${cleanPinId}
-    LIMIT 1;
-  `.catch((err) => { captureDbErr(err); return []; });
-
-  const hubPaPromise = dbSql`
-    SELECT 
-      pa.pin_id, NULL::bigint as competitor_id, pa.account_username as competitor_username, pa.account_username as display_name, false as competitor_active,
-      pa.title, pa.description, pa.alt_text, pa.image_url, pa.link as destination_url, pa.domain,
-      pa.board_name, pa.saves as save_count, pa.repins as repin_count, pa.comments as comment_count, pa.created_at_pinterest, pa.last_updated_at as updated_at,
-      pa.velocity as daily_save_velocity, pa.dominant_color, pa.annotations as visual_annotations
-    FROM pa_pins pa
-    WHERE pa.pin_id = ${cleanPinId}
     LIMIT 1;
   `.catch((err) => { captureDbErr(err); return []; });
 
@@ -1543,14 +1536,13 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
   const [
     [repoDossier, rollupsOrSnaps],
     hubSerpRowsRaw,
-    hubCompetitorRowsRaw,
-    hubPaRowsRaw
+    hubCompetitorRowsRaw
   ] = await Promise.all([
     masterAndSnapsPromise,
     hubSerpPromise,
-    hubCompetitorPromise,
-    hubPaPromise
+    hubCompetitorPromise
   ]);
+  const hubPaRowsRaw = [];
 
   const row = repoDossier?.creative || null;
   let masterRecord = null;
