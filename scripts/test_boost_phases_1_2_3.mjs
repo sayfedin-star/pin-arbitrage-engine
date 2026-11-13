@@ -28,12 +28,10 @@ function runTest(name, fn) {
 // -----------------------------------------------------------------------------
 // SECTION 1: Phase 1 Unified Master Pin Ledger Verification
 // -----------------------------------------------------------------------------
-let compServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
-  ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
-  : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-if (compServiceCode.includes("from '../creators/service.mjs'")) {
-  compServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-}
+const compServiceCode = fs.readdirSync(path.resolve('src/modules/creators'))
+  .filter(f => f.endsWith('.mjs'))
+  .map(f => fs.readFileSync(path.resolve('src/modules/creators', f), 'utf8'))
+  .join('\n');
 let compRouteCode = fs.existsSync(path.resolve('src/routes/competitors.mjs'))
   ? fs.readFileSync(path.resolve('src/routes/competitors.mjs'), 'utf8')
   : fs.readFileSync(path.resolve('src/routes/creators.mjs'), 'utf8');
@@ -143,7 +141,12 @@ runTest('Phase 2.5: creator-velocity-crawler.mjs normalizes daily refresh veloci
 // SECTION 3: Phase 3 Canonical URL & Context-Aware Breadcrumbs Verification
 // -----------------------------------------------------------------------------
 const pagesCode = fs.readFileSync(path.resolve('src/routes/pages.mjs'), 'utf8');
-const pinDetailsCode = fs.readFileSync(path.resolve('src/pin-details-ui.mjs'), 'utf8');
+const pinDetailsCode = [
+  'src/pin-details-ui.mjs',
+  'src/ui/pin-details/styles.mjs',
+  'src/ui/pin-details/page-template.mjs',
+  'src/ui/pin-details/client-app.mjs'
+].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
 
 runTest('Phase 3.1: src/routes/pages.mjs 301 Edge Redirect for legacy /:username/pin/:id', async () => {
   assert.ok(pagesCode.includes('// 5B. Canonical URL Unification: 301 Permanent Redirect'), 'Must include Section 5B');
@@ -318,12 +321,11 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
 runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   // Re-read file to verify disk contents
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8').replace(/\r\n/g, '\n');
-  let updatedCompServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
-    ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
-    : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-  if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
-    updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-  }
+  const readAllCreators = () => fs.readdirSync(path.resolve('src/modules/creators'))
+    .filter(f => f.endsWith('.mjs'))
+    .map(f => fs.readFileSync(path.resolve('src/modules/creators', f), 'utf8'))
+    .join('\n');
+  const updatedCompServiceCode = readAllCreators();
 
   // Metric wiring in state & fetch
   assert.ok(updatedDashUiCode.includes('activeCreatorRankedTotal: 0'), 'Must declare activeCreatorRankedTotal in Alpine state');
@@ -360,12 +362,10 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
 
 runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h deltas, compact emoji badges)', () => {
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8').replace(/\r\n/g, '\n');
-  let updatedCompServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
-    ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
-    : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-  if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
-    updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
-  }
+  const updatedCompServiceCode = fs.readdirSync(path.resolve('src/modules/creators'))
+    .filter(f => f.endsWith('.mjs'))
+    .map(f => fs.readFileSync(path.resolve('src/modules/creators', f), 'utf8'))
+    .join('\n');
 
   // Columns customization feature
   assert.ok(updatedDashUiCode.includes('masterColumnDefinitions'), 'Must define masterColumnDefinitions in state');

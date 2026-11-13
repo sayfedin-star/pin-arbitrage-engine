@@ -100,12 +100,10 @@ console.log('\n[Test 3] Verifying PinArchive Service bulk writes & transactions.
 
 import { ingestPinsBatch } from '../src/modules/creators/service.mjs';
 
-let pinarchiveServiceContent = fs.existsSync('src/modules/pinarchive/service.mjs')
-  ? fs.readFileSync('src/modules/pinarchive/service.mjs', 'utf8')
-  : fs.readFileSync('src/modules/creators/service.mjs', 'utf8');
-if (pinarchiveServiceContent.includes("from '../creators/service.mjs'")) {
-  pinarchiveServiceContent = fs.readFileSync('src/modules/creators/service.mjs', 'utf8');
-}
+const pinarchiveServiceContent = fs.readdirSync('src/modules/creators')
+  .filter(f => f.endsWith('.mjs'))
+  .map(f => fs.readFileSync(`src/modules/creators/${f}`, 'utf8'))
+  .join('\n');
 
 // Ensure Neon HTTP array transaction and TCP begin are supported
 assert(
@@ -208,7 +206,11 @@ console.log('\n[Test 4] Verifying Keyword Folders Service set-based writes...');
 
 import { batchAddKeywordsToFolder } from '../src/modules/keywords/folders-service.mjs';
 
-const foldersServiceContent = fs.readFileSync('src/modules/keywords/folders-service.mjs', 'utf8');
+const foldersServiceContent = [
+  'src/modules/keywords/folders-service.mjs',
+  'src/modules/keywords/folders-crud.mjs',
+  'src/modules/keywords/folders-crossover.mjs'
+].map(f => fs.readFileSync(f, 'utf8')).join('\n');
 
 assert(
   foldersServiceContent.includes('FROM UNNEST(${validKids}::int[])'),

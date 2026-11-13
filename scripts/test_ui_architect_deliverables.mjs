@@ -117,7 +117,12 @@ console.log('  ✅ [PASS] Shared PinRow component rendering 100% verified');
 // ----------------------------------------------------------------------------
 console.log('\n[TEST 3] Auditing src/pin-details-ui.mjs deliverables...');
 
-const pinDetailsContent = fs.readFileSync(path.join(rootDir, 'src/pin-details-ui.mjs'), 'utf8');
+const pinDetailsContent = [
+  'src/pin-details-ui.mjs',
+  'src/ui/pin-details/styles.mjs',
+  'src/ui/pin-details/page-template.mjs',
+  'src/ui/pin-details/client-app.mjs'
+].map(f => fs.readFileSync(path.join(rootDir, f), 'utf8')).join('\n');
 
 // 3.1: computeChartPoints leading zero exclusion
 assert.ok(

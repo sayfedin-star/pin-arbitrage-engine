@@ -2,24 +2,24 @@
 
 /**
  * scripts/verify_regression_locks.mjs
- * 
+ *
  * Automated Architectural Regression Gate
  * Fast (< 1s), zero-dependency automated verification script that inspects the
  * codebase and exits with code 1 if ANY of the 14 permanent architectural regression locks regress.
- * 
- * Enforces Invariants 32–42:
+ *
+ * Enforces Invariants 32–42 + Unified PostgreSQL SSOT (Post-Migration 058):
  * - Lock 1: Room 1–5 Sibling DOM Hierarchy & Unclipped Workspace Header
  * - Lock 2: Pin Dossier Timeframe & SERP Badge Integrity
- * - Lock 3: Universal Shard-Affine SQL Pushdown (Neon Egress Shield)
+ * - Lock 3: Unified Single-DB SSOT, MD5 Work Partitioning & Zero Neon/Sharding Footprint
  * - Lock 4: Authentic Rolling Multi-Window Gains vs Fake Multiplier
  * - Lock 5: Context-Preserving Pin Navigation & Untracked Creator Shield
- * - Lock 6: Pure Unified PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint
+ * - Lock 6: Pure Unified PostgreSQL Architecture, Zero Cloudflare/D1/KV/Dual-Write Footprint
  * - Lock 7: Room 3 Creator Hub Discovery & Lightweight SERP Creator Pulse
  * - Lock 8: Daily Rolling Gains Workflow Automation
  * - Lock 9: Window-Aware Competitor Audience Gains
  * - Lock 10: Room 3 Single-Creator SERP Track Fallback
  * - Lock 11: Domain Studio -> /accounts Query Param Hydration & Crawler BigInt Parity
- * - Lock 12: Auto-Promote Pulse Breakout & Composite Shard Migration 041
+ * - Lock 12: Auto-Promote Pulse Breakout & Composite Index Migration 041
  * - Lock 13: Invariant & Memory Documentation Parity Gate
  * - Lock 14: Hidden Endpoints Parity, 1200x Media Waterfall, Deep UTM/Entity Sanitization & LND-801..824 Shields
  */
@@ -39,6 +39,26 @@ function readFile(relPath) {
     throw new Error(`File not found: ${relPath}`);
   }
   return fs.readFileSync(fullPath, 'utf8');
+}
+
+function readFiles(relPaths) {
+  return relPaths.map(readFile).join('\n');
+}
+
+function listMjsFiles(relDir) {
+  const dirPath = path.join(ROOT_DIR, relDir);
+  if (!fs.existsSync(dirPath)) return [];
+  const results = [];
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const rel = path.join(relDir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'scratch') continue;
+      results.push(...listMjsFiles(rel));
+    } else if (entry.isFile() && entry.name.endsWith('.mjs')) {
+      results.push(rel);
+    }
+  }
+  return results;
 }
 
 const errors = [];
@@ -63,12 +83,12 @@ try {
   // LOCK 1: DOM Hierarchy & Header Dropdown
   // =========================================================================
   console.log('\n[Lock 1] Verifying Room 1–5 DOM Hierarchy & Unclipped Workspace Header...');
-  
+
   // 1A. Sibling DOM hierarchy in src/campaign-folders-ui.mjs
   let domNestingPassed = false;
   try {
     domNestingPassed = runDomNestingVerification();
-  } catch (err) {
+  } catch (_) {
     domNestingPassed = false;
   }
   check('Lock 1', domNestingPassed, 'Room 5 is nested inside Room 1 or failed DOM nesting tree verification in src/campaign-folders-ui.mjs');
@@ -84,31 +104,36 @@ try {
   // LOCK 2: Pin Dossier Timeframe & SERP Badge
   // =========================================================================
   console.log('\n[Lock 2] Verifying Pin Dossier Timeframe & SERP Badge Integrity...');
-  const pinDetailsContent = readFile('src/pin-details-ui.mjs');
+  const pinDetailsContent = readFiles([
+    'src/pin-details-ui.mjs',
+    'src/ui/pin-details/styles.mjs',
+    'src/ui/pin-details/page-template.mjs',
+    'src/ui/pin-details/client-app.mjs'
+  ]);
   const mathContent = readFile('src/lib/math.mjs');
 
   // 2A. Default timeframe must be '7d'
   const hasDefault7d = /chartTimeframe:\s*['"]7d['"]/.test(pinDetailsContent);
-  check('Lock 2', hasDefault7d, "src/pin-details-ui.mjs changed default chartTimeframe away from '7d'");
+  check('Lock 2', hasDefault7d, "src/ui/pin-details/* changed default chartTimeframe away from '7d'");
 
   // 2B. Must include '15d' timeframe
   const has15d = /['"]15d['"]/.test(pinDetailsContent);
-  check('Lock 2', has15d, "src/pin-details-ui.mjs omits '15d' timeframe support");
+  check('Lock 2', has15d, "src/ui/pin-details/* omits '15d' timeframe support");
 
   // 2C. Must contain isKeywordDisplacedOrUnranked
   const hasDisplacedHelper = /isKeywordDisplacedOrUnranked\s*\(/.test(pinDetailsContent);
-  check('Lock 2', hasDisplacedHelper, 'src/pin-details-ui.mjs lacks isKeywordDisplacedOrUnranked helper');
+  check('Lock 2', hasDisplacedHelper, 'src/ui/pin-details/* lacks isKeywordDisplacedOrUnranked helper');
 
   // 2D. Must contain detectHydrationJump
   const hasHydrationJump = /export function detectHydrationJump\s*\(/.test(mathContent);
   check('Lock 2', hasHydrationJump, 'src/lib/math.mjs lacks detectHydrationJump function');
 
-  // 2E. Must contain sanitizeDossierTrajectory (moved to src/lib/math.mjs in Phase 1)
+  // 2E. Must contain sanitizeDossierTrajectory
   const hasSanitizeDossier = /export function sanitizeDossierTrajectory\s*\(/.test(mathContent);
   check('Lock 2', hasSanitizeDossier, 'src/lib/math.mjs lacks sanitizeDossierTrajectory function');
 
   // =========================================================================
-  // LOCK 3: Unified Single-DB SSOT & Eradication of Legacy Sharding / Neon Driver
+  // LOCK 3: Unified Single-DB SSOT, MD5 Work Partitioning & Zero Neon/Sharding Footprint
   // =========================================================================
   console.log('\n[Lock 3] Verifying Unified Single-DB SSOT, Clean Repository Wiring & Zero Legacy Sharding...');
   const creatorCrawlerContent = readFile('scripts/creator-velocity-crawler.mjs');
@@ -116,11 +141,16 @@ try {
   const clusterCrawlerContent = readFile('scripts/cluster-intelligence.mjs');
   const pkgJsonContent = readFile('package.json');
   const serverContent = readFile('src/server.mjs');
-  const securityHttpContent = readFile('src/http/security-and-response.mjs');
   const apiRoutesContent = readFile('src/plugins/api-routes.mjs');
   const pinsRouteContent = readFile('src/routes/pins.mjs');
   const serviceKeywordsContent = readFile('src/modules/keywords/service.mjs');
-  const serviceCreatorsContent = readFile('src/modules/creators/service.mjs');
+  const serviceCreatorsContent = readFiles([
+    'src/modules/creators/service.mjs',
+    'src/modules/creators/competitors-crud.mjs',
+    'src/modules/creators/creator-ingest.mjs',
+    'src/modules/creators/boards-service.mjs',
+    'src/modules/creators/creator-analytics.mjs'
+  ]);
 
   // 3A. Crawlers must NOT reference dropped shard_id column or pae_crc32_shard_id SQL function
   const hasDroppedShardSqlInCrawlers = (
@@ -149,16 +179,42 @@ try {
   const dbClientContent = readFile('src/db/client.mjs');
   const pinRepoContent = readFile('src/modules/pins/repository.mjs');
 
-  // 3D. Zero @neondatabase/serverless or legacy fleet-router dependency in package.json or src/
-  const hasNeonServerless = (
-    pkgJsonContent.includes('@neondatabase/serverless') ||
-    /from\s+['"]@neondatabase\/serverless['"]/.test(serverContent) ||
-    /from\s+['"]@neondatabase\/serverless['"]/.test(securityHttpContent) ||
-    /from\s+['"]@neondatabase\/serverless['"]/.test(dbClientContent) ||
-    /fleet-router\.mjs/.test(serverContent) ||
-    /fleet-router\.mjs/.test(pinsRouteContent)
+  // 3D. Zero @neondatabase/serverless, @cloudflare/, or legacy sharding/dual-write imports across src/ and scripts/
+  const allRuntimeFiles = [
+    ...listMjsFiles('src'),
+    ...listMjsFiles('scripts').filter(f => !path.basename(f).startsWith('test_') && f !== 'scripts/verify_regression_locks.mjs')
+  ];
+  const forbiddenPatterns = [
+    /@neondatabase\/serverless/,
+    /@cloudflare\//,
+    /\bPIN_ENGINE_KV\b/,
+    /\bPIN_D1_DB\b/,
+    /\bcaches\.default\b/,
+    /\bcreateHyperdriveClient\b/,
+    /\bd1-metadata(?:\.mjs)?\b/,
+    /\bfleet-router(?:\.mjs)?\b/,
+    /\bresolveShardConnection\b/,
+    /\bpae_crc32_shard_id\b/,
+    /src\/worker\.mjs/,
+    /\bisUnifiedPostgres\b/
+  ];
+  const legacyViolations = [];
+  for (const relFile of allRuntimeFiles) {
+    const fileText = readFile(relFile);
+    for (const pat of forbiddenPatterns) {
+      if (pat.test(fileText)) {
+        legacyViolations.push(`${relFile} matches ${pat}`);
+      }
+    }
+  }
+  const hasNeonInPkg = pkgJsonContent.includes('@neondatabase/serverless');
+  check(
+    'Lock 3',
+    !hasNeonInPkg && legacyViolations.length === 0,
+    hasNeonInPkg
+      ? 'package.json must not depend on @neondatabase/serverless'
+      : `Legacy Cloudflare/Neon/Sharding symbols reintroduced: ${legacyViolations.slice(0, 5).join('; ')}`
   );
-  check('Lock 3', !hasNeonServerless, '@neondatabase/serverless and fleet-router.mjs must be completely removed from package.json and src/');
 
   // 3E. src/db/client.mjs must be imported and wired into server.mjs and api-routes.mjs
   const dbClientWired = (
@@ -184,29 +240,33 @@ try {
   // LOCK 4: Authentic Multi-Window Gains vs Fake Multiplier
   // =========================================================================
   console.log('\n[Lock 4] Verifying Authentic Rolling Multi-Window Gains...');
-  const foldersServiceContent = readFile('src/modules/keywords/folders-service.mjs');
+  const foldersServiceContent = readFiles([
+    'src/modules/keywords/folders-service.mjs',
+    'src/modules/keywords/folders-crud.mjs',
+    'src/modules/keywords/folders-crossover.mjs'
+  ]);
 
   // 4A. row.gains_7d must be read from SQL and assigned
   const readsRowGains7d = /c\.gains_7d/i.test(foldersServiceContent) && /gains_7d:\s*safeNum\(\s*row\.gains_7d/i.test(foldersServiceContent);
-  check('Lock 4', readsRowGains7d, 'src/modules/keywords/folders-service.mjs does not read authentic row.gains_7d from keyword_serp_current');
+  check('Lock 4', readsRowGains7d, 'src/modules/keywords/folders-*.mjs does not read authentic row.gains_7d from keyword_serp_current');
 
   // 4B. Must not unconditionally assign Math.round(vel * 7) without row.gains_7d
   const hasRawVelMultiplierWithoutRow = /gains_7d:\s*Math\.round\(\s*(?:vel|daily_save_velocity)\s*\*\s*7\s*\)/i.test(foldersServiceContent);
-  check('Lock 4', !hasRawVelMultiplierWithoutRow, 'src/modules/keywords/folders-service.mjs uses raw Math.round(vel * 7) without reading row.gains_7d');
+  check('Lock 4', !hasRawVelMultiplierWithoutRow, 'src/modules/keywords/folders-*.mjs uses raw Math.round(vel * 7) without reading row.gains_7d');
 
   // 4C. top_creators must be wired in _executeFolderCrossover return
   const returnsTopCreators = /top_creators:\s*creatorMonopoly/i.test(foldersServiceContent);
-  check('Lock 4', returnsTopCreators, 'src/modules/keywords/folders-service.mjs omits top_creators from _executeFolderCrossover return');
+  check('Lock 4', returnsTopCreators, 'src/modules/keywords/folders-*.mjs omits top_creators from _executeFolderCrossover return');
 
-  // 4D. folders-service.mjs must hydrate displaced Vault pins from Unified PostgreSQL with aspect_ratio projection and pin_age_days recomputation
-  const foldersHydratesShards = (
+  // 4D. folders-crossover.mjs must hydrate displaced Vault pins from Unified PostgreSQL with aspect_ratio projection and pin_age_days recomputation
+  const foldersHydratesVault = (
     foldersServiceContent.includes('FROM universal_master_pins') &&
     foldersServiceContent.includes('isSyntheticPinTitle') &&
     (foldersServiceContent.includes(':crossover:v5') || foldersServiceContent.includes(':crossover:v4') || foldersServiceContent.includes(':crossover:v3')) &&
     foldersServiceContent.includes("(ump.metadata->>'aspect_ratio') AS aspect_ratio") &&
     /if\s*\(\s*!p\.created_at_pinterest\s*&&\s*meta\.created_at_pinterest\s*\)\s*\{[\s\S]*?p\.pin_age_days\s*=\s*Math\.max/.test(foldersServiceContent)
   );
-  check('Lock 4', foldersHydratesShards, 'src/modules/keywords/folders-service.mjs is missing unified universal_master_pins hydration, aspect_ratio projection, or pin_age_days recomputation');
+  check('Lock 4', foldersHydratesVault, 'src/modules/keywords/folders-*.mjs is missing unified universal_master_pins hydration, aspect_ratio projection, or pin_age_days recomputation');
 
   // =========================================================================
   // LOCK 5: Breadcrumb & Untracked Creator Shield
@@ -220,13 +280,13 @@ try {
   const allPinLinksHaveFolderId = pinLinkLines.length > 0 && pinLinkLines.every(line => line.includes('folder_id'));
   check('Lock 5', allPinLinksHaveFolderId, "src/campaign-folders-ui.mjs contains bare '/pins/' + sp.pin_id links without folder_id parameter");
 
-  // 5B. pin-details-ui.mjs must check /folders in document.referrer
+  // 5B. pin-details UI must check /folders in document.referrer
   const checksFoldersReferrer = /refUrl\.pathname\.startsWith\(\s*['"]\/folders['"]\s*\)/.test(pinDetailsContent);
-  check('Lock 5', checksFoldersReferrer, 'src/pin-details-ui.mjs fails to check /folders in document.referrer');
+  check('Lock 5', checksFoldersReferrer, 'src/ui/pin-details/* fails to check /folders in document.referrer');
 
-  // 5C. pin-details-ui.mjs must guard Tier 4 fallback with is_tracked_competitor
+  // 5C. pin-details UI must guard Tier 4 fallback with is_tracked_competitor
   const checksTrackedCompetitor = /creatorCtx\?\.is_tracked_competitor/.test(pinDetailsContent);
-  check('Lock 5', checksTrackedCompetitor, 'src/pin-details-ui.mjs fails to check is_tracked_competitor in Tier 4 creator fallback');
+  check('Lock 5', checksTrackedCompetitor, 'src/ui/pin-details/* fails to check is_tracked_competitor in Tier 4 creator fallback');
 
   // 5D. dashboard-ui.mjs must guard openCreatorByHandle(...).then(...) with activeCreator
   const hasActiveCreatorGuard = /this\.openCreatorByHandle\(first,\s*['"]overview['"],\s*false\)\.then\(\(\)\s*=>\s*\{[\s\S]*?if\s*\(!this\.activeCreator\)\s*return;/.test(dashboardContent);
@@ -237,39 +297,27 @@ try {
   check('Lock 5', !hasDeadPlaceholder, 'src/campaign-folders-ui.mjs contains dead via.placeholder.com URL');
 
   // =========================================================================
-  // LOCK 6: Pure Unified PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint
+  // LOCK 6: Pure Unified PostgreSQL Architecture & Zero Cloudflare/Dual-Write Footprint
   // =========================================================================
-  console.log('\n[Lock 6] Verifying Pure PostgreSQL Architecture & Zero Cloudflare / Sharding Footprint in src/...');
-  const d1MetadataExists = fs.existsSync(path.join(ROOT_DIR, 'src/modules/keywords/d1-metadata.mjs'));
-  const legacyShardingExists = (
+  console.log('\n[Lock 6] Verifying Pure Unified PostgreSQL SSOT & Zero Cloudflare/Dual-Write Footprint...');
+  const deletedLegacyFilesExist = (
+    fs.existsSync(path.join(ROOT_DIR, 'src/worker.mjs')) ||
+    fs.existsSync(path.join(ROOT_DIR, 'src/modules/keywords/d1-metadata.mjs')) ||
     fs.existsSync(path.join(ROOT_DIR, 'src/modules/sharding/fleet-router.mjs')) ||
     fs.existsSync(path.join(ROOT_DIR, 'src/routes/fleet.mjs')) ||
     fs.existsSync(path.join(ROOT_DIR, 'src/modules/fleet/service.mjs'))
   );
-  check('Lock 6', !d1MetadataExists && !legacyShardingExists, 'd1-metadata.mjs, fleet-router.mjs, routes/fleet.mjs, and modules/fleet/service.mjs must remain permanently deleted');
+  const migration058Exists = fs.existsSync(path.join(ROOT_DIR, 'scripts/migrations/058_phase4_ssot_compaction_and_cleanup.sql'));
+  check('Lock 6', !deletedLegacyFilesExist && migration058Exists, 'Legacy worker/d1/sharding files must remain deleted and Migration 058 must be present');
 
-  // 6B. Verify zero references to PIN_ENGINE_KV, PIN_D1_DB, createHyperdriveClient, or getPinKvKeysToEvict in src/
-  const srcFilesToCheck = [
-    'src/http/security-and-response.mjs',
-    'src/plugins/api-routes.mjs',
-    'src/server.mjs',
-    'src/db/client.mjs',
-    'src/modules/pins/repository.mjs',
-    'src/modules/keywords/service.mjs',
-    'src/modules/keywords/folders-service.mjs',
-    'src/modules/keywords/visual-lens-cache.mjs',
-    'src/modules/pulse/service.mjs',
-    'src/routes/keywords.mjs',
-    'src/routes/pins.mjs',
-    'src/routes/cluster.mjs',
-    'src/routes/creators.mjs',
-    'src/routes/domains.mjs'
-  ];
-  for (const relFile of srcFilesToCheck) {
-    const fileText = readFile(relFile);
-    const hasBannedCf = /PIN_ENGINE_KV|PIN_D1_DB|createHyperdriveClient|getPinKvKeysToEvict|d1-metadata/.test(fileText);
-    check('Lock 6', !hasBannedCf, `${relFile} contains banned Cloudflare references (PIN_ENGINE_KV/PIN_D1_DB/createHyperdriveClient/getPinKvKeysToEvict/d1-metadata)`);
-  }
+  // 6B. Verify syncPinAcrossAllFourPillars does NOT dual-write heavy creative columns (description/alt_text) into competitor_pins or pa_pins
+  const compUpdateMatch = pinRepoContent.match(/UPDATE competitor_pins\s+SET([\s\S]*?)WHERE pin_id =/);
+  const paUpdateMatch = pinRepoContent.match(/UPDATE pa_pins\s+SET([\s\S]*?)WHERE pin_id =/);
+  const hasCreativeDualWrite = (
+    (compUpdateMatch && /\b(?:description|alt_text)\s*=/.test(compUpdateMatch[1])) ||
+    (paUpdateMatch && /\b(?:description|alt_text)\s*=/.test(paUpdateMatch[1]))
+  );
+  check('Lock 6', !hasCreativeDualWrite, 'PinRepository.syncPinAcrossAllFourPillars must not dual-write description/alt_text into competitor_pins or pa_pins (SSOT is universal_master_pins)');
 
   // =========================================================================
   // LOCK 7: Room 3 Creator Hub & Lightweight Pulse
@@ -285,7 +333,7 @@ try {
   const hasPulseOnlyBypass = /acc\.tracking_mode\s*===\s*['"]pulse_only['"]/.test(creatorCrawlerContent);
   check('Lock 7', hasPulseOnlyBypass, "scripts/creator-velocity-crawler.mjs lacks tracking_mode === 'pulse_only' fast-path bypass");
 
-  // 7C. keywords/service.mjs must hydrate displaced pins directly from Unified PostgreSQL (zero shard scatter-gather)
+  // 7C. keywords/service.mjs must hydrate displaced pins directly from Unified PostgreSQL
   const usesUnifiedDisplacedHydration = (
     /hydrateDisplacedPinsMetadata/.test(serviceContent) &&
     !/resolveShardConnection/.test(serviceContent)
@@ -333,7 +381,7 @@ try {
   check('Lock 11', !activeCreatorsIntCast, 'Active pin ingestion SQL contains unsafe ::int cast on save_count/saves (must be ::bigint)');
 
   // =========================================================================
-  // LOCK 12: Auto-Promote Pulse Breakout & Composite Shard Migration 041
+  // LOCK 12: Auto-Promote Pulse Breakout & Composite Index Migration 041
   // =========================================================================
   console.log('\n[Lock 12] Verifying Auto-Promote Pulse Breakout & Migration 041...');
   const migration041Exists = fs.existsSync(path.join(ROOT_DIR, 'scripts/migrations/041_composite_shard_indexes.sql'));
@@ -408,7 +456,7 @@ try {
   // =========================================================================
   console.log('\n[Lock 14] Verifying Hidden Endpoints Parity, 1200x Media Waterfall & LND-801..824 Shields...');
 
-  // 14A. Behavioral verification of Pinterest hidden endpoints, guest scraping (no logged-in cookies in pin details), & User-Agent
+  // 14A. Behavioral verification of Pinterest hidden endpoints, guest scraping & User-Agent
   const pinterestScraperContent = [
     readFile('scripts/lib/pinterest.mjs'),
     readFile('src/core/pinterest/urls.mjs'),
@@ -434,6 +482,7 @@ try {
 
   // 14B. Keywords service batch Pidgets velocity calculation and deadlock-free ordering + Auth & Barrier Security Contracts
   const keywordsServiceContent = readFile('src/modules/keywords/service.mjs');
+  const securityHttpContent = readFile('src/http/security-and-response.mjs');
   const hasKeywordServiceGuards = (
     keywordsServiceContent.includes('calculateDailyVelocity') &&
     keywordsServiceContent.includes('fetchPinsBatchFromPidgets') &&
@@ -537,10 +586,9 @@ try {
     antiScatteringGuards,
     'Round 30/31 regression: detected save/repin conflation, gains.delta_saves_24h typo, intraday velocity compounding, runningMaxSaves ratchet, GREATEST save_count lock, or missing unified DB modules'
   );
-
 } catch (e) {
   errors.push(`Unexpected Gate Script Error: ${e.message}\n${e.stack}`);
-  console.error(`💥 Execution failure:`, e);
+  console.error('💥 Execution failure:', e);
 }
 
 const elapsed = (performance.now() - startTime).toFixed(1);

@@ -171,7 +171,7 @@ runTest('Crawler uses crawler_shard_heartbeats for zero-hang peer barrier synchr
 });
 
 runTest('reconcileQualifiedCatalogPins checks physical is_deleted column for index seek parity', () => {
-  const content = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/creators/service.mjs'), 'utf8');
+  const content = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/creators/creator-ingest.mjs'), 'utf8');
   assert(content.includes('(cp.is_deleted IS NULL OR cp.is_deleted = FALSE)'), 'reconcile query must check physical is_deleted column');
 });
 

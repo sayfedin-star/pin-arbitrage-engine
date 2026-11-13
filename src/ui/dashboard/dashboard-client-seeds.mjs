@@ -243,7 +243,7 @@ export function getDashboardSeedActionMethods() {
 
         openDeleteModal(target) {
           this.deleteTarget = target;
-          this.deletePurgeNeon = true;
+          this.deletePurgeDatabase = true;
           this.isDeleteModalOpen = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
@@ -270,7 +270,7 @@ export function getDashboardSeedActionMethods() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 pin_ids: pinIds,
-                purge_database: Boolean(this.deletePurgeNeon)
+                purge_database: Boolean(this.deletePurgeDatabase)
               })
             });
 

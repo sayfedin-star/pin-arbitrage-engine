@@ -4,9 +4,9 @@
  * 
  * Verifies:
  * 1. End-to-End Cross-Pillar Flow Audit (< 50ms latency benchmark)
- * 2. Cloudflare Workers Resource Guardrails (Bundle Size, Edge Imports & Cold-Start)
+ * 2. Unified Fastify Runtime Guardrails (Module Boundaries, Footprint & Cold-Start)
  * 3. Final Security Audit, CSP & Zero Secret Leakage Defense
- * 4. Shard Routing Mathematical Uniformity across 99 Shards (10,000 Snowflake IDs)
+ * 4. 20-Worker Matrix Partitioning Uniformity via CRC32 (10,000 Snowflake IDs)
  * 5. Full Architecture Sign-Off & Verification Integrity
  */
 
@@ -29,7 +29,7 @@ import { fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 
 console.log('================================================================================');
 console.log('   PHASE 7 FINAL SYSTEM VERIFICATION & PRODUCTION AUDIT');
-console.log('   Cloudflare Edge Resource Guardrails & 4-Pillar Cross-Flow Certification');
+console.log('   Unified Fastify Runtime Guardrails & 4-Pillar Cross-Flow Certification');
 console.log('================================================================================\n');
 
 const scorecard = [];
@@ -226,9 +226,9 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
 }
 
 // =============================================================================
-// AXIS 2: CLOUDFLARE WORKERS RESOURCE GUARDRAILS
+// AXIS 2: UNIFIED FASTIFY RUNTIME GUARDRAILS
 // =============================================================================
-console.log('\n[AXIS 2] Cloudflare Workers Resource Guardrails (Bundle Size, Edge Imports & Cold Start)');
+console.log('\n[AXIS 2] Unified Fastify Runtime Guardrails (Code Footprint, Module Boundaries & Cold Start)');
 
 {
   // 2.1 Code Size & Compression Audit
@@ -262,11 +262,10 @@ console.log('\n[AXIS 2] Cloudflare Workers Resource Guardrails (Bundle Size, Edg
   const uncompressedKB = (totalBytes / 1024).toFixed(1);
   const gzippedKB = (gzippedBuffer.length / 1024).toFixed(1);
 
-  // Cloudflare Workers Free Tier compressed limit is 1,024 KB; Paid limit is 5,120 KB
-  assert.ok(gzippedBuffer.length < 1024 * 1024, `Gzip bundle size ${gzippedKB}KB exceeds 1,024KB Cloudflare limit`);
+  assert.ok(gzippedBuffer.length < 5120 * 1024, `Gzip source footprint ${gzippedKB}KB exceeds 5MB guardrail`);
 
-  recordTest('Axis 2', '2.1 Bundle Size & Gzip Compression Guardrails', 'PASS', performance.now() - t0,
-    `Total src code: ${uncompressedKB} KB uncompressed, ${gzippedKB} KB gzipped (strictly within 1MB Cloudflare edge limit)`);
+  recordTest('Axis 2', '2.1 Source Footprint & Gzip Compression Guardrails', 'PASS', performance.now() - t0,
+    `Total src code: ${uncompressedKB} KB uncompressed, ${gzippedKB} KB gzipped (healthy Node.js footprint)`);
 }
 
 {

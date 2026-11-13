@@ -1093,7 +1093,7 @@ export function getPulsePageHtml(folderId = '') {
           <!-- Live Background Hydration Status Indicator -->
           <div x-show="isDossierHydrating" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] font-mono flex items-center space-x-2">
             <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-amber-500 shrink-0"></i>
-            <span>Hydrating deep description, SEO alt-text, and Shard trajectory in background...</span>
+            <span>Hydrating deep description, SEO alt-text, and velocity trajectory in background...</span>
           </div>
 
           <!-- Hero Pin Card -->
@@ -2141,7 +2141,7 @@ export function getPulsePageHtml(folderId = '') {
             '',
             '## 3. 5-Source Search Relevance Integrity',
             '- **Source 1 (Title):** ' + (p.title ? '100% Present' : 'Missing'),
-            '- **Source 2 (Description):** ' + (p.description ? 'Enriched from live Shard' : 'Compacted on Hub · Available via Edge D1'),
+            '- **Source 2 (Description):** ' + (p.description ? 'Enriched from Unified PostgreSQL' : 'Pending Deep Hydration'),
             '- **Source 3 (Visual Annotations):** ' + (tags.length ? tags.length + ' Tags Detected' : 'Standard Crawl Extraction'),
             '- **Source 4 (Board Placement):** ' + (p.board_name || 'Curated Board'),
             '- **Source 5 (Destination URL):** ' + (p.destination_url ? 'Outbound Verified' : 'Uploaded (Vacuum Target)'),

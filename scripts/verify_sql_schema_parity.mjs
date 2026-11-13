@@ -2,12 +2,12 @@
  * SQL Schema Parity & Forensic Query Verifier (AST-Powered & Query-Isolated)
  * 
  * Statically audits every individual SQL template literal across src/ and scripts/ using Acorn AST to guarantee:
- * 1. Zero non-existent columns queried on Hub or Shard tables (active schema checking via KNOWN_TABLE_COLUMNS).
+ * 1. Zero non-existent columns queried on Unified PostgreSQL SSOT tables (post-Migration 058 schema parity).
  * 2. Proper COALESCE precedence (EXCLUDED must take priority over existing on fresh updates).
  * 3. Prevention of baselineMap object-to-number NaN poisoning.
- * 4. Architectural Guard 1: Zero direct INSERT INTO keyword_pins_snapshots on Central Hub outside migrations/fixtures.
+ * 4. Architectural Guard 1: Zero direct INSERT INTO keyword_pins_snapshots outside migrations/tests.
  * 5. Architectural Guard 2: Zero invalid ON CONFLICT (pin_id, snapshot_date) on pins_daily_snapshots.
- * 6. Architectural Guard 3: Cloudflare KV cache key parity on dossier and trajectory keys.
+ * 6. Architectural Guard 3: Zero SQL queries referencing tables/views dropped in Migration 058.
  */
 
 import fs from 'fs';
@@ -16,7 +16,7 @@ import * as acorn from 'acorn';
 
 console.log('=== Running Forensic SQL Schema Parity & AST Landmine Audit ===\n');
 
-// 1. DDL Schema Definition for Core Tables (Ground Truth from Neon Hub & Shards)
+// 1. DDL Schema Definition for Core Tables (Unified PostgreSQL SSOT — Post-Migration 058)
 export const KNOWN_TABLE_COLUMNS = {
   keyword_serp_current: new Set([
     'id',
@@ -421,6 +421,28 @@ export const KNOWN_TABLE_COLUMNS = {
     'ads_txt_status',
     'raw_header_snippet',
     'checked_at'
+  ]),
+  seed_guided_search_capsules: new Set([
+    'id',
+    'seed_pin_id',
+    'query_term',
+    'normalized_query',
+    'image_url',
+    'search_url',
+    'node_id',
+    'discovered_at',
+    'capsule_title'
+  ]),
+  competitor_seed_pins: new Set([
+    'id',
+    'competitor_id',
+    'pin_id',
+    'title',
+    'image_url',
+    'board_name',
+    'save_count',
+    'created_at',
+    'last_crawled_at'
   ])
 };
 
@@ -502,7 +524,7 @@ for (const file of filesToScan) {
   walkAst(ast, (node) => {
     if (node.type === 'TaggedTemplateExpression') {
       const tagName = node.tag.name || (node.tag.property && node.tag.property.name) || '';
-      if (['sql', 'hubSql', 'shardSql', 'targetSql', 'client', 'postgres'].includes(tagName)) {
+      if (['sql', 'dbSql', 'targetSql', 'client', 'postgres'].includes(tagName)) {
         const queryText = node.quasi.quasis.map(q => q.value.raw).join(' __PARAM__ ');
         sqlBlocks.push({ query: queryText, line: node.loc?.start?.line || 1 });
       }
@@ -539,6 +561,17 @@ for (const file of filesToScan) {
       violationCount++;
     }
 
+    // Architectural Guard 3: Ban queries targeting tables/views permanently dropped in Migration 058
+    if (!isTestOrMigrationOrSeed && !file.includes('optimize_hub_storage.mjs')) {
+      const legacyDropMatch = query.match(/\b(?:FROM|INTO|UPDATE|JOIN)\s+(?:public\.)?(pa_pin_metrics|neon_projects_registry|keyword_displaced_pins|creator_profiles|creator_boards)\b/i);
+      if (legacyDropMatch) {
+        console.error(`🚨 [ARCHITECTURAL GUARD] Query references dropped legacy table/view '${legacyDropMatch[1]}'!`);
+        console.error(`   File: ${file}:${line}`);
+        console.error(`   Fix:  Post-Migration 058 Unified PostgreSQL SSOT eradicated '${legacyDropMatch[1]}'.\n`);
+        violationCount++;
+      }
+    }
+
     // Active Column Auditing for Known Tables within this specific query
     for (const [tableName, validCols] of Object.entries(KNOWN_TABLE_COLUMNS)) {
       if (!new RegExp(`\\b${tableName}\\b`, 'i').test(query)) continue;
@@ -569,7 +602,7 @@ for (const file of filesToScan) {
           if (!validCols.has(colName)) {
             console.error(`🚨 [SCHEMA LANDMINE] Column '${colName}' does NOT exist on table '${tableName}' (via alias '${alias}')`);
             console.error(`   File: ${file}:${line}`);
-            console.error(`   Fix:  Verify against Neon DDL schema; column '${colName}' is not defined.\n`);
+            console.error(`   Fix:  Verify against Unified PostgreSQL SSOT DDL schema (post-Migration 058); column '${colName}' is not defined.\n`);
             violationCount++;
           }
         }

@@ -33,7 +33,14 @@ export function runUiVerification(baseDir = process.cwd()) {
     return { passed, failed, failures };
   }
 
-  const pinDetailsContent = fs.readFileSync(pinDetailsPath, 'utf8');
+  const pinDetailsSubdir = path.join(baseDir, 'src', 'ui', 'pin-details');
+  const pinDetailsFiles = [pinDetailsPath];
+  if (fs.existsSync(pinDetailsSubdir)) {
+    for (const f of fs.readdirSync(pinDetailsSubdir).filter(n => n.endsWith('.mjs'))) {
+      pinDetailsFiles.push(path.join(pinDetailsSubdir, f));
+    }
+  }
+  const pinDetailsContent = pinDetailsFiles.map(f => fs.readFileSync(f, 'utf8')).join('\n');
 
   // 1. Check computeChartPoints filters leading 0-save days prior to first hydration day
   console.log('[Check 1] computeChartPoints leading 0-save filtering:');

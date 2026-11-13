@@ -1242,7 +1242,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         // Delete Modal State
         isDeleteModalOpen: false,
         deleteTarget: null,
-        deletePurgeNeon: true,
+        deletePurgeDatabase: true,
         isDeleting: false,
 
         normalizeBoardSlug(str) {

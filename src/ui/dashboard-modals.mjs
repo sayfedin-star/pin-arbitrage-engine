@@ -919,7 +919,7 @@ export function getDashboardModalsHtml() {
         <!-- Prominent Purge Option Checkbox -->
         <div class="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 space-y-2">
           <label class="flex items-start space-x-2.5 cursor-pointer">
-            <input type="checkbox" x-model="deletePurgeNeon" class="mt-0.5 w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500">
+            <input type="checkbox" x-model="deletePurgeDatabase" class="mt-0.5 w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500">
             <div>
               <span class="font-bold text-rose-900 dark:text-rose-300">Comprehensive Purge from PostgreSQL Database</span>
               <p class="text-[11px] text-rose-800/80 dark:text-rose-400/80 mt-0.5 leading-relaxed">

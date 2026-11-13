@@ -534,7 +534,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   </div>
                 </template>
 
-                <!-- On-Demand Shard Displaced Pins Loader -->
+                <!-- On-Demand Displaced Pins Loader -->
                 <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
                   <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono tabular-nums text-xs">
                     <div class="flex items-center gap-2">

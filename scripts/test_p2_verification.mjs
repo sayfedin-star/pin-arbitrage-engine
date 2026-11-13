@@ -312,7 +312,12 @@ console.log('\n[*] Section 4: Frontend UI Mutation Guarding...');
 
 const dashboardUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
 const keywordsUiCode = fs.readFileSync(path.resolve('src/keywords-ui.mjs'), 'utf8');
-const pinDetailsUiCode = fs.readFileSync(path.resolve('src/pin-details-ui.mjs'), 'utf8');
+const pinDetailsUiCode = [
+  'src/pin-details-ui.mjs',
+  'src/ui/pin-details/styles.mjs',
+  'src/ui/pin-details/page-template.mjs',
+  'src/ui/pin-details/client-app.mjs'
+].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
 const campaignFoldersUiCode = fs.readFileSync(path.resolve('src/campaign-folders-ui.mjs'), 'utf8');
 
 runTest('src/dashboard-ui.mjs: All mutation endpoints use safeApiFetch', () => {

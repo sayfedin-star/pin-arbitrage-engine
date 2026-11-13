@@ -37,8 +37,8 @@ function readWorkerAndRoutes() {
   const routesContent = fs.existsSync('src/routes')
     ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
     : '';
-  const creatorsContent = fs.existsSync('src/modules/creators/service.mjs')
-    ? fs.readFileSync('src/modules/creators/service.mjs', 'utf8')
+  const creatorsContent = fs.existsSync('src/modules/creators')
+    ? fs.readdirSync('src/modules/creators').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/modules/creators/${f}`, 'utf8')).join('\n')
     : '';
   const pinsRepoContent = fs.existsSync('src/modules/pins/repository.mjs')
     ? fs.readFileSync('src/modules/pins/repository.mjs', 'utf8')

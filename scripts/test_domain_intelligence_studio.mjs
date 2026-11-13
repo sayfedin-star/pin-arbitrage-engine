@@ -33,6 +33,9 @@ if (!DATABASE_URL) {
   process.exit(0);
 }
 
+const API_SECRET_KEY = process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET || '';
+const authHeaders = API_SECRET_KEY ? { 'x-api-key': API_SECRET_KEY } : {};
+
 const sql = neon(DATABASE_URL);
 const mockEnv = {
   DATABASE_URL,
@@ -195,7 +198,7 @@ async function runTests() {
   console.log('\n[*] Testing /api/domains/enrich-age Cache & Resolver...');
   const ageRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-age', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ domain: topDomain })
   }), mockEnv);
   const ageData = await ageRes.json();
@@ -209,7 +212,7 @@ async function runTests() {
   // 5.1 Invalid domain in enrich-age returns 400
   const invalidAgeRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-age', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ domain: 'invalid..host.local' })
   }), mockEnv);
   report(
@@ -241,7 +244,7 @@ async function runTests() {
   // 5.4 Batch Age Enrichment API: POST /api/domains/enrich-age with domains[]
   const batchRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-age', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ domains: ['longevitylifestyle.me', topDomain], limit: 2 })
   }), mockEnv);
   const batchData = await batchRes.json();
@@ -292,7 +295,7 @@ async function runTests() {
   // 7.3 API: POST /api/domains/enrich-all processes automated batch queue
   const enrichAllRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-all', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ batch_size: 2, concurrency: 2 })
   }), mockEnv);
   const enrichAllData = await enrichAllRes.json();
@@ -338,7 +341,7 @@ async function runTests() {
   // 8.2 API: POST /api/domains/enrich-ads (Single domain resolution & caching)
   const enrichAdsRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ domain: 'payhip.com' })
   }), mockEnv);
   const enrichAdsData = await enrichAdsRes.json();
@@ -353,7 +356,7 @@ async function runTests() {
   // 8.3 API: POST /api/domains/enrich-ads (Batch domains[])
   const batchAdsRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ domains: ['payhip.com', 'saltandlavender.com'], limit: 2 })
   }), mockEnv);
   const batchAdsData = await batchAdsRes.json();
@@ -405,7 +408,7 @@ async function runTests() {
   // 8.8 API: POST /api/domains/enrich-ads-all
   const enrichAdsAllRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads-all', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ batch_size: 2, concurrency: 1 })
   }), mockEnv);
   const enrichAdsAllData = await enrichAdsAllRes.json();
