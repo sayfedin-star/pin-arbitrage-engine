@@ -2910,7 +2910,7 @@ ${getDashboardArchiveRulesMethods()}
 
             const data = await res.json();
             if (res.ok && data.candidates_imported !== undefined) {
-              this.rawJsonStatusMsg = '✅ تم بنجاح! تم استيراد ' + data.candidates_imported + ' كانديديت و ' + data.capsules_imported + ' كبسولة بحثية BUBBLE_ONE_COL وتثبيت كوتا الحصص في Neon.';
+              this.rawJsonStatusMsg = '✅ تم بنجاح! تم استيراد ' + data.candidates_imported + ' كانديديت و ' + data.capsules_imported + ' كبسولة بحثية BUBBLE_ONE_COL وتثبيت كوتا الحصص في PostgreSQL.';
               this.rawJsonIsError = false;
               await this.refreshAll();
               if (this.activeDossierSeed && this.activeDossierSeed.pin_id === this.rawJsonTargetPin.trim()) {

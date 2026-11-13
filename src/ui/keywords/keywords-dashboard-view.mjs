@@ -54,7 +54,7 @@ export function getKeywordsDashboardViewHtml({ safeFolderId = '' } = {}) {
             <!-- Refresh Hub Button -->
             <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
                     class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
-                    title="Sync with Neon Central Hub">
+                    title="Sync with PostgreSQL Hub">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
               <span class="hidden sm:inline">Refresh</span>
             </button>

@@ -70,7 +70,7 @@ assert(
 // Unified Creator Archive & Rules caching & invalidations
 assert(
   workerContent.includes("pathname === '/api/competitors/archive-overview'") &&
-  workerContent.includes("buildCanonicalCacheKey(`pinarchive:overview:"),
+  workerContent.includes("buildCanonicalCacheKey('pinarchive:overview', {})"),
   'GET /api/creators/archive-overview must use canonical cache key'
 );
 assert(

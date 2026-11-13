@@ -1901,7 +1901,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             updated_at = NOW();
         `);
 
-        // Mark displaced pins in keyword_serp_current without premature deletion until shard offload confirms them
+        // Mark displaced pins in keyword_serp_current prior to archival cleanup
         txBatch.push((db) => db`
           UPDATE keyword_serp_current SET
             is_displaced = TRUE,
@@ -1961,9 +1961,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
     `);
 
-    // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-    // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip using lazy query builders
-    // Supports both wrapped Worker clients (__atomicBuilderWrapped / Hyperdrive) and raw @neondatabase/serverless CLI clients
+    // [INVARIANT: ATOMIC-TRANSACTION-BUILDER]
+    // Execute atomic database transaction in 1 single roundtrip using lazy query builders
+    // Supports both wrapped transaction-bridge clients (__atomicBuilderWrapped) and raw postgres.js clients
     if (typeof sql.transaction === 'function') {
       const isLazyRequired = Boolean(
         sql.__atomicBuilderWrapped ||
@@ -2372,6 +2372,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   if (!kid) throw new Error('Valid keyword ID is required');
 
   const { status = 'ALL', limit = 500, offset = 0, env = null, forceRefresh = false } = options;
+  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 

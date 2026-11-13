@@ -137,7 +137,7 @@ export function getDashboardBoardViewHtml() {
         <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Pins In Board</div>
           <div class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber((activeBoard && activeBoard.pin_count ? activeBoard.pin_count : 0) || boardPinsTotal || boardPins.length || 0)"></div>
-          <div class="text-[10.5px] text-slate-400" x-text="boardPins.length + ' indexed in Neon'"></div>
+          <div class="text-[10.5px] text-slate-400" x-text="boardPins.length + ' indexed in PostgreSQL'"></div>
         </div>
 
         <!-- KPI 2: Total Board Saves -->
@@ -238,7 +238,7 @@ export function getDashboardBoardViewHtml() {
       <!-- Loading State -->
       <div x-show="isLoadingBoardPins" class="py-16 flex flex-col items-center justify-center space-y-3">
         <i data-lucide="loader" class="w-8 h-8 text-rose-500 animate-spin"></i>
-        <span class="text-xs font-semibold text-slate-400">Loading board pins inventory from Neon database...</span>
+        <span class="text-xs font-semibold text-slate-400">Loading board pins inventory from PostgreSQL database...</span>
       </div>
 
       <!-- Empty State -->

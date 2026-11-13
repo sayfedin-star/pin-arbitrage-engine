@@ -204,6 +204,11 @@ jobs:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
           skip-wakeup: 'false'
 
+      - name: 4a. Remediate Poisoned Canonical Saves & Velocity
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/remediate_poisoned_canonical_and_velocity.mjs
+
       - name: 4. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

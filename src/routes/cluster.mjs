@@ -548,7 +548,7 @@ export async function handleClusterRoutes({
       has_cookie: hasCookie,
       is_configured: hasCookie,
       preview: hasCookie ? `${effective.slice(0, 42)}...` : '',
-      source: sql ? 'database_or_env' : 'cloudflare_env'
+      source: sql ? 'database_or_env' : 'node_native_env'
     });
   }
 

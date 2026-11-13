@@ -328,6 +328,10 @@ export function createSqlClient(dsn, options = {}) {
  * @returns {Function}
  */
 export function getSqlClient(env = null) {
+  if (env?.SQL_CLIENT) {
+    return env.SQL_CLIENT;
+  }
+
   const dsn = String(
     env?.DATABASE_URL ||
     (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') ||

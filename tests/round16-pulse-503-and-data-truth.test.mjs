@@ -1046,18 +1046,17 @@ describe('Gate 6: Full Repository Check & Regression Locks Gate', () => {
     );
   });
 
-  it('6.4 wrangler.toml provides clean Cloudflare Workers configuration without Free-plan blocking CPU limits', () => {
-    const wranglerPath = path.join(ROOT_DIR, 'wrangler.toml');
-    const wranglerContent = fs.readFileSync(wranglerPath, 'utf8');
+  it('6.4 Pure Fastify + Unified PostgreSQL configuration in package.json and src/server.mjs is clean without legacy Wrangler/Neon bindings', () => {
+    const pkgPath = path.join(ROOT_DIR, 'package.json');
+    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const serverPath = path.join(ROOT_DIR, 'src', 'server.mjs');
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
 
-    assert.ok(wranglerContent.includes('name = "pin-arbitrage-engine"'), 'Must define valid worker name');
-    assert.ok(wranglerContent.includes('main = "src/worker.mjs"'), 'Must define entrypoint');
-    assert.ok(wranglerContent.includes('nodejs_compat'), 'Must enable nodejs_compat');
-    // Ensure [limits] cpu_ms is NOT present to prevent Cloudflare Error 100328 on Free plans
-    assert.strictEqual(
-      /\[limits\]\s*\n\s*cpu_ms/.test(wranglerContent),
-      false,
-      'wrangler.toml must not declare [limits] cpu_ms which triggers Cloudflare Error 100328 on Free plans'
-    );
+    assert.strictEqual(pkgJson.main, 'src/server.mjs', 'package.json main must point to src/server.mjs');
+    assert.ok(pkgJson.dependencies?.fastify, 'package.json must declare fastify dependency');
+    assert.ok(pkgJson.dependencies?.postgres, 'package.json must declare postgres dependency');
+    assert.strictEqual(pkgJson.dependencies?.['@neondatabase/serverless'], undefined, '@neondatabase/serverless must be removed');
+    assert.strictEqual(fs.existsSync(path.join(ROOT_DIR, 'wrangler.toml')), false, 'wrangler.toml must remain removed');
+    assert.ok(serverCode.includes('function createFastifyApp') && serverCode.includes('export async function startServer') && serverCode.includes('export async function handleAppRequest'), 'src/server.mjs must define createFastifyApp and export handleAppRequest and startServer');
   });
 });

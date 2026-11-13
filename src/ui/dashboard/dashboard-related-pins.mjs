@@ -126,7 +126,7 @@ export function getDashboardRelatedPinsHtml() {
             <div>
               <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <i data-lucide="layers" class="w-4 h-4 text-rose-500"></i>
-                <span>Tracked Seeds in Neon Postgres Database</span>
+                <span>Tracked Seeds in PostgreSQL Database</span>
               </h2>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage cluster seed nodes, execute multi-seed crawls via GitHub Actions, and inspect isolated telemetry quotas.</p>
             </div>
@@ -543,7 +543,7 @@ export function getDashboardRelatedPinsHtml() {
                     <span>Creator Playbook: RecGPT Sequential Trajectory Matrix</span>
                   </h3>
                   <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Pinterest's causal sequential transformer predicts user transition probabilities between meal courses. These 3 candidate nodes are dynamically extracted from Neon for active seed <span class="font-mono tabular-nums text-rose-500" x-text="activeDossierSeed.pin_id"></span>.
+                    Pinterest's causal sequential transformer predicts user transition probabilities between meal courses. These 3 candidate nodes are dynamically extracted from PostgreSQL for active seed <span class="font-mono tabular-nums text-rose-500" x-text="activeDossierSeed.pin_id"></span>.
                   </p>
                 </div>
                 <div class="flex items-center space-x-2">

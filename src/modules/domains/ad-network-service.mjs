@@ -9,7 +9,7 @@
  * - Historical Switch Tracking: Identifies when a publisher migrates or upgrades from one network
  *   to another (e.g., Ezoic ➔ Journey ➔ Mediavine) and maintains an immutable audit log.
  * - Resilient streaming ads.txt fetcher with 128KB bounds and 3500ms AbortSignal timeouts.
- * - Fully isolated non-destructive module targeting Neon Serverless Postgres.
+ * - Fully isolated non-destructive module targeting Unified PostgreSQL.
  */
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
@@ -447,7 +447,7 @@ export function normalizeMonetizationRecord(record) {
 }
 
 /**
- * Fetches, detects network, tracks transitions, and caches results into Neon Postgres.
+ * Fetches, detects network, tracks transitions, and caches results into Unified PostgreSQL.
  */
 export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false, fastPath = false } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);

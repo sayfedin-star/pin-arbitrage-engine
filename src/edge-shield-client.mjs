@@ -4,14 +4,14 @@
  * Provides:
  * 0. Safe UI API Client (15s AbortSignal timeout, 502/504 HTML cold-start guard)
  * 1. User Activity Tracking (Inactivity Cutoff: 15 minutes)
- * 2. Operator Session Keep-Alive Heartbeat (4-min interval, 0 shards woken up)
- * 3. Smart Prefetch on Hover (120ms debounce, wakes up ONLY target shard O(1))
+ * 2. Operator Session Keep-Alive Heartbeat (4-min interval)
+ * 3. Smart Prefetch on Hover (120ms debounce)
  */
 
 /**
- * Universal safe fetch client helper for browser and edge module contexts
+ * Universal safe fetch client helper for browser and Node.js contexts
  * [INVARIANT: SAFE-UI-API-CLIENT]
- * Enforces AbortSignal.timeout(15000) and defends against Cloudflare 502/504 HTML responses.
+ * Enforces AbortSignal.timeout(15000) and defends against gateway 502/504 HTML responses.
  */
 export async function safeApiFetch(url, options = {}) {
   const timeoutMs = options.timeout || 15000;
@@ -87,7 +87,7 @@ export async function safeApiFetch(url, options = {}) {
     } catch (_) {}
   }
 
-  // [INVARIANT: AUTH-503-DISTINCTION] Distinguish AUTH_NOT_CONFIGURED from Neon database cold start
+  // [INVARIANT: AUTH-503-DISTINCTION] Distinguish AUTH_NOT_CONFIGURED from database cold start
   const isAuthNotConfigured = rawRes.status === 503 && (
     (parsedData && (parsedData.error === 'AUTH_NOT_CONFIGURED' || parsedData.code === 'AUTH_NOT_CONFIGURED')) ||
     (rawText && (rawText.includes('API_SECRET_KEY is not configured') || rawText.includes('AUTH_NOT_CONFIGURED')))
@@ -104,7 +104,7 @@ export async function safeApiFetch(url, options = {}) {
           ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
           : (rawRes.ok ? null : (rawText || `HTTP ${rawRes.status}: ${rawRes.statusText || 'Error'}`))),
       message: isAuthNotConfigured
-        ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.'
+        ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.'
         : (isColdStartOrGateway
           ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
           : rawText),
@@ -114,7 +114,7 @@ export async function safeApiFetch(url, options = {}) {
   } else if (!rawRes.ok) {
     if (isAuthNotConfigured) {
       parsedData.error = 'AUTH_NOT_CONFIGURED';
-      parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.';
+      parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.';
     } else if (rawRes.status === 401) {
       parsedData.error = parsedData.error || 'UNAUTHORIZED';
       parsedData.message = parsedData.message || 'Invalid or missing API key (HTTP 401).';
@@ -245,7 +245,7 @@ export function getEdgeShieldClientScript() {
                 ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
                 : (rawRes.ok ? null : (rawText || ('HTTP ' + rawRes.status + ': ' + (rawRes.statusText || 'Error'))))),
             message: isAuthNotConfigured
-              ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.'
+              ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.'
               : (isColdStartOrGateway
                 ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
                 : rawText),
@@ -255,7 +255,7 @@ export function getEdgeShieldClientScript() {
         } else if (!rawRes.ok) {
           if (isAuthNotConfigured) {
             parsedData.error = 'AUTH_NOT_CONFIGURED';
-            parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.';
+            parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.';
           } else if (rawRes.status === 401) {
             parsedData.error = parsedData.error || 'UNAUTHORIZED';
             parsedData.message = parsedData.message || 'Invalid or missing API key (HTTP 401).';

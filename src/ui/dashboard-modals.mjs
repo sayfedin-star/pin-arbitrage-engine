@@ -545,7 +545,7 @@ export function getDashboardModalsHtml() {
 
   <!-- Add Seed Modal (Single Pin & Bulk Pins Mode) -->
   <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isAddSeedOpen = false">
-    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Add Tracked Seeds to Neon" @click.away="isAddSeedOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Add Tracked Seeds to PostgreSQL" @click.away="isAddSeedOpen = false">
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
@@ -554,7 +554,7 @@ export function getDashboardModalsHtml() {
             <i data-lucide="plus-circle" class="w-4 h-4"></i>
           </div>
           <div>
-            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Add Tracked Seeds to Neon</h3>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Add Tracked Seeds to PostgreSQL</h3>
             <p class="text-[11px] text-slate-500">Insert single seed or bulk-import dozens of Pinterest pins</p>
           </div>
         </div>
@@ -632,7 +632,7 @@ export function getDashboardModalsHtml() {
             <input type="checkbox" x-model="bulkAutoCrawl" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
             <div>
               <span class="font-bold text-slate-900 dark:text-slate-100">Auto-Crawl Pins Immediately</span>
-              <p class="text-[10px] text-slate-500">Trigger crawl pipeline right after inserting seeds into Neon</p>
+              <p class="text-[10px] text-slate-500">Trigger crawl pipeline right after inserting seeds into PostgreSQL</p>
             </div>
           </label>
           <div x-show="bulkAutoCrawl" class="flex items-center space-x-1.5 text-[11px] font-mono">
@@ -651,7 +651,7 @@ export function getDashboardModalsHtml() {
           <button @click="isAddSeedOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
           <button @click="submitBulkSeeds()" :disabled="bulkParsedPinIds.length === 0 || isSubmittingBulk" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
             <i data-lucide="check" class="w-3.5 h-3.5"></i>
-            <span x-text="isSubmittingBulk ? 'Importing Seeds...' : 'Import ' + bulkParsedPinIds.length + ' Seeds to Neon'"></span>
+            <span x-text="isSubmittingBulk ? 'Importing Seeds...' : 'Import ' + bulkParsedPinIds.length + ' Seeds to PostgreSQL'"></span>
           </button>
         </div>
       </div>
@@ -898,7 +898,7 @@ export function getDashboardModalsHtml() {
     </div>
   </div>
 
-  <!-- Delete Confirmation & Neon Purge Modal -->
+  <!-- Delete Confirmation & Database Purge Modal -->
   <div x-show="isDeleteModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isDeleteModalOpen = false">
     <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Confirm Deletion" @click.away="isDeleteModalOpen = false">
       <div class="flex items-center space-x-3 text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-[#27272A] pb-3">
@@ -921,9 +921,9 @@ export function getDashboardModalsHtml() {
           <label class="flex items-start space-x-2.5 cursor-pointer">
             <input type="checkbox" x-model="deletePurgeNeon" class="mt-0.5 w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500">
             <div>
-              <span class="font-bold text-rose-900 dark:text-rose-300">Comprehensive Purge from Neon Database</span>
+              <span class="font-bold text-rose-900 dark:text-rose-300">Comprehensive Purge from PostgreSQL Database</span>
               <p class="text-[11px] text-rose-800/80 dark:text-rose-400/80 mt-0.5 leading-relaxed">
-                Permanently purges all harvested candidates (<code class="text-[10px]">candidate_graph_nodes</code>), discovery capsules (<code class="text-[10px]">seed_guided_search_capsules</code>), and analytical metrics (<code class="text-[10px]">cluster_arbitrage_metrics</code>) associated with these seeds from Neon Serverless.
+                Permanently purges all harvested candidates (<code class="text-[10px]">candidate_graph_nodes</code>), discovery capsules (<code class="text-[10px]">seed_guided_search_capsules</code>), and analytical metrics (<code class="text-[10px]">cluster_arbitrage_metrics</code>) associated with these seeds from PostgreSQL.
               </p>
             </div>
           </label>
@@ -1007,7 +1007,7 @@ export function getDashboardModalsHtml() {
 
       <div class="space-y-3 text-xs">
         <p class="text-slate-500 dark:text-slate-400">
-          Paste the full raw response copied from the Network tab for (RelatedModulesResource). The engine will immediately extract BUBBLE_ONE_COL capsules, genuine RecGPT and NavBoost quotas, and persist all pins to Neon Serverless.
+          Paste the full raw response copied from the Network tab for (RelatedModulesResource). The engine will immediately extract BUBBLE_ONE_COL capsules, genuine RecGPT and NavBoost quotas, and persist all pins to PostgreSQL.
         </p>
 
         <div>
@@ -1027,7 +1027,7 @@ export function getDashboardModalsHtml() {
         <button @click="isRawJsonModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
         <button @click="submitRawJson()" :disabled="isSubmittingRawJson || !rawJsonInput.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
           <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-          <span x-text="isSubmittingRawJson ? 'Ingesting...' : 'Ingest & Store in Neon'"></span>
+          <span x-text="isSubmittingRawJson ? 'Ingesting...' : 'Ingest & Store in PostgreSQL'"></span>
         </button>
       </div>
     </div>
@@ -1329,7 +1329,7 @@ export function getDashboardModalsHtml() {
       <!-- Loading State -->
       <div x-show="isLoadingKeywordPins" class="text-center py-12 text-slate-500 font-mono text-xs">
         <i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500"></i>
-        <span>Loading keyword SERP pins from Neon...</span>
+        <span>Loading keyword SERP pins from PostgreSQL...</span>
       </div>
 
       <!-- Pins List -->

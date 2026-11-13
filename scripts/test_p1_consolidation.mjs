@@ -146,7 +146,8 @@ runTest('scripts/creator-velocity-crawler.mjs: Unified PostgreSQL bulk batch com
   assert(crawlerCode.includes('syncPinsToMasterShards'), 'Must define syncPinsToMasterShards');
   assert(crawlerCode.includes('universal_master_pins'), 'Must upsert to universal_master_pins');
   assert(crawlerCode.includes('pins_daily_metrics'), 'Must upsert to pins_daily_metrics');
-  assert(crawlerCode.includes('allDiscoveredPins'), 'Must collect allDiscoveredPins');
+  assert(crawlerCode.includes('masterPinsToSync') && crawlerCode.includes('metricSnapshots'), 'Must collect masterPinsToSync and metricSnapshots');
+  assert(crawlerCode.includes('reconcileQualifiedCatalogPins'), 'Must reconcile qualified catalog pins');
   assert(crawlerCode.includes('reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count'), 'Must preserve reaction_count on pins_daily_metrics');
 });
 

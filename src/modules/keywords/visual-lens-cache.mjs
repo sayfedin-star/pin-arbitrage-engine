@@ -1,10 +1,10 @@
 /**
- * Edge-First & Sharded TTL-Backed Visual Lens Cache Service
+ * Persistent PostgreSQL TTL-Backed Visual Lens Cache Service
  *
  * Pure Architecture: Persistent PostgreSQL storage (`pin_visual_search_cache` table, 7-day TTL)
  *
  * Features:
- * - Sub-5ms Edge KV reads across all Cloudflare PoPs without waking Neon compute
+ * - Fast persistent indexed reads from Unified PostgreSQL
  * - 7-day automatic TTL expiration
  * - Zero loss on server restarts
  * - In-flight promise deduplication to coalesce simultaneous requests

@@ -351,7 +351,7 @@ console.log('>>> [Axis 5] Cold-Shard & Degraded Fallback Error Banner Gracefulne
 
   // Verify that error banner is present in the HTML template
   assert.ok(rawHtml.includes('Pin Telemetry Not Found'));
-  assert.ok(rawHtml.includes('Retry Shard Fetch'));
+  assert.ok(rawHtml.includes('Retry Fetch'));
 
   // Mock 5.2: Network Drop / 503 Service Unavailable
   const mock503Fetch = async () => {

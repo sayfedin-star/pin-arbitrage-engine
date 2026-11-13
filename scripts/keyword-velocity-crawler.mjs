@@ -1387,7 +1387,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
 }
 
 /**
- * Guarantees 100% of candidate SERP pins are offloaded to the 99 Storage Shards
+ * Guarantees 100% of candidate SERP pins are persisted to Unified PostgreSQL
  * even if individual live closeup requests are deferred during Stage 2.
  */
 function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null) {

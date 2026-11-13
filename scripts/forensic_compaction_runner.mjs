@@ -56,7 +56,8 @@ export async function getStorageBreakdown() {
 
   for (const t of tables) {
     try {
-      const countRes = await sql(`SELECT COUNT(*)::bigint AS cnt FROM public."${t.table_name}"`);
+      const safeTable = String(t.table_name).replace(/"/g, '""');
+      const countRes = await sql.unsafe(`SELECT COUNT(*)::bigint AS cnt FROM public."${safeTable}"`);
       t.exact_count = countRes[0]?.cnt ? Number(countRes[0].cnt) : 0;
     } catch (_) {
       t.exact_count = Number(t.n_live_tup);
@@ -124,7 +125,7 @@ export function printAuditTable(title, { dbSizeRow, tables, indexes }) {
 }
 
 async function run() {
-  console.log('[*] Connecting to live Neon database for Forensic Storage Audit & Compaction...');
+  console.log('[*] Connecting to live PostgreSQL database for Forensic Storage Audit & Compaction...');
   const current = await getStorageBreakdown();
   printAuditTable('CURRENT LIVE STORAGE STATUS', current);
 

@@ -798,7 +798,7 @@ function repoIsMultiStageHydrationJump(prev, curr) {
 /**
  * 5. Four-Pillar Atomic Sync (`syncPinAcrossAllFourPillars`)
  * Writes master creative + 48 telemetry fields + Day-2 velocity + SERP positions
- * across target shard tables and the 3 hub operational tables (`keyword_serp_current`, `competitor_pins`, `pa_pins`)
+ * across `universal_master_pins`, `pins_daily_metrics`, and the operational tables (`keyword_serp_current`, `competitor_pins`, `pa_pins`)
  * plus `keyword_displaced_index`, then returns refreshed universal dossier.
  */
 export async function syncPinAcrossAllFourPillars({

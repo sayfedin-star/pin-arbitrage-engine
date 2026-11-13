@@ -3009,7 +3009,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
   const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
   const activeScope = (scope === 'official' || scope === 'curators' || scope === 'ecosystem' || scope === 'external') ? scope : 'ecosystem';
 
-  // Double escaped for Neon template literals: \\1, \\., \\?
+  // Double escaped for PostgreSQL template literals: \\1, \\., \\?
   const rows = await sql`
     WITH raw_pins AS (
       SELECT
@@ -3742,7 +3742,7 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
   const cleanSearch = (options.search && typeof options.search === 'string' && options.search.trim()) ? escapeSqlWildcards(options.search.toLowerCase().trim()) : null;
   const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
 
-  // Execute stats, paginated rows, and total count concurrently over Neon serverless pipeline
+  // Execute stats, paginated rows, and total count concurrently over Unified PostgreSQL pipeline
   const [[statsRow], rows, [countRow]] = await Promise.all([
     // 1. Overall stats for this competitor's active seed graph
     sql`

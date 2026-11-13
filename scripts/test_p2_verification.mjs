@@ -687,7 +687,8 @@ runTest('scripts/lib/pinterest.mjs: extractPinData preserves 48-field telemetry 
 
 runTest('src/modules/pins/repository.mjs: universal_master_pins update query uses COALESCE on metadata to prevent NULL poisoning', () => {
   assert(
-    pinRepositoryCode.includes("metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata"),
+    pinRepositoryCode.includes("metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata") ||
+    pinRepositoryCode.includes("metadata = (COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata"),
     'Must use COALESCE on metadata in universal_master_pins update to prevent NULL poisoning'
   );
 });
