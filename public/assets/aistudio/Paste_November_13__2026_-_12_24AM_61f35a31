@@ -1,0 +1,397 @@
+Analyzed prompt_draft.md:L1-45
+Messaged Architectural Audit Team Coordinator (teamwork)
+
+تم اعتماد مسودة التكليف وإرسالها لفريق العمل المتعدد (**Teamwork Multi-Agent Run** `0fb5ff52-5601-4217-8642-f058dd124314`).
+
+بدأ الفريق الآن العمل الفعلي عبر الوكلاء الفرعيين الـ 7 بالتوازي لفحص كامل المستودع سطراً بسطراً تحت قيد القراءة الصارم (100% Read-Only)، وإجراء المناظرة التفاعلية، تمهيداً لتقديم التقرير الهندسي الموحد وخطة التسلسل الجراحي. سأوافيك بالنتائج والتحديثات فور ورودها من الفريق.
+
+Your Teamwork run has started—execution is now under way. You can ask for a status update at any time.
+
+### 📊 تقرير تقدم سير العمل — التدقيق الجنائي المعماري
+
+* **حالة التنسيق والتشغيل:** تم تفكيك نطاقات المشروع بنجاح وتوزيع الوكلاء الـ 7 المتخصصين بالتوازي عبر نطاقاتهم الحصرية.
+* **إنفاذ قفل القراءة الصارم (100% Read-Only):** لم يتم إجراء أي تعديل أو كتابة على أي ملف في المستودع؛ كافة التحليلات والبيانات المرحلية معزولة تماماً في مجلدات الميتاداتا (`.agents/teamwork/`).
+* **الفحص المعمق جارٍ سطراً بسطراً:** يعكف الوكلاء حالياً على فحص وتوثيق الأدلة الجنائية بالأرقام والمسارات (البنية التحتية، بقايا قاعدة البيانات، مسارات API، الثوابت المنطقية، خطوط أنابيب الزواحف، مكونات الواجهة، وأقفال الاختبارات).
+* **المراحل القادمة:** سيتم تجميع نتائج الوكلاء الفرعيين والبدء المباشر في المناظرة التفاعلية المتقاطعة (Cross-Agent Debate) حول نقاط التصادم الـ 5، يعقبها صياغة التقرير الهندسي الموحد بأقسامه الـ 6 وخطة التسلسل الجراحي (Safe Strangler Sequence).
+
+### 📊 تقرير تقدم سير العمل — التدقيق الجنائي المعماري (تحديث 2)
+
+* **تسليمات الوكلاء الفرعيين:**
+  * أنهى **الوكيل 1** (البنية التحتية، الخادم، وWorkflows) و**الوكيل 2** (طبقة البيانات، PostgreSQL SSOT، وبقايا التجزئة) تحليلاتهما التفصيلية سطراً بسطراً وسلّما تقاريرهما المرحلية.
+* **التحقيقات الجارية:**
+  * يضع الوكلاء **3** (مسارات API والأمان)، **4** (الخدمات الأساسية والثوابت)، **5** (الزواحف ومسارات الإدخال)، **6** (مكونات الواجهة وتطبيقات العميل)، و**7** (الاختبارات والوثائق وقائمة الحذف الآمن) اللمسات الأخيرة على تقاريرهم.
+* **حالة قفل القراءة الصارم (Read-Only Lock):**
+  * سلامة تامة بنسبة 100%؛ صفر تعديلات على ملفات المستودع أو مخطط قاعدة البيانات.
+* **المرحلة التالية:**
+  * يستعد المنسق العام لإطلاق المناظرة التفاعلية المتقاطعة بين الوكلاء فور استلام التقارير المتبقية لحسم نقاط التصادم الـ 5.
+
+### 📊 تقرير تقدم سير العمل — التدقيق الجنائي المعماري (تحديث 3)
+
+* **اكتمال تحقيقات 5 وكلاء من أصل 7:**
+  * سلّم الوكلاء **1** (البنية التحتية وWorkflows)، **2** (Postgres SSOT وبقايا التجزئة)، **3** (مسارات API والأمان)، **6** (الواجهة الأمامية وتطبيقات العميل)، و**7** (الاختبارات والوثائق وقائمة الحذف الآمن) تقاريرهم التفصيلية الموثقة.
+* **المسح النهائي قيد الإنجاز:**
+  * يستكمل الوكيلان **4** (الخدمات الأساسية والملفات العملاقة) و**5** (الزواحف ومسارات الإدخال) مخرجاتهما النهائية.
+* **قيد القراءة الصارم (100% Read-Only):**
+  * التزام تام بنسبة 100%، دون لمس أو تعديل أي ملف في المستودع أو كائن في قاعدة البيانات.
+* **الخطوة التالية:**
+  * إطلاق المناظرة التفاعلية المتقاطعة مباشرة لحسم نقاط التصادم الـ 5 وصياغة التقرير الهندسي الموحد.
+
+### 📊 تقرير تقدم سير العمل — مرحلة التحقق والاعتماد النهائي (Auditing Phase)
+
+* **اكتمال التقرير الشامل:** أنهى منسق الفريق التدقيق الجنائي للوكلاء الـ 7، وصاغ نتائج المناظرة المتقاطعة، وختم مسودة التقرير الهندسي الموحد.
+* **التدقيق المستقل (Victory Auditor):** يقوم مدقق الجودة المستقل حالياً بمراجعة صارمة للمخرجات مقابل كافة متطلبات التكليف:
+  1. التحقق القطعي من سلامة قيد القراءة الصارم (100% Read-Only) وعدم تعديل أي ملف في المستودع.
+  2. فحص عينات عشوائية من مسارات الملفات وأرقام الأسطر الموثقة `(file:line)` للتأكد من مطابقتها البرمجية.
+  3. التحقق من حسم كافة نقاط التصادم الـ 5 في المناظرة التفاعلية.
+  4. استيفاء كافة الأقسام الـ 6 المطلوبة للتقرير الهندسي وخطة التسلسل الجراحي.
+* **الخطوة القادمة:** استلام الاعتماد الرسمي للمدقق وعرض التقرير الهندسي الشامل والنهائي.
+
+Analyzed handoff.md:L1-390
+Analyzing handoff.md:L300-390
+Analyzed handoff.md:L295-390
+
+# 🕵️‍♂️ التقرير الهندسي الشامل والتدقيق الجنائي المعماري الموحد (100% قراءة فقط)
+## خطة التسلسل الجراحي الآمن (Safe Strangler Sequence) للانتقال التام إلى:
+### Single VPS Native PostgreSQL 16 + Pure Fastify Engine
+
+> 🛡️ **نتيجة التدقيق المستقل للانتصار (Victory Auditor):** `VICTORY CONFIRMED`  
+> تم التحقق التام من إنفاذ **قيد القراءة الصارم (100% Read-Only)**: صفر تعديلات برمجية، صفر ملفات محذوفة، وصفر استعلامات كتابة أو ترحيل على قاعدة البيانات.  
+> 📄 **المستند المرجعي الأصلي الشامل:** [handoff.md](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.agents/teamwork/orchestrator/handoff.md)
+
+---
+
+## 1. الحكم التنفيذي المباشر وبطاقة قياس النقاء المعماري (Architectural Purity Scorecard)
+
+### الحكم التنفيذي (Executive Verdict)
+يعاني مستودع **Pin Arbitrage Engine (PAE)** حالياً من حالة **انفصام معماري حاد (Architectural Schizophrenia)**:
+فبينما تم نقل قاعدة البيانات عملياً وبنجاح إلى خادم مخصص (InstaBox Single VPS Native PostgreSQL 16)، لا يزال الكود البرمجي محاصراً ومقيداً بآلاف الأسطر من البقايا الميتة لمنظومة **Neon Serverless (0.25 CU)**، وشبكة **99 شارد افتراضي و20 شارد فيزيائي**، وبوابات **Cloudflare Workers / D1 / KV / Hyperdrive**، بالإضافة إلى شبكة أقفال فحص شديدة الجمود ([verify_regression_locks.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_regression_locks.mjs)) تعاقب الكود إذا خالف مفاهيم قديمة تم التخلي عنها، وتجبر المطورين على كتابة تعليقات وهمية (Phantom Lock Bypasses) في ملفات الـ UI للتحايل على فحوصات CI.
+
+كما كشف التدقيق الجنائي عن **ثغرة أمنية حرجة من الدرجة القصوى (P0 Authentication Bypass)** في [src/worker.mjs:272-276](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L272-L276) تسمح لأي طرف خارجي بتجاوز التوثيق وتعديل أو حذف البيانات عبر إرسال كوكي عشوائي، بالإضافة إلى ثغرة **SSRF** في فحص ملفات `ads.txt`، وانقسام خطير في مسار إدخال البيانات (`ingestPinsBatch`) بين نسختين متنافستين تتجاوز إحداهما المستودع المركزي للبيانات كلياً.
+
+المشروع يمتلك نواة بيانات ممتازة ومكتملة في [src/modules/pins/repository.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) ومحرك سيرفر واعد في [src/server.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs). والحل لا يكمن في ترقيع سطحي، بل في تنفيذ **تسلسل خنق جراحي آمن (Safe Strangler Sequence)** يستأصل الجسور الهجينة والملفات القديمة تدريجياً دون كسر الاختبارات أو تعطيل النظام قيد التشغيل.
+
+### بطاقة قياس النقاء المعماري
+
+| المحور المعماري | نسبة النقاء الحالية | نسبة التلوث / البقايا | التقييم الهندسي التوصيفي | المستهدف بعد الخطة |
+| :--- | :---: | :---: | :--- | :---: |
+| **Neon Serverless Purge** | **38%** | 62% بقايا | 48 موقعاً لـ `enforceNeonPoolerUrl`، استعلامات نشطة لجدول `neon_projects_registry` المحذوف، استيرادات قديمة في 13 ملفاً. | **100%** (استئصال تام) |
+| **Sharding (99 & 20 Shards) Purge** | **25%** | 75% بقايا | 204 تكرار لـ `fleet-router`، 63 تكراراً لـ `getPinShardId` و`resolveShardConnection`، وتجميع وهمي للشاردات يستهلك معالجة الذاكرة دون جدوى. | **100%** (اعتماد `PinRepository` الموحد) |
+| **Cloudflare Edge / Worker Purge** | **45%** | 55% بقايا | سيرفر Fastify محبوس خلف جسر هجين يوجه كل طلبات الصفحات لـ `worker.fetch()`، و`wake-shield` (972 سطراً) يفرض مهلة 3.5 ثوانٍ، وتطويع مصطنع لكائنات Web Request/Response. | **100%** (محرك Fastify أصيل 100%) |
+| **Lock Comments & Obsolete Scripts** | **30%** | 70% بقايا | 14 قفلاً تعيق التطوير وتفرض حظر تعديل الوثائق (Lock 13)، 8 سكربتات اختبار تفشل في `npm test` لاعتمادها على دوال شاردات ملغاة، وتعليقات احتيالية في [dashboard-ui.mjs:20-40](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/dashboard-ui.mjs#L20-L40). | **100%** (تطهير الأقفال وتوحيد الاختبارات) |
+| **Function & Client Unification (SSOT)** | **40%** | 60% تشتت | 9 ملفات متفرقة لعميل ومحلل Pinterest، نسختان متنافستان لـ `ingestPinsBatch`، 3 دوال لتنظيف النطاقات، و3 تطبيقات متضاربة لـ `showToast`. | **95%+** (نواة موحدة في `src/core/`) |
+| **Fastify Native Purity** | **52%** | 48% تهجين | الاعتماد على 17 دالة من `worker.mjs`، غياب `@fastify/static`، تعطيل مسار الأصول الثابتة بخطأ 404 صريح ([pages.mjs:78](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pages.mjs#L78))، وغياب معالجة قياسية لـ 405 Method Not Allowed. | **100%** (إضافات Fastify أصلية بالكامل) |
+
+---
+
+## 2. جرد المخلفات الكامل (Residual Remnants Ledger)
+
+### 2.1 بقايا Neon Serverless & Hyperdrive
+1. **استيرادات واشتراطات `@neondatabase/serverless` و`neon()`:**
+   - [package.json:4](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/package.json#L4): وصف المشروع لا يزال يشير إلى `"Neon Serverless & GH Workflows"`.
+   - [package.json:30](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/package.json#L30): الكلمات المفتاحية تشمل `"neon-serverless"`.
+   - [src/modules/keywords/folders-service.mjs:14](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/folders-service.mjs#L14): تعليق زائف: `* Hardened with Neon Serverless Postgres (@neondatabase/serverless).`
+   - [src/modules/keywords/service.mjs:2276](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/service.mjs#L2276): كود هجين يعالج عملاء `@neondatabase/serverless` القديمة.
+   - [scripts/audit_deep_security_and_runtime.mjs:22, 239, 279](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/audit_deep_security_and_runtime.mjs#L22): استيراد واستخدام `neon` كبديل لـ postgres.
+   - [scripts/test_phase4_live_explain.mjs:16](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_phase4_live_explain.mjs#L16) و[scripts/test_phase6_dossier_convergence.mjs:3](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_phase6_dossier_convergence.mjs#L3): استيراد `createSqlClient as neon`.
+
+2. **دوال حقن الـ Pooler وحصريات Neon (`enforceNeonPoolerUrl`):**
+   - [src/db/client.mjs:279-288](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/db/client.mjs#L279-L288): الدالة الأصلية التي تفحص نطاق `.neon.tech` وتحقن لاحقة `-pooler`.
+   - [src/db/client.mjs:295, 305, 404](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/db/client.mjs#L295): استخدام مفاتيح الكاش الملوثة بـ `enforceNeonPoolerUrl`.
+   - [src/modules/fleet/service.mjs:7, 50](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/fleet/service.mjs#L7): استدعاء `enforceNeonPoolerUrl` عند قراءة اتصالات الأسطول.
+   - [src/modules/sharding/fleet-router.mjs:26, 412](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L26): استدعاء `enforceNeonPoolerUrl(computedDsn)`.
+   - [src/plugins/api-routes.mjs:11, 214](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/plugins/api-routes.mjs#L11): `const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);`.
+   - [src/worker.mjs:20, 853](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L20): محاولة فرض البولر على اتصالات الـ Worker.
+   - [scripts/enrich_all_domains.mjs:19, 35](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/enrich_all_domains.mjs#L19)، [scripts/enrich_domain_ads.mjs:17, 40](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/enrich_domain_ads.mjs#L17) و[scripts/migrate.mjs:20, 506, 587](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/migrate.mjs#L20): استدعاء الدالة في سكربتات المعالجة.
+
+3. **استعلامات جدول مشاريع نيون المحذوف (`neon_projects_registry`):**
+   - [src/modules/sharding/fleet-router.mjs:452](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L452): استعلام مباشر نشط: `FROM neon_projects_registry WHERE is_active = TRUE` داخل دالة `preloadNeonRegistry` بالرغم من حذف الجدول في الترحيلين 050 و052.
+   - [scripts/audit_deep_security_and_runtime.mjs:272](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/audit_deep_security_and_runtime.mjs#L272): استعلام حي يفشل عند تشغيله: `SELECT id, project_name, database_url, assigned_shards FROM neon_projects_registry`.
+   - [scripts/test_cloudflare_edge_modernization.mjs:22](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_cloudflare_edge_modernization.mjs#L22)، [scripts/test_phase7_production_audit.mjs:76](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_phase7_production_audit.mjs#L76)، و[scripts/test_unified_phase1_phase2_adversarial.mjs:94](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_unified_phase1_phase2_adversarial.mjs#L94): اختبارات تعتمد على محاكاة هذا الجدول المنقرض.
+
+4. **بقايا محول Hyperdrive (`[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]`):**
+   - [src/db/client.mjs:356, 373](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/db/client.mjs#L356): تحقق إجباري يعطل المعاملات إذا لم تكن بصيغة مصفوفة دوال كسولة متوافقة مع محول Hyperdrive القديم.
+   - نصوص تحذيرية ميتة تملأ الملفات: [src/lib/math.mjs:4](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/lib/math.mjs#L4)، [src/modules/creators/service.mjs:4834](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L4834)، [src/modules/keywords/analytics.mjs:9](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/analytics.mjs#L9)، [src/modules/keywords/folders-service.mjs:607](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/folders-service.mjs#L607)، [src/modules/keywords/service.mjs:157, 2274](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/service.mjs#L157)، [src/modules/pins/repository.mjs:814](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L814).
+
+### 2.2 بقايا التجزئة (99 Shards & 20 Physical Shards) وملف `fleet-router.mjs`
+1. **أرقام وأسطر [fleet-router.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs) (2,045 سطراً من التعقيد الميت):**
+   - يمثل الملف حلقة دائرية مفرغة: يستورد دوال المستودع المركزي في السطور 36–40، بينما يستورده المستودع المركزي ديناميكياً في السطرين 830 و1469.
+   - يكرر استرجاع ملف الدوسيه (`fetchUniversalPinDossier`) في 1,164 سطراً (الأسطر 941–2105) مع أنه يستدعي دالة المستودع `getPinDossier` في السطر 1048.
+   - يتضمن 204 استشهاداً عبر 71 ملفاً في المستودع.
+2. **بقايا التجزئة الرياضية وحسابات الـ CRC32 الافتراضية:**
+   - [src/modules/sharding/fleet-router.mjs:126](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L126): دالة `getPinShardId(pinId, totalShards = 99)` تقسم الدبابيس حسابياً على 99 شارد.
+   - [src/modules/sharding/fleet-router.mjs:145](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L145): دالة `getPhysicalShardId(virtualShardId)` تحول الـ 99 شارد افتراضي إلى 20 شارد فيزيائي بصيغة `(virtualShardId - 1) % 20 + 1`.
+   - [src/modules/sharding/fleet-router.mjs:366](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L366): دالة `resolveShardConnection` المليئة بتعقيدات التوجيه لتعيد في النهاية نفس قاعدة بيانات الخادم الموحد (`hubSql`).
+   - [src/modules/sharding/fleet-router.mjs:623, 651](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L623): دوال `batchGroupByShard` و`coalesceShardGroupsByPhysical` التي تقوم بتجميع المصفوفات في الذاكرة وفرزها حسب الشاردات الوهمية قبل إرسالها لنفس القاعدة.
+   - [src/modules/pins/repository.mjs:810-838](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L810-L838): استدعاء `getPinShardId` ثم `resolveShardConnection` داخل `syncPinAcrossAllFourPillars`.
+   - [scripts/creator-velocity-crawler.mjs:64, 842, 947](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/creator-velocity-crawler.mjs#L64) و[scripts/keyword-velocity-crawler.mjs:58, 1342, 1448](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/keyword-velocity-crawler.mjs#L58): الزواحف لا تزال تقسم البيانات عبر `batchGroupByShard(..., 99)`.
+   - [src/routes/fleet.mjs:140-178](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/fleet.mjs#L140-L178): حلقة برمجية تنفذ `SELECT 1;` عشرين مرة متتالية لمحاكاة إيقاظ 20 شارد فيزيائي وهمي على نفس اتصال قاعدة البيانات الموحدة.
+
+### 2.3 بقايا Cloudflare Workers & Wake-Shield
+1. **الجسر الهجين في [src/server.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs):**
+   - السطر 25: استيراد الـ Worker مباشرة `import worker from './worker.mjs';`.
+   - السطور 636–676: تحويل طلبات Fastify إلى Web `Request` واستدعاء `worker.fetch(webRequest, env, ctx)` ثم تحويل الـ Web Stream بواسطة `Readable.fromWeb()`.
+   - السطور 201–426: مصفوفة `declarativeRoutes` الميتة (225 سطراً) المنسوخة كلياً داخل Fastify في السطور 463–630.
+   - [src/plugins/api-routes.mjs:19-37](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/plugins/api-routes.mjs#L19-L37): استيراد 17 دالة من الـ Worker وصناعة محول هجين `buildNativeRequestAdapter` و`sendWebResponseViaFastify`.
+2. **قنبلة Wake-Shield الموقوتة ([workers/wake-shield/src/index.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/workers/wake-shield/src/index.mjs) — 972 سطراً):**
+   - السطر 17: يحتوي على معرف آلة سحابية صلب ثابت `MACHINE_ID = 'm_agq2t32m5xv5joj67rqoze5h4u'`.
+   - السطور 18 و177: يحتوي على رمز PIN احتياطي ثابت ومكشوف `DEFAULT_PIN = 'pae2026'`.
+   - السطور 360–362: يفرض مهلة زمنية قصوى قدرها **3.5 ثانية (3500ms)** على تصفح صفحات HTML، وإذا تأخرت الصفحة يعلن سقوط السيرفر ويدخل في حلقة إيقاظ وهمية.
+3. **الكاش الشبحي المنقرض (Ghost Caches):**
+   - [src/worker.mjs:482](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L482): تعريف `l1Cache = caches.default` والذي يعود دائماً بقيمة `null` داخل بيئة Node.js.
+   - مفاتيح KV مهجورة داخل المسارات: [src/routes/domains.mjs:146](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/domains.mjs#L146)، [src/routes/keywords.mjs:199](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/keywords.mjs#L199)، [src/routes/pins.mjs:196](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pins.mjs#L196).
+4. **تعطيل مسار الأصول الثابتة (Static Assets Hardcoded 404):**
+   - [src/routes/pages.mjs:78](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pages.mjs#L78): استخدام `STATIC_ASSET_REGEX` لقطع طلبات ملفات CSS وJS برمز 404 صريح مع غياب حزمة `@fastify/static` عن `package.json`.
+
+---
+
+## 3. مصفوفة الألغام والثغرات والأخطاء المكتشفة (P0 إلى P3)
+
+| المعرف | الخطورة | المسار ورقم السطر | وصف الخلل والعوار البرمجي | سيناريو الفشل الفعلي (Real Failure Scenario) | الحل الجراحي المقترح |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| **LND-01** | **P0** | [src/worker.mjs:272-276](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L272-L276) | **تجاوز أمني تام لتوثيق الـ API عبر كوكي غير مفحوص** (`pae_shield_auth=`) | يقوم الكود بفحص نصي بسيط: `if (cookieHeader.includes("pae_shield_auth=")) return { authorized: true, status: 200 };`. يستطيع أي مهاجم إرسال ترويسة `Cookie: pae_shield_auth=1` لتخطي التوثيق فوراً وتعديل مسارات حساسة مثل مسح الكلمات وحقن الكوكيز عبر الـ Worker أو Fastify. | حذف الفحص النصي العشوائي، واستبدال التوثيق بـ Fastify Pre-Handler يتحقق حصرياً من توقيع HMAC مشفر أو ترويسة `x-api-key` الصريحة. |
+| **LND-02** | **P1** | [src/modules/domains/ad-network-service.mjs:371-375](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/ad-network-service.mjs#L371-L375) | **ثغرة SSRF غير مقيدة في فحص ملفات ads.txt** | تنفذ دالة `fetchAdsTxt(cleanDomain)` طلباً خارجياً مع تفعيل `redirect: 'follow'` دون التحقق من نطاقات IP المحظورة. يمكن لمجال خبيث إعادة توجيه الطلب إلى شبكة السيرفر الداخلية (`127.0.0.1:3000`) أو خوادم الميتا-داتا السحابية (`169.254.169.254`) وسرقة بيانات حساسة. | إضافة جدار حماية لعناوين IP (DNS Resolution Check) وحظر كافة مجالات RFC1918 والـ loopback وميتا-داتا السحابة مع قفل `redirect: 'manual'`. |
+| **LND-03** | **P1** | [workers/wake-shield/src/index.mjs:18, 177](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/workers/wake-shield/src/index.mjs#L18) | **رمز حماية افتراضي صلب ومكشوف (`pae2026`)** | في حال عدم تعيين متغير البيئة `SHIELD_PIN` في بيئة النشر، يفترض النظام تلقائياً الرمز المكشوف `pae2026` مما يفتح البوابة لأي زائر غير مخول. | استئصال طبقة `wake-shield` بالكامل وتوجيه الدومين مباشرة لخادم Fastify المحمي بالجدار الناري. |
+| **LND-04** | **P1** | [src/modules/pins/repository.mjs:283-294, 460-471](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L283-L294) | **انفجار سرعة الحفظ الوهمية في استعلامات CTE (`Anti-Hydration Spike Landmine`)** | في استعلامات SQL، إذا كانت سرعة الحفظ غير محسوبة مسبقاً، تحسب المعادلة: `(rb.save_count - prev.save_count) / days`. فإذا اكتُشف الدبوس قديماً بحفظ واحد (`save_count = 1`)، ثم تم جلبه لاحقاً بحفظه التراكمي التاريخي (مثلاً 30,000 حفظ)، تحسب القاعدة زيادة قدرها 29,999 حفظ في اليوم الواحد، مما يفسد ترتيب الخوارزميات تماماً. | نقل منطق كشف قفزة الترطيب (`detectHydrationJump`) ليصبح قيداً صارماً داخل استعلام SQL عبر فحص نسبة التغير `(rb.save_count::float / prev.save_count) < 4.0`. |
+| **LND-05** | **P1** | [src/server.mjs:319](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs#L319) و[src/worker.mjs:904](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L904) مقابل [pins/repository.mjs:381](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L381) | **تنافس وتناقض مسار إدخال الدبابيس (`Compete Ingest Landmine`)** | توجد دالتان مختلفتان تماماً باسم `ingestPinsBatch`. يقوم السيرفر بتوجيه دبابيس الحسابات المنافسة إلى دالة `creators/service.mjs:4610` القديمة، والتي تكتفي بالكتابة في `pa_pins` وتتجاهل كلياً التخزين في `universal_master_pins` و`pins_daily_metrics`. | توحيد مسار الإدخال ليصب 100% في المستودع الموحد `PinRepository.ingestPinsBatch` وحذف دالة الـ creator المتقادمة. |
+| **LND-06** | **P2** | [src/modules/creators/service.mjs:973](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L973) | **خطر تعطل المعاملة بخطأ `SQLSTATE 21000` (Cardinality Violation)** | تستدعي دالة `syncCompetitorBoards` استعلام `jsonb_to_recordset` متبوعاً بـ `ON CONFLICT (competitor_id, board_id) DO UPDATE SET` دون إزالة التكرار من مصفوفة المدخلات. إذا أعادت بنترست نفس اللوحة مرتين في نفس الحزمة، يفشل الاستعلام فوراً بـ SQLSTATE 21000 وتنهار المعاملة كلياً. | تمرير المصفوفة عبر `new Map(records.map(r => [r.board_id, r])).values()` لضمان فرادة المفاتيح المركبة قبل تمريرها لبوستجريس. |
+| **LND-07** | **P2** | [src/modules/cluster/service.mjs:858](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/cluster/service.mjs#L858) و[src/modules/creators/service.mjs:1007](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L1007) | **خطر الاختناق التبادلي الميت `SQLSTATE 40P01` (Deadlock Detected)** | تنفيذ استعلامات إدخال متعددة الأسطر مع التحديث عند التعارض دون ترتيب الأسطر بمفتاح فريد (`ORDER BY candidate_pin_id`). عند تشغيل زاحفين متوازيين يقومان بإدخال نفس العناصر بترتيب معكوس، يقع البوستجريس في قفل تبادلي ويسقط أحدهما بخطأ 40P01. | إلزام كافة استعلامات الإدخال الجماعي بترتيب السجلات تصاعدياً قبل الإدخال (`ORDER BY pin_id ASC`). |
+| **LND-08** | **P2** | [src/modules/cluster/service.mjs:849](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/cluster/service.mjs#L849) و[src/modules/creators/service.mjs:2231](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L2231) | **خطر تجاوز حد الأعداد الصحيحة `SQLSTATE 22003` (Integer Overflow)** | استخدام صريح للنوع `INT` لحقول المشاهدات والتفاعل: `saves int, repins int` في كتل الـ jsonb، و`save_count INT`. عند معالجة حسابات يتجاوز التفاعل فيها 2.14 مليار ينهار الاستعلام فوراً بخطأ 22003. | ترقية كافة حقول التفاعل والـ IDs إلى `BIGINT` أو `NUMERIC`. |
+| **LND-09** | **P2** | [src/modules/domains/service.mjs:303, 318, 483, 1205](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/service.mjs#L303) | **خطر فشل تحويل التواريخ `SQLSTATE 22007` (Invalid Timestamp)** | تمرير نصوص تواريخ غير منضبطة داخل قوالب الاستعلام مثل `${referenceTime}::timestamptz`. في حال تمرير نص غير صالح أو فارغ ينهار الاستعلام بالكامل. | التحقق الصارم من التواريخ باستخدام `isValidDate()` والتعويض بـ `NOW()` عند الشك قبل إرسالها إلى SQL. |
+| **LND-10** | **P2** | [src/modules/creators/service.mjs:874-4860](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L874) (13 موقعاً) | **استعلامات غير قابلة للفهرسة (Non-SARGable) تقتل الأداء** | تكرار كتابة `WHERE LOWER(username) = ${cleanUsername}` بالرغم من أن المتغير منظف مسبقاً في الجافاسكربت. هذا التغليف يجبر البوستجريس على فحص كامل الجدول صفاً صفاً (Sequential Scan) بدلاً من البحث الفوري بالفهرس (B-Tree Seek). | كتابة الاستعلام المباشر: `WHERE username = ${cleanUsername}`، واستبدال التغليفات المركبة في السطور 3033–3034 بالحقل المخزن `clean_domain`. |
+| **LND-11** | **P2** | [scripts/account-related-crawler.mjs:86-98](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/account-related-crawler.mjs#L86-L98) | **زاحف متمرد ينتهك المعايير ويثير حظر Akamai** | يستخدم الزاحف ترويسات خاصة به مع بصمة متصفح ميتة قديمة `Chrome/128.0.0.0` وإصدار تطبيق عتيق `664ee65`، ويقوم بتحليل نصوص الدبابيس يدوياً بدلاً من استخدام العميل الموحد. | إخضاع الزاحف فورياً لاستخدام [src/core/pinterest-client.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-client.mjs) بالبصمة القياسية Chrome 131. |
+| **LND-12** | **P2** | [scripts/optimize_hub_storage.mjs:439](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/optimize_hub_storage.mjs#L439) | **خلل منطقي نشط ينهار على قاعدة البيانات الموحدة** | يقارن السكربت العميلين `if (shardSql === sql)` دون مراعاة أن البنية أصبحت موحدة، مما يثير استثناءً برمجياً غير معالج. | تحديث السكربت ليتعامل مع قاعدة بيانات واحدة بدون افتراض وجود اتصالات متعددة. |
+| **LND-13** | **P2** | [src/dashboard-ui.mjs:20-40](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/dashboard-ui.mjs#L20-L40) | **تعليقات احتيالية للتحايل على أقفال الانحدار (Phantom Lock Bypass)** | وضع نصوص كود وهمية داخل تعليقات الـ HTML فقط لإيهام سكربت `verify_regression_locks.mjs` بأن القفل مطبق (مثل الأقفال 5D, 7A, 11, 14E). | حذف التعليقات المخادعة وإلغاء القفل المتصلب في `verify_regression_locks.mjs`. |
+| **LND-14** | **P3** | أكثر من 15 موقعاً في `creators`, `folders`, `domains` | **ابتلاع صامت قاتل للأخطاء البرمجية (`Silent Error Swallowing`)** | استخدام كتل `.catch(() => [])` و`catch (_) {}` حول استعلامات قاعدة البيانات، مما يخفي أخطاء الشبكة وسقوط القيود دون تسجيلها. | استبدال الكتل الصامتة بتسجيل منظم في السجلات `logger.warn({ err }, '...')` مع إعادة الخطأ للطبقة الأعلى. |
+| **LND-15** | **P3** | [src/routes/cluster.mjs:548-558](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/cluster.mjs#L548-L558) | **كشف بادئة كوكيز الجلسات الحية (`GET /api/settings/cookie`)** | يعيد مسار القراءة غير الموثق بادئة الكوكي الحقيقي للعامة (`preview: ${effective.slice(0, 42)}...`) مما يسهل خطف الجلسة. | حماية المسار بتوثيق الـ API وحجب البادئة تماماً والاكتفاء بإرجاع حالة وجود الكوكي من عدمه (boolean). |
+
+---
+
+## 4. خريطة توحيد الدوال والخدمات وخطة استقلال Fastify
+
+### 4.1 تفكيك وتطهير الملفات العملاقة (The Giant Files Decomposition Plan)
+كشف التدقيق عن وجود **7 ملفات عملاقة تحتوي وحدها على 19,743 سطراً**. وفيما يلي الخطة الدقيقة لتفكيكها إلى وحدات متخصصة لا تتجاوز 500 سطر:
+
+```
+src/modules/
+├── creators/                      # الأصل: 5,087 سطراً -> يتفكك إلى:
+│   ├── repository.mjs             # العمليات المباشرة لقاعدة البيانات (CRUD profiles/pins) (~450 سطر)
+│   ├── qualification.mjs          # قواعد تأهيل صناع المحتوى وفحص الشروط (~350 سطر)
+│   ├── harvest-engine.mjs         # منطق جني وتنظيف الدبابيس (~450 سطر)
+│   ├── drawer-service.mjs         # تجهيز بيانات الأدراج والرسوم للملف الشخصي (~400 سطر)
+│   └── service.mjs                # منسق الخدمة الخفيف (Service Orchestrator) (~300 سطر)
+│
+├── keywords/
+│   ├── folders/                   # الأصل (folders-service): 3,514 سطراً -> يتفكك إلى:
+│   │   ├── repository.mjs         # جداول المجلدات والعلاقات (~400 سطر)
+│   │   ├── crossover-engine.mjs   # دالة التقاطع العملاقة (كانت 1,455 سطراً في ملف واحد!) (~500 سطر)
+│   │   ├── pruning.mjs            # حساب مرشحي التقليم والتنظيف (~350 سطر)
+│   │   └── service.mjs            # واجهة المجلدات الموحدة (~300 سطر)
+│   │
+│   ├── serp/                      # الأصل (keywords/service): 2,859 سطراً -> يتفكك إلى:
+│   │   ├── crawler.mjs            # زاحف نتائج البحث SERP (~450 سطر)
+│   │   ├── displaced-index.mjs    # إدارة الفهرس المزاح والدبابيس المتراجعة (~400 سطر)
+│   │   ├── analytics.mjs          # التحليلات الرياضية والكلمات المتصدرة (~350 سطر)
+│   │   └── service.mjs            # واجهة الكلمات الرئيسية (~300 سطر)
+│
+├── domains/                       # الأصل: 2,986 سطراً -> يتفكك إلى:
+│   ├── whois-client.mjs           # بروتوكولات TCP Sockets وRDAP HTTP (~400 سطر)
+│   ├── rollup-engine.mjs          # التجميع والإحصاءات المجمعة للنطاقات (~450 سطر)
+│   ├── ads-network.mjs            # فحص إعلانات النطاقات المحمي من SSRF (~350 سطر)
+│   └── service.mjs                # الخدمة الرئيسية (~300 سطر)
+│
+├── pulse/                         # الأصل: 2,449 سطراً -> يتفكك إلى:
+│   ├── rooms-engine.mjs           # حسابات الغرف الست 1-6 ومؤشرات الزخم (~500 سطر)
+│   ├── snapshot-aggregator.mjs    # تجميع لقطات الـ 24 ساعة في الذاكرة (~400 سطر)
+│   └── service.mjs                # خدمة النبض الرئيسية (~250 سطر)
+│
+└── pins/                          # الأصل (repository): 1,653 سطراً
+    ├── repository.mjs             # المصدر المرجعي الموحد لكافة عمليات الدبابيس في البوستجريس (~500 سطر)
+    ├── ingest-engine.mjs          # المعالجة الذرية لعمليات الإدخال CTE (~450 سطر)
+    └── dossier-builder.mjs        # بناء وتجميع الدوسيه المتكامل (~400 سطر)
+```
+
+### 4.2 جدول المصادر المرجعية المعتمدة (SSOT Authority Registry)
+
+| الوظيفة / الكيان | المصدر المرجعي المعتمد (Authoritative SSOT) | الملفات الملغاة والمتقادمة الواجب تحويلها أو حذفها |
+| :--- | :--- | :--- |
+| **عميل بنترست والبصمة** | [src/core/pinterest-client.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-client.mjs) (Chrome 131, App 9302641) | يُلغى الاستيراد اليدوي في `account-related-crawler.mjs:86` و`pinterest/client.mjs` و`shared/pinterest-headers.mjs`. |
+| **محلل الدبابيس وتنسيق الحقول** | [src/core/pinterest-parser.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-parser.mjs) (`formatPin` بـ 48 حقلاً) | يُلغى التحليل اليدوي في `account-related-crawler.mjs:169` وكافة المعالجات المكررة. |
+| **إدخال الدبابيس في القاعدة** | [src/modules/pins/repository.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) (`ingestPinsBatch` الذرية بـ CTE) | تُحذف نهائياً دالة `ingestPinsBatch` المنعزلة في [src/modules/creators/service.mjs:4610](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L4610). |
+| **توليد واسترجاع الدوسيه** | [src/modules/pins/repository.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) (`getPinDossier`) | يُلغى العملاق المكرر `fetchUniversalPinDossier` (1,164 سطراً) في [fleet-router.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs#L941). |
+| **تنظيف وفحص النطاقات** | [src/modules/domains/service.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/service.mjs) (`normalizeCleanDomain`) | تُلغى النسخ البدائية في `pinterest-parser.mjs:46` و`repository.mjs:24`. |
+| **تحديد عناوين الدبابيس** | [src/domain/pin-intelligence.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/domain/pin-intelligence.mjs) (`resolveCanonicalPinTitle`) | تُحذف الدالة المكررة المكونة من 150 سطراً في `folders-service.mjs:1680`. |
+| **رسائل التنبيه في الواجهة** | مكون موحد `src/ui/toast-manager.mjs` (يدعم الأيقونات والمصفوفات) | توحيد الأنظمة الثلاثة المتضاربة المتفرقة في صفحات الواجهة. |
+
+### 4.3 خطة استقلال Fastify التام (Native Fastify Architecture)
+1. **تثبيت حزم Fastify القياسية:**
+   ```bash
+   npm install @fastify/static @fastify/cors @fastify/caching @fastify/sensible
+   ```
+2. **استبدال الجسر الهجين بإضافات Fastify أصلية:**
+   - إنشاء `src/plugins/ui-routes.mjs`: تسجيل مسارات العرض مباشرة في Fastify واستدعاء قوالب العرض بمدخلات نظيفة دون المرور بـ `worker.fetch()` أو تدوير الـ Streams.
+   - إنشاء `src/plugins/static-assets.mjs`: تفعيل `@fastify/static` لخدمة الأصول من مجلد `./public` بسرعة الخادم الأصلية ودون الوقوع في فخ خطأ 404 في [pages.mjs:78](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pages.mjs#L78).
+   - استخراج الأدوات المساعدة من `worker.mjs` إلى مجلد `src/core/`:
+     * `src/core/context.mjs`: إدارة سياق الطلب عبر `AsyncLocalStorage` الأصلية في Node.js.
+     * `src/core/security.mjs`: فحص التوثيق وحماية الـ API وتشفير الكوكيز.
+     * `src/core/queue.mjs`: طابور المهام الخلفية المعتمد على خادم Fastify.
+   - تحويل [src/worker.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs) في المرحلة الانتقالية إلى مجرد واجهة إعادة تصدير خفيفة (Re-export Facade) للحفاظ على نجاح الاختبارات الحالية، ثم حذفه نهائياً بعد تحديث ملفات الاختبار.
+
+---
+
+## 5. تدقيق GitHub Actions والـ Worker وخطة تسريع الـ Pipelines
+
+### 5.1 الاختناقات وسلوك العمليات الحالي
+1. **كارثة تحميل نفق `cloudflared` في كل عداء (Runner Overhead):**
+   - في الخطوة [.github/actions/setup-instabox-db/action.yml:72-77](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/actions/setup-instabox-db/action.yml#L72-L77)، يقوم كل عداء في مصفوفة الـ 20 عداء بتنزيل حزمة `cloudflared.deb` بحجم 35 ميجابايت وتثبيتها.
+   - تستهلك هذه الخطوة $20 \times 35 = 700\text{ MB}$ من التنزيل الزائد وتضيف 30 إلى 50 ثانية تأخير لكل عداء، أي ما يعادل **15 دقيقة حاسوبية مهدرة** في كل دورة زحف.
+2. **عنق زجاجة زمن الاستجابة (Network Latency Tax):**
+   - اتصال العدائين المباشر بـ البوستجريس عبر نفق Cloudflare يجعل كل استعلام فردي ينطلق عبر الإنترنت العام ذهاباً وإياباً بزمن تأخير يتراوح بين 50 إلى 150 ملي ثانية لكل استعلام.
+3. **تجاوز سقف اتصالات قاعدة البيانات (Connection Exhaustion):**
+   - 20 عداء متوازي مع مسبح اتصالات يفتح كل منهم اتصالين إلى 4 اتصالات يولد 40 إلى 80 اتصالاً نشطاً متزامناً عبر النفق. وبإضافة اتصالات خادم Fastify (15 اتصالاً)، يتجاوز المجموع الحد الافتراضي لبوستجريس `max_connections = 100`، مما يسبب أخطاء السقوط ورفض الاتصالات `SQLSTATE 53300`.
+4. **تجاوز اختبارات الأمان في CI ([.github/workflows/ci.yml:36-39](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/ci.yml#L36-L39)):**
+   - سير عمل CI يكتفي بتشغيل `npm run check` ويفشل في تشغيل `npm test` كلياً لأن 8 ملفات اختبار معطلة بسبب فحص شروط الشاردات القديمة.
+   - يقضي السيرفر ما يصل إلى 10 دقائق في استطلاع ومخاطبة InstaBox APIs للتحقق من تشغيل بيئة مؤقتة لم تعد قيد الاستخدام.
+
+### 5.2 خطة التحصين والتسريع
+1. **التحول إلى الإدخال عبر REST API (`POST /api/internal/ingest`):**
+   - الاستفادة من دالة `pushBatchToIngestApi` الجاهزة بالفعل في [scripts/keyword-velocity-crawler.mjs:1176-1230](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/keyword-velocity-crawler.mjs#L1176-L1230).
+   - إرسال البيانات المجمعة في حزم JSON مضغوطة عبر HTTP مباشرة إلى نقطة النهاية في Fastify.
+   - يكتب السيرفر المحلي الحزم في قاعدة البيانات المجاورة له عبر المقبس المحلي بسرعة فائقة (زمن وصول < 0.5 ملي ثانية مقارنة بـ 150 ملي ثانية عبر النفق).
+   - إلغاء الحاجة كلياً لتثبيت `cloudflared` في عدائي الزحف، مما يوفر 15 دقيقة في كل تشغيلة ويوفر 700 ميجابايت باندويث.
+2. **استقرار الـ SERP والاتساق مع المرحلة الثانية (Stage 2):**
+   - توسيع حمولة `POST /api/internal/ingest` لتستقبل لقطات نتائج البحث (`keyword_serp_current` و`pin_serp_positions`) جنباً إلى جنب مع بيانات الدبابيس لضمان عدم ضياع أي معلومة إحصائية، مما يتيح للعدائين العمل كعملاء عديمي الحالة (100% Stateless Scrapers).
+3. **تحصين نفق قاعدة البيانات (لإدارة السيرفر وعمليات الترحيل فقط):**
+   - اقتصار تشغيل نفق `cloudflared` على بيئة الإدارة والمرحلات وسير عمل النشر الأولي فقط، مع قفل الاتصال بواسطة شهادات الخدمة (Service Tokens) وحظر الوصول المباشر للعامة.
+4. **تسريع CI:**
+   - حذف خطوات استطلاع InstaBox المعطلة من `ci.yml`.
+   - إصلاح الاختبارات الـ 8 المعطلة وإعادة اعتماد `npm test` كبوابة إلزامية لدمج أي كود.
+
+---
+
+## 6. نتائج المناظرة التفاعلية والتحقق المتبادل لنقاط التصادم الخمس (Adversarial Debate)
+
+### نقطة التصادم 1: حذف `worker.mjs` و`wrangler.toml` و`wake-shield`
+- **الأطراف:** الوكيل 1 (البنية) ⚔️ الوكيل 3 (الـ API) ⚔️ الوكيل 6 (الواجهة) ⚔️ الوكيل 7 (حارس الأقفال)
+- **محتوى الصراع:** طالب الوكيلان 1 و3 بالحذف الفوري لملف `worker.mjs` و`workers/wake-shield/` و`wrangler.toml` لتحرير المشروع وسد الثغرة P0. اعترض الوكيل 7 مبرزاً دليلاً قاطعاً: الحذف المباشر سيكسر اختبارات CI فوراً لأن ملف [tests/round16-pulse-503-and-data-truth.test.mjs:1054](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/tests/round16-pulse-503-and-data-truth.test.mjs#L1054) يحتوي على فحص صريح لمحتوى `wrangler.toml`، وملفات `verify_ui_routes_reorganization.mjs` و`audit_ui.mjs` تستورد `worker.mjs` مباشرة.
+- **القرار المحسوم المشترك:**
+  1. **حذف فوري 100% لمجلد `workers/wake-shield/`** وملف إعداده، فهو غير مستورد في أي كود تشغيلي.
+  2. تطبيق **نمط الخنق الآمن (Strangler Pattern)** على [src/worker.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs): استخراج كافة الدوال الجوهرية إلى `src/core/*`، ونقل خدمة الصفحات إلى `src/plugins/ui-routes.mjs`، والإبقاء المؤقت على `worker.mjs` كواجهة تصدير سطحية (Facade) تعيد التصدير من `src/core/` لكي تظل جميع الاختبارات تعمل بنجاح.
+  3. تحديث الاختبارات المعنية وفك ارتباطها بـ `wrangler.toml`، ثم حذف الملفين نهائياً في المرحلة الأخيرة.
+
+### نقطة التصادم 2: تصفية `fleet-router.mjs` ونقل الدوال إلى `PinRepository`
+- **الأطراف:** الوكيل 2 (البيانات) ⚔️ الوكيل 4 (الخدمات) ⚔️ الوكيل 3 (المسارات) ⚔️ الوكيل 7
+- **محتوى الصراع:** أكد الوكيل 2 أن 2,045 سطراً في `fleet-router.mjs` تمثل عبئاً ميتاً وتستعلم جداول محذوفة، ويجب حذف الملف كلياً. بينما أوضح الوكيل 4 أن دوال حيوية مثل `getPinDossier` و`syncPinAcrossAllFourPillars` يستوردها أكثر من 20 مساراً عبر هذا الملف. وحذر الوكيل 7 من أن القفل رقم 3 في `verify_regression_locks.mjs` يتحقق نصياً من وجود عبارات التوجيه في `fleet-router.mjs`.
+- **القرار المحسوم المشترك:**
+  1. اعتماد [src/modules/pins/repository.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) كـ **SSOT وحيد ومطلق** لكافة عمليات الدبابيس وقاعدة البيانات.
+  2. نقل كافة العمليات المتبقية وتخليصها من معالجات الـ 99 شارد، ونقل الحسابات الرياضية إلى [src/lib/math.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/lib/math.mjs).
+  3. تحويل `fleet-router.mjs` جراحياً إلى ملف قشرة خفيف (< 40 سطراً) يعيد التصدير من `PinRepository` لحماية المستوردين والأقفال، تمهيداً لتحديث القفل رقم 3 وتطهير المستوردين تباعاً.
+
+### نقطة التصادم 3: اتصال العدائين المباشر بالقاعدة vs الـ API الداخلي `POST /api/internal/ingest`
+- **الأطراف:** الوكيل 1 (البنية) ⚔️ الوكيل 5 (الزواحف) ⚔️ الوكيل 2 (قاعدة البيانات)
+- **محتوى الصراع:** دعا الوكيل 1 لتحويل كافة الزواحف إلى HTTP REST عبر `POST /api/internal/ingest` لتوفير استهلاك نفق `cloudflared`. اعترض الوكيل 5 بأن نقطة النهاية الحالية مصممة للدبابيس الفردية فقط، وإذا تم التحويل الفوري ستضيع بيانات نتائج بحث الكلمات (`keyword_serp_current` و`pin_serp_positions`) وستحدث سباقات بيانات تعطل Stage 2. وأيد الوكيل 2 ضرورة التحول لأن 20 عداء يستهلكون اتصالات البوستجريس ويتسببون في بطء الشبكة.
+- **القرار المحسوم المشترك:**
+  اعتماد **خطة الانتقال المرحلي الذكي (Phased Ingestion Transition)**:
+  - **الخطوة 1:** تحديث نقطة نهاية `POST /api/internal/ingest` وتزويدها بقدرة استيعاب مصفوفات `serp_records` إلى جانب الدبابيس عبر معاملة ذرية محلية.
+  - **الخطوة 2:** تفعيل التحول لزاحف الكلمات أولاً لاحتوائه على دالة جاهزة ومجربة (`pushBatchToIngestApi`).
+  - **الخطوة 3:** تعميم التحول على زاحف الحسابات وزاحف العناقيد، وإلغاء `cloudflared` نهائياً من خطوات العدائين بعد التحقق.
+
+### نقطة التصادم 4: توحيد عملاء ومحللات بنترست ومصدر `formatPin`
+- **الأطراف:** الوكيل 4 (الخدمات والمنطق) ⚔️ الوكيل 5 (الزواحف)
+- **محتوى الصراع:** كشف الوكيل 4 عن تشتت عملاء بنترست عبر 9 ملفات، ووجود زاحف متمرد ([scripts/account-related-crawler.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/account-related-crawler.mjs)) يستعمل بصمات قديمة وتنسيقاً يدوياً. بينما دافع الوكيل 5 بأن بعض الزواحف تعتمد على مسارات خاصة لتفادي التراجع الحجمي وحماية أقفال الانحدار.
+- **القرار المحسوم المشترك:**
+  1. اعتماد [src/core/pinterest-client.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-client.mjs) كعميل شبكة رسمي وحيد يحمل البصمة الموحدة Chrome 131 وتطبيق بنترست 9302641 ونظام قواطع الدورة.
+  2. اعتماد [src/core/pinterest-parser.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-parser.mjs) كجهة وحيدة مسؤولة عن إخراج كائن الدبوس الموحد `formatPin` بـ 48 حقلاً مع إسناد اللون الافتراضي الحقيقي ومنع الألوان الوهمية.
+  3. إعادة صياغة `account-related-crawler.mjs` لاستخدام العميل والمحلل الرسميين فوراً.
+  4. الإبقاء المؤقت على الملفات الفرعية في `src/core/pinterest/` كملفات إعادة تصدير متوافقة.
+
+### نقطة التصادم 5: التدقيق المتقاطع لقائمة الحذف الآمن ومنع كسر بيئة الإنتاج
+- **الأطراف:** الوكيل 7 (حارس الأقفال والاختبارات) ⚔️ كافة الوكلاء (1–6)
+- **محتوى الصراع:** اقترح الوكلاء حذف ملفات وسكربتات متعددة (مثل `instabox-boot-sync.sh` وسكربتات المزامنة القديمة). أوقف الوكيل 7 الحذف المتهور وأثبت بالأدلة:
+  - ملف [scripts/instabox-boot-sync.sh](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/instabox-boot-sync.sh) **يُستدعى وينفذ فعلياً أثناء النشر المباشر** في [.github/workflows/ci.yml:156](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/ci.yml#L156)، وحذفه سيعطل نشر السيرفر فوراً.
+  - القفل رقم 13 في `verify_regression_locks.mjs` يفحص التغيير في ملفات القواعد ويعطل البناء إذا تغير عدد أسطر معينة.
+  - 8 سكربتات في `scripts/test_*.mjs` تفشل حالياً وتمنع تشغيل `npm test`.
+- **القرار المحسوم المشترك:** تأسيس **القائمة البيضاء المعتمدة للحذف والأرشفة الآمنة** أدناه، مع اشتراط عدم مساس أي ملف يرتبط بسير عمل الإنتاج، وتحييد أقفال الانحدار المتصلبة بطريقة مدروسة.
+
+---
+
+## 7. خطة العمل المرتّبة بالأولوية (Safe Strangler Sequence) وقائمة الحذف المعتمدة
+
+```
+[المرحلة 0: التحصين الأمني والإصلاحات الحرجة] ───► [المرحلة 1: استخراج النواة وتحرير Fastify]
+                       │                                                  │
+                       ▼                                                  ▼
+[المرحلة 4: تحديث الاختبارات والحذف النهائي] ◄─── [المرحلة 3: توحيد الزواحف وخطوط الأنابيب] ◄─── [المرحلة 2: تفكيك وتطهير طبقة البيانات]
+```
+
+### المرحلة 0: التحصين الأمني والإصلاحات الحرجة السريعة (Immediate P0/P1 Fixes)
+- **الإجراء 1:** سد ثغرة التوثيق P0 في [src/worker.mjs:272-276](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs#L272-L276) بحذف الفحص التافه للكوكي `pae_shield_auth=` وفرض التحقق المشفر الصارم.
+- **الإجراء 2:** تحصين دالة فحص الإعلانات `fetchAdsTxt` في [src/modules/domains/ad-network-service.mjs:371-375](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/ad-network-service.mjs#L371-L375) ضد هجمات SSRF بحظر Private IPs وقفل التحويلات التلقائية.
+- **الإجراء 3:** إصلاح خطأ `Anti-Hydration Spike` في استعلامات CTE بملف [src/modules/pins/repository.mjs:283, 460](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L283) بوضع شرط نسبة التغير `< 4.0`.
+- **الإجراء 4:** إضافة حماية `Map` الفريدة في [src/modules/creators/service.mjs:973](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L973) لمنع خطأ البوستجريس `SQLSTATE 21000`.
+- **أمر التحقق للمرحلة:**
+  ```bash
+  npm run check
+  node scripts/verify_regression_locks.mjs
+  ```
+
+### المرحلة 1: استخراج النواة المشتركة وتحرير Fastify (Core Extraction & Fastify Liberation)
+- **الإجراء 1:** إنشاء حزم النواة تحت `src/core/`:
+  - `src/core/context.mjs`: نقل `requestContextStorage` المبني على `AsyncLocalStorage`.
+  - `src/core/security.mjs`: استخراج دوال التوثيق وفحص الصلاحيات.
+  - `src/core/queue.mjs`: استخراج `serverBackgroundTaskQueue` و`safeWaitUntil`.
+  - `src/core/cache.mjs`: توحيد كاش الذاكرة المحلي بدلاً من كاش الـ Worker الميت.
+- **الإجراء 2:** تثبيت حزم Fastify الأساسية: `@fastify/static` و`@fastify/cors`.
+- **الإجراء 3:** إنشاء `src/plugins/ui-routes.mjs` لخدمة صفحات العرض عبر Fastify مباشرة بدون `worker.fetch()`.
+- **الإجراء 4:** إنشاء `src/plugins/static-assets.mjs` لخدمة الأصول الثابتة وحل مشكلة 404 في [pages.mjs:78](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pages.mjs#L78).
+- **الإجراء 5:** تحويل [src/worker.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs) إلى واجهة إعادة تصدير خفيفة (Re-export Facade) للحفاظ على التوافق الرجعي.
+- **أمر التحقق للمرحلة:**
+  ```bash
+  npm run check
+  curl -I http://127.0.0.1:3456/api/health
+  ```
+
+### المرحلة 2: تفكيك وتطهير طبقة البيانات والملفات العملاقة (Data Layer & Giant Files)
+- **الإجراء 1:** توحيد مسار إدخال الدبابيس 100% داخل [src/modules/pins/repository.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) وحذف دالة الإدخال المتقادمة في [src/modules/creators/service.mjs:4610](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L4610).
+- **الإجراء 2:** تحويل [src/modules/sharding/fleet-router.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/sharding/fleet-router.mjs) إلى قشرة سطحية رقيقة (< 40 سطراً) تعيد التوجيه إلى `PinRepository` وحذف الـ 1,200 سطر المكررة.
+- **الإجراء 3:** تفكيك الملفات العملاقة الخمسة (`creators`, `folders-service`, `domains`, `keywords`, `pulse`) إلى وحدات مستقلة <= 500 سطر وفق المخطط الهيكلي المفصل في القسم 4.1.
+- **الإجراء 4:** إزالة التغليفات غير القابلة للفهرسة (`WHERE LOWER(username)`) في 13 موقعاً بملف `creators` واستعادة كفاءة الـ B-Tree Index Seeks.
+- **أمر التحقق للمرحلة:**
+  ```bash
+  npm run check
+  node scripts/test_phase4_live_explain.mjs
+  ```
+
+### المرحلة 3: توحيد الزواحف وخطوط الأنابيب (Crawlers & Pipeline Streamlining)
+- **الإجراء 1:** توحيد عميل ومحلل بنترست: تصحيح [scripts/account-related-crawler.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/account-related-crawler.mjs) ليعتمد على [src/core/pinterest-client.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/core/pinterest-client.mjs) والبصمة المعتمدة Chrome 131.
+- **الإجراء 2:** توسيع حمولة `POST /api/internal/ingest` لاستقبال نتائج البحث SERP وحفظها محلياً بذرية كاملة.
+- **الإجراء 3:** تفعيل الإدخال عبر HTTP في `keyword-velocity-crawler.mjs` و`creator-velocity-crawler.mjs` وتجاوز الاتصال المباشر بالقاعدة عبر النفق.
+- **الإجراء 4:** إزالة خطوات تثبيت `cloudflared` من زواحف GitHub Actions ([crawler-pipeline.yml](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/crawler-pipeline.yml), [keyword-intelligence-velocity.yml](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/keyword-intelligence-velocity.yml)).
+- **أمر التحقق للمرحلة:** تشغيل دورة زحف تجريبية لعدد محدود من الكلمات والتحقق من وصول البيانات لقاعدة البوستجريس.
+
+### المرحلة 4: تحديث الاختبارات، تطهير الأقفال، والحذف الآمن النهائي (Clean Deletion & CI Hardening)
+- **الإجراء 1:** مراجعة وتحديث سكربت [scripts/verify_regression_locks.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_regression_locks.mjs):
+  - إزالة القفل رقم 13 التعسفي الذي يحظر تعديل وثائق القواعد.
+  - إزالة اشتراطات فحص الشاردات وملفات الـ Worker من الأقفال 3 و6 و11.
+- **الإجراء 2:** إصلاح أو أرشفة ملفات الاختبار الثمانية المعطلة في `scripts/test_*.mjs` لتصبح نتيجة `npm test` خضراء 100%.
+- **الإجراء 3:** تفعيل `npm test` كخطوة إلزامية في سير عمل [.github/workflows/ci.yml](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/ci.yml).
+- **الإجراء 4:** تطبيق قائمة الحذف الآمن والأرشفة أدناه.
+
+#### القائمة البيضاء للحذف والأرشفة الآمنة (Safe Deletion & Archive White-List)
+
+| الملف / المسار المرشح | الإجراء المعتمد | السبب الهندسي | شروط الأمان المسبقة |
+| :--- | :---: | :--- | :--- |
+| `workers/wake-shield/` (المجلد بالكامل و972 سطراً) | **حذف نهائي فوري** | صُمم لـ InstaBox السحابي المنقرض، يحتوي على ثغرة PIN مكشوفة، ولا يستورده أي ملف تشغيلي في `src/`. | تحديث ملف الاختبار الوحيد الذي يتفحصه `scripts/test_runtime_architect_v6.mjs`. |
+| `workers/` (المجلد الرئيسي) | **حذف نهائي** | لم يعد هناك أي Workers على السيرفر المخصص. | بعد حذف wake-shield. |
+| [src/server.mjs:201-426](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs#L201-L426) (`declarativeRoutes`) | **حذف جراحي للأكواد الميتة** | 225 سطراً منسوخة ومكررة لا يستعملها السيرفر نهائياً وتخص اختباراً واحداً. | تحديث `scripts/test_runtime_architect_v6.mjs`. |
+| `wrangler.toml` | **حذف نهائي** | إعدادات متبقية لمنظومة Cloudflare القديمة. | إزالة شرط التحقق النصي في [tests/round16-pulse-503-and-data-truth.test.mjs:1054](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/tests/round16-pulse-503-and-data-truth.test.mjs#L1054). |
+| `scripts/test_cloudflare_edge_modernization.mjs` | **أرشفة في `archive/tests/`** | يختبر مزايا D1 وKV وحواف Cloudflare المنقرضة ولا يمت للواقع الحالي بصلة. | إزالته من قائمة فحص `package.json: "test"`. |
+| `scripts/test_jit_warming_and_d1_trajectory.mjs` | **أرشفة في `archive/tests/`** | يختبر إيقاظ شاردات نيون وكاش D1 الملغى. | إزالته من قائمة فحص `package.json: "test"`. |
+| [src/worker.mjs](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/worker.mjs) | **حذف نهائي (في نهاية المرحلة 4)** | تم استبدال كافة وظائفه بإضافات Fastify ونواة `src/core/`. | التأكد من تحويل كافة استيرادات ملفات الاختبار إلى `src/core/`. |
+| [scripts/instabox-boot-sync.sh](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/instabox-boot-sync.sh) | **ممنوع من الحذف ⛔** | ملف حي وضروري يُستدعى أثناء النشر المباشر في [.github/workflows/ci.yml:156](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/ci.yml#L156). | الإبقاء عليه وصيانته. |
+
+- **أمر التحقق الشامل النهائي:**
+  ```bash
+  npm run check
+  npm test
+  ```
+  يجب أن ينتهي كلا الأمرين بنجاح تام 100% مع صفر تحذيرات وصفر إخفاقات.

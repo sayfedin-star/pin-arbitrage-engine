@@ -179,12 +179,12 @@ const crawlerCode = fs.readFileSync(path.resolve('scripts/keyword-velocity-crawl
 
 // Mode B Phase 1A hardening
 assert(
-  crawlerCode.includes('// Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers for 45s'),
+  crawlerCode.includes('Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers'),
   'Mode B Phase 1A Lead Runner must include Failure-Immune Barrier Sync Guard in finally block'
 );
 assert(
-  crawlerCode.includes('SELECT last_crawled_at, updated_at FROM tracked_keywords WHERE id = ${kwRow.id};'),
-  'Mode B Phase 1A peer runners barrier sync must select both last_crawled_at and updated_at'
+  crawlerCode.includes("SELECT metadata->>'phase1a_completed_token' AS barrier_token"),
+  'Mode B Phase 1A peer runners barrier sync must poll clock-skew immune phase1a_completed_token'
 );
 
 // Mode C Phase 1A hardening
@@ -193,8 +193,8 @@ assert(
   'Mode C Phase 1A runner loop must include Failure-Immune Barrier Sync Guard in finally block'
 );
 assert(
-  crawlerCode.includes('COALESCE(tk.updated_at, \'1970-01-01\'::timestamptz)'),
-  'Mode C Phase 1A barrier sync query must check tk.updated_at via GREATEST alongside last_crawled_at'
+  crawlerCode.includes("(tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${folderRunToken}"),
+  'Mode C Phase 1A barrier sync query must check phase1a_completed_token without clock-skew timestamp comparison'
 );
 console.log('  ✓ [PASS] Failure-Immune Barrier Sync parity verified across Mode A, Mode B, and Mode C');
 

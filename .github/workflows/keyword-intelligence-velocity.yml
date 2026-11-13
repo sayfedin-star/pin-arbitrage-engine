@@ -217,6 +217,8 @@ jobs:
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
+          STAGE1_RESULT: ${{ needs.crawl-fleet.result }}
+          SKIP_MV_REFRESH: 'true'
         run: node scripts/keyword-fleet-consolidator.mjs
 
       - name: 6. Recompute Domain Intelligence Rollup

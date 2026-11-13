@@ -27,7 +27,11 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(DATABASE_URL);
+const sql = createUniversalSqlClient(DATABASE_URL, {
+  connection: {
+    statement_timeout: 120000
+  }
+});
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const targetKeyword = (process.env.TARGET_KEYWORD || '').trim().toLowerCase();
 const folderIdInput = process.env.FOLDER_ID ? parseInt(process.env.FOLDER_ID, 10) : null;
@@ -159,9 +163,14 @@ async function main() {
       LIMIT 5;
     `;
 
+    const stage1Result = String(process.env.STAGE1_RESULT || 'success').toLowerCase().trim();
+    const fleetStatus = (stage1Result !== 'success' && stage1Result !== '')
+      ? `🟡 **Partial Run (Stage 1 status: ${stage1Result})**`
+      : '🟢 **Completed Successfully**';
+
     // 5. Generate Rich Markdown Report for $GITHUB_STEP_SUMMARY
     mdReport += `## 🚀 Folder Cluster Fleet Telemetry & Velocity Report\n\n`;
-    mdReport += `> **Folder Cluster**: \`${folder.name}\` (ID: ${folder.id}) | **Fleet Execution**: \`20-Runner Parallel Matrix\` | **Status**: 🟢 **Completed Successfully**\n\n`;
+    mdReport += `> **Folder Cluster**: \`${folder.name}\` (ID: ${folder.id}) | **Fleet Execution**: \`20-Runner Parallel Matrix\` | **Status**: ${fleetStatus}\n\n`;
 
     mdReport += `### 📊 Cluster Core Metrics\n\n`;
     mdReport += `| Metric | Value | Architectural Context |\n`;
@@ -302,9 +311,9 @@ async function main() {
       .sort((a, b) => Number(b.daily_save_velocity) - Number(a.daily_save_velocity))
       .slice(0, 5);
 
-    const fleetFailures = Number(process.env.FLEET_FAILURES || 0);
-    const fleetStatus = fleetFailures > 0
-      ? `🔴 **Partial Run (${fleetFailures} runners failed)**`
+    const stage1Result = String(process.env.STAGE1_RESULT || 'success').toLowerCase().trim();
+    const fleetStatus = (stage1Result !== 'success' && stage1Result !== '')
+      ? `🟡 **Partial Run (Stage 1 status: ${stage1Result})**`
       : '🟢 **Completed Successfully**';
 
     // Generate Rich Markdown Report
@@ -397,9 +406,9 @@ async function main() {
       ORDER BY tk.last_crawled_at DESC NULLS LAST;
     `;
 
-    const fleetFailures = Number(process.env.FLEET_FAILURES || 0);
-    const fleetStatus = fleetFailures > 0
-      ? `🔴 **Partial Run (${fleetFailures} runners failed)**`
+    const stage1Result = String(process.env.STAGE1_RESULT || 'success').toLowerCase().trim();
+    const fleetStatus = (stage1Result !== 'success' && stage1Result !== '')
+      ? `🟡 **Partial Run (Stage 1 status: ${stage1Result})**`
       : '🟢 **Completed Successfully**';
 
     mdReport += `## 🚀 Multi-Keyword Distributed Fleet Radar Report\n\n`;
@@ -434,30 +443,34 @@ async function main() {
   // 6. Hub Sequential Table Vacuum & Statistics Refresh (Consolidator isolated run)
   try {
     console.log('[*] Executing Hub Sequential Table Vacuum & Statistics Refresh...');
-    await sql`VACUUM (ANALYZE) keyword_serp_current;`.catch(() => {});
-    await sql`VACUUM (ANALYZE) keyword_displaced_index;`.catch(() => {});
-    await sql`VACUUM (ANALYZE) tracked_keywords;`.catch(() => {});
+    await sql`VACUUM (ANALYZE) keyword_serp_current;`.catch((e) => console.warn('  [!] VACUUM keyword_serp_current warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) keyword_displaced_index;`.catch((e) => console.warn('  [!] VACUUM keyword_displaced_index warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) tracked_keywords;`.catch((e) => console.warn('  [!] VACUUM tracked_keywords warning:', e?.message || e));
     console.log('  ✓ Hub Tables Vacuumed and Statistics Refreshed.');
   } catch (vacErr) {
     console.warn('[!] Hub Vacuum non-fatal warning:', vacErr.message);
   }
 
   // 7. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
-  try {
-    console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
-    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
-    console.log('  ✓ mv_pulse_24h_summary refreshed cleanly.');
-  } catch (mvErr) {
-    if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
-      try {
-        await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
-        console.log('  ✓ mv_pulse_24h_summary populated via initial non-concurrent refresh.');
-      } catch (fallbackErr) {
-        console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+  if (process.env.SKIP_MV_REFRESH !== 'true') {
+    try {
+      console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
+      await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
+      console.log('  ✓ mv_pulse_24h_summary refreshed cleanly.');
+    } catch (mvErr) {
+      if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
+        try {
+          await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+          console.log('  ✓ mv_pulse_24h_summary populated via initial non-concurrent refresh.');
+        } catch (fallbackErr) {
+          console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+        }
+      } else {
+        console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
       }
-    } else {
-      console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
     }
+  } else {
+    console.log('[*] Skipping mv_pulse_24h_summary refresh in consolidator (deferred to final Stage 2 rollup step).');
   }
 
   // Write to GITHUB_STEP_SUMMARY
@@ -473,6 +486,7 @@ async function main() {
   console.log('\n================================================================');
   console.log('✅ STAGE 3 CONSOLIDATION COMPLETED SUCCESSFULLY');
   console.log('================================================================');
+  await sql.end?.({ timeout: 2 }).catch(() => {});
   process.exit(0);
 }
 

@@ -12,7 +12,7 @@ const PG_TRANSIENT_CONNECTION_CODES = new Set(['53300', '53400', '08006', '08001
 
 /**
  * Returns true if error is a PostgreSQL connection slot exhaustion (SQLSTATE 53300)
- * or transient connection drop safe for bounded exponential-backoff retry.
+ * or transient connection drop safe for automatic exponential-backoff retry.
  */
 export function isTransientPgConnectionError(err) {
   if (!err) return false;
@@ -23,17 +23,32 @@ export function isTransientPgConnectionError(err) {
 }
 
 /**
- * Executes an async database operation with Exponential Backoff + Jitter on SQLSTATE 53300.
+ * Returns true if error is a PostgreSQL statement timeout cancellation (SQLSTATE 57014).
+ * Intentionally separated from automatic global retries so non-idempotent writes and fast Web APIs fail fast,
+ * while explicit idempotent read callers can opt in via `withDbRetry(..., { retryOnStatementTimeout: true })`.
+ */
+export function isStatementTimeoutError(err) {
+  if (!err) return false;
+  const code = String(err.code || err.sqlState || '').trim();
+  if (code === '57014') return true;
+  const msg = String(err.message || '');
+  return /canceling statement due to statement timeout/i.test(msg);
+}
+
+/**
+ * Executes an async database operation with Exponential Backoff + Jitter on transient connection errors
+ * (and optionally SQLSTATE 57014 statement timeouts when `retryOnStatementTimeout: true` is passed for idempotent reads).
  *
  * @template T
  * @param {() => Promise<T>} operation
- * @param {{ maxRetries?: number, baseDelayMs?: number, maxDelayMs?: number, jitterFn?: () => number, sleepFn?: (ms: number) => Promise<void> }} [options]
+ * @param {{ maxRetries?: number, baseDelayMs?: number, maxDelayMs?: number, retryOnStatementTimeout?: boolean, jitterFn?: () => number, sleepFn?: (ms: number) => Promise<void> }} [options]
  * @returns {Promise<T>}
  */
 export async function withDbRetry(operation, options = {}) {
   const maxRetries = Math.max(0, Number(options.maxRetries ?? 4));
   const baseDelayMs = Math.max(10, Number(options.baseDelayMs ?? 120));
   const maxDelayMs = Math.max(baseDelayMs, Number(options.maxDelayMs ?? 3000));
+  const retryOnStatementTimeout = Boolean(options.retryOnStatementTimeout);
   const jitterFn = typeof options.jitterFn === 'function' ? options.jitterFn : Math.random;
   const sleepFn = typeof options.sleepFn === 'function'
     ? options.sleepFn
@@ -44,7 +59,8 @@ export async function withDbRetry(operation, options = {}) {
     try {
       return await operation();
     } catch (err) {
-      if (!isTransientPgConnectionError(err) || attempt >= maxRetries) {
+      const canRetry = isTransientPgConnectionError(err) || (retryOnStatementTimeout && isStatementTimeoutError(err));
+      if (!canRetry || attempt >= maxRetries) {
         throw err;
       }
       const expDelay = Math.min(maxDelayMs, baseDelayMs * (2 ** attempt));
@@ -53,6 +69,32 @@ export async function withDbRetry(operation, options = {}) {
       await sleepFn(expDelay + jitter);
     }
   }
+}
+
+function executeAtomicTransaction(beginFn, queriesOrFn) {
+  return beginFn(async (tx) => {
+    if (typeof queriesOrFn === 'function') {
+      const res = await queriesOrFn(tx);
+      if (Array.isArray(res)) {
+        const out = [];
+        for (const item of res) {
+          out.push(typeof item === 'function' ? await item(tx) : await item);
+        }
+        return out;
+      }
+      return res;
+    }
+    if (Array.isArray(queriesOrFn)) {
+      const out = [];
+      for (const q of queriesOrFn) {
+        out.push(typeof q === 'function' ? await q(tx) : await q);
+      }
+      return out;
+    }
+    throw new TypeError(
+      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires a callback or an array of lazy query builders.'
+    );
+  });
 }
 
 /**
@@ -70,11 +112,30 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
   }
 
   const origBegin = typeof pgClient.begin === 'function' ? pgClient.begin.bind(pgClient) : null;
+  const origUnsafe = typeof pgClient.unsafe === 'function' ? pgClient.unsafe.bind(pgClient) : null;
+
+  // Expose an unwrapped noRetry sibling so callers inside explicit `withDbRetry(...)` never double-stack retries
+  const noRetryTransaction = origBegin
+    ? async (queriesOrFn) => executeAtomicTransaction(origBegin, queriesOrFn)
+    : undefined;
+
+  const noRetryClient = new Proxy(pgClient, {
+    get(target, prop, receiver) {
+      if (prop === 'begin' && origBegin) return origBegin;
+      if (prop === 'unsafe' && origUnsafe) return origUnsafe;
+      if (prop === 'transaction' && noRetryTransaction) return noRetryTransaction;
+      if (prop === 'noRetry') return noRetryClient;
+      return Reflect.get(target, prop, receiver);
+    },
+    apply(target, thisArg, args) {
+      return Reflect.apply(target, thisArg, args);
+    }
+  });
+
   if (origBegin) {
     pgClient.begin = async (...args) => withDbRetry(() => origBegin(...args), retryOptions);
   }
 
-  const origUnsafe = typeof pgClient.unsafe === 'function' ? pgClient.unsafe.bind(pgClient) : null;
   if (origUnsafe) {
     pgClient.unsafe = (...args) => {
       const invoke = () => origUnsafe(...args);
@@ -85,33 +146,18 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
 
   if (typeof pgClient.transaction !== 'function' && typeof pgClient.begin === 'function') {
     pgClient.transaction = async (queriesOrFn) => {
-      return await pgClient.begin(async (tx) => {
-        if (typeof queriesOrFn === 'function') {
-          const res = await queriesOrFn(tx);
-          if (Array.isArray(res)) {
-            const out = [];
-            for (const item of res) {
-              out.push(typeof item === 'function' ? await item(tx) : await item);
-            }
-            return out;
-          }
-          return res;
-        }
-        if (Array.isArray(queriesOrFn)) {
-          const out = [];
-          for (const q of queriesOrFn) {
-            out.push(typeof q === 'function' ? await q(tx) : await q);
-          }
-          return out;
-        }
-        return [];
-      });
+      return await executeAtomicTransaction(pgClient.begin, queriesOrFn);
     };
   }
 
   pgClient.__unifiedTxAttached = true;
+  pgClient.__atomicBuilderWrapped = true;
 
   return new Proxy(pgClient, {
+    get(target, prop, receiver) {
+      if (prop === 'noRetry') return noRetryClient;
+      return Reflect.get(target, prop, receiver);
+    },
     apply(target, thisArg, args) {
       const invoke = () => Reflect.apply(target, thisArg, args);
       const result = invoke();
@@ -129,6 +175,29 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
     return pending;
   }
   const origThen = pending.then.bind(pending);
+  const modifiers = [];
+  for (const modName of ['values', 'raw', 'simple']) {
+    if (typeof pending[modName] === 'function') {
+      const origMod = pending[modName].bind(pending);
+      Object.defineProperty(pending, modName, {
+        value: (...modArgs) => {
+          modifiers.push([modName, modArgs]);
+          const res = origMod(...modArgs);
+          return res === pending || !res ? pending : wrapPendingQueryRetry(res, () => {
+            let rebuilt = invokeFn();
+            for (const [m, a] of modifiers) {
+              if (rebuilt && typeof rebuilt[m] === 'function') rebuilt = rebuilt[m](...a);
+            }
+            return rebuilt;
+          }, retryOptions);
+        },
+        configurable: true,
+        enumerable: false,
+        writable: true
+      });
+    }
+  }
+
   let settledPromise = null;
 
   const executeWithRetry = () => {
@@ -139,16 +208,37 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
             origThen(resolve, reject);
           });
         } catch (err) {
-          if (!isTransientPgConnectionError(err)) {
+          const maxRetries = Math.max(0, Number(retryOptions.maxRetries ?? 4));
+          if (!isTransientPgConnectionError(err) || maxRetries === 0) {
             throw err;
           }
+          const baseDelayMs = Math.max(10, Number(retryOptions.baseDelayMs ?? 120));
+          const maxDelayMs = Math.max(baseDelayMs, Number(retryOptions.maxDelayMs ?? 3000));
+          const jitterFn = typeof retryOptions.jitterFn === 'function' ? retryOptions.jitterFn : Math.random;
+          const sleepFn = typeof retryOptions.sleepFn === 'function'
+            ? retryOptions.sleepFn
+            : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          const firstDelay = Math.min(maxDelayMs, baseDelayMs);
+          const firstJitter = Math.floor(jitterFn() * Math.max(20, Math.floor(firstDelay * 0.5)));
+          await sleepFn(firstDelay + firstJitter);
+
           return await withDbRetry(async () => {
-            const nextQuery = invokeFn();
+            let nextQuery = invokeFn();
+            for (const [modName, modArgs] of modifiers) {
+              if (nextQuery && typeof nextQuery[modName] === 'function') {
+                nextQuery = nextQuery[modName](...modArgs);
+              }
+            }
             if (nextQuery && typeof nextQuery.then === 'function') {
               return await nextQuery;
             }
             return nextQuery;
-          }, retryOptions);
+          }, {
+            ...retryOptions,
+            maxRetries: Math.max(0, maxRetries - 1),
+            baseDelayMs: Math.min(maxDelayMs, baseDelayMs * 2)
+          });
         }
       })();
     }
@@ -192,10 +282,10 @@ export function createSqlClient(dsn, options = {}) {
   );
   // Cap GITHUB_ACTIONS pool size to 3-4 connections
   const maxConnections = isCi ? Math.max(1, Math.min(requestedMax, 4)) : Math.max(1, requestedMax);
+  const defaultStatementTimeoutMs = isCi ? 45000 : 15000;
 
   const pgClient = postgres(cleanDsn, {
     max: maxConnections,
-    timeout: Number(options.timeout ?? 15), // [INVARIANT: NON-BLOCKING-QUERY-TIMEOUT]
     idle_timeout: Number(options.idle_timeout ?? 20),
     connect_timeout: Number(options.connect_timeout ?? 10),
     max_lifetime: Number(options.max_lifetime ?? 300),
@@ -203,7 +293,7 @@ export function createSqlClient(dsn, options = {}) {
     onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
     connection: {
       ...(options.connection || {}),
-      statement_timeout: Number(options.connection?.statement_timeout ?? 15000),
+      statement_timeout: Number(options.connection?.statement_timeout ?? defaultStatementTimeoutMs),
       idle_in_transaction_session_timeout: Number(options.connection?.idle_in_transaction_session_timeout ?? 10000),
       max_parallel_workers_per_gather: 0
     },
@@ -319,32 +409,15 @@ export function setCachedShardSqlClient(dsn, client) {
 }
 
 export function wrapShardNeonTransaction(client) {
-  if (!client || client.__atomicBuilderWrapped) {
+  if (!client || client.__atomicBuilderWrapped || client.__unifiedTxAttached) {
+    if (client && !client.__atomicBuilderWrapped) {
+      client.__atomicBuilderWrapped = true;
+    }
     return client;
   }
-  if (typeof client.transaction !== 'function' && typeof client.begin === 'function') {
+  if (typeof client.begin === 'function') {
     client.transaction = async (queriesOrFn) => {
-      return await client.begin(async (tx) => {
-        if (typeof queriesOrFn === 'function') {
-          const res = await queriesOrFn(tx);
-          if (Array.isArray(res)) {
-            const out = [];
-            for (const item of res) {
-              out.push(typeof item === 'function' ? await item(tx) : await item);
-            }
-            return out;
-          }
-          return res;
-        }
-        if (Array.isArray(queriesOrFn)) {
-          const out = [];
-          for (const q of queriesOrFn) {
-            out.push(typeof q === 'function' ? await q(tx) : await q);
-          }
-          return out;
-        }
-        return [];
-      });
+      return await executeAtomicTransaction(client.begin.bind(client), client, queriesOrFn);
     };
     client.__atomicBuilderWrapped = true;
     return client;

@@ -5,8 +5,11 @@ import path from 'node:path';
 
 import {
   isTransientPgConnectionError,
+  isStatementTimeoutError,
   withDbRetry,
-  attachTransactionBridge
+  attachTransactionBridge,
+  wrapShardNeonTransaction,
+  createSqlClient
 } from '../src/db/client.mjs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 import worker from '../src/worker.mjs';
@@ -18,12 +21,20 @@ import {
 import { getDomainDeepDossier } from '../src/modules/domains/service.mjs';
 import { countTagBalance, runDomNestingVerification } from './verify_dom_nesting.mjs';
 
-test('Phase 0 [LND-CON-06]: isTransientPgConnectionError distinguishes pool exhaustion from schema errors', () => {
+test('Phase 0 [LND-CON-06]: isTransientPgConnectionError excludes 57014 while isStatementTimeoutError isolates statement timeouts', () => {
   assert.equal(isTransientPgConnectionError({ code: '53300', message: 'too many clients already' }), true);
   assert.equal(isTransientPgConnectionError({ sqlState: '53400', message: 'configuration limit exceeded' }), true);
   assert.equal(isTransientPgConnectionError({ code: '08006', message: 'connection failure' }), true);
   assert.equal(isTransientPgConnectionError({ code: '08001', message: 'unable to connect' }), true);
   assert.equal(isTransientPgConnectionError(new Error('FATAL: sorry, too many clients already')), true);
+
+  // 57014 must NOT trigger global automatic retries on Web APIs or non-idempotent writes
+  assert.equal(isTransientPgConnectionError({ code: '57014', message: 'canceling statement due to statement timeout' }), false);
+  assert.equal(isTransientPgConnectionError(new Error('ERROR: canceling statement due to statement timeout')), false);
+
+  assert.equal(isStatementTimeoutError({ code: '57014', message: 'canceling statement due to statement timeout' }), true);
+  assert.equal(isStatementTimeoutError(new Error('ERROR: canceling statement due to statement timeout')), true);
+  assert.equal(isStatementTimeoutError({ code: '42P01', message: 'relation does not exist' }), false);
 
   assert.equal(isTransientPgConnectionError({ code: '42P01', message: 'relation does not exist' }), false);
   assert.equal(isTransientPgConnectionError({ code: '21000', message: 'ON CONFLICT DO UPDATE command cannot affect row a second time' }), false);
@@ -297,3 +308,136 @@ test('Phase 0 & Phase 1 structural artifacts exist cleanly (Migration 057, zero 
   const remediateSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/remediate-canonical-poisoning.mjs'), 'utf8');
   assert.equal(/pae_secure_password_2026/.test(remediateSrc), false);
 });
+
+test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (behavioral + contract checks)', async () => {
+  // 1. Behavioral check: attachTransactionBridge does NOT retry 57014 globally,
+  //    and sql.noRetry inside withDbRetry(..., { maxRetries: 2, retryOnStatementTimeout: true }) executes at most 3 total attempts (no 20x stacking)
+  let rawCallCount = 0;
+  function makeFailingQuery(code, message) {
+    return {
+      then(resolve, reject) {
+        rawCallCount += 1;
+        const err = new Error(message);
+        err.code = code;
+        return Promise.reject(err).then(resolve, reject);
+      }
+    };
+  }
+
+  const fakePg57014 = () => makeFailingQuery('57014', 'canceling statement due to statement timeout');
+  fakePg57014.begin = async (fn) => fn(fakePg57014);
+  const bridged = attachTransactionBridge(fakePg57014, { maxRetries: 4, baseDelayMs: 1, maxDelayMs: 2, sleepFn: async () => {} });
+
+  rawCallCount = 0;
+  await assert.rejects(async () => await bridged`SELECT 1`, /statement timeout/);
+  assert.equal(rawCallCount, 1, 'Global bridged client must fail fast (1 attempt) on SQLSTATE 57014');
+
+  const fakePg53300 = () => makeFailingQuery('53300', 'too many clients already');
+  fakePg53300.begin = async (fn) => fn(fakePg53300);
+  const bridged53300 = attachTransactionBridge(fakePg53300, { maxRetries: 4, baseDelayMs: 1, maxDelayMs: 2, sleepFn: async () => {} });
+
+  rawCallCount = 0;
+  await assert.rejects(
+    () => withDbRetry(() => bridged53300.noRetry`SELECT 1`, { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 2, retryOnStatementTimeout: true, sleepFn: async () => {} }),
+    /too many clients/
+  );
+  assert.equal(rawCallCount, 3, 'sql.noRetry inside withDbRetry(maxRetries=2) must strictly execute 3 times (no 5x3=15 stacking)');
+
+  // 2. Behavioral check: createSqlClient must NOT pass deprecated `timeout` option (which overwrites idle_timeout and logs noise)
+  const client = createSqlClient('postgres://user:pass@127.0.0.1:5432/testdb');
+  try {
+    assert.equal(client.options.idle_timeout, 20, 'idle_timeout must stay 20 without being overwritten by deprecated timeout option');
+    assert.equal(Object.hasOwn(client.options, 'timeout'), false, 'deprecated postgres.js timeout option must not be configured');
+  } finally {
+    await client.end({ timeout: 0 }).catch(() => {});
+  }
+
+  // 3. Behavioral check: wrapShardNeonTransaction(attachTransactionBridge(...)) must pass scoped `tx` (NEVER outer pool client)
+  //    to lazy array builders, and `noRetry.transaction` must bypass retry wrapper cleanly.
+  let beginCalls = 0;
+  let outerClientCalls = 0;
+  let txScopedCalls = 0;
+  const mockPoolClient = () => {
+    outerClientCalls += 1;
+    return Promise.resolve([{ outer: true }]);
+  };
+  mockPoolClient.begin = async (fn) => {
+    beginCalls += 1;
+    const txScoped = () => {
+      txScopedCalls += 1;
+      return Promise.resolve([{ txScoped: true }]);
+    };
+    return await fn(txScoped);
+  };
+  const universalMock = wrapShardNeonTransaction(
+    attachTransactionBridge(mockPoolClient, { maxRetries: 2, baseDelayMs: 1, sleepFn: async () => {} })
+  );
+  assert.equal(universalMock.__atomicBuilderWrapped, true);
+  await universalMock.transaction([
+    (tx) => tx`SELECT 1`,
+    (tx) => tx`SELECT 2`
+  ]);
+  assert.equal(beginCalls, 1, 'transaction() must open exactly one begin() block');
+  assert.equal(outerClientCalls, 0, 'Lazy transaction builders must NEVER receive outer pool client (breaks atomicity & deadlocks pool)');
+  assert.equal(txScopedCalls, 2, 'Both lazy transaction builders must execute inside scoped tx connection');
+
+  // Behavioral check: noRetry.transaction bypasses begin() retry wrapper
+  let retryBeginAttempts = 0;
+  const failingBeginClient = () => Promise.resolve([]);
+  failingBeginClient.begin = async () => {
+    retryBeginAttempts += 1;
+    const err = new Error('too many clients already');
+    err.code = '53300';
+    throw err;
+  };
+  const bridgedNoRetryTx = attachTransactionBridge(failingBeginClient, { maxRetries: 3, baseDelayMs: 1, sleepFn: async () => {} });
+  await assert.rejects(() => bridgedNoRetryTx.noRetry.transaction([(tx) => tx`SELECT 1`]), /too many clients/);
+  assert.equal(retryBeginAttempts, 1, 'sql.noRetry.transaction() must execute begin() once without stacking retries');
+
+  // 4. Behavioral check: wrapPendingQueryRetry executes 1 + maxRetries total attempts (NEVER 1 + 1 + maxRetries) and NEVER fires a 0ms retry #1
+  let persistentCalls = 0;
+  const recordedRetryDelays = [];
+  const persistent53300Client = () => ({
+    then(resolve, reject) {
+      persistentCalls += 1;
+      const err = new Error('too many clients already');
+      err.code = '53300';
+      return Promise.reject(err).then(resolve, reject);
+    }
+  });
+  persistent53300Client.begin = async (fn) => fn(persistent53300Client);
+  const exactRetryClient = attachTransactionBridge(persistent53300Client, {
+    maxRetries: 2,
+    baseDelayMs: 25,
+    maxDelayMs: 200,
+    jitterFn: () => 0,
+    sleepFn: async (ms) => { recordedRetryDelays.push(ms); }
+  });
+  await assert.rejects(async () => await exactRetryClient`SELECT 1`, /too many clients/);
+  assert.equal(persistentCalls, 3, 'Total executions for maxRetries=2 must be strictly 1 + 2 = 3 (no extra attempt=0)');
+  assert.deepEqual(recordedRetryDelays, [25, 50], 'Retry #1 must sleep baseDelayMs (no 0ms immediate retry)');
+
+  // 5. Structural contract checks
+  const dbClientSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/db/client.mjs'), 'utf8');
+  assert.match(dbClientSrc, /const defaultStatementTimeoutMs = isCi \? 45000 : 15000;/);
+
+  const kwServiceSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/keywords/service.mjs'), 'utf8');
+  assert.match(kwServiceSrc, /const shouldSkipShard = Boolean\(options\?\.skip_shard_offload\);/);
+  assert.match(kwServiceSrc, /existingSerpPins\.length > 0 && !options\?\.skip_top_enrich/);
+  assert.equal(kwServiceSrc.includes('!isUnifiedPostgres(envObj) && Boolean(options?.skip_shard_offload)'), false);
+
+  const crawlerSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/keyword-velocity-crawler.mjs'), 'utf8');
+  assert.match(crawlerSrc, /const BARRIER_TIMEOUT_MS = 150000;/);
+  assert.match(crawlerSrc, /await sleep\(workerIndex \* 350\);/);
+  assert.match(crawlerSrc, /withDbRetry\(\(\) => phase1bSql/);
+  assert.match(crawlerSrc, /const SHARD_FLUSH_TIMEOUT_MS = isUnifiedPostgres\(\) \? 65000 : 25000;/);
+  assert.equal(crawlerSrc.includes('await syncTask.catch'), false, 'finally must never await syncTask synchronously after timeout');
+  assert.equal(crawlerSrc.includes('${runStartTime}'), false, 'Displaced index SQL must not compare against VM runStartTime clock');
+  assert.equal(crawlerSrc.includes('throw new Error(`[Phase 1A Total Failure]'), false);
+
+  const workflowSrc = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/keyword-intelligence-velocity.yml'), 'utf8');
+  assert.match(workflowSrc, /STAGE1_RESULT:\s*\$\{\{\s*needs\.crawl-fleet\.result\s*\}\}/);
+  assert.match(workflowSrc, /SKIP_MV_REFRESH:\s*'true'/);
+});
+
+

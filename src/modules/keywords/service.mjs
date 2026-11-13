@@ -2307,7 +2307,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const envObj = options?.env || null;
     const ctxObj = options?.ctx || null;
     let confirmedPinIds = [];
-    const shouldSkipShard = !isUnifiedPostgres(envObj) && Boolean(options?.skip_shard_offload);
+    const shouldSkipShard = Boolean(options?.skip_shard_offload);
     if (!shouldSkipShard && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       const newSerpPins = [];
       const existingSerpPins = [];
@@ -2333,10 +2333,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         });
       }
       if (newSerpPins.length > 0) {
-        await insertNewPinsBatch(sql, newSerpPins, 'keyword').catch(() => {});
+        await insertNewPinsBatch(sql, newSerpPins, 'keyword').catch((err) => {
+          console.warn(`[crawlKeywordSERP] insertNewPinsBatch warning for keyword ${kid}:`, err?.message || err);
+        });
       }
-      if (existingSerpPins.length > 0) {
-        await resavePinsMetricsBatch(sql, existingSerpPins).catch(() => {});
+      if (existingSerpPins.length > 0 && !options?.skip_top_enrich) {
+        await resavePinsMetricsBatch(sql, existingSerpPins).catch((err) => {
+          console.warn(`[crawlKeywordSERP] resavePinsMetricsBatch warning for keyword ${kid}:`, err?.message || err);
+        });
       }
       if (isUnifiedPostgres(envObj)) {
         confirmedPinIds = [...newSerpPins, ...existingSerpPins].map(p => String(p.pin_id));
@@ -2351,7 +2355,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
 
-    if (confirmedPinIds.length > 0 || isUnifiedPostgres(envObj)) {
+    if (confirmedPinIds.length > 0 || isUnifiedPostgres(envObj) || shouldSkipShard) {
       await sql`
         DELETE FROM keyword_serp_current
         WHERE keyword_id = ${kid}

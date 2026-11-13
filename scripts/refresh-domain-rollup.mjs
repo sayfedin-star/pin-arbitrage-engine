@@ -21,7 +21,11 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const sql = createUniversalSqlClient(dbUrl);
+const sql = createUniversalSqlClient(dbUrl, {
+  connection: {
+    statement_timeout: 120000
+  }
+});
 
 console.log('[DomainRollup] Starting domain intelligence rollup refresh...');
 const startTime = Date.now();
@@ -46,12 +50,15 @@ try {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   if (res.success) {
     console.log(`[DomainRollup] Successfully refreshed domain intelligence rollup in ${elapsed}s.`);
+    await sql.end?.({ timeout: 2 }).catch(() => {});
     process.exit(0);
   } else {
     console.error(`[DomainRollup] Refresh failed in ${elapsed}s:`, res.error);
+    await sql.end?.({ timeout: 2 }).catch(() => {});
     process.exit(1);
   }
 } catch (err) {
   console.error('[DomainRollup] Unexpected error:', err.message);
+  await sql.end?.({ timeout: 2 }).catch(() => {});
   process.exit(1);
 }

@@ -22,6 +22,11 @@
  */
 
 import { createUniversalSqlClient } from '../src/modules/sharding/fleet-router.mjs';
+import {
+  withDbRetry,
+  isTransientPgConnectionError,
+  isStatementTimeoutError
+} from '../src/db/client.mjs';
 import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
@@ -101,6 +106,14 @@ if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env
 }
 
 const sql = DATABASE_URL ? createUniversalSqlClient(DATABASE_URL) : null;
+async function closeCrawlerDb(exitCode = 0) {
+  try {
+    if (sql && typeof sql.end === 'function') {
+      await sql.end({ timeout: 2 });
+    }
+  } catch (_) {}
+  process.exit(exitCode);
+}
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -1237,19 +1250,26 @@ async function flushToStorageShards(enrichedPins, kw = null) {
 
   const shardEntries = Array.from(shardGroups.entries());
   const SHARD_CONCURRENCY = 10;
+  const SHARD_FLUSH_TIMEOUT_MS = isUnifiedPostgres() ? 65000 : 25000;
+  const shardErrors = [];
 
   for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
     const chunk = shardEntries.slice(i, i + SHARD_CONCURRENCY);
     await Promise.allSettled(
       chunk.map(async ([shardId, shardPins]) => {
+        let timedOut = false;
         try {
-          const syncTask = (async () => {
+          const syncTask = withDbRetry(async () => {
+            if (timedOut) {
+              throw new Error(`Shard #${shardId} flush aborted after timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`);
+            }
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
             const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
 
             // 1. Fetch 16-day historical snapshots for rolling gains computation (satisfies up to 15-day window)
             const pinIds = sortedPins.map(sp => String(sp.pin_id));
             let snapshots = [];
+            let snapQueryFailed = false;
             try {
               snapshots = await shardSql`
                 SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
@@ -1259,6 +1279,10 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 ORDER BY snapshot_date DESC;
               `;
             } catch (snapErr) {
+              if (isTransientPgConnectionError(snapErr) || isStatementTimeoutError(snapErr)) {
+                throw snapErr;
+              }
+              snapQueryFailed = true;
               console.warn(`    [Shard ${shardId}] Snapshots query warning: ${snapErr.message}`);
             }
 
@@ -1315,7 +1339,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 } else {
                   sp.daily_save_velocity = 0;
                 }
-              } else if (priorDaySnaps.length === 0) {
+              } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
                 sp.daily_save_velocity = 0;
               }
               sp.delta_repins_24h = gains.delta_repins_24h;
@@ -1323,6 +1347,10 @@ async function flushToStorageShards(enrichedPins, kw = null) {
               sp.gains_7d = gains.gains_7d;
               sp.gains_10d = gains.gains_10d;
               sp.gains_15d = gains.gains_15d;
+            }
+
+            if (timedOut) {
+              throw new Error(`Shard #${shardId} flush aborted after timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`);
             }
 
             const sanitizeShardMeta = (raw) => {
@@ -1371,29 +1399,39 @@ async function flushToStorageShards(enrichedPins, kw = null) {
                 }
                 await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw);
               } catch (hubErr) {
+                if (isUnifiedPostgres() || isTransientPgConnectionError(hubErr) || isStatementTimeoutError(hubErr)) {
+                  throw hubErr;
+                }
                 console.warn(`    [Hub Rolling Gains Flush Warning]: ${hubErr.message}`);
               }
             }
-          })();
+          }, { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 4000 });
 
           let timerId;
           const timeoutTask = new Promise((_, reject) => {
-            timerId = setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (10000ms limit)`)), 10000);
+            timerId = setTimeout(() => {
+              timedOut = true;
+              reject(new Error(`Shard #${shardId} flush timeout (${SHARD_FLUSH_TIMEOUT_MS}ms limit)`));
+            }, SHARD_FLUSH_TIMEOUT_MS);
           });
-
-          syncTask.catch(() => {});
 
           try {
             await Promise.race([syncTask, timeoutTask]);
             shardsSynchronized++;
           } finally {
             if (timerId) clearTimeout(timerId);
+            syncTask.catch(() => {});
           }
         } catch (shardErr) {
-          console.warn(`    [Shard ${shardId} Non-Blocking Guard] Shard write deferred: ${shardErr.message}`);
+          shardErrors.push({ shardId, message: shardErr.message });
+          console.error(`    [Shard ${shardId} Flush Error] Shard write failed: ${shardErr.message}`);
         }
       })
     );
+  }
+
+  if (isUnifiedPostgres() && shardsSynchronized === 0 && shardErrors.length > 0) {
+    throw new Error(`[Shard Flush Fatal] Unified Postgres write failed for all ${enrichedPins.length} pins: ${shardErrors[0].message}`);
   }
 
   return shardsSynchronized;
@@ -1560,7 +1598,7 @@ async function run() {
     const fid = folderIdInput;
     if (!fid) {
       console.error(`[-] FATAL: FOLDER_ID is required for folder_pin_partition.`);
-      process.exit(1);
+      await closeCrawlerDb(1);
     }
 
     const [folderRow] = await sql`
@@ -1568,11 +1606,10 @@ async function run() {
     `;
     if (!folderRow) {
       console.error(`[-] FATAL: Folder ${fid} not found in database.`);
-      process.exit(1);
+      await closeCrawlerDb(1);
     }
 
     console.log(`[*] Target Folder Identified: "${folderRow.name}" (ID: ${folderRow.id})`);
-    const runStartTime = new Date();
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion Across 20 Egress IPs
@@ -1582,9 +1619,10 @@ async function run() {
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_folder_${fid}_matrix`
+      `run_folder_${fid}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
     );
 
+    let phase1aTotalFailureC = false;
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
       console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel (token: ${folderRunToken})...`);
       let fatalSerpDbErr = null;
@@ -1598,7 +1636,7 @@ async function run() {
             cookie,
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
-            skip_shard_offload: true,
+            skip_shard_offload: maxCatalogInspect === 0,
             force: true,
             lease_token: effectiveToken
           });
@@ -1613,23 +1651,28 @@ async function run() {
             fatalSerpDbErr = err;
           }
         } finally {
-          // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so failure or clock skew never blocks cluster barrier
-          await sql`
-            UPDATE tracked_keywords
-            SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
-                updated_at = NOW(),
-                crawl_lease_token = NULL,
-                crawl_lease_until = NULL
-            WHERE id = ${kid}
-              AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-          `.catch(() => {});
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
+          try {
+            await sql`
+              UPDATE tracked_keywords
+              SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
+                  updated_at = NOW(),
+                  crawl_lease_token = NULL,
+                  crawl_lease_until = NULL
+              WHERE id = ${kid}
+                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+            `;
+          } catch (barrierErr) {
+            console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
+          }
         }
       }
       if (fatalSerpDbErr) {
         throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErr.message}`);
       }
       if (serpErrorCount > 0 && serpSuccessCount === 0) {
-        throw new Error(`[Phase 1A Total Failure] All ${serpErrorCount} assigned keyword SERP harvests failed on runner ${workerIndex + 1}/${workerTotal}.`);
+        phase1aTotalFailureC = true;
+        console.warn(`[Phase 1A Warning] All ${serpErrorCount} assigned keyword SERP harvests failed on runner ${workerIndex + 1}/${workerTotal}. Proceeding to Phase 1B catalog slice inspection.`);
       }
     } else if (!enableSerpHarvest) {
       console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Skipping directly to Phase 1B.`);
@@ -1637,11 +1680,11 @@ async function run() {
       console.log(`[Phase 1A] No keywords assigned to this runner. Waiting for peers at barrier sync...`);
     }
 
-    // Logical Token Barrier Sync: Wait for peer runners to complete parallel SERP ingestion
-    if (enableSerpHarvest) {
+    // Logical Token Barrier Sync: Wait for peer runners to complete parallel SERP ingestion (clock-skew immune)
+    if (enableSerpHarvest && workerTotal > 1) {
       console.log(`[Phase 1A] Barrier Sync: Waiting for peer runners to complete parallel SERP ingestion (token: ${folderRunToken})...`);
       const barrierStart = Date.now();
-      const BARRIER_TIMEOUT_MS = 45000;
+      const BARRIER_TIMEOUT_MS = 150000;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
         const [pendingRow] = await sql`
           SELECT COUNT(*)::int as pending
@@ -1660,17 +1703,24 @@ async function run() {
         await sleep(2500);
       }
       if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
-        console.warn(`[Phase 1A] Barrier Sync reached 45s timeout limit. Proceeding to Phase 1B with harvested catalog.`);
+        console.warn(`[Phase 1A] Barrier Sync reached ${BARRIER_TIMEOUT_MS / 1000}s timeout limit. Proceeding to Phase 1B with harvested catalog.`);
       }
+    }
+
+    // Stagger Phase 1B catalog query across the 20 runners to prevent simultaneous thundering-herd I/O spikes
+    if (workerTotal > 1 && workerIndex > 0) {
+      await sleep(workerIndex * 350);
     }
 
     // -------------------------------------------------------------------------
     // PHASE 1B: Deterministic crc32(pin_id) % workerTotal Pin-Slice Deep Inspection
     // -------------------------------------------------------------------------
-    // Fetch candidate pins across all folder keywords
+    // Fetch candidate pins across all folder keywords (use sql.noRetry to avoid stacked retries)
+    const phase1bSql = sql?.noRetry || sql;
+    const phase1bRetryOpts = { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 6000, retryOnStatementTimeout: true };
     let allPins = [];
     if (crawlScope === 'active_serp') {
-      allPins = await sql`
+      allPins = await withDbRetry(() => phase1bSql`
         WITH folder_ksc AS (
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank,
@@ -1710,9 +1760,9 @@ async function run() {
         FROM folder_ksc f
         JOIN aggregated_positions ap ON ap.pin_id = f.pin_id
         ORDER BY f.pin_id, f.rank_position ASC NULLS LAST;
-      `;
+      `, phase1bRetryOpts);
     } else {
-      allPins = await sql`
+      allPins = await withDbRetry(() => phase1bSql`
         WITH combined_pins AS (
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank,
@@ -1737,7 +1787,7 @@ async function run() {
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
             ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
-            CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
+            CASE WHEN kdi.updated_at >= NOW() - INTERVAL '30 minutes' THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
@@ -1779,7 +1829,7 @@ async function run() {
         FROM combined_pins cp
         JOIN aggregated_positions ap ON ap.pin_id = cp.pin_id
         ORDER BY cp.pin_id, cp.is_displaced ASC, cp.rank_position ASC NULLS LAST;
-      `;
+      `, phase1bRetryOpts);
     }
 
     allPins.sort((a, b) => {
@@ -1789,9 +1839,12 @@ async function run() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
-    if (maxCatalogInspect > 0 && allPins.length > maxCatalogInspect) {
-      console.log(`  [*] Applying max_catalog_inspect cap: ${allPins.length} -> ${maxCatalogInspect} pins`);
-      allPins = allPins.slice(0, maxCatalogInspect);
+    if (maxCatalogInspect > 0) {
+      const perWorkerCap = Math.max(1, Math.ceil(maxCatalogInspect / workerTotal));
+      if (allPins.length > perWorkerCap) {
+        console.log(`  [*] Applying per-worker max_catalog_inspect cap: ${allPins.length} -> ${perWorkerCap} pins (total cap: ${maxCatalogInspect})`);
+        allPins = allPins.slice(0, perWorkerCap);
+      }
     }
 
     // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
@@ -1802,7 +1855,7 @@ async function run() {
 
     if (myPins.length === 0) {
       console.log(`[Worker ${workerIndex + 1}/${workerTotal}] No pins assigned for slice. Exiting cleanly.`);
-      process.exit(0);
+      await closeCrawlerDb(0);
     }
 
     const enrichedList = await inspectPinsConcurrently(
@@ -1826,6 +1879,9 @@ async function run() {
       try {
         let md = `### 📁 Folder Runner Slice ${workerIndex + 1}/${workerTotal} Summary\n\n`;
         md += `- **Folder**: \`${folderRow.name}\` (ID: ${fid})\n`;
+        if (phase1aTotalFailureC) {
+          md += `- **Phase 1A Status**: ⚠️ All assigned SERP harvests failed on this runner\n`;
+        }
         md += `- **Assigned Slice Pins**: **${myPins.length}**\n`;
         md += `- **Reused from Fresh Hydration Cache**: **${cachedCount}**\n`;
         md += `- **Freshly Inspected via Pinterest API**: **${fetchedCount}**\n`;
@@ -1836,7 +1892,7 @@ async function run() {
       } catch (_) {}
     }
 
-    process.exit(0);
+    await closeCrawlerDb(0);
 
   } else if (mode === 'pin_partition') {
     // =========================================================================
@@ -1859,11 +1915,10 @@ async function run() {
     }
     if (!kwRow) {
       console.error(`[-] FATAL: Keyword "${targetKeyword}" not found for pin_partition.`);
-      process.exit(1);
+      await closeCrawlerDb(1);
     }
 
     console.log(`[*] Target Keyword Identified: "${kwRow.keyword}" (ID: ${kwRow.id})`);
-    const runStartTime = new Date();
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Single-Keyword SERP Ingestion (Lead Runner Ingests, Peers Sync)
@@ -1873,43 +1928,61 @@ async function run() {
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_kw_${kwRow.id}_matrix`
+      `run_kw_${kwRow.id}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
     );
 
     if (enableSerpHarvest) {
       if (workerIndex === 0) {
         console.log(`[Phase 1A] Runner 1/${workerTotal} (Lead): Ingesting SERP for "${kwRow.keyword}" (ID: ${kwRow.id})...`);
         const effectiveToken = crypto.randomUUID();
+        let fatalSerpDbErrB = null;
         try {
           const res = await crawlKeywordSERP(sql, kwRow.id, {
             cookie,
             max_serp_pins: maxSerpPins,
             skip_top_enrich: true,
-            skip_shard_offload: true,
+            skip_shard_offload: maxCatalogInspect === 0,
             force: true,
             lease_token: effectiveToken
           });
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
-          console.warn(`[Phase 1A] Lead Runner SERP error:`, err.message);
+          const sqlState = String(err?.code || '');
+          const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+          console.warn(`[Phase 1A] Lead Runner SERP error (code=${sqlState || 'N/A'}):`, err.message);
+          if (isFatalSqlError) {
+            fatalSerpDbErrB = err;
+          }
         } finally {
-          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers for 45s
-          await sql`
-            UPDATE tracked_keywords
-            SET 
-              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
-              updated_at = NOW(),
-              crawl_lease_token = NULL,
-              crawl_lease_until = NULL
-            WHERE id = ${kwRow.id}
-              AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-          `.catch(() => {});
-          console.log(`[Worker 0] Successfully sealed Phase 1A barrier token: ${runToken}`);
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers
+          let barrierUpdated = false;
+          try {
+            await sql`
+              UPDATE tracked_keywords
+              SET 
+                metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
+                updated_at = NOW(),
+                crawl_lease_token = NULL,
+                crawl_lease_until = NULL
+              WHERE id = ${kwRow.id}
+                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+            `;
+            barrierUpdated = true;
+          } catch (barrierErr) {
+            console.warn(`[Worker 0] ⚠️ Phase 1A barrier token update failed: ${barrierErr?.message || barrierErr}`);
+          }
+          if (barrierUpdated) {
+            console.log(`[Worker 0] Successfully sealed Phase 1A barrier token: ${runToken}`);
+          }
+        }
+        if (fatalSerpDbErrB) {
+          throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErrB.message}`);
         }
       } else {
         console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Waiting for Runner 1 to complete SERP ingestion...`);
         let barrierCleared = false;
-        const barrierDeadline = Date.now() + 60000; // 60s maximum safety ceiling
+        const BARRIER_TIMEOUT_MS = 150000;
+        const barrierDeadline = Date.now() + BARRIER_TIMEOUT_MS;
 
         while (Date.now() < barrierDeadline) {
           const [kwCheck] = await sql`
@@ -1923,31 +1996,31 @@ async function run() {
             break;
           }
 
-          // [INVARIANT: LEGACY-TELEMETRY-ASSERTION-GUARD]
-          if (process.env.__VERIFY_LEGACY_BARRIER__) {
-            await sql`
-              SELECT last_crawled_at, updated_at FROM tracked_keywords WHERE id = ${kwRow.id};
-            `;
-          }
-
           await sleep(1500);
         }
 
         if (barrierCleared) {
           console.log(`[Phase 1A] Barrier Sync cleared: SERP ingested (token matched: ${runToken})!`);
         } else {
-          console.warn(`[Worker ${workerIndex}] Barrier wait timed out after 60s. Proceeding with caution.`);
+          console.warn(`[Worker ${workerIndex}] Barrier wait timed out after ${BARRIER_TIMEOUT_MS / 1000}s. Proceeding with caution.`);
         }
       }
+    }
+
+    // Stagger Phase 1B catalog query across the 20 runners to prevent simultaneous thundering-herd I/O spikes
+    if (workerTotal > 1 && workerIndex > 0) {
+      await sleep(workerIndex * 350);
     }
 
     // -------------------------------------------------------------------------
     // PHASE 1B: Deterministic crc32(pin_id) % workerTotal Pin-Slice Deep Inspection
     // -------------------------------------------------------------------------
-    // Fetch candidate pins according to scope
+    // Fetch candidate pins according to scope (use sql.noRetry to avoid stacked retries)
+    const phase1bSqlB = sql?.noRetry || sql;
+    const phase1bRetryOpts = { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 6000, retryOnStatementTimeout: true };
     let allPins = [];
     if (crawlScope === 'active_serp') {
-      allPins = await sql`
+      allPins = await withDbRetry(() => phase1bSqlB`
         SELECT 
           pin_id, keyword_id, rank_position, last_known_rank,
           save_count, repin_count, daily_save_velocity,
@@ -1963,9 +2036,9 @@ async function run() {
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
           )
         ORDER BY rank_position ASC;
-      `;
+      `, phase1bRetryOpts);
     } else {
-      allPins = await sql`
+      allPins = await withDbRetry(() => phase1bSqlB`
         SELECT DISTINCT ON (pin_id)
           pin_id, keyword_id, rank_position, last_known_rank,
           save_count, repin_count, daily_save_velocity,
@@ -1995,7 +2068,7 @@ async function run() {
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
             ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
-            CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
+            CASE WHEN kdi.updated_at >= NOW() - INTERVAL '30 minutes' THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
@@ -2009,7 +2082,7 @@ async function run() {
             )
         ) combined_pins
         ORDER BY pin_id, is_displaced ASC, rank_position ASC NULLS LAST;
-      `;
+      `, phase1bRetryOpts);
     }
 
     // Deterministic sort to ensure identical order across all 20 runners (prioritizing numeric pins)
@@ -2023,9 +2096,12 @@ async function run() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
-    if (maxCatalogInspect > 0 && allPins.length > maxCatalogInspect) {
-      console.log(`  [*] Applying max_catalog_inspect cap: ${allPins.length} -> ${maxCatalogInspect} pins`);
-      allPins = allPins.slice(0, maxCatalogInspect);
+    if (maxCatalogInspect > 0) {
+      const perWorkerCap = Math.max(1, Math.ceil(maxCatalogInspect / workerTotal));
+      if (allPins.length > perWorkerCap) {
+        console.log(`  [*] Applying per-worker max_catalog_inspect cap: ${allPins.length} -> ${perWorkerCap} pins (total cap: ${maxCatalogInspect})`);
+        allPins = allPins.slice(0, perWorkerCap);
+      }
     }
 
     // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
@@ -2035,7 +2111,7 @@ async function run() {
 
     if (myPins.length === 0) {
       console.log(`[Worker ${workerIndex + 1}/${workerTotal}] No pins assigned for slice. Exiting cleanly.`);
-      process.exit(0);
+      await closeCrawlerDb(0);
     }
 
     const enrichedList = await inspectPinsConcurrently(
@@ -2068,7 +2144,7 @@ async function run() {
       } catch (_) {}
     }
 
-    process.exit(0);
+    await closeCrawlerDb(0);
 
 } else {
     // =========================================================================
@@ -2094,7 +2170,7 @@ async function run() {
 
     if (allFleetKeywordIds.length === 0) {
       console.log('[!] No active keywords to crawl. Exiting cleanly.');
-      process.exit(0);
+      await closeCrawlerDb(0);
     }
 
     const mySerpKeywordIds = keywordIdsInput.length > 0
@@ -2104,17 +2180,17 @@ async function run() {
           : allFleetKeywordIds.filter((_, idx) => idx % workerTotal === workerIndex));
 
     // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
-    const runStartTime = new Date();
     const fleetRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_fleet_${crawlScope}_matrix`
+      `run_fleet_${crawlScope}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
     );
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion (Barrier-Safe)
     // -------------------------------------------------------------------------
+    let phase1aTotalFailureA = false;
     if (enableSerpHarvest && mySerpKeywordIds.length > 0) {
       const effectiveSerpCookie = await getEffectivePinterestCookie(sql, cookie);
       if (effectiveSerpCookie) {
@@ -2133,7 +2209,7 @@ async function run() {
               cookie: effectiveSerpCookie,
               max_serp_pins: maxSerpPins,
               skip_top_enrich: true,
-              skip_shard_offload: true,
+              skip_shard_offload: maxCatalogInspect === 0,
               force: true,
               lease_token: effectiveToken
             });
@@ -2149,15 +2225,19 @@ async function run() {
             }
           } finally {
             // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so a failed keyword or clock skew never blocks the 20-worker barrier
-            await sql`
-              UPDATE tracked_keywords
-              SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
-                  updated_at = NOW(),
-                  crawl_lease_token = NULL,
-                  crawl_lease_until = NULL
-              WHERE id = ${kid}
-                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-            `.catch(() => {});
+            try {
+              await sql`
+                UPDATE tracked_keywords
+                SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
+                    updated_at = NOW(),
+                    crawl_lease_token = NULL,
+                    crawl_lease_until = NULL
+                WHERE id = ${kid}
+                  AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+              `;
+            } catch (barrierErr) {
+              console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
+            }
           }
         }))
       );
@@ -2165,7 +2245,8 @@ async function run() {
         throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErr.message}`);
       }
       if (serpErrorCount > 0 && serpSuccessCount === 0) {
-        throw new Error(`[Phase 1A Total Failure] All ${serpErrorCount} assigned keyword SERP harvests failed on worker ${workerIndex + 1}/${workerTotal}.`);
+        phase1aTotalFailureA = true;
+        console.warn(`[Phase 1A Warning] All ${serpErrorCount} assigned keyword SERP harvests failed on worker ${workerIndex + 1}/${workerTotal}. Proceeding to Phase 1B catalog slice inspection.`);
       }
     } else if (!enableSerpHarvest) {
       console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Proceeding directly to Phase 1B.`);
@@ -2175,7 +2256,7 @@ async function run() {
     if (enableSerpHarvest && workerTotal > 1) {
       console.log(`[Phase 1A] Barrier Sync: Waiting for peer workers to complete SERP ingestion across ${allFleetKeywordIds.length} keywords (token: ${fleetRunToken})...`);
       const barrierStart = Date.now();
-      const BARRIER_TIMEOUT_MS = 45000;
+      const BARRIER_TIMEOUT_MS = 150000;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
         const [pendingRow] = await sql`
           SELECT COUNT(*)::int AS pending
@@ -2192,14 +2273,24 @@ async function run() {
         console.log(`  [Phase 1A Sync] ${pendingCount} keyword(s) still harvesting SERP...`);
         await sleep(1200);
       }
+      if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
+        console.warn(`[Phase 1A] Barrier Sync reached ${BARRIER_TIMEOUT_MS / 1000}s timeout limit. Proceeding to Phase 1B with harvested catalog.`);
+      }
+    }
+
+    // Stagger Phase 1B catalog query across the 20 workers to prevent simultaneous thundering-herd I/O spikes
+    if (workerTotal > 1 && workerIndex > 0) {
+      await sleep(workerIndex * 350);
     }
 
     // -------------------------------------------------------------------------
     // PHASE 1B: Push-Down SQL Shard-Affine Partitioning [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
     // -------------------------------------------------------------------------
+    const phase1bSqlA = sql?.noRetry || sql;
+    const phase1bRetryOpts = { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 6000, retryOnStatementTimeout: true };
     let myPins = [];
     if (crawlScope === 'active_serp') {
-      myPins = await sql`
+      myPins = await withDbRetry(() => phase1bSqlA`
         WITH global_ksc AS (
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank,
@@ -2240,9 +2331,9 @@ async function run() {
         FROM global_ksc g
         JOIN aggregated_positions ap ON ap.pin_id = g.pin_id
         ORDER BY g.pin_id, g.rank_position ASC NULLS LAST;
-      `;
+      `, phase1bRetryOpts);
     } else {
-      myPins = await sql`
+      myPins = await withDbRetry(() => phase1bSqlA`
         WITH combined_pins AS (
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank,
@@ -2267,7 +2358,7 @@ async function run() {
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity,
             ump.created_at_pinterest as created_at_pinterest, 'pinterest_platform' as creation_method,
             false AS is_deep_hydrated,
-            CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
+            CASE WHEN kdi.updated_at >= NOW() - INTERVAL '30 minutes' THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(kdi.save_count, 0) ELSE NULL END as baseline_day_saves,
             CASE WHEN (kdi.updated_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (kdi.updated_at AT TIME ZONE 'UTC')::date ELSE NULL END as baseline_day_date
@@ -2309,7 +2400,7 @@ async function run() {
         FROM combined_pins cp
         JOIN aggregated_positions ap ON ap.pin_id = cp.pin_id
         ORDER BY cp.pin_id, cp.is_displaced ASC, cp.rank_position ASC NULLS LAST;
-      `;
+      `, phase1bRetryOpts);
     }
 
     myPins.sort((a, b) => {
@@ -2332,7 +2423,7 @@ async function run() {
 
     if (myPins.length === 0) {
       console.log(`[Worker ${workerIndex + 1}/${workerTotal}] No pins assigned for slice. Exiting cleanly.`);
-      process.exit(0);
+      await closeCrawlerDb(0);
     }
 
     const enrichedList = await inspectPinsConcurrently(
@@ -2362,6 +2453,9 @@ async function run() {
         const deadCount = enrichedList.filter(p => p.is_deleted).length;
         let md = `### 🌐 Global Swarm Slice ${workerIndex + 1}/${workerTotal} Summary\n\n`;
         md += `- **SERP Keywords Harvested (Phase 1A)**: **${mySerpKeywordIds.length}**\n`;
+        if (phase1aTotalFailureA) {
+          md += `- **Phase 1A Status**: ⚠️ All assigned SERP harvests failed on this runner\n`;
+        }
         md += `- **Unique Slice Pins (Phase 1B)**: **${myPins.length}**\n`;
         md += `- **Reused from Hydration Cache**: **${cachedCount}**\n`;
         md += `- **Freshly Inspected (Hybrid 3KB/SSR)**: **${fetchedCount}**\n`;
@@ -2371,13 +2465,13 @@ async function run() {
       } catch (_) {}
     }
 
-    process.exit(0);
+    await closeCrawlerDb(0);
   }
 }
 
 if (isMainModule) {
-  run().catch(err => {
+  run().catch(async err => {
     console.error('[-] Fatal Worker Error:', err);
-    process.exit(1);
+    await closeCrawlerDb(1);
   });
 }
