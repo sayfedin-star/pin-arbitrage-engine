@@ -144,15 +144,15 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   if (!resolvedPrimaryDomain) {
     try {
       const [domRow] = await sql`
-        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${compId}
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') <> ''
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%amazon.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%etsy.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') <> ''
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pinterest.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pin.it%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%amazon.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%etsy.%'
         GROUP BY clean_dom
         ORDER BY COUNT(*) DESC, SUM(COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)) DESC
         LIMIT 1;
@@ -180,12 +180,12 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
             pa.pin_id AS pa_pin_id,
             pa.saves AS pa_saves,
             pa.repins AS pa_repins,
-            COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom,
+            COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') AS clean_dom,
             (
               ${resolvedPrimaryDomain} = ''
-              OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
-              OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
-              OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
+              OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
+              OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pinterest.%'
+              OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pin.it%'
             ) AS is_official_domain
           FROM competitor_pins cp
           LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -246,9 +246,9 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
           WHERE cp.competitor_id = ${compId}
             AND (
-              COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
-              OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
-              OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
+              COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
+              OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pinterest.%'
+              OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pin.it%'
             )
         ),
         curator_set AS (
@@ -697,15 +697,15 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   if (!primaryDomain) {
     try {
       const [domRow] = await sql`
-        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${numericId}
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') <> ''
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%amazon.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%etsy.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') <> ''
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pinterest.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pin.it%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%amazon.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%etsy.%'
         GROUP BY clean_dom
         ORDER BY COUNT(*) DESC, SUM(COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)) DESC
         LIMIT 1;
@@ -740,9 +740,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (
         ${primaryDomain} = ''
         OR ${activeScope} = 'external'
-        OR COALESCE(NULLIF(cp.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cp.link_domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
-        OR COALESCE(cp.link_domain, '') ILIKE '%pinterest.%'
-        OR COALESCE(cp.link_domain, '') ILIKE '%pin.it%'
+        OR COALESCE(NULLIF(cp.clean_domain, ''), '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+        OR cp.clean_domain ILIKE '%pinterest.%'
+        OR cp.clean_domain ILIKE '%pin.it%'
       )
     GROUP BY board_name
     ORDER BY count DESC;
@@ -804,7 +804,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(cp.is_product, false) OR 
         COALESCE(ump.is_product, false) OR
         COALESCE(pa.is_product, false) OR 
-        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+        COALESCE(cp.clean_domain ILIKE '%etsy%' OR cp.clean_domain ILIKE '%shopify%' OR cp.clean_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (pa.pin_id IS NOT NULL) AS is_qualified,
       (ksc.rank_position IS NOT NULL OR kdi.last_known_rank IS NOT NULL) AS is_ranked,
@@ -833,9 +833,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (
         ${primaryDomain} = ''
-        OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
-        OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
-        OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
+        OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+        OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pinterest.%'
+        OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pin.it%'
       )
       AND (${ranked_only} = FALSE OR (ksc.rank_position IS NOT NULL OR kdi.last_known_rank IS NOT NULL))
       AND (${minSavesNum} = 0 OR COALESCE(NULLIF(ump.save_count, 0), NULLIF(cp.save_count, 0), pa.saves, 0) >= ${minSavesNum})
@@ -914,12 +914,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${product_only} = FALSE OR (
         COALESCE(cp.is_product, false) OR 
         COALESCE(pa.is_product, false) OR 
-        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+        COALESCE(cp.clean_domain ILIKE '%etsy%' OR cp.clean_domain ILIKE '%shopify%' OR cp.clean_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
       ) = TRUE)
       AND (${articles_only} = FALSE OR (
         COALESCE(cp.is_product, false) = FALSE AND 
         COALESCE(pa.is_product, false) = FALSE AND 
-        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
+        COALESCE(cp.clean_domain ILIKE '%etsy%' OR cp.clean_domain ILIKE '%shopify%' OR cp.clean_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
       ))
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN COALESCE(NULLIF(ump.save_count, 0), NULLIF(cp.save_count, 0), pa.saves, 0) END DESC NULLS LAST,
@@ -972,14 +972,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND (
           (${activeScope} = 'ecosystem' AND (
             ${primaryDomain} = ''
-            OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
-            OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
-            OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
+            OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+            OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pinterest.%'
+            OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pin.it%'
           ))
           OR (${activeScope} = 'external' AND ${primaryDomain} <> '' AND (
-            COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) NOT IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
-            AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
-            AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
+            COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+            AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pinterest.%'
+            AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pin.it%'
           ))
         )
       UNION ALL
@@ -1159,12 +1159,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND (${product_only} = FALSE OR (
           COALESCE(cp.is_product, false) OR 
           COALESCE(pa.is_product, false) OR 
-          COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+          COALESCE(cp.clean_domain ILIKE '%etsy%' OR cp.clean_domain ILIKE '%shopify%' OR cp.clean_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
         ) = TRUE)
         AND (${articles_only} = FALSE OR (
           COALESCE(cp.is_product, false) = FALSE AND 
           COALESCE(pa.is_product, false) = FALSE AND 
-          COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
+          COALESCE(cp.clean_domain ILIKE '%etsy%' OR cp.clean_domain ILIKE '%shopify%' OR cp.clean_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
         ));
     `;
     return row?.total || 0;
@@ -1182,9 +1182,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         kdi.pin_id AS kdi_pin_id,
         (
           ${primaryDomain} = ''
-          OR COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
-          OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pinterest.%'
-          OR COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') ILIKE '%pin.it%'
+          OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+          OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pinterest.%'
+          OR COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') ILIKE '%pin.it%'
         ) AS is_official_domain
       FROM competitor_pins cp
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -1315,15 +1315,15 @@ export async function getTopDestinationUrls(sql, competitorId, {
     }
     if (!primaryDomain) {
       const [domRow] = await sql`
-        SELECT COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) AS clean_dom
+        SELECT COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') AS clean_dom
         FROM competitor_pins cp
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
         WHERE cp.competitor_id = ${numericId}
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') <> ''
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pinterest.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%pin.it%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%amazon.%'
-          AND COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') NOT ILIKE '%etsy.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') <> ''
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pinterest.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%pin.it%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%amazon.%'
+          AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') NOT ILIKE '%etsy.%'
         GROUP BY clean_dom
         ORDER BY COUNT(*) DESC, SUM(COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)) DESC
         LIMIT 1;
@@ -1346,7 +1346,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
         cp.pin_id,
         CASE WHEN ${activeScope} = 'external' THEN 'external'::text ELSE 'official'::text END AS attribution_source,
         COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') AS destination_url,
-        COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '') AS link_domain,
+        COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') AS link_domain,
         COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0) AS save_count,
         COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0) AS repin_count,
         COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
@@ -1359,8 +1359,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
         AND COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '') NOT LIKE '%pinterest.com%'
         AND (
           ${primaryDomain} = ''
-          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) = ${primaryDomain})
-          OR (${activeScope} = 'external' AND COALESCE(NULLIF(cp.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.link_domain, ''), ump.domain, '')), '^www\\.', ''))) <> ${primaryDomain})
+          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') = ${primaryDomain})
+          OR (${activeScope} = 'external' AND COALESCE(NULLIF(cp.clean_domain, ''), ump.clean_domain, '') <> ${primaryDomain})
         )
       UNION ALL
       SELECT

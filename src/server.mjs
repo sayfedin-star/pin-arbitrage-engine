@@ -256,15 +256,27 @@ export function createFastifyApp(customEnv = {}) {
 
   const sqlClient = customEnv.SQL_CLIENT || getServerSqlClient(process.env.DATABASE_URL);
 
+  const isTestOrLocal = (
+    customEnv.ENVIRONMENT === 'test' ||
+    customEnv.NODE_ENV === 'test' ||
+    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
+  );
+
   const env = {
     ...process.env,
     DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
     SQL_CLIENT: sqlClient,
-    DATABASE_URL: process.env.DATABASE_URL || '',
-    ENVIRONMENT: process.env.ENVIRONMENT || 'development',
-    NODE_ENV: process.env.NODE_ENV || 'development',
+    DATABASE_URL: customEnv.DATABASE_URL || process.env.DATABASE_URL || '',
+    ENVIRONMENT: customEnv.ENVIRONMENT || process.env.ENVIRONMENT || (isTestOrLocal ? 'test' : 'development'),
+    NODE_ENV: customEnv.NODE_ENV || process.env.NODE_ENV || (isTestOrLocal ? 'test' : 'development'),
     ...customEnv
   };
+
+  if (isTestOrLocal && customEnv.API_SECRET_KEY === undefined) {
+    delete env.API_SECRET_KEY;
+    delete env.ADMIN_KEY;
+    delete env.PIN_ARBITRAGE_SECRET;
+  }
 
   // Non-blocking background task queue context
   const ctx = {

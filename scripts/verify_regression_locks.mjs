@@ -182,7 +182,7 @@ try {
   // 3D. Zero @neondatabase/serverless, @cloudflare/, or legacy sharding/dual-write imports across src/ and scripts/
   const allRuntimeFiles = [
     ...listMjsFiles('src'),
-    ...listMjsFiles('scripts').filter(f => !path.basename(f).startsWith('test_') && f !== 'scripts/verify_regression_locks.mjs')
+    ...listMjsFiles('scripts').filter(f => !path.basename(f).startsWith('test_') && path.normalize(f) !== path.normalize('scripts/verify_regression_locks.mjs'))
   ];
   const forbiddenPatterns = [
     /@neondatabase\/serverless/,

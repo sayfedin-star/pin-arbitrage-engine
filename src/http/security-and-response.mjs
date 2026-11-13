@@ -244,7 +244,7 @@ export function verifyApiAuthentication(request, env = {}) {
   );
   const envSecretKey = env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET);
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
-  const secretKey = envSecretKey || (isTestOrLocalDev && !envSecretKey ? '' : processSecretKey) || '';
+  const secretKey = envSecretKey || (isTestOrLocalDev ? '' : processSecretKey) || '';
 
   // If secret key is missing, allow test/local dev; in production, fail-closed unconditionally
   if (!secretKey) {

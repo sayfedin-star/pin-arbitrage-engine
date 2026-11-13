@@ -3,7 +3,7 @@
  *
  * Automated Live EXPLAIN (ANALYZE, BUFFERS) & Forensic Verification Suite:
  * - Live Query Execution Plan Auditing on Unified PostgreSQL SSOT
- * - Covering & Partial Index Verification (idx_ksc_active_covering, idx_pa_pins_velocity, idx_ksc_velocity_breakout)
+ * - Covering & Partial Index Verification (idx_ksc_active_rank_clean, idx_pa_pins_velocity, idx_ksc_velocity_breakout)
  * - pg_trgm GIN Index Verification (idx_tk_trgm_keyword, idx_dir_trgm_domain)
  * - pins_daily_snapshots Unified View Execution Plan & Sub-15ms Latency Sign-off
  */
@@ -98,7 +98,7 @@ async function main() {
   // Test 1: Active Keyword SERP Catalog Query (idx_ksc_active_covering)
   // -------------------------------------------------------------
   results.push(await runExplainTest(
-    '1. Active Keyword SERP Catalog Query (idx_ksc_active_covering)',
+    '1. Active Keyword SERP Catalog Query (idx_ksc_active_rank_clean)',
     () => sql`
       EXPLAIN (ANALYZE, BUFFERS)
       SELECT keyword_id, pin_id, rank_position, save_count, daily_save_velocity
@@ -106,7 +106,7 @@ async function main() {
       WHERE keyword_id = 1 AND is_displaced = false
       ORDER BY rank_position ASC;
     `,
-    /idx_ksc_active_covering|keyword_serp_current/i
+    /idx_ksc_active_rank_clean|idx_ksc_active_covering|keyword_serp_current/i
   ));
 
   // -------------------------------------------------------------
