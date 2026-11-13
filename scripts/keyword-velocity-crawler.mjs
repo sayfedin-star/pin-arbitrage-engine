@@ -15,7 +15,7 @@
  * 
  * Production Features:
  * - Dead / 404 Pin Protection: Preserves historical saves, marks is_deleted in metadata.
- * - Zero-Loss JSONB Set Union for Visual Annotations across Central Hub and 99 Storage Shards.
+ * - Zero-Loss JSONB Set Union for Visual Annotations in Unified PostgreSQL SSOT.
  * - Tracks Authentic Saves & Viral Repins (Daily Telemetry).
  * - Non-blocking Postgres Advisory Locks to prevent concurrent race conditions.
  * - Jitter backoff (2500ms-4000ms) with AbortSignal.timeout(8000).
@@ -1195,10 +1195,10 @@ export async function pushBatchToIngestApi(payload, options = {}) {
 }
 
 /**
- * Flush enriched pin records across the 99 Neon Storage Shards
+ * Flush enriched pin records to Unified PostgreSQL SSOT.
  * Includes LATERAL historical baseline lookup on pins_daily_metrics to guarantee authentic Vault velocity.
  */
-async function flushToStorageShards(enrichedPins, kw = null) {
+async function flushToUnifiedPostgres(enrichedPins, kw = null) {
   if (!enrichedPins || enrichedPins.length === 0) return 0;
 
   // [INVARIANT: STATELESS-SCRAPER-INGEST-HTTP]
@@ -1390,7 +1390,7 @@ async function flushToStorageShards(enrichedPins, kw = null) {
  * Guarantees 100% of candidate SERP pins are persisted to Unified PostgreSQL
  * even if individual live closeup requests are deferred during Stage 2.
  */
-function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null) {
+function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = null) {
   const enrichedMap = new Map();
   for (const ep of (enrichedPins || [])) {
     if (ep && ep.pin_id) enrichedMap.set(String(ep.pin_id), ep);
@@ -1770,11 +1770,11 @@ async function run() {
       `Folder Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    const shardsSynced = await flushToStorageShards(
-      buildShardSyncList(myPins, enrichedList),
+    const unifiedDbSynced = await flushToUnifiedPostgres(
+      buildUnifiedSyncList(myPins, enrichedList),
       { folder_id: fid, keyword: folderRow.name }
     );
-    console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
+    console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed to Unified PostgreSQL.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
     const fetchedCount = enrichedList.filter(p => !p.from_hydration_cache).length;
@@ -1792,7 +1792,7 @@ async function run() {
         md += `- **Reused from Fresh Hydration Cache**: **${cachedCount}**\n`;
         md += `- **Freshly Inspected via Pinterest API**: **${fetchedCount}**\n`;
         md += `- **Deferred / Failed**: **${deferredCount}**\n`;
-        md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
+        md += `- **Unified PostgreSQL Synchronized**: **${unifiedDbSynced > 0 ? 'Yes' : 'No'}**\n`;
         md += `- **Dead/404 Pins Flagged**: **${deadCount}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
@@ -2026,9 +2026,9 @@ async function run() {
       `Keyword Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    // Flush to 99 Storage Shards
-    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList, kwRow.id), kwRow);
-    console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
+    // Flush to Unified PostgreSQL SSOT
+    const unifiedDbSynced = await flushToUnifiedPostgres(buildUnifiedSyncList(myPins, enrichedList, kwRow.id), kwRow);
+    console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed to Unified PostgreSQL.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
     const fetchedCount = enrichedList.filter(p => !p.from_hydration_cache).length;
@@ -2044,7 +2044,7 @@ async function run() {
         md += `- **Reused from Fresh Hydration Cache**: **${cachedCount}**\n`;
         md += `- **Freshly Inspected via Pinterest API**: **${fetchedCount}**\n`;
         md += `- **Deferred / Failed**: **${deferredCount}**\n`;
-        md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
+        md += `- **Unified PostgreSQL Synchronized**: **${unifiedDbSynced > 0 ? 'Yes' : 'No'}**\n`;
         md += `- **Dead/404 Pins Flagged**: **${deadCount}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
@@ -2342,15 +2342,15 @@ async function run() {
       `Global Swarm Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    const shardsSynced = await flushToStorageShards(
-      buildShardSyncList(myPins, enrichedList),
+    const unifiedDbSynced = await flushToUnifiedPostgres(
+      buildUnifiedSyncList(myPins, enrichedList),
       {
         is_global_fleet: true,
         all_keyword_ids: allFleetKeywordIds,
         id: mySerpKeywordIds[0] || allFleetKeywordIds[0]
       }
     );
-    console.log(`\n✅ Global Swarm Slice ${workerIndex + 1}/${workerTotal} Complete: Enriched ${enrichedList.length}/${myPins.length} unique pins | Synced across ${shardsSynced} shards.`);
+    console.log(`\n✅ Global Swarm Slice ${workerIndex + 1}/${workerTotal} Complete: Enriched ${enrichedList.length}/${myPins.length} unique pins | Synced to Unified PostgreSQL.`);
 
     if (stepSummaryPath) {
       try {
@@ -2365,7 +2365,7 @@ async function run() {
         md += `- **Unique Slice Pins (Phase 1B)**: **${myPins.length}**\n`;
         md += `- **Reused from Hydration Cache**: **${cachedCount}**\n`;
         md += `- **Freshly Inspected (Hybrid 3KB/SSR)**: **${fetchedCount}**\n`;
-        md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
+        md += `- **Unified PostgreSQL Synchronized**: **${unifiedDbSynced > 0 ? 'Yes' : 'No'}**\n`;
         md += `- **Dead/404 Pins Flagged**: **${deadCount}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}

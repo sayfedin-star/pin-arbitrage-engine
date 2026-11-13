@@ -1597,7 +1597,7 @@ async function main() {
     shardTot = parseInt(process.env.WORKER_TOTAL, 10);
   }
 
-  const rawIds = (targetPinArg && targetPinArg !== 'undefined')
+  const rawIdsAll = (targetPinArg && targetPinArg !== 'undefined')
     ? [...new Set(
         String(targetPinArg)
           .split(',')
@@ -1608,6 +1608,16 @@ async function main() {
           .filter(id => /^\d{10,25}$/.test(id))
       )]
     : [];
+
+  let rawIds = rawIdsAll;
+  if (rawIdsAll.length > 0 && shardIdx !== null) {
+    const effectiveTotal = (shardTot && shardTot > 0) ? shardTot : 20;
+    rawIds = rawIdsAll.filter((_, idx) => (idx % effectiveTotal) === shardIdx);
+    if (rawIds.length === 0) {
+      console.log(`[+] Target pin override (${rawIdsAll.length} seed(s)) assigned to other runners; runner ${shardIdx + 1}/${effectiveTotal} exiting cleanly.`);
+      return;
+    }
+  }
 
   if (rawIds.length > 0) {
     console.log(`[*] Target pin(s) override specified (${rawIds.length}): ${rawIds.join(', ')}`);

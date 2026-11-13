@@ -17,15 +17,6 @@ import { getDomainsStudioViewHtml } from './ui/domains/domains-studio-view.mjs';
 import { getDomainsModalsHtml } from './ui/domains/domains-modals.mjs';
 import { getDomainsClientAppScript } from './ui/domains/domains-client-app.mjs';
 
-// [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 14D]
-// Frontend domains AbortController and deep-link query hydration contracts:
-// - _loadDomainsAbortController protects against in-flight race conditions
-// - window.location.search parameter hydration
-// - URLSearchParams for authentic deep-link restoration
-
-// [INVARIANT-LOCK: ENFORCED BY verify_ui_routes_reorganization.mjs]
-// Defensive icon initialization contract with document.readyState check.
-
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
   const safeInitialDomain = rawDomain.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase();

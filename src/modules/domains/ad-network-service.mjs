@@ -12,6 +12,7 @@
  * - Fully isolated non-destructive module targeting Unified PostgreSQL.
  */
 
+import dns from 'node:dns/promises';
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import {
   normalizeCleanDomain,
@@ -353,13 +354,102 @@ export function parseAdsTxtContent(rawText) {
   };
 }
 
+function isPrivateOrReservedIpv4(ip) {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  const [a, b, c] = parts;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
+function isPrivateOrReservedIp(rawIp) {
+  const cleaned = String(rawIp || '').trim().replace(/^\[|\]$/g, '').split('%')[0].toLowerCase();
+  if (!cleaned) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(cleaned)) {
+    return isPrivateOrReservedIpv4(cleaned);
+  }
+  if (cleaned === '::' || cleaned === '::1') return true;
+  if (cleaned.startsWith('::ffff:')) {
+    const mapped = cleaned.slice(7);
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(mapped)) {
+      return isPrivateOrReservedIpv4(mapped);
+    }
+    const hexParts = mapped.split(':');
+    if (hexParts.length === 2 && /^[0-9a-f]{1,4}$/.test(hexParts[0]) && /^[0-9a-f]{1,4}$/.test(hexParts[1])) {
+      const hi = parseInt(hexParts[0], 16);
+      const lo = parseInt(hexParts[1], 16);
+      return isPrivateOrReservedIpv4(`${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`);
+    }
+  }
+  const firstSegment = cleaned.split(':')[0];
+  const firstVal = parseInt(firstSegment || '0', 16);
+  if (Number.isNaN(firstVal)) return true;
+  // fc00::/7 (ULA), fe80::/10 (link-local), ff00::/8 (multicast)
+  if ((firstVal & 0xfe00) === 0xfc00) return true;
+  if ((firstVal & 0xffc0) === 0xfe80) return true;
+  if ((firstVal & 0xff00) === 0xff00) return true;
+  return false;
+}
+
+async function validateSafeExternalUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (_) {
+    return { safe: false, reason: 'Invalid URL' };
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { safe: false, reason: 'Unsupported protocol' };
+  }
+  if (parsed.username || parsed.password) {
+    return { safe: false, reason: 'Embedded credentials rejected' };
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+  if (!host || host === 'localhost' || host === 'metadata.google.internal' || !host.includes('.')) {
+    return { safe: false, reason: 'Internal hostname rejected' };
+  }
+  if (/\.(local|internal|localhost|lan|corp|home|arpa)$/i.test(host)) {
+    return { safe: false, reason: 'Private TLD rejected' };
+  }
+  const bareHost = host.replace(/^\[|\]$/g, '');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(bareHost) || bareHost.includes(':')) {
+    if (isPrivateOrReservedIp(bareHost)) {
+      return { safe: false, reason: 'Private or loopback IP rejected' };
+    }
+    return { safe: true, url: parsed.toString() };
+  }
+  try {
+    const records = await dns.lookup(host, { all: true, verbatim: true });
+    if (!Array.isArray(records) || records.length === 0) {
+      return { safe: false, reason: 'DNS resolution failed' };
+    }
+    for (const rec of records) {
+      if (isPrivateOrReservedIp(rec?.address)) {
+        return { safe: false, reason: 'Resolved to private or reserved IP' };
+      }
+    }
+  } catch (_) {
+    return { safe: false, reason: 'DNS lookup failed' };
+  }
+  return { safe: true, url: parsed.toString() };
+}
+
 /**
- * Fetches ads.txt from target domain using streaming reader with 128KB limit and 3500ms timeout
+ * Fetches ads.txt from target domain using streaming reader with 128KB limit, 6000ms timeout, and per-hop SSRF validation
  */
 export async function fetchAdsTxt(cleanDomain) {
   if (!cleanDomain) return { ok: false, status: 'failed', content: '' };
 
-  const targetUrl = `https://${cleanDomain}/ads.txt`;
+  let currentUrl = `https://${cleanDomain}/ads.txt`;
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept': 'text/plain, text/html;q=0.9, */*;q=0.8',
@@ -368,11 +458,35 @@ export async function fetchAdsTxt(cleanDomain) {
   };
 
   try {
-    const res = await fetch(targetUrl, {
-      headers,
-      signal: AbortSignal.timeout(6000),
-      redirect: 'follow'
-    });
+    let res = null;
+    const maxRedirects = 5;
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      const check = await validateSafeExternalUrl(currentUrl);
+      if (!check.safe) {
+        return { ok: false, status: 'failed', content: '', error: `Blocked unsafe target: ${check.reason}` };
+      }
+
+      res = await fetch(check.url, {
+        headers,
+        signal: AbortSignal.timeout(6000),
+        redirect: 'manual'
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        try { await res.body?.cancel(); } catch (_) {}
+        const location = res.headers.get('location');
+        if (!location || hop === maxRedirects) {
+          return { ok: false, status: 'failed', content: '', httpStatus: res.status, error: 'Too many or invalid redirects' };
+        }
+        currentUrl = new URL(location, check.url).toString();
+        continue;
+      }
+      break;
+    }
+
+    if (!res) {
+      return { ok: false, status: 'failed', content: '' };
+    }
 
     if (res.status === 403) {
       return { ok: false, status: 'protected', content: '', httpStatus: 403 };
@@ -417,7 +531,7 @@ export async function fetchAdsTxt(cleanDomain) {
     return { ok: true, status: 'resolved', content: chunks, httpStatus: res.status };
   } catch (err) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      return { ok: false, status: 'failed', content: '', error: 'Timeout after 3500ms' };
+      return { ok: false, status: 'failed', content: '', error: 'Timeout after 6000ms' };
     }
     return { ok: false, status: 'failed', content: '', error: err.message };
   }

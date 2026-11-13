@@ -237,8 +237,6 @@ async function testRoutes() {
 
   // 16. Eliminate Render-Blocking Head Scripts & Ensure Lucide/Alpine Deferral Ordering
   {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
     const { getDashboardHtml } = await import('../src/dashboard-ui.mjs');
     const { getKeywordsPageHtml } = await import('../src/keywords-ui.mjs');
     const { getDiscoveryPageHtml } = await import('../src/discovery-ui.mjs');
@@ -250,9 +248,9 @@ async function testRoutes() {
     const expectedAlpineTag = '<script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>';
 
     const templatesWithLucide = [
-      { name: 'Dashboard UI', html: getDashboardHtml(), file: 'src/dashboard-ui.mjs' },
-      { name: 'Keywords UI', html: getKeywordsPageHtml(), file: 'src/keywords-ui.mjs' },
-      { name: 'Domains UI', html: getDomainsPageHtml(), file: 'src/domains-ui.mjs' }
+      { name: 'Dashboard UI', html: getDashboardHtml() },
+      { name: 'Keywords UI', html: getKeywordsPageHtml() },
+      { name: 'Domains UI', html: getDomainsPageHtml() }
     ];
 
     for (const t of templatesWithLucide) {
@@ -261,9 +259,7 @@ async function testRoutes() {
       const alpineIdx = t.html.indexOf(expectedAlpineTag);
       assert(alpineIdx > -1, `${t.name} must include deferred Alpine.js script`);
       assert(lucideIdx < alpineIdx, `${t.name} must order Lucide BEFORE Alpine.js so deferred execution is deterministic`);
-      
-      const fileCode = fs.readFileSync(path.resolve(t.file), 'utf8');
-      assert(fileCode.includes('document.readyState'), `${t.name} must include defensive readyState check for icon initialization`);
+      assert(t.html.includes('document.readyState'), `${t.name} must include defensive readyState check for icon initialization`);
     }
 
     const allTemplates = [

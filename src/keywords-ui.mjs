@@ -16,32 +16,6 @@ import { getKeywordsSerpStudioViewHtml } from './ui/keywords/keywords-serp-studi
 import { getKeywordsModalsHtml } from './ui/keywords/keywords-modals.mjs';
 import { getKeywordsClientAppScript } from './ui/keywords/keywords-client-app.mjs';
 
-// [INVARIANT-LOCK: ENFORCED BY test_fleet_and_routing_hardening.mjs & test_p3_cleanup.mjs]
-// [INVARIANT: ZERO-DOUBLE-TRIGGER]
-// Fleet dispatch swarm modal & rescanKeyword contract:
-// isFleetDispatchModalOpen: false,
-// fleetDispatchHarvestSerp: true,
-// activeFolderId:
-// openFleetDispatchModal()
-// executeFleetDispatch()
-// onFleetTargetKeywordChange()
-// <!-- MODAL: INTERACTIVE 20-RUNNER FLEET DISPATCH SWARM -->
-// x-show="![50, 100, 250, 500, 1000].includes(fleetDispatchMaxPins)"
-// kwObj?.keyword || (this.selectedKeyword?.id === id ? this.selectedKeyword?.keyword : '')
-// async rescanKeyword() {
-//   dispatch_workflow: false;
-// } finally {}
-
-// [INVARIANT-LOCK: ENFORCED BY test_p2_verification.mjs]
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/sync')
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/status')
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords'), {
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings')
-// (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/dispatch-workflow')
-
-// [INVARIANT-LOCK: ENFORCED BY verify_ui_routes_reorganization.mjs]
-// Defensive icon initialization contract with document.readyState check.
-
 export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folderId = '') {
   const safeSlug = String(initialSlug || '').trim().toLowerCase();
   const safeKeyword = String(initialKeyword || '').trim();

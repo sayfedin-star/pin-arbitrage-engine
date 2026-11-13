@@ -8,7 +8,7 @@
  * 1. evaluateHydrationGuard invalidation on generic or missing creation_method.
  * 2. service.mjs preparedPins & hubSerpPayload null-preservation.
  * 3. SQL CASE Precedence logic for keyword_serp_current upsert & crawler hub flush.
- * 4. crawler buildShardSyncList & inspectPin extraMeta preservation.
+ * 4. crawler buildUnifiedSyncList & inspectPin extraMeta preservation.
  * 5. d1-metadata metaObj injection.
  * 6. Live Central Hub & Shards database verification for test pins.
  * 7. Universal Pin Dossier resolution of authentic creation_method.
@@ -219,7 +219,7 @@ runTest('SQL Precedence: Authentic EXCLUDED updates another authentic existing (
 // -----------------------------------------------------------------------------
 console.log('\n[*] Suite 3: Crawler & D1 Metadata Pipeline Tests...');
 
-runTest('Crawler: buildShardSyncList preserves creation_method and method in extra_meta', () => {
+runTest('Crawler: buildUnifiedSyncList preserves creation_method and method in extra_meta', () => {
   const cp = {
     pin_id: '999111',
     creation_method: 'button_external',

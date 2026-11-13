@@ -281,12 +281,15 @@ runAsyncTest('scripts/migrate.mjs discoverMigrations orders migrations naturally
 console.log('\n[*] Section 4: Workflow Double-Trigger Elimination...');
 
 runTest('src/keywords-ui.mjs eliminates redundant triggerWorkflow after sync', () => {
-  const kwUiCode = fs.readFileSync(path.resolve('src/keywords-ui.mjs'), 'utf8');
+  const kwUiCode = [
+    'src/keywords-ui.mjs',
+    'src/ui/keywords/keywords-client-app.mjs'
+  ].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
 
   // Must have invariant comment
   assert(
     kwUiCode.includes('// [INVARIANT: ZERO-DOUBLE-TRIGGER]'),
-    'src/keywords-ui.mjs must contain [INVARIANT: ZERO-DOUBLE-TRIGGER]'
+    'src/ui/keywords/keywords-client-app.mjs must contain [INVARIANT: ZERO-DOUBLE-TRIGGER]'
   );
 
   // Must not call this.triggerWorkflow(false) inside rescanKeyword

@@ -17,10 +17,10 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { getPinterestHeaders } from '../shared/pinterest-headers.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import {
   extractPinData,
+  getPinterestHeaders,
   PINTEREST_PAGE_HEADERS,
   fetchPinFromPinterest,
   fetchPinsBatchFromPidgets

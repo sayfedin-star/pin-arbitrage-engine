@@ -51,27 +51,22 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
   try {
     await sql`
       INSERT INTO competitor_pins (
-        competitor_id, pin_id, title, description, link_domain,
+        competitor_id, pin_id, title, link_domain,
         destination_url, board_name, board_slug, image_url, save_count, repin_count,
         comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
       )
       SELECT 
-        ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
+        ${competitorId}, x.pin_id, x.title, x.link_domain,
         x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
       FROM jsonb_to_recordset(${typeof sql.json === 'function' ? sql.json(sanitizeForJsonb(sortedPins)) : JSON.stringify(sanitizeForJsonb(sortedPins))}::jsonb) AS x(
-        pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
+        pin_id VARCHAR(64), title TEXT, link_domain VARCHAR(255),
         destination_url TEXT, board_name VARCHAR(255), board_slug VARCHAR(255), image_url TEXT,
         save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
       )
       ORDER BY x.pin_id ASC
       ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-        description = CASE 
-          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
-          WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
-          ELSE competitor_pins.description 
-        END,
         destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
         link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
@@ -93,22 +88,17 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
       try {
         await sql`
           INSERT INTO competitor_pins (
-            competitor_id, pin_id, title, description, link_domain,
+            competitor_id, pin_id, title, link_domain,
             destination_url, board_name, board_slug, image_url, save_count, repin_count,
             comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
           ) VALUES (
-            ${competitorId}, ${p.pin_id}, ${p.title}, ${p.description}, ${p.link_domain},
+            ${competitorId}, ${p.pin_id}, ${p.title}, ${p.link_domain},
             ${p.destination_url}, ${p.board_name}, ${p.board_slug || null}, ${p.image_url}, ${p.save_count}, ${p.repin_count},
             ${p.comment_count}, ${p.is_product}, ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
             NOW(), NOW(), 'pending'
           )
           ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
             title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-            description = CASE 
-              WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
-              WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
-              ELSE competitor_pins.description 
-            END,
             board_slug = COALESCE(EXCLUDED.board_slug, competitor_pins.board_slug),
             save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE competitor_pins.save_count END,
             repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE competitor_pins.repin_count END,
@@ -123,17 +113,6 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
     return saved;
   }
 }
-
-
-/**
- * [INVARIANT: ONE-WAY-PROMOTION]
- * Auto-hydration from pa_pins into competitor_pins is eradicated.
- * Pins strictly flow one-way: competitor_pins -> pa_pins via qualification.
- */
-export async function autoHydrateCompetitorPinsFromArchive(sql, competitorId, username) {
-  return { ok: true, hydrated_count: 0 };
-}
-
 
 /**
  * Ingest a batch of formatted pins into pa_pins on Central Hub.
@@ -276,7 +255,6 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         pin_id,
         account_username,
         title,
-        description,
         link,
         domain,
         board_name,
@@ -299,7 +277,6 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         u.pin_id,
         u.account_username,
         u.title,
-        u.description,
         u.link,
         u.domain,
         u.board_name,
@@ -323,7 +300,6 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
           pin_id text,
           account_username text,
           title text,
-          description text,
           link text,
           domain text,
           board_name text,
@@ -345,7 +321,6 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       ON CONFLICT (pin_id) DO UPDATE SET
         account_username = COALESCE(EXCLUDED.account_username, pa_pins.account_username),
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
-        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
         link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
         domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
@@ -366,8 +341,8 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
 
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
     // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-    // pa_pin_metrics direct writes on Hub are strictly eradicated.
-    // Time-series daily snapshots belong exclusively to Storage Shards (pins_daily_metrics).
+    // pa_pin_metrics direct writes are strictly eradicated.
+    // Time-series daily snapshots belong exclusively to pins_daily_metrics in Unified PostgreSQL.
     let pinRows = [];
     if (typeof sql.transaction === 'function') {
       const res = await sql.transaction([
@@ -420,7 +395,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         if (comp?.id) {
           await sql`
             INSERT INTO competitor_pins (
-              competitor_id, pin_id, title, description, link_domain,
+              competitor_id, pin_id, title, link_domain,
               destination_url, board_name, board_slug, image_url, save_count, repin_count,
               comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
             )
@@ -428,7 +403,6 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
               ${comp.id},
               u.pin_id,
               COALESCE(u.title, ''),
-              COALESCE(u.description, ''),
               COALESCE(NULLIF(u.domain, ''), ''),
               COALESCE(NULLIF(u.link, ''), ''),
               COALESCE(u.board_name, ''),
@@ -443,7 +417,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
               NOW(),
               'completed'
             FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS u(
-              pin_id text, title text, description text, domain text, link text,
+              pin_id text, title text, domain text, link text,
               board_name text, image_url text, saves bigint, repins int,
               comments int, is_product boolean, created_at_pinterest text
             )
@@ -579,7 +553,6 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       cp.pin_id,
       ${username} AS account_username,
       cp.title,
-      cp.description,
       cp.destination_url AS link,
       cp.link_domain AS domain,
       cp.board_name,
@@ -605,8 +578,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       COALESCE(cp.is_product, false) AS is_product,
       cp.created_at_pinterest,
       NOW() AS first_seen_at,
-      NOW() AS last_updated_at,
-      COALESCE(NULLIF(cp.alt_text, ''), cp.title, '') AS alt_text
+      NOW() AS last_updated_at
     FROM competitor_pins cp
     WHERE cp.competitor_id = ${numericId}
       AND (
@@ -637,31 +609,29 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       const batch = sortedQualified.slice(i, i + 50);
       await sql`
         INSERT INTO pa_pins (
-          pin_id, account_username, title, description, link, domain,
+          pin_id, account_username, title, link, domain,
           board_name, image_url, dominant_color, saves, repins, comments,
           share_count, reactions, velocity, annotations, is_video, is_product,
-          created_at_pinterest, first_seen_at, last_updated_at, alt_text
+          created_at_pinterest, first_seen_at, last_updated_at
         )
         SELECT 
-          x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
+          x.pin_id, x.account_username, x.title, x.link, x.domain,
           x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
           x.share_count, x.reactions, x.velocity, x.annotations, x.is_video, x.is_product,
-          x.created_at_pinterest, x.first_seen_at, x.last_updated_at, x.alt_text
+          x.created_at_pinterest, x.first_seen_at, x.last_updated_at
         FROM jsonb_to_recordset(${typeof sql.json === 'function' ? sql.json(batch) : JSON.stringify(batch)}::jsonb) AS x(
-          pin_id character varying, account_username character varying, title text, description text, link text, domain character varying,
+          pin_id character varying, account_username character varying, title text, link text, domain character varying,
           board_name character varying, image_url text, dominant_color character varying, saves bigint, repins bigint, comments integer,
           share_count bigint, reactions jsonb, velocity numeric, annotations jsonb, is_video boolean, is_product boolean,
-          created_at_pinterest timestamp with time zone, first_seen_at timestamp with time zone, last_updated_at timestamp with time zone, alt_text text
+          created_at_pinterest timestamp with time zone, first_seen_at timestamp with time zone, last_updated_at timestamp with time zone
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id) DO UPDATE SET
           title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
-          description = CASE WHEN EXCLUDED.description IS NOT NULL AND EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
           link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
           domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
           board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
           image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
-          alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text, EXCLUDED.title, pa_pins.title),
           saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE pa_pins.saves END,
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE pa_pins.repins END,
           comments = CASE WHEN EXCLUDED.comments > 0 THEN EXCLUDED.comments ELSE pa_pins.comments END,
@@ -787,7 +757,6 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           cp.pin_id,
           COALESCE(prof.username, NULLIF(ump.creator_username, ''), 'unknown') AS account_username,
           COALESCE(NULLIF(ump.title, ''), cp.title, '') AS title,
-          COALESCE(NULLIF(ump.description, ''), cp.description, '') AS description,
           COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url, '') AS link,
           COALESCE(NULLIF(ump.domain, ''), cp.link_domain, '') AS domain,
           COALESCE(NULLIF(cp.board_name, ''), NULLIF(ump.board_name, ''), 'General') AS board_name,
@@ -816,8 +785,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           (COALESCE(cp.is_product, false) OR COALESCE(ump.is_product, false)) AS is_product,
           COALESCE(cp.created_at_pinterest, ump.created_at_pinterest, cp.first_seen_at, NOW()) AS created_at_pinterest,
           COALESCE(cp.first_seen_at, NOW()) AS first_seen_at,
-          NOW() AS last_updated_at,
-          COALESCE(NULLIF(ump.alt_text, ''), NULLIF(cp.alt_text, ''), ump.title, cp.title, '') AS alt_text
+          NOW() AS last_updated_at
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
         LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
@@ -844,25 +812,23 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
         ORDER BY cp.pin_id ASC, cp.save_count DESC
       )
       INSERT INTO pa_pins (
-        pin_id, account_username, title, description, link, domain,
+        pin_id, account_username, title, link, domain,
         board_name, image_url, dominant_color, saves, repins, comments,
         share_count, reactions, velocity, annotations, is_video, is_product,
-        created_at_pinterest, first_seen_at, last_updated_at, alt_text
+        created_at_pinterest, first_seen_at, last_updated_at
       )
       SELECT 
-        c.pin_id, c.account_username, c.title, c.description, c.link, c.domain,
+        c.pin_id, c.account_username, c.title, c.link, c.domain,
         c.board_name, c.image_url, c.dominant_color, c.saves, c.repins, c.comments,
         c.share_count, c.reactions, c.velocity, c.annotations, c.is_video, c.is_product,
-        c.created_at_pinterest, c.first_seen_at, c.last_updated_at, c.alt_text
+        c.created_at_pinterest, c.first_seen_at, c.last_updated_at
       FROM candidate_pins c
       ON CONFLICT (pin_id) DO UPDATE SET
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
-        description = CASE WHEN EXCLUDED.description IS NOT NULL AND EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
         link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
         domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
         image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
-        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text, EXCLUDED.title, pa_pins.title),
         saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE pa_pins.saves END,
         repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE pa_pins.repins END,
         -- [INVARIANT: PRESERVE-AUTHENTIC-24H-VELOCITY] Fix LND-2: Preserve authentic daily velocity over lifetime average

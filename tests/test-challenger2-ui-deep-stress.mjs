@@ -35,7 +35,7 @@ function createTestSandbox() {
   const mockStorage = new Map();
   const sandbox = {
     window: {
-      location: { href: 'http://localhost:3456/pulse' },
+      location: { href: 'http://localhost:3000/pulse' },
       handlePinImgError: () => {},
       resolvePinImageUrl: (url) => url
     },

@@ -185,7 +185,7 @@ export function getDashboardOverviewHtml() {
       <!-- 4 Core Dedicated Pillars Launchpad (Interactive Rich Cards) -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
         
-        <!-- Pillar 1: Creator Intelligence & PinArchive -->
+        <!-- Pillar 1: Creator Hub & PinArchive -->
         <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col justify-between space-y-4">
           <div class="space-y-3">
             <div class="flex items-center justify-between">

@@ -14,24 +14,6 @@ import { getFoldersHubViewHtml } from './ui/folders/folders-hub-view.mjs';
 import { getFoldersModalsHtml } from './ui/folders/folders-modals.mjs';
 import { getFoldersClientAppScript } from './ui/folders/folders-client-app.mjs';
 
-// [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 5]
-// All pin navigation links must preserve folder_id query parameter:
-// :href="'/pins/' + sp.pin_id + '?folder_id=' + (activeFolderId || '')"
-
-// [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 9]
-// clusterCompetitorAudienceGains implementation contract in foldersApp:
-// checks this.selectedTimeWindow and applies Math.max(0, computedGains).
-
-// [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 12]
-// Filter state preservation contract: onlyBreakoutBabyDomains and onlyVacuumPins.
-
-// [INVARIANT-LOCK: ENFORCED BY test_p2_verification.mjs]
-// Mutation and analysis fetch contracts using safeApiFetch:
-// (window.safeApiFetch || fetch)
-// (window.safeApiFetch || fetch)('/api/folders');
-// (window.safeApiFetch || fetch)(url);
-// /dispatch-audit and /api/folders operations.
-
 export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
   // Sanitize folderId against script/attribute injection
   const rawId = String(folderId || '').trim();

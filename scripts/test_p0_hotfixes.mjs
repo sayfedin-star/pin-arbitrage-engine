@@ -313,10 +313,13 @@ import vm from 'node:vm';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 
 runTest('src/keywords-ui.mjs and src/ui/keywords-drawers.mjs contain ZERO undeclared activeFolderId references', () => {
-  const kwUiContent = fs.readFileSync('src/keywords-ui.mjs', 'utf8');
+  const kwUiContent = [
+    fs.readFileSync('src/keywords-ui.mjs', 'utf8'),
+    fs.readFileSync('src/ui/keywords/keywords-client-app.mjs', 'utf8')
+  ].join('\n');
   const drawersContent = fs.readFileSync('src/ui/keywords-drawers.mjs', 'utf8');
-  
-  assert(kwUiContent.includes('activeFolderId:'), 'keywords-ui.mjs must declare activeFolderId in keywordStudio');
+
+  assert(kwUiContent.includes('activeFolderId:'), 'keywords-client-app.mjs must declare activeFolderId in keywordStudio');
   assert.strictEqual(drawersContent.includes('activeFolderId'), false, 'keywords-drawers.mjs must not reference undeclared activeFolderId');
 });
 

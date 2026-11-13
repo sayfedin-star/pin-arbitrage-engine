@@ -18,10 +18,9 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import serverModule, {
-  serverBackgroundTaskQueue,
-  declarativeRoutes,
-  createRequestListener
+import {
+  createFastifyApp,
+  serverBackgroundTaskQueue
 } from '../src/server.mjs';
 import wakeShieldModule from '../workers/wake-shield/src/index.mjs';
 
@@ -77,24 +76,22 @@ async function runTests() {
     assert(!serverCode.includes('await Promise.allSettled(bgPromises)'), 'Must NOT block res.end on bgPromises');
   });
 
-  console.log('\n[AXIS 2] Declarative Route Registry & Ingestion in src/server.mjs');
-  test('GET /api/health declarative route is registered', () => {
-    const healthRoute = declarativeRoutes.find(r => r.method === 'GET' && r.path === '/api/health');
-    assert(healthRoute, 'GET /api/health must be registered');
+  console.log('\n[AXIS 2] Native Fastify Route Registry & Ingestion in src/server.mjs');
+  const appUnauth = createFastifyApp({ API_SECRET_KEY: 'secret123', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres' });
+  const appAuth = createFastifyApp({ API_SECRET_KEY: 'test-secret', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres' });
+
+  test('GET /api/health Fastify route is registered', () => {
+    assert(appAuth.hasRoute({ method: 'GET', url: '/api/health' }), 'GET /api/health must be registered');
   });
 
-  test('POST /api/internal/ingest declarative route is registered', () => {
-    const ingestRoute = declarativeRoutes.find(r => r.method === 'POST' && r.path === '/api/internal/ingest');
-    assert(ingestRoute, 'POST /api/internal/ingest must be registered');
+  test('POST /api/internal/ingest Fastify route is registered', () => {
+    assert(appAuth.hasRoute({ method: 'POST', url: '/api/internal/ingest' }), 'POST /api/internal/ingest must be registered');
   });
 
   await asyncTest('GET /api/health returns 200 JSON with queue telemetry', async () => {
-    const healthRoute = declarativeRoutes.find(r => r.method === 'GET' && r.path === '/api/health');
-    const res = await healthRoute.handler({
-      env: { DATABASE_TOPOLOGY: 'unified_postgres' }
-    });
-    assert.strictEqual(res.status, 200);
-    const data = await res.json();
+    const res = await appAuth.inject({ method: 'GET', url: '/api/health' });
+    assert.strictEqual(res.statusCode, 200);
+    const data = res.json();
     assert.strictEqual(data.status, 'healthy');
     assert.strictEqual(data.server, 'node_native_pae_server');
     assert(data.background_queue, 'Queue telemetry must be present');
@@ -102,36 +99,27 @@ async function runTests() {
   });
 
   await asyncTest('POST /api/internal/ingest rejects unauthorized requests without key', async () => {
-    const ingestRoute = declarativeRoutes.find(r => r.method === 'POST' && r.path === '/api/internal/ingest');
-    const webReq = new Request('http://localhost:3000/api/internal/ingest', {
+    const res = await appUnauth.inject({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pins: [{ pin_id: '123' }] })
+      url: '/api/internal/ingest',
+      headers: { 'content-type': 'application/json' },
+      payload: { pins: [{ pin_id: '123' }] }
     });
-    const res = await ingestRoute.handler({
-      env: { API_SECRET_KEY: 'secret123', NODE_ENV: 'production' },
-      webRequest: webReq
-    });
-    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.statusCode, 401);
   });
 
   await asyncTest('POST /api/internal/ingest accepts authorized requests and enqueues tasks', async () => {
-    const ingestRoute = declarativeRoutes.find(r => r.method === 'POST' && r.path === '/api/internal/ingest');
-    const testPins = [{ pin_id: '123456789012345678' }];
-    const webReq = new Request('http://localhost:3000/api/internal/ingest', {
+    const res = await appAuth.inject({
       method: 'POST',
+      url: '/api/internal/ingest',
       headers: {
-        'Content-Type': 'application/json',
+        'content-type': 'application/json',
         'x-api-key': 'test-secret'
       },
-      body: JSON.stringify({ pins: testPins })
+      payload: { pins: [{ pin_id: '123456789012345678' }] }
     });
-    const res = await ingestRoute.handler({
-      env: { API_SECRET_KEY: 'test-secret', NODE_ENV: 'production' },
-      webRequest: webReq
-    });
-    assert.strictEqual(res.status, 202);
-    const data = await res.json();
+    assert.strictEqual(res.statusCode, 202);
+    const data = res.json();
     assert.strictEqual(data.success, true);
     assert.strictEqual(data.queued, true);
     assert.strictEqual(data.received, 1);
@@ -188,9 +176,11 @@ async function runTests() {
 
   test('scripts/instabox-boot-sync.sh exists and POST /api/internal/self-update route is registered', () => {
     assert(fs.existsSync(path.join(rootDir, 'scripts/instabox-boot-sync.sh')), 'instabox-boot-sync.sh must exist');
-    const selfUpdateRoute = declarativeRoutes.find(r => r.method === 'POST' && r.path === '/api/internal/self-update');
-    assert(selfUpdateRoute, 'POST /api/internal/self-update must be registered');
+    assert(appAuth.hasRoute({ method: 'POST', url: '/api/internal/self-update' }), 'POST /api/internal/self-update must be registered');
   });
+
+  await appUnauth.close();
+  await appAuth.close();
 
   console.log('\n================================================================================');
   console.log(`🎉 ALL ${passed}/${total} RUNTIME ARCHITECT VERIFICATION CHECKS PASSED (100% GREEN)`);

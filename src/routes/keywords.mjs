@@ -182,7 +182,6 @@ export async function handleKeywordsRoutes({
     if (!cleanUrl) {
       return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Invalid destination url' }, 400);
     }
-    const kvKey = `url_saves:${cleanUrl}`;
 
 
     try {
@@ -1094,7 +1093,7 @@ export async function handleKeywordsRoutes({
         const errText = await dispatchRes.text();
         let errDetail = errText;
         if (dispatchRes.status === 401) {
-          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in Cloudflare/Koyeb has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in the server environment (.env / GitHub Secrets) has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
         }
         return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
       }
@@ -1523,7 +1522,7 @@ export async function handleKeywordsRoutes({
         const errText = await dispatchRes.text();
         let errDetail = errText;
         if (dispatchRes.status === 401) {
-          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in Cloudflare/Koyeb has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in the server environment (.env / GitHub Secrets) has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
         }
         return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
       }

@@ -68,10 +68,8 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_lookup ON competitor_boards(competitor_id, pin_count DESC);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_history_lookup ON competitor_history_snapshots(competitor_id, recorded_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
-  console.log('[*] 7. Ensuring is_product and alt_text columns on competitor_pins and pa_pins...');
+  console.log('[*] 7. Ensuring is_product columns and indexes on competitor_pins and pa_pins...');
   await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_is_product ON competitor_pins(competitor_id, is_product) WHERE is_product = TRUE;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`.catch(err => console.warn('[Index Notice]', err.message));
 
@@ -134,6 +132,7 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_tk_trgm_keyword ON tracked_keywords USING gin (LOWER(keyword) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles(LOWER(username));`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_username ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_dir_trgm_domain ON domain_intelligence_rollup USING gin (LOWER(domain) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   // [INVARIANT: 100% POSTGRESQL HOT UPDATES & CLEAN B-TREE INDEXES - MIGRATION 037]
   await sql`DROP INDEX IF EXISTS idx_ksc_active_covering;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ksc_domain_serp_authority;`.catch(() => {});

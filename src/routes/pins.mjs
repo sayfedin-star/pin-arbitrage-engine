@@ -189,10 +189,6 @@ export async function handlePinsRoutes({
     if (!rawUrl) {
       return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Missing url query parameter' }, 400);
     }
-    const slugMatch = String(rawUrl).match(/pin\.it\/([a-zA-Z0-9_-]+)/i);
-    const cleanSlug = slugMatch ? slugMatch[1] : String(rawUrl).replace(/^https?:\/\//i, '').replace(/^pin\.it\//i, '').split('/')[0].split('?')[0].trim();
-    const kvKey = `shortlink:${cleanSlug || rawUrl}`;
-
     try {
       const res = await resolvePinterestShortlink(rawUrl);
       if (res && res.ok && res.pin_id) {

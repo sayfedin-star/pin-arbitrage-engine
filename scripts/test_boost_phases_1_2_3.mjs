@@ -38,7 +38,11 @@ let compRouteCode = fs.existsSync(path.resolve('src/routes/competitors.mjs'))
 if (compRouteCode.includes("from './creators.mjs'")) {
   compRouteCode = fs.readFileSync(path.resolve('src/routes/creators.mjs'), 'utf8');
 }
-const dashboardUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8').replace(/\r\n/g, '\n');
+const readDashboardBundle = () => [
+  'src/dashboard-ui.mjs',
+  ...fs.readdirSync(path.resolve('src/ui/dashboard')).filter(f => f.endsWith('.mjs')).map(f => path.join('src/ui/dashboard', f))
+].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n').replace(/\r\n/g, '\n');
+const dashboardUiCode = readDashboardBundle();
 
 runTest('Phase 1.1: src/routes/competitors.mjs includes stage, high_velocity, changed_only in cacheParams', () => {
   assert.ok(compRouteCode.includes("stage: searchParams.get('stage')"), 'cacheParams must include stage');
@@ -115,7 +119,7 @@ runTest('Phase 2.3: creator-velocity-crawler.mjs implements 8-worker concurrent 
 runTest('Phase 2.4: creator-velocity-crawler.mjs implements monotonic saves fallback and atomic shard writes', () => {
   assert.ok(crawlerCode.includes('const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;'), 'Must preserve saves monotonically');
   assert.ok(crawlerCode.includes('const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;'), 'Must preserve repins monotonically');
-  assert.ok(crawlerCode.includes('commitSnapshotsToStorageShards(sql, metricSnapshots'), 'Must commit snapshots to Unified PostgreSQL');
+  assert.ok(crawlerCode.includes('commitSnapshotsToUnifiedDb(sql, metricSnapshots'), 'Must commit snapshots to Unified PostgreSQL');
   assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC'), 'Must sort by pin_id ASC to prevent deadlocks');
 });
 
@@ -320,7 +324,7 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
 
 runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   // Re-read file to verify disk contents
-  const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8').replace(/\r\n/g, '\n');
+  const updatedDashUiCode = readDashboardBundle();
   const readAllCreators = () => fs.readdirSync(path.resolve('src/modules/creators'))
     .filter(f => f.endsWith('.mjs'))
     .map(f => fs.readFileSync(path.resolve('src/modules/creators', f), 'utf8'))
@@ -361,7 +365,7 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
 });
 
 runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h deltas, compact emoji badges)', () => {
-  const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8').replace(/\r\n/g, '\n');
+  const updatedDashUiCode = readDashboardBundle();
   const updatedCompServiceCode = fs.readdirSync(path.resolve('src/modules/creators'))
     .filter(f => f.endsWith('.mjs'))
     .map(f => fs.readFileSync(path.resolve('src/modules/creators', f), 'utf8'))

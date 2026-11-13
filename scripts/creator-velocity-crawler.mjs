@@ -144,11 +144,10 @@ class Semaphore {
 }
 
 /**
- * Commit daily metric snapshots exclusively to designated Neon Storage Shards.
- * [INVARIANT: ZERO-HUB-SNAPSHOTS]
- * [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ * Commit daily metric snapshots directly to pins_daily_metrics in Unified PostgreSQL.
+ * [INVARIANT: UNIFIED-POSTGRES-SNAPSHOTS]
  */
-async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
+async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
   if (!Array.isArray(metricSnapshots) || metricSnapshots.length === 0) return 0;
 
   const uniqueMetricsMap = new Map();
@@ -199,9 +198,9 @@ async function commitSnapshotsToStorageShards(hubSql, metricSnapshots) {
 
 /**
  * Route enriched pins to universal_master_pins in Unified PostgreSQL.
- * [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ * [INVARIANT: UNIFIED-MASTER-CATALOG]
  */
-async function syncPinsToMasterShards(hubSql, enrichedPins) {
+async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
   let totalSynced = 0;
 
@@ -810,15 +809,14 @@ async function run() {
           AND cp.pin_id = x.pin_id;
       `;
 
-      // 2. Commit daily snapshots to Neon Storage Shards
-      // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+      // 2. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
-        await commitSnapshotsToStorageShards(sql, metricSnapshots);
+        await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
       }
 
-      // 3. Sync master pins to Neon Storage Shards
+      // 3. Sync master pins to universal_master_pins in Unified PostgreSQL
       if (masterPinsToSync.length > 0) {
-        await syncPinsToMasterShards(sql, masterPinsToSync);
+        await syncPinsToMasterCatalog(sql, masterPinsToSync);
       }
 
       // 4. One-Way Promotion of qualified pins into pa_pins
@@ -842,7 +840,7 @@ async function run() {
         let md = `### 🐝 Swarm Worker #${workerIndex + 1}/${workerTotal} Summary (@${targetAccount})\n\n`;
         md += `- **Assigned Catalog Slice**: **${myCatalogSlice.length}** pins\n`;
         md += `- **Refreshed via Fast-Path (~90ms)**: **${refreshedCount}** pins\n`;
-        md += `- **Daily Snapshots Committed to Shards**: **${metricSnapshots.length}**\n\n`;
+        md += `- **Daily Snapshots Committed to PostgreSQL**: **${metricSnapshots.length}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
     }
@@ -1588,17 +1586,14 @@ async function run() {
         WHERE cp.pin_id = x.pin_id;
       `;
 
-      // 3. Route historical snapshots to Storage Shards via CRC32
-      // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-      // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+      // 3. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
-        await commitSnapshotsToStorageShards(sql, metricSnapshots);
+        await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
       }
 
-      // 4. Sync master pins to Neon Storage Shards
-      // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+      // 4. Sync master pins to universal_master_pins in Unified PostgreSQL
       if (masterPinsToSync.length > 0) {
-        await syncPinsToMasterShards(sql, masterPinsToSync);
+        await syncPinsToMasterCatalog(sql, masterPinsToSync);
       }
     }
 
@@ -1610,8 +1605,8 @@ async function run() {
         md += `- **Accounts Processed (Phase 1)**: **${accountsProcessed}**\n`;
         md += `- **Winning Pins Slice (Phase 2)**: **${myWinningSlice.length}** pins\n`;
         md += `- **Refreshed via Fast-Path (~90ms)**: **${refreshedWinningCount}** pins\n`;
-        md += `- **Daily Snapshots Committed to Shards**: **${metricSnapshots.length}**\n`;
-        md += `- **Master Pins Synced to Shards**: **${masterPinsToSync.length}**\n\n`;
+        md += `- **Daily Snapshots Committed to PostgreSQL**: **${metricSnapshots.length}**\n`;
+        md += `- **Master Pins Synced to Universal Catalog**: **${masterPinsToSync.length}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
     }

@@ -574,7 +574,6 @@ export async function handleClusterRoutes({
       has_cookie: saved.has_cookie,
       is_configured: saved.has_cookie,
       preview: saved.preview,
-      formatted_cookie: saved.formatted,
       source: 'database',
       note: 'Cookie persisted to PostgreSQL app_settings and activated for SERP & Competitor crawlers.'
     });

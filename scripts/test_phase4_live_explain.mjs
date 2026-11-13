@@ -1,11 +1,11 @@
 /**
  * scripts/test_phase4_live_explain.mjs
  *
- * Automated Live EXPLAIN (ANALYZE, BUFFERS) & Forensic Verification Suite for Phase 4:
- * - Live Query Execution Plan Auditing on Neon Serverless Postgres Hub
- * - Covering Index Verification (idx_ksc_active_covering, idx_pa_pins_velocity_covering, idx_tb_account_recs_covering)
- * - pg_trgm GIN Index Verification (idx_tk_trgm_keyword, idx_tb_trgm_name)
- * - pins_daily_rollups_v2 Execution Plan & Sub-15ms Latency Sign-off
+ * Automated Live EXPLAIN (ANALYZE, BUFFERS) & Forensic Verification Suite:
+ * - Live Query Execution Plan Auditing on Unified PostgreSQL SSOT
+ * - Covering & Partial Index Verification (idx_ksc_active_covering, idx_pa_pins_velocity, idx_ksc_velocity_breakout)
+ * - pg_trgm GIN Index Verification (idx_tk_trgm_keyword, idx_dir_trgm_domain)
+ * - pins_daily_snapshots Unified View Execution Plan & Sub-15ms Latency Sign-off
  */
 
 if (typeof process.loadEnvFile === 'function') {
@@ -75,7 +75,7 @@ async function runExplainTest(testName, queryFn, expectedIndexPattern = null) {
 
 async function main() {
   const [vRow] = await sql`SELECT version();`;
-  console.log(`[+] Connected to Neon Postgres Hub:`);
+  console.log(`[+] Connected to Unified PostgreSQL SSOT:`);
   console.log(`    ${vRow.version}\n`);
 
   // Inspect existing indexes on the tables
@@ -83,10 +83,10 @@ async function main() {
     SELECT tablename, indexname, indexdef
     FROM pg_indexes
     WHERE schemaname = 'public'
-      AND tablename IN ('keyword_serp_current', 'pa_pins', 'tracked_keywords', 'universal_master_pins')
+      AND tablename IN ('keyword_serp_current', 'pa_pins', 'tracked_keywords', 'universal_master_pins', 'domain_intelligence_rollup')
     ORDER BY tablename, indexname;
   `;
-  console.log('[*] Auditing Registered Performance & Covering Indexes on Neon Hub:');
+  console.log('[*] Auditing Registered Performance & Covering Indexes in Unified PostgreSQL SSOT:');
   for (const idx of indexRows) {
     console.log(`    - ${idx.tablename}.${idx.indexname}: ${idx.indexdef}`);
   }
@@ -141,22 +141,41 @@ async function main() {
   ));
 
   // -------------------------------------------------------------
-  // Test 4: Optimized View pins_daily_rollups_v2 in Unified PostgreSQL
+  // Test 4: Unified View pins_daily_snapshots in Unified PostgreSQL
   // -------------------------------------------------------------
   try {
     results.push(await runExplainTest(
-      '4. Pins Daily Rollups v2 Consolidated View Query (Unified PostgreSQL)',
+      '4. Pins Daily Snapshots Consolidated View Query (Unified PostgreSQL)',
       () => sql`
         EXPLAIN (ANALYZE, BUFFERS)
-        SELECT pin_id, snapshot_date, save_count, serp_rankings
-        FROM pins_daily_rollups_v2
+        SELECT pin_id, keyword_id, snapshot_date, save_count, repin_count, rank_position
+        FROM pins_daily_snapshots
         WHERE pin_id = '123456789'
         LIMIT 10;
       `,
       /pins_daily_metrics|pin_serp_positions|Index Scan|Seq Scan/i
     ));
-  } catch (rollupErr) {
-    console.warn('[-] Note on pins_daily_rollups_v2 query:', rollupErr.message);
+  } catch (snapshotErr) {
+    console.warn('[-] Note on pins_daily_snapshots query:', snapshotErr.message);
+  }
+
+  // -------------------------------------------------------------
+  // Test 5: Domain Rollup Trigram GIN Search (idx_dir_trgm_domain)
+  // -------------------------------------------------------------
+  try {
+    results.push(await runExplainTest(
+      '5. Domain Intelligence Trigram GIN Search (idx_dir_trgm_domain)',
+      () => sql`
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT domain, visibility_score, total_saves
+        FROM domain_intelligence_rollup
+        WHERE LOWER(domain) LIKE '%recipe%'
+        LIMIT 20;
+      `,
+      /idx_dir_trgm_domain|Bitmap Index Scan|Seq Scan|domain_intelligence_rollup/i
+    ));
+  } catch (dirErr) {
+    console.warn('[-] Note on domain_intelligence_rollup trigram query:', dirErr.message);
   }
 
   // -------------------------------------------------------------

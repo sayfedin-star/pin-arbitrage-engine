@@ -8,11 +8,7 @@ import { renderPinRowTemplate } from '../pin-row.mjs';
 
 export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
   return `    <!-- ======================================================== -->
-    <!-- TAB 4: 🕵️ COMPETITOR INTELLIGENCE (LIVE MONITOR)          -->
-    <!-- Matches User Image 2 Reference UI                        -->
-    <!-- ======================================================== -->
-    <!-- ======================================================== -->
-    <!-- TAB 4: 👥 CREATOR INTELLIGENCE & PINARCHIVE (UNIFIED PAGE)-->
+    <!-- TAB 4: 👥 CREATOR HUB & PINARCHIVE (UNIFIED PAGE)          -->
     <!-- Unified Creator Tracking, Boards, and Winning Pin Archive -->
     <!-- ======================================================== -->
     <div x-show="currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive'" x-cloak class="space-y-6">
@@ -1504,7 +1500,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
               <p class="text-xs text-slate-500 max-w-sm mx-auto mt-1">No pins match the current filter or this account has not been harvested yet. Click "Harvest All Pins" to pull the full catalog from Pinterest.</p>
               <button type="button" @click="openGhaCrawlerModal(activeCreator)" class="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer">
                 <i data-lucide="zap" class="w-4 h-4"></i>
-                <span>⚡ Launch 20-Shard GitHub Actions Harvest</span>
+                <span>⚡ Launch 20-Runner GitHub Actions Harvest</span>
               </button>
             </div>
 
@@ -2083,9 +2079,9 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                   <i data-lucide="refresh-cw" :class="{'animate-spin text-purple-500': isSyncingBoards}" class="w-3.5 h-3.5"></i>
                   <span x-text="isSyncingBoards ? 'Syncing...' : 'Sync Boards (Pinterest)'"></span>
                 </button>
-                <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm cursor-pointer" title="Crawl all creator boards using 20-Shard GitHub Actions Crawler">
+                <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm cursor-pointer" title="Crawl all creator boards using 20-Runner GitHub Actions Crawler">
                   <i data-lucide="zap" :class="{'animate-spin': isDispatchingGitHubCrawl}" class="w-3.5 h-3.5"></i>
-                  <span>⚡ Harvest All Boards (20 Shards)</span>
+                  <span>⚡ Harvest All Boards (20 Runners)</span>
                 </button>
               </div>
             </div>
@@ -2349,7 +2345,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                         type="button"
                         @click="crawlSingleBoardGha(b.name)"
                         class="py-1.5 px-2 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
-                        title="Harvest this specific board via GitHub Actions 20-Shard Crawler"
+                        title="Harvest this specific board via GitHub Actions 20-Runner Crawler"
                       >
                         <i data-lucide="zap" class="w-3.5 h-3.5 text-sky-500"></i>
                         <span>Crawl</span>

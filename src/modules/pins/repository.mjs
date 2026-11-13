@@ -915,6 +915,14 @@ export async function syncPinAcrossAllFourPillars({
     metaToStore[k] = v;
   }
 
+  // Creative SSOT keys live exclusively in universal_master_pins (skip bloating secondary metadata JSONB)
+  const secondaryMetaToStore = { ...metaToStore };
+  delete secondaryMetaToStore.alt_text;
+  delete secondaryMetaToStore.description;
+  delete secondaryMetaToStore.seo_title;
+  delete secondaryMetaToStore.seo_description;
+  delete secondaryMetaToStore.board_name;
+
   const cleanCreatedAtIso = (() => {
     const rawDate = scrapedPin.created_at_pinterest || scrapedPin.created_at;
     if (!rawDate) return null;
@@ -1334,7 +1342,7 @@ export async function syncPinAcrossAllFourPillars({
           ELSE COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0)
         END,
         metadata = ((CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
-          || ${JSON.stringify(rawMetaToStore)}::jsonb
+          || ${JSON.stringify(secondaryMetaToStore)}::jsonb
           || CASE
                WHEN COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')) IS NOT NULL 
                 AND LOWER(TRIM(COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')))) NOT IN ('pinterest_platform')
@@ -1381,7 +1389,7 @@ export async function syncPinAcrossAllFourPillars({
       save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE save_count END,
       repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::bigint ELSE repin_count END,
       comment_count = GREATEST(comment_count, ${newComments}),
-      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
+      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(secondaryMetaToStore)}::jsonb,
       updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
   `;

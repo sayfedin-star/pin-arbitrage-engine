@@ -2394,8 +2394,8 @@ export function getKeywordsClientAppScript() {
                 await this.selectKeyword(this.selectedKeyword, false);
               }
               // [INVARIANT: ZERO-DOUBLE-TRIGGER]
-              // [INVARIANT: EDGE-ONLY-RESCAN]
-              // Table row re-crawl runs strictly on Cloudflare Edge (< 2s) with dispatch_workflow: false.
+              // [INVARIANT: DIRECT-VPS-RESCAN]
+              // Table row re-crawl runs directly via Fastify Node.js API on VPS (< 2s) with dispatch_workflow: false.
               // Deep fleet telemetry is triggered independently via the interactive Trigger Fleet modal.
             } else {
               const reason = data.result?.reason === 'zero_organic_results'

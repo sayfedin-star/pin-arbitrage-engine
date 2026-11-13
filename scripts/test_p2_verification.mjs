@@ -310,15 +310,26 @@ await runAsyncTest('safeApiFetch: Returns Response wrapper with url, redirected,
 // =============================================================================
 console.log('\n[*] Section 4: Frontend UI Mutation Guarding...');
 
-const dashboardUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
-const keywordsUiCode = fs.readFileSync(path.resolve('src/keywords-ui.mjs'), 'utf8');
+function readDirBundle(entryFile, subDir) {
+  const files = [entryFile];
+  const fullSubDir = path.resolve(subDir);
+  if (fs.existsSync(fullSubDir)) {
+    for (const name of fs.readdirSync(fullSubDir)) {
+      if (name.endsWith('.mjs')) files.push(path.join(subDir, name));
+    }
+  }
+  return files.map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
+}
+
+const dashboardUiCode = readDirBundle('src/dashboard-ui.mjs', 'src/ui/dashboard');
+const keywordsUiCode = readDirBundle('src/keywords-ui.mjs', 'src/ui/keywords');
 const pinDetailsUiCode = [
   'src/pin-details-ui.mjs',
   'src/ui/pin-details/styles.mjs',
   'src/ui/pin-details/page-template.mjs',
   'src/ui/pin-details/client-app.mjs'
 ].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
-const campaignFoldersUiCode = fs.readFileSync(path.resolve('src/campaign-folders-ui.mjs'), 'utf8');
+const campaignFoldersUiCode = readDirBundle('src/campaign-folders-ui.mjs', 'src/ui/folders');
 
 runTest('src/dashboard-ui.mjs: All mutation endpoints use safeApiFetch', () => {
   const mutationSignatures = [

@@ -150,10 +150,10 @@ runTest('Consolidator normalizes TARGET_ACCOUNT="all" to sweep all creators', ()
   assert(content.includes("rawTargetAccount.toLowerCase() === 'all'"), 'Consolidator must handle "all" as sweep all');
 });
 
-runTest('Crawler enforces Four-Pillar live shard sync in Mode A', () => {
+runTest('Crawler enforces Four-Pillar live catalog sync in Mode A', () => {
   const content = fs.readFileSync(path.resolve(process.cwd(), 'scripts/creator-velocity-crawler.mjs'), 'utf8');
-  assert(content.includes('syncPinsToMasterShards(sql, masterPinsToSync)'), 'Crawler Mode A must sync winning pins to master shards');
-  assert(content.includes('creation_method'), 'syncPinsToMasterShards must protect authentic creation_method');
+  assert(content.includes('syncPinsToMasterCatalog(sql, masterPinsToSync)'), 'Crawler Mode A must sync winning pins to universal catalog');
+  assert(content.includes('creation_method'), 'syncPinsToMasterCatalog must protect authentic creation_method');
 });
 
 runTest('Crawler integrates board crawling and respects board filters in Mode B', () => {

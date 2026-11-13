@@ -83,7 +83,7 @@ export function getDashboardBoardViewHtml() {
           </button>
           <button type="button" @click="crawlSingleBoardGha(activeBoardName)" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition active:scale-95 flex items-center space-x-1.5 shadow-sm cursor-pointer" title="Crawl this specific board with 20 parallel GitHub Actions runners">
             <i data-lucide="zap" class="w-4 h-4"></i>
-            <span>Harvest Board (GHA 20-Shards)</span>
+            <span>Harvest Board (GHA 20-Runners)</span>
           </button>
         </div>
       </div>
@@ -248,7 +248,7 @@ export function getDashboardBoardViewHtml() {
         </div>
         <div>
           <h3 class="text-base font-bold text-slate-900 dark:text-white" x-text="boardPins.length === 0 ? 'No pins crawled for this board yet' : 'No pins match current filters'"></h3>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto" x-text="boardPins.length === 0 ? 'Click Harvest Board below to crawl all pins belonging to this board using the 20-shard GitHub Actions matrix.' : 'Try changing your search query or switching to All Pins.'"></p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto" x-text="boardPins.length === 0 ? 'Click Harvest Board below to crawl all pins belonging to this board using the 20-runner GitHub Actions matrix.' : 'Try changing your search query or switching to All Pins.'"></p>
         </div>
         <div class="pt-2 flex items-center justify-center gap-3">
           <button x-show="boardPins.length === 0" type="button" @click="crawlSingleBoardGha(activeBoardName)" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-sm hover:from-sky-500 hover:to-indigo-500 transition cursor-pointer flex items-center gap-1.5">

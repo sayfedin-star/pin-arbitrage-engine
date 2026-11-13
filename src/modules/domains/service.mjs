@@ -1868,14 +1868,14 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
       const page = Math.max(1, parseInt(options.page, 10) || 1);
       const limit = Math.max(1, Math.min(parseInt(options.limit, 10) || 50, 2000));
       const offset = (page - 1) * limit;
-      const searchPattern = search ? `%${escapeSqlLike(search)}%` : null;
+      const searchPattern = search ? `%${escapeSqlLike(search.toLowerCase())}%` : null;
 
       const rows = await sql`
         WITH rollup_src AS (
           SELECT *
           FROM domain_intelligence_rollup r
           WHERE (${minPins} <= 1 OR r.total_pins >= ${minPins})
-            AND (${searchPattern}::text IS NULL OR r.domain ILIKE ${searchPattern})
+            AND (${searchPattern}::text IS NULL OR LOWER(r.domain) LIKE ${searchPattern})
             AND (
               ${excludeMarketplaces} = FALSE
               OR r.domain NOT IN (

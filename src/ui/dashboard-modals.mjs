@@ -790,10 +790,10 @@ export function getDashboardModalsHtml() {
               <div>
                 <div class="flex items-center space-x-1.5">
                   <span class="font-bold text-slate-800 dark:text-slate-200">🚀 GitHub Actions Workflow</span>
-                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Matrix 20-Shards</span>
+                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">20 Parallel Runners</span>
                 </div>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Sharding (20 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
+                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Partitioning (20 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
                 </p>
               </div>
             </label>
@@ -1159,9 +1159,9 @@ export function getDashboardModalsHtml() {
     </div>
   </div>
 
-  <!-- Modal: GitHub Actions 20-Shard Crawler & Board Sharding Dispatch -->
+  <!-- Modal: GitHub Actions 20-Runner Crawler & Board Partitioning Dispatch -->
   <div x-show="isGhaCrawlerModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isGhaCrawlerModalOpen = false">
-    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl w-full max-w-xl shadow-2xl p-6 sm:p-7 space-y-5" role="dialog" aria-modal="true" aria-label="Launch 20-Shard Parallel Crawler" @click.away="isGhaCrawlerModalOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl w-full max-w-xl shadow-2xl p-6 sm:p-7 space-y-5" role="dialog" aria-modal="true" aria-label="Launch 20-Runner Parallel Crawler" @click.away="isGhaCrawlerModalOpen = false">
       <!-- Modal Header -->
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A]/80 pb-4">
         <div class="flex items-center space-x-3">
@@ -1169,9 +1169,9 @@ export function getDashboardModalsHtml() {
             <i data-lucide="git-branch" class="w-5 h-5"></i>
           </div>
           <div>
-            <h3 class="font-bold text-slate-900 dark:text-white text-base">Launch 20-Shard Parallel Crawler</h3>
+            <h3 class="font-bold text-slate-900 dark:text-white text-base">Launch 20-Runner Parallel Crawler</h3>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              Target: <strong class="text-sky-500 font-mono" x-text="'@' + ghaTargetAccount"></strong> • Board-Level Modulo Sharding
+              Target: <strong class="text-sky-500 font-mono" x-text="'@' + ghaTargetAccount"></strong> • Board-Level Parallel Partitioning
             </p>
           </div>
         </div>
@@ -1183,20 +1183,20 @@ export function getDashboardModalsHtml() {
       <!-- Scope: All Boards vs Selected Boards -->
       <div class="space-y-4 text-xs">
         <div>
-          <label class="block font-bold text-slate-800 dark:text-slate-200 mb-2">Board Sharding Scope:</label>
+          <label class="block font-bold text-slate-800 dark:text-slate-200 mb-2">Board Crawl Scope:</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaBoardScope === 'all' ? 'bg-sky-50/50 dark:bg-sky-950/30 border-sky-500 text-sky-700 dark:text-sky-300 shadow-2xs font-bold' : 'border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400'">
               <input type="radio" value="all" x-model="ghaBoardScope" class="mt-0.5 text-sky-600">
               <div>
                 <div class="text-xs font-bold">All Creator Boards</div>
-                <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Distribute all <span class="font-mono font-bold" x-text="activeCreatorBoards.length"></span> boards across 20 shards (idx % 20).</div>
+                <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Distribute all <span class="font-mono font-bold" x-text="activeCreatorBoards.length"></span> boards across 20 runners (idx % 20).</div>
               </div>
             </label>
             <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaBoardScope === 'custom' ? 'bg-sky-50/50 dark:bg-sky-950/30 border-sky-500 text-sky-700 dark:text-sky-300 shadow-2xs font-bold' : 'border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400'">
               <input type="radio" value="custom" x-model="ghaBoardScope" class="mt-0.5 text-sky-600">
               <div>
                 <div class="text-xs font-bold">Select Specific Boards</div>
-                <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Pick target boards manually. Selected boards are split across shards.</div>
+                <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Pick target boards manually. Selected boards are split across runners.</div>
               </div>
             </label>
           </div>
@@ -1262,7 +1262,7 @@ export function getDashboardModalsHtml() {
         <button @click="isGhaCrawlerModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer">Cancel</button>
         <button @click="submitGhaCrawlerDispatch()" :disabled="isDispatchingGitHubCrawl || (ghaBoardScope === 'custom' && ghaTargetBoards.length === 0)" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-2 shadow-md shadow-sky-600/20 cursor-pointer">
           <i data-lucide="zap" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-          <span x-text="isDispatchingGitHubCrawl ? 'Launching 20 Shards...' : '🚀 Launch 20-Shard Crawler'"></span>
+          <span x-text="isDispatchingGitHubCrawl ? 'Launching 20 Runners...' : '🚀 Launch 20-Runner Crawler'"></span>
         </button>
       </div>
     </div>

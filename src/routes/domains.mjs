@@ -143,7 +143,6 @@ export async function handleDomainsRoutes(routeCtx) {
       const displacedLimit = Math.min(200, Math.max(30, Number(searchParams.get('displaced_limit') || 30)));
 
       const cacheKey = buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain, folderId, keywordId, displacedLimit });
-      const kvKey = `dossier:domain:${cleanDomain}${folderId ? `:${folderId}` : ''}${keywordId ? `:${keywordId}` : ''}${displacedLimit !== 30 ? `:${displacedLimit}` : ''}`;
 
       if (isForceRefresh) {
         if (typeof invalidateEdgeCache === 'function') {

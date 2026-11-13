@@ -1822,7 +1822,7 @@ export async function auditSweepCompetitor(sql, competitorIdOrUsername, options 
     }
   }
 
-  // 3. Monotonic healing ratchet sweep (Snapshots are managed exclusively on Storage Shards)
+  // 3. Monotonic healing ratchet sweep (Snapshots are managed exclusively in pins_daily_metrics on Unified PostgreSQL)
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
   auditReport.monotonic_dips_healed = 0;
 

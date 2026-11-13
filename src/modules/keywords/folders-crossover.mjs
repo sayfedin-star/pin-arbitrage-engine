@@ -457,7 +457,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
 
   // [INVARIANT: FOLDER-FORCE-REFRESH-COOLDOWN]
   // 15-second per-folder in-memory cooldown on forced ?refresh=true requests
-  // Rapid repeated requests within 15 seconds serve the freshly computed cache instead of launching parallel 20-shard DoS storms.
+  // Rapid repeated requests within 15 seconds serve the freshly computed cache instead of launching parallel 20-runner DoS storms.
   if (effectiveRefresh) {
     const lastRefresh = folderForceRefreshCooldown.get(fid);
     if (lastRefresh && (now - lastRefresh < FOLDER_FORCE_REFRESH_COOLDOWN_MS)) {
@@ -497,7 +497,6 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       }
       const hasUnhydrated = Boolean(result?._has_unhydrated_priority_pins);
       const memTtlMs = hasUnhydrated ? (15 * 1000) : CROSSOVER_TTL_MS;
-      const kvTtlSec = hasUnhydrated ? 60 : 86400;
 
       crossoverCache.set(fid, { timestamp: Date.now(), data: result, ttlMs: memTtlMs });
 
@@ -1045,26 +1044,6 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         }
       } catch (_) {}
     }
-
-    // Tier 3: Distributed 20-Physical-Shard Hydration (universal_master_pins)
-    // Strictly prioritize pins missing image_url (Vault pins) FIRST, then Super-Pins & high-velocity pins,
-    // so active pins with synthetic titles never starve displaced Vault Super-Pins out of the 350 sync budget!
-    const stillMissingAfterHub = missingMetaPins
-      .filter(p => {
-        const e = enrichedMap.get(p.pin_id);
-        const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
-        const hasImg = Boolean(p.image_url || (e && e.image_url));
-        return !hasTitle || !hasImg;
-      })
-      .sort((a, b) => {
-        const aMissingImg = !(a.image_url || enrichedMap.get(a.pin_id)?.image_url);
-        const bMissingImg = !(b.image_url || enrichedMap.get(b.pin_id)?.image_url);
-        if (aMissingImg !== bMissingImg) return bMissingImg ? 1 : -1;
-        if (Boolean(b.is_super_pin) !== Boolean(a.is_super_pin)) return b.is_super_pin ? 1 : -1;
-        if ((b.daily_save_velocity || 0) !== (a.daily_save_velocity || 0)) return (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0);
-        if ((b.overlap_count || 0) !== (a.overlap_count || 0)) return (b.overlap_count || 0) - (a.overlap_count || 0);
-        return (b.save_count || 0) - (a.save_count || 0);
-      });
 
     // [INVARIANT: PURE-UNIFIED-POSTGRES] Unified PostgreSQL SSOT serves universal_master_pins directly (legacy scatter-gather eradicated).
 

@@ -130,7 +130,10 @@ assert(
 );
 console.log('  ✓ [PASS] Edge-only re-crawl verified: autoDispatch requires explicit dispatch_workflow === true');
 
-const kwUiCode = fs.readFileSync(path.resolve('src/keywords-ui.mjs'), 'utf8');
+const kwUiCode = [
+  'src/keywords-ui.mjs',
+  ...fs.readdirSync(path.resolve('src/ui/keywords')).filter(f => f.endsWith('.mjs')).map(f => path.join('src/ui/keywords', f))
+].map(f => fs.readFileSync(path.resolve(f), 'utf8')).join('\n');
 const rescanMatch = kwUiCode.match(/async\s+rescanKeyword\s*\([\s\S]*?finally/);
 assert(rescanMatch, 'rescanKeyword method must exist');
 assert(

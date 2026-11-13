@@ -277,6 +277,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '058',
     name: 'phase4_ssot_compaction_and_cleanup',
     aliases: ['058', '058_phase4_ssot_compaction_and_cleanup', 'phase4_ssot_compaction_and_cleanup']
+  },
+  '059_add_trgm_index_domain_rollup.sql': {
+    version: '059',
+    name: 'add_trgm_index_domain_rollup',
+    aliases: ['059', '059_add_trgm_index_domain_rollup', 'add_trgm_index_domain_rollup']
   }
 };
 

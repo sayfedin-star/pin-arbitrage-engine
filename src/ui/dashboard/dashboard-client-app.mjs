@@ -490,7 +490,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         competitorBoardsList: [],
         isSyncingBoards: false,
 
-        // GitHub Actions 20-Shard Crawler & Board Sharding Modal State
+        // GitHub Actions 20-Runner Crawler & Board Partitioning Modal State
         isGhaCrawlerModalOpen: false,
         ghaTargetAccount: '',
         ghaCrawlMode: 'discovery',
@@ -4270,11 +4270,11 @@ ${getDashboardArchiveRulesMethods()}
               await this.syncCompetitor(handle);
             }
 
-            // 2. If discover pins immediately -> Dispatch to 20-Shard GitHub Actions Crawler
+            // 2. If discover pins immediately -> Dispatch to 20-Runner GitHub Actions Crawler
             if (this.newCompetitorDiscoverPins) {
               const crawlMode = this.newCompetitorDiscoverMode === 'deep' ? 'discovery' : 'refresh';
               const maxPages = this.newCompetitorDiscoverMode === 'deep' ? Math.min(10000, Math.max(1, Number(this.newCompetitorMaxPages) || 500)) : 3;
-              this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
+              this.showToast('⚡ Dispatching 20-runner GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
               
               const resPins = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/dispatch-crawl'), {
                 method: 'POST',
@@ -4288,7 +4288,7 @@ ${getDashboardArchiveRulesMethods()}
               });
               if (resPins.ok) {
                 const data = await resPins.json().catch(() => ({}));
-                this.showToast('🚀 ' + (data?.message || '20-Shard Crawler dispatched on GitHub Actions!'));
+                this.showToast('🚀 ' + (data?.message || '20-Runner Crawler dispatched on GitHub Actions!'));
               } else {
                 const errData = await resPins.json().catch(() => ({}));
                 this.showToast('⚠️ Crawler notice: ' + (errData?.error || resPins.statusText || 'Failed'));

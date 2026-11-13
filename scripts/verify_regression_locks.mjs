@@ -50,7 +50,7 @@ function listMjsFiles(relDir) {
   if (!fs.existsSync(dirPath)) return [];
   const results = [];
   for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
-    const rel = path.join(relDir, entry.name);
+    const rel = path.join(relDir, entry.name).replace(/\\/g, '/');
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'scratch') continue;
       results.push(...listMjsFiles(rel));
@@ -272,8 +272,15 @@ try {
   // LOCK 5: Breadcrumb & Untracked Creator Shield
   // =========================================================================
   console.log('\n[Lock 5] Verifying Context-Preserving Pin Navigation & Untracked Creator Shield...');
-  const campaignFoldersContent = readFile('src/campaign-folders-ui.mjs');
-  const dashboardContent = readFile('src/dashboard-ui.mjs');
+  const campaignFoldersContent = readFiles([
+    'src/campaign-folders-ui.mjs',
+    ...listMjsFiles('src/ui/folders')
+  ]);
+  const dashboardContent = readFiles([
+    'src/dashboard-ui.mjs',
+    ...listMjsFiles('src/ui/dashboard'),
+    'src/ui/dashboard-modals.mjs'
+  ]);
 
   // 5A. Pin links in campaign-folders-ui.mjs must contain folder_id query parameter
   const pinLinkLines = campaignFoldersContent.split('\n').filter(line => line.includes("'/pins/'") || line.includes('"/pins/"'));
@@ -530,7 +537,7 @@ try {
   );
 
   // 14E. Dashboard UI string creator handle fallback and windowed pagination
-  const dashboardUiContent = readFile('src/dashboard-ui.mjs');
+  const dashboardUiContent = dashboardContent;
   const hasDashboardUiGuards = (
     dashboardUiContent.includes('assignCreatorToFolder') &&
     dashboardUiContent.includes('cleanUsername') &&
@@ -540,7 +547,7 @@ try {
   check(
     'Lock 14',
     hasDashboardUiGuards,
-    'src/dashboard-ui.mjs is missing string creator handle resolution in assignCreatorToFolder or paginatedCompetitors'
+    'src/ui/dashboard/* is missing string creator handle resolution in assignCreatorToFolder or paginatedCompetitors'
   );
 
   // 14F. Zero Arabic character residue in dashboard modals

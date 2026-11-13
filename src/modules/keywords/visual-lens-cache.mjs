@@ -11,7 +11,6 @@
  */
 
 const inflightRequests = new Map();
-const VISUAL_KV_TTL_SECONDS = 7 * 24 * 60 * 60; // 604,800s (7 days)
 
 export async function getCachedVisualSearchMatches(sql, pinId, env = null) {
   const cleanPin = String(pinId || '').trim();
@@ -74,8 +73,6 @@ export async function purgeExpiredVisualCache(sql, batchLimit = 500) {
 export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays = 7, env = null, seedPin = null) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin || !Array.isArray(matches) || matches.length === 0) return false;
-
-  const ttlSeconds = Math.max(3600, Math.round(Number(ttlDays || 7) * 86400));
 
   // Write to Postgres
   if (!sql) return true;

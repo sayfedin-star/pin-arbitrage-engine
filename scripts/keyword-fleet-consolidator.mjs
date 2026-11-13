@@ -426,7 +426,7 @@ async function main() {
   }
 
   // 4. Automated Janitor GC: Clean orphan SERP positions for purged keywords in Unified PostgreSQL SSOT
-  const gcPurgedKeywords = await runShardJanitorGC();
+  const gcPurgedKeywords = await runKeywordJanitorGC();
   if (gcPurgedKeywords > 0) {
     mdReport += `\n> 🧹 **Automated Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords in Unified PostgreSQL SSOT.\n\n`;
   }
@@ -491,7 +491,7 @@ async function main() {
 }
 
 /**
- * Automated Shard Janitor Garbage Collection (Orphan SERP Positions GC)
+ * Automated Keyword Janitor Garbage Collection (Orphan SERP Positions GC)
  * Purges pin_serp_positions in Unified PostgreSQL SSOT for keywords tracked in keyword_tombstones.
  * 
  * Production Inquest Guarantees:
@@ -499,10 +499,10 @@ async function main() {
  * 2. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
  *    preserving their historical SERP rank trajectories intact for charts and analytics.
  * 3. Run-Once Semantics: Tombstones are atomically updated with shards_purged = TRUE and purged_at = NOW(),
- *    permanently eliminating repeating 99-shard broadcast storms on subsequent fleet runs.
+ *    permanently preventing repeated GC sweeps across subsequent fleet runs.
  */
-async function runShardJanitorGC() {
-  console.log('\n[*] Running Automated Shard Janitor GC...');
+async function runKeywordJanitorGC() {
+  console.log('\n[*] Running Automated Keyword Janitor GC...');
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS keyword_tombstones (
@@ -531,7 +531,7 @@ async function runShardJanitorGC() {
     `.catch(() => []);
 
     if (!pendingTombstones || pendingTombstones.length === 0) {
-      console.log('    [+] Shard Janitor GC: No pending tombstones found. Shard positions clean.');
+      console.log('    [+] Keyword Janitor GC: No pending tombstones found. Orphan SERP positions clean.');
       return 0;
     }
 
@@ -559,7 +559,7 @@ async function runShardJanitorGC() {
     console.log(`    [+] Janitor GC: Purged ${purgeIds.length} tombstone keywords and marked shards_purged = TRUE.`);
     return purgeIds.length;
   } catch (gcErr) {
-    console.warn('    [!] Shard Janitor GC non-fatal warning:', gcErr.message);
+    console.warn('    [!] Keyword Janitor GC non-fatal warning:', gcErr.message);
     return 0;
   }
 }
