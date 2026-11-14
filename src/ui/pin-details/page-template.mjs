@@ -30,15 +30,15 @@ export function getPinDetailsBodyHtml(safePinId) {
   ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'loadDossier(true)' })}
 
   <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
   <!-- Unified Top Sticky Command Bar (56px) -->
-  <header class="border-b border-[#27272A] bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs">
+  <header class="border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs">
     <!-- Left: Navigation & Context Breadcrumb -->
     <div class="flex items-center gap-3 min-w-0">
       <a 
         :href="getBackUrl()" 
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-xs font-semibold text-slate-300 hover:text-white transition shadow-2xs shrink-0"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition shadow-2xs shrink-0"
         :title="getBackButtonTitle()"
       >
         <span class="text-slate-400">←</span>
@@ -46,7 +46,7 @@ export function getPinDetailsBodyHtml(safePinId) {
       </a>
 
       <!-- Breadcrumbs Trail -->
-      <nav aria-label="Breadcrumb" class="hidden md:flex items-center gap-1.5 text-xs text-slate-400 min-w-0">
+      <nav aria-label="Breadcrumb" class="hidden md:flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
         <template x-if="isCreatorContext()">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
@@ -122,7 +122,7 @@ export function getPinDetailsBodyHtml(safePinId) {
 
     <!-- Center: Storage Topology Badge & Status Dot -->
     <div class="hidden lg:flex items-center gap-2">
-      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#27272A] bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-300">
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-700 dark:text-slate-300">
         <span class="w-2 h-2 rounded-full" :class="isDbBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
         <span>Native VPS PostgreSQL</span>
       </div>
@@ -176,7 +176,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         :href="'https://www.pinterest.com/pin/' + pinId + '/'" 
         target="_blank" 
         rel="noopener noreferrer" 
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white text-xs font-medium transition"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-medium transition"
         title="Open pin page on Pinterest in new tab"
       >
         <span>Open on Pinterest</span>
@@ -187,7 +187,7 @@ export function getPinDetailsBodyHtml(safePinId) {
       <button 
         type="button" 
         @click="toggleTheme()" 
-        class="p-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
+        class="p-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
         :title="isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
       >
         <svg x-show="isDark" class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
@@ -199,7 +199,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         type="button"
         @click="loadDossier(true)" 
         :disabled="loading"
-        class="p-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
+        class="p-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
         :title="'Reload dossier from Native VPS PostgreSQL'"
       >
         <svg :class="loading ? 'animate-spin' : ''" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -211,14 +211,14 @@ export function getPinDetailsBodyHtml(safePinId) {
   <div x-show="loading && !dossier" class="flex-1 flex items-center justify-center p-12" x-cloak>
     <div class="flex flex-col items-center gap-3 max-w-sm text-center">
       <div class="w-10 h-10 border-2 border-rose-600 border-t-transparent rounded-full animate-spin"></div>
-      <div class="text-sm font-semibold text-white">Resolving Universal Pin Dossier...</div>
-      <div class="text-xs text-slate-400 font-mono tabular-nums">Querying Native VPS PostgreSQL SSOT...</div>
+      <div class="text-sm font-semibold text-slate-900 dark:text-white">Resolving Universal Pin Dossier...</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">Querying Native VPS PostgreSQL SSOT...</div>
     </div>
   </div>
 
   <!-- Error State -->
   <div x-show="!loading && (!dossier || !dossier.success)" class="flex-1 flex items-center justify-center p-8" x-cloak>
-    <div class="bg-[#121215] border border-[#27272A] rounded-2xl max-w-md w-full p-8 text-center flex flex-col items-center gap-4 shadow-xl">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-8 text-center flex flex-col items-center gap-4 shadow-xl">
       <div 
         class="w-14 h-14 rounded-full flex items-center justify-center text-2xl border"
         :class="isDbBusy ? 'bg-amber-950/40 border-amber-800 text-amber-400' : 'bg-red-950/40 border-red-800 text-red-400'"
@@ -226,15 +226,15 @@ export function getPinDetailsBodyHtml(safePinId) {
         <span x-text="isDbBusy ? '⏳' : '⚠️'"></span>
       </div>
       <div>
-        <h2 class="text-base font-bold text-white" x-text="isDbBusy ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
-        <p class="text-xs text-slate-400 mt-1 leading-relaxed" x-text="isDbBusy ? 'The database is temporarily busy processing a heavy query. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
+        <h2 class="text-base font-bold text-slate-900 dark:text-white" x-text="isDbBusy ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed" x-text="isDbBusy ? 'The database is temporarily busy processing a heavy query. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
       </div>
       <div class="flex items-center gap-3 pt-2">
         <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer">
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
           <span x-text="isDbBusy ? 'Retry Fetch' : 'Try Force Refresh'"></span>
         </button>
-        <a href="/keywords" class="px-4 py-2 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs font-medium transition">
+        <a href="/keywords" class="px-4 py-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 text-xs font-medium transition">
           Return to Radar
         </a>
       </div>
@@ -250,7 +250,7 @@ export function getPinDetailsBodyHtml(safePinId) {
     <div class="w-full md:w-[300px] lg:w-[340px] max-w-sm mx-auto md:mx-0 shrink-0 space-y-4 md:sticky md:top-20 self-start">
       
       <!-- Creative Image Canvas with Natural Aspect Ratio Shield -->
-      <div class="rounded-xl border border-[#27272A] bg-[#121215] overflow-hidden shadow-sm flex flex-col">
+      <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-xs flex flex-col">
         <div class="relative w-full aspect-[2/3] max-h-[500px] overflow-hidden flex items-center justify-center" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)">
           <img 
             :src="resolveHdImageUrl(dossier?.creative?.image_hd_url || dossier?.creative?.image_url)" 
@@ -263,9 +263,9 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Clean Media Strip directly beneath the image -->
-        <div class="p-3 border-t border-[#27272A] bg-[#18181B] space-y-2">
+        <div class="p-3.5 border-t border-slate-200/90 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] space-y-2.5">
           <!-- 3-Tier HD Asset Download Action -->
-          <div class="pb-1.5 border-b border-[#27272A]">
+          <div class="pb-2 border-b border-slate-200/90 dark:border-[#27272A]">
             <button
               type="button"
               @click="downloadHdAsset(dossier?.creative?.image_url, pinId)"
@@ -310,8 +310,8 @@ export function getPinDetailsBodyHtml(safePinId) {
       </div>
 
       <!-- Structured Attribution & Provenance Ledger -->
-      <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3 shadow-xs text-xs">
-        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+      <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs text-xs">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#27272A] pb-2 flex items-center justify-between">
           <span>Provenance Ledger</span>
           <span class="text-slate-500">#<span x-text="pinId"></span></span>
         </div>
@@ -362,7 +362,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Board Name -->
-        <div class="flex items-start justify-between gap-2 border-t border-[#1E1E22] pt-2">
+        <div class="flex items-start justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
           <span class="text-slate-400 shrink-0">Board</span>
           <div class="text-right truncate">
             <template x-if="dossier?.pillar_1_creator_context?.board_name">
@@ -378,7 +378,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Outbound Domain & Destination Link -->
-        <div class="flex items-start justify-between gap-2 border-t border-[#1E1E22] pt-2">
+        <div class="flex items-start justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
           <span class="text-slate-400 shrink-0">Destination</span>
           <div class="text-right truncate max-w-[200px]">
             <template x-if="dossier?.creative?.domain">
@@ -414,13 +414,13 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Published Age (Strict Invariant 31 Formatting) -->
-        <div class="flex items-center justify-between gap-2 border-t border-[#1E1E22] pt-2">
+        <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
           <span class="text-slate-400 shrink-0">Published Age</span>
           <span class="font-mono tabular-nums font-bold text-slate-200" x-text="formatStrictUniversalAge()"></span>
         </div>
 
         <!-- Storage Topology -->
-        <div class="flex items-center justify-between gap-2 border-t border-[#1E1E22] pt-2">
+        <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
           <span class="text-slate-400 shrink-0">Storage Architecture</span>
           <span class="font-mono tabular-nums text-emerald-400 font-semibold">Native VPS PostgreSQL</span>
         </div>
@@ -431,7 +431,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <a 
             :href="'/api/keywords/visual-search?pin_id=' + encodeURIComponent(pinId)" 
             target="_blank" 
-            class="w-full py-2 px-3 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+            class="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
           >
             <span>Launch Related Radar</span>
             <span class="text-slate-500">↗</span>
@@ -447,7 +447,7 @@ export function getPinDetailsBodyHtml(safePinId) {
     <div class="flex-1 min-w-0 space-y-6">
 
       <!-- Executive Status & Creative Title Card -->
-      <div class="p-5 rounded-xl border border-[#27272A] bg-[#121215] space-y-4 shadow-xs">
+      <div class="p-5 sm:p-6 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-4 shadow-xs">
         
         <!-- Status Chips Header Ribbon -->
         <div class="flex items-center gap-2 flex-wrap text-xs">
@@ -516,7 +516,7 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- Creative Title & Description -->
         <div class="space-y-2">
-          <h1 class="text-xl sm:text-2xl font-black text-[#FAFAFA] leading-tight" x-text="dossier?.creative?.title || ('Pin #' + pinId)"></h1>
+          <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#FAFAFA] leading-tight" x-text="dossier?.creative?.title || ('Pin #' + pinId)"></h1>
           <template x-if="dossier?.creative?.description">
             <p class="text-sm text-slate-700 dark:text-zinc-200 leading-relaxed font-sans font-normal" x-text="dossier.creative.description"></p>
           </template>
@@ -524,18 +524,18 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- SEO Alt-Text Row -->
         <template x-if="dossier?.creative?.alt_text">
-          <div class="p-3.5 rounded-xl border border-[#27272A] bg-[#18181B]/80 flex items-start justify-between gap-3 text-xs">
+          <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#18181B]/80 flex items-start justify-between gap-3 text-xs">
             <div class="space-y-1 min-w-0">
               <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <i data-lucide="sparkles" class="w-3 h-3 text-rose-400"></i>
                 <span>Image Alt-Text (Accessibility & Image SEO)</span>
               </div>
-              <p class="text-slate-200 font-sans leading-relaxed text-xs select-all" x-text="dossier.creative.alt_text"></p>
+              <p class="text-slate-700 dark:text-slate-200 font-sans leading-relaxed text-xs select-all" x-text="dossier.creative.alt_text"></p>
             </div>
             <button 
               type="button" 
               @click="copyAltText()" 
-              class="px-2.5 py-1 rounded-md border border-[#27272A] bg-[#121215] hover:bg-[#27272A] text-slate-200 hover:text-white text-[11px] font-medium shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white text-[11px] font-medium shrink-0 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
             >
               <i data-lucide="copy" class="w-3 h-3"></i>
               <span>Copy</span>
@@ -549,7 +549,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live Active Vision Tags</span>
             <div class="flex items-center gap-1.5 flex-wrap">
               <template x-for="tag in activeLiveTags()" :key="tag.name">
-                <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-[#18181B] border border-[#27272A] text-slate-300" x-text="tag.name"></span>
+                <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300" x-text="tag.name"></span>
               </template>
             </div>
           </div>
@@ -561,7 +561,7 @@ export function getPinDetailsBodyHtml(safePinId) {
       <!-- ======================================================== -->
       <div class="grid grid-cols-2 sm:grid-cols-6 xl:grid-cols-5 gap-3">
         <!-- Cell 1: Total Saves -->
-        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Saves</span>
             <div class="p-1.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -569,7 +569,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-rose-100 transition-colors" x-text="formatNumber(dossier?.creative?.save_count || 0)"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-100 transition-colors" x-text="formatNumber(dossier?.creative?.save_count || 0)"></div>
             <div class="text-[11px] text-emerald-400 font-mono tabular-nums font-semibold mt-0.5">
               <span x-text="format24hSaveDelta()"></span>
             </div>
@@ -577,7 +577,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Cell 2: Save Velocity Engine (24h Live Delta vs Lifetime Amortized) [L-02 Resolved] -->
-        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-emerald-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Daily Velocity</span>
             <div class="p-1.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -594,7 +594,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
 
         <!-- Cell 3: Total Repins & Engagement -->
-        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
+        <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-indigo-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Repins</span>
             <div class="p-1.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -602,13 +602,13 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-indigo-100 transition-colors" x-text="formatNumber(dossier?.creative?.repin_count || 0)"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-100 transition-colors" x-text="formatNumber(dossier?.creative?.repin_count || 0)"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5" x-text="formatViralityRatio()"></div>
           </div>
         </div>
 
         <!-- Cell 4: SERP Footprint & Best Rank -->
-        <div class="col-span-1 sm:col-span-3 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
+        <div class="col-span-1 sm:col-span-3 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-amber-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Best SERP Rank</span>
             <div class="p-1.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -616,13 +616,13 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-amber-100 transition-colors" x-text="getBestRankDisplay()"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-100 transition-colors" x-text="getBestRankDisplay()"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="getSerpFootprintSummary()"></div>
           </div>
         </div>
 
         <!-- Cell 5: Total Engagement Score -->
-        <div class="col-span-2 sm:col-span-3 xl:col-span-1 p-4 rounded-xl border border-[#27272A] bg-[#121215] hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
+        <div class="col-span-2 sm:col-span-3 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-sky-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
           <div class="flex items-center justify-between text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Engagement</span>
             <div class="p-1.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20">
@@ -630,7 +630,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
           </div>
           <div class="mt-2">
-            <div class="text-2xl font-black font-mono tabular-nums text-white group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
+            <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-sky-600 dark:group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
             <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate">
               <span x-text="formatNumber(totalReactions())"></span> reactions, 
               <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
@@ -643,30 +643,30 @@ export function getPinDetailsBodyHtml(safePinId) {
       <!-- ======================================================== -->
       <!-- DUAL-AXIS SVG PERFORMANCE TRAJECTORY CHART [L-10 Fixed]  -->
       <!-- ======================================================== -->
-      <div class="p-5 rounded-xl border border-[#27272A] bg-[#121215] space-y-4 shadow-xs">
+      <div class="p-5 sm:p-6 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-4 shadow-xs">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Performance Trajectory</div>
+            <div class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-400">Performance Trajectory</div>
             <div class="text-[11px] text-slate-500 font-mono tabular-nums">Multi-day historical telemetry plotted from Native VPS PostgreSQL SSOT</div>
           </div>
 
           <!-- Timeframe & Metric Selector [NL-03 Resolved] -->
           <div class="flex items-center gap-2 flex-wrap">
-            <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
-              <button type="button" @click="chartMetric = 'saves'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'saves' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">Saves</button>
-              <button type="button" @click="chartMetric = 'velocity'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'velocity' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">Velocity</button>
+            <div class="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#18181B] text-[11px] font-mono">
+              <button type="button" @click="chartMetric = 'saves'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'saves' ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">Saves</button>
+              <button type="button" @click="chartMetric = 'velocity'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'velocity' ? 'bg-white dark:bg-[#27272A] text-emerald-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">Velocity</button>
             </div>
-            <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
-              <button type="button" @click="chartTimeframe = '7d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
-              <button type="button" @click="chartTimeframe = '15d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">15D</button>
-              <button type="button" @click="chartTimeframe = '30d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">30D</button>
-              <button type="button" @click="chartTimeframe = 'all'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">ALL</button>
+            <div class="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#18181B] text-[11px] font-mono">
+              <button type="button" @click="chartTimeframe = '7d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">7D</button>
+              <button type="button" @click="chartTimeframe = '15d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">15D</button>
+              <button type="button" @click="chartTimeframe = '30d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">30D</button>
+              <button type="button" @click="chartTimeframe = 'all'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">ALL</button>
             </div>
           </div>
         </div>
 
         <!-- Rendered Interactive SVG Canvas -->
-        <div class="relative w-full h-44 bg-[#18181B]/60 rounded-lg border border-[#27272A] p-2 flex items-center justify-center overflow-hidden">
+        <div class="relative w-full h-44 bg-slate-50/70 dark:bg-[#18181B]/60 rounded-xl border border-slate-200/80 dark:border-[#27272A] p-2 flex items-center justify-center overflow-hidden">
           <template x-if="computeChartPoints().length >= 2">
             <div class="relative w-full h-full">
               <svg class="w-full h-full" viewBox="0 0 800 180" preserveAspectRatio="none">
@@ -677,9 +677,9 @@ export function getPinDetailsBodyHtml(safePinId) {
                   </linearGradient>
                 </defs>
                 <!-- Horizontal Grid Lines -->
-                <line x1="40" y1="30" x2="760" y2="30" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
-                <line x1="40" y1="90" x2="760" y2="90" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
-                <line x1="40" y1="150" x2="760" y2="150" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
+                <line x1="40" y1="30" x2="760" y2="30" stroke="currentColor" class="text-slate-200 dark:text-[#27272A]" stroke-dasharray="4 4" stroke-width="1" />
+                <line x1="40" y1="90" x2="760" y2="90" stroke="currentColor" class="text-slate-200 dark:text-[#27272A]" stroke-dasharray="4 4" stroke-width="1" />
+                <line x1="40" y1="150" x2="760" y2="150" stroke="currentColor" class="text-slate-200 dark:text-[#27272A]" stroke-dasharray="4 4" stroke-width="1" />
 
                 <!-- Area Path -->
                 <path :d="buildSvgAreaPath()" fill="url(#chart-area-grad)" />
@@ -715,7 +715,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <!-- Hover Tooltip -->
           <template x-if="hoveredChartPoint">
             <div 
-              class="absolute z-20 pointer-events-none px-2.5 py-1.5 rounded-lg border border-[#27272A] bg-[#121215]/95 backdrop-blur-md shadow-xl text-xs font-mono space-y-0.5"
+              class="absolute z-20 pointer-events-none px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-md shadow-xl text-xs font-mono space-y-0.5"
               :style="'left: ' + Math.min(650, Math.max(10, (hoveredChartPoint.x / 800) * 100)) + '%; top: 12px;'"
             >
               <div class="text-slate-400 font-bold" x-text="hoveredChartPoint.snapshot?.snapshot_date"></div>
@@ -732,14 +732,14 @@ export function getPinDetailsBodyHtml(safePinId) {
       <div class="space-y-4">
         
         <!-- Tab Navigation Bar -->
-        <div class="border-b border-[#27272A] flex items-center justify-between gap-2 overflow-x-auto">
+        <div class="border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-2 overflow-x-auto">
           <div class="flex items-center gap-1">
             <!-- Tab 1: Chronological Daily Ledger -->
             <button 
               type="button" 
               @click="activeTab = 'ledger'" 
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
-              :class="activeTab === 'ledger' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
+              :class="activeTab === 'ledger' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
             >
               <svg class="w-3.5 h-3.5" :class="activeTab === 'ledger' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
               <span>Historical Snapshot Audit Log</span>
@@ -751,7 +751,7 @@ export function getPinDetailsBodyHtml(safePinId) {
               type="button" 
               @click="activeTab = 'rankings'" 
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
-              :class="activeTab === 'rankings' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
+              :class="activeTab === 'rankings' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
             >
               <svg class="w-3.5 h-3.5" :class="activeTab === 'rankings' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
               <span>Keyword SERP Rankings</span>
@@ -763,7 +763,7 @@ export function getPinDetailsBodyHtml(safePinId) {
               type="button" 
               @click="activeTab = 'forensics'" 
               class="px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0"
-              :class="activeTab === 'forensics' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'"
+              :class="activeTab === 'forensics' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
             >
               <svg class="w-3.5 h-3.5" :class="activeTab === 'forensics' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m17 6-2.5-2.5"/><path d="m14 8-1-1"/><path d="m7 18 2.5 2.5"/><path d="m3.5 14.5.5.5"/><path d="m20 9.5-.5-.5"/><path d="m6.5 12.5 1 1"/><path d="m16.5 10.5 1 1"/><path d="m10 16 1 1"/></svg>
               <span>Cross-Pillar Intelligence Suite</span>
@@ -777,7 +777,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         <div x-show="activeTab === 'ledger'" class="space-y-4">
           
           <!-- Ledger Controls Ribbon -->
-          <div class="p-3 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div class="p-3.5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-slate-400 font-medium">Daily Snapshots:</span>
               <span class="font-mono tabular-nums font-bold text-white">
@@ -795,7 +795,7 @@ export function getPinDetailsBodyHtml(safePinId) {
 
             <!-- Timeframe Selector Pill Bar & Keyword Filter -->
             <div class="flex items-center gap-3 flex-wrap">
-              <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
+              <div class="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#18181B] text-[11px] font-mono">
                 <button type="button" @click="chartTimeframe = '7d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
                 <button type="button" @click="chartTimeframe = '15d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">15D</button>
                 <button type="button" @click="chartTimeframe = '30d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">30D</button>
@@ -815,10 +815,10 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
 
           <!-- Chronological Daily Table -->
-          <div class="rounded-xl border border-[#27272A] bg-[#121215] overflow-hidden shadow-xs">
+          <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-xs">
             <table class="w-full text-left text-xs border-collapse">
               <thead>
-                <tr class="border-b border-[#27272A] bg-[#18181B] text-slate-400 font-mono text-[10.5px] uppercase tracking-wider">
+                <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-slate-500 dark:text-slate-400 font-mono text-[10.5px] uppercase tracking-wider">
                   <th class="py-3 px-4 w-10"></th>
                   <th class="py-3 px-4">Snapshot Date</th>
                   <th class="py-3 px-4 text-right">Total Saves</th>
@@ -829,8 +829,8 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </tr>
               </thead>
               <template x-for="(day, dIdx) in filteredDays()" :key="getDayRowKey(day)">
-                <tbody class="divide-y divide-[#27272A] border-b border-[#27272A]">
-                  <tr class="hover:bg-[#18181B]/80 transition group">
+                <tbody class="divide-y divide-slate-100 dark:divide-[#27272A] border-b border-slate-200 dark:border-[#27272A]">
+                  <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/80 transition group">
                     <!-- Expand chevron -->
                     <td class="py-3 px-4 text-center cursor-pointer" @click="toggleDayExpanded(getDayRowKey(day))">
                       <svg class="w-4 h-4 text-slate-500 group-hover:text-slate-200 transition-transform duration-200 inline-block" :class="isDayExpanded(getDayRowKey(day)) ? 'rotate-90 text-rose-400' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
@@ -839,7 +839,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                     <!-- Date & Crawl Time (YYYY-MM-DD HH:MM) -->
                     <td class="py-3 px-4 font-mono tabular-nums whitespace-nowrap cursor-pointer" @click="toggleDayExpanded(getDayRowKey(day))">
                       <div class="flex items-center gap-1.5">
-                        <span class="font-bold text-white" x-text="day.snapshot_date"></span>
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="day.snapshot_date"></span>
                         <template x-if="formatSnapshotTime(day)">
                           <span class="text-[10.5px] px-1.5 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-sky-400 font-mono" x-text="formatSnapshotTime(day)"></span>
                         </template>
@@ -854,7 +854,7 @@ export function getPinDetailsBodyHtml(safePinId) {
 
                     <!-- Total Saves & Sparkbar -->
                     <td class="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap">
-                      <div class="font-bold text-white" x-text="formatNumber(day.save_count || 0)"></div>
+                      <div class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(day.save_count || 0)"></div>
                       <div class="text-[10.5px] font-semibold"
                            :class="formatDayDelta(day, dIdx) === 'Hydrated Baseline' ? 'text-amber-400 font-mono text-[10px]' : (formatDayDelta(day, dIdx).startsWith('-') ? 'text-rose-400' : 'text-emerald-400')"
                            x-text="formatDayDelta(day, dIdx)"></div>
@@ -999,7 +999,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         <div x-show="activeTab === 'rankings'" class="space-y-4">
           
           <!-- Filter & Search Controls -->
-          <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
             <div class="flex items-center gap-2">
               <span class="text-slate-400 font-medium">Keywords Portfolio:</span>
               <span class="font-mono tabular-nums font-bold text-white" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
@@ -1016,10 +1016,10 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
 
           <!-- Keywords Table -->
-          <div class="rounded-xl border border-[#27272A] bg-[#121215] overflow-hidden shadow-xs">
+          <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-xs">
             <table class="w-full text-left text-xs">
               <thead>
-                <tr class="border-b border-[#27272A] bg-[#18181B] text-slate-400 font-mono text-[10.5px] uppercase tracking-wider">
+                <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-slate-500 dark:text-slate-400 font-mono text-[10.5px] uppercase tracking-wider">
                   <th class="py-3 px-4">Keyword</th>
                   <th class="py-3 px-4">Active Status</th>
                   <th class="py-3 px-4">Live / Displaced Rank</th>
@@ -1027,10 +1027,10 @@ export function getPinDetailsBodyHtml(safePinId) {
                   <th class="py-3 px-4 text-right">Radar Direct</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-[#27272A]">
+              <tbody class="divide-y divide-slate-100 dark:divide-[#27272A]">
                 <template x-for="kw in getFilteredKeywordsPortfolio()" :key="kw.keyword">
                   <tr class="hover:bg-[#18181B]/80 transition">
-                    <td class="py-3 px-4 font-semibold text-white">
+                    <td class="py-3 px-4 font-semibold text-slate-900 dark:text-white">
                       <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
                     </td>
                     <td class="py-3 px-4">
@@ -1065,7 +1065,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             <!-- Card 1: Creator & Origin Provenance -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>Creator & Origin Provenance</span>
                 <span class="text-emerald-400 text-[11px]">Pillar 1</span>
@@ -1097,7 +1097,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
 
             <!-- Card 2: Google & Search Indexing -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>Google & Search Indexing</span>
                 <span class="text-sky-400 text-[11px]">SEO Health</span>
@@ -1124,7 +1124,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   </div>
                 </template>
                 <template x-if="dossier?.algorithmic_intelligence?.seo_title">
-                  <div class="space-y-0.5 pt-1 border-t border-[#1E1E22]">
+                  <div class="space-y-0.5 pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                     <span class="text-slate-400 text-[10px] uppercase font-mono">SEO Title</span>
                     <p class="text-slate-300 font-medium leading-relaxed truncate" x-text="dossier.algorithmic_intelligence.seo_title"></p>
                   </div>
@@ -1139,7 +1139,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
 
             <!-- Card 3: SEO & Related Interests Taxonomy -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>SEO & Related Interests Taxonomy</span>
                 <span class="text-indigo-400 text-[11px]">Category Graph</span>
@@ -1164,7 +1164,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </div>
 
                 <!-- Related Interests Tags [NL-05 Resolved] -->
-                <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                   <span class="text-slate-400">Related Search Interests:</span>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <template x-if="dossier?.algorithmic_intelligence?.seo_related_interests?.length">
@@ -1183,7 +1183,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </div>
 
                 <!-- Board Pin Count -->
-                <div class="flex items-center justify-between pt-1 border-t border-[#1E1E22]">
+                <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                   <span class="text-slate-400">Board Total Pins</span>
                   <span class="font-mono tabular-nums text-slate-200" x-text="dossier?.algorithmic_intelligence?.board_pin_count || dossier?.algorithmic_intelligence?.board_metrics?.pin_count || '--'"></span>
                 </div>
@@ -1191,7 +1191,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
 
             <!-- Card 4: Visual AI Taxonomy & Entities -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>Visual AI Taxonomy & Entities</span>
                 <span class="text-amber-400 text-[11px]">Computer Vision</span>
@@ -1213,7 +1213,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                     </div>
                   </div>
                 </template>
-                <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                   <span class="text-slate-400">Identified Objects:</span>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <template x-if="dossier?.algorithmic_intelligence?.visual_objects?.length">
@@ -1230,7 +1230,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
 
             <!-- Card 5: Commercial Monetization, Affiliate & Outbound Link -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>Commercial Monetization & Arbitrage Link</span>
                 <span class="text-rose-400 text-[11px]">Revenue Engine</span>
@@ -1256,7 +1256,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   </div>
                 </template>
                 <template x-if="dossier?.algorithmic_intelligence?.tracked_link || dossier?.creative?.tracked_link">
-                  <div class="flex items-center justify-between gap-2 pt-1 border-t border-[#1E1E22]">
+                  <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                     <span class="text-slate-400 shrink-0">Affiliate Tracking URL</span>
                     <div class="flex items-center gap-1 truncate">
                       <span class="font-mono text-[11px] text-amber-300 truncate max-w-[180px]" x-text="dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link"></span>
@@ -1265,7 +1265,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   </div>
                 </template>
                 <template x-if="dossier?.algorithmic_intelligence?.affiliate_networks?.length">
-                  <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                  <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                     <span class="text-slate-400">Affiliate Networks:</span>
                     <div class="flex items-center gap-1.5 flex-wrap">
                       <template x-for="net in dossier.algorithmic_intelligence.affiliate_networks" :key="net">
@@ -1278,7 +1278,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
 
             <!-- Card 6: Audience Reactions & Engagement Breakdown -->
-            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+            <div class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] space-y-3.5 shadow-xs">
               <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
                 <span>Audience Reactions & Engagement</span>
                 <span class="text-pink-400 text-[11px]">Reactions Breakdown</span>
@@ -1289,7 +1289,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   <span class="font-mono tabular-nums font-bold text-white" x-text="formatNumber(dossier?.creative?.reaction_count || latestSnapshot()?.reaction_count || 0)"></span>
                 </div>
                 <!-- Reaction Types Breakdown Chips -->
-                <div class="grid grid-cols-5 gap-1 pt-1 border-t border-[#1E1E22] text-center">
+                <div class="grid grid-cols-5 gap-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22] text-center">
                   <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
                     <div class="text-sm">❤️</div>
                     <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('love')"></div>
@@ -1316,7 +1316,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                     <div class="text-[8px] text-slate-500 uppercase">Tried</div>
                   </div>
                 </div>
-                <div class="flex items-center justify-between pt-1 border-t border-[#1E1E22]">
+                <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-[#1E1E22]">
                   <span class="text-slate-400">Virality / Repin Ratio</span>
                   <span class="font-mono tabular-nums text-indigo-400 font-semibold" x-text="formatViralityRatio()"></span>
                 </div>
@@ -1326,7 +1326,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
 
           <!-- Card 7: Collapsible Raw JSON Forensic Inspector -->
-          <details class="p-4 rounded-xl border border-[#27272A] bg-[#121215] text-xs">
+          <details class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] text-xs shadow-xs">
             <summary class="font-bold text-slate-400 hover:text-white cursor-pointer select-none flex items-center gap-2">
               <svg class="w-4 h-4 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 2 4 4-4 4"/><circle cx="6" cy="18" r="4"/><circle cx="18" cy="18" r="4"/><path d="m14 14-8-8"/></svg>
               <span>Deep Forensic JSON Dossier (Raw Telemetry Blob)</span>
@@ -1337,7 +1337,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   Copy Raw JSON
                 </button>
               </div>
-              <pre class="p-4 rounded-lg bg-[#09090B] border border-[#27272A] text-slate-300 font-mono text-[11px] overflow-x-auto max-h-96" x-text="JSON.stringify(dossier, null, 2)"></pre>
+              <pre class="p-4 rounded-xl bg-slate-50 dark:bg-[#09090B] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-300 font-mono text-[11px] overflow-x-auto max-h-96" x-text="JSON.stringify(dossier, null, 2)"></pre>
             </div>
           </details>
         </div>
@@ -1353,19 +1353,19 @@ export function getPinDetailsBodyHtml(safePinId) {
   <!-- UNIFIED DELETE CONFIRMATION MODAL [L-06 Resolved]        -->
   <!-- ======================================================== -->
   <div x-show="deleteModalOpen" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
-    <div @click.away="deleteModalOpen = false" class="bg-[#121215] border border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4">
+    <div @click.away="deleteModalOpen = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4">
       <div class="flex items-center gap-3 text-red-500">
         <div class="w-9 h-9 rounded-xl bg-red-950/60 border border-red-800/80 flex items-center justify-center shrink-0">
           <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </div>
-        <h3 class="text-sm font-bold text-white">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">
           <span x-show="deleteType === 'DAY'">Confirm Delete Day</span>
           <span x-show="deleteType === 'SERP_BADGE'">Remove Keyword Rank</span>
           <span x-show="deleteType === 'SNAPSHOT'">Confirm Snapshot Deletion</span>
           <span x-show="deleteType === 'PIN'">Confirm Permanent Pin Purge</span>
         </h3>
       </div>
-      <p class="text-xs text-slate-300 leading-relaxed">
+      <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
         <template x-if="deleteType === 'DAY'">
           <span>Are you sure you want to permanently delete this snapshot for <strong class="text-white" x-text="itemToDelete?.date"></strong>? Subsequent snapshot deltas will be automatically recalculated.</span>
         </template>
@@ -1380,7 +1380,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         </template>
       </p>
       <div class="flex items-center justify-end gap-3 pt-2">
-        <button @click="deleteModalOpen = false" class="px-3.5 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs cursor-pointer">
+        <button @click="deleteModalOpen = false" class="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 text-xs cursor-pointer">
           Cancel
         </button>
         <button @click="confirmDelete()" :disabled="isDeleting" class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-xs cursor-pointer">

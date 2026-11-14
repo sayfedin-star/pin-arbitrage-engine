@@ -27,7 +27,7 @@ export function renderAppTopbar({
   <!-- Desktop Sticky Topbar (Light-Mode Bento Shell) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <header
     class="hidden md:flex sticky top-0 z-30 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-4 shadow-xs"
-    :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+    :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
     
     <!-- Left: Sidebar Toggle & ⌘K/⌘F Global Command Trigger -->
     <div class="flex items-center gap-3 min-w-0">
@@ -428,8 +428,8 @@ export function renderAppSidebar({
 
   <!-- Desktop Permanent Sidebar (<aside>) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <aside
-    class="w-64 lg:w-72 hidden md:flex fixed inset-y-0 left-0 z-40 bg-white dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
-    :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
+    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    :class="isSidebarCollapsed ? '!w-20' : 'w-64 lg:w-72'">
     
     <!-- Top Section: App Brand, Quick Actions, Grouped Navigation Links -->
     <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
@@ -729,11 +729,12 @@ export function renderAppSidebar({
       </nav>
     </div>
 
-    <!-- Bottom Footer Section: Auth Status, Theme Switcher, Refresh -->
+    <!-- Bottom Footer Section: Auth Status (TopBar is SSOT for theme/refresh when visible) -->
     <div class="border-t border-slate-200/80 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#09090B]/60 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
       ${renderFooterStatus(false)}
 
-      <!-- Theme Switcher & Refresh Buttons -->
+      ${!showTopbar ? `
+      <!-- Theme Switcher & Refresh Buttons (Fallback when Topbar is hidden) -->
       <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 items-center' : 'flex items-center justify-between pt-1'">
         <button
           type="button"
@@ -756,7 +757,7 @@ export function renderAppSidebar({
           aria-label="Refresh Data">
           <i data-lucide="rotate-cw"${loadingSpinAttr} class="w-4 h-4"></i>
         </button>
-      </div>
+      </div>` : ''}
     </div>
   </aside>
 

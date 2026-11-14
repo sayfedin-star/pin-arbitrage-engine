@@ -28,7 +28,7 @@ export function getDashboardOverviewHtml() {
 
         <!-- Quick Actions Header Bar -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-indigo-950/20 active:scale-95 cursor-pointer">
+          <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-rose-950/20 active:scale-95 cursor-pointer">
             <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
             <span>+ Track Creator</span>
           </button>
@@ -47,7 +47,7 @@ export function getDashboardOverviewHtml() {
       </div>
 
       <!-- Global 24-Hour Algorithmic Pulse & Crossover Command Banner [INVARIANT: 24H-PULSE-COMMAND-BANNER] -->
-      <div class="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-rose-950/20 via-purple-950/20 to-slate-900/40 border border-rose-500/30 dark:border-rose-500/20 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div class="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-rose-50/80 via-white to-slate-50 border border-rose-200/80 dark:from-rose-950/20 dark:via-purple-950/20 dark:to-slate-900/40 dark:border-rose-500/20 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div class="flex items-start sm:items-center space-x-3.5">
           <div class="h-11 w-11 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 text-white flex items-center justify-center shadow-md shadow-rose-900/30 shrink-0">
             <i data-lucide="activity" class="w-6 h-6"></i>

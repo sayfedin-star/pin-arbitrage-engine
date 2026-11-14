@@ -154,7 +154,7 @@ export function getPulsePageHtml(folderId = '') {
   ${renderAppSidebar({ activeNav: 'pulse', refreshHandler: 'refreshPulse(true)' })}
 
   <!-- Main Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
     ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'pulse', folderId: safeFolderId }) : ''}
 
@@ -2194,7 +2194,8 @@ export function getPulsePageHtml(folderId = '') {
 
         formatVelocity: function(vel) {
           var num = Number(vel || 0);
-          if (!isFinite(num) || num <= 0) return '0.0/d';
+          if (!isFinite(num) || num <= 0) return '0/d';
+          if (num >= 100) return Math.round(num).toLocaleString() + '/d';
           return num.toFixed(1) + '/d';
         },
 

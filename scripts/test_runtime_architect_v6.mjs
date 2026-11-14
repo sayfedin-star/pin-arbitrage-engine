@@ -77,8 +77,9 @@ async function runTests() {
   });
 
   console.log('\n[AXIS 2] Native Fastify Route Registry & Ingestion in src/server.mjs');
-  const appUnauth = createFastifyApp({ API_SECRET_KEY: 'secret123', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres' });
-  const appAuth = createFastifyApp({ API_SECRET_KEY: 'test-secret', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres' });
+  const mockSql = async () => [{ alive: 1 }];
+  const appUnauth = createFastifyApp({ API_SECRET_KEY: 'secret123', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres', SQL_CLIENT: mockSql });
+  const appAuth = createFastifyApp({ API_SECRET_KEY: 'test-secret', NODE_ENV: 'production', DATABASE_TOPOLOGY: 'unified_postgres', SQL_CLIENT: mockSql });
 
   test('GET /api/health Fastify route is registered', () => {
     assert(appAuth.hasRoute({ method: 'GET', url: '/api/health' }), 'GET /api/health must be registered');
