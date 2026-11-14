@@ -57,59 +57,8 @@ export function renderAppTopbar({
       </button>
     </div>
 
-    <!-- Right: Timeframe Selector (24h, 5d, 7d, 15d) & Global Shell Controls -->
-    <div class="flex items-center gap-2.5 shrink-0">
-      <!-- Bento Timeframe Selector Pill Bar [INVARIANT: TIMEFRAME-SELECTOR-PARITY] -->
-      <div
-        class="flex items-center p-0.5 rounded-xl bg-slate-100/80 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] shadow-2xs"
-        x-data="{
-          activeTf: (typeof selectedTimeWindow !== 'undefined' ? selectedTimeWindow : (typeof chartTimeframe !== 'undefined' ? chartTimeframe : ((typeof localStorage !== 'undefined' && localStorage.getItem('pae_timeframe')) || '24h'))),
-          setShellTf(tf) {
-            this.activeTf = tf;
-            if (typeof selectedTimeWindow !== 'undefined') { selectedTimeWindow = tf; }
-            if (typeof chartTimeframe !== 'undefined') {
-              chartTimeframe = tf;
-              if (typeof updateChartTimeframe === 'function') updateChartTimeframe(tf);
-            }
-            try {
-              if (typeof localStorage !== 'undefined') localStorage.setItem('pae_timeframe', tf);
-            } catch (_) {}
-            window.dispatchEvent(new CustomEvent('pae:timeframe-changed', { detail: { timeframe: tf } }));
-          }
-        }"
-        @pae:timeframe-changed.window="activeTf = $event.detail.timeframe">
-        <template x-for="tf in ['24h', '5d', '7d', '15d']" :key="tf">
-          <button
-            type="button"
-            @click="setShellTf(tf)"
-            :class="activeTf === tf ? 'bg-white dark:bg-[#27272A] text-rose-600 dark:text-rose-400 font-bold shadow-xs border border-slate-200/60 dark:border-transparent' : 'text-slate-500 dark:text-[#71717A] hover:text-slate-900 dark:hover:text-[#FAFAFA] border border-transparent'"
-            class="px-2.5 py-1 text-xs font-mono tabular-nums rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
-            :title="'Switch to ' + tf + ' analytics window'"
-            x-text="tf">
-          </button>
-        </template>
-      </div>
-
-      <!-- Quick Action: Track Creator CTA -->
-      ${isDashboardSpa ? `
-      <button
-        type="button"
-        @click="openAddCompetitorModal()"
-        class="hidden xl:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-        title="Track New Competitor Creator">
-        <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-        <span>Track</span>
-      </button>` : `
-      <a
-        href="/accounts?action=new"
-        class="hidden xl:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-        title="Track New Competitor Creator">
-        <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-        <span>Track</span>
-      </a>`}
-
-      <div class="h-4 w-px bg-slate-200 dark:bg-[#27272A] mx-0.5"></div>
-
+    <!-- Right: Global Shell Controls (Theme Switcher & Refresh) -->
+    <div class="flex items-center gap-2 shrink-0">
       <!-- Theme Switcher -->
       <button
         type="button"
@@ -287,39 +236,6 @@ export function renderAppSidebar({
         </button>
       </div>
 
-      <!-- Mobile Quick Actions -->
-      <div class="space-y-1.5">
-        ${isDashboardSpa ? `
-        <button type="button" @click="openAddCompetitorModal(); isMobileMenuOpen = false" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer">
-          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-          <span>+ Track Creator</span>
-        </button>
-        <div class="grid grid-cols-2 gap-1.5">
-          <button type="button" @click="openAddSeedModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer">
-            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
-            <span>Add Seeds</span>
-          </button>
-          <button type="button" @click="openCrawlModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer">
-            <i data-lucide="zap" class="w-3 h-3"></i>
-            <span>Crawl</span>
-          </button>
-        </div>` : `
-        <a href="/accounts?action=new" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-          <span>+ Track Creator</span>
-        </a>
-        <div class="grid grid-cols-2 gap-1.5">
-          <a href="/related-pins" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
-            <span>Add Seeds</span>
-          </a>
-          <a href="/" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-            <i data-lucide="zap" class="w-3 h-3"></i>
-            <span>Crawl</span>
-          </a>
-        </div>`}
-      </div>
-
       <!-- Mobile Navigation Links with Grouped Headers [INVARIANT: GROUPED-NAVIGATION] -->
       <nav class="space-y-4">
         <!-- Group 1: Executive -->
@@ -471,75 +387,6 @@ export function renderAppSidebar({
           <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
           <i x-show="isSidebarCollapsed" data-lucide="chevrons-right" class="w-4 h-4"></i>
         </button>
-      </div>
-
-      <!-- Quick Action Buttons -->
-      <div class="pt-1 transition-all duration-300" :class="isSidebarCollapsed ? 'space-y-2 flex flex-col items-center' : 'space-y-1.5'">
-        ${isDashboardSpa ? `
-        <button
-          type="button"
-          @click="openAddCompetitorModal()"
-          class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
-          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
-          title="Track Creator">
-          <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
-          <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
-        </button>
-
-        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
-          <button
-            type="button"
-            @click="openAddSeedModal()"
-            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
-            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
-            title="Add Seeds">
-            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
-            <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
-          </button>
-
-          <button
-            type="button"
-            @click="openCrawlModal()"
-            class="flex items-center justify-center rounded-xl transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
-            :class="[
-              isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-bold',
-              crawlStatus.is_crawling
-                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-                : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A]'
-            ]"
-            title="Crawl">
-            <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3 shrink-0"></i>
-            <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
-          </button>
-        </div>` : `
-        <a
-          href="/accounts?action=new"
-          class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
-          title="Track Creator">
-          <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
-          <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
-        </a>
-
-        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
-          <a
-            href="/related-pins"
-            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-medium'"
-            title="Add Seeds">
-            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
-            <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
-          </a>
-
-          <a
-            href="/"
-            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
-            title="Crawl">
-            <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
-            <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
-          </a>
-        </div>`}
       </div>
 
       <!-- Navigation Links (Desktop) with Grouped Headers [INVARIANT: GROUPED-NAVIGATION] -->

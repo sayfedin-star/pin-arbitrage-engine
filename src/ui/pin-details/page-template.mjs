@@ -120,14 +120,6 @@ export function getPinDetailsBodyHtml(safePinId) {
       </nav>
     </div>
 
-    <!-- Center: Storage Topology Badge & Status Dot -->
-    <div class="hidden lg:flex items-center gap-2">
-      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-700 dark:text-slate-300">
-        <span class="w-2 h-2 rounded-full" :class="isDbBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'"></span>
-        <span>Native VPS PostgreSQL</span>
-      </div>
-    </div>
-
     <!-- Right: Command Actions -->
     <div class="flex items-center gap-2 shrink-0">
       <!-- Silent Background Refresh Indicator -->
@@ -160,16 +152,6 @@ export function getPinDetailsBodyHtml(safePinId) {
         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         <span class="hidden sm:inline">Purge Pin</span>
       </button>
-
-      <!-- 24h Pulse Radar Quick Link -->
-      <a 
-        :href="originFolderId ? ('/folders/' + encodeURIComponent(originFolderId) + '/pulse') : '/pulse'" 
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold transition"
-        :title="originFolderId ? ('Open Folder #' + originFolderId + ' 24h Algorithmic Pulse Radar') : 'Open 24h Algorithmic Pulse & Crossover Radar'"
-      >
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        <span class="hidden sm:inline">24h Pulse Radar</span>
-      </a>
 
       <!-- Open External Pinterest -->
       <a 
@@ -417,12 +399,6 @@ export function getPinDetailsBodyHtml(safePinId) {
         <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
           <span class="text-slate-500 dark:text-slate-400 shrink-0">Published Age</span>
           <span class="font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200" x-text="formatStrictUniversalAge()"></span>
-        </div>
-
-        <!-- Storage Topology -->
-        <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
-          <span class="text-slate-500 dark:text-slate-400 shrink-0">Storage Architecture</span>
-          <span class="font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold">Native VPS PostgreSQL</span>
         </div>
 
         <!-- Cross-Pillar Radar Action -->
