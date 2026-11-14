@@ -1,19 +1,20 @@
 /**
  * src/ui/campaign-workspace-header.mjs
  * 
- * Canonical Shared Campaign Workspace Header Component
+ * Canonical Shared Campaign Workspace Header Component (Light-Mode Bento)
  * Single Source of Truth (SSOT) for Campaign Workspace header navigation across:
  * - Room 1: /folders/:id (Crossover & Super-Pins)
  * - Room 2: /folders/:id/keywords (Scoped Keywords Fleet)
  * - Room 3: /folders/:id/creators (Scoped Creator Hub)
  * - Room 4: /folders/:id/domains (Scoped Domain Studio)
+ * - Room 5: /folders/:id/settings (Settings & Pruning)
  * 
  * [INVARIANT: CAMPAIGN-WORKSPACE-HEADER-PARITY]
  * [INVARIANT: DESIGN-TOKEN-PARITY]
  */
 
 export function renderCampaignWorkspaceHeader({
-  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'settings'
+  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'settings' | 'pulse' | '24h'
   folderId = '',
   folder = null
 } = {}) {
@@ -24,10 +25,10 @@ export function renderCampaignWorkspaceHeader({
   const folderColor = folder?.color || '#E11D48';
   const folderDate = folder?.created_at ? new Date(folder.created_at).toLocaleDateString() : '';
 
-  // Room active tab indicator classes - Unified DESIGN.md Tokens (Eliminating Rainbow Tabs)
+  // Room active tab indicator classes - Light-Mode Bento Tokens
   const tabBase = 'flex items-center gap-2 px-4 py-2.5 text-xs font-medium transition-all border-b-2 pointer-events-auto relative z-10 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500';
   const tabInactive = `${tabBase} border-transparent text-slate-500 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] hover:border-slate-300 dark:hover:border-[#27272A]`;
-  const tabActive = `${tabBase} border-rose-600 text-rose-600 dark:text-rose-400 dark:border-rose-500 bg-rose-50/50 dark:bg-rose-950/20 font-semibold`;
+  const tabActive = `${tabBase} border-rose-600 text-rose-600 dark:text-rose-400 dark:border-rose-500 bg-rose-50/80 dark:bg-rose-950/20 font-semibold`;
 
   const isCrossover = activeRoom === 'crossover' || activeRoom === 'pulse' || activeRoom === '24h';
   const isKeywords = activeRoom === 'keywords';
@@ -56,7 +57,7 @@ export function renderCampaignWorkspaceHeader({
     <div class="p-5 rounded-t-2xl border-b border-slate-100 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-4">
       <div class="flex items-center gap-3.5">
         <!-- Back to All Folders Link -->
-        <a href="/folders" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-800 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Back to All Campaign Folders">
+        <a href="/folders" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer" title="Back to All Campaign Folders">
           <i data-lucide="arrow-left" class="w-4 h-4"></i>
         </a>
 
@@ -98,8 +99,8 @@ export function renderCampaignWorkspaceHeader({
                 </div>
                 <template x-for="f in (typeof foldersList !== 'undefined' && foldersList && foldersList.length ? foldersList : ((typeof folders !== 'undefined' && folders && folders.length) ? folders : ((typeof allFolders !== 'undefined' && allFolders) ? allFolders : [])))" :key="f.id">
                   <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isPulse ? "'/pulse'" : (isSettings ? "'/settings'" : "''"))))})"
-                     class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors"
-                     :class="(f.id == '${cleanFolderId}') ? 'bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
+                     class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors cursor-pointer"
+                     :class="(f.id == '${cleanFolderId}') ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
                     <div class="flex items-center gap-2 truncate">
                       <span x-text="f.icon && f.icon !== 'folder' && f.icon.length <= 4 ? f.icon : '📁'"></span>
                       <span class="truncate" x-text="f.name"></span>

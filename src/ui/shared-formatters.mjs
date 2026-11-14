@@ -179,6 +179,20 @@ export function formatDate(date) {
 }
 
 /**
+ * Format Timeframe code to human-readable label
+ * @param {string|null|undefined} tf
+ * @returns {string}
+ */
+export function formatTimeframe(tf) {
+  const t = String(tf || '').trim().toLowerCase();
+  if (t === '24h') return '24 Hours';
+  if (t === '5d') return '5 Days';
+  if (t === '7d') return '7 Days';
+  if (t === '15d') return '15 Days';
+  return tf || '24h';
+}
+
+/**
  * Safe URL sanitizer (prevents javascript: protocols)
  * @param {string|null|undefined} url
  * @returns {string}
@@ -284,6 +298,15 @@ export function getInlineFormattersScript() {
         return 'bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]';
       };
 
+      var formatTimeframe = function(tf) {
+        var t = String(tf || '').trim().toLowerCase();
+        if (t === '24h') return '24 Hours';
+        if (t === '5d') return '5 Days';
+        if (t === '7d') return '7 Days';
+        if (t === '15d') return '15 Days';
+        return tf || '24h';
+      };
+
       var safeUrl = function(url) {
         if (!url || typeof url !== 'string') return '#';
         var t = url.trim();
@@ -299,6 +322,7 @@ export function getInlineFormattersScript() {
         formatPercent: formatPercent,
         formatPinMethod: formatPinMethod,
         getPinMethodBadgeClass: getPinMethodBadgeClass,
+        formatTimeframe: formatTimeframe,
         safeUrl: safeUrl
       };
 
@@ -310,6 +334,7 @@ export function getInlineFormattersScript() {
       if (!window.formatPercent) window.formatPercent = formatPercent;
       if (!window.formatPinMethod) window.formatPinMethod = formatPinMethod;
       if (!window.getPinMethodBadgeClass) window.getPinMethodBadgeClass = getPinMethodBadgeClass;
+      if (!window.formatTimeframe) window.formatTimeframe = formatTimeframe;
       if (!window.safeUrl) window.safeUrl = safeUrl;
     })();
   <\\/script>
