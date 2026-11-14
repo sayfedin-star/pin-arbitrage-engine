@@ -557,7 +557,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!ghToken) {
       return jsonResponse({
         success: false,
-        error: 'GITHUB_TOKEN secret is not configured in Cloudflare Workers settings. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
+        error: 'GITHUB_TOKEN secret is not configured in server environment. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
       }, 400);
     }
     const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
@@ -574,7 +574,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
           method: 'POST',
           headers: {
-            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'User-Agent': 'PAE-Fastify-Engine',
             'Accept': 'application/vnd.github.v3+json',
             'Authorization': authHeader,
             'Content-Type': 'application/json'
@@ -705,7 +705,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!ghToken) {
       return jsonResponse({
         success: false,
-        error: 'GITHUB_TOKEN secret is not configured in Cloudflare Workers settings. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
+        error: 'GITHUB_TOKEN secret is not configured in server environment. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
       }, 400);
     }
     const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
@@ -714,7 +714,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+        'User-Agent': 'PAE-Fastify-Engine',
         'Accept': 'application/vnd.github.v3+json',
         'Authorization': authHeader,
         'Content-Type': 'application/json'

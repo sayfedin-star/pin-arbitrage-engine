@@ -45,43 +45,6 @@ function buildFastifyHeaders(rawHeaders = {}) {
   return webHeaders;
 }
 
-function buildNativeRequestAdapter(request, fullUrl, method, webHeaders) {
-  const preParsedBody = request.body;
-  return {
-    url: fullUrl,
-    method,
-    headers: webHeaders,
-    async json() {
-      if (preParsedBody === undefined || preParsedBody === null) return {};
-      if (typeof preParsedBody === 'string') {
-        return preParsedBody ? JSON.parse(preParsedBody) : {};
-      }
-      if (Buffer.isBuffer(preParsedBody)) {
-        const text = preParsedBody.toString('utf8');
-        return text ? JSON.parse(text) : {};
-      }
-      return preParsedBody;
-    },
-    async text() {
-      if (preParsedBody === undefined || preParsedBody === null) return '';
-      if (typeof preParsedBody === 'string') return preParsedBody;
-      if (Buffer.isBuffer(preParsedBody)) return preParsedBody.toString('utf8');
-      return JSON.stringify(preParsedBody);
-    }
-  };
-}
-
-async function sendWebResponseViaFastify(reply, webResponse) {
-  reply.code(webResponse.status);
-  webResponse.headers.forEach((val, key) => {
-    reply.header(key, val);
-  });
-  if (webResponse.status === 204 || !webResponse.body) {
-    return reply.send();
-  }
-  const buf = Buffer.from(await webResponse.arrayBuffer());
-  return reply.send(buf);
-}
 
 /**
  * Registers native Fastify API dispatch across all domain sub-routers.
@@ -102,18 +65,52 @@ export async function apiRoutesPlugin(app, options = {}) {
     const dynamicCors = getCorsHeaders(requestOrigin, env, fullUrl);
 
     if (method === 'OPTIONS') {
-      const optRes = corsOptionsResponse(requestOrigin, env, 'GET, POST, PUT, PATCH, DELETE, OPTIONS', fullUrl);
-      return sendWebResponseViaFastify(reply, optRes);
+      reply.code(204);
+      for (const [k, v] of Object.entries(dynamicCors)) {
+        reply.header(k, v);
+      }
+      reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      reply.header('Access-Control-Max-Age', '86400');
+      return reply.send();
     }
 
-    const reqAdapter = buildNativeRequestAdapter(request, fullUrl, method, webHeaders);
+    if (typeof request.headers.get !== 'function') {
+      request.headers.get = (name) => {
+        const val = request.headers[String(name).toLowerCase()];
+        return val !== undefined ? String(val) : null;
+      };
+    }
+    if (typeof request.json !== 'function') {
+      request.json = async () => {
+        if (request.body === undefined || request.body === null) return {};
+        if (typeof request.body === 'string') {
+          return request.body ? JSON.parse(request.body) : {};
+        }
+        if (Buffer.isBuffer(request.body)) {
+          const text = request.body.toString('utf8');
+          return text ? JSON.parse(text) : {};
+        }
+        return request.body;
+      };
+    }
+    if (typeof request.text !== 'function') {
+      request.text = async () => {
+        if (request.body === undefined || request.body === null) return '';
+        if (typeof request.body === 'string') return request.body;
+        if (Buffer.isBuffer(request.body)) return request.body.toString('utf8');
+        return JSON.stringify(request.body);
+      };
+    }
+    request.fullUrl = fullUrl;
+
     const outerStore = requestContextStorage.getStore();
     const externalCustomCtx = outerStore?.customCtx && outerStore.customCtx !== ctx ? outerStore.customCtx : null;
     const effectiveCtx = externalCustomCtx || ctx;
 
-    const webResponse = await requestContextStorage.run(
+    const routeResult = await requestContextStorage.run(
       {
-        request: reqAdapter,
+        request,
+        reply,
         env,
         ctx: effectiveCtx,
         customCtx: externalCustomCtx,
@@ -144,9 +141,13 @@ export async function apiRoutesPlugin(app, options = {}) {
           const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
           const isSensitiveEndpoint = pathname === '/api/cache/invalidate' || pathname.startsWith('/api/crawl/dispatch');
           if (isMutatingMethod || isSensitiveEndpoint) {
-            const auth = verifyApiAuthentication(reqAdapter, env);
+            const auth = verifyApiAuthentication(request, env);
             if (!auth.authorized) {
-              if (auth.response) return auth.response;
+              if (auth.response) {
+                reply.code(auth.response.status);
+                auth.response.headers.forEach((val, key) => reply.header(key, val));
+                return reply.send(await auth.response.text());
+              }
               return jsonResponse({
                 success: false,
                 error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
@@ -232,7 +233,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             if (method !== 'POST') {
               return methodNotAllowedResponse('POST, OPTIONS');
             }
-            const body = await reqAdapter.json().catch(() => ({}));
+            const body = await request.json().catch(() => ({}));
             invalidateFolderCache();
             await invalidateEdgeCache();
             await invalidateGlobalPulseCache(env, ctx).catch(() => {});
@@ -272,7 +273,8 @@ export async function apiRoutesPlugin(app, options = {}) {
             const clusterRes = await handleClusterRoutes({
               pathname,
               method,
-              request: reqAdapter,
+              request,
+              reply,
               searchParams,
               env,
               ctx,
@@ -293,7 +295,8 @@ export async function apiRoutesPlugin(app, options = {}) {
             const creatorsRes = await handleCreatorsRoutes({
               pathname,
               method,
-              request: reqAdapter,
+              request,
+              reply,
               searchParams,
               env,
               ctx,
@@ -314,7 +317,8 @@ export async function apiRoutesPlugin(app, options = {}) {
             const keywordsRes = await handleKeywordsRoutes({
               pathname,
               method,
-              request: reqAdapter,
+              request,
+              reply,
               searchParams,
               env,
               ctx,
@@ -337,7 +341,8 @@ export async function apiRoutesPlugin(app, options = {}) {
             const pinsRes = await handlePinsRoutes({
               pathname,
               method,
-              request: reqAdapter,
+              request,
+              reply,
               searchParams,
               env,
               ctx,
@@ -359,7 +364,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               pathname,
               method,
-              request: reqAdapter,
+              request,
+              reply,
               searchParams,
               sql,
               ctx,
@@ -405,7 +411,27 @@ export async function apiRoutesPlugin(app, options = {}) {
       }
     );
 
-    return sendWebResponseViaFastify(reply, webResponse);
+    if (reply.sent) {
+      return reply;
+    }
+    if (routeResult instanceof Response || (routeResult && typeof routeResult === 'object' && 'status' in routeResult && routeResult.headers)) {
+      reply.code(routeResult.status);
+      routeResult.headers.forEach((val, key) => {
+        reply.header(key, val);
+      });
+      if (routeResult.status === 204 || (!routeResult._payload && !routeResult.body)) {
+        return reply.send();
+      }
+      if (routeResult._payload !== undefined) {
+        return reply.send(routeResult._payload);
+      }
+      const text = await routeResult.text();
+      return reply.send(text);
+    }
+    if (routeResult !== undefined) {
+      return reply.code(200).header('Content-Type', 'application/json; charset=utf-8').send(routeResult);
+    }
+    return reply.send();
   }
 
   // Register explicit domain prefixes cleanly inside Fastify's native route tree

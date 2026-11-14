@@ -2,7 +2,7 @@
  * Pure HTTP Security, Context, Caching & Response Utilities
  *
  * Framework-agnostic primitives shared across Fastify routes, plugins,
- * and services (extracted during Phase 1 Worker-to-Fastify unification).
+ * and services.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -32,8 +32,7 @@ export function redactSecrets(str) {
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
     .replace(/(_pinterest_sess=)[^;\s"']+/gi, '$1[REDACTED_COOKIE]')
-    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]')
-    .replace(/ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.neon\.tech/gi, '[REDACTED_NEON_HOST]');
+    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]');
 }
 
 // Normalized Path Resolver (Resolves traversal %2e%2e, removes duplicate/trailing slashes)
@@ -299,7 +298,62 @@ export function verifyApiAuthentication(request, env = {}) {
   };
 }
 
-export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
+export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, customCors = null) {
+  const responsePayload = data;
+
+  // Enforce uniform JSON error schema for HTTP 4xx and 5xx
+  if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
+    if (responsePayload.success === undefined) {
+      responsePayload.success = false;
+    }
+    if (!responsePayload.error) {
+      responsePayload.error = status === 400 ? 'BAD_REQUEST'
+        : status === 401 ? 'UNAUTHORIZED'
+        : status === 403 ? 'FORBIDDEN'
+        : status === 404 ? 'NOT_FOUND'
+        : status === 405 ? 'METHOD_NOT_ALLOWED'
+        : status === 413 ? 'PAYLOAD_TOO_LARGE'
+        : status === 503 ? 'SERVICE_UNAVAILABLE'
+        : 'INTERNAL_SERVER_ERROR';
+    }
+  }
+
+  // Automatically sanitize any error payloads before sending over the wire
+  if (responsePayload && typeof responsePayload === 'object') {
+    if (typeof responsePayload.error === 'string') responsePayload.error = redactSecrets(responsePayload.error);
+    if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
+  }
+
+  const store = requestContextStorage.getStore();
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  reply.code(status);
+  reply.header('Content-Type', 'application/json; charset=utf-8');
+  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+  reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  if (customCors) {
+    for (const [k, v] of Object.entries(customCors)) {
+      reply.header(k, v);
+    }
+  }
+
+  if (cacheSeconds > 0) {
+    reply.header('Cache-Control', `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`);
+  }
+
+  return reply.send(responsePayload);
+}
+
+export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null, reply = null) {
+  if (reply && typeof reply.send === 'function' && !reply.sent) {
+    return sendJsonResponse(reply, data, status, cacheSeconds, customCors);
+  }
+
   const responsePayload = data;
 
   // Enforce uniform JSON error schema for HTTP 4xx and 5xx
@@ -342,15 +396,36 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }
-  return new Response(JSON.stringify(responsePayload), {
+  const res = new Response(JSON.stringify(responsePayload), {
     status,
     headers
   });
+  res._payload = responsePayload;
+  return res;
 }
 
-export function methodNotAllowedResponse(allow, customCors = null) {
+export function methodNotAllowedResponse(allow, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
+  const effectiveReply = reply || store?.reply;
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    effectiveReply.code(405);
+    effectiveReply.header('Content-Type', 'application/json; charset=utf-8');
+    effectiveReply.header('Allow', allow);
+    effectiveReply.header('Access-Control-Allow-Origin', resolvedOrigin);
+    effectiveReply.header('Access-Control-Allow-Methods', allow);
+    effectiveReply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+    effectiveReply.header('X-Content-Type-Options', 'nosniff');
+    effectiveReply.header('X-Frame-Options', 'DENY');
+    effectiveReply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return effectiveReply.send({
+      success: false,
+      error: 'METHOD_NOT_ALLOWED',
+      message: `HTTP method not allowed. Allowed methods: ${allow}`
+    });
+  }
+
   return new Response(JSON.stringify({
     success: false,
     error: 'METHOD_NOT_ALLOWED',

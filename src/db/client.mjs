@@ -7,6 +7,8 @@ import postgres from 'postgres';
 
 let sharedClient = null;
 let sharedDsn = null;
+let activeQueryCount = 0;
+let totalQueryCount = 0;
 
 const PG_TRANSIENT_CONNECTION_CODES = new Set([
   '53300', '53400', '08006', '08001', '08003', '08004', '57P01', '57P02', '57P03',
@@ -137,7 +139,15 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
   });
 
   if (origBegin) {
-    pgClient.begin = async (...args) => withDbRetry(() => origBegin(...args), retryOptions);
+    pgClient.begin = async (...args) => {
+      activeQueryCount++;
+      totalQueryCount++;
+      try {
+        return await withDbRetry(() => origBegin(...args), retryOptions);
+      } finally {
+        activeQueryCount = Math.max(0, activeQueryCount - 1);
+      }
+    };
   }
 
   if (origUnsafe) {
@@ -206,6 +216,8 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
 
   const executeWithRetry = () => {
     if (!settledPromise) {
+      activeQueryCount++;
+      totalQueryCount++;
       settledPromise = (async () => {
         try {
           return await new Promise((resolve, reject) => {
@@ -243,6 +255,8 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
             maxRetries: Math.max(0, maxRetries - 1),
             baseDelayMs: Math.min(maxDelayMs, baseDelayMs * 2)
           });
+        } finally {
+          activeQueryCount = Math.max(0, activeQueryCount - 1);
         }
       })();
     }
@@ -298,10 +312,9 @@ export function createSqlClient(dsn, options = {}) {
     connection: {
       ...(options.connection || {}),
       statement_timeout: Number(options.connection?.statement_timeout ?? defaultStatementTimeoutMs),
-      idle_in_transaction_session_timeout: Number(options.connection?.idle_in_transaction_session_timeout ?? 10000),
-      max_parallel_workers_per_gather: 0
+      idle_in_transaction_session_timeout: Number(options.connection?.idle_in_transaction_session_timeout ?? 10000)
     },
-    prepare: false,
+    prepare: true,
     transform: {
       undefined: null
     },
@@ -350,4 +363,52 @@ export function getSqlClient(env = null) {
   sharedDsn = dsn;
   return sharedClient;
 }
+
+/**
+ * Returns real-time connection pool and query telemetry metrics.
+ *
+ * @param {Function} [client] - Optional postgres client instance
+ * @returns {{ active: number, idle: number, max: number, total_executed: number }}
+ */
+export function getPoolStats(client = null) {
+  const targetClient = client || sharedClient;
+  if (!targetClient) {
+    return { active: 0, idle: 0, max: 0, total_executed: totalQueryCount };
+  }
+  const max = targetClient.options?.max ?? Number(process.env.PG_POOL_MAX || 15);
+  const active = activeQueryCount;
+  const idle = Math.max(0, max - active);
+  return {
+    active,
+    idle,
+    max,
+    total_executed: totalQueryCount
+  };
+}
+
+/**
+ * Gracefully drains the shared PostgreSQL connection pool.
+ *
+ * @param {object} [options]
+ * @param {number} [options.timeout=5] - Seconds before timing out connection draining
+ * @returns {Promise<void>}
+ */
+export async function drainSqlClient({ timeout = 5 } = {}) {
+  if (sharedClient) {
+    const client = sharedClient;
+    sharedClient = null;
+    sharedDsn = null;
+    if (typeof client.end === 'function') {
+      await client.end({ timeout });
+    }
+  }
+}
+
+/**
+ * Global process-level sql client instance (or null if DATABASE_URL is not set).
+ */
+export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL)
+  ? getSqlClient()
+  : null;
+
 
