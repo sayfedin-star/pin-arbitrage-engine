@@ -220,6 +220,42 @@ export function isMultiStageHydrationJump(prev, curr) {
 }
 
 /**
+ * Hydration jump detector specifically for repin telemetry.
+ * Flags 0 -> >= 10 repin jumps and skeleton-to-lifetime jumps where repins spike >= 4x
+ * (or <100 -> >=500) while saves remain relatively flat.
+ */
+export function isRepinHydrationJump(prev, curr) {
+  if (!prev || !curr) return false;
+  const pRepins = typeof prev === 'number' ? prev : Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0);
+  const cRepins = typeof curr === 'number' ? curr : Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0);
+  const pSaves = typeof prev === 'object' ? Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0) : 0;
+  const cSaves = typeof curr === 'object' ? Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0) : 0;
+
+  if (!Number.isFinite(pRepins) || !Number.isFinite(cRepins)) return false;
+
+  const rawRepinDelta = Math.max(0, cRepins - pRepins);
+  if (rawRepinDelta === 0) return false;
+
+  if (typeof prev === 'object' && typeof curr === 'object' && isMultiStageHydrationJump(prev, curr)) {
+    return true;
+  }
+
+  // 1. Unhydrated 0-repin baseline jumping to >= 10 repins
+  if (pRepins <= 0 && cRepins >= 10) return true;
+
+  // 2. Skeleton-to-lifetime repin hydration jump (e.g., 48 -> 2248 while saves move minimally)
+  const rawSaveDelta = Math.max(0, cSaves - pSaves);
+  if (pRepins > 0 && cRepins >= pRepins * 4 && rawRepinDelta >= 200 && rawSaveDelta < rawRepinDelta * 0.15) {
+    return true;
+  }
+  if (pRepins > 0 && pRepins < 100 && cRepins >= 500 && rawSaveDelta < rawRepinDelta * 0.25) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * In-memory trajectory sanitizer for Pin Dossier payloads.
  * Preserves authentic historical save counts and computes clean daily save velocity:
  * MAX(0, (curr_saves - prev_saves) / days_diff)
@@ -336,7 +372,14 @@ export function sanitizeDossierTrajectory(dossier) {
   if (Array.isArray(dossier.snapshots)) dossier.snapshots = desc;
   if (dossier.creative && desc[0]) {
     dossier.creative.save_count = Number(dossier.creative.save_count || desc[0].save_count || 0);
-    dossier.creative.daily_save_velocity = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? dossier.creative.daily_save_velocity ?? 0);
+    const trajVel = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? 0);
+    const creativeFallbackVel = Number(dossier.creative.daily_save_velocity || 0);
+    const creativeSaves = Number(dossier.creative.save_count || 0);
+    if (chrono.length === 1 && trajVel === 0 && creativeFallbackVel > 0 && (creativeSaves <= 0 || creativeFallbackVel < creativeSaves)) {
+      dossier.creative.daily_save_velocity = creativeFallbackVel;
+    } else {
+      dossier.creative.daily_save_velocity = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? dossier.creative.daily_save_velocity ?? 0);
+    }
   }
   return dossier;
 }

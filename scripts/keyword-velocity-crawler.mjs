@@ -722,10 +722,8 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         delta_repins_24h = CASE
-          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
           WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
-          ELSE ksc.delta_repins_24h
+          ELSE COALESCE(ksc.delta_repins_24h, 0)
         END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
@@ -879,10 +877,8 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         delta_repins_24h = CASE
-          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
           WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
-          ELSE ksc.delta_repins_24h
+          ELSE COALESCE(ksc.delta_repins_24h, 0)
         END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
@@ -1040,10 +1036,8 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         delta_repins_24h = CASE
-          WHEN (ksc.crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(ksc.delta_repins_24h, 0), COALESCE(u.delta_repins_24h, 0))
           WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
-          ELSE ksc.delta_repins_24h
+          ELSE COALESCE(ksc.delta_repins_24h, 0)
         END,
         gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ksc.gains_5d END,
         gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ksc.gains_7d END,
@@ -1559,7 +1553,8 @@ async function run() {
         } finally {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
           try {
-            await sql`
+            const barrierSql = sql?.noRetry || sql;
+            await withDbRetry(() => barrierSql`
               UPDATE tracked_keywords
               SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
                   updated_at = NOW(),
@@ -1567,7 +1562,7 @@ async function run() {
                   crawl_lease_until = NULL
               WHERE id = ${kid}
                 AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-            `;
+            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
           } catch (barrierErr) {
             console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
           }
@@ -1591,16 +1586,24 @@ async function run() {
       console.log(`[Phase 1A] Barrier Sync: Waiting for peer runners to complete parallel SERP ingestion (token: ${folderRunToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 150000;
+      const barrierPollSql = sql?.noRetry || sql;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
-        const [pendingRow] = await sql`
-          SELECT COUNT(*)::int as pending
-          FROM keyword_folder_items kfi
-          JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
-          WHERE kfi.folder_id = ${fid}
-            AND tk.is_active = TRUE
-            AND (tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${folderRunToken};
-        `;
-        const pendingCount = Number(pendingRow?.pending || 0);
+        let pendingCount = 0;
+        try {
+          const [pendingRow] = await withDbRetry(() => barrierPollSql`
+            SELECT COUNT(*)::int as pending
+            FROM keyword_folder_items kfi
+            JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
+            WHERE kfi.folder_id = ${fid}
+              AND tk.is_active = TRUE
+              AND (tk.metadata->>'phase1a_completed_token') IS DISTINCT FROM ${folderRunToken};
+          `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+          pendingCount = Number(pendingRow?.pending || 0);
+        } catch (pollErr) {
+          console.warn(`  [Phase 1A Sync] Transient barrier poll warning: ${pollErr?.message || pollErr}`);
+          await sleep(2500);
+          continue;
+        }
         if (pendingCount === 0) {
           console.log(`[Phase 1A] Barrier Sync cleared: 100% of cluster keywords ingested in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
@@ -1863,7 +1866,8 @@ async function run() {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers
           let barrierUpdated = false;
           try {
-            await sql`
+            const barrierSql = sql?.noRetry || sql;
+            await withDbRetry(() => barrierSql`
               UPDATE tracked_keywords
               SET 
                 metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
@@ -1872,7 +1876,7 @@ async function run() {
                 crawl_lease_until = NULL
               WHERE id = ${kwRow.id}
                 AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-            `;
+            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             barrierUpdated = true;
           } catch (barrierErr) {
             console.warn(`[Worker 0] ⚠️ Phase 1A barrier token update failed: ${barrierErr?.message || barrierErr}`);
@@ -1889,13 +1893,22 @@ async function run() {
         let barrierCleared = false;
         const BARRIER_TIMEOUT_MS = 150000;
         const barrierDeadline = Date.now() + BARRIER_TIMEOUT_MS;
+        const barrierPollSql = sql?.noRetry || sql;
 
         while (Date.now() < barrierDeadline) {
-          const [kwCheck] = await sql`
-            SELECT metadata->>'phase1a_completed_token' AS barrier_token
-            FROM tracked_keywords
-            WHERE id = ${kwRow.id}
-          `;
+          let kwCheck = null;
+          try {
+            const rows = await withDbRetry(() => barrierPollSql`
+              SELECT metadata->>'phase1a_completed_token' AS barrier_token
+              FROM tracked_keywords
+              WHERE id = ${kwRow.id}
+            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+            kwCheck = rows?.[0] || null;
+          } catch (pollErr) {
+            console.warn(`[Worker ${workerIndex}] Transient barrier poll warning: ${pollErr?.message || pollErr}`);
+            await sleep(1500);
+            continue;
+          }
 
           if (kwCheck && kwCheck.barrier_token === runToken) {
             barrierCleared = true;
@@ -2132,7 +2145,8 @@ async function run() {
           } finally {
             // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so a failed keyword or clock skew never blocks the 20-worker barrier
             try {
-              await sql`
+              const barrierSql = sql?.noRetry || sql;
+              await withDbRetry(() => barrierSql`
                 UPDATE tracked_keywords
                 SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
                     updated_at = NOW(),
@@ -2140,7 +2154,7 @@ async function run() {
                     crawl_lease_until = NULL
                 WHERE id = ${kid}
                   AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
-              `;
+              `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             } catch (barrierErr) {
               console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
             }
@@ -2163,15 +2177,23 @@ async function run() {
       console.log(`[Phase 1A] Barrier Sync: Waiting for peer workers to complete SERP ingestion across ${allFleetKeywordIds.length} keywords (token: ${fleetRunToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 150000;
+      const barrierPollSql = sql?.noRetry || sql;
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
-        const [pendingRow] = await sql`
-          SELECT COUNT(*)::int AS pending
-          FROM tracked_keywords
-          WHERE id = ANY(${allFleetKeywordIds})
-            AND is_active = TRUE
-            AND (metadata->>'phase1a_completed_token') IS DISTINCT FROM ${fleetRunToken};
-        `;
-        const pendingCount = Number(pendingRow?.pending || 0);
+        let pendingCount = 0;
+        try {
+          const [pendingRow] = await withDbRetry(() => barrierPollSql`
+            SELECT COUNT(*)::int AS pending
+            FROM tracked_keywords
+            WHERE id = ANY(${allFleetKeywordIds})
+              AND is_active = TRUE
+              AND (metadata->>'phase1a_completed_token') IS DISTINCT FROM ${fleetRunToken};
+          `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+          pendingCount = Number(pendingRow?.pending || 0);
+        } catch (pollErr) {
+          console.warn(`  [Phase 1A Sync] Transient barrier poll warning: ${pollErr?.message || pollErr}`);
+          await sleep(1200);
+          continue;
+        }
         if (pendingCount === 0) {
           console.log(`[Phase 1A] Barrier Sync cleared in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;

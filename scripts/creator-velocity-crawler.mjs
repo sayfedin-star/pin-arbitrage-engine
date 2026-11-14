@@ -26,7 +26,7 @@
  */
 
 // [INVARIANT: UNIFIED-POSTGRES-CLIENT]
-import { createSqlClient } from '../src/db/client.mjs';
+import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import {
   syncCompetitorProfile,
@@ -54,7 +54,7 @@ import {
   fetchPinFromPinterest
 } from './lib/pinterest.mjs';
 import { formatPinterestCookie, sanitizeForJsonb } from '../src/utils.mjs';
-import { calculateDailyVelocity } from '../src/lib/math.mjs';
+import { calculateDailyVelocity, isRepinHydrationJump } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
@@ -81,6 +81,14 @@ if (!DATABASE_URL) {
 }
 
 const sql = createSqlClient(DATABASE_URL);
+async function closeCrawlerDb(exitCode = 0) {
+  try {
+    if (sql && typeof sql.end === 'function') {
+      await sql.end({ timeout: 2 });
+    }
+  } catch (_) {}
+  process.exit(exitCode);
+}
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -161,10 +169,11 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
 
   let totalCommitted = 0;
   const cleanMetrics = sanitizeForJsonb(sortedMetrics);
+  const dbSql = hubSql?.noRetry || hubSql;
   for (let i = 0; i < cleanMetrics.length; i += 500) {
     const chunk = cleanMetrics.slice(i, i + 500);
     const jsonPayload = JSON.stringify(chunk);
-    await hubSql`
+    await withDbRetry(() => dbSql`
       INSERT INTO pins_daily_metrics (
         pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
       )
@@ -190,7 +199,7 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
         reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
         daily_save_velocity = EXCLUDED.daily_save_velocity,
         updated_at = NOW();
-    `;
+    `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
     totalCommitted += chunk.length;
   }
   return totalCommitted;
@@ -262,6 +271,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
       share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
       reaction_count: Math.max(0, Number(reactionCount || 0)),
       daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
+      delta_repins_24h: p.delta_repins_24h != null ? Math.max(0, Number(p.delta_repins_24h)) : (p.delta_repins != null ? Math.max(0, Number(p.delta_repins)) : 0),
       is_product: Boolean(richMeta.is_product),
       is_video: Boolean(richMeta.is_video),
       creation_method: richMeta.creation_method || null,
@@ -272,26 +282,27 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     };
   });
 
+  const dbSql = hubSql?.noRetry || hubSql;
   for (let i = 0; i < cleanPins.length; i += 500) {
     const chunk = cleanPins.slice(i, i + 500);
     const payload = JSON.stringify(chunk);
-    await hubSql`
+    await withDbRetry(() => dbSql`
       INSERT INTO universal_master_pins (
         pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
+        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, delta_repins_24h,
         is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
         first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
       )
       SELECT DISTINCT ON (x.pin_id)
         x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
         COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
-        COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric,
+        COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric, COALESCE(x.delta_repins_24h, 0)::int,
         COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
         x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
         'creator_hub', NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${payload}::jsonb) AS x(
         pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
-        save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC,
+        save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC, delta_repins_24h INT,
         is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
       )
       ORDER BY x.pin_id ASC
@@ -317,6 +328,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
           WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
           ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
         END,
+        delta_repins_24h = EXCLUDED.delta_repins_24h,
         is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
         is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
         creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
@@ -326,7 +338,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
         updated_at = NOW(),
         last_scraped_at = NOW();
-    `;
+    `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
     totalSynced += chunk.length;
   }
   return totalSynced;
@@ -724,7 +736,11 @@ async function run() {
           const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
           const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
-          const deltaRepins = Math.max(0, freshRepins - prevRepins);
+          const isRepinJump = isRepinHydrationJump(
+            { save_count: prevSaves, repin_count: prevRepins },
+            { save_count: freshSaves, repin_count: freshRepins }
+          );
+          const deltaRepins = isRepinJump ? 0 : Math.max(0, freshRepins - prevRepins);
 
           const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
             ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -769,7 +785,8 @@ async function run() {
             comments: freshComments,
             share_count: freshShares,
             reactions: fresh.reactions || {},
-            velocity: velocity
+            velocity: velocity,
+            delta_repins_24h: deltaRepins
           });
 
           refreshedCount++;
@@ -784,7 +801,8 @@ async function run() {
       const jsonPayload = JSON.stringify(cleanRefreshed);
 
       // 1. Commit active telemetry to competitor_pins on Central Hub
-      await sql`
+      const commitSql = sql?.noRetry || sql;
+      await withDbRetry(() => commitSql`
         UPDATE competitor_pins AS cp
         SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
             repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
@@ -807,7 +825,7 @@ async function run() {
         )
         WHERE cp.competitor_id = ${targetId}
           AND cp.pin_id = x.pin_id;
-      `;
+      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 
       // 2. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
@@ -845,7 +863,7 @@ async function run() {
       } catch (_) {}
     }
 
-    process.exit(0);
+    await closeCrawlerDb(0);
 
   } else {
     // =========================================================================
@@ -879,7 +897,7 @@ async function run() {
 
     if (myAccountIds.length === 0 && accountIdsInput.length === 0) {
       console.log('[!] No active creators to sweep. Exiting cleanly.');
-      process.exit(0);
+      await closeCrawlerDb(0);
     }
 
     console.log(`[Phase 1] Assigned ${myAccountIds.length} creator accounts to Worker #${workerIndex + 1}/${workerTotal}...`);
@@ -1482,7 +1500,11 @@ async function run() {
             const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
             const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
-            const deltaRepins = Math.max(0, freshRepins - prevRepins);
+            const isRepinJump = isRepinHydrationJump(
+              { save_count: prevSaves, repin_count: prevRepins },
+              { save_count: freshSaves, repin_count: freshRepins }
+            );
+            const deltaRepins = isRepinJump ? 0 : Math.max(0, freshRepins - prevRepins);
 
             const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
               ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -1527,7 +1549,8 @@ async function run() {
               comments: freshComments,
               share_count: freshShares,
               reactions: fresh.reactions || {},
-              velocity: velocity
+              velocity: velocity,
+              delta_repins_24h: deltaRepins
             });
 
             refreshedWinningCount++;
@@ -1542,8 +1565,9 @@ async function run() {
       const cleanRefreshed = sanitizeForJsonb(sorted);
       const jsonPayload = JSON.stringify(cleanRefreshed);
 
+      const commitSql = sql?.noRetry || sql;
       // 1. Atomic batch commit to pa_pins on Hub
-      await sql`
+      await withDbRetry(() => commitSql`
         UPDATE pa_pins AS p
         SET saves = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(p.saves, 0) END,
             repins = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(p.repins, 0) END,
@@ -1560,10 +1584,10 @@ async function run() {
           velocity NUMERIC
         )
         WHERE p.pin_id = x.pin_id;
-      `;
+      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 
       // 2. Atomic batch commit to competitor_pins on Hub
-      await sql`
+      await withDbRetry(() => commitSql`
         UPDATE competitor_pins AS cp
         SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
             repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
@@ -1584,7 +1608,7 @@ async function run() {
           velocity NUMERIC
         )
         WHERE cp.pin_id = x.pin_id;
-      `;
+      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 
       // 3. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
@@ -1611,11 +1635,11 @@ async function run() {
       } catch (_) {}
     }
 
-    process.exit(0);
+    await closeCrawlerDb(0);
   }
 }
 
-run().catch(err => {
+run().catch(async err => {
   console.error('[-] Fatal Worker Error:', err);
-  process.exit(1);
+  await closeCrawlerDb(1);
 });

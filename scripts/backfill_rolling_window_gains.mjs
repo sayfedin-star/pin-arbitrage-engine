@@ -15,8 +15,8 @@
  * and persists them into keyword_serp_current & keyword_displaced_index.
  */
 
-import { createSqlClient } from '../src/db/client.mjs';
-import { isMultiStageHydrationJump } from '../src/lib/math.mjs';
+import { createSqlClient, isTransientPgConnectionError } from '../src/db/client.mjs';
+import { isMultiStageHydrationJump, isRepinHydrationJump } from '../src/lib/math.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,14 +116,13 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
     const prevSaves = Number(sorted[1].save_count || 0);
     const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
     const isJump = isMultiStageHydrationJump(sorted[1], latest);
+    const isRepinJump = isJump || isRepinHydrationJump(sorted[1], latest);
 
     if (prevSaves > 0 && currentSaves > prevSaves && !isJump && daysDiff <= 7) {
       daily_save_velocity = Math.round(((currentSaves - prevSaves) / daysDiff) * 10) / 10;
     }
 
-    if (prevRepins <= 0 && currentRepins >= 10) {
-      delta_repins_24h = 0;
-    } else if (isJump) {
+    if (isRepinJump) {
       delta_repins_24h = 0;
     } else if (daysDiff > 7) {
       delta_repins_24h = 0;
@@ -244,7 +243,7 @@ async function main() {
           return await queryFn();
         } catch (err) {
           lastErr = err;
-          const isTransient = /ECONNRESET|ECONNREFUSED|CONNECTION_CLOSED|ETIMEDOUT|timeout/i.test(
+          const isTransient = isTransientPgConnectionError(err) || /ECONNRESET|ECONNREFUSED|CONNECTION_CLOSED|ETIMEDOUT|timeout/i.test(
             `${err.code || ''} ${err.message || ''}`
           );
           if (attempt < maxAttempts && isTransient) {
@@ -337,6 +336,14 @@ async function main() {
               AND (
                 (COALESCE(gains_7d, 0) = 0 AND save_count > 0)
                 OR updated_at < NOW() - INTERVAL '24 hours'
+              )
+            UNION
+            SELECT pin_id
+            FROM universal_master_pins
+            WHERE pin_id IS NOT NULL AND pin_id <> ''
+              AND (
+                COALESCE(delta_repins_24h, 0) > 0
+                OR COALESCE(daily_save_velocity, 0) > 0
               )
           ) sub
           LIMIT 5000;

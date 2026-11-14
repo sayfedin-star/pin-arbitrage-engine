@@ -1,0 +1,380 @@
+Analyzed SKILL.md:L1-371
+Analyzed SKILL.md:L1-75
+Checked swarm status
+Analyzed SKILL.md:L1-117
+Titled swarm "Forensic Deep Audit across 8 Architectural Axes"
+Spawned worker @remnants
+Spawned worker @database
+Spawned worker @shims
+Spawned worker @security
+Spawned worker @monitor
+
+تم إطلاق سرب التدقيق الجنائي المعماري (**Forensic Audit Swarm**) المتخصص تحت عنوان **"Forensic Deep Audit across 8 Architectural Axes"**، وتم توزيع المحاور الثمانية بالكامل على 4 مهندسين جنائيين متخصصين يعملون بالتوازي وبوضع القراءة الصارمة (Read-Only) مع مرصد آلي لمنع أي تعليق:
+
+1. **`@remnants` (المحوران 1 و 2):**
+   - تعقب بقايا Cloudflare و Neon و D1 و KV و Shards و Hyperdrive عبر الكود بالكامل، وفحص `workers/wake-shield`.
+   - التدقيق السطري في سكريبتات `fleet` (`scripts/*fleet*.mjs`) ومسارات GitHub Actions (`.github/workflows/*.yml`) لفحص ما إذا كانت تقسيم عمل منطقي أم محاكاة شاردز ميتة.
+
+2. **`@database` (المحوران 3 و 5):**
+   - تتبع مسارات الإدخال والكتابة في PostgreSQL، والتحقق الصارم من انعدام ازدواجية الكتابة لحقول `description` و `alt_text` وضمان مرجعية `universal_master_pins`.
+   - فحص الوقاية من `SQLSTATE 21000`، وحماية `null`، ومنع قفزات التضخم (`hydration jump`).
+   - مطابقة سلاسل الترحيل من `001` إلى `058` ومقارنتها مع `KNOWN_TABLE_COLUMNS` وفحص أداء الاستعلامات والـ Views/Rollups.
+
+3. **`@shims` (المحوران 4 و 7):**
+   - فحص الطبقات التوافقية والكود الميت (`shared-formatters`, `pinterest-client`, ازدواجية مسارات creators/competitors، وسكريبتات الإصلاح القديمة).
+   - تدقيق واجهات المستخدم (UI/SSR) لرصد أي إشارات أو أزرار قديمة، ومراجعة حزمة الاختبارات (`scripts/test_*` و `tests/*`) وتحديد المتوافق منها والمتقادم.
+
+4. **`@security` (المحوران 6 و 8):**
+   - مراجعة منظومة الحماية والمصادقة وتدقيق `security-and-response.mjs`، وحماية مسارات `POST/PUT/DELETE/PATCH` و `/api/internal/*`.
+   - فحص SSRF، وعزل الكوكيز وفرض `_auth=0`، ومنع تسريب الأسرار وحقن CSV / XSS.
+   - فحص البنية التحتية والنشر (`instabox-boot-sync.sh`، `migrate.mjs`، `ci.yml`، `package.json` وتعارض المنافذ).
+
+5. **`@monitor`:** مراقبة تقدم السرب والتدخل الفوري عند أي توقف أو اختناق.
+
+يجري الآن تجميع التقارير الجنائية المدعومة بالأدلة السطرية الدقيقة لإعداد التقرير التشخيصي الشامل والخريطة الحقيقية للمستودع وخطة التنظيف المقترحة.
+
+[Open the Swarm UI](sidecar://swarm/swarm_board/?auto_open=false)
+
+Read 1 message from board (#6)
+Checked swarm status (Forensic Deep Audit across 8 Architectural Axes)
+Waiting for @mentions after #6
+Read 1 message from board (#7)
+Checked swarm status (Forensic Deep Audit across 8 Architectural Axes)
+Waiting for @mentions after #7
+Read 1 message from board (#8)
+Checked swarm status (Forensic Deep Audit across 8 Architectural Axes)
+Waiting for @mentions after #8
+Read 1 message from board (#9)
+Posted #10 to board
+Ran run npm run check
+Ran run verify_regression_locks.mjs · Exited with code 1
+Analyzed verify_regression_locks.mjs:L175-205
+Ran run audit_ui.mjs
+Ran run npm run test:offline · Exited with code 1
+Analyzed test_phase2_refactor_contracts.mjs:L200-239
+Analyzed test_phase2_refactor_contracts.mjs:L175-200
+Analyzed server.mjs:L1-100
+Analyzed server.mjs:L430-500
+Analyzed security-and-response.mjs:L145-180
+Analyzed security-and-response.mjs:L180-250
+
+# تقرير التدقيق الجنائي المعماري الشامل (Forensic Deep Audit Report)
+**المشروع:** `pin-arbitrage-engine` (PAE)  
+**الدور:** كبير مهندسي البرمجيات والمعمارية الجنائية (Principal Software Architect & Forensic Auditor)  
+**المرجع المعماري:** معمارية قاعدة البيانات الموحدة المستقلة (Unified Single-DB SSOT PostgreSQL on VPS + Fastify Native Server)  
+**منهجية الفحص:** تدقيق مزدوج (Top-Down & Bottom-Up) عبر سرب تدقيق متعدد المحاور (Swarm Audit) بقراءة الكود الفعلي سطراً بسطر دون أي افتراضات مسبقة.
+
+---
+
+## 1. الخريطة الحقيقية الحالية للمستودع (Current Ground Truth & Request/Data Flow)
+
+بعد الفحص المباشر لكامل بنية المستودع ومساراته البرمجية، هذه هي المعمارية التي تعمل **فعلياً** على أرض الواقع:
+
+```mermaid
+flowchart TD
+    Client["متصفح المستخدم / المستهلك"]
+    Edge["Cloudflare Edge (workers/wake-shield)<br/>app.hymum.com / PIN Gate + Auto-Wake"]
+    Fastify["VPS Native Fastify Server (src/server.mjs)<br/>Port: 3000 / HOST: 0.0.0.0"]
+    ApiRoutes["Fastify API Plugin (src/plugins/api-routes.mjs)<br/>Routes: /api/folders, /api/creators, /api/pins..."]
+    SSR["SSR Dynamic UI Importers (src/routes/pages.mjs)<br/>Executive, Creators, Keywords, Domains, Details"]
+    Modules["Domain Modules (src/modules/*)<br/>pins, creators, keywords, domains, pulse"]
+    Queue["In-Memory Task Queue (AsyncTaskQueue)<br/>p-limit(4) for non-blocking ingestion"]
+    Postgres["PostgreSQL 16 Unified Database (InstaBox VPS)<br/>Client: src/db/client.mjs (postgres library)"]
+    GHA["GitHub Actions Matrix Runners (20 Runners)<br/>Batch & Partitioning via CF Access Tunnel"]
+
+    Client --> Edge
+    Edge -->|Proxy HTTPS| Fastify
+    Fastify --> ApiRoutes
+    Fastify --> SSR
+    ApiRoutes --> Modules
+    Modules --> Queue
+    Modules -->|SQL Queries| Postgres
+    Queue -->|Async Writes| Postgres
+    GHA -->|Batch Workloads / PG_POOL_MAX: 2| Postgres
+```
+
+### تدفق البيانات والعمليات (Execution Flow):
+1. **بيئة الخادم:** خادم Node.js أصلي مبني على **Fastify** ([`src/server.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs)) يتولى إدارة الطلبات وتأمينها عبر [`src/http/security-and-response.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/http/security-and-response.mjs) وتوجيهها عبر البلوجن المركزي [`src/plugins/api-routes.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/plugins/api-routes.mjs).
+2. **قاعدة البيانات:** اتصال مباشر بقاعدة بيانات **PostgreSQL موحدة (Single-DB)** تعمل على خادم الـ VPS عبر حزمة `postgres` ([`src/db/client.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/db/client.mjs))، مع حوض اتصالات مضبوط بـ `PG_POOL_MAX`، دون وجود أي شاردات مادية منفصلة.
+3. **الزواحف ومصفوفات العمل (Crawlers & Workflows):** تعمل عبر GitHub Actions Workflows بمصفوفات توازي (Matrix Runners). وهي **ليست شاردات قاعدة بيانات**، بل تقسيم لجهد الزحف الحسابي عبر الويب، وتتصل بقاعدة البيانات الموحدة عبر نفق مشفر مع حوض اتصالات مقيّد (`PG_POOL_MAX: 2`) لتجنب إرهاق الخادم.
+4. **بوابة الواجهة الأمامية:** [`workers/wake-shield`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/workers/wake-shield) تعمل كوكيل إيقاظ ذكي (Auto-Wake Shield) وحارس مصادقة PIN لحماية عنوان الخادم الأصلي، وتمرر الطلبات للـ VPS بمجرد استيقاظه.
+
+---
+
+## 2. قائمة البقايا والمخلفات المرصودة (Detailed Forensic Catalog)
+
+تم تصنيف جميع الملاحظات الجنائية بدقة وفق الأدلة السطرية إلى الفئات الأربع المعتمدة:
+
+---
+
+### (أ) بقايا وظيفية وتشغيلية خطرة (P0 / P1 Hazardous Remnants)
+
+#### 1. `[P0]` غياب حزم التحقق `acorn` و `eslint` عن تبعيات الإنتاج يكسر نشر الـ VPS
+- **الملفات المتأثرة:** [`package.json#L9-L44`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/package.json#L9-L44)، [`scripts/verify_all_syntax.mjs#L12`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_all_syntax.mjs#L12)، [`scripts/verify_sql_schema_parity.mjs#L15`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_sql_schema_parity.mjs#L15)
+- **المقتطف:**
+  ```javascript
+  import * as acorn from 'acorn';
+  ```
+- **التحليل الجنائي:** حزمة `acorn` مستوردة بالاسم في سكريبتات الفحص والـ build، لكنها غير معرّفة نهائياً في `package.json` (لا في `dependencies` ولا في `devDependencies`)، وتتواجد محلياً كـ Transitive Dependency لحزمة `eslint`. عند تشغيل أمر النشر القياسي للإنتاج `npm ci --omit=dev`، تُحذف `eslint` وتغيب `acorn` تماماً، مما يؤدي إلى فشل فوري في `npm run build` و `npm test`.
+
+---
+
+#### 2. `[P1]` خرق مبدأ المرجع الواحد (SSOT) وإعادة كتابة `description` في `competitor_pins`
+- **الملف المتأثر:** [`src/modules/creators/creator-ingest.mjs#L53-L74`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-ingest.mjs#L53-L74)
+- **المقتطف:**
+  ```javascript
+  53: INSERT INTO competitor_pins (
+  54:   competitor_id, pin_id, title, description, link_domain, ...
+  ...
+  70:   description = CASE 
+  71:     WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
+  72:     WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
+  73:     ELSE competitor_pins.description 
+  74:   END,
+  ```
+- **التحليل الجنائي:** نص الترحيل `058_phase4_ssot_compaction_and_cleanup.sql` صراحة على تفريغ حقلي `description` و `alt_text` من `competitor_pins` وتحويلهما إلى `NULL` لتركهما حصرياً في `universal_master_pins`. الكود الحالي في `upsertCompetitorPins` يعيد ملء حقل `description` عند كل عملية زحف طالما أن الحالة ليست `compacted`، مما يعيد تضخيم الجدول بالنصوص المكررة ويلغي أثر الترحيل 058.
+
+---
+
+#### 3. `[P1]` كتابة مزدوجة (Dual-Write) لنصوص `description` و `alt_text` في `pa_pins`
+- **الملف المتأثر:** [`src/modules/creators/creator-ingest.mjs#L275-L348`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-ingest.mjs#L275-L348) و [`#L846-L865`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-ingest.mjs#L846-L865)
+- **المقتطف:**
+  ```javascript
+  275: INSERT INTO pa_pins (
+  276:   pin_id, account_username, title, description, link, domain, ...
+  ...
+  348:   description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
+  ...
+  865:   alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text, EXCLUDED.title, pa_pins.title),
+  ```
+- **التحليل الجنائي:** جدول `pa_pins` مخصص حصرياً للمقاييس التشغيلية والفائزين المتأهلين (`saves`, `velocity`, `clean_domain`). كتابة وتحديث `description` و `alt_text` داخله يمثل ازدواجية غير مبررة وخرقاً لقاعدة Creative SSOT.
+
+---
+
+#### 4. `[P1]` إعادة حقن المفاتيح النصية المفرغة داخل `metadata` في جداول الـ SERP والمنافسين
+- **الملف المتأثر:** [`src/modules/pins/repository.mjs#L860-L863`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L860-L863) و [`#L1337, L1384`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs#L1337-L1384)
+- **المقتطف:**
+  ```javascript
+  860: const rawMetaToStore = {
+  861:   alt_text: scrapedPin.alt_text || scrapedPin.seo_title || '',
+  862:   description: scrapedPin.description || '',
+  ...
+  1337: metadata = COALESCE(ksc.metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb
+  ```
+- **التحليل الجنائي:** بعد أن تم إفراغ النصوص من أعمدة الجداول، يقوم كود المزامنة `syncPinAcrossAllFourPillars` بإعادة حشر `description` و `alt_text` داخل حقل `metadata` (JSONB) في جدول `keyword_serp_current` وجدول `competitor_pins`.
+
+---
+
+#### 5. `[P1]` تصادم وانفجار زاحف العناقيد: تجاوز تقسيم المهام عند تمرير `seed_pin_id`
+- **الملفات المتأثرة:** [`scripts/cluster-intelligence.mjs#L1600-L1640`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/cluster-intelligence.mjs#L1600-L1640) و [`.github/workflows/cluster-intelligence.yml#L84-L129`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/.github/workflows/cluster-intelligence.yml#L84-L129)
+- **التحليل الجنائي:** عندما يمرر المشغل معرّف `seed_pin_id` يدوياً لتشغيل الـ Workflow، يتجاوز السكريبت معادلة تقسيم الشاردز/العمال (`modulo partitioning`)، مما يجعل **جميع الـ 20 runner المتزامنين** يعالجون نفس المعرّف في ذات اللحظة، مسببين 20 ضعفاً من استدعاءات الزحف المتكررة لشبكة بينترست، ومحاولات إدخال متزامنة ومتصادمة في جدول `candidate_graph_nodes`.
+
+---
+
+#### 6. `[P1]` تعليقات وهمية لخداع الاختبارات (Test-Spoofing Fake Comments)
+- **الملفات المتأثرة:** [`src/dashboard-ui.mjs#L30-L75`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/dashboard-ui.mjs#L30-L75)، [`src/keywords-ui.mjs#L19-L40`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/keywords-ui.mjs#L19-L40)، [`scripts/verify_regression_locks.mjs#L375, L533`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_regression_locks.mjs#L375-L533)
+- **المقتطف:**
+  ```javascript
+  // src/dashboard-ui.mjs:30-36
+  // [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 11]
+  // const creatorParam = new URLSearchParams(window.location.search).get('creator');
+  // [INVARIANT-LOCK: ENFORCED BY verify_regression_locks.mjs Lock 14E]
+  // assignCreatorToFolder, cleanUsername, paginatedCompetitors, totalCompetitorPages
+  // [INVARIANT-LOCK: ENFORCED BY test_p2_verification.mjs]
+  // '/api/competitors/sync' ...
+  ```
+- **التحليل الجنائي:** عند تفكيك الواجهات الكبيرة في المرحلة 5 إلى موديولات فرعية داخل `src/ui/dashboard/*`، استمرت سكريبتات التحقق القديمة في فحص الملفات المجمعة عبر تعبيرات نمطية بسيطة (`regex.test(fileContent)`). فتم وضع حوالي 60 سطراً من الكود المعلق داخل `dashboard-ui.mjs` و `keywords-ui.mjs` فقط لخداع الفاحص وإيهامه بأن المتغيرات ما زالت في مكانها القديم! يجب تحديث الفواحص لتقرأ المسارات الجديدة وإزالة هذه التعليقات المضللة.
+
+---
+
+#### 7. `[P1]` تسريب كوكي جلسة بينترست في استجابة HTTP لـ `POST /api/settings/cookie`
+- **الملف المتأثر:** [`src/routes/cluster.mjs#L556-L581`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/cluster.mjs#L556-L581)
+- **المقتطف:**
+  ```javascript
+  return jsonResponse({
+    success: true,
+    has_cookie: saved.has_cookie,
+    formatted_cookie: saved.formatted, // <-- الكوكي الكامل ينعكس نصياً في الاستجابة!
+    source: 'database'
+  });
+  ```
+- **التحليل الجنائي:** يُعاد الكوكي الكامل للمستخدم والمتصفح وسجلات الـ Network في الاستجابة بدلاً من الاكتفاء بـ `preview` المموه (`saved.preview`).
+
+---
+
+#### 8. `[P1]` كوكي جلسة حقيقي ومكتمل مشفر وثابت داخل الكود المصدري
+- **الملف المتأثر:** [`src/modules/keywords/settings.mjs#L16`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/settings.mjs#L16)
+- **المقتطف:**
+  ```javascript
+  export const DEFAULT_PINTEREST_SESSION_COOKIE = 'TWc9PSY3MWdsMGRpd3NEVkQ4Mjg0cm1...'; // 800+ حرف
+  ```
+- **التحليل الجنائي:** قيمة توكن حقيقية لجلسة بينترست موضوعة كقيمة افتراضية (Hardcoded Fallback). يجب استبدالها بسلسلة فارغة وإلزام استرجاعها من المتغيرات البيئية أو `app_settings`.
+
+---
+
+#### 9. `[P1]` ثغرة SSRF وإعادة التوجيه المفتوح في فحص `ads.txt`
+- **الملف المتأثر:** [`src/modules/domains/ad-network-service.mjs#L15-L68`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/ad-network-service.mjs#L15-L68)
+- **التحليل الجنائي:** الدالة تفحص النطاق الأولي لمنع العناوين المحلية (`localhost`, `127.0.0.1`)، لكنها تتبع الـ Redirects تلقائياً (`redirect: 'follow'`) دون فحص الوجهة التالية، مما يسمح لأي نطاق خارجي بإعادة التوجيه إلى عناوين الخادم الداخلية (`127.0.0.1:3000` أو خدمات الـ VPC المحلية).
+
+---
+
+#### 10. `[P1]` سكريبت `ensure_indexes.mjs` يعيد إنشاء أعمدة ملغاة
+- **الملف المتأثر:** [`scripts/ensure_indexes.mjs#L126-L136`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/ensure_indexes.mjs#L126-L136)
+- **المقتطف:**
+  ```javascript
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
+  await sql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
+  ```
+- **التحليل الجنائي:** السكريبت يعيد كتابة DDL لإضافة عمود `alt_text` لجدولي `competitor_pins` و `pa_pins` بالرغم من إسقاطهما رسمياً في Migration 058.
+
+---
+
+#### 11. `[P1]` عطل مسارات Windows يكسر القفل الثالث في `verify_regression_locks.mjs`
+- **الملف المتأثر:** [`scripts/verify_regression_locks.mjs#L185`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_regression_locks.mjs#L185)
+- **المقتطف:**
+  ```javascript
+  f => !path.basename(f).startsWith('test_') && f !== 'scripts/verify_regression_locks.mjs'
+  ```
+- **التحليل الجنائي:** على بيئة Windows، يكون المسار `scripts\verify_regression_locks.mjs`، وبالتالي تفشل المقارنة النصية، ويقوم السكريبت بقراءة نفسه واكتشاف التعابير المحظورة المكتوبة داخل فحصه الخاص، مما يكسر Lock 3 فوراً ويمنع المرور!
+
+---
+
+#### 12. `[P1]` استعلام اختبار على View وفهرس مسقطين في `test_phase4_live_explain.mjs`
+- **الملف المتأثر:** [`scripts/test_phase4_live_explain.mjs#L78, L152`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/test_phase4_live_explain.mjs#L78-L152)
+- **التحليل الجنائي:** يستعلم السكريبت عن View محذوفة `pins_daily_rollups_v2` وفهرس محذوف `idx_ksc_active_covering`، كما يطبع رسائل اتصال بـ "Neon Postgres Hub".
+
+---
+
+### (ب) ازدواجيات وطبقات توافقية ميتة (Compatibility Shims & Dead Code)
+
+1. **كود موجه ميت (225 سطراً):** [`src/server.mjs#L202-L427`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs#L202-L427) يحتوي على كائن ضخم `declarativeRoutes` لم يعد يُستدعى نهائياً، لأن جميع المسارات نُقلت بالكامل إلى Fastify Plugin في [`src/plugins/api-routes.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/plugins/api-routes.mjs).
+2. **ملف تهيئة ميت:** [`src/shared-formatters.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/shared-formatters.mjs) (7 أسطر) لا يتم استيراده من أي ملف في كامل المشروع، والملف الفعلي المستعمل هو [`src/ui/shared-formatters.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/shared-formatters.mjs).
+3. **ملف ترويسات زائد:** [`src/modules/shared/pinterest-headers.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/shared/pinterest-headers.mjs) (18 سطراً) هو مجرد Re-export زائد لـ `src/core/pinterest/headers.mjs` ولا يتم استيراده.
+4. **دالة وهمية فارغة (Dead Stub):** `autoHydrateCompetitorPinsFromArchive` في [`src/modules/creators/service.mjs#L132-L136`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/service.mjs#L132-L136) ترجع مصفوفة فارغة `[]` دائماً بعد إلغاء الترقية العكسية.
+5. **بقايا متغيرات KV ميتة:**
+   - [`src/routes/domains.mjs#L146`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/domains.mjs#L146): `const kvKey = ...` غير مستخدم downstream.
+   - [`src/routes/keywords.mjs#L185`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/keywords.mjs#L185): `const kvKey = ...` غير مستخدم.
+   - [`src/routes/pins.mjs#L194`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/pins.mjs#L194): `const kvKey = ...` غير مستخدم.
+   - [`src/modules/keywords/visual-lens-cache.mjs#L14, L78`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/visual-lens-cache.mjs#L14-L78): `VISUAL_KV_TTL_SECONDS` و `ttlSeconds`.
+6. **بقايا مصفوفات تجميع الشاردز الميتة:** في [`src/modules/keywords/folders-crossover.mjs#L500, L1052-L1067`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/folders-crossover.mjs#L500-L1067)، بقيت متغيرات `kvTtlSec` ومصفوفة `stillMissingAfterHub` المعقدة التي كانت تستخدم لتجميع الشاردز العشرين القديمة.
+7. **ازدواجية المسارات ومصطلح Competitors القديم:** في [`src/routes/creators.mjs#L1-L32`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/creators.mjs#L1-L32)، يتم عمل Rewrite لكل طلبات `/api/competitors/*` إلى `/api/creators/*` مما يضيف طبقة تحويل إضافية.
+8. **مجلد `.wrangler/` المهجور:** لا يزال موجوداً في جذر المشروع ويحتوي على ملفات كاش SQLite محلية قديمة لـ D1 و KV.
+9. **ملفات توثيق ضخمة مهجورة:** `public/assets/aistudio/` يحتوي على 21 ملفاً غير مستخدم (5.8 ميغابايت) تتسبب في فشل بعض اختبارات التحقق القديمة مثل `test_ui_architect_deliverables.mjs`.
+
+---
+
+### (ج) بقايا نصية وتعليقات وتسميات مضللة (Cosmetic / Comments / Misleading Naming)
+
+1. **واجهات المستخدم توهم بوجود 20 شارد:** في [`src/ui/dashboard-modals.mjs#L793-L1265`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard-modals.mjs#L793-L1265) و [`src/ui/dashboard/dashboard-board-view.mjs#L86, L251`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard/dashboard-board-view.mjs#L86-L251)، توجد نصوص وأزرار صريحة:
+   - `<span class="...">Matrix 20-Shards</span>`
+   - `<h3>Launch 20-Shard Parallel Crawler</h3>`
+   - `<label>Board Sharding Scope:</label>`
+   - `<span>Harvest Board (GHA 20-Shards)</span>`  
+   *(الصواب المعماري: هذه 20 حاوية زحف متوازية Matrix Runners تصب في قاعدة بيانات واحدة، وليست شاردات).*
+2. **سجلات وسكريبتات تزعم المزامنة مع "Storage Shards":**
+   - [`scripts/keyword-velocity-crawler.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/keyword-velocity-crawler.mjs): دالة `flushToStorageShards` ترجع رقم 1، وتطبع في السجلات `Storage Shards Synchronized: 1`.
+   - [`scripts/creator-velocity-crawler.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/creator-velocity-crawler.mjs): دوال `commitSnapshotsToStorageShards` و `syncPinsToMasterShards` تكتب مباشرة في `pins_daily_metrics` و `universal_master_pins` على الـ Single DB لكن التسميات ما زالت تحمل اسم Shards.
+   - [`scripts/keyword-fleet-consolidator.mjs#L429-L565`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/keyword-fleet-consolidator.mjs#L429-L565): دالة `runShardJanitorGC` وعمود `keyword_tombstones.shards_purged`.
+3. **تعليقات تشير إلى Cloudflare Edge في كود الـ VPS:** في [`src/ui/keywords/keywords-client-app.mjs#L2398`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/keywords/keywords-client-app.mjs#L2398)، تعليق يدعي: `// Table row re-crawl runs strictly on Cloudflare Edge (< 2s)` بينما هو ينفذ على Fastify Node.js.
+4. **رسائل خطأ متبقية:** [`src/routes/keywords.mjs#L1097, L1526`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/keywords.mjs#L1097-L1526) تذكر عبارة `Cloudflare/Koyeb` في رسائل الخطأ.
+5. **مخالفة تسميات قاعدة التصميم (Rule 4):** في [`src/ui/dashboard/dashboard-creators.mjs#L15`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard/dashboard-creators.mjs#L15) و [`dashboard-overview.mjs#L188`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard/dashboard-overview.mjs#L188)، تظهر تسمية `Creator Intelligence & PinArchive` بدلاً من المسمى المعتمد حصراً `Creator Hub`.
+6. **تناقض المنفذ الافتراضي للخادم (3456 مقابل 3000):** في [`src/server.mjs#L908`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs#L908) الدالة `startServer(port = 3456)` تفترض المنفذ القديم، بينما سطر 943 وأمر التشغيل والـ CI يفترضون 3000.
+7. **نقص ملف البيئة التوضيحي `.env.example`:** يفتقر للمتغيرات الأساسية (`PORT`, `HOST`, `NODE_ENV`, `ALLOWED_ORIGINS`) ويحتوي على متغير مؤقت مضلل (`TARGET_PIN_ID`).
+
+---
+
+### (د) إشارات بريئة (False Positives - آليات سليمة 100% ويجب الحفاظ عليها)
+
+1. **`workers/wake-shield`:** رغم اعتماده على Cloudflare Workers و `wrangler.toml`، فهو **ليس من بقايا المعمارية القديمة**؛ بل هو مكوّن نشط وأساسي في الإنتاج لحماية الدومين `app.hymum.com`، وإيقاظ آلة الـ InstaBox VPS تلقائياً عند طلبها وطلب رمز PIN.
+2. **سكريبتات الـ `fleet` والـ Workflows (`scripts/*fleet*.mjs` و `.github/workflows/*.yml`):**
+   - أثبت الفحص السطري أنها **لا تتصل بأي مسارات ملغاة** مثل `/api/fleet/*`.
+   - هي تقسيم منطقي خالص (Matrix Partitioning) لتوزيع جهد زحف الآلاف من الروابط على 20 بيئة تشغيل متوازية في GitHub Actions بدلاً من حرق موارد الخادم، وتتصل بقاعدة بيانات PostgreSQL الواحدة عبر نفق Cloudflare Access بحصص اتصالات آمنة (`PG_POOL_MAX: 2`).
+3. **`scripts/backfill_rolling_window_gains.mjs`:** ليس سكريبت إصلاح مؤقت لمرة واحدة، بل هو خطوة تشغيلية أساسية مدمجة في سير عمل `keyword-intelligence-velocity.yml` (المرحلة 2 consolidate) ومحمية بالقفل الثامن (Lock 8) لحساب مقاييس الأرباح المتدحرجة (5d/7d/10d/15d).
+4. **`src/edge-shield-client.mjs`:** بالرغم من كلمة "edge" في اسمه، هو ملف عميل متصفح نظيف خالٍ من تبعيات Cloudflare، ويوفر دالة `safeApiFetch` الموحدة مع معالجة الـ 502/504 والـ Retries لجميع واجهات المشروع.
+5. **التكامل بين `src/domain/pin-intelligence.mjs` و `src/modules/pins/repository.mjs`:** لا يوجد تضارب؛ فالأول مخصص لمعالجة النصوص وإزالة كلمات التوقف واحتساب الحقول الـ 48 في الذاكرة (Pure Domain Logic)، بينما الثاني يمتلك حصرياً عمليات القراءة والكتابة في قاعدة البيانات (I/O Repository).
+
+---
+
+## 3. ثغرات وأخطاء منطقية وأدائية إضافية غير مرتبطة بالنظام القديم
+
+1. **استعلام بطيء (Full Table Scan) في فحص النطاقات:**
+   - في [`src/modules/domains/service.mjs#L1878`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/service.mjs#L1878)، الاستعلام:
+     ```sql
+     WHERE LOWER(domain) ILIKE ${'%' + cleanPattern + '%'}
+     ```
+     ينفذ على جدول `domain_intelligence_rollup` الذي لا يمتلك فهرس Trigram على `LOWER(domain)`، مما يجبر PostgreSQL على مسح الجدول بالكامل (Sequential Scan) عند البحث.
+2. **تعطيل فهارس B-Tree عبر تغليف الحقول بدوال (Defeating SARGability):**
+   - في [`src/modules/creators/creator-analytics.mjs#L147, L183`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-analytics.mjs#L147-L183)، يتم تغليف حقول الدومين بـ `COALESCE` و `REGEXP_REPLACE` و `ILIKE` بدلاً من الاستعلام المباشر عبر الحقل المفهرس المخصص `clean_domain` (`idx_cp_clean_domain`).
+3. **إهدار موارد في تحديث View ملخصة غير مستهلكة:**
+   - ترحيل `056_create_mv_pulse_24h_summary.sql` أنشأ `mv_pulse_24h_summary`، ويتم عمل Refresh لها، لكن لا توجد أي واجهة برمجية أو شاشة لوحة تحكم تستهلكها حالياً.
+4. **تغذية غير مكتملة لعمود `url_global_saves`:**
+   - بالرغم من وجود العمود في `universal_master_pins`، فإن استعلامات الـ Dossier تتجاهله وتعتمد فقط على جلبه المؤقت من `keyword_serp_current`.
+
+---
+
+## 4. خطة التنظيف والإصلاح المقترحة (Actionable Remediation Plan)
+
+تم تقسيم الخطة إلى **5 مراحل متسلسلة** تخضع لمبدأ عدم الانحدار (Zero-Regression) وتقييم المخاطر لكل مرحلة:
+
+### المرحلة 1: الحماية الأمنية، سد ثغرات الـ P0/P1، وإصلاح بيئة البناء
+* **الهدف:** القضاء على المخاطر الأمنية وتثبيت نجاح أوامر الفحص والـ CI.
+* **الخطوات:**
+  1. إضافة `acorn` صراحة إلى `devDependencies` (أو `dependencies`) في `package.json` وتثبيتها.
+  2. تصحيح مقارنة المسارات على Windows في [`scripts/verify_regression_locks.mjs#L185`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/verify_regression_locks.mjs#L185) عبر `path.normalize`.
+  3. حجب كوكي بينترست الكامل من استجابة `POST /api/settings/cookie` في [`src/routes/cluster.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/routes/cluster.mjs).
+  4. استبدال التوكن الثابت في [`src/modules/keywords/settings.mjs#L16`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/keywords/settings.mjs#L16) بقيمة فارغة `''`.
+  5. تفعيل فحص الوجهات في الـ Redirects لمنع الـ SSRF في [`src/modules/domains/ad-network-service.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/domains/ad-network-service.mjs).
+  6. معالجة تجاوز توزيع `seed_pin_id` في [`scripts/cluster-intelligence.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/cluster-intelligence.mjs) لمنع تصادم الـ 20 runner.
+  7. إزالة DDL إعادة إضافة `alt_text` في [`scripts/ensure_indexes.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/scripts/ensure_indexes.mjs).
+* **اختبار التحقق:** `npm run check` و `node scripts/verify_regression_locks.mjs` (يجب أن يحقق 14/14 PASS على Windows).
+
+---
+
+### المرحلة 2: تطهير مسارات الإدخال وتأكيد Creative SSOT (إزالة الازدواجية)
+* **الهدف:** ضمان أن النصوص الثقيلة تُحفظ فقط في `universal_master_pins`.
+* **الخطوات:**
+  1. تعديل استعلامات الإدخال في [`src/modules/creators/creator-ingest.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-ingest.mjs) لتمرير `description = NULL` في `competitor_pins`.
+  2. إزالة إدخال وتحديث `description` و `alt_text` من استعلامات جدول `pa_pins` في `ingestPinsBatch` و `reconcileQualifiedCatalogPins`.
+  3. تنقيح كائن `rawMetaToStore` في [`src/modules/pins/repository.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/pins/repository.mjs) بحيث لا يحقن نصوص `alt_text` و `description` داخل حقل `metadata` في `keyword_serp_current` أو `competitor_pins`.
+* **اختبار التحقق:** `npm run test:offline` و `node scripts/verify_sql_schema_parity.mjs`.
+
+---
+
+### المرحلة 3: استئصال الكود الميت وتصحيح فحوصات الـ UI
+* **الهدف:** تنظيف 300+ سطر من الكود الميت والشيمز الزائفة.
+* **الخطوات:**
+  1. حذف كتلة `declarativeRoutes` الميتة في [`src/server.mjs#L202-L427`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/server.mjs#L202-L427).
+  2. إزالة الملفات غير المستوردة: [`src/shared-formatters.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/shared-formatters.mjs) و [`src/modules/shared/pinterest-headers.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/shared/pinterest-headers.mjs).
+  3. حذف التعليقات الوهمية (Spoofing comments) في `src/dashboard-ui.mjs` و `src/keywords-ui.mjs`، وتحديث تعابير الفحص في `verify_regression_locks.mjs` (Locks 11 & 14E) لتفحص مسارات الملفات المفككة الجديدة (`src/ui/dashboard/*` و `src/ui/keywords/*`).
+  4. تنظيف متغيرات `kvKey` الميتة في `src/routes/*.mjs` ومصفوفة `stillMissingAfterHub` في `folders-crossover.mjs`.
+  5. حذف مجلد `.wrangler/` المهجور من جذر المشروع.
+* **اختبار التحقق:** `npm run check` و `npm run lint`.
+
+---
+
+### المرحلة 4: تصحيح المصطلحات وتوحيد التسميات (Cosmetic & Naming Parity)
+* **الهدف:** تطابق كامل بين واجهة المستخدم، السجلات، والواقع المعماري الموحد.
+* **الخطوات:**
+  1. تعديل واجهات المستخدم في [`src/ui/dashboard-modals.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard-modals.mjs) و [`src/ui/dashboard/dashboard-board-view.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/ui/dashboard/dashboard-board-view.mjs) لاستبدال عبارات "20-Shards" بـ "20 Parallel Crawlers" أو "20-Runners".
+  2. تنظيف السجلات ورسائل الخطأ في سكريبتات الزواحف لاستبدال مصطلح "Storage Shards" و "Cloudflare/Koyeb" بمصطلحات دقيقة معبرة عن قاعدة البيانات الواحدة.
+  3. تعديل التبويب الرابع في لوحة التحكم ليصبح حصراً `Creator Hub`.
+  4. توحيد المنفذ الافتراضي في `startServer` ليكون 3000 متوافقاً مع الـ CLI والـ CI.
+  5. تحديث وتوثيق ملف `.env.example` بالكامل وحذف المتغيرات الزائدة.
+* **اختبار التحقق:** `node scripts/audit_ui.mjs` و `node scripts/verify_ui_routes_reorganization.mjs`.
+
+---
+
+### المرحلة 5: تحسين الأداء والفهارس (Performance & Index Parity)
+* **الهدف:** تسريع الاستعلامات ومنع مسح الجداول الكامل.
+* **الخطوات:**
+  1. إنشاء ملف ترحيل جديد (`059_add_trgm_index_domain_rollup.sql`) لإضافة فهرس Trigram:
+     ```sql
+     CREATE INDEX IF NOT EXISTS idx_dir_trgm_domain ON domain_intelligence_rollup USING gin (LOWER(domain) gin_trgm_ops);
+     ```
+  2. إعادة صياغة استعلامات [`src/modules/creators/creator-analytics.mjs`](file:///c:/Users/D.Mouad/Desktop/SaaS/pin-arbitrage-engine/src/modules/creators/creator-analytics.mjs) لتعتمد على حقل `clean_domain` المفهرس مباشرة بدلاً من الدوال المغلفة.
+  3. تحديث `scripts/test_phase4_live_explain.mjs` ليوجه استعلاماته لـ `pins_daily_snapshots` بدلاً من الـ View المحذوفة `pins_daily_rollups_v2`.
+* **اختبار التحقق:** `npm run check` و `npm test`.
+
+---
+
+جاهز لمناقشة التقرير معكم والبدء في تنفيذ بنود خطة الإصلاح خطوة بخطوة بعد الحصول على موافقتكم وتوجيهاتكم الكريمة.

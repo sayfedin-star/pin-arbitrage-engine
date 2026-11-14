@@ -268,7 +268,13 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(NULLIF(ksc.repin_count, 0), ump.repin_count, 0) AS repin_count,
       COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
       COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
-      COALESCE(ksc.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
+      CASE
+        WHEN ksc.delta_repins_24h IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ksc.delta_repins_24h
+        WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ump.delta_repins_24h
+        ELSE 0
+      END AS delta_repins_24h,
       COALESCE(ksc.gains_5d, 0) AS gains_5d,
       COALESCE(ksc.gains_7d, 0) AS gains_7d,
       COALESCE(ksc.gains_10d, 0) AS gains_10d,
@@ -335,7 +341,13 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0) AS repin_count,
         COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
         COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
-        COALESCE(kdi.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
+        CASE
+          WHEN kdi.delta_repins_24h IS NOT NULL AND COALESCE(kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN kdi.delta_repins_24h
+          WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.delta_repins_24h
+          ELSE 0
+        END AS delta_repins_24h,
         COALESCE(kdi.gains_5d, 0) AS gains_5d,
         COALESCE(kdi.gains_7d, 0) AS gains_7d,
         COALESCE(kdi.gains_10d, 0) AS gains_10d,
@@ -365,7 +377,12 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         WHERE cp.pin_id = kdi.pin_id AND cp.is_deleted = FALSE
         LIMIT 1
       ) cpin ON TRUE
-      WHERE (COALESCE(kdi.daily_save_velocity, 0) > 0 OR COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(kdi.delta_repins_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
+      WHERE (
+          COALESCE(kdi.daily_save_velocity, 0) > 0
+          OR COALESCE(ump.daily_save_velocity, 0) > 0
+          OR (COALESCE(kdi.delta_repins_24h, 0) > 0 AND COALESCE(kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
+          OR (COALESCE(ump.delta_repins_24h, 0) > 0 AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
+        )
         AND (${folderIdNum}::int IS NULL OR EXISTS (
           SELECT 1 FROM keyword_folder_items fi 
           WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
@@ -409,7 +426,13 @@ async function queryViralCreatorPins(sql, folderIdNum) {
       SELECT
         COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
         COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
-        COALESCE(ump.delta_repins_24h, NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_repins_24h
+        CASE
+          WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.delta_repins_24h
+          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+          ELSE 0
+        END AS delta_repins_24h
     ) m
     WHERE cpin.is_deleted = FALSE
       AND (cpin.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'] OR COALESCE(ump.daily_save_velocity, 0) > 0)
@@ -874,8 +897,17 @@ function mergePinIntoMap(pinMap, row, sourceTag, keywordFoldersMap = null) {
   const rawDeltaRepins = (typeof row.delta_repins_24h === 'number') ? row.delta_repins_24h : fastNum(row.delta_repins_24h);
   let rowDeltaRepins = rawDeltaRepins;
   // [INVARIANT: ANTI-HYDRATION-SPIKE-REPINS]
-  // Protect against unhydrated 0-repin baselines jumping to full lifetime repins
-  if (rowRepins >= 15 && rowDeltaRepins >= rowRepins && rowVel === 0 && rowDeltaSaves === 0) {
+  // Protect against unhydrated 0-repin or skeleton repin baselines jumping to full lifetime repins
+  const isSkeletonRepinJump =
+    (rowRepins >= 15 && rowDeltaRepins >= rowRepins && rowVel === 0 && rowDeltaSaves === 0) ||
+    (
+      rowRepins >= 200 &&
+      rowDeltaRepins >= 150 &&
+      (rowRepins - rowDeltaRepins) <= Math.max(60, rowRepins * 0.05) &&
+      rowVel < rowDeltaRepins * 0.15 &&
+      rowDeltaSaves < rowDeltaRepins * 0.15
+    );
+  if (isSkeletonRepinJump) {
     rowDeltaRepins = 0;
   }
 
@@ -931,7 +963,11 @@ function mergePinIntoMap(pinMap, row, sourceTag, keywordFoldersMap = null) {
     if (rowRepins > p.repin_count) p.repin_count = rowRepins;
     if (rowVel > p.daily_save_velocity) p.daily_save_velocity = rowVel;
     if (rowDeltaSaves > p.delta_saves_24h) p.delta_saves_24h = rowDeltaSaves;
-    if (rowDeltaRepins > p.delta_repins_24h) p.delta_repins_24h = rowDeltaRepins;
+    const isPrimaryPin = p.sources.includes('active_serp') || p.sources.includes('vault_surge');
+    const isIncomingSecondary = sourceTag === 'creator_feed' || sourceTag === 'pinarchive_winner';
+    if (rowDeltaRepins > p.delta_repins_24h && !(isPrimaryPin && isIncomingSecondary)) {
+      p.delta_repins_24h = rowDeltaRepins;
+    }
     if (rowGains5d > p.gains_5d) p.gains_5d = rowGains5d;
     if (rowGains7d > p.gains_7d) p.gains_7d = rowGains7d;
     if (rowGains10d > p.gains_10d) p.gains_10d = rowGains10d;
@@ -1223,8 +1259,17 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
       // Unified 24h Velocity & Effective Gain [Fix 2.1 SSOT: Math.max()]
       // [INVARIANT: ANTI-HYDRATION-SPIKE-REPINS]
-      // Only zero out delta_repins_24h in runtime if p.repin_count >= 20 && p.delta_repins_24h >= p.repin_count && p.daily_save_velocity === 0 && p.delta_saves_24h === 0
-      if (p.repin_count >= 20 && p.delta_repins_24h >= p.repin_count && p.daily_save_velocity === 0 && p.delta_saves_24h === 0) {
+      // Zero out delta_repins_24h if 0-repin or skeleton-to-lifetime hydration jump is detected
+      const isPostMergeSkeletonRepinJump =
+        (p.repin_count >= 20 && p.delta_repins_24h >= p.repin_count && p.daily_save_velocity === 0 && p.delta_saves_24h === 0) ||
+        (
+          p.repin_count >= 200 &&
+          p.delta_repins_24h >= 150 &&
+          (p.repin_count - p.delta_repins_24h) <= Math.max(60, p.repin_count * 0.05) &&
+          p.daily_save_velocity < p.delta_repins_24h * 0.15 &&
+          p.delta_saves_24h < p.delta_repins_24h * 0.15
+        );
+      if (isPostMergeSkeletonRepinJump) {
         p.delta_repins_24h = 0;
       }
 

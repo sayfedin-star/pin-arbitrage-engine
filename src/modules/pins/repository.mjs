@@ -12,7 +12,7 @@
  *    creator context, keywords context, and 30-day trajectory with ZERO read-path database writes.
  */
 
-import { calculateDailyVelocity, isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { calculateDailyVelocity, isMultiStageHydrationJump, isRepinHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
 import { buildRichPinMetadataPayload } from '../../domain/pin-intelligence.mjs';
 
 /**
@@ -297,10 +297,33 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
             GREATEST(0, (rb.save_count - prev.save_count))::bigint
           ELSE 0::bigint
-        END AS true_delta_saves_24h
+        END AS true_delta_saves_24h,
+        CASE
+          WHEN rb.delta_repins_24h IS NOT NULL THEN GREATEST(0, rb.delta_repins_24h)::int
+          WHEN prev.repin_count IS NOT NULL
+           AND prev.repin_count > 0
+           AND prev.snapshot_date IS NOT NULL
+           AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+           AND COALESCE(rb.repin_count, 0) > prev.repin_count
+           AND NOT (
+             COALESCE(rb.repin_count, 0) >= prev.repin_count * 4
+             AND (COALESCE(rb.repin_count, 0) - prev.repin_count) >= 200
+             AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (COALESCE(rb.repin_count, 0) - prev.repin_count) * 0.15
+           )
+           AND NOT (
+             prev.repin_count < 100
+             AND COALESCE(rb.repin_count, 0) >= 500
+             AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (COALESCE(rb.repin_count, 0) - prev.repin_count) * 0.25
+           )
+          THEN ROUND(
+            GREATEST(0, COALESCE(rb.repin_count, 0) - prev.repin_count)::numeric
+            / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+          )::int
+          ELSE 0::int
+        END AS effective_delta_repins_24h
       FROM raw_batch rb
       LEFT JOIN LATERAL (
-        SELECT pm.save_count, pm.snapshot_date
+        SELECT pm.save_count, pm.repin_count, pm.snapshot_date
         FROM pins_daily_metrics pm
         WHERE pm.pin_id = rb.pin_id
           AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
@@ -320,7 +343,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         reaction_count = CASE WHEN cb.reaction_count > 0 THEN cb.reaction_count ELSE ump.reaction_count END,
         daily_save_velocity = cb.effective_velocity,
         delta_saves_24h = cb.true_delta_saves_24h,
-        delta_repins_24h = COALESCE(cb.delta_repins_24h, ump.delta_repins_24h, 0),
+        delta_repins_24h = cb.effective_delta_repins_24h,
         gains_5d = COALESCE(cb.gains_5d, ump.gains_5d, 0),
         gains_7d = COALESCE(cb.gains_7d, ump.gains_7d, 0),
         gains_10d = COALESCE(cb.gains_10d, ump.gains_10d, 0),
@@ -420,6 +443,7 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
         share_count: Math.max(0, Number(p.share_count ?? p.shares ?? 0)),
         reaction_count: Math.max(0, Number(p.reaction_count ?? 0)),
         daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
+        delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
         is_product: Boolean(p.is_product || richMeta.is_product),
         is_video: Boolean(p.is_video || richMeta.is_video),
         creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
@@ -449,7 +473,7 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
         destination_url text, image_url text, description text, alt_text text, dominant_color text,
         visual_annotations jsonb, created_at_pinterest text,
         save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int,
-        daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
+        daily_save_velocity numeric, delta_repins_24h int, is_product boolean, is_video boolean, creation_method text,
         image_signature text, canonical_pin_id text, first_discovered_pillar text, metadata jsonb
       )
     ),
@@ -474,10 +498,33 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
             GREATEST(0, (COALESCE(rb.save_count, 0) - prev.save_count))::bigint
           ELSE 0::bigint
-        END AS true_delta_saves_24h
+        END AS true_delta_saves_24h,
+        CASE
+          WHEN rb.delta_repins_24h IS NOT NULL THEN GREATEST(0, rb.delta_repins_24h)::int
+          WHEN prev.repin_count IS NOT NULL
+           AND prev.repin_count > 0
+           AND prev.snapshot_date IS NOT NULL
+           AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+           AND COALESCE(rb.repin_count, 0) > prev.repin_count
+           AND NOT (
+             COALESCE(rb.repin_count, 0) >= prev.repin_count * 4
+             AND (COALESCE(rb.repin_count, 0) - prev.repin_count) >= 200
+             AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (COALESCE(rb.repin_count, 0) - prev.repin_count) * 0.15
+           )
+           AND NOT (
+             prev.repin_count < 100
+             AND COALESCE(rb.repin_count, 0) >= 500
+             AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (COALESCE(rb.repin_count, 0) - prev.repin_count) * 0.25
+           )
+          THEN ROUND(
+            GREATEST(0, COALESCE(rb.repin_count, 0) - prev.repin_count)::numeric
+            / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+          )::int
+          ELSE 0::int
+        END AS effective_delta_repins_24h
       FROM raw_batch rb
       LEFT JOIN LATERAL (
-        SELECT pm.save_count, pm.snapshot_date
+        SELECT pm.save_count, pm.repin_count, pm.snapshot_date
         FROM pins_daily_metrics pm
         WHERE pm.pin_id = rb.pin_id
           AND pm.snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
@@ -501,7 +548,7 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
         cb.image_url, cb.description, cb.alt_text, cb.dominant_color, cb.visual_annotations,
         NULLIF(TRIM(cb.created_at_pinterest), '')::timestamptz,
         cb.save_count, cb.repin_count, cb.comment_count, cb.share_count, cb.reaction_count, cb.effective_velocity,
-        cb.true_delta_saves_24h, 0,
+        cb.true_delta_saves_24h, cb.effective_delta_repins_24h,
         cb.is_product, cb.is_video, cb.creation_method, cb.image_signature, cb.canonical_pin_id,
         cb.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), cb.metadata
       FROM computed_batch cb
@@ -526,6 +573,7 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
         reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE universal_master_pins.reaction_count END,
         daily_save_velocity = EXCLUDED.daily_save_velocity,
         delta_saves_24h = EXCLUDED.delta_saves_24h,
+        delta_repins_24h = EXCLUDED.delta_repins_24h,
         last_resaved_at = NOW(),
         last_scraped_at = NOW(),
         updated_at = NOW()
@@ -1133,12 +1181,19 @@ export async function syncPinAcrossAllFourPillars({
   );
 
   const baselineDateIso = toIsoDateStr(baselineDate);
-  const rawRepinDelta = Math.max(0, newRepins - targetBaselineRepins);
+  const repinJumpDetected = jumpDetected || isRepinHydrationJump(
+    { save_count: baselineSaves, repin_count: targetBaselineRepins },
+    { save_count: newSaves, repin_count: newRepins }
+  );
+  const rawRepinDelta = repinJumpDetected ? 0 : Math.max(0, newRepins - targetBaselineRepins);
 
   const intradayStepGain = todayShardRow
     ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
     : 0;
-  const intradayRepinStepGain = todayShardRow
+  const intradayRepinStepGain = (todayShardRow && !repinJumpDetected && !isRepinHydrationJump(
+    { save_count: Number(todayShardRow.save_count || 0), repin_count: Number(todayShardRow.repin_count || 0) },
+    { save_count: newSaves, repin_count: newRepins }
+  ))
     ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
     : 0;
   const syncVelocity = jumpDetected
@@ -1148,9 +1203,14 @@ export async function syncPinAcrossAllFourPillars({
       : ((!baselineDateIso || baselineDateIso === todayUtcStr)
         ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
         : computedVelocity));
-  const syncRepinsDelta = (!baselineDateIso || baselineDateIso === todayUtcStr)
-    ? Math.max(existingPositiveRepinDelta, rawRepinDelta, intradayRepinStepGain)
-    : rawRepinDelta;
+  const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && syncVelocity < existingPositiveRepinDelta * 0.15)
+    ? 0
+    : existingPositiveRepinDelta;
+  const syncRepinsDelta = repinJumpDetected
+    ? 0
+    : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+      ? Math.max(safeExistingRepinDelta, rawRepinDelta, intradayRepinStepGain)
+      : rawRepinDelta);
 
   // 7. Upsert two-tier modern snapshot metrics (pins_daily_metrics)
   await dbSql`
@@ -1336,11 +1396,7 @@ export async function syncPinAcrossAllFourPillars({
           THEN ${syncVelocity}
           ELSE daily_save_velocity
         END,
-        delta_repins_24h = CASE
-          WHEN (crawled_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-          THEN GREATEST(COALESCE(delta_repins_24h, 0), COALESCE(${syncRepinsDelta}::int, 0))
-          ELSE COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0)
-        END,
+        delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0),
         metadata = ((CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
           || ${JSON.stringify(secondaryMetaToStore)}::jsonb
           || CASE
@@ -1803,10 +1859,19 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     ...(Array.isArray(topHubMeta?.deleted_snapshot_dates) ? topHubMeta.deleted_snapshot_dates : [])
   ]);
 
+  let maxExistingSnapshotDate = '';
+  for (const dStr of existingSnapshotDates) {
+    if (!maxExistingSnapshotDate || dStr > maxExistingSnapshotDate) maxExistingSnapshotDate = dStr;
+  }
+
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
     const crawlIso = formatUtcDate(crawlDate);
-    const canUseCrawlDate = crawlIso && !deletedSnapshotDates.has(crawlIso) && (existingSnapshotDates.size === 0 || existingSnapshotDates.has(crawlIso));
+    const canUseCrawlDate = crawlIso && !deletedSnapshotDates.has(crawlIso) && (
+      existingSnapshotDates.size === 0 ||
+      existingSnapshotDates.has(crawlIso) ||
+      (maxExistingSnapshotDate && crawlIso > maxExistingSnapshotDate)
+    );
     if (canUseCrawlDate) {
       const dedupKey = `${crawlIso}_${sc.keyword_id || 'global'}`;
       const crawlIsoStr = repoSafeIsoDate(sc.crawled_at) || repoSafeIsoDate(sc.updated_at) || (crawlIso + 'T00:00:00.000Z');
@@ -1894,28 +1959,47 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     }
   }
 
-  if (snapshotMap.size === 0 && masterRecord) {
-    const todayStr = formatUtcDate(new Date());
-    const livePoint = {
-      pin_id: cleanPinId,
-      keyword_id: null,
-      keyword_name: null,
-      snapshot_date: todayStr,
-      rank_position: null,
-      last_known_rank: null,
-      is_displaced: false,
-      save_count: Number(masterRecord.save_count || 0),
-      repin_count: Number(masterRecord.repin_count || 0),
-      comment_count: Number(masterRecord.comment_count || 0),
-      share_count: 0,
-      reaction_count: 0,
-      daily_save_velocity: Number(masterRecord.daily_save_velocity || 0),
-      created_at: new Date().toISOString(),
-      crawled_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      metadata: masterRecord.metadata || {}
-    };
-    snapshotMap.set(`${todayStr}_global`, livePoint);
+  let maxSnapshotDateInMap = '';
+  for (const s of snapshotMap.values()) {
+    const dStr = formatUtcDate(s.snapshot_date);
+    if (dStr && (!maxSnapshotDateInMap || dStr > maxSnapshotDateInMap)) maxSnapshotDateInMap = dStr;
+  }
+
+  if (masterRecord) {
+    const masterCrawlIso = formatUtcDate(masterRecord.last_scraped_at || masterRecord.updated_at || new Date());
+    const hasDateInMap = masterCrawlIso && Array.from(snapshotMap.values()).some(s => formatUtcDate(s.snapshot_date) === masterCrawlIso);
+    const shouldAppendMasterLive = snapshotMap.size === 0 || (
+      masterCrawlIso &&
+      !deletedSnapshotDates.has(masterCrawlIso) &&
+      !hasDateInMap &&
+      Number(masterRecord.save_count || 0) > 0 &&
+      maxSnapshotDateInMap &&
+      masterCrawlIso > maxSnapshotDateInMap
+    );
+    if (shouldAppendMasterLive) {
+      const targetStr = masterCrawlIso || formatUtcDate(new Date());
+      const masterTs = repoSafeIsoDate(masterRecord.last_scraped_at) || repoSafeIsoDate(masterRecord.updated_at) || new Date().toISOString();
+      const livePoint = {
+        pin_id: cleanPinId,
+        keyword_id: null,
+        keyword_name: null,
+        snapshot_date: targetStr,
+        rank_position: null,
+        last_known_rank: null,
+        is_displaced: false,
+        save_count: Number(masterRecord.save_count || 0),
+        repin_count: Number(masterRecord.repin_count || 0),
+        comment_count: Number(masterRecord.comment_count || 0),
+        share_count: Number(masterRecord.share_count || 0),
+        reaction_count: Number(masterRecord.reaction_count || 0),
+        daily_save_velocity: Number(masterRecord.daily_save_velocity || 0),
+        created_at: masterTs,
+        crawled_at: masterTs,
+        updated_at: masterTs,
+        metadata: masterRecord.metadata || {}
+      };
+      snapshotMap.set(`${targetStr}_global`, livePoint);
+    }
   }
 
   snapshots = Array.from(snapshotMap.values()).sort(
@@ -2460,7 +2544,16 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
       comment_count: Number(masterRecord?.comment_count || dailyTrajectory[0]?.comment_count || hubSerpRows[0]?.comment_count || 0),
       share_count: Number(masterRecord?.share_count || dailyTrajectory[0]?.share_count || hubSerpRows[0]?.share_count || 0),
       reaction_count: resolvedReactionCount,
-      daily_save_velocity: Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? masterRecord?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
+      daily_save_velocity: (() => {
+        const trajVel24h = Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? 0);
+        const masterOrHubVel = Number(masterRecord?.daily_save_velocity || hubSerpRows[0]?.daily_save_velocity || 0);
+        const refSaves = Number(masterRecord?.save_count || hubSerpRows[0]?.save_count || dailyTrajectory[0]?.save_count || 0);
+        if (trajVel24h > 0) return trajVel24h;
+        if (dailyTrajectory.length <= 1 && masterOrHubVel > 0 && (refSaves <= 0 || masterOrHubVel < refSaves)) {
+          return masterOrHubVel;
+        }
+        return 0;
+      })(),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),
       metadata: snapMeta

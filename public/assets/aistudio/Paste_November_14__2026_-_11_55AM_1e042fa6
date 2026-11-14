@@ -1,0 +1,381 @@
+2026-11-14T07:31:32.6680119Z Current runner version: '2.338.2'
+2026-11-14T07:31:32.6697273Z ##[group]Runner Image Provisioner
+2026-11-14T07:31:32.6697854Z Hosted Compute Agent
+2026-11-14T07:31:32.6698407Z Version: 20261103.629
+2026-11-14T07:31:32.6698859Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-14T07:31:32.6699379Z Build Date: 2026-11-03T17:26:59Z
+2026-11-14T07:31:32.6699838Z Worker ID: {32168d07-3088-49b1-94b4-bad6b03c2918}
+2026-11-14T07:31:32.6700270Z Region: centralus
+2026-11-14T07:31:32.6700672Z Cloud: Azure
+2026-11-14T07:31:32.6701066Z ##[endgroup]
+2026-11-14T07:31:32.6701940Z ##[group]Operating System
+2026-11-14T07:31:32.6702396Z Ubuntu
+2026-11-14T07:31:32.6702733Z 24.04.5
+2026-11-14T07:31:32.6703083Z LTS
+2026-11-14T07:31:32.6703494Z ##[endgroup]
+2026-11-14T07:31:32.6703831Z ##[group]Runner Image
+2026-11-14T07:31:32.6704419Z Image: ubuntu-24.04
+2026-11-14T07:31:32.6704813Z Version: 20261111.370.1
+2026-11-14T07:31:32.6705656Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-14T07:31:32.6706573Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-14T07:31:32.6707161Z ##[endgroup]
+2026-11-14T07:31:32.6707862Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T07:31:32.6709273Z Contents: read
+2026-11-14T07:31:32.6709617Z Metadata: read
+2026-11-14T07:31:32.6710026Z ##[endgroup]
+2026-11-14T07:31:32.6711360Z Secret source: Actions
+2026-11-14T07:31:32.6712026Z Cache mode: write
+2026-11-14T07:31:32.6712642Z Prepare workflow directory
+2026-11-14T07:31:32.6954906Z Prepare all required actions
+2026-11-14T07:31:32.6986044Z Getting action download info
+2026-11-14T07:31:32.8984887Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-14T07:31:33.0488957Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-11-14T07:31:33.2113229Z Complete job name: Fleet Worker (keyword_sweep, small living room decor (+5 kw), 285, 285,119,314,176,148,99, 292,13...
+2026-11-14T07:31:33.2668201Z ##[group]Run actions/checkout@v4
+2026-11-14T07:31:33.2668628Z with:
+2026-11-14T07:31:33.2668876Z   fetch-depth: 1
+2026-11-14T07:31:33.2669183Z   repository: sayfedin-star/pin-arbitrage-engine
+2026-11-14T07:31:33.2671532Z   token: ***
+2026-11-14T07:31:33.2671783Z   ssh-strict: true
+2026-11-14T07:31:33.2672281Z   ssh-user: git
+2026-11-14T07:31:33.2672690Z   persist-credentials: true
+2026-11-14T07:31:33.2673143Z   clean: true
+2026-11-14T07:31:33.2673459Z   sparse-checkout-cone-mode: true
+2026-11-14T07:31:33.2673760Z   fetch-tags: false
+2026-11-14T07:31:33.2674195Z   show-progress: true
+2026-11-14T07:31:33.2674452Z   lfs: false
+2026-11-14T07:31:33.2674692Z   submodules: false
+2026-11-14T07:31:33.2674953Z   set-safe-directory: true
+2026-11-14T07:31:33.2675249Z   allow-unsafe-pr-checkout: false
+2026-11-14T07:31:33.2675734Z env:
+2026-11-14T07:31:33.2675979Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:33.2676281Z   PG_POOL_MAX: 2
+2026-11-14T07:31:33.2676542Z ##[endgroup]
+2026-11-14T07:31:33.5021950Z Syncing repository: sayfedin-star/pin-arbitrage-engine
+2026-11-14T07:31:33.5023128Z ##[group]Getting Git version info
+2026-11-14T07:31:33.5023629Z Working directory is '/home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine'
+2026-11-14T07:31:33.5024646Z [command]/usr/bin/git version
+2026-11-14T07:31:33.5063056Z git version 2.56.1
+2026-11-14T07:31:33.5080837Z ##[endgroup]
+2026-11-14T07:31:33.5095770Z Temporarily overriding HOME='/home/runner/work/_temp/b21289e9-e04f-4fb3-8360-c60dad16d69f' before making global git config changes
+2026-11-14T07:31:33.5097228Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T07:31:33.5099646Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine
+2026-11-14T07:31:33.5154166Z Deleting the contents of '/home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine'
+2026-11-14T07:31:33.5158211Z ##[group]Initializing the repository
+2026-11-14T07:31:33.5163498Z [command]/usr/bin/git init /home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine
+2026-11-14T07:31:33.5265724Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-14T07:31:33.5266485Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-14T07:31:33.5267074Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-14T07:31:33.5267657Z hint: call:
+2026-11-14T07:31:33.5268000Z hint:
+2026-11-14T07:31:33.5268346Z hint: 	git config --global init.defaultBranch <name>
+2026-11-14T07:31:33.5268723Z hint:
+2026-11-14T07:31:33.5269077Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-14T07:31:33.5269626Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-14T07:31:33.5270068Z hint:
+2026-11-14T07:31:33.5270449Z hint: 	git branch -m <name>
+2026-11-14T07:31:33.5270786Z hint:
+2026-11-14T07:31:33.5271204Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-14T07:31:33.5275426Z Initialized empty Git repository in /home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine/.git/
+2026-11-14T07:31:33.5284096Z [command]/usr/bin/git remote add origin https://github.com/sayfedin-star/pin-arbitrage-engine
+2026-11-14T07:31:33.5328567Z ##[endgroup]
+2026-11-14T07:31:33.5329382Z ##[group]Disabling automatic garbage collection
+2026-11-14T07:31:33.5331817Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-14T07:31:33.5382172Z ##[endgroup]
+2026-11-14T07:31:33.5382637Z ##[group]Setting up auth
+2026-11-14T07:31:33.5387646Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T07:31:33.5455949Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T07:31:33.5771319Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T07:31:33.5807525Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T07:31:33.5994185Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T07:31:33.6029699Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T07:31:33.6216335Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T07:31:33.6256422Z ##[endgroup]
+2026-11-14T07:31:33.6257017Z ##[group]Fetching the repository
+2026-11-14T07:31:33.6265766Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +2baa770e8f28a0f9001ca4281f191fddeae9ab96:refs/remotes/origin/main
+2026-11-14T07:31:34.6690490Z From https://github.com/sayfedin-star/pin-arbitrage-engine
+2026-11-14T07:31:34.6691881Z  * [new ref]         2baa770e8f28a0f9001ca4281f191fddeae9ab96 -> origin/main
+2026-11-14T07:31:34.6694611Z ##[endgroup]
+2026-11-14T07:31:34.6695576Z ##[group]Determining the checkout info
+2026-11-14T07:31:34.6696678Z ##[endgroup]
+2026-11-14T07:31:34.6700487Z [command]/usr/bin/git sparse-checkout disable
+2026-11-14T07:31:34.6759797Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T07:31:34.6794321Z ##[group]Checking out the ref
+2026-11-14T07:31:34.6802224Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-14T07:31:34.7442219Z Switched to a new branch 'main'
+2026-11-14T07:31:34.7446425Z branch 'main' set up to track 'origin/main'.
+2026-11-14T07:31:34.7454204Z ##[endgroup]
+2026-11-14T07:31:34.7498197Z [command]/usr/bin/git log -1 --format=%H
+2026-11-14T07:31:34.7527783Z 2baa770e8f28a0f9001ca4281f191fddeae9ab96
+2026-11-14T07:31:34.7802300Z ##[group]Run actions/setup-node@v4
+2026-11-14T07:31:34.7803257Z with:
+2026-11-14T07:31:34.7803791Z   node-version: 22
+2026-11-14T07:31:34.7804462Z   cache: npm
+2026-11-14T07:31:34.7805015Z   always-auth: false
+2026-11-14T07:31:34.7805635Z   check-latest: false
+2026-11-14T07:31:34.7811827Z   token: ***
+2026-11-14T07:31:34.7812374Z env:
+2026-11-14T07:31:34.7812939Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:34.7813674Z   PG_POOL_MAX: 2
+2026-11-14T07:31:34.7814351Z ##[endgroup]
+2026-11-14T07:31:34.8855735Z (node:2120) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-14T07:31:34.8862134Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-14T07:31:34.8869423Z Found in cache @ /opt/hostedtoolcache/node/22.23.4/x64
+2026-11-14T07:31:34.8873886Z ##[group]Environment details
+2026-11-14T07:31:35.2186796Z node: v22.23.4
+2026-11-14T07:31:35.2187357Z npm: 10.9.9
+2026-11-14T07:31:35.2187712Z yarn: 1.22.22
+2026-11-14T07:31:35.2188253Z ##[endgroup]
+2026-11-14T07:31:35.2200082Z [command]/opt/hostedtoolcache/node/22.23.4/x64/bin/npm config get cache
+2026-11-14T07:31:35.5112062Z /home/runner/.npm
+2026-11-14T07:31:35.6544072Z Cache hit for: node-cache-Linux-x64-npm-fec5ee3af9b57c3258529be71ce86b374cc3c4daa2638d787309c086b95ae5ba
+2026-11-14T07:31:35.6606882Z (node:2120) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-14T07:31:36.3364770Z Received 8998756 of 8998756 (100.0%), 16.3 MBs/sec
+2026-11-14T07:31:36.3365139Z Cache Size: ~9 MB (8998756 B)
+2026-11-14T07:31:36.3382097Z [command]/usr/bin/tar -xf /home/runner/work/_temp/14de38ea-a266-445f-800d-d0a341b624fc/cache.tzst -P -C /home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine --use-compress-program unzstd
+2026-11-14T07:31:36.3719460Z Cache restored successfully
+2026-11-14T07:31:36.3725796Z Cache restored from key: node-cache-Linux-x64-npm-fec5ee3af9b57c3258529be71ce86b374cc3c4daa2638d787309c086b95ae5ba
+2026-11-14T07:31:36.3881763Z ##[group]Run echo "=== Runner Egress IP ==="
+2026-11-14T07:31:36.3882003Z [36;1mecho "=== Runner Egress IP ==="[0m
+2026-11-14T07:31:36.3882324Z [36;1mcurl -s --max-time 3 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"[0m
+2026-11-14T07:31:36.3882590Z [36;1mecho ""[0m
+2026-11-14T07:31:36.3882718Z [36;1mecho "========================"[0m
+2026-11-14T07:31:36.3908691Z shell: /usr/bin/bash -e {0}
+2026-11-14T07:31:36.3908850Z env:
+2026-11-14T07:31:36.3908977Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:36.3909137Z   PG_POOL_MAX: 2
+2026-11-14T07:31:36.3909259Z ##[endgroup]
+2026-11-14T07:31:36.3960002Z === Runner Egress IP ===
+2026-11-14T07:31:39.4050917Z ip-diagnostics unavailable (non-fatal)
+2026-11-14T07:31:39.4051181Z 
+2026-11-14T07:31:39.4051309Z ========================
+2026-11-14T07:31:39.4083503Z ##[group]Run npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+2026-11-14T07:31:39.4083894Z [36;1mnpm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund[0m
+2026-11-14T07:31:39.4101382Z shell: /usr/bin/bash -e {0}
+2026-11-14T07:31:39.4101526Z env:
+2026-11-14T07:31:39.4101650Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:39.4101807Z   PG_POOL_MAX: 2
+2026-11-14T07:31:39.4101927Z ##[endgroup]
+2026-11-14T07:31:41.9740059Z 
+2026-11-14T07:31:41.9740686Z added 158 packages in 3s
+2026-11-14T07:31:42.0262466Z Prepare all required actions
+2026-11-14T07:31:42.0328649Z ##[group]Run ./.github/actions/setup-instabox-db
+2026-11-14T07:31:42.0328833Z with:
+2026-11-14T07:31:42.0329073Z   instabox-api-key: ***
+2026-11-14T07:31:42.0329215Z   skip-wakeup: true
+2026-11-14T07:31:42.0329353Z   machine-id: m_agq2t32m5xv5joj67rqoze5h4u
+2026-11-14T07:31:42.0329522Z   db-hostname: db.hymum.com
+2026-11-14T07:31:42.0329658Z env:
+2026-11-14T07:31:42.0329783Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:42.0330084Z   PG_POOL_MAX: 2
+2026-11-14T07:31:42.0330212Z ##[endgroup]
+2026-11-14T07:31:42.0368179Z ##[start-action display=1. Wake InstaBox Machine & Long-Poll Operation (if sleeping);id=__self.__run]
+2026-11-14T07:31:42.0384522Z ##[group]Run if [ "${IB_SKIP_WAKEUP}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then
+2026-11-14T07:31:42.0384873Z [36;1mif [ "${IB_SKIP_WAKEUP}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then[0m
+2026-11-14T07:31:42.0385190Z [36;1m  echo "Skipping InstaBox wakeup API call (already woken by Stage 0)."[0m
+2026-11-14T07:31:42.0385422Z [36;1melif [ -n "${IB_API_KEY}" ]; then[0m
+2026-11-14T07:31:42.0385659Z [36;1m  IDEMP_KEY="gha-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%Y%m%d%H%M)"[0m
+2026-11-14T07:31:42.0385995Z [36;1m  echo "Starting/Resuming InstaBox machine: ${IB_MACHINE_ID} (Idempotency-Key: ${IDEMP_KEY})..."[0m
+2026-11-14T07:31:42.0386365Z [36;1m  START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \[0m
+2026-11-14T07:31:42.0386696Z [36;1m    -H "Authorization: ***" \[0m
+2026-11-14T07:31:42.0386912Z [36;1m    -H "Content-Type: application/json" \[0m
+2026-11-14T07:31:42.0387101Z [36;1m    -H "Idempotency-Key: ${IDEMP_KEY}" \[0m
+2026-11-14T07:31:42.0387274Z [36;1m    -d '{}' || echo "{}")[0m
+2026-11-14T07:31:42.0387415Z [36;1m[0m
+2026-11-14T07:31:42.0387538Z [36;1m  OP_INFO=$(node -e '[0m
+2026-11-14T07:31:42.0387680Z [36;1m    try {[0m
+2026-11-14T07:31:42.0387840Z [36;1m      const d = JSON.parse(process.argv[1] || "{}");[0m
+2026-11-14T07:31:42.0388079Z [36;1m      const opId = d.id || (d.error && d.error.operationId) || "";[0m
+2026-11-14T07:31:42.0388291Z [36;1m      const state = d.state || "";[0m
+2026-11-14T07:31:42.0388480Z [36;1m      const errCode = (d.error && d.error.code) || "";[0m
+2026-11-14T07:31:42.0388687Z [36;1m      console.log(`${opId}|${state}|${errCode}`);[0m
+2026-11-14T07:31:42.0388865Z [36;1m    } catch (_) {[0m
+2026-11-14T07:31:42.0389001Z [36;1m      console.log("||");[0m
+2026-11-14T07:31:42.0389148Z [36;1m    }[0m
+2026-11-14T07:31:42.0389267Z [36;1m  ' "${START_RESP}")[0m
+2026-11-14T07:31:42.0389402Z [36;1m[0m
+2026-11-14T07:31:42.0389553Z [36;1m  IFS='|' read -r OP_ID OP_STATE ERR_CODE <<< "${OP_INFO}"[0m
+2026-11-14T07:31:42.0389873Z [36;1m  echo "InstaBox start response -> opId=${OP_ID:-none}, state=${OP_STATE:-unknown}, error=${ERR_CODE:-none}"[0m
+2026-11-14T07:31:42.0390141Z [36;1m[0m
+2026-11-14T07:31:42.0390294Z [36;1m  if [ -n "${OP_ID}" ] && [ "${OP_STATE}" != "succeeded" ]; then[0m
+2026-11-14T07:31:42.0390572Z [36;1m    echo "Long-polling InstaBox operation ${OP_ID} (?wait=25s) until VM is ready..."[0m
+2026-11-14T07:31:42.0390879Z [36;1m    curl -s "https://api.instabox.sh/v1/operations/${OP_ID}?wait=25s" \[0m
+2026-11-14T07:31:42.0391171Z [36;1m      -H "Authorization: ***" > /dev/null 2>&1 || true[0m
+2026-11-14T07:31:42.0391350Z [36;1m  fi[0m
+2026-11-14T07:31:42.0391461Z [36;1mfi[0m
+2026-11-14T07:31:42.0408771Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T07:31:42.0408972Z env:
+2026-11-14T07:31:42.0409098Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:42.0409250Z   PG_POOL_MAX: 2
+2026-11-14T07:31:42.0409488Z   IB_API_KEY: ***
+2026-11-14T07:31:42.0409626Z   IB_MACHINE_ID: m_agq2t32m5xv5joj67rqoze5h4u
+2026-11-14T07:31:42.0409797Z   IB_SKIP_WAKEUP: true
+2026-11-14T07:31:42.0409927Z ##[endgroup]
+2026-11-14T07:31:42.0443499Z Skipping InstaBox wakeup API call (already woken by Stage 0).
+2026-11-14T07:31:42.0452101Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=8]
+2026-11-14T07:31:42.0454669Z ##[start-action display=2. Install and launch Cloudflare Access TCP Tunnel + Verify PostgreSQL Handshake;id=__self.__run_2]
+2026-11-14T07:31:42.0466130Z ##[group]Run if ! command -v cloudflared &> /dev/null; then
+2026-11-14T07:31:42.0466416Z [36;1mif ! command -v cloudflared &> /dev/null; then[0m
+2026-11-14T07:31:42.0466616Z [36;1m  echo "Installing cloudflared client..."[0m
+2026-11-14T07:31:42.0467115Z [36;1m  curl -sL --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb[0m
+2026-11-14T07:31:42.0467494Z [36;1m  sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1[0m
+2026-11-14T07:31:42.0467693Z [36;1m  rm -f /tmp/cloudflared.deb[0m
+2026-11-14T07:31:42.0467839Z [36;1mfi[0m
+2026-11-14T07:31:42.0467952Z [36;1m[0m
+2026-11-14T07:31:42.0468159Z [36;1mecho "Starting Cloudflare TCP proxy to ${DB_HOSTNAME} on 127.0.0.1:5432..."[0m
+2026-11-14T07:31:42.0468523Z [36;1mcloudflared access tcp --hostname "${DB_HOSTNAME}" --url 127.0.0.1:5432 > /dev/null 2>&1 &[0m
+2026-11-14T07:31:42.0468762Z [36;1m[0m
+2026-11-14T07:31:42.0469030Z [36;1m# End-to-End PostgreSQL Wire Handshake Probe (sends 8-byte SSLRequest packet through tunnel to remote Postgres)[0m
+2026-11-14T07:31:42.0469467Z [36;1mecho "Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel (127.0.0.1:5432 -> ${DB_HOSTNAME})..."[0m
+2026-11-14T07:31:42.0469779Z [36;1mHANDSHAKE_OK=false[0m
+2026-11-14T07:31:42.0469920Z [36;1mfor i in {1..20}; do[0m
+2026-11-14T07:31:42.0470061Z [36;1m  if node -e '[0m
+2026-11-14T07:31:42.0470206Z [36;1m    const net = require("node:net");[0m
+2026-11-14T07:31:42.0470452Z [36;1m    const sock = net.connect({ host: "127.0.0.1", port: 5432, timeout: 1500 }, () => {[0m
+2026-11-14T07:31:42.0470716Z [36;1m      sock.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));[0m
+2026-11-14T07:31:42.0470908Z [36;1m    });[0m
+2026-11-14T07:31:42.0471033Z [36;1m    sock.on("data", (buf) => {[0m
+2026-11-14T07:31:42.0471191Z [36;1m      sock.destroy();[0m
+2026-11-14T07:31:42.0471403Z [36;1m      process.exit(buf.length > 0 && (buf[0] === 0x4e || buf[0] === 0x53) ? 0 : 1);[0m
+2026-11-14T07:31:42.0471627Z [36;1m    });[0m
+2026-11-14T07:31:42.0471794Z [36;1m    sock.on("timeout", () => { sock.destroy(); process.exit(1); });[0m
+2026-11-14T07:31:42.0472038Z [36;1m    sock.on("error", () => { sock.destroy(); process.exit(1); });[0m
+2026-11-14T07:31:42.0472235Z [36;1m  ' 2>/dev/null; then[0m
+2026-11-14T07:31:42.0472480Z [36;1m    echo "✅ End-to-end PostgreSQL tunnel verified and responsive on 127.0.0.1:5432 in ${i}s!"[0m
+2026-11-14T07:31:42.0472732Z [36;1m    HANDSHAKE_OK=true[0m
+2026-11-14T07:31:42.0472867Z [36;1m    exit 0[0m
+2026-11-14T07:31:42.0472986Z [36;1m  fi[0m
+2026-11-14T07:31:42.0473100Z [36;1m  sleep 1[0m
+2026-11-14T07:31:42.0473222Z [36;1mdone[0m
+2026-11-14T07:31:42.0473332Z [36;1m[0m
+2026-11-14T07:31:42.0473508Z [36;1m# If 20s probe failed, retry machine wakeup if API key is provided[0m
+2026-11-14T07:31:42.0473763Z [36;1mif [ "${HANDSHAKE_OK}" != "true" ] && [ -n "${IB_API_KEY}" ]; then[0m
+2026-11-14T07:31:42.0474280Z [36;1m  echo "⚠️ Initial 20s probe failed. Attempting emergency InstaBox machine wakeup/resume on ${IB_MACHINE_ID}..."[0m
+2026-11-14T07:31:42.0474656Z [36;1m  RETRY_IDEMP_KEY="gha-retry-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%s)"[0m
+2026-11-14T07:31:42.0475000Z [36;1m  RETRY_START=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \[0m
+2026-11-14T07:31:42.0475333Z [36;1m    -H "Authorization: ***" \[0m
+2026-11-14T07:31:42.0475514Z [36;1m    -H "Content-Type: application/json" \[0m
+2026-11-14T07:31:42.0475706Z [36;1m    -H "Idempotency-Key: ${RETRY_IDEMP_KEY}" \[0m
+2026-11-14T07:31:42.0475885Z [36;1m    -d '{}' || echo "{}")[0m
+2026-11-14T07:31:42.0476025Z [36;1m[0m
+2026-11-14T07:31:42.0476254Z [36;1m  RETRY_OP_ID=$(node -e '[0m
+2026-11-14T07:31:42.0476400Z [36;1m    try {[0m
+2026-11-14T07:31:42.0476559Z [36;1m      const d = JSON.parse(process.argv[1] || "{}");[0m
+2026-11-14T07:31:42.0476792Z [36;1m      console.log(d.id || (d.error && d.error.operationId) || "");[0m
+2026-11-14T07:31:42.0477006Z [36;1m    } catch (_) { console.log(""); }[0m
+2026-11-14T07:31:42.0477169Z [36;1m  ' "${RETRY_START}")[0m
+2026-11-14T07:31:42.0477303Z [36;1m[0m
+2026-11-14T07:31:42.0477425Z [36;1m  if [ -n "${RETRY_OP_ID}" ]; then[0m
+2026-11-14T07:31:42.0477745Z [36;1m    echo "Waiting for InstaBox resume operation ${RETRY_OP_ID} (?wait=25s)..."[0m
+2026-11-14T07:31:42.0478043Z [36;1m    curl -s "https://api.instabox.sh/v1/operations/${RETRY_OP_ID}?wait=25s" \[0m
+2026-11-14T07:31:42.0478344Z [36;1m      -H "Authorization: ***" > /dev/null 2>&1 || true[0m
+2026-11-14T07:31:42.0478519Z [36;1m  fi[0m
+2026-11-14T07:31:42.0478633Z [36;1m[0m
+2026-11-14T07:31:42.0478811Z [36;1m  echo "Re-probing PostgreSQL wire protocol after machine wakeup..."[0m
+2026-11-14T07:31:42.0479028Z [36;1m  for i in {1..15}; do[0m
+2026-11-14T07:31:42.0479170Z [36;1m    if node -e '[0m
+2026-11-14T07:31:42.0479323Z [36;1m      const net = require("node:net");[0m
+2026-11-14T07:31:42.0479566Z [36;1m      const sock = net.connect({ host: "127.0.0.1", port: 5432, timeout: 1500 }, () => {[0m
+2026-11-14T07:31:42.0479837Z [36;1m        sock.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));[0m
+2026-11-14T07:31:42.0480020Z [36;1m      });[0m
+2026-11-14T07:31:42.0480158Z [36;1m      sock.on("data", (buf) => {[0m
+2026-11-14T07:31:42.0480317Z [36;1m        sock.destroy();[0m
+2026-11-14T07:31:42.0480533Z [36;1m        process.exit(buf.length > 0 && (buf[0] === 0x4e || buf[0] === 0x53) ? 0 : 1);[0m
+2026-11-14T07:31:42.0480749Z [36;1m      });[0m
+2026-11-14T07:31:42.0480922Z [36;1m      sock.on("timeout", () => { sock.destroy(); process.exit(1); });[0m
+2026-11-14T07:31:42.0481167Z [36;1m      sock.on("error", () => { sock.destroy(); process.exit(1); });[0m
+2026-11-14T07:31:42.0481367Z [36;1m    ' 2>/dev/null; then[0m
+2026-11-14T07:31:42.0481620Z [36;1m      echo "✅ End-to-end PostgreSQL tunnel verified and responsive after wakeup retry in ${i}s!"[0m
+2026-11-14T07:31:42.0481874Z [36;1m      HANDSHAKE_OK=true[0m
+2026-11-14T07:31:42.0482015Z [36;1m      exit 0[0m
+2026-11-14T07:31:42.0482136Z [36;1m    fi[0m
+2026-11-14T07:31:42.0482255Z [36;1m    sleep 1[0m
+2026-11-14T07:31:42.0482375Z [36;1m  done[0m
+2026-11-14T07:31:42.0482489Z [36;1mfi[0m
+2026-11-14T07:31:42.0482602Z [36;1m[0m
+2026-11-14T07:31:42.0482731Z [36;1mif [ "${HANDSHAKE_OK}" != "true" ]; then[0m
+2026-11-14T07:31:42.0483047Z [36;1m  echo "❌ FATAL: Remote PostgreSQL handshake over Cloudflare Tunnel (127.0.0.1:5432 -> ${DB_HOSTNAME}) failed to respond."[0m
+2026-11-14T07:31:42.0483363Z [36;1m  echo "--- Diagnostic Information ---"[0m
+2026-11-14T07:31:42.0483540Z [36;1m  echo "cloudflared processes:"[0m
+2026-11-14T07:31:42.0483849Z [36;1m  ps aux | grep "[c]loudflared" || echo "No running cloudflared process found!"[0m
+2026-11-14T07:31:42.0502441Z [36;1m  echo "Network listening ports:"[0m
+2026-11-14T07:31:42.0502902Z [36;1m  netstat -tulpn 2>/dev/null | grep 5432 || ss -tulpn 2>/dev/null | grep 5432 || echo "Port 5432 not listening!"[0m
+2026-11-14T07:31:42.0503280Z [36;1m  echo "------------------------------"[0m
+2026-11-14T07:31:42.0503554Z [36;1m  echo "Failing fast to prevent silent connection drop or unhandled stream ECONNRESET crash."[0m
+2026-11-14T07:31:42.0503808Z [36;1m  exit 1[0m
+2026-11-14T07:31:42.0504075Z [36;1mfi[0m
+2026-11-14T07:31:42.0518595Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T07:31:42.0518784Z env:
+2026-11-14T07:31:42.0518918Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:42.0519070Z   PG_POOL_MAX: 2
+2026-11-14T07:31:42.0519298Z   IB_API_KEY: ***
+2026-11-14T07:31:42.0519439Z   IB_MACHINE_ID: m_agq2t32m5xv5joj67rqoze5h4u
+2026-11-14T07:31:42.0519610Z   DB_HOSTNAME: db.hymum.com
+2026-11-14T07:31:42.0519868Z ##[endgroup]
+2026-11-14T07:31:42.0552330Z Installing cloudflared client...
+2026-11-14T07:31:44.2781963Z Starting Cloudflare TCP proxy to db.hymum.com on 127.0.0.1:5432...
+2026-11-14T07:31:44.2785580Z Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel (127.0.0.1:5432 -> db.hymum.com)...
+2026-11-14T07:31:44.7635956Z ✅ End-to-end PostgreSQL tunnel verified and responsive on 127.0.0.1:5432 in 1s!
+2026-11-14T07:31:44.7643052Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=2718]
+2026-11-14T07:31:44.7675641Z ##[group]Run node scripts/keyword-velocity-crawler.mjs
+2026-11-14T07:31:44.7675890Z [36;1mnode scripts/keyword-velocity-crawler.mjs[0m
+2026-11-14T07:31:44.7691812Z shell: /usr/bin/bash -e {0}
+2026-11-14T07:31:44.7691953Z env:
+2026-11-14T07:31:44.7692078Z   DATABASE_TOPOLOGY: unified_postgres
+2026-11-14T07:31:44.7692230Z   PG_POOL_MAX: 2
+2026-11-14T07:31:44.7692707Z   DATABASE_URL: ***
+2026-11-14T07:31:44.7711018Z   PINTEREST_COOKIE: *** 
+2026-11-14T07:31:44.7711160Z   MODE: keyword_sweep
+2026-11-14T07:31:44.7711287Z   TARGET_KEYWORD: 
+2026-11-14T07:31:44.7711410Z   KEYWORD_ID: 285
+2026-11-14T07:31:44.7711534Z   KEYWORD_IDS: 285,119,314,176,148,99
+2026-11-14T07:31:44.7712211Z   ALL_KEYWORD_IDS: 292,139,136,155,174,144,156,167,145,142,171,178,150,159,295,186,108,310,183,285,151,192,102,200,105,312,297,26,146,164,294,32,175,189,316,169,107,61,309,119,302,163,140,172,154,199,311,298,194,104,293,96,197,113,111,97,165,161,126,314,289,129,115,153,191,112,308,147,128,193,149,109,53,170,291,121,124,195,62,176,101,300,196,301,179,125,30,185,287,173,313,118,198,288,286,48,131,23,29,148,103,304,106,143,315,134,116,177,299,157,98,127,158,182,51,166,296,100,114,99,110
+2026-11-14T07:31:44.7712877Z   FOLDER_ID: 
+2026-11-14T07:31:44.7712993Z   WORKER_INDEX: 19
+2026-11-14T07:31:44.7713112Z   WORKER_TOTAL: 20
+2026-11-14T07:31:44.7713253Z   CRAWL_SCOPE: all_pins
+2026-11-14T07:31:44.7713378Z   MAX_PINS: 50
+2026-11-14T07:31:44.7713497Z   MAX_SERP_PINS: 50
+2026-11-14T07:31:44.7713621Z   MAX_CATALOG_INSPECT: 0
+2026-11-14T07:31:44.7713757Z   ENABLE_SERP_HARVEST: true
+2026-11-14T07:31:44.7713890Z   CONCURRENCY: 12
+2026-11-14T07:31:44.7714151Z   SLEEP_MS_MIN: 300
+2026-11-14T07:31:44.7714270Z   SLEEP_MS_MAX: 600
+2026-11-14T07:31:44.7714387Z   BATCH_SIZE: 250
+2026-11-14T07:31:44.7714509Z ##[endgroup]
+2026-11-14T07:31:44.8780007Z ===============================================================
+2026-11-14T07:31:44.8780841Z 🚀 KEYWORD INTELLIGENCE & VELOCITY AUTONOMOUS WORKER
+2026-11-14T07:31:44.8781121Z ===============================================================
+2026-11-14T07:31:44.8781454Z [Config] Execution Mode:  KEYWORD_SWEEP
+2026-11-14T07:31:44.8781686Z [Config] Worker Slot:     20 / 20
+2026-11-14T07:31:44.8781920Z [Config] Target Keyword:  "<AUTO-RESOLVE>"
+2026-11-14T07:31:44.8782123Z [Config] Crawl Scope:     all_pins
+2026-11-14T07:31:45.6969768Z [Phase 1A] Worker 20/20: Harvesting SERPs for 6 assigned keywords (token: 43571421032_1)...
+2026-11-14T07:31:55.1939862Z   [+] [Phase 1A] Keyword ID 285 SERP harvest complete (50 pins)
+2026-11-14T07:32:00.8402667Z file:///home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine/node_modules/postgres/src/connection.js:255
+2026-11-14T07:32:00.8403331Z     const x = socket.write(chunk, fn)
+2026-11-14T07:32:00.8403583Z                      ^
+2026-11-14T07:32:00.8403711Z 
+2026-11-14T07:32:00.8404069Z TypeError: Cannot read properties of null (reading 'write')
+2026-11-14T07:32:00.8404775Z     at Immediate.nextWrite (file:///home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine/node_modules/postgres/src/connection.js:255:22)
+2026-11-14T07:32:00.8405199Z     at process.processImmediate (node:internal/timers:484:21)
+2026-11-14T07:32:00.8405344Z 
+2026-11-14T07:32:00.8405401Z Node.js v22.23.4
+2026-11-14T07:32:00.8483695Z ##[error]Process completed with exit code 1.
+2026-11-14T07:32:00.8559474Z Post job cleanup.
+2026-11-14T07:32:00.9102320Z [command]/usr/bin/git version
+2026-11-14T07:32:00.9137015Z git version 2.56.1
+2026-11-14T07:32:00.9162575Z Temporarily overriding HOME='/home/runner/work/_temp/1c51a5c5-2a9b-412a-9dc8-99e69eac3585' before making global git config changes
+2026-11-14T07:32:00.9163446Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T07:32:00.9166296Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/pin-arbitrage-engine/pin-arbitrage-engine
+2026-11-14T07:32:00.9230524Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T07:32:00.9259104Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T07:32:00.9468643Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T07:32:00.9493257Z http.https://github.com/.extraheader
+2026-11-14T07:32:00.9508245Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-14T07:32:00.9549699Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T07:32:00.9752936Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T07:32:00.9789992Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T07:32:01.0105600Z Cleaning up orphan processes
+2026-11-14T07:32:01.0304381Z Terminate orphan process: pid (2212) (cloudflared)
+2026-11-14T07:32:01.0396338Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

@@ -8,18 +8,22 @@ import postgres from 'postgres';
 let sharedClient = null;
 let sharedDsn = null;
 
-const PG_TRANSIENT_CONNECTION_CODES = new Set(['53300', '53400', '08006', '08001']);
+const PG_TRANSIENT_CONNECTION_CODES = new Set([
+  '53300', '53400', '08006', '08001', '08003', '08004', '57P01', '57P02', '57P03',
+  'CONNECTION_CLOSED', 'CONNECTION_DESTROYED', 'CONNECT_TIMEOUT',
+  'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN'
+]);
 
 /**
  * Returns true if error is a PostgreSQL connection slot exhaustion (SQLSTATE 53300)
- * or transient connection drop safe for automatic exponential-backoff retry.
+ * or transient socket/connection drop safe for automatic exponential-backoff retry.
  */
 export function isTransientPgConnectionError(err) {
   if (!err) return false;
   const code = String(err.code || err.sqlState || '').trim();
   if (PG_TRANSIENT_CONNECTION_CODES.has(code)) return true;
   const msg = String(err.message || '');
-  return /too many clients already|remaining connection slots are reserved|sorry, too many clients/i.test(msg);
+  return /too many clients already|remaining connection slots are reserved|sorry, too many clients|CONNECTION_CLOSED|CONNECTION_DESTROYED|CONNECT_TIMEOUT|ECONNRESET|ETIMEDOUT|EPIPE|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|write EPIPE|Cannot read properties of null \(reading 'write'\)/i.test(msg);
 }
 
 /**
@@ -288,8 +292,8 @@ export function createSqlClient(dsn, options = {}) {
     max: maxConnections,
     idle_timeout: Number(options.idle_timeout ?? 20),
     connect_timeout: Number(options.connect_timeout ?? 10),
-    max_lifetime: Number(options.max_lifetime ?? 300),
-    keep_alive: Number(options.keep_alive ?? 30),
+    max_lifetime: Number(options.max_lifetime ?? (isCi ? 180 : 300)),
+    keep_alive: Number(options.keep_alive ?? (isCi ? 15 : 30)),
     onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
     connection: {
       ...(options.connection || {}),

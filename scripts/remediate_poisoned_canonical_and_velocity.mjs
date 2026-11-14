@@ -169,7 +169,7 @@ async function main() {
       UNION
       SELECT pin_id FROM keyword_displaced_index WHERE pin_id IS NOT NULL
       UNION
-      SELECT pin_id FROM universal_master_pins WHERE COALESCE(daily_save_velocity, 0) > 0
+      SELECT pin_id FROM universal_master_pins WHERE COALESCE(daily_save_velocity, 0) > 0 OR COALESCE(delta_repins_24h, 0) > 0
     ) t;
   `;
 
