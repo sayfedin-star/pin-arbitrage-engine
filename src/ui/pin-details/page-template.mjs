@@ -56,7 +56,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             <template x-if="originBoard">
               <span class="flex items-center gap-1.5 truncate">
                 <span class="text-slate-600">/</span>
-                <a :href="'/' + encodeURIComponent(originCreator) + '/' + encodeURIComponent(getBoardSlug(originBoard))" class="text-slate-300 hover:underline truncate" x-text="originBoard"></a>
+                <a :href="'/' + encodeURIComponent(originCreator) + '/' + encodeURIComponent(getBoardSlug(originBoard))" class="text-slate-600 dark:text-slate-300 hover:underline truncate" x-text="originBoard"></a>
               </span>
             </template>
           </div>
@@ -116,7 +116,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
         </template>
         <span class="text-slate-600">/</span>
-        <span class="font-mono tabular-nums text-slate-300 font-bold">#<span x-text="pinId"></span></span>
+        <span class="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">#<span x-text="pinId"></span></span>
       </nav>
     </div>
 
@@ -269,7 +269,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             <button
               type="button"
               @click="downloadHdAsset(dossier?.creative?.image_url, pinId)"
-              class="w-full py-2 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold transition flex items-center justify-center gap-2 shadow-xs active:scale-95 cursor-pointer"
+              class="w-full py-2 px-3 rounded-xl border border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs active:scale-95 cursor-pointer"
               title="Download lossless original asset (with 1200x fallback)"
             >
               <i data-lucide="download" class="w-3.5 h-3.5"></i>
@@ -278,18 +278,18 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
 
           <div class="flex items-center justify-between text-[11px]">
-            <span class="text-slate-400 font-medium">Creation Method</span>
+            <span class="text-slate-500 dark:text-slate-400 font-medium">Creation Method</span>
             <span class="px-2 py-0.5 rounded text-[10px] font-semibold border" :class="getCreationMethodBadgeClass()" x-text="formatCreationMethodLabel()"></span>
           </div>
 
           <div class="flex items-center justify-between text-[11px]">
-            <span class="text-slate-400 font-medium">Media Format</span>
-            <span class="font-mono tabular-nums text-slate-200" x-text="getMediaFormatLabel()"></span>
+            <span class="text-slate-500 dark:text-slate-400 font-medium">Media Format</span>
+            <span class="font-mono tabular-nums text-slate-800 dark:text-slate-200" x-text="getMediaFormatLabel()"></span>
           </div>
 
           <div class="flex items-center justify-between text-[11px]">
-            <span class="text-slate-400 font-medium">Resolution & Aspect</span>
-            <span class="font-mono tabular-nums text-slate-300" x-text="getResolutionRatioText()"></span>
+            <span class="text-slate-500 dark:text-slate-400 font-medium">Resolution & Aspect</span>
+            <span class="font-mono tabular-nums text-slate-700 dark:text-slate-300" x-text="getResolutionRatioText()"></span>
           </div>
 
           <template x-if="dossier?.creative?.image_signature || dossier?.algorithmic_intelligence?.image_signature">
@@ -332,17 +332,17 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </template>
                 <template x-if="!dossier?.pillar_1_creator_context?.is_tracked_competitor">
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">
-                    <span class="font-medium text-slate-300 flex items-center gap-1" :title="'Untracked creator @' + (dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)">
+                    <span class="font-medium text-slate-800 dark:text-slate-300 flex items-center gap-1" :title="'Untracked creator @' + (dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)">
                       <span>@</span><span x-text="dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username"></span>
                     </span>
                     <button 
                       type="button"
                       @click="trackCreatorPulse(dossier?.pillar_1_creator_context?.creator_username || dossier?.creator_username)"
                       :disabled="isTrackingCreator"
-                      class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition flex items-center gap-1 active:scale-95 disabled:opacity-50 cursor-pointer"
+                      class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-500/15 dark:hover:bg-rose-500/25 dark:text-rose-400 dark:border-rose-500/30 transition flex items-center gap-1 active:scale-95 disabled:opacity-50 cursor-pointer"
                       title="Track creator with 24h lightweight pulse sync"
                     >
-                      <i data-lucide="zap" class="w-2.5 h-2.5 text-rose-400" :class="isTrackingCreator ? 'animate-spin' : ''"></i>
+                      <i data-lucide="zap" class="w-2.5 h-2.5 text-rose-600 dark:text-rose-400" :class="isTrackingCreator ? 'animate-spin' : ''"></i>
                       <span x-text="isTrackingCreator ? 'Tracking...' : '+ Track Creator (Pulse)'"></span>
                     </button>
                     <template x-if="dossier?.algorithmic_intelligence?.creator_is_verified_merchant">
@@ -363,13 +363,13 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- Board Name -->
         <div class="flex items-start justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0">Board</span>
+          <span class="text-slate-500 dark:text-slate-400 shrink-0">Board</span>
           <div class="text-right truncate">
             <template x-if="dossier?.pillar_1_creator_context?.board_name">
-              <span class="font-semibold text-slate-200" x-text="dossier.pillar_1_creator_context.board_name"></span>
+              <span class="font-semibold text-slate-800 dark:text-slate-200" x-text="dossier.pillar_1_creator_context.board_name"></span>
             </template>
             <template x-if="!dossier?.pillar_1_creator_context?.board_name">
-              <span class="text-slate-500 font-mono">--</span>
+              <span class="text-slate-400 font-mono">--</span>
             </template>
             <template x-if="dossier?.algorithmic_intelligence?.board_metrics?.pin_count">
               <div class="text-[10px] text-slate-500 font-mono tabular-nums" x-text="dossier.algorithmic_intelligence.board_metrics.pin_count + ' pins in board'"></div>
@@ -379,10 +379,10 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- Outbound Domain & Destination Link -->
         <div class="flex items-start justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0">Destination</span>
+          <span class="text-slate-500 dark:text-slate-400 shrink-0">Destination</span>
           <div class="text-right truncate max-w-[200px]">
             <template x-if="dossier?.creative?.domain">
-              <a :href="'/domains?q=' + encodeURIComponent(dossier.creative.domain)" class="font-bold text-sky-400 hover:underline truncate block" x-text="dossier.creative.domain"></a>
+              <a :href="'/domains?q=' + encodeURIComponent(dossier.creative.domain)" class="font-bold text-sky-600 dark:text-sky-400 hover:underline truncate block" x-text="dossier.creative.domain"></a>
             </template>
             <template x-if="!dossier?.creative?.domain">
               <span class="text-slate-500">No outbound domain</span>
@@ -391,22 +391,22 @@ export function getPinDetailsBodyHtml(safePinId) {
               <button 
                 type="button" 
                 @click="copyUrl(dossier.creative.destination_url)" 
-                class="text-[10px] text-slate-400 hover:text-white flex items-center justify-end gap-1 mt-0.5 cursor-pointer ml-auto"
+                class="text-[10px] text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white flex items-center justify-end gap-1 mt-0.5 cursor-pointer ml-auto"
                 title="Copy Destination URL"
               >
                 <span>Copy link</span>
-                <svg class="w-2.5 h-2.5 text-slate-400 hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                <svg class="w-2.5 h-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
               </button>
             </template>
             <template x-if="dossier?.creative?.url_global_saves != null || dossier?.url_global_saves != null">
-              <div class="text-[10px] text-emerald-400 font-mono tabular-nums font-bold mt-1 flex items-center justify-end gap-1">
-                <span class="inline-flex items-center gap-1"><svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>Article Saves:</span></span>
+              <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono tabular-nums font-bold mt-1 flex items-center justify-end gap-1">
+                <span class="inline-flex items-center gap-1"><svg class="w-3 h-3 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>Article Saves:</span></span>
                 <span x-text="formatNumber(dossier?.creative?.url_global_saves ?? dossier?.url_global_saves ?? 0)"></span>
               </div>
             </template>
             <template x-if="computeViralityRatio() >= 5.0">
               <div class="mt-1">
-                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 inline-flex items-center gap-1"
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 inline-flex items-center gap-1"
                       x-text="'[' + computeViralityRatio() + 'x Alpha Breakout]'"></span>
               </div>
             </template>
@@ -415,14 +415,14 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- Published Age (Strict Invariant 31 Formatting) -->
         <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0">Published Age</span>
-          <span class="font-mono tabular-nums font-bold text-slate-200" x-text="formatStrictUniversalAge()"></span>
+          <span class="text-slate-500 dark:text-slate-400 shrink-0">Published Age</span>
+          <span class="font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200" x-text="formatStrictUniversalAge()"></span>
         </div>
 
         <!-- Storage Topology -->
         <div class="flex items-center justify-between gap-2 border-t border-slate-100 dark:border-[#1E1E22] pt-2">
-          <span class="text-slate-400 shrink-0">Storage Architecture</span>
-          <span class="font-mono tabular-nums text-emerald-400 font-semibold">Native VPS PostgreSQL</span>
+          <span class="text-slate-500 dark:text-slate-400 shrink-0">Storage Architecture</span>
+          <span class="font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold">Native VPS PostgreSQL</span>
         </div>
 
         <!-- Cross-Pillar Radar Action -->
@@ -453,33 +453,33 @@ export function getPinDetailsBodyHtml(safePinId) {
         <div class="flex items-center gap-2 flex-wrap text-xs">
           <!-- Status 1: Original Creator Upload vs Canonical Variant vs Repin -->
           <template x-if="!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root !== false">
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-semibold">
-              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/80 font-semibold shadow-2xs">
+              <svg class="w-3 h-3 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               <span>100% Original Creator Upload</span>
             </span>
           </template>
           <template x-if="!dossier?.algorithmic_intelligence?.is_repin && dossier?.algorithmic_intelligence?.is_canonical_root === false">
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 font-medium">
-              <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/80 font-medium shadow-2xs">
+              <svg class="w-3 h-3 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
               <span>Canonical Variant</span>
             </span>
           </template>
           <template x-if="dossier?.algorithmic_intelligence?.is_repin">
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-[#27272A] font-medium">
-              <svg class="w-3 h-3 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-[#27272A] font-medium shadow-2xs">
+              <svg class="w-3 h-3 text-slate-500 dark:text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
               <span>Curated Repin</span>
             </span>
           </template>
 
           <!-- Status 2: Direct Destination Link vs Linkless -->
           <template x-if="dossier?.creative?.destination_url && !dossier?.algorithmic_intelligence?.is_go_linkless">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-950/60 text-sky-300 border border-sky-800/80 font-medium">
-              <svg class="w-3 h-3 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800/80 font-medium shadow-2xs">
+              <svg class="w-3 h-3 text-sky-600 dark:text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               <span>Direct Destination Link</span>
             </span>
           </template>
           <template x-if="!dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.is_go_linkless">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-950/60 text-amber-300 border border-amber-800/80 font-medium">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/80 font-medium shadow-2xs">
               <span>⚠️</span>
               <span>Linkless Pin</span>
             </span>
@@ -487,28 +487,28 @@ export function getPinDetailsBodyHtml(safePinId) {
 
           <!-- Status 3: Google Indexed vs Noindex -->
           <template x-if="!dossier?.algorithmic_intelligence?.seo_noindex_reason">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-medium">
-              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/80 font-medium shadow-2xs">
+              <svg class="w-3 h-3 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
               <span>Indexed in Google</span>
             </span>
           </template>
           <template x-if="dossier?.algorithmic_intelligence?.seo_noindex_reason">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-950/60 text-red-300 border border-red-800/80 font-medium">
-              <svg class="w-3 h-3 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800/80 font-medium shadow-2xs">
+              <svg class="w-3 h-3 text-rose-600 dark:text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
               <span x-text="'Noindex: ' + dossier.algorithmic_intelligence.seo_noindex_reason"></span>
             </span>
           </template>
 
           <!-- Status 4: Canonical Root Source -->
           <template x-if="isCanonicalRoot()">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-950/60 text-purple-300 border border-purple-800/80 font-mono text-[11px] tabular-nums">
-              <svg class="w-3 h-3 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/80 font-mono text-[11px] tabular-nums shadow-2xs">
+              <svg class="w-3 h-3 text-purple-600 dark:text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>
               <span>Canonical Root</span>
             </span>
           </template>
           <template x-if="!isCanonicalRoot() && canonicalPinId()">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 font-mono text-[11px] tabular-nums">
-              <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/80 font-mono text-[11px] tabular-nums shadow-2xs">
+              <svg class="w-3 h-3 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
               <span x-text="'Repin of #' + canonicalPinId()"></span>
             </span>
           </template>
@@ -743,7 +743,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             >
               <svg class="w-3.5 h-3.5" :class="activeTab === 'ledger' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
               <span>Historical Snapshot Audit Log</span>
-              <span class="px-2 py-0.5 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'ledger' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="filteredDays().length"></span>
+              <span class="px-2 py-0.5 rounded-full font-mono tabular-nums text-[10px] font-bold" :class="activeTab === 'ledger' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-slate-100 text-slate-600 dark:bg-[#18181B] dark:text-slate-400'" x-text="filteredDays().length"></span>
             </button>
 
             <!-- Tab 2: Keyword SERP Rankings -->
@@ -755,7 +755,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             >
               <svg class="w-3.5 h-3.5" :class="activeTab === 'rankings' ? 'text-rose-400' : 'text-slate-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
               <span>Keyword SERP Rankings</span>
-              <span class="px-2 py-0.5 rounded font-mono tabular-nums text-[10px]" :class="activeTab === 'rankings' ? 'bg-rose-500/20 text-rose-300' : 'bg-[#18181B] text-slate-400'" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
+              <span class="px-2 py-0.5 rounded-full font-mono tabular-nums text-[10px] font-bold" :class="activeTab === 'rankings' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-slate-100 text-slate-600 dark:bg-[#18181B] dark:text-slate-400'" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
             </button>
 
             <!-- Tab 3: Algorithmic DNA & Cross-Pillar Suite -->
@@ -779,8 +779,8 @@ export function getPinDetailsBodyHtml(safePinId) {
           <!-- Ledger Controls Ribbon -->
           <div class="p-3.5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-slate-400 font-medium">Daily Snapshots:</span>
-              <span class="font-mono tabular-nums font-bold text-white">
+              <span class="text-slate-500 dark:text-slate-400 font-medium">Daily Snapshots:</span>
+              <span class="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
                 <template x-if="totalUnfilteredDaysCount() > filteredDays().length">
                   <span>Showing <span x-text="filteredDays().length"></span> of <span x-text="totalUnfilteredDaysCount()"></span> entries</span>
                 </template>
@@ -788,23 +788,23 @@ export function getPinDetailsBodyHtml(safePinId) {
                   <span x-text="formatAuditLogSummaryCount()"></span>
                 </template>
               </span>
-              <button type="button" @click="expandAllDays()" class="text-slate-400 hover:text-white underline text-[11px] ml-2 cursor-pointer">Expand All</button>
-              <span class="text-slate-600">|</span>
-              <button type="button" @click="collapseAllDays()" class="text-slate-400 hover:text-white underline text-[11px] cursor-pointer">Collapse All</button>
+              <button type="button" @click="expandAllDays()" class="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white underline text-[11px] ml-2 cursor-pointer">Expand All</button>
+              <span class="text-slate-300 dark:text-slate-600">|</span>
+              <button type="button" @click="collapseAllDays()" class="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white underline text-[11px] cursor-pointer">Collapse All</button>
             </div>
 
             <!-- Timeframe Selector Pill Bar & Keyword Filter -->
             <div class="flex items-center gap-3 flex-wrap">
               <div class="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#18181B] text-[11px] font-mono">
-                <button type="button" @click="chartTimeframe = '7d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
-                <button type="button" @click="chartTimeframe = '15d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">15D</button>
-                <button type="button" @click="chartTimeframe = '30d'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">30D</button>
-                <button type="button" @click="chartTimeframe = 'all'" class="px-2 py-0.5 rounded transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">ALL</button>
+                <button type="button" @click="chartTimeframe = '7d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-white text-slate-900 shadow-2xs dark:bg-[#27272A] dark:text-white font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'">7D</button>
+                <button type="button" @click="chartTimeframe = '15d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="chartTimeframe === '15d' ? 'bg-white text-slate-900 shadow-2xs dark:bg-[#27272A] dark:text-white font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'">15D</button>
+                <button type="button" @click="chartTimeframe = '30d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="chartTimeframe === '30d' ? 'bg-white text-slate-900 shadow-2xs dark:bg-[#27272A] dark:text-white font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'">30D</button>
+                <button type="button" @click="chartTimeframe = 'all'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="chartTimeframe === 'all' ? 'bg-white text-slate-900 shadow-2xs dark:bg-[#27272A] dark:text-white font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'">ALL</button>
               </div>
 
               <div class="flex items-center gap-2">
-                <span class="text-slate-400 text-[11px]">Filter Keyword:</span>
-                <select x-model="selectedKeywordFilter" class="px-2.5 py-1 rounded-lg border border-[#27272A] bg-[#18181B] text-xs font-medium text-slate-200 focus:outline-none cursor-pointer">
+                <span class="text-slate-500 dark:text-slate-400 text-[11px]">Filter Keyword:</span>
+                <select x-model="selectedKeywordFilter" class="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer shadow-2xs">
                   <option value="ALL">All Keywords</option>
                   <template x-for="kw in (dossier?.pillar_2_keywords_context?.ranking_keywords || [])" :key="kw.keyword">
                     <option :value="kw.keyword" x-text="kw.keyword + ' (' + (isKeywordDisplacedOrUnranked(kw) ? 'Vault' : '#' + (kw.live_serp_rank || kw.rank)) + ')'"></option>
@@ -841,7 +841,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                       <div class="flex items-center gap-1.5">
                         <span class="font-bold text-slate-900 dark:text-white" x-text="day.snapshot_date"></span>
                         <template x-if="formatSnapshotTime(day)">
-                          <span class="text-[10.5px] px-1.5 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-sky-400 font-mono" x-text="formatSnapshotTime(day)"></span>
+                          <span class="text-[10.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-sky-700 dark:text-sky-400 font-mono font-bold" x-text="formatSnapshotTime(day)"></span>
                         </template>
                       </div>
                       <template x-if="dIdx === 0">
@@ -866,7 +866,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                     </td>
 
                     <!-- Repins -->
-                    <td class="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap text-slate-300">
+                    <td class="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
                       <span x-text="formatNumber(day.repin_count || 0)"></span>
                     </td>
 
@@ -875,15 +875,15 @@ export function getPinDetailsBodyHtml(safePinId) {
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <template x-for="kw in (day.ranking_keywords || []).slice(0, 4)" :key="kw.keyword">
                           <span 
-                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono tabular-nums border"
-                            :class="isKeywordDisplacedOrUnranked(kw) ? 'bg-amber-950/50 text-amber-300 border-amber-800' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800'"
+                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono tabular-nums border shadow-2xs"
+                            :class="isKeywordDisplacedOrUnranked(kw) ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800' : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'"
                           >
                             <span x-text="kw.keyword"></span>
                             <span class="font-bold" x-text="formatKeywordRankBadge(kw)"></span>
                           </span>
                         </template>
                         <template x-if="(day.ranking_keywords || []).length > 4">
-                          <span class="text-[10.5px] text-slate-400 font-mono" x-text="'+' + ((day.ranking_keywords || []).length - 4) + ' more'"></span>
+                          <span class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono" x-text="'+' + ((day.ranking_keywords || []).length - 4) + ' more'"></span>
                         </template>
                       </div>
                     </td>
@@ -902,18 +902,18 @@ export function getPinDetailsBodyHtml(safePinId) {
                   </tr>
 
                   <!-- Accordion Sub-Drawer: Keywords for this Day -->
-                  <tr x-show="isDayExpanded(getDayRowKey(day))" class="bg-[#18181B]/40">
-                    <td colspan="7" class="p-4 border-t border-[#27272A]">
+                  <tr x-show="isDayExpanded(getDayRowKey(day))" class="bg-slate-50/90 dark:bg-[#18181B]/40">
+                    <td colspan="7" class="p-4 border-t border-slate-200 dark:border-[#27272A]">
                       <div class="space-y-3">
                         <div class="flex items-center justify-between text-xs">
-                          <span class="font-bold text-slate-300">Detailed SERP Keywords for <span class="font-mono text-white" x-text="day.snapshot_date + (formatSnapshotTime(day) ? (' ' + formatSnapshotTime(day)) : '')"></span></span>
-                          <span class="text-slate-400 font-mono text-[11px]" x-text="(day.ranking_keywords || []).length + ' keywords indexed'"></span>
+                          <span class="font-bold text-slate-700 dark:text-slate-300">Detailed SERP Keywords for <span class="font-mono text-slate-900 dark:text-white" x-text="day.snapshot_date + (formatSnapshotTime(day) ? (' ' + formatSnapshotTime(day)) : '')"></span></span>
+                          <span class="text-slate-500 dark:text-slate-400 font-mono text-[11px]" x-text="(day.ranking_keywords || []).length + ' keywords indexed'"></span>
                         </div>
 
-                        <div class="rounded-lg border border-[#27272A] bg-[#121215] overflow-hidden">
+                        <div class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-2xs">
                           <table class="w-full text-left text-xs">
                             <thead>
-                              <tr class="border-b border-[#27272A] bg-[#18181B] text-slate-400 font-mono text-[10px] uppercase">
+                              <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-100/80 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 font-mono text-[10px] uppercase tracking-wider">
                                 <th class="py-2 px-3">Keyword</th>
                                 <th class="py-2 px-3">Rank Position</th>
                                 <th class="py-2 px-3">SERP Tier</th>
@@ -921,14 +921,14 @@ export function getPinDetailsBodyHtml(safePinId) {
                                 <th class="py-2 px-3 text-right">Remove</th>
                               </tr>
                             </thead>
-                            <tbody class="divide-y divide-[#1E1E22]">
+                            <tbody class="divide-y divide-slate-100 dark:divide-[#1E1E22]">
                               <template x-for="kw in filteredKeywordsForDay(day)" :key="kw.keyword">
-                                <tr class="hover:bg-[#18181B]/60">
-                                  <td class="py-2 px-3 font-medium text-white">
-                                    <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
+                                <tr class="hover:bg-slate-50 dark:hover:bg-[#18181B]/60 transition">
+                                  <td class="py-2 px-3 font-medium text-slate-900 dark:text-white">
+                                    <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-600 dark:hover:text-rose-400 transition" x-text="kw.keyword"></a>
                                   </td>
                                   <td class="py-2 px-3 font-mono tabular-nums">
-                                    <span class="font-bold" :class="isKeywordDisplacedOrUnranked(kw) ? 'text-amber-400' : 'text-emerald-400'" x-text="formatKeywordRankBadge(kw, true)"></span>
+                                    <span class="font-bold" :class="isKeywordDisplacedOrUnranked(kw) ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'" x-text="formatKeywordRankBadge(kw, true)"></span>
                                   </td>
                                   <td class="py-2 px-3">
                                     <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
@@ -936,25 +936,25 @@ export function getPinDetailsBodyHtml(safePinId) {
                                   <td class="py-2 px-3 text-center font-mono tabular-nums text-[11px]">
                                     <!-- [L-03 Resolved: Clean Movement Display] -->
                                     <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
-                                      <span class="inline-flex items-center gap-1 text-emerald-400 font-bold">
+                                      <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
                                         <span>▲</span>
                                         <span x-text="'+' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
                                       </span>
                                     </template>
                                     <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
-                                      <span class="inline-flex items-center gap-1 text-rose-400 font-bold">
+                                      <span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold">
                                         <span>▼</span>
                                         <span x-text="'-' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
                                       </span>
                                     </template>
                                     <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
-                                      <span class="inline-flex items-center gap-1 text-slate-400 font-mono">
+                                      <span class="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 font-mono">
                                         <span>—</span>
                                         <span>0 (Stable)</span>
                                       </span>
                                     </template>
                                     <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
-                                      <span class="px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-400 border border-sky-800 text-[10px] font-semibold">★ NEW</span>
+                                      <span class="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-800 text-[10px] font-semibold">★ NEW</span>
                                     </template>
                                   </td>
                                   <td class="py-2 px-3 text-right">
@@ -963,16 +963,16 @@ export function getPinDetailsBodyHtml(safePinId) {
                                         <button 
                                           type="button" 
                                           @click="requestDeleteSnapshot(kw.snapshot_id)" 
-                                          class="text-slate-500 hover:text-red-400 transition cursor-pointer text-[10px] font-mono px-1 py-0.5 rounded border border-transparent hover:border-red-900/50"
+                                          class="text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400 transition cursor-pointer text-[10px] font-mono px-1 py-0.5 rounded border border-transparent hover:border-red-200 dark:hover:border-red-900/50"
                                           title="Delete single snapshot record"
                                         >
-                                          <svg class="w-3 h-3 text-slate-500 hover:text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                                         </button>
                                       </template>
                                       <button 
                                         type="button" 
                                         @click="requestDeleteSerpBadge(kw, day.snapshot_date)" 
-                                        class="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs p-1"
+                                        class="text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400 transition cursor-pointer text-xs p-1"
                                         title="Remove this keyword rank for this date"
                                       >
                                         ✕
@@ -1010,7 +1010,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                 type="text" 
                 x-model="searchKeywordInput" 
                 placeholder="Search keywords..." 
-                class="px-3 py-1.5 rounded-lg border border-[#27272A] bg-[#18181B] text-xs text-white placeholder-slate-500 focus:outline-none w-48 sm:w-64"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none w-48 sm:w-64 shadow-2xs"
               />
             </div>
           </div>
@@ -1029,7 +1029,7 @@ export function getPinDetailsBodyHtml(safePinId) {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#27272A]">
                 <template x-for="kw in getFilteredKeywordsPortfolio()" :key="kw.keyword">
-                  <tr class="hover:bg-[#18181B]/80 transition">
+                  <tr class="hover:bg-slate-50 dark:hover:bg-[#18181B]/80 transition">
                     <td class="py-3 px-4 font-semibold text-slate-900 dark:text-white">
                       <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
                     </td>
@@ -1047,7 +1047,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                       <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
                     </td>
                     <td class="py-3 px-4 text-right">
-                      <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="px-2.5 py-1 rounded border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition text-xs">
+                      <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition text-xs shadow-2xs">
                         Open in Radar →
                       </a>
                     </td>
@@ -1290,29 +1290,29 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </div>
                 <!-- Reaction Types Breakdown Chips -->
                 <div class="grid grid-cols-5 gap-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22] text-center">
-                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                  <div class="p-1.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xs">
                     <div class="text-sm">❤️</div>
-                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('love')"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-800 dark:text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('love')"></div>
                     <div class="text-[8px] text-slate-500 uppercase">Love</div>
                   </div>
-                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                  <div class="p-1.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xs">
                     <div class="text-sm">💡</div>
-                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('idea')"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-800 dark:text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('idea')"></div>
                     <div class="text-[8px] text-slate-500 uppercase">Idea</div>
                   </div>
-                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                  <div class="p-1.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xs">
                     <div class="text-sm">😂</div>
-                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('haha')"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-800 dark:text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('haha')"></div>
                     <div class="text-[8px] text-slate-500 uppercase">Haha</div>
                   </div>
-                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                  <div class="p-1.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xs">
                     <div class="text-sm">😮</div>
-                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('wow')"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-800 dark:text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('wow')"></div>
                     <div class="text-[8px] text-slate-500 uppercase">Wow</div>
                   </div>
-                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                  <div class="p-1.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xs">
                     <div class="text-sm">👍</div>
-                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('good_try')"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-800 dark:text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('good_try')"></div>
                     <div class="text-[8px] text-slate-500 uppercase">Tried</div>
                   </div>
                 </div>
@@ -1333,7 +1333,7 @@ export function getPinDetailsBodyHtml(safePinId) {
             </summary>
             <div class="mt-3 pt-3 border-t border-[#27272A] space-y-2">
               <div class="flex items-center justify-end">
-                <button type="button" @click="copyText(JSON.stringify(dossier, null, 2), 'Raw JSON Dossier')" class="px-2.5 py-1 rounded border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 text-xs font-mono cursor-pointer">
+                <button type="button" @click="copyText(JSON.stringify(dossier, null, 2), 'Raw JSON Dossier')" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-mono cursor-pointer shadow-2xs">
                   Copy Raw JSON
                 </button>
               </div>
