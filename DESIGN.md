@@ -1,6 +1,7 @@
 # Design System: Pin Arbitrage Engine (PAE)
 **Skill:** stitch-design-taste
 **Subsystem Authority:** Creator Hub & Quantitative Arbitrage Studio
+**Aesthetic Baseline:** Light-Mode Bento SaaS (Default `:root`, Optional `.dark`)
 
 ---
 
@@ -16,40 +17,61 @@
 ---
 
 ## 1. Visual Theme & Atmosphere
-A high-density, quantitative intelligence workspace engineered for professional Pinterest arbitrage operators and growth engineers. The aesthetic merges the ruthless efficiency of a financial trading terminal with the typographic restraint of an architecture studio. 
+A high-density, quantitative intelligence workspace engineered for professional Pinterest arbitrage operators and growth engineers. The aesthetic merges the crisp clarity of a modern Light-Mode Bento SaaS workspace with the typographic restraint of an architectural studio and the data rigor of a financial trading terminal.
 
-Every pixel communicates functional state. Atmospheric density is tuned to **Cockpit Dense (Level 8)**, eliminating bloated whitespace and pastel fluff in favor of razor-thin 1px structural lines, high-contrast typography, and tabular alignment. The interface feels expensive, disciplined, and alive—replacing generic SaaS cards with integrated telemetry ribbons and asymmetric Bento modules.
+The default theme is **Light-Mode Bento SaaS** (`:root`), prioritizing maximum legibility, clean visual hierarchy, and structural elevation. Every pixel communicates functional state. Atmospheric density is tuned to **Cockpit Dense (Level 8)**, eliminating bloated whitespace and pastel fluff in favor of razor-thin 1px structural lines, high-contrast typography, and tabular alignment. The interface feels expensive, disciplined, and alive—replacing generic SaaS cards with integrated telemetry ribbons, rounded-2xl Bento modules, and asymmetric analytics layouts. Optional dark mode (`.dark`) is supported via the unified `pa_theme` storage key.
 
 ---
 
 ## 2. Color Palette & Functional Roles
-The palette is built upon a clinical Zinc neutral scale. Chromatic color is strictly functional, governed by a singular signature accent and precision signal markers.
+The palette is built upon a dual-tier semantic system: a crisp Light-Mode Bento scale as default, with a dark mode option. Chromatic color is strictly functional, governed by a singular signature accent and precision signal markers.
 
-### Core Surface & Text Hierarchy
-- **Canvas Base** (`#09090B`) — Deep Zinc-950 canvas. Provides optical grounding for dense analytical data.
-- **Surface Elevation 1** (`#121215`) — Primary container and module background. Replaces floating cards with flush structural panes.
+### Default Theme (:root — Light-Mode Bento SaaS)
+- **Canvas Base** (`#F8FAFC`) — Slate-50 clean canvas. Optical grounding for dense analytical data.
+- **Surface Elevation 1 / Bento Cards** (`#FFFFFF`) — Pure crisp white rounded Bento cards (`rounded-2xl`, `1px solid #E2E8F0`, subtle elevation shadow `0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04)`).
+- **Surface Elevation 2 / Secondary Surfaces** (`#F1F5F9`) — Slate-100 secondary surfaces, wells, segmented pill tracks, table headers, and inputs.
+- **Surface Highlight / Interactive** (`#E2E8F0`) — Slate-200 interactive hover states and subtle button backgrounds.
+- **Whisper Border** (`#E2E8F0`) — 1px structural boundaries separating cards, panes, and headers.
+- **Subtle Divider** (`#F1F5F9`) — Micro grid dividers between table cells and telemetry ribbons.
+- **Primary Ink** (`#0F172A`) — Slate-900 high-contrast text, primary headers, and high-priority metrics.
+- **Steel Secondary** (`#64748B`) — Slate-500 field descriptions, secondary telemetry, and inactive tab labels.
+- **Muted Slate** (`#94A3B8`) — Slate-400 timestamps, unit denominators, and table column super-headers.
+
+### Optional Dark Theme (.dark — Zinc Analytical Dark)
+- **Canvas Base** (`#09090B`) — Deep Zinc-950 canvas.
+- **Surface Elevation 1** (`#121215`) — Primary container and module background.
 - **Surface Elevation 2** (`#18181B`) — Active rows, hover layers, popovers, and segmented pill wells.
 - **Surface Highlight** (`#27272A`) — Interactive hover states and subtle button backgrounds.
-- **Primary Ink** (`#FAFAFA`) — High-contrast text, primary headers, and high-priority metrics.
-- **Steel Secondary** (`#A1A1AA`) — Field descriptions, secondary telemetry, and inactive tab labels.
-- **Muted Slate** (`#71717A`) — Timestamps, unit denominators, and table column super-headers.
 - **Whisper Border** (`#27272A`) — 1px structural boundaries.
-- **Subtle Divider** (`#1E1E22`) — Micro grid dividers between table cells and telemetry ribbons.
+- **Subtle Divider** (`#1E1E22`) — Micro grid dividers between table cells and ribbons.
+- **Primary Ink** (`#FAFAFA`) — High-contrast white text, primary headers, and metrics.
+- **Steel Secondary** (`#A1A1AA`) — Field descriptions and secondary telemetry.
+- **Muted Slate** (`#71717A`) — Timestamps, unit denominators, and super-headers.
 
 ### Signature Accent (Single Brand Focus)
 - **Deep Rose** (`#E11D48`) — Functional accent representing Pinterest arbitrage authority, active filter selections, and primary interactive triggers. Saturation capped at 78%.
 
 ### Operational Signal Indicators (Strict Telemetry Only)
 - **Signal Emerald** (`#10B981`) — Positive save velocity, audience acceleration, and qualified winner status.
+  - *Light Mode Pill:* Background `#ECFDF5`, text `#065F46`, border `#A7F3D0`.
+  - *Dark Mode Pill:* Background `rgba(16, 185, 129, 0.15)`, text `#34D399`, border `rgba(16, 185, 129, 0.3)`.
 - **Signal Amber** (`#F59E0B`) — Ingestion warnings, rate throttles, and fresh breakout verification windows.
+  - *Light Mode Pill:* Background `#FFFBEB`, text `#92400E`, border `#FDE68A`.
+  - *Dark Mode Pill:* Background `rgba(245, 158, 11, 0.15)`, text `#FBBF24`, border `rgba(245, 158, 11, 0.3)`.
 - **Signal Sky** (`#0EA5E9`) — Neutral impressions telemetry and external Pinterest platform links.
-- **Signal Slate** (`#3F3F46`) — Inactive, baseline-pending, or paused ingest states.
+  - *Light Mode Pill:* Background `#F0F9FF`, text `#075985`, border `#BAE6FD`.
+  - *Dark Mode Pill:* Background `rgba(14, 165, 233, 0.15)`, text `#38BDF8`, border `rgba(14, 165, 233, 0.3)`.
+- **Signal Rose** (`#E11D48`) — Velocity drops, displacement alerts, and critical anomalies.
+  - *Light Mode Pill:* Background `#FFF1F2`, text `#9F1239`, border `#FECDD3`.
+  - *Dark Mode Pill:* Background `rgba(225, 29, 72, 0.15)`, text `#FB7185`, border `rgba(225, 29, 72, 0.3)`.
+- **Signal Slate** (`#64748B` / `#94A3B8`) — Inactive, baseline-pending, or paused ingest states.
 
 ### Banned Color Patterns
 - NO AI purple/blue neon glows or multi-colored gradients.
 - NO pure black (`#000000`) for surfaces or borders.
 - NO oversaturated accent pastels (e.g. soft pastel baby-blue or pink button chips).
 - NO mixed warm-brown and cool-gray neutrals within the same view.
+- NO regex CSS attribute hacks (`[class*="..."]`) to override colors.
 
 ---
 
@@ -79,43 +101,39 @@ Typography prioritizes vertical compactness, strict scannability, and numeric al
 
 ---
 
-## 4. Component Stylings & Interaction Mechanics
+## 4. Component Stylings & Bento SaaS Mechanics
 
-### A. Dossier Identity Hero (Eliminating the Floating Box Clutter)
-- **Structure:** Flush, integrated header ribbon (`bg-[#121215]`, border `#27272A`).
-- **Creator Badge:** High-density 48x48px rounded-xl avatar with a 1px border.
-- **Verified Indicators:** Micro-pills (`JetBrains Mono`, 10px) with single-dot indicators (`🟢 Live Ingest`, `⏸ Paused`).
-- **Action Group:** Segmented tactile button cluster. Primary actions (`Pulse Profile`, `Refresh Winners`, `Fleet Crawl`) share a unified height (32px) with crisp `-1px` active push feedback.
+### A. Bento Intelligence Cards (`rounded-2xl`)
+- **Structure:** Clean Bento module container (`bg-white dark:bg-[#121215]`, border `border-[#E2E8F0] dark:border-[#27272A]`, radius `rounded-2xl`).
+- **Shadow:** Subtle elevation shadow `shadow-xs` / `box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04)`.
+- **Card Header:** Flush header row with crisp uppercase section label (`Geist` 11px font-bold tracking-wider text-slate-500 dark:text-zinc-400) and contextual action pills.
 
-### B. Telemetry Ribbon (Replacing the 8-Card Metric Explosion)
-- **The Problem:** The legacy layout uses two rows of 4 bloated cards with baby-pink and baby-blue pastel icon circles.
-- **The Solution:** A unified, single-row **Integrated Telemetry Ribbon** (`bg-[#121215]`, 1px border `#27272A`).
+### B. Integrated Telemetry Ribbon (5-Cell Tabular Strip)
+- **Structure:** A unified single-row **Integrated Telemetry Ribbon** (`bg-white dark:bg-[#121215]`, border `border-[#E2E8F0] dark:border-[#27272A]`, `rounded-2xl`).
 - **Columns (5 Unified Cells with 1px Vertical Dividers):**
-  1. **Total audience** (Formerly Monthly Reach) — Current count + 30-day trend delta.
-  2. **Impressions** (Formerly Profile Views) — Current count + snapshot delta.
+  1. **Total audience** (mapped internally to `competitor_profiles.monthly_reach`) — Monospace count + trend delta.
+  2. **Impressions** (mapped internally to `competitor_profiles.profile_views`) — Monospace count + snapshot delta.
   3. **Followers** — Total follower count + net change.
   4. **Pinning Velocity** — Rolling pins/day + monthly pacing estimate in high-contrast mono.
   5. **Engagement Virality** — Cumulative saves + 24H save delta (`+873/day`) with green breakout indicator.
-- **Zero Pastel Circles:** Replaced with clean micro-labels (`label-caps`, 10px `#71717A`) and bold monospace figures.
+- **Clean Semantic Pills:** Emerald/Amber/Sky semantic pill tags, never oversaturated circles.
 
-### C. Segmented Navigation Bar (Eradicating Rainbow Tabs & Emojis)
-- **The Problem:** 5 tabs with 5 conflicting bright background colors (Pink, Indigo, Green, Amber, Slate) and emojis (`📋`, `🔗`, `🕸️`).
-- **The Solution:** A unified, Apple-Pro/Linear style segmented track in `#121215`.
-- **Active State:** Deep Rose (`#E11D48`) or crisp Zinc-100 highlight with high-contrast text.
-- **Inactive State:** Clean `#71717A` with hover brightening to `#FAFAFA`.
-- **Zero Emojis:** Replaced with clean 14px Lucide micro-icons or clean typography.
+### C. Segmented Navigation Bar
+- **Structure:** Unified, Apple-Pro / Linear style segmented track (`bg-[#F1F5F9] dark:bg-[#18181B]`, `p-1`, `rounded-xl`).
+- **Active State:** Pure white card surface (`bg-white dark:bg-[#27272A]`, `text-[#0F172A] dark:text-[#FAFAFA]`, `shadow-xs`).
+- **Inactive State:** Crisp secondary text (`text-[#64748B] dark:text-[#A1A1AA]`, hover: `text-[#0F172A] dark:text-[#FAFAFA]`).
+- **Zero Emojis:** Replaced with clean 14px Lucide micro-icons or crisp typographic labels.
 
 ### D. Analytics & Trend Studio (Asymmetric Bento Architecture)
 - **Layout (70/30 Asymmetric Split):**
-  - **Left Studio (70%):** Performance Trend Spline Canvas. Minimalist SVG paths (`#E11D48` for Audience, `#0EA5E9` for Impressions) with diffused zero-blur area gradients. Clean crosshair hover inspection.
+  - **Left Studio (70%):** Performance Trend Spline Canvas. Minimalist SVG paths (`#E11D48` for Audience, `#0EA5E9` for Impressions) with diffused area fills. Clean crosshair hover inspection.
   - **Right Studio (30%):** Virality & Velocity Breakdown. Dense, tabular stack showing 24H saves, repin ratio, account age, and strategy horizon.
-- **Controls:** Micro-segmented pill toggle (`7D`, `30D`, `90D`, `YTD`, `ALL`) directly embedded in the canvas header.
+- **Controls:** Micro-segmented pill toggle (`24h`, `5d`, `7d`, `15d`, `30d`, `ALL`) directly embedded in the canvas header.
 
-### E. Historical Snapshot Ledger (Import History)
-- **Density:** 28px row height. Tabular numbers throughout.
-- **Table Controls:** Integrated inline header with density toggle (`Compact` vs `Comfortable`), date timeframe selector, and column visibility dropdown.
-- **Net Change Ribbon:** Sticky top summary row styled with distinct background (`#18181B`) and emerald/rose delta tags.
-- **Row Hover:** Crisp background shift to `#18181B` with flush trash/audit triggers appearing on hover only.
+### E. Historical Snapshot Ledger & Data Tables
+- **Density:** 28px–32px row height. Tabular monospace numbers throughout.
+- **Header:** Sticky header with `bg-[#F1F5F9] dark:bg-[#18181B]`, uppercase micro-headers (`text-[11px] font-semibold text-[#64748B] dark:text-[#71717A]`).
+- **Row Hover:** Background shift to `#F8FAFC dark:bg-[#18181B]` with clear focus outlines.
 
 ---
 
@@ -132,19 +150,22 @@ Typography prioritizes vertical compactness, strict scannability, and numeric al
 
 ---
 
-## 6. Motion Philosophy & Micro-Interactions
+## 6. Theme Architecture & SSR Safety (Rule 17)
 
-### Spring Physics Specifications
-- All interactive controls, accordion transitions, and modal overlays utilize spring-based physics:
-  - `stiffness: 100`
-  - `damping: 20`
-  - `mass: 1.0`
-- Linear easing (`linear`) is banned.
-
-### Perpetual Micro-Loops
-- **Live Ingest Status:** Perpetual breathing micro-pulse on status dot (`opacity: 0.4` to `1.0` over 3000ms).
-- **Crawl Progress:** Micro-shimmer sweep across progress rails. No circular spinners.
-- **Hardware Acceleration:** All animations strictly operate on `transform` and `opacity`. Never animate `top`, `left`, `width`, or `height`.
+### Unified Theme Storage
+- **Canonical Key:** `pa_theme` (stored in `localStorage`).
+- **Default State:** `'light'` (Light-Mode Bento SaaS).
+- **Theme Activation:**
+  - Light mode: `document.documentElement.classList.remove('dark')`.
+  - Dark mode: `document.documentElement.classList.add('dark')`.
+- **Zero Body Locks:** The `dark` class is never hardcoded on `<html class="dark">` or locked onto `<body>`. Tailwind's `darkMode: 'class'` reads directly from `document.documentElement`.
+- **Node.js SSR Safety (Rule 17):**
+  - All access to browser globals (`localStorage`, `window`, `document`) must be guarded:
+    ```javascript
+    const theme = (typeof localStorage !== 'undefined') ? localStorage.getItem('pa_theme') : 'light';
+    if (typeof document !== 'undefined' && document.documentElement) { ... }
+    ```
+- **Zero Regex CSS Hacks:** Eradicate all `[class*="..."]` CSS attribute selector overrides. Color and surface styles are driven natively by Tailwind utilities and standard `:root` / `.dark` tokens.
 
 ---
 
@@ -155,6 +176,7 @@ Typography prioritizes vertical compactness, strict scannability, and numeric al
 3. ❌ **NO Pastel Icon Bubbles:** Eradicate oversized pink, blue, green, and purple circular icon backgrounds behind metric numbers.
 4. ❌ **NO Outdated Pinterest Terminology:** Never use `Profile Views` (strictly **`Impressions`**) or `Monthly Reach` (strictly **`Total audience`**). Eradicate all traces of `Smart Topic Clusters`.
 5. ❌ **NO Inter Font on Display:** Use `Geist` for headers and `JetBrains Mono` for tabular figures.
-6. ❌ **NO Pure Black (`#000000`):** Use Zinc-950 (`#09090B`).
-7. ❌ **NO Floating Metric Explosion:** Never render 8 separate floating cards for single numbers. Group related indicators into cohesive, segmented ribbons.
-8. ❌ **NO AI Copywriting Clichés:** Ban terms like "Elevate your pins", "Unleash virality", "Seamless intelligence". Use quantitative labels ("Audience Velocity", "Net Delta", "Crawl Status").
+6. ❌ **NO Pure Black (`#000000`):** Use Zinc-950 (`#09090B`) in dark mode and Slate-50 (`#F8FAFC`) in light mode.
+7. ❌ **NO Regex CSS Attribute Hacks:** Ban all `[class*="bg-[#..."]` selectors in CSS stylesheets.
+8. ❌ **NO Body Dark Locks:** Ban hardcoding `<html class="dark">` and `:class="... ? 'dark' : ''"` on `<body>`.
+9. ❌ **NO AI Copywriting Clichés:** Ban terms like "Elevate your pins", "Unleash virality", "Seamless intelligence". Use quantitative labels ("Audience Velocity", "Net Delta", "Crawl Status").

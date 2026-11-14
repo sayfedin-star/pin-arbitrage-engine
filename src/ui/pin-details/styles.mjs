@@ -1,179 +1,138 @@
 /**
  * Pin Details UI Stylesheet
- * Extracted from src/pin-details-ui.mjs
+ * Bento SaaS Design System tokens and clean utility styles
+ * Replaces legacy regex attribute hacks with standard CSS variables
  */
 
 export function getPinDetailsStyles() {
   return `
   <style>
+    /* Cloak & Essential Utility Rules */
     [x-cloak] { display: none !important; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
 
     /* ======================================================== */
-    /* UNIFIED LIGHT THEME OVERRIDES (100% PURE WHITE SAAS)    */
+    /* DESIGN SYSTEM TOKENS: BENTO SAAS (LIGHT DEFAULT)         */
     /* ======================================================== */
-    html:not(.dark),
-    html.light {
+    :root {
+      --canvas-bg: #F8FAFC;
+      --surface-card: #FFFFFF;
+      --surface-secondary: #F1F5F9;
+      --surface-hover: #E2E8F0;
+      --surface-highlight: #E2E8F0;
+      --border-subtle: #E2E8F0;
+      --border-divider: #F1F5F9;
+      --text-primary: #0F172A;
+      --text-secondary: #64748B;
+      --text-muted: #94A3B8;
+      --accent-rose: #E11D48;
+      --signal-emerald: #10B981;
+      --signal-amber: #F59E0B;
+      --signal-sky: #0EA5E9;
+      --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
       color-scheme: light;
     }
-    html:not(.dark) body,
-    html.light body {
-      background-color: #f8fafc !important;
-      color: #0f172a !important;
+
+    .dark {
+      --canvas-bg: #09090B;
+      --surface-card: #121215;
+      --surface-secondary: #18181B;
+      --surface-hover: #27272A;
+      --surface-highlight: #27272A;
+      --border-subtle: #27272A;
+      --border-divider: #1E1E22;
+      --text-primary: #FAFAFA;
+      --text-secondary: #A1A1AA;
+      --text-muted: #71717A;
+      --accent-rose: #E11D48;
+      --signal-emerald: #10B981;
+      --signal-amber: #F59E0B;
+      --signal-sky: #0EA5E9;
+      --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+      color-scheme: dark;
     }
 
-    /* Primary Backgrounds & Canvas */
-    html:not(.dark) [class*="bg-[#09090B]"],
-    html.light [class*="bg-[#09090B]"],
-    html:not(.dark) header,
-    html.light header {
-      background-color: rgba(255, 255, 255, 0.95) !important;
-      border-color: #e2e8f0 !important;
+    /* Clean Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    .dark ::-webkit-scrollbar-thumb { background: #27272A; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+    /* Bento SaaS Container Styles */
+    .bento-card {
+      background-color: var(--surface-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 1rem;
+      box-shadow: var(--card-shadow);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    /* Card Elevation 1 (Containers, Panels, Cards) -> Pure Crisp White */
-    html:not(.dark) [class*="bg-[#121215]"],
-    html.light [class*="bg-[#121215]"] {
-      background-color: #ffffff !important;
-      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04) !important;
+    .bento-surface {
+      background-color: var(--surface-secondary);
+      border: 1px solid var(--border-subtle);
     }
 
-    /* Card Elevation 2 & Sub-surfaces (Buttons, Pills, Inputs, Sub-cards) */
-    html:not(.dark) [class*="bg-[#18181B]"],
-    html.light [class*="bg-[#18181B]"] {
-      background-color: #f8fafc !important;
+    .bento-canvas {
+      background-color: var(--canvas-bg);
     }
 
-    /* Interactive Highlight & Hover States */
-    html:not(.dark) [class*="bg-[#27272A]"],
-    html.light [class*="bg-[#27272A]"] {
-      background-color: #e2e8f0 !important;
+    /* Crisp Semantic Pills */
+    .bento-pill-emerald {
+      background-color: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
     }
-    html:not(.dark) [class*="hover:bg-[#18181B]"]:hover,
-    html:not(.dark) [class*="hover:bg-[#27272A]"]:hover {
-      background-color: #f1f5f9 !important;
-    }
-
-    /* Structural Borders & Dividers */
-    html:not(.dark) [class*="border-[#27272A]"],
-    html.light [class*="border-[#27272A]"],
-    html:not(.dark) [class*="divide-[#27272A]"] > :not([hidden]) ~ :not([hidden]) {
-      border-color: #e2e8f0 !important;
-    }
-    html:not(.dark) [class*="border-[#1E1E22]"],
-    html.light [class*="border-[#1E1E22]"],
-    html:not(.dark) [class*="divide-[#1E1E22]"] > :not([hidden]) ~ :not([hidden]) {
-      border-color: #f1f5f9 !important;
+    .dark .bento-pill-emerald {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.3);
     }
 
-    /* High-Contrast Crisp Typography for Light Mode */
-    html:not(.dark) [class*="text-[#FAFAFA]"],
-    html.light [class*="text-[#FAFAFA]"] {
-      color: #0f172a !important;
+    .bento-pill-amber {
+      background-color: #fffbeb;
+      color: #92400e;
+      border: 1px solid #fde68a;
     }
-    html:not(.dark) .text-white:not(.text-white-keep) {
-      color: #0f172a !important;
-    }
-    html:not(.dark) .text-slate-100,
-    html:not(.dark) .text-slate-200,
-    html:not(.dark) .text-zinc-200 {
-      color: #334155 !important;
-    }
-    html:not(.dark) .text-zinc-300 {
-      color: #475569 !important;
-    }
-    html:not(.dark) .text-slate-300 {
-      color: #334155 !important;
-    }
-    html:not(.dark) .text-slate-400 {
-      color: #64748b !important;
-    }
-    html:not(.dark) .text-slate-500 {
-      color: #94a3b8 !important;
+    .dark .bento-pill-amber {
+      background-color: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border-color: rgba(245, 158, 11, 0.3);
     }
 
-    /* Preserve Crisp White Text on Primary & Accent Buttons */
-    html:not(.dark) .bg-rose-600,
-    html:not(.dark) .bg-rose-600 *,
-    html:not(.dark) .bg-red-600,
-    html:not(.dark) .bg-red-600 *,
-    html:not(.dark) .bg-emerald-600,
-    html:not(.dark) .bg-emerald-600 *,
-    html:not(.dark) .bg-indigo-600,
-    html:not(.dark) .bg-indigo-600 * {
-      color: #ffffff !important;
+    .bento-pill-rose {
+      background-color: #fff1f2;
+      color: #9f1239;
+      border: 1px solid #fecdd3;
+    }
+    .dark .bento-pill-rose {
+      background-color: rgba(225, 29, 72, 0.15);
+      color: #fb7185;
+      border-color: rgba(225, 29, 72, 0.3);
     }
 
-    /* Light Theme Tab Navigation & Badges */
-    html:not(.dark) button.border-rose-500 {
-      color: #0f172a !important;
-      border-color: #e11d48 !important;
+    .bento-pill-sky {
+      background-color: #f0f9ff;
+      color: #075985;
+      border: 1px solid #bae6fd;
     }
-    html:not(.dark) [class*="bg-rose-500/20"] {
-      background-color: #ffe4e6 !important;
-      color: #be123c !important;
-    }
-
-    /* SVG Trajectory Chart Grid in Light Mode */
-    html:not(.dark) svg line[stroke="#27272A"] {
-      stroke: #e2e8f0 !important;
+    .dark .bento-pill-sky {
+      background-color: rgba(14, 165, 233, 0.15);
+      color: #38bdf8;
+      border-color: rgba(14, 165, 233, 0.3);
     }
 
-    /* Light Theme Badges & Semantics (No Muddy Dark Rectangles) */
-    html:not(.dark) [class*="bg-emerald-950"] {
-      background-color: #ecfdf5 !important;
-      color: #065f46 !important;
-      border-color: #a7f3d0 !important;
-    }
-    html:not(.dark) [class*="text-emerald-300"] {
-      color: #047857 !important;
-    }
-    html:not(.dark) [class*="bg-amber-950"] {
-      background-color: #fffbeb !important;
-      color: #92400e !important;
-      border-color: #fde68a !important;
-    }
-    html:not(.dark) [class*="text-amber-300"] {
-      color: #b45309 !important;
-    }
-    html:not(.dark) [class*="bg-red-950"],
-    html:not(.dark) [class*="bg-rose-950"] {
-      background-color: #fff1f2 !important;
-      color: #9f1239 !important;
-      border-color: #fecdd3 !important;
-    }
-    html:not(.dark) [class*="text-red-300"],
-    html:not(.dark) [class*="text-rose-300"] {
-      color: #be123c !important;
-    }
-    html:not(.dark) [class*="bg-sky-950"] {
-      background-color: #f0f9ff !important;
-      color: #075985 !important;
-      border-color: #bae6fd !important;
-    }
-    html:not(.dark) [class*="bg-indigo-950"] {
-      background-color: #eef2ff !important;
-      color: #3730a3 !important;
-      border-color: #c7d2fe !important;
-    }
-    html:not(.dark) [class*="bg-slate-800"] {
-      background-color: #f1f5f9 !important;
-      border-color: #cbd5e1 !important;
-      color: #334155 !important;
+    /* Form Elements & Inputs */
+    select, input {
+      color: var(--text-primary);
     }
 
-    /* Inputs, Selects & Tables in Light Mode */
-    html:not(.dark) select,
-    html:not(.dark) input {
-      background-color: #ffffff !important;
-      color: #0f172a !important;
-      border-color: #cbd5e1 !important;
+    /* SVG Chart Grid Adaptations */
+    svg line.grid-line {
+      stroke: var(--border-subtle);
     }
-    html:not(.dark) tr:hover {
-      background-color: #f8fafc !important;
+    .dark svg line.grid-line {
+      stroke: #27272A;
     }
   </style>
   `;

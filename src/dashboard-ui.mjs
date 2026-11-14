@@ -21,7 +21,7 @@ export function getDashboardHtml(folderId = '') {
   const safeFolderId = String(folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
 
   return `<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -34,10 +34,14 @@ export function getDashboardHtml(folderId = '') {
     (function() {
       try {
         var t = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
-        if (t === 'light') {
-          document.documentElement.classList.remove('dark');
+        if (t === 'dark') {
+          if (typeof document !== 'undefined' && document.documentElement) {
+            document.documentElement.classList.add('dark');
+          }
         } else {
-          document.documentElement.classList.add('dark');
+          if (typeof document !== 'undefined' && document.documentElement) {
+            document.documentElement.classList.remove('dark');
+          }
         }
       } catch (_) {}
     })();
@@ -142,7 +146,7 @@ export function getDashboardHtml(folderId = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200" :class="(isDark || darkMode) ? 'dark' : ''" x-data="dashboardApp('${safeFolderId}')" x-init="initDashboard()">
+<body x-cloak class="bg-[#F8FAFC] text-[#0F172A] dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200" x-data="dashboardApp('${safeFolderId}')" x-init="initDashboard()">
 
   ${renderAppSidebar({ activeNav: 'overview', isDashboardSpa: true, refreshHandler: 'refreshAll()' })}
 

@@ -10,23 +10,26 @@
   - Creating new screens, views, or modal dialogs.
   - Modifying existing page layouts or responsive structure.
   - Adding or styling UI components (buttons, navigation bars, cards, badges, inputs, data tables).
-  - Updating color palettes, theme tokens (Dark/Light mode), typography, or spacing scales.
+  - Updating color palettes, theme tokens (Default Light / Optional Dark mode), typography, or spacing scales.
 - **Protocol:**
   - **Do NOT** hand-code arbitrary hex colors, conflicting CSS classes, or uncoordinated styling.
   - **Always harmonize with the Design System:**
     1. Inspect the existing Stitch project and design system via Stitch MCP tools (`list_projects`, `get_design_system`, `list_design_systems`), the local `DESIGN.md`, and `.agents/rules/ui-ux-skills-enforcement.md`.
     2. Use the relevant Stitch skill (e.g. `stitch::generate-design`, `stitch::manage-design-system`, `stitch::react-components`, or `taste-design`) combined with `ui-ux-pro-max` to generate or adapt the UI elements.
-    3. Ensure new buttons, cards, or colors use the canonical semantic tokens specified in `DESIGN.md` (e.g. Canvas `#09090B`, Surface `#121215`, Deep Rose `#E11D48`, Signal Emerald `#10B981`) rather than hardcoded raw values.
+    3. Ensure new buttons, cards, or colors use the canonical semantic tokens specified in `DESIGN.md` (Default Light-Mode Bento SaaS: Canvas `#F8FAFC`, Surface Cards `#FFFFFF` with `rounded-2xl` and `border-[#E2E8F0]`, Secondary `#F1F5F9`, Primary Ink `#0F172A`, Steel Secondary `#64748B`, Deep Rose `#E11D48`, Signal Emerald `#10B981`, Amber `#F59E0B`, Sky `#0EA5E9`; Optional Dark: Canvas `#09090B`, Surface `#121215`, Elevated `#18181B`, Primary Ink `#FAFAFA`) rather than hardcoded raw values.
 
 ---
 
 ## 2. Component, Token & Accessibility Parity
+- **Bento SaaS Architectural Hierarchy:**
+  - Primary UI modules follow an asymmetric Bento layout with `rounded-2xl` corners, `1px solid #E2E8F0` border in light mode (`#27272A` in dark mode), and subtle elevation shadow (`0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04)`).
 - **Buttons & Interactive Elements:**
   - State variants (hover, active, disabled, focus-ring) must follow Stitch component specifications and Web Interface Guidelines.
   - All interactive elements must adhere to standard contrast ratios (WCAG AA minimum) and explicit `focus-visible` indicators.
 - **Color Palettes & Theme Integrity:**
-  - Color changes must be registered or synced with the Stitch Design System (`DESIGN.md` / `theme tokens`).
-  - Colors must maintain clear semantic hierarchy: background, surface, elevated surface, muted text, primary text, brand accent, and status indicators.
+  - The default theme is Light-Mode Bento SaaS (`:root`), with optional dark mode (`.dark`).
+  - Theme storage is strictly unified on `pa_theme` (default `'light'`).
+  - Eradicate regex CSS attribute hacks (`[class*="..."]`) and `.dark` body locks.
 - **Typography & Tabular Stability:**
   - All numerical metrics, ranks, velocities, and dates must use tabular monospace (`font-mono tabular-nums`) as mandated in `DESIGN.md` and `ui-ux-skills-enforcement.md`.
 
@@ -49,4 +52,4 @@
 - When applying Stitch UI changes to this repository:
   - Do NOT disrupt backend queries, Neon shard routing, or edge prefetch rules.
   - Frontend components must connect cleanly to existing data hooks without stripping invariant safety guards.
-  - Respect Rule 16 (functional replacer `content.replace(target, () => replacement)`) and Rule 17 (headless Node.js environment guards for browser globals like `localStorage` and `window`).
+  - Respect Rule 16 (functional replacer `content.replace(target, () => replacement)`) and Rule 17 (headless Node.js environment guards for browser globals like `localStorage`, `window`, and `document`).

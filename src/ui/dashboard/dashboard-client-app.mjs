@@ -30,13 +30,13 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         creatorDiscoveryFilter: 'all',
         isDark: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
-          } catch (_) { return true; }
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false;
+          } catch (_) { return false; }
         })(),
         darkMode: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
-          } catch (_) { return true; }
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false;
+          } catch (_) { return false; }
         })(),
         toggleTheme() {
           this.isDark = !this.isDark;
@@ -47,10 +47,12 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               localStorage.setItem('pin_theme', this.isDark ? 'dark' : 'light');
             }
           } catch (_) {}
-          if (this.isDark) {
-            document.documentElement.classList.add('dark');
-          } else {
-            document.documentElement.classList.remove('dark');
+          if (typeof document !== 'undefined' && document.documentElement) {
+            if (this.isDark) {
+              document.documentElement.classList.add('dark');
+            } else {
+              document.documentElement.classList.remove('dark');
+            }
           }
         },
         isAssignExistingCreatorModalOpen: false,
@@ -1542,9 +1544,20 @@ ${getDashboardSeedComputedProperties()}
           if (this._hasInitialized) return;
           this._hasInitialized = true;
           try {
-            const savedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') : null;
+            const savedTheme = typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
             if (savedTheme) {
               this.isDark = savedTheme === 'dark';
+              this.darkMode = this.isDark;
+            } else {
+              this.isDark = false;
+              this.darkMode = false;
+            }
+            if (typeof document !== 'undefined' && document.documentElement) {
+              if (this.isDark) {
+                document.documentElement.classList.add('dark');
+              } else {
+                document.documentElement.classList.remove('dark');
+              }
             }
           } catch (_) {}
           try {
