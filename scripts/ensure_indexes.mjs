@@ -146,16 +146,22 @@ async function optimizeIndexes() {
     WHERE (is_displaced = FALSE AND daily_save_velocity > 0);
   `.catch(err => console.warn('[Index Notice]', err.message));
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_kdi_surging_velocity
+    ON keyword_displaced_index (GREATEST(COALESCE(daily_save_velocity, 0), COALESCE(delta_repins_24h, 0)) DESC)
+    WHERE (COALESCE(daily_save_velocity, 0) > 0 OR COALESCE(delta_repins_24h, 0) > 0);
+  `.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_cp_driver_pins
     ON competitor_pins(competitor_id, save_count DESC)
     WHERE is_deleted = FALSE;
   `.catch(err => console.warn('[Index Notice]', err.message));
 
-  console.log('[*] 14. Ensuring Unified PostgreSQL SSOT master & daily metric indexes...');
+  console.log('[*] 14. Ensuring Unified PostgreSQL SSOT master & daily metric indexes (dropping redundant duplicates)...');
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_date ON pins_daily_metrics(pin_id, snapshot_date ASC);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_psp_pin_date ON pin_serp_positions(pin_id, snapshot_date ASC);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_pdm_pin_date;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_psp_pin_date;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_psp_kw_date;`.catch(() => {});
 
   console.log('[*] 15. Ensuring clean_domain columns, B-Tree indexes, and pae_sync_clean_domain triggers [Migration 052/053/057]...');
   await sql`ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS clean_domain VARCHAR(255);`.catch(() => {});

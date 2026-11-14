@@ -564,15 +564,13 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       0::bigint AS share_count,
       '{}'::jsonb AS reactions,
       -- [INVARIANT: AGE-BOUNDED-VELOCITY-SHIELD] Prevent 10x multiplier explosion on recent/missing discovery dates
-      ROUND(
-        (COALESCE(cp.save_count, 0)::numeric / 
-         CASE 
-           WHEN cp.created_at_pinterest IS NOT NULL 
-           THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)
-           ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
-         END
-        ), 2
-      ) AS velocity,
+      CASE
+        WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN GREATEST(0, ump.daily_save_velocity)
+        WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN GREATEST(0, COALESCE(NULLIF(regexp_replace(cp.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0))
+        ELSE 0::numeric
+      END AS velocity,
       '[]'::jsonb AS annotations,
       false AS is_video,
       COALESCE(cp.is_product, false) AS is_product,
@@ -580,6 +578,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       NOW() AS first_seen_at,
       NOW() AS last_updated_at
     FROM competitor_pins cp
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
     WHERE cp.competitor_id = ${numericId}
       AND (
         cp.save_count >= ${minSaves}
@@ -635,7 +634,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
           saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE pa_pins.saves END,
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE pa_pins.repins END,
           comments = CASE WHEN EXCLUDED.comments > 0 THEN EXCLUDED.comments ELSE pa_pins.comments END,
-          velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+          velocity = EXCLUDED.velocity,
           is_product = (pa_pins.is_product OR EXCLUDED.is_product),
           last_updated_at = NOW();
       `;
@@ -768,18 +767,13 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           COALESCE(ump.share_count, 0)::bigint AS share_count,
           '{}'::jsonb AS reactions,
           -- [INVARIANT: AGE-BOUNDED-VELOCITY-SHIELD] Prevent 10x multiplier explosion on recent/missing discovery dates
-          COALESCE(
-            NULLIF(ump.daily_save_velocity, 0),
-            ROUND(
-              (GREATEST(COALESCE(ump.save_count, 0), COALESCE(cp.save_count, 0))::numeric / 
-               CASE 
-                 WHEN COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) IS NOT NULL 
-                 THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.created_at_pinterest, ump.created_at_pinterest))) / 86400)
-                 ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
-               END
-              ), 2
-            )
-          ) AS velocity,
+          CASE
+            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN GREATEST(0, ump.daily_save_velocity)
+            WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN GREATEST(0, COALESCE(NULLIF(regexp_replace(cp.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0))
+            ELSE 0::numeric
+          END AS velocity,
           COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS annotations,
           false AS is_video,
           (COALESCE(cp.is_product, false) OR COALESCE(ump.is_product, false)) AS is_product,
@@ -832,7 +826,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
         saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE pa_pins.saves END,
         repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE pa_pins.repins END,
         -- [INVARIANT: PRESERVE-AUTHENTIC-24H-VELOCITY] Fix LND-2: Preserve authentic daily velocity over lifetime average
-        velocity = CASE WHEN pa_pins.velocity > 0 THEN pa_pins.velocity WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+        velocity = EXCLUDED.velocity,
         is_product = (pa_pins.is_product OR EXCLUDED.is_product),
         last_updated_at = NOW()
       RETURNING pin_id;

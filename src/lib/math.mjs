@@ -375,7 +375,9 @@ export function sanitizeDossierTrajectory(dossier) {
     const trajVel = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? 0);
     const creativeFallbackVel = Number(dossier.creative.daily_save_velocity || 0);
     const creativeSaves = Number(dossier.creative.save_count || 0);
-    if (chrono.length === 1 && trajVel === 0 && creativeFallbackVel > 0 && (creativeSaves <= 0 || creativeFallbackVel < creativeSaves)) {
+    if (dossier.creative._trajectoryStale24h) {
+      dossier.creative.daily_save_velocity = 0;
+    } else if (chrono.length === 1 && trajVel === 0 && creativeFallbackVel > 0 && (creativeSaves <= 0 || creativeFallbackVel < creativeSaves)) {
       dossier.creative.daily_save_velocity = creativeFallbackVel;
     } else {
       dossier.creative.daily_save_velocity = Number(desc[0].window_24h_velocity ?? desc[0].daily_save_velocity ?? dossier.creative.daily_save_velocity ?? 0);

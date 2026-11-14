@@ -266,8 +266,20 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ump.alt_text, '') AS alt_text,
       COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0) AS save_count,
       COALESCE(NULLIF(ksc.repin_count, 0), ump.repin_count, 0) AS repin_count,
-      COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0) AS delta_saves_24h,
+      CASE
+        WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ksc.daily_save_velocity
+        WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ump.daily_save_velocity
+        ELSE 0
+      END AS daily_save_velocity,
+      CASE
+        WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ksc.daily_save_velocity
+        WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+        THEN ump.daily_save_velocity
+        ELSE 0
+      END AS delta_saves_24h,
       CASE
         WHEN ksc.delta_repins_24h IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
         THEN ksc.delta_repins_24h
@@ -329,6 +341,34 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
       GROUP BY kdi.keyword_id, tk.keyword;
     `,
     sql`
+      WITH top_vault AS MATERIALIZED (
+        SELECT
+          kdi.keyword_id,
+          kdi.pin_id,
+          kdi.last_known_rank,
+          kdi.vacuum_opportunity_score,
+          kdi.displaced_date,
+          kdi.save_count,
+          kdi.repin_count,
+          kdi.daily_save_velocity,
+          kdi.delta_repins_24h,
+          kdi.gains_5d,
+          kdi.gains_7d,
+          kdi.gains_10d,
+          kdi.gains_15d,
+          kdi.domain,
+          kdi.creator_username,
+          kdi.updated_at
+        FROM keyword_displaced_index kdi
+        WHERE (COALESCE(kdi.daily_save_velocity, 0) > 0 OR COALESCE(kdi.delta_repins_24h, 0) > 0)
+          AND kdi.updated_at >= NOW() - INTERVAL '48 hours'
+          AND (${folderIdNum}::int IS NULL OR EXISTS (
+            SELECT 1 FROM keyword_folder_items fi 
+            WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
+          ))
+        ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0)) DESC
+        LIMIT 2500
+      )
       SELECT
         kdi.keyword_id,
         tk.keyword AS keyword_text,
@@ -339,10 +379,20 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         kdi.displaced_date,
         COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) AS save_count,
         COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0) AS repin_count,
-        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
         CASE
-          WHEN kdi.delta_repins_24h IS NOT NULL AND COALESCE(kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN kdi.daily_save_velocity
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          ELSE 0
+        END AS daily_save_velocity,
+        CASE
+          WHEN ump.delta_saves_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.delta_saves_24h
+          ELSE 0
+        END AS delta_saves_24h,
+        CASE
+          WHEN kdi.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
           THEN kdi.delta_repins_24h
           WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
           THEN ump.delta_repins_24h
@@ -367,26 +417,17 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         ) AS dominant_color,
         COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), NULLIF(pa.annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
         COALESCE(ump.created_at_pinterest, pa.created_at_pinterest, cpin.created_at_pinterest) AS created_at_pinterest
-      FROM keyword_displaced_index kdi
+      FROM top_vault kdi
       JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      LEFT JOIN pa_pins pa ON pa.pin_id = kdi.pin_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
+      LEFT JOIN pa_pins pa ON pa.pin_id = kdi.pin_id
       LEFT JOIN LATERAL (
         SELECT title, description, alt_text, image_url, destination_url, link_domain, board_name, metadata, created_at_pinterest
         FROM public.competitor_pins cp
         WHERE cp.pin_id = kdi.pin_id AND cp.is_deleted = FALSE
         LIMIT 1
-      ) cpin ON TRUE
-      WHERE (
-          COALESCE(kdi.daily_save_velocity, 0) > 0
-          OR COALESCE(ump.daily_save_velocity, 0) > 0
-          OR (COALESCE(kdi.delta_repins_24h, 0) > 0 AND COALESCE(kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
-          OR (COALESCE(ump.delta_repins_24h, 0) > 0 AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
-        )
-        AND (${folderIdNum}::int IS NULL OR EXISTS (
-          SELECT 1 FROM keyword_folder_items fi 
-          WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
-        ))
+      ) cpin ON (ump.image_url IS NULL OR ump.image_url = '')
+      WHERE COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
       ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, kdi.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, kdi.delta_repins_24h, 0)) DESC
       LIMIT 2500;
     `
@@ -424,8 +465,20 @@ async function queryViralCreatorPins(sql, folderIdNum) {
     LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
     CROSS JOIN LATERAL (
       SELECT
-        COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
-        COALESCE(ump.daily_save_velocity, NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+          ELSE 0
+        END AS daily_save_velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+          ELSE 0
+        END AS delta_saves_24h,
         CASE
           WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
           THEN ump.delta_repins_24h
@@ -569,8 +622,20 @@ async function queryBreakoutCreators(sql, folderIdNum) {
       LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
       CROSS JOIN LATERAL (
         SELECT
-          COALESCE(NULLIF(ump.daily_save_velocity, 0), NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS daily_save_velocity,
-          COALESCE(NULLIF(ump.delta_saves_24h, 0), NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0) AS delta_saves_24h
+          CASE
+            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN ump.daily_save_velocity
+            WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+            ELSE 0
+          END AS daily_save_velocity,
+          CASE
+            WHEN ump.delta_saves_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN ump.delta_saves_24h
+            WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
+            ELSE 0
+          END AS delta_saves_24h
       ) clean_metrics
       WHERE cpin.is_deleted = FALSE
         AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) IS NOT NULL AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) <> ''
@@ -587,8 +652,20 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(NULLIF(ump.destination_url, ''), pa.link) AS destination_url,
         COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS save_count,
         COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::int AS repin_count,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS delta_saves_24h,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS daily_save_velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(pa.velocity, 0)
+          ELSE 0
+        END::numeric AS delta_saves_24h,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(pa.velocity, 0)
+          ELSE 0
+        END::numeric AS daily_save_velocity,
         COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest
       FROM pa_pins pa
       LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
@@ -607,8 +684,20 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '') AS destination_url,
         COALESCE(ksc.save_count, 0)::bigint AS save_count,
         COALESCE(ksc.repin_count, 0)::int AS repin_count,
-        COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
-        COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
+        CASE
+          WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ksc.daily_save_velocity
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          ELSE 0
+        END::numeric AS delta_saves_24h,
+        CASE
+          WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ksc.daily_save_velocity
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          ELSE 0
+        END::numeric AS daily_save_velocity,
         COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
       FROM keyword_serp_current ksc
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
@@ -627,8 +716,20 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(ump.destination_url, '') AS destination_url,
         COALESCE(kdi.save_count, 0)::bigint AS save_count,
         COALESCE(kdi.repin_count, 0)::int AS repin_count,
-        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
-        COALESCE(kdi.daily_save_velocity, ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
+        CASE
+          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN kdi.daily_save_velocity
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          ELSE 0
+        END::numeric AS delta_saves_24h,
+        CASE
+          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN kdi.daily_save_velocity
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          ELSE 0
+        END::numeric AS daily_save_velocity,
         ump.created_at_pinterest
       FROM keyword_displaced_index kdi
       LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
@@ -748,15 +849,28 @@ async function queryWinnersAndDomains(sql) {
         COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0) AS repins,
         GREATEST(COALESCE(pa.comments, 0), COALESCE(ump.comment_count, 0)) AS comments,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) AS velocity,
+        eff.velocity AS velocity,
         COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), pa.annotations, '[]'::jsonb) AS annotations,
         COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest,
         pa.first_seen_at,
         pa.last_updated_at
       FROM pa_pins pa
       LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      WHERE (COALESCE(ump.daily_save_velocity, pa.velocity, 0) > 0 OR COALESCE(ump.save_count, pa.saves, 0) >= 100)
-      ORDER BY COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0) DESC, COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
+      CROSS JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN NULLIF(ump.daily_save_velocity, 0) IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN ump.daily_save_velocity
+            WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN COALESCE(pa.velocity, 0)
+            ELSE 0
+          END AS velocity
+      ) eff
+      WHERE (
+        eff.velocity > 0
+        OR (COALESCE(ump.save_count, pa.saves, 0) >= 100 AND COALESCE(ump.last_scraped_at, pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
+      )
+      ORDER BY eff.velocity DESC, COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
       LIMIT 100;
     `,
     sql`

@@ -106,12 +106,22 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   const currentSaves = Number(latest.save_count || 0);
   const currentRepins = Number(latest.repin_count || 0);
 
+  const refObj = refDate instanceof Date ? refDate : new Date(refDate);
+  const refDayMs = Number.isFinite(refObj.getTime())
+    ? Date.UTC(refObj.getUTCFullYear(), refObj.getUTCMonth(), refObj.getUTCDate())
+    : Date.now();
+  const latestDayMs = Date.parse(`${latest.snapshot_date}T00:00:00Z`);
+  const stalenessDays = Number.isFinite(latestDayMs)
+    ? Math.max(0, Math.round((refDayMs - latestDayMs) / 86400000))
+    : 0;
+  const isFresh24h = stalenessDays <= 2;
+
   // 1. 24h save velocity & repin delta
-  // [INVARIANT: ANTI-HYDRATION-SPIKE]
-  // Protect against unhydrated 0-repin baselines jumping to full lifetime repins
+  // [INVARIANT: ANTI-HYDRATION-SPIKE] & [INVARIANT: FRESH-24H-TELEMETRY]
+  // Protect against unhydrated 0-repin baselines AND stale multi-day-old spikes (>2d stale vs refDate)
   let daily_save_velocity = 0;
   let delta_repins_24h = 0;
-  if (sorted.length >= 2) {
+  if (sorted.length >= 2 && isFresh24h) {
     const prevRepins = Number(sorted[1].repin_count || 0);
     const prevSaves = Number(sorted[1].save_count || 0);
     const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
@@ -136,8 +146,9 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   // 2. Multi-window save gains
   function getGainsForWindow(windowDays) {
     if (sorted.length < 2 || currentSaves <= 0) return 0;
+    if (stalenessDays > windowDays) return 0;
 
-    const refMs = Math.max(new Date(refDate).getTime(), new Date(latest.snapshot_date).getTime());
+    const refMs = Math.max(refDayMs, latestDayMs);
     const targetMs = refMs - (windowDays * 86400000);
 
     let bestSnap = null;
@@ -145,7 +156,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
 
     for (let i = 1; i < sorted.length; i++) {
       const s = sorted[i];
-      const sTime = new Date(s.snapshot_date).getTime();
+      const sTime = Date.parse(`${s.snapshot_date}T00:00:00Z`);
       const diff = Math.abs(sTime - targetMs);
       if (diff < minDiff) {
         minDiff = diff;
@@ -344,9 +355,12 @@ async function main() {
               AND (
                 COALESCE(delta_repins_24h, 0) > 0
                 OR COALESCE(daily_save_velocity, 0) > 0
+                OR COALESCE(delta_saves_24h, 0) > 0
+                OR COALESCE(gains_5d, 0) > 0
+                OR COALESCE(gains_7d, 0) > 0
               )
           ) sub
-          LIMIT 5000;
+          LIMIT 25000;
         `;
       }
     }, 3, 3000);
@@ -359,7 +373,7 @@ async function main() {
 
     // 2. Query historical snapshots directly from Unified PostgreSQL pins_daily_metrics (chunked <= 500 pins)
     console.log('\n[*] Phase 2: Fetching snapshot history from Unified PostgreSQL pins_daily_metrics & computing deltas...');
-    const computedDeltas = new Map(); // pin_id -> { delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
+    const computedDeltas = new Map(); // pin_id -> { daily_save_velocity, delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
     const allPinIds = activePins.map(r => String(r.pin_id));
 
     const PIN_CHUNK_SIZE = 500;
@@ -369,14 +383,24 @@ async function main() {
     try {
       for (let i = 0; i < allPinIds.length; i += PIN_CHUNK_SIZE) {
         const pinChunk = allPinIds.slice(i, i + PIN_CHUNK_SIZE);
-        const snapshots = await executeWithRetry(async () => {
-          return await hubSql`
-            SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
-            FROM pins_daily_metrics
-            WHERE pin_id = ANY(${pinChunk}::text[])
-              AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-            ORDER BY snapshot_date DESC;
-          `;
+        const [snapshots, freshSerpRows] = await executeWithRetry(async () => {
+          return await Promise.all([
+            hubSql`
+              SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+              FROM pins_daily_metrics
+              WHERE pin_id = ANY(${pinChunk}::text[])
+                AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
+              ORDER BY snapshot_date DESC;
+            `,
+            hubSql`
+              SELECT pin_id, (crawled_at AT TIME ZONE 'UTC')::date AS snapshot_date,
+                     save_count, repin_count, daily_save_velocity
+              FROM keyword_serp_current
+              WHERE pin_id = ANY(${pinChunk}::text[])
+                AND crawled_at >= NOW() - INTERVAL '48 hours'
+                AND save_count > 0;
+            `
+          ]);
         }, 3, 3000);
 
         totalSnapshotsRetrieved += snapshots.length;
@@ -385,6 +409,12 @@ async function main() {
             pinSnapshotsMap.set(snap.pin_id, []);
           }
           pinSnapshotsMap.get(snap.pin_id).push(snap);
+        }
+        for (const kRow of freshSerpRows) {
+          if (!pinSnapshotsMap.has(kRow.pin_id)) {
+            pinSnapshotsMap.set(kRow.pin_id, []);
+          }
+          pinSnapshotsMap.get(kRow.pin_id).push(kRow);
         }
       }
 
@@ -415,7 +445,7 @@ async function main() {
     const payloadJson = JSON.stringify(chunk);
 
     // Update keyword_serp_current
-    await hubSql`
+    await executeWithRetry(() => hubSql`
       UPDATE keyword_serp_current ksc
       SET
         daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
@@ -434,11 +464,19 @@ async function main() {
         gains_10d int,
         gains_15d int
       )
-      WHERE ksc.pin_id = u.pin_id;
-    `;
+      WHERE ksc.pin_id = u.pin_id
+        AND (
+          ksc.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
+          OR ksc.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
+          OR ksc.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
+          OR ksc.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
+          OR ksc.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
+          OR ksc.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
+        );
+    `, 3, 2000);
 
     // Update keyword_displaced_index (for displaced pins)
-    await hubSql`
+    await executeWithRetry(() => hubSql`
       UPDATE keyword_displaced_index kdi
       SET
         daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
@@ -457,11 +495,19 @@ async function main() {
         gains_10d int,
         gains_15d int
       )
-      WHERE kdi.pin_id = u.pin_id;
-    `;
+      WHERE kdi.pin_id = u.pin_id
+        AND (
+          kdi.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
+          OR kdi.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
+          OR kdi.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
+          OR kdi.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
+          OR kdi.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
+          OR kdi.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
+        );
+    `, 3, 2000);
 
     // Update universal_master_pins
-    await hubSql`
+    await executeWithRetry(() => hubSql`
       UPDATE universal_master_pins ump
       SET
         daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
@@ -481,14 +527,56 @@ async function main() {
         gains_10d int,
         gains_15d int
       )
-      WHERE ump.pin_id = u.pin_id;
-    `;
+      WHERE ump.pin_id = u.pin_id
+        AND (
+          ump.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
+          OR ump.delta_saves_24h IS DISTINCT FROM ROUND(COALESCE(u.daily_save_velocity, 0))::int
+          OR ump.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
+          OR ump.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
+          OR ump.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
+          OR ump.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
+          OR ump.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
+        );
+    `, 3, 2000);
 
     updatedCount += chunk.length;
     if (updatedCount % 1000 === 0 || updatedCount === deltaList.length) {
       console.log(`  -> Updated ${updatedCount}/${deltaList.length} pins on Central Hub & Master...`);
     }
   }
+
+  // 4B. Synchronize pa_pins and competitor_pins velocities & decay >48h stale velocities
+  await executeWithRetry(() => hubSql`
+    UPDATE pa_pins pa
+    SET velocity = CASE
+      WHEN COALESCE(ump.last_scraped_at, ump.updated_at, pa.last_updated_at) >= NOW() - INTERVAL '48 hours'
+      THEN COALESCE(ump.daily_save_velocity, 0)
+      ELSE 0
+    END
+    FROM universal_master_pins ump
+    WHERE pa.pin_id = ump.pin_id
+      AND pa.velocity IS DISTINCT FROM (
+        CASE
+          WHEN COALESCE(ump.last_scraped_at, ump.updated_at, pa.last_updated_at) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(ump.daily_save_velocity, 0)
+          ELSE 0
+        END
+      );
+  `, 3, 2000).catch(() => {});
+
+  await executeWithRetry(() => hubSql`
+    UPDATE pa_pins
+    SET velocity = 0
+    WHERE velocity > 0
+      AND last_updated_at < NOW() - INTERVAL '48 hours';
+  `, 3, 2000).catch(() => {});
+
+  await executeWithRetry(() => hubSql`
+    UPDATE competitor_pins cp
+    SET metadata = (cp.metadata - 'daily_save_velocity' - 'delta_saves_24h' - 'delta_repins_24h')
+    WHERE cp.updated_at < NOW() - INTERVAL '48 hours'
+      AND cp.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'];
+  `, 3, 2000).catch(() => {});
 
   // 5. Verification: Inspect Pin #1033505814497118216
   console.log('\n================================================================================');

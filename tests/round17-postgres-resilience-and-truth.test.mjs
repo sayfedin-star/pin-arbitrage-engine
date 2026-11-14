@@ -181,6 +181,18 @@ describe('Round 17: Phase 2 Anti-Hydration Repin Shield & Non-Ratchet', () => {
 
     assert.strictEqual(authentic.daily_save_velocity, 761);
     assert.strictEqual(authentic.delta_repins_24h, 764);
+
+    // 9-day stale 2026-11-05 jump must NOT leak +1467/d into 24h Pulse on 2026-11-14
+    const stale20261105 = calculateRollingGainsFromSnapshots([
+      { snapshot_date: '2026-11-05', save_count: 2850, repin_count: 550 },
+      { snapshot_date: '2026-11-04', save_count: 1383, repin_count: 500 }
+    ], new Date('2026-11-14T12:00:00Z'));
+
+    assert.strictEqual(stale20261105.daily_save_velocity, 0);
+    assert.strictEqual(stale20261105.delta_repins_24h, 0);
+    assert.strictEqual(stale20261105.gains_5d, 0);
+    assert.strictEqual(stale20261105.gains_7d, 0);
+    assert.strictEqual(stale20261105.gains_10d, 1467);
   });
 
   it('Pulse service suppresses skeleton +2200 repin spikes and blocks creator_feed from ratcheting SERP deltas', async () => {
@@ -430,3 +442,109 @@ describe('Round 17: Phase 3 Pin Dossier Trajectory & Velocity Parity', () => {
     assert.strictEqual(dossier.creative.daily_save_velocity, 761);
   });
 });
+
+describe('Round 17: Phase 4 Stage 2 42P10 & Pulse 48h SQL Freshness Contract', () => {
+  beforeEach(() => {
+    resetPulseCaches();
+  });
+
+  it('remediate_poisoned_canonical_and_velocity avoids SELECT DISTINCT with ORDER BY COALESCE (42P10) and uses withDbRetry', () => {
+    const code = fs.readFileSync(
+      path.join(ROOT_DIR, 'scripts', 'remediate_poisoned_canonical_and_velocity.mjs'),
+      'utf8'
+    );
+    assert.strictEqual(
+      /SELECT\s+DISTINCT[\s\S]*?ORDER BY[\s\S]*?COALESCE\s*\(/i.test(code),
+      false,
+      'Must never combine SELECT DISTINCT with ORDER BY COALESCE(...) (throws SQLSTATE 42P10)'
+    );
+    assert.ok(code.includes('withDbRetry'), 'Remediation script must wrap DB operations in withDbRetry');
+  });
+
+  it('getGlobal24hPulseService applies 48h freshness gates across active SERP, vault, creator feed, and paWinners SQL', async () => {
+    const queries = [];
+    const mockSql = async (strings) => {
+      const q = Array.isArray(strings) ? strings.join('?') : String(strings);
+      queries.push(q);
+      return [];
+    };
+
+    await getGlobal24hPulseService(mockSql, {}, { bypassCache: true });
+
+    const activeSerpQ = queries.find(q => q.includes('kw_folders') && q.includes('keyword_serp_current'));
+    const vaultQ = queries.find(q => q.includes('FROM keyword_displaced_index kdi') && q.includes('ump.last_scraped_at'));
+    const viralCreatorQ = queries.find(q => q.includes('FROM competitor_pins') && q.includes('LIMIT 120'));
+    const paWinnersQ = queries.find(q => q.includes('FROM pa_pins pa'));
+
+    assert.ok(activeSerpQ && activeSerpQ.includes("INTERVAL '48 hours'"), 'queryActiveSerp must enforce 48h gate');
+    assert.ok(vaultQ && vaultQ.includes("INTERVAL '48 hours'"), 'queryVaultAndVacuum must enforce 48h gate');
+    assert.ok(viralCreatorQ && viralCreatorQ.includes("INTERVAL '48 hours'"), 'queryViralCreatorPins must enforce 48h gate');
+    assert.ok(paWinnersQ && paWinnersQ.includes("INTERVAL '48 hours'") && paWinnersQ.includes('CROSS JOIN LATERAL'), 'paWinners must enforce 48h gate with unambiguous CROSS JOIN LATERAL');
+  });
+
+  it('fetchUniversalPinDossier & sanitizeDossierTrajectory clamp creative.daily_save_velocity to 0 when latest trajectory snapshot is >48h stale (#1125407394443756216)', async () => {
+    const mockSql = async (strings) => {
+      const q = Array.isArray(strings) ? strings.join('?') : String(strings);
+      if (q.includes('FROM universal_master_pins') && q.includes('LIMIT 1')) {
+        return [{
+          pin_id: '1125407394443756216',
+          title: 'Easy Crochet Flower Pattern',
+          domain: 'uploaded by user',
+          creator_username: 'midj77380110',
+          save_count: 3460,
+          repin_count: 3457,
+          daily_save_velocity: 0,
+          last_scraped_at: '2026-11-05T10:00:00Z',
+          updated_at: '2026-11-14T13:00:00Z'
+        }];
+      }
+      if (q.includes('FROM pins_daily_metrics')) {
+        return [
+          {
+            snapshot_date: '2026-11-05',
+            save_count: 2850,
+            repin_count: 2847,
+            daily_save_velocity: 1467
+          },
+          {
+            snapshot_date: '2026-11-04',
+            save_count: 1383,
+            repin_count: 1380,
+            daily_save_velocity: 0
+          }
+        ];
+      }
+      return [];
+    };
+
+    const dossier = await fetchUniversalPinDossier({ sql: mockSql, pinId: '1125407394443756216' });
+    sanitizeDossierTrajectory(dossier);
+
+    assert.strictEqual(
+      dossier.creative.daily_save_velocity,
+      0,
+      'Stale 2026-11-05 trajectory velocity (1467) must NOT leak into live 24h creative.daily_save_velocity when master velocity is 0'
+    );
+    assert.strictEqual(
+      dossier.daily_trajectory[0].window_24h_velocity,
+      1467,
+      'Historical 2026-11-05 step velocity on the trajectory row itself must remain intact'
+    );
+  });
+
+  it('resavePinsMetricsBatch, ingestPinsBatch, and creator-ingest enforce 48h freshness and anti-hydration delta guards', () => {
+    const repoCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pins', 'repository.mjs'), 'utf8');
+    const creatorIngestCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'creators', 'creator-ingest.mjs'), 'utf8');
+
+    assert.ok(
+      repoCode.includes('WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint'),
+      'true_delta_saves_24h must respect rb.daily_save_velocity (including 0 when hydration jump is suppressed)'
+    );
+    assert.strictEqual(
+      creatorIngestCode.includes('WHEN pa_pins.velocity > 0 THEN pa_pins.velocity'),
+      false,
+      'reconcileQualifiedCatalogPins must never permanently ratchet pa_pins.velocity when 24h velocity drops to 0'
+    );
+  });
+});
+

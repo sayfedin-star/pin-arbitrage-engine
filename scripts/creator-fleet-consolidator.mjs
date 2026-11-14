@@ -261,6 +261,7 @@ async function main() {
     FROM pa_pins
     WHERE (${targetAccount} = '' OR account_username = ${targetAccount})
       AND velocity > 0
+      AND last_updated_at >= NOW() - INTERVAL '48 hours'
     ORDER BY velocity DESC NULLS LAST
     LIMIT 10;
   `;
@@ -362,7 +363,11 @@ async function main() {
   process.exitCode = 0;
 }
 
-main().catch(err => {
-  console.error('[-] Fatal Creator Consolidator Error:', err);
-  process.exit(1);
-});
+main()
+  .catch(err => {
+    console.error('[-] Fatal Creator Consolidator Error:', err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  });

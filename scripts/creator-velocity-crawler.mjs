@@ -324,10 +324,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
         share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
         reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
-        daily_save_velocity = CASE
-          WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
-          ELSE COALESCE(universal_master_pins.daily_save_velocity, 0)
-        END,
+        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, 0),
         delta_repins_24h = EXCLUDED.delta_repins_24h,
         is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
         is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),

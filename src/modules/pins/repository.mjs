@@ -283,7 +283,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
             CASE
               WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::numeric, rb.daily_save_velocity)
-              WHEN prev.snapshot_date IS NOT NULL THEN
+              WHEN prev.snapshot_date IS NOT NULL
+               AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+               AND NOT (prev.save_count < 100 AND COALESCE(rb.save_count, 0) >= 500)
+              THEN
                 ROUND(
                   GREATEST(0, rb.save_count - prev.save_count)::numeric
                   / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)),
@@ -295,7 +298,18 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         END AS effective_velocity,
         CASE
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
-            GREATEST(0, (rb.save_count - prev.save_count))::bigint
+            CASE
+              WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
+              WHEN prev.snapshot_date IS NOT NULL
+               AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+               AND NOT (prev.save_count < 100 AND COALESCE(rb.save_count, 0) >= 500)
+              THEN
+                ROUND(
+                  GREATEST(0, rb.save_count - prev.save_count)::numeric
+                  / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+                )::bigint
+              ELSE 0::bigint
+            END
           ELSE 0::bigint
         END AS true_delta_saves_24h,
         CASE
@@ -484,7 +498,10 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
             CASE
               WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::numeric, rb.daily_save_velocity)
-              WHEN prev.snapshot_date IS NOT NULL THEN
+              WHEN prev.snapshot_date IS NOT NULL
+               AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+               AND NOT (prev.save_count < 100 AND COALESCE(rb.save_count, 0) >= 500)
+              THEN
                 ROUND(
                   GREATEST(0, COALESCE(rb.save_count, 0) - prev.save_count)::numeric
                   / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date)),
@@ -496,7 +513,18 @@ export async function ingestPinsBatch(sql, pins = [], options = {}) {
         END AS effective_velocity,
         CASE
           WHEN prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
-            GREATEST(0, (COALESCE(rb.save_count, 0) - prev.save_count))::bigint
+            CASE
+              WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
+              WHEN prev.snapshot_date IS NOT NULL
+               AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
+               AND NOT (prev.save_count < 100 AND COALESCE(rb.save_count, 0) >= 500)
+              THEN
+                ROUND(
+                  GREATEST(0, COALESCE(rb.save_count, 0) - prev.save_count)::numeric
+                  / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+                )::bigint
+              ELSE 0::bigint
+            END
           ELSE 0::bigint
         END AS true_delta_saves_24h,
         CASE
@@ -714,6 +742,8 @@ export async function getPinDossier(sql, pinId) {
         curr.daily_save_velocity = calculateDailyVelocity({
           currentSaves: curr.save_count,
           baselineSaves: prev.save_count,
+          currentRepins: curr.repin_count,
+          baselineRepins: prev.repin_count,
           currentDate: curr.snapshot_date,
           baselineDate: prev.snapshot_date
         });
@@ -2548,11 +2578,25 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         const trajVel24h = Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? 0);
         const masterOrHubVel = Number(masterRecord?.daily_save_velocity || hubSerpRows[0]?.daily_save_velocity || 0);
         const refSaves = Number(masterRecord?.save_count || hubSerpRows[0]?.save_count || dailyTrajectory[0]?.save_count || 0);
+        const latestSnapDateStr = dailyTrajectory[0]?.snapshot_date ? String(dailyTrajectory[0].snapshot_date).slice(0, 10) : null;
+        const latestSnapMs = latestSnapDateStr ? new Date(`${latestSnapDateStr}T00:00:00Z`).getTime() : NaN;
+        const refNowRaw = masterRecord?.updated_at || hubSerpRows[0]?.crawled_at || hubSerpRows[0]?.updated_at || null;
+        const refNowMs = refNowRaw ? new Date(refNowRaw).getTime() : Date.now();
+        const isTrajectoryStale24h = Number.isFinite(latestSnapMs) && Number.isFinite(refNowMs) && ((refNowMs - latestSnapMs) / 86400000) > 2.5 && masterOrHubVel <= 0;
+        if (isTrajectoryStale24h) return 0;
         if (trajVel24h > 0) return trajVel24h;
         if (dailyTrajectory.length <= 1 && masterOrHubVel > 0 && (refSaves <= 0 || masterOrHubVel < refSaves)) {
           return masterOrHubVel;
         }
         return 0;
+      })(),
+      _trajectoryStale24h: (() => {
+        const masterOrHubVel = Number(masterRecord?.daily_save_velocity || hubSerpRows[0]?.daily_save_velocity || 0);
+        const latestSnapDateStr = dailyTrajectory[0]?.snapshot_date ? String(dailyTrajectory[0].snapshot_date).slice(0, 10) : null;
+        const latestSnapMs = latestSnapDateStr ? new Date(`${latestSnapDateStr}T00:00:00Z`).getTime() : NaN;
+        const refNowRaw = masterRecord?.updated_at || hubSerpRows[0]?.crawled_at || hubSerpRows[0]?.updated_at || null;
+        const refNowMs = refNowRaw ? new Date(refNowRaw).getTime() : Date.now();
+        return Boolean(Number.isFinite(latestSnapMs) && Number.isFinite(refNowMs) && ((refNowMs - latestSnapMs) / 86400000) > 2.5 && masterOrHubVel <= 0);
       })(),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),

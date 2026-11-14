@@ -890,7 +890,13 @@ export async function listDomainsIntelligence(sql, {
         FALSE AS is_displaced,
         COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(pa.velocity, 0)
+          ELSE 0
+        END::numeric AS velocity,
         CASE
           WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
           WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
@@ -919,12 +925,17 @@ export async function listDomainsIntelligence(sql, {
         FALSE AS is_displaced,
         COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
-        COALESCE(
-          NULLIF(ump.daily_save_velocity, 0)::numeric,
-          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          0::numeric
-        ) AS velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity::numeric
+          WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            0::numeric
+          )
+          ELSE 0::numeric
+        END AS velocity,
         CASE
           WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(COALESCE(prof.username, ''))
           WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(COALESCE(prof.username, ''))
@@ -1415,7 +1426,13 @@ export async function refreshDomainIntelligenceRollup(sql) {
           FALSE AS is_displaced,
           COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
           COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-          COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS velocity,
+          CASE
+            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN ump.daily_save_velocity
+            WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN COALESCE(pa.velocity, 0)
+            ELSE 0
+          END::numeric AS velocity,
           CASE
             WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
             WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
@@ -1443,12 +1460,17 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
           COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
           -- [INVARIANT: ACCURATE-COMPETITOR-VELOCITY] Extract authentic live daily velocity from competitor pins
-          COALESCE(
-            NULLIF(ump.daily_save_velocity, 0)::numeric,
-            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            0::numeric
-          ) AS velocity,
+          CASE
+            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN ump.daily_save_velocity::numeric
+            WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+            THEN COALESCE(
+              NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+              NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+              0::numeric
+            )
+            ELSE 0::numeric
+          END AS velocity,
           CASE
             WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
             WHEN cprof.website_url IS NOT NULL AND cprof.website_url <> '' AND LOWER(cprof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
@@ -2243,7 +2265,13 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(NULLIF(pa.board_name, ''), ump.board_name, '') AS board_name,
         COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), pa.velocity, 0)::numeric AS velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity
+          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(pa.velocity, 0)
+          ELSE 0
+        END::numeric AS velocity,
         COALESCE(NULLIF(ump.dominant_color, '#888888'), pa.dominant_color) AS dominant_color,
         COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), pa.annotations) AS visual_annotations,
         COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest
@@ -2268,12 +2296,17 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
         COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
         COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
-        COALESCE(
-          NULLIF(ump.daily_save_velocity, 0)::numeric,
-          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          0::numeric
-        ) AS velocity,
+        CASE
+          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN ump.daily_save_velocity::numeric
+          WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
+          THEN COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            0::numeric
+          )
+          ELSE 0::numeric
+        END AS velocity,
         ump.dominant_color,
         COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
