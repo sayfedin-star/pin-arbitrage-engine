@@ -31,12 +31,12 @@ export function getDomainsClientAppScript() {
         },
         isDark: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : false;
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false;
           } catch (_) { return false; }
         })(),
         darkMode: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : false;
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false;
           } catch (_) { return false; }
         })(),
         loading: false,

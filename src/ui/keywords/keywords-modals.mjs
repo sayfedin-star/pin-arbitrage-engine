@@ -3,7 +3,7 @@
  */
 export function getKeywordsModalsHtml() {
   return `  <!-- MODAL: BULK ADD KEYWORDS TO CAMPAIGN FOLDER -->
-  <div x-show="isBulkFolderModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div x-show="isBulkFolderModalOpen" @keydown.escape.window="isBulkFolderModalOpen = false" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div x-show="isBulkFolderModalOpen"
          x-transition:enter="transition-opacity ease-linear duration-300"
          x-transition:enter-start="opacity-0"
@@ -21,7 +21,7 @@ export function getKeywordsModalsHtml() {
          x-transition:leave="transform transition ease-in duration-200"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-4 z-10">
+         class="relative w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-4 z-10" role="dialog" aria-modal="true" aria-label="Add to Campaign Folder">
       
       <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center space-x-2.5">
@@ -63,7 +63,7 @@ export function getKeywordsModalsHtml() {
   </div>
 
   <!-- MODAL: INTERACTIVE 20-RUNNER FLEET DISPATCH SWARM -->
-  <div x-show="isFleetDispatchModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div x-show="isFleetDispatchModalOpen" @keydown.escape.window="isFleetDispatchModalOpen = false" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div x-show="isFleetDispatchModalOpen"
          x-transition:enter="transition-opacity ease-linear duration-300"
          x-transition:enter-start="opacity-0"
@@ -81,7 +81,7 @@ export function getKeywordsModalsHtml() {
          x-transition:leave="transform transition ease-in duration-200"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-5 z-10">
+         class="relative w-full max-w-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-5 z-10" role="dialog" aria-modal="true" aria-label="Trigger 20-Runner Swarm">
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">

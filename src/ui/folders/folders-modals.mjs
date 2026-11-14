@@ -5,8 +5,8 @@
 export function getFoldersModalsHtml() {
   return `
   <!-- New Folder Modal -->
-  <div x-show="openNewFolderModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div @click.away="openNewFolderModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
+  <div x-show="openNewFolderModal" @keydown.escape.window="openNewFolderModal = false" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
+    <div @click.away="openNewFolderModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4" role="dialog" aria-modal="true" aria-label="Create New Campaign Folder">
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <span>📁</span> Create New Campaign Folder
@@ -44,8 +44,8 @@ export function getFoldersModalsHtml() {
   </div>
 
   <!-- Delete Confirmation Modal -->
-  <div x-show="deleteModalFolderId" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 text-center">
+  <div x-show="deleteModalFolderId" @keydown.escape.window="deleteModalFolderId = null" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 text-center" role="dialog" aria-modal="true" aria-label="Delete Campaign Folder">
       <div class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xl mx-auto">
         🗑️
       </div>
@@ -61,8 +61,8 @@ export function getFoldersModalsHtml() {
   </div>
 
   <!-- Folder Settings & Fleet Dispatch Modal -->
-  <div x-show="isSettingsModalOpen" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto" @click.away="isSettingsModalOpen = false">
+  <div x-show="isSettingsModalOpen" @keydown.escape.window="isSettingsModalOpen = false" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Folder Settings and 20-Runner Fleet Config" @click.away="isSettingsModalOpen = false">
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">

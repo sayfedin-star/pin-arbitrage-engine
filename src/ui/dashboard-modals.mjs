@@ -464,6 +464,7 @@ export function getDashboardModalsHtml() {
   <!-- ======================================================== -->
   <div x-show="isLightboxOpen" x-cloak 
        class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
+       role="dialog" aria-modal="true" aria-label="Image Lightbox"
        @keydown.escape.window="closeLightbox()"
        @keydown.arrow-left.window="if (isLightboxOpen) prevLightboxImage()"
        @keydown.arrow-right.window="if (isLightboxOpen) nextLightboxImage()">

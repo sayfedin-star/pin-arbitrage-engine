@@ -866,10 +866,10 @@ export function getKeywordsDashboardViewHtml({ safeFolderId = '' } = {}) {
       </section>
 
       <!-- Quick Track Keyword Modal -->
-      <div x-show="isQuickTrackModalOpen" x-cloak class="relative z-50">
+      <div x-show="isQuickTrackModalOpen" @keydown.escape.window="isQuickTrackModalOpen = false" x-cloak class="relative z-50">
         <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs" @click="isQuickTrackModalOpen = false"></div>
         <div class="fixed inset-0 flex items-center justify-center p-4">
-          <div class="w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl p-6 shadow-2xl space-y-4">
+          <div class="w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl p-6 shadow-2xl space-y-4" role="dialog" aria-modal="true" aria-label="Track New Keyword">
             <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
               <div class="flex items-center space-x-2.5">
                 <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">

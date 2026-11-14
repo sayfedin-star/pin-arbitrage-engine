@@ -43,13 +43,13 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
         }
       }
     };
-    // Pre-hydrate dark mode immediately to avoid layout flash
+    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
     try {
-      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
-      if (savedTheme === 'light') {
-        document.documentElement.classList.remove('dark');
-      } else {
+      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+      if (savedTheme === 'dark') {
         document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
       }
     } catch (_) {}
   </script>

@@ -60,7 +60,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         openAssignExistingCreatorModal() {
           this.assignCreatorSearch = '';
           this.isAssignExistingCreatorModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
         closeAssignExistingCreatorModal() {
           this.isAssignExistingCreatorModalOpen = false;
@@ -1533,7 +1533,7 @@ ${getDashboardSeedComputedProperties()}
           this.toastType = type || 'success';
           if (this._toastTimer) clearTimeout(this._toastTimer);
           this._toastTimer = setTimeout(() => { this.toastMessage = null; }, type === 'error' ? 4000 : 2500);
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         async init() {
@@ -1585,7 +1585,7 @@ ${getDashboardSeedComputedProperties()}
             if (val === 'archive' && (!this.pinarchivePins || this.pinarchivePins.length === 0)) {
               this.fetchPinArchivePins();
             }
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           });
           this.$watch('activeCreatorTab', (val) => {
             if (val === 'pins' || val === 'topics') {
@@ -1600,7 +1600,7 @@ ${getDashboardSeedComputedProperties()}
           this.$watch('competitorPageSize', () => { this.competitorPage = 1; });
           this.$watch('competitorSort', () => {
             this.competitorPage = 1;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           });
           this.loadFolders();
           // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins)
@@ -1856,7 +1856,7 @@ ${getDashboardSeedComputedProperties()}
             this._competitorsCacheKey = '';
           } finally {
             if (reqSeq === this._creatorsReqSeq) {
-              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -1946,7 +1946,7 @@ ${getDashboardSeedComputedProperties()}
             this.competitors = previousCompetitors;
             this.showToast('Error deleting competitor: ' + (e.message || 'Network error'));
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2053,7 +2053,7 @@ ${getDashboardSeedComputedProperties()}
                 this._loadingFolderCreatorsPromise = null;
               }
               if (reqSeq === this._creatorsReqSeq) {
-                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+                this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
               }
             }
           })();
@@ -2221,7 +2221,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('❌ Quick pulse network error: ' + e.message);
           } finally {
             this.pulsingCreatorId = null;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2254,7 +2254,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('❌ Deep harvest network error: ' + e.message);
           } finally {
             this.harvestingCreatorId = null;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2286,7 +2286,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('❌ Fast refresh network error: ' + e.message);
           } finally {
             this.fastRefreshingCompetitorId = null;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2326,7 +2326,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('❌ Discover catalog network error: ' + e.message);
           } finally {
             this.discoveringCatalogCompetitorId = null;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2364,7 +2364,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('❌ Audit sweep network error: ' + e.message);
           } finally {
             this.auditSweepingCompetitorId = null;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2390,7 +2390,7 @@ ${getDashboardSeedComputedProperties()}
           this._clientCache?.creators?.clear();
           this._clientCache?.boards?.clear();
           await this.fetchCompetitors();
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         async bulkRefreshWinnersSelected() {
@@ -2421,7 +2421,7 @@ ${getDashboardSeedComputedProperties()}
           } catch (err) {
             this.showToast('❌ Network error: ' + err.message);
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2457,7 +2457,7 @@ ${getDashboardSeedComputedProperties()}
           } catch (err) {
             this.showToast('❌ Network error: ' + err.message);
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2500,7 +2500,7 @@ ${getDashboardSeedComputedProperties()}
             this.competitors = previousCompetitors;
             this.showToast('Error deleting competitors: ' + (e.message || 'Network error'));
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2574,7 +2574,7 @@ ${getDashboardSeedComputedProperties()}
             this.showToast('Sync boards error: ' + e.message);
           } finally {
             this.isSyncingBoards = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2623,7 +2623,7 @@ ${getDashboardSeedComputedProperties()}
             this.activeKeywordPins = [];
           } finally {
             this.isLoadingKeywordPins = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -2953,7 +2953,7 @@ ${getDashboardArchiveRulesMethods()}
           this.newCompetitorAutoArchiveWinning = true;
           this.newCompetitorInterval = 'daily';
           this.isAddCompetitorModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         formatSnapshotDate(dateStr) {
@@ -3060,7 +3060,7 @@ ${getDashboardArchiveRulesMethods()}
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
 
           if (updateHistory && typeof window !== 'undefined' && handle) {
             let targetPath = '/' + handle;
@@ -3121,7 +3121,7 @@ ${getDashboardArchiveRulesMethods()}
             console.error('openCreatorPage error:', e);
           } finally {
             this.isCreatorLoading = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3154,7 +3154,7 @@ ${getDashboardArchiveRulesMethods()}
             else if (tab === 'all_pins') this.fetchCreatorAllPins();
             else if (tab === 'boards') this.fetchCreatorBoards();
           }
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         async fetchCreatorRelatedGraph() {
@@ -3193,7 +3193,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('Error loading related pins graph');
           } finally {
             this.isLoadingRelatedGraph = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3418,7 +3418,7 @@ ${getDashboardArchiveRulesMethods()}
           } finally {
             if (reqSeq === this._creatorAllPinsReqSeq) {
               this.isLoadingAllPins = false;
-              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -3431,7 +3431,7 @@ ${getDashboardArchiveRulesMethods()}
           this.visualFeedPins = [];
           this.isVisualFeedLoading = true;
           this.isVisualFeedModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
 
           try {
             const res = await (window.safeApiFetch || fetch)('/api/competitors/' + encodeURIComponent(cleanUser) + '/latest-pins');
@@ -3452,7 +3452,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('Network error loading visual feed: ' + err.message, 'error');
           } finally {
             this.isVisualFeedLoading = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3464,7 +3464,7 @@ ${getDashboardArchiveRulesMethods()}
           this.boardSectionsList = [];
           this.isLoadingBoardSections = true;
           this.isBoardSectionsModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
 
           try {
             const res = await (window.safeApiFetch || fetch)('/api/boards/' + encodeURIComponent(cleanId) + '/sections');
@@ -3482,7 +3482,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('Network error loading board sections: ' + err.message, 'error');
           } finally {
             this.isLoadingBoardSections = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3588,7 +3588,7 @@ ${getDashboardArchiveRulesMethods()}
             console.error('fetchCreatorTopUrls error:', e);
           } finally {
             this.isLoadingTopUrls = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3661,7 +3661,7 @@ ${getDashboardArchiveRulesMethods()}
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         // Backwards compatibility wrappers
@@ -3800,7 +3800,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('Error loading pins for board: ' + boardName);
           } finally {
             this.isLoadingBoardPins = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3833,7 +3833,7 @@ ${getDashboardArchiveRulesMethods()}
           } catch (e) {
             this.showToast('❌ Error refreshing board: ' + e.message);
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3855,7 +3855,7 @@ ${getDashboardArchiveRulesMethods()}
             document.title = this.activeCreator ? ('@' + (this.activeCreator.username || '').replace(/^@+/, '') + ' | Creator Hub | Pin Arbitrage Engine') : 'Pin Arbitrage Engine | Pinterest Intelligence Dashboard';
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         copyPinField(type, text) {
@@ -3902,7 +3902,7 @@ ${getDashboardArchiveRulesMethods()}
             console.error('fetchCreatorBoards error:', e);
           } finally {
             this.isLoadingBoards = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3920,7 +3920,7 @@ ${getDashboardArchiveRulesMethods()}
           } catch (e) {
             console.error('fetchCreatorWinningPins error:', e);
           } finally {
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -3948,7 +3948,7 @@ ${getDashboardArchiveRulesMethods()}
               window.history.pushState({}, '', target);
             }
           }
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         async openCreatorByHandle(handle, tab = 'overview', updateHistory = true) {
@@ -3978,7 +3978,7 @@ ${getDashboardArchiveRulesMethods()}
           }
           this.ghaBoardSearch = '';
           this.isGhaCrawlerModalOpen = true;
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         crawlSingleBoardGha(boardName) {
@@ -4079,7 +4079,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('❌ Network error: ' + err.message);
           } finally {
             this.isDispatchingGitHubCrawl = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -4323,7 +4323,7 @@ ${getDashboardArchiveRulesMethods()}
             this.showToast('Error tracking creator: ' + e.message);
           } finally {
             this.isSubmittingCreator = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 

@@ -59,11 +59,11 @@ export function getPulsePageHtml(folderId = '') {
         }
       }
     };
-    var theme = (typeof localStorage !== 'undefined') ? localStorage.getItem('pa_theme') : null;
-    if (theme === 'light') {
-      document.documentElement.classList.remove('dark');
-    } else {
+    var theme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+    if (theme === 'dark') {
       document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
   <\/script>
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
@@ -1229,8 +1229,8 @@ export function getPulsePageHtml(folderId = '') {
     function pulseStudioApp(initialFolderId) {
       return {
         // [INVARIANT: HEADLESS-NODE-SHIELD] Browser environment guards
-        isDark: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') !== 'light') : true,
-        darkMode: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') !== 'light') : true,
+        isDark: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') === 'dark') : false,
+        darkMode: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') === 'dark') : false,
         isSidebarCollapsed: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pae_sidebar_collapsed') === 'true') : false,
         isMobileMenuOpen: false,
         scopedFolderId: initialFolderId || '',

@@ -22,7 +22,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
   const safeFolderId = String(folderId || '').trim();
 
   return `<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -128,11 +128,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     })();
   </script>
   <script>
+    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
     try {
-      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
-      if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+      if (savedTheme === 'dark') {
         document.documentElement.classList.add('dark');
-      } else if (savedTheme === 'light') {
+      } else {
         document.documentElement.classList.remove('dark');
       }
     } catch (_) {}

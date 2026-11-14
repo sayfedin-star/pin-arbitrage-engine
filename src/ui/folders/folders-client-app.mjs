@@ -21,11 +21,11 @@ export function getFoldersClientAppScript() {
             }
           } catch (_) {}
           this.$nextTick(() => {
-            if (window.lucide) window.lucide.createIcons();
+            if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
           });
         },
-        darkMode: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
-        isDark: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
+        darkMode: typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false,
+        isDark: typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false,
         foldersList: [],
         foldersLoading: false,
         activeFolder: null,
@@ -920,7 +920,7 @@ export function getFoldersClientAppScript() {
             this.showToast('Light theme activated', 'info');
           }
           this.$nextTick(() => {
-            if (window.lucide) window.lucide.createIcons();
+            if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
           });
         },
 

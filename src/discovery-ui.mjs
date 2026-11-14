@@ -10,7 +10,7 @@ import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getDiscoveryPageHtml() {
   return `<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -43,13 +43,13 @@ export function getDiscoveryPageHtml() {
         }
       }
     };
-    // Pre-hydrate dark mode immediately to avoid layout flash
+    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
     try {
-      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
-      if (savedTheme === 'light') {
-        document.documentElement.classList.remove('dark');
-      } else {
+      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+      if (savedTheme === 'dark') {
         document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
       }
     } catch (_) {}
   </script>
@@ -188,11 +188,11 @@ export function getDiscoveryPageHtml() {
     </section>
 
     <!-- Search Omnibar & Typeahead Controls -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-6 shadow-xs relative overflow-hidden">
       <div class="max-w-3xl mx-auto flex flex-col gap-4">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-white tracking-tight">Explore High-Converting Pinterest Autocomplete Terms</h1>
-          <p class="text-xs text-slate-400 mt-1">Live direct connection to Pinterest v3_typeahead search engine. Discover real-time search volume & trends.</p>
+          <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">Explore High-Converting Pinterest Autocomplete Terms</h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Live direct connection to Pinterest v3_typeahead search engine. Discover real-time search volume &amp; trends.</p>
         </div>
 
         <div class="relative flex items-center">
@@ -204,7 +204,7 @@ export function getDiscoveryPageHtml() {
             x-model="searchQuery" 
             @keydown.enter="searchImmediately()"
             placeholder="Type seed keyword (e.g. healthy dinner, air fryer salmon, living room decor)..."
-            class="w-full pl-12 pr-44 py-3.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono tabular-nums"
+            class="w-full pl-12 pr-44 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono tabular-nums shadow-inner"
             autofocus
           >
           <div class="absolute inset-y-0 right-2 flex items-center gap-1.5">
@@ -212,7 +212,7 @@ export function getDiscoveryPageHtml() {
             <button 
               @click="clearSearch()" 
               x-show="searchQuery" 
-              class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" 
+              class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" 
               title="Clear query (Esc)" 
               x-cloak
             >
@@ -246,38 +246,38 @@ export function getDiscoveryPageHtml() {
         </div>
 
         <!-- Categorized Popular Seed Pills -->
-        <div class="flex flex-col gap-2 pt-2 border-t border-slate-800/80">
-          <div class="text-[11px] font-mono tabular-nums text-slate-400 flex items-center justify-between">
-            <span>POPULAR SEED EXPLORERS:</span>
-            <span class="text-[10px] text-slate-500">Click any seed for instant autocomplete</span>
+        <div class="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span class="font-bold">POPULAR SEED EXPLORERS:</span>
+            <span class="text-[10px] text-slate-400">Click any seed for instant autocomplete</span>
           </div>
           <div class="flex items-center gap-2 flex-wrap text-xs">
-            <span class="text-[10px] font-mono tabular-nums text-emerald-400 uppercase tracking-wider">Food:</span>
-            <button @click="applySeed('dinner ideas')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">dinner ideas</button>
-            <button @click="applySeed('healthy chicken recipes')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">healthy chicken recipes</button>
-            <button @click="applySeed('air fryer salmon')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">air fryer salmon</button>
+            <span class="text-[10px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider">Food:</span>
+            <button @click="applySeed('dinner ideas')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">dinner ideas</button>
+            <button @click="applySeed('healthy chicken recipes')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">healthy chicken recipes</button>
+            <button @click="applySeed('air fryer salmon')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">air fryer salmon</button>
 
-            <span class="text-[10px] font-mono tabular-nums text-blue-400 uppercase tracking-wider ml-1">Home:</span>
-            <button @click="applySeed('small living room decor')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">small living room decor</button>
-            <button @click="applySeed('kitchen organization')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">kitchen organization</button>
+            <span class="text-[10px] font-mono tabular-nums text-sky-600 dark:text-blue-400 font-bold uppercase tracking-wider ml-1">Home:</span>
+            <button @click="applySeed('small living room decor')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">small living room decor</button>
+            <button @click="applySeed('kitchen organization')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">kitchen organization</button>
 
-            <span class="text-[10px] font-mono tabular-nums text-purple-400 uppercase tracking-wider ml-1">Style:</span>
-            <button @click="applySeed('casual summer outfits')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">casual summer outfits</button>
-            <button @click="applySeed('nail art designs')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">nail art designs</button>
+            <span class="text-[10px] font-mono tabular-nums text-purple-600 dark:text-purple-400 font-bold uppercase tracking-wider ml-1">Style:</span>
+            <button @click="applySeed('casual summer outfits')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">casual summer outfits</button>
+            <button @click="applySeed('nail art designs')" class="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200/60 dark:border-transparent">nail art designs</button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Exploration Table & Selection Bar -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
-      <div class="p-4 border-b border-slate-800 flex items-center justify-between flex-wrap gap-4 bg-slate-900/50">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-xs flex flex-col">
+      <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-4 bg-slate-50/50 dark:bg-[#18181B]/50">
         <div class="flex items-center gap-3">
-          <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+          <h2 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             Suggested Search Terms
             <span 
               class="text-xs font-mono tabular-nums font-normal"
-              :class="loading ? 'text-emerald-400 animate-pulse font-medium' : 'text-slate-400'"
+              :class="loading ? 'text-emerald-500 animate-pulse font-medium' : 'text-slate-500 dark:text-slate-400'"
               x-text="loading ? '(Searching...)' : (results.length > 0 ? '(' + results.length + ' found)' : (searchQuery.trim() ? '(0 found)' : ''))"
             ></span>
           </h2>
@@ -285,11 +285,11 @@ export function getDiscoveryPageHtml() {
           <template x-if="results.length > 0">
             <span 
               class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded border"
-              :class="isCacheHit ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'"
+              :class="isCacheHit ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'"
               x-text="isCacheHit ? '⚡ 0ms Client Cache' : '🌐 Live Pinterest v3_typeahead'"
             ></span>
           </template>
-          <button x-show="results.length > 0" @click="selectAllToggle()" class="text-xs text-emerald-400 hover:underline font-mono tabular-nums" x-cloak>
+          <button x-show="results.length > 0" @click="selectAllToggle()" class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-mono tabular-nums" x-cloak>
             <span x-text="selectedKeywords.length === results.length ? 'Deselect all' : 'Select all (' + results.length + ')'"></span>
           </button>
         </div>
@@ -298,12 +298,12 @@ export function getDiscoveryPageHtml() {
         <div class="flex items-center gap-2" x-show="results.length > 0" x-cloak>
           <button 
             @click="openRelatedExplorer(searchQuery)" 
-            class="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white text-xs font-mono tabular-nums border border-rose-700/40 flex items-center gap-1.5 transition-colors"
+            class="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-white text-xs font-mono tabular-nums border border-rose-200 dark:border-rose-700/40 flex items-center gap-1.5 transition-colors"
             title="Explore Pinterest Related Interests for current search"
           >
             <span>🔗 Get Related</span>
           </button>
-          <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono tabular-nums border border-slate-700">
+          <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono tabular-nums border border-slate-200 dark:border-slate-700">
             <span x-text="selectedKeywords.length === results.length ? 'Clear Selection' : 'Select All'"></span>
           </button>
         </div>
@@ -312,14 +312,14 @@ export function getDiscoveryPageHtml() {
       <!-- Table Content -->
       <div class="overflow-x-auto min-h-[320px]">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-mono tabular-nums uppercase text-[10px]">
+          <thead class="bg-slate-50/75 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-mono tabular-nums uppercase text-[10px]">
             <tr>
               <th class="p-3.5 w-10 text-center">
                 <input 
                   type="checkbox" 
                   :checked="results.length > 0 && selectedKeywords.length === results.length" 
                   @change="selectAllToggle()" 
-                  class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                  class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-0 cursor-pointer"
                   :disabled="results.length === 0"
                 >
               </th>
@@ -549,12 +549,12 @@ export function getDiscoveryPageHtml() {
 
             <!-- Zero Results State -->
             <tr x-show="!loading && searchQuery.trim().length >= 2 && results.length === 0" x-cloak>
-              <td colspan="6" class="p-12 text-center">
+              <td colspan="8" class="p-12 text-center">
                 <div class="max-w-md mx-auto flex flex-col items-center gap-3">
-                  <div class="w-12 h-12 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-xl text-slate-400">🔍</div>
-                  <div class="text-sm font-semibold text-white">No autocomplete matches found for "<span x-text="searchQuery" class="text-emerald-400 font-mono tabular-nums"></span>"</div>
-                  <p class="text-xs text-slate-400">Pinterest v3_typeahead did not return suggestions for this exact term. You can still track this keyword directly in your SERP Radar.</p>
-                  <button @click="trackSingleKeyword(searchQuery)" class="mt-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-all flex items-center gap-2">
+                  <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xl text-slate-400">🔍</div>
+                  <div class="text-sm font-semibold text-slate-900 dark:text-white">No autocomplete matches found for "<span x-text="searchQuery" class="text-emerald-600 dark:text-emerald-400 font-mono tabular-nums"></span>"</div>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Pinterest v3_typeahead did not return suggestions for this exact term. You can still track this keyword directly in your SERP Radar.</p>
+                  <button @click="trackSingleKeyword(searchQuery)" class="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95">
                     <span>⚡</span> Track "<span x-text="searchQuery"></span>" Directly in Radar
                   </button>
                 </div>
@@ -563,11 +563,11 @@ export function getDiscoveryPageHtml() {
 
             <!-- Idle / Empty State Prompt -->
             <tr x-show="!loading && searchQuery.trim().length < 2 && results.length === 0">
-              <td colspan="6" class="p-12 text-center text-slate-400 font-sans">
+              <td colspan="8" class="p-12 text-center text-slate-400 font-sans">
                 <div class="max-w-md mx-auto flex flex-col items-center gap-2">
-                  <div class="text-3xl mb-1">💡</div>
-                  <div class="text-sm font-medium text-slate-200">Start Typing to Discover Pinterest Autocomplete Terms</div>
-                  <div class="text-xs text-slate-500">Enter a seed topic above or pick one of the popular categories to inspect live Pinterest search queries.</div>
+                  <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-xl">💡</div>
+                  <div class="text-sm font-medium text-slate-800 dark:text-slate-200">Start Typing to Discover Pinterest Autocomplete Terms</div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400">Enter a seed topic above or pick one of the popular categories to inspect live Pinterest search queries.</div>
                 </div>
               </td>
             </tr>
@@ -607,21 +607,21 @@ export function getDiscoveryPageHtml() {
   </div>
 
   <!-- Bulk Importer Modal -->
-  <div x-show="openBulkModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div @click.away="openBulkModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-4">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+  <div x-show="openBulkModal" @keydown.escape.window="openBulkModal = false" class="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
+    <div @click.away="openBulkModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Import Keywords in Bulk">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A] pb-3">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <span>📥</span> Import Keywords in Bulk
         </h3>
-        <button @click="openBulkModal = false" class="text-slate-400 hover:text-white">✕</button>
+        <button @click="openBulkModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg">✕</button>
       </div>
 
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between">
-          <label class="text-xs text-slate-400">Paste keywords (one keyword per line):</label>
+          <label class="text-xs text-slate-500 dark:text-slate-400">Paste keywords (one keyword per line):</label>
           <span 
             class="text-[10px] font-mono tabular-nums"
-            :class="cleanBulkKeywordsCount > 1000 ? 'text-red-400 font-bold' : 'text-slate-400'"
+            :class="cleanBulkKeywordsCount > 1000 ? 'text-rose-600 dark:text-red-400 font-bold' : 'text-slate-400'"
             x-text="cleanBulkKeywordsCount + ' / 1,000 unique keywords'"
           ></span>
         </div>
@@ -629,14 +629,14 @@ export function getDiscoveryPageHtml() {
           x-model="bulkKeywordsText" 
           rows="7" 
           placeholder="crispy chicken cutlets&#10;quick dinner recipes&#10;air fryer salmon&#10;easy pasta salad" 
-          class="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono tabular-nums text-xs focus:outline-none focus:border-emerald-500"
+          class="w-full p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:border-emerald-500"
         ></textarea>
-        <p class="text-[10px] text-slate-500">Leading/trailing spaces, empty lines, and duplicates are automatically cleaned on client.</p>
+        <p class="text-[10px] text-slate-400">Leading/trailing spaces, empty lines, and duplicates are automatically cleaned on client.</p>
       </div>
 
       <div class="flex flex-col gap-2">
-        <label class="text-xs text-slate-400">Assign to Campaign Folder (Optional):</label>
-        <select x-model="bulkTargetFolderId" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-sans text-xs focus:outline-none focus:border-emerald-500">
+        <label class="text-xs text-slate-500 dark:text-slate-400">Assign to Campaign Folder (Optional):</label>
+        <select x-model="bulkTargetFolderId" class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-sans text-xs focus:outline-none focus:border-emerald-500">
           <option value="">Do not assign to folder (Track Globally)</option>
           <template x-for="f in availableFolders" :key="f.id">
             <option :value="f.id" x-text="f.name + ' (' + (f.keyword_count || 0) + ' keywords)'"></option>
@@ -644,12 +644,12 @@ export function getDiscoveryPageHtml() {
         </select>
       </div>
 
-      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-        <button @click="openBulkModal = false" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Cancel</button>
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-[#27272A]">
+        <button @click="openBulkModal = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium cursor-pointer">Cancel</button>
         <button 
           @click="submitBulkImport()" 
           :disabled="cleanBulkKeywordsCount === 0 || cleanBulkKeywordsCount > 1000 || submittingBulk" 
-          class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-colors"
+          class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer active:scale-95 shadow-sm"
         >
           <span x-show="!submittingBulk">Import & Schedule</span>
           <span x-show="submittingBulk">Importing...</span>
@@ -659,19 +659,19 @@ export function getDiscoveryPageHtml() {
   </div>
 
   <!-- Add Selected to Folder Modal -->
-  <div x-show="openAddToFolderModal" class="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div @click.away="openAddToFolderModal = false; keywordsToAddToFolder = []" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+  <div x-show="openAddToFolderModal" @keydown.escape.window="openAddToFolderModal = false; keywordsToAddToFolder = []" class="fixed inset-0 z-[60] bg-slate-900/40 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
+    <div @click.away="openAddToFolderModal = false; keywordsToAddToFolder = []" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Add Keywords to Folder">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A] pb-3">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <span>📁</span> Add <span x-text="keywordsToAddToFolder.length || selectedKeywords.length"></span> Keywords to Folder
         </h3>
-        <button @click="openAddToFolderModal = false; keywordsToAddToFolder = []" class="text-slate-400 hover:text-white">✕</button>
+        <button @click="openAddToFolderModal = false; keywordsToAddToFolder = []" class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg">✕</button>
       </div>
 
       <div class="flex flex-col gap-3">
         <div>
-          <label class="text-xs text-slate-400 block mb-1">Select existing folder:</label>
-          <select x-model="selectedFolderId" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs">
+          <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">Select existing folder:</label>
+          <select x-model="selectedFolderId" class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs">
             <option value="">-- Choose Existing Folder --</option>
             <template x-for="f in availableFolders" :key="f.id">
               <option :value="f.id" x-text="f.name + ' (' + (f.keyword_count || 0) + ' keywords)'"></option>
@@ -679,20 +679,20 @@ export function getDiscoveryPageHtml() {
           </select>
         </div>
 
-        <div class="text-center text-[10px] text-slate-500 font-mono tabular-nums">― OR CREATE NEW FOLDER ―</div>
+        <div class="text-center text-[10px] text-slate-400 font-mono tabular-nums">― OR CREATE NEW FOLDER ―</div>
 
         <div>
-          <label class="text-xs text-slate-400 block mb-1">New folder name:</label>
-          <input type="text" x-model="newFolderName" placeholder="e.g. Summer Dinner Campaign 2026" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono tabular-nums">
+          <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">New folder name:</label>
+          <input type="text" x-model="newFolderName" placeholder="e.g. Summer Dinner Campaign 2026" class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono tabular-nums">
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-        <button @click="openAddToFolderModal = false; keywordsToAddToFolder = []" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">Cancel</button>
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-[#27272A]">
+        <button @click="openAddToFolderModal = false; keywordsToAddToFolder = []" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs cursor-pointer">Cancel</button>
         <button 
           @click="submitAddToFolder()" 
           :disabled="(!selectedFolderId && !newFolderName.trim()) || submittingBulk"
-          class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-colors"
+          class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer active:scale-95 shadow-sm"
         >
           <span x-show="!submittingBulk">Confirm & Add</span>
           <span x-show="submittingBulk">Saving...</span>
@@ -702,26 +702,26 @@ export function getDiscoveryPageHtml() {
   </div>
 
   <!-- Pinterest Related Interests & Additions Modal (Exact Parity with Target Tool) -->
-  <div x-show="openRelatedModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6" x-cloak>
-    <div @click.away="openRelatedModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-5xl w-full max-h-[92vh] shadow-2xl flex flex-col overflow-hidden">
+  <div x-show="openRelatedModal" @keydown.escape.window="openRelatedModal = false" class="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6" x-cloak>
+    <div @click.away="openRelatedModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-5xl w-full max-h-[92vh] shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Pinterest Interest Graph Explorer">
       <!-- Modal Header -->
-      <div class="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-950/60">
+      <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3 bg-slate-50/70 dark:bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 text-lg">
+          <div class="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 text-lg">
             📌
           </div>
           <div>
-            <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+            <h3 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <span>Pinterest Interest Graph Explorer</span>
-              <span class="text-xs px-2 py-0.5 rounded font-mono tabular-nums bg-rose-500/10 text-rose-300 border border-rose-500/20" x-text="activeRelatedTerm"></span>
+              <span class="text-xs px-2 py-0.5 rounded font-mono tabular-nums bg-rose-500/10 text-rose-600 dark:text-rose-300 border border-rose-500/20" x-text="activeRelatedTerm"></span>
             </h3>
-            <p class="text-[11px] text-slate-400">Official Pinterest Annotations, Exact Monthly Search Volume, Taxonomy Breadcrumbs & Sub-Niches</p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Official Pinterest Annotations, Exact Monthly Search Volume, Taxonomy Breadcrumbs &amp; Sub-Niches</p>
           </div>
         </div>
 
         <!-- Filter Action Tabs (Exact Parity with Buttons in Screenshot) -->
         <div class="flex items-center gap-2">
-          <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs font-mono tabular-nums">
+          <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-950 p-1 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
             <button 
               @click="relatedTab = 'all'" 
               :class="relatedTab === 'all' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
@@ -968,8 +968,8 @@ export function getDiscoveryPageHtml() {
         // [INVARIANT: SAFE-STORAGE-GUARD] Guard against non-browser/headless execution contexts
         darkMode: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
-          } catch (_) { return true; }
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') === 'dark' : false;
+          } catch (_) { return false; }
         })(),
         toggleTheme() {
           this.darkMode = !this.darkMode;

@@ -48,12 +48,15 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         }
       }
     };
-    const theme = (typeof localStorage !== 'undefined') ? localStorage.getItem('pa_theme') : null;
-    if (theme === 'light') {
-      document.documentElement.classList.remove('dark');
-    } else {
-      document.documentElement.classList.add('dark');
-    }
+    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
+    try {
+      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
+      if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (_) {}
   </script>
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
@@ -86,16 +89,6 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     return res;
   };
 })();
-  </script>
-  <script>
-    try {
-      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
-      if (savedTheme === 'light') {
-        document.documentElement.classList.remove('dark');
-      } else {
-        document.documentElement.classList.add('dark');
-      }
-    } catch (_) {}
   </script>
   <script>
     setTimeout(function() {

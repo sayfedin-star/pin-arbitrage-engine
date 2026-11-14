@@ -9,8 +9,8 @@ export function getKeywordsClientAppScript() {
         viewModeLevel: (typeof window !== 'undefined' && window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
         activeFolderId: initialFolderId,
         activeFolder: null,
-        darkMode: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
-        isDark: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
+        darkMode: typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false,
+        isDark: typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false,
         applyTheme() {
           if (this.darkMode || this.isDark) {
             document.documentElement.classList.add('dark');
@@ -18,7 +18,7 @@ export function getKeywordsClientAppScript() {
             document.documentElement.classList.remove('dark');
           }
           this.$nextTick(() => {
-            if (window.lucide) window.lucide.createIcons();
+            if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
           });
         },
         toggleTheme() {

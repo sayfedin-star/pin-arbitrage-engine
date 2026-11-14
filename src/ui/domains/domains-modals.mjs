@@ -26,7 +26,7 @@ export function getDomainsModalsHtml() {
          x-transition:leave="ease-in duration-200"
          x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
          x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-         class="relative bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden z-10">
+         class="relative bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden z-10" role="dialog" aria-modal="true" aria-label="Tactical Arbitrage Attack Blueprint">
 
       <!-- Modal Header -->
       <div class="px-6 py-4 border-b border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#09090B]/50 flex items-center justify-between gap-4">
