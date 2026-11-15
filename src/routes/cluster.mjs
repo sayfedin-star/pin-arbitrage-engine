@@ -29,7 +29,8 @@ import {
   getGuidedSearchService,
   getIntersectionsService,
   importRawJsonClusterDataService,
-  getDiscoveryTypeaheadService
+  getDiscoveryTypeaheadService,
+  getCrossPillarArbitrageTargets
 } from '../modules/cluster/service.mjs';
 
 import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pulse/service.mjs';
@@ -148,13 +149,10 @@ export async function handleClusterRoutes({
     const minScore = Number(searchParams.get('min_score') || searchParams.get('minScore') || 0);
     const options = { limit, minScore, searchParams };
     try {
-      const clusterService = await import('../modules/cluster/service.mjs');
-      const getCrossPillarTargets = clusterService.getCrossPillarArbitrageTargets;
-      if (typeof getCrossPillarTargets === 'function') {
-        const targets = await getCrossPillarTargets(sql, options);
-        return jsonResponse({ success: true, targets: targets || [] }, 200, 30);
-      }
-      return jsonResponse({ success: true, targets: [] }, 200, 30);
+      const targets = typeof getCrossPillarArbitrageTargets === 'function'
+        ? await getCrossPillarArbitrageTargets(sql, options)
+        : [];
+      return jsonResponse({ success: true, targets: targets || [] }, 200, 30);
     } catch (err) {
       console.error('[Cluster Arbitrage Convergence Route Error]', err?.message || err);
       return jsonResponse({

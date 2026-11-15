@@ -224,8 +224,8 @@ async function testRoutes() {
       'server.mjs must use native Fastify createFastifyApp and serverBackgroundTaskQueue'
     );
     assert(
-      !serverContent.includes('await closePromise;') && !apiRoutesContent.includes('await closePromise;'),
-      'server.mjs and api-routes.mjs must NOT contain blocking await closePromise;'
+      !serverContent.includes('closePromise') && !apiRoutesContent.includes('closePromise'),
+      'server.mjs and api-routes.mjs must NOT contain closePromise'
     );
     console.log('  ✓ [PASS] Fastify native request lifecycle verified (blocking socket loops eradicated)');
   }

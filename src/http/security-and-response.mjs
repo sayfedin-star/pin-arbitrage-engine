@@ -6,7 +6,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 export { getCulinaryColorName, formatAge } from '../utils.mjs';
 
@@ -61,17 +61,13 @@ export function normalizePath(rawPathname) {
   return '/' + stack.join('/');
 }
 
-// Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks)
+// Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks via SHA-256 digest + timingSafeEqual)
 export function timingSafeEqualStr(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Run comparison against bufA itself to consume constant CPU time without leaking length mismatch early
-    timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
+  const hashA = createHash('sha256').update(a).digest();
+  const hashB = createHash('sha256').update(b).digest();
+  const isHashMatch = timingSafeEqual(hashA, hashB);
+  return isHashMatch && (a.length === b.length);
 }
 
 export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operation timed out') {
@@ -99,6 +95,12 @@ export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operati
       clearTimeout(timerId);
     }
   }
+}
+
+let defaultBackgroundQueue = null;
+
+export function registerDefaultBackgroundQueue(queue) {
+  defaultBackgroundQueue = queue;
 }
 
 export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task') {
@@ -136,6 +138,8 @@ export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskNam
     } catch {
       // Request context may have already closed
     }
+  } else if (defaultBackgroundQueue && typeof defaultBackgroundQueue.add === 'function') {
+    defaultBackgroundQueue.add(() => effectivePromise).catch(() => {});
   }
 }
 
@@ -402,9 +406,56 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   };
 }
 
+export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
+  const store = requestContextStorage.getStore();
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  const payload = {
+    success: false,
+    error: 'METHOD_NOT_ALLOWED',
+    message: `HTTP method not allowed. Allowed methods: ${allow}`
+  };
+
+  reply.code(405);
+  reply.header('Content-Type', 'application/json; charset=utf-8');
+  reply.header('Allow', allow);
+  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+  reply.header('Access-Control-Allow-Methods', allow);
+  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  if (customCors) {
+    for (const [k, v] of Object.entries(customCors)) {
+      reply.header(k, v);
+    }
+  }
+
+  return reply.send(payload);
+}
+
+export function createBoundJsonResponse(reply, origin = '*') {
+  return function boundJsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
+    const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
+    return sendJsonResponse(reply, data, status, cacheSeconds, cors);
+  };
+}
+
+export function createBoundMethodNotAllowed(reply, origin = '*') {
+  return function boundMethodNotAllowed(allow, customCors = null) {
+    const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
+    return sendMethodNotAllowedResponse(reply, allow, cors);
+  };
+}
+
 export function methodNotAllowedResponse(allow, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
   const effectiveReply = reply || store?.reply;
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    return sendMethodNotAllowedResponse(effectiveReply, allow, customCors);
+  }
+
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
 
   const payload = {
@@ -424,14 +475,6 @@ export function methodNotAllowedResponse(allow, customCors = null, reply = null)
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...(customCors || {})
   };
-
-  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-    effectiveReply.code(405);
-    for (const [k, v] of Object.entries(headers)) {
-      effectiveReply.header(k, v);
-    }
-    return effectiveReply.send(payload);
-  }
 
   return {
     status: 405,

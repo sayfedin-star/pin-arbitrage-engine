@@ -33,7 +33,8 @@ import {
   jsonResponse,
   methodNotAllowedResponse,
   corsOptionsResponse,
-  timingSafeEqualStr
+  timingSafeEqualStr,
+  registerDefaultBackgroundQueue
 } from './http/security-and-response.mjs';
 
 export { createSqlClient, getSqlClient, getPoolStats, drainSqlClient };
@@ -127,6 +128,7 @@ export class AsyncTaskQueue {
 }
 
 export const serverBackgroundTaskQueue = new AsyncTaskQueue(4);
+registerDefaultBackgroundQueue(serverBackgroundTaskQueue);
 
 /**
  * Git Commit SHA resolver for active runtime telemetry and CI/CD verification
