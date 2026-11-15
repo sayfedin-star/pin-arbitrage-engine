@@ -52,7 +52,7 @@ BEGIN
       END AS raw_topic,
       ump.pin_id,
       COALESCE(ump.save_count, 0) AS saves,
-      COALESCE(ump.daily_save_velocity, 0) AS velocity
+      ump.daily_save_velocity AS velocity
     FROM public.universal_master_pins ump,
     LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(ump.visual_annotations) = 'array' THEN ump.visual_annotations ELSE '[]'::jsonb END) AS ann
     WHERE (

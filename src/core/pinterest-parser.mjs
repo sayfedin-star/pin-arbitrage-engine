@@ -406,7 +406,7 @@ export function formatPin(pin) {
     }
   }
 
-  const velocity = 0;
+  const velocity = null;
 
   // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
   const isCarousel = Boolean(

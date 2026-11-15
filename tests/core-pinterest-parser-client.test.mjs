@@ -90,7 +90,7 @@ test('src/core/pinterest-parser.mjs: unhydrated pins have save_count = null (NOT
   assert.equal(parsed.save_count, null, 'Unhydrated pin MUST have save_count = null');
   assert.equal(parsed.saves, null, 'Unhydrated pin MUST have saves = null');
   assert.equal(parsed.has_explicit_saves, false);
-  assert.equal(parsed.velocity, 0, 'Unhydrated pin velocity MUST be 0');
+  assert.equal(parsed.velocity, null, 'Unhydrated pin velocity MUST be null');
   assert.equal(parsed.repin_count, 5);
 });
 

@@ -37,8 +37,11 @@ When executed proactively before reaching the 480-minute mark, this state transi
 - Can be invoked directly via:
   ```bash
   /data/app/scripts/instabox-boot-sync.sh --check-uptime
+  # Or force an immediate epoch reset:
+  /data/app/scripts/instabox-boot-sync.sh --reset-epoch
   ```
 - Automatically evaluated upon every service boot/sync cycle.
+- **Orchestration Note**: When running inside the guest VM, invoking `instabox suspend` halts guest CPU execution before subsequent shell commands run; in production, machine power transitions should be orchestrated externally (via host CLI, CI workflow, or the InstaBox Machine API).
 
 ---
 

@@ -54,7 +54,7 @@ console.log('  ✓ Early return bypass eliminated: direct SQL pipeline is always
 // 4. Verify 4-Table SSOT NULL Integrity and daily_repin_velocity
 console.log('\n[*] Section 4: Verifying 4-Table SSOT & NULL Hydration Integrity...');
 // Keyword Velocity Crawler:
-assert(kwCrawler.includes('sp.daily_repin_velocity = gains.delta_repins_24h != null ? Number(gains.delta_repins_24h) : 0;'),
+assert(kwCrawler.includes('sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;'),
   'keyword-velocity-crawler.mjs must compute and set sp.daily_repin_velocity when hydrated'
 );
 assert(kwCrawler.includes('sp.daily_repin_velocity = null;'),

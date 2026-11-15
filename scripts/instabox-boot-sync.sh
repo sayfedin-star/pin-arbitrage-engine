@@ -16,6 +16,39 @@ APP_DIR="${INSTABOX_APP_DIR:-/data/app}"
 MODE="${1:---sync}"
 
 # ------------------------------------------------------------------------------
+# Preemptive 420-Minute Epoch Reset Safeguard (Zero-Cooldown Max-Run Reset)
+# ------------------------------------------------------------------------------
+check_and_reset_uptime_epoch() {
+  if [ -f "/proc/uptime" ]; then
+    local uptime_seconds
+    uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+    local uptime_minutes=$((uptime_seconds / 60))
+    local force_reset=0
+    if [ "${MODE:-}" = "--reset-epoch" ] || [ "${1:-}" = "--reset-epoch" ]; then
+      force_reset=1
+    fi
+    if [ "${uptime_minutes}" -ge 420 ] || [ "${force_reset}" -eq 1 ]; then
+      echo "[instabox-boot-sync] ⏳ Machine continuous uptime is ${uptime_minutes}m (>= 420m / 7h threshold or forced reset)."
+      echo "[instabox-boot-sync] Executing preemptive suspend-and-resume to reset 480m max-run epoch with 0 cooldown..."
+      if command -v instabox >/dev/null 2>&1; then
+        # When orchestrated externally or on host with instabox CLI:
+        instabox suspend && sleep 5 && instabox resume || true
+      elif [ -n "${INSTABOX_API_KEY:-}" ] && [ -n "${INSTABOX_MACHINE_ID:-}" ]; then
+        echo "[instabox-boot-sync] Triggering suspend via InstaBox OpenAPI (orchestrator handles resume)..."
+        curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/suspend" \
+          -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+      else
+        echo "[instabox-boot-sync] Notice: 'instabox' CLI not installed in-VM. Suspend/resume cycle should be triggered from external orchestrator."
+      fi
+    else
+      echo "[instabox-boot-sync] Continuous uptime is ${uptime_minutes}m (< 420m threshold). No epoch reset needed."
+    fi
+  else
+    echo "[instabox-boot-sync] /proc/uptime not present. Non-Linux or container environment."
+  fi
+}
+
+# ------------------------------------------------------------------------------
 # Mode 1: Install systemd ExecStartPre boot hook on InstaBox VPS
 # ------------------------------------------------------------------------------
 if [ "${MODE}" = "--install-hook" ]; then
@@ -120,23 +153,6 @@ sync_postgres_container() {
   fi
 }
 
-# ------------------------------------------------------------------------------
-# Preemptive 420-Minute Epoch Reset Safeguard (Zero-Cooldown Max-Run Reset)
-# ------------------------------------------------------------------------------
-check_and_reset_uptime_epoch() {
-  if [ -f "/proc/uptime" ]; then
-    local uptime_seconds
-    uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
-    local uptime_minutes=$((uptime_seconds / 60))
-    if [ "${uptime_minutes}" -ge 420 ]; then
-      echo "[instabox-boot-sync] ⏳ Machine continuous uptime is ${uptime_minutes}m (>= 420m / 7h threshold)."
-      echo "[instabox-boot-sync] Executing preemptive suspend-and-resume to reset 480m max-run epoch with 0 cooldown..."
-      if command -v instabox >/dev/null 2>&1; then
-        instabox suspend && sleep 5 && instabox resume || true
-      fi
-    fi
-  fi
-}
 
 # ------------------------------------------------------------------------------
 # Mode 2: Boot / On-Demand Git + Dependencies + Migration Self-Sync

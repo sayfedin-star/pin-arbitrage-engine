@@ -842,10 +842,10 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
             sp.daily_save_velocity = 0;
           }
         } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
-          sp.daily_save_velocity = 0;
+          sp.daily_save_velocity = gains.daily_save_velocity ?? null;
         }
         sp.delta_repins_24h = gains.delta_repins_24h;
-        sp.daily_repin_velocity = gains.delta_repins_24h != null ? Number(gains.delta_repins_24h) : 0;
+        sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
         sp.gains_5d = gains.gains_5d;
         sp.gains_7d = gains.gains_7d;
         sp.gains_10d = gains.gains_10d;

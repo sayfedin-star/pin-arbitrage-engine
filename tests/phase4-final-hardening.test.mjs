@@ -97,11 +97,46 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
   assert.match(pdmInsert.rawSql, /ON CONFLICT \(pin_id, recorded_date\)/, 'Conflict clause must target (pin_id, recorded_date)');
   assert.match(pdmInsert.rawSql, /daily_repin_velocity/, 'Insert must include daily_repin_velocity');
 
-  // Verify universal_master_pins update includes is_hydrated = TRUE and daily_repin_velocity
+  // Verify universal_master_pins update includes gated is_hydrated and daily_repin_velocity
   const umpUpdate = queries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
   assert.ok(umpUpdate, 'Must update universal_master_pins with fresh metrics');
-  assert.match(umpUpdate.rawSql, /is_hydrated = TRUE/, 'Must set is_hydrated = TRUE');
+  assert.match(umpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR true\)/i, 'Must set is_hydrated with explicit saves');
   assert.match(umpUpdate.rawSql, /daily_repin_velocity =/, 'Must update daily_repin_velocity');
+
+  // Verify unhydrated pin sync preserves NULL and does not force is_hydrated = TRUE
+  const unhydratedQueries = [];
+  const mockUnhydratedSql = (strings, ...values) => {
+    const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
+    unhydratedQueries.push({ rawSql, values });
+    if (rawSql.includes('FROM keyword_serp_positions') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    if (rawSql.includes('FROM pins_daily_metrics') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    return Promise.resolve([]);
+  };
+
+  await syncPinAcrossAllFourPillars({
+    sql: mockUnhydratedSql,
+    pinId: '123456789013',
+    scrapedPin: {
+      pin_id: '123456789013',
+      title: 'Unhydrated Sync Pin',
+      domain: 'test.com',
+      destination_url: 'https://test.com/pin2',
+      saves: null,
+      repins: null,
+      has_explicit_saves: false
+    },
+    fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789013' })
+  });
+
+  const unhydratedPdmInsert = unhydratedQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(unhydratedPdmInsert, 'Must insert into pins_daily_metrics');
+  assert.strictEqual(unhydratedPdmInsert.values[2], null, 'Must insert NULL save_count into pins_daily_metrics');
+  assert.strictEqual(unhydratedPdmInsert.values[3], null, 'Must insert NULL repin_count into pins_daily_metrics');
+
+  const unhydratedUmpUpdate = unhydratedQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
+  assert.ok(unhydratedUmpUpdate, 'Must update universal_master_pins');
+  assert.match(unhydratedUmpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR false\)/i, 'Must preserve existing hydration when scrape is unhydrated');
+  assert.match(unhydratedUmpUpdate.rawSql, /ELSE universal_master_pins\.save_count END/, 'Must preserve existing save_count without coercing to 0');
 });
 
 test('Phase 4.3: ingestPinsBatch preserves rolling gains and gates velocity on positive prior saves', async () => {
@@ -138,7 +173,7 @@ test('Phase 4.4: formatPin and fetchPinsBatchFromPidgets null preservation and z
   });
   assert.strictEqual(formattedUnhydrated.save_count, null);
   assert.strictEqual(formattedUnhydrated.repin_count, null);
-  assert.strictEqual(formattedUnhydrated.velocity, 0, 'Velocity must not be computed from ageDays');
+  assert.strictEqual(formattedUnhydrated.velocity, null, 'Velocity must not be computed from ageDays and must default to null');
 
   // formatPin on pin with explicit 0 saves
   const formattedZero = formatPin({

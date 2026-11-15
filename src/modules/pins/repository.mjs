@@ -132,7 +132,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
       reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
       is_hydrated: isHydrated,
-      daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
+      daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
       daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
       delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
       gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
@@ -405,7 +405,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
         reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
         is_hydrated: isHydrated,
-        daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
+        daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
         daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
         delta_saves_24h: p.delta_saves_24h != null ? Number(p.delta_saves_24h) : null,
         delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
@@ -939,19 +939,34 @@ export async function syncPinAcrossAllFourPillars({
   const fetchUniversalPinDossierFn = injectedFetchUniversalPinDossier || fetchUniversalPinDossier;
 
   // 2. Normalize and sanitize numeric metrics (Anti-NaN Protection)
-  const newSaves = Number.isFinite(Number(scrapedPin.saves))
-    ? Math.max(0, Number(scrapedPin.saves))
-    : (Number.isFinite(Number(scrapedPin.save_count)) ? Math.max(0, Number(scrapedPin.save_count)) : 0);
-  const hasExplicitScrapedSaves = Boolean(scrapedPin.has_explicit_saves) || newSaves > 0;
-  const newRepins = Number.isFinite(Number(scrapedPin.repins))
-    ? Math.max(0, Number(scrapedPin.repins))
-    : (Number.isFinite(Number(scrapedPin.repin_count)) ? Math.max(0, Number(scrapedPin.repin_count)) : 0);
-  const newComments = Number.isFinite(Number(scrapedPin.comments))
-    ? Math.max(0, Number(scrapedPin.comments))
-    : (Number.isFinite(Number(scrapedPin.comment_count)) ? Math.max(0, Number(scrapedPin.comment_count)) : 0);
-  const newShares = Number.isFinite(Number(scrapedPin.share_count))
-    ? Math.max(0, Number(scrapedPin.share_count))
-    : (Number.isFinite(Number(scrapedPin.shares)) ? Math.max(0, Number(scrapedPin.shares)) : 0);
+  const rawSaves = (scrapedPin.saves !== undefined && scrapedPin.saves !== null)
+    ? scrapedPin.saves
+    : ((scrapedPin.save_count !== undefined && scrapedPin.save_count !== null) ? scrapedPin.save_count : null);
+  const newSaves = (rawSaves !== null && rawSaves !== '' && Number.isFinite(Number(rawSaves)))
+    ? Math.max(0, Number(rawSaves))
+    : null;
+  const hasExplicitScrapedSaves = Boolean(scrapedPin.has_explicit_saves) || (newSaves !== null && newSaves > 0);
+
+  const rawRepins = (scrapedPin.repins !== undefined && scrapedPin.repins !== null)
+    ? scrapedPin.repins
+    : ((scrapedPin.repin_count !== undefined && scrapedPin.repin_count !== null) ? scrapedPin.repin_count : null);
+  const newRepins = (rawRepins !== null && rawRepins !== '' && Number.isFinite(Number(rawRepins)))
+    ? Math.max(0, Number(rawRepins))
+    : null;
+
+  const rawComments = (scrapedPin.comments !== undefined && scrapedPin.comments !== null)
+    ? scrapedPin.comments
+    : ((scrapedPin.comment_count !== undefined && scrapedPin.comment_count !== null) ? scrapedPin.comment_count : null);
+  const newComments = (rawComments !== null && rawComments !== '' && Number.isFinite(Number(rawComments)))
+    ? Math.max(0, Number(rawComments))
+    : null;
+
+  const rawShares = (scrapedPin.share_count !== undefined && scrapedPin.share_count !== null)
+    ? scrapedPin.share_count
+    : ((scrapedPin.shares !== undefined && scrapedPin.shares !== null) ? scrapedPin.shares : null);
+  const newShares = (rawShares !== null && rawShares !== '' && Number.isFinite(Number(rawShares)))
+    ? Math.max(0, Number(rawShares))
+    : null;
 
   const totalReactions = Number(
     scrapedPin.total_reaction_count ??
@@ -1255,32 +1270,36 @@ export async function syncPinAcrossAllFourPillars({
     { save_count: baselineSaves, repin_count: targetBaselineRepins },
     { save_count: newSaves, repin_count: newRepins }
   );
-  const rawRepinDelta = repinJumpDetected ? 0 : Math.max(0, newRepins - targetBaselineRepins);
+  const rawRepinDelta = (repinJumpDetected || newRepins === null) ? 0 : Math.max(0, newRepins - targetBaselineRepins);
 
-  const intradayStepGain = todayShardRow
+  const intradayStepGain = (todayShardRow && newSaves !== null)
     ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
     : 0;
-  const intradayRepinStepGain = (todayShardRow && !repinJumpDetected && !isRepinHydrationJump(
+  const intradayRepinStepGain = (todayShardRow && newRepins !== null && !repinJumpDetected && !isRepinHydrationJump(
     { save_count: Number(todayShardRow.save_count || 0), repin_count: Number(todayShardRow.repin_count || 0) },
     { save_count: newSaves, repin_count: newRepins }
   ))
     ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
     : 0;
-  const syncVelocity = jumpDetected
-    ? 0
-    : ((hasExplicitScrapedSaves && newSaves < baselineSaves)
+  const syncVelocity = (newSaves === null)
+    ? null
+    : (jumpDetected
       ? 0
-      : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-        ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
-        : computedVelocity));
-  const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && syncVelocity < existingPositiveRepinDelta * 0.15)
+      : ((hasExplicitScrapedSaves && baselineSaves > 0 && newSaves < baselineSaves)
+        ? 0
+        : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+          ? Math.max(existingPositiveVelocity, computedVelocity, intradayStepGain)
+          : computedVelocity)));
+  const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins !== null && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && (syncVelocity ?? 0) < existingPositiveRepinDelta * 0.15)
     ? 0
     : existingPositiveRepinDelta;
-  const syncRepinsDelta = repinJumpDetected
-    ? 0
-    : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-      ? Math.max(safeExistingRepinDelta, rawRepinDelta, intradayRepinStepGain)
-      : rawRepinDelta);
+  const syncRepinsDelta = (newRepins === null)
+    ? null
+    : (repinJumpDetected
+      ? 0
+      : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+        ? Math.max(safeExistingRepinDelta, rawRepinDelta, intradayRepinStepGain)
+        : rawRepinDelta));
 
   // 7. Upsert two-tier modern snapshot metrics (pins_daily_metrics)
   await dbSql`
@@ -1296,8 +1315,8 @@ export async function syncPinAcrossAllFourPillars({
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-      daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity, 0),
-      daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity, 0),
+      daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity),
+      daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity),
       updated_at = NOW();
   `;
   await dbSql`
@@ -1344,16 +1363,16 @@ export async function syncPinAcrossAllFourPillars({
              )
              ELSE '{}'::jsonb
            END,
-      save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves} > 0 THEN ${newSaves}::bigint ELSE COALESCE(universal_master_pins.save_count, 0) END,
-      repin_count = CASE WHEN ${newRepins} > 0 OR ${hasExplicitScrapedSaves} THEN ${newRepins}::int ELSE COALESCE(universal_master_pins.repin_count, 0) END,
+      save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves !== null && newSaves > 0} THEN ${newSaves}::bigint ELSE universal_master_pins.save_count END,
+      repin_count = CASE WHEN ${newRepins !== null && newRepins > 0} OR ${hasExplicitScrapedSaves} THEN ${newRepins}::int ELSE universal_master_pins.repin_count END,
       comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), ${newComments}::int),
       share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), ${newShares}::int),
       reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
-      is_hydrated = TRUE,
-      daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity, 0),
-      daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity, 0),
-      delta_saves_24h = ROUND(COALESCE(${syncVelocity}::numeric, 0))::int,
-      delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0),
+      is_hydrated = (universal_master_pins.is_hydrated OR ${hasExplicitScrapedSaves}),
+      daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity),
+      daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity),
+      delta_saves_24h = CASE WHEN ${syncVelocity} IS NOT NULL THEN ROUND(${syncVelocity}::numeric)::int ELSE delta_saves_24h END,
+      delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h),
       last_scraped_at = NOW(),
       updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
