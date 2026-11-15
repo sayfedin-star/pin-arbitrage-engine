@@ -1194,7 +1194,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const repinDaysElapsed = resolvedBaselineDateStr
         ? Math.max(1, Math.round((new Date(crawlNowIso.slice(0, 10) + 'T00:00:00Z').getTime() - new Date(resolvedBaselineDateStr + 'T00:00:00Z').getTime()) / 86400000))
         : 1;
-      const deltaRepins24h = Math.round(Math.max(0, confirmedRepins - baseRepinsForPin) / repinDaysElapsed);
+      const deltaRepins24h = (confirmedRepins !== null && baseRepinsForPin !== null)
+        ? Math.round(Math.max(0, confirmedRepins - baseRepinsForPin) / repinDaysElapsed)
+        : null;
 
       preparedPins.push({
         pin_id: pinId,

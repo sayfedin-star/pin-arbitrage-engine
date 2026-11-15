@@ -1115,7 +1115,9 @@ export async function syncPinAcrossAllFourPillars({
     SELECT
       ksp.keyword_id, ksp.rank_position, ksp.is_displaced,
       ksp.crawled_at, ksp.last_known_rank, ksp.vacuum_opportunity_score,
-      ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity
+      ump.save_count, ump.repin_count,
+      ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity,
+      ump.last_scraped_at
     FROM keyword_serp_positions ksp
     LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
     WHERE ksp.pin_id = ${cleanPinId}
@@ -1128,7 +1130,9 @@ export async function syncPinAcrossAllFourPillars({
     displacedRows = await dbSql`
       SELECT
         ksp.keyword_id, ksp.last_known_rank, ksp.displaced_date, ksp.vacuum_opportunity_score, ksp.updated_at,
-        ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity
+        ump.save_count, ump.repin_count,
+        ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity,
+        ump.last_scraped_at
       FROM keyword_serp_positions ksp
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE ksp.pin_id = ${cleanPinId}
@@ -1198,12 +1202,12 @@ export async function syncPinAcrossAllFourPillars({
       baselineDate = r0.baseline_day_date;
     } else {
       baselineSaves = Number.isFinite(Number(r0.save_count)) ? Number(r0.save_count) : 0;
-      baselineDate = r0.crawled_at ? new Date(r0.crawled_at) : null;
+      baselineDate = (r0.crawled_at || r0.last_scraped_at) ? new Date(r0.crawled_at || r0.last_scraped_at) : null;
     }
   } else if (displacedRows.length > 0) {
     const d0 = displacedRows[0];
     baselineSaves = Number.isFinite(Number(d0.save_count)) ? Number(d0.save_count) : 0;
-    baselineDate = d0.displaced_date || d0.updated_at || null;
+    baselineDate = d0.displaced_date || d0.updated_at || d0.last_scraped_at || null;
   } else if (todayShardRow && Number.isFinite(Number(todayShardRow.save_count))) {
     baselineSaves = Number(todayShardRow.save_count);
     baselineDate = todayShardRow.snapshot_date;

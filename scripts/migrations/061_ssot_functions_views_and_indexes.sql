@@ -21,11 +21,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_pulse_24h_summary_id
   ON public.mv_pulse_24h_summary (summary_id);
 
 -- 2. Rewrite pa_topic_clusters_page to query universal_master_pins SSOT
+-- Drop legacy function signatures to prevent collisions with dropped pa_pins
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, INT, TEXT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.pa_topic_clusters_page(
   p_min_pins INT DEFAULT 1,
   p_search TEXT DEFAULT NULL,
   p_limit INT DEFAULT 50,
-  p_offset INT DEFAULT 0
+  p_offset INT DEFAULT 0,
+  p_account TEXT DEFAULT NULL
 )
 RETURNS TABLE (
   topic_name TEXT,
@@ -54,6 +60,7 @@ BEGIN
         OR
         (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
       )
+      AND (p_account IS NULL OR p_account = '' OR ump.creator_username = p_account)
   ),
   aggregated AS (
     SELECT
@@ -98,10 +105,11 @@ LANGUAGE plpgsql AS $$
 BEGIN
   RETURN QUERY
   SELECT * FROM public.pa_topic_clusters_page(
-    p_min_pins => p_min_pins,
-    p_search => p_search,
-    p_limit => p_limit,
-    p_offset => p_offset
+    p_min_pins,
+    p_search,
+    p_limit,
+    p_offset,
+    NULL::text
   );
 END;
 $$;
