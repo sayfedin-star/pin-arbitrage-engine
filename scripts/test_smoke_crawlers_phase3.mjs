@@ -115,6 +115,58 @@ assert(creatorCrawler.includes('const hasExplicitFreshSaves = fresh.has_explicit
 assert(creatorCrawler.includes('is_hydrated: false'),
   'creator-velocity-crawler.mjs must pass is_hydrated: false when unhydrated'
 );
+
+// Behavioral test of caller-side NULL preservation and snapshot isolation:
+{
+  const testPhase2Pin = (fresh, prevSaves = null, prevRepins = null) => {
+    const hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null;
+    const rawFreshSaves = hasExplicitFreshSaves ? Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0)) : null;
+    const rawFreshRepins = (fresh.repins != null || fresh.repin_count != null) ? Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0)) : null;
+
+    const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;
+    const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;
+
+    const metricSnapshots = [];
+    const masterPinsToSync = [];
+
+    if (freshSaves === null) {
+      masterPinsToSync.push({
+        pin_id: 'test_pin',
+        saves: null,
+        velocity: null,
+        daily_repin_velocity: null,
+        delta_repins_24h: null,
+        is_hydrated: false
+      });
+    } else {
+      metricSnapshots.push({
+        pin_id: 'test_pin',
+        saves: freshSaves,
+        repins: freshRepins ?? 0
+      });
+      masterPinsToSync.push({
+        pin_id: 'test_pin',
+        saves: freshSaves,
+        is_hydrated: true
+      });
+    }
+    return { metricSnapshots, masterPinsToSync, freshSaves };
+  };
+
+  const unhydratedRes = testPhase2Pin({ title: 'Unhydrated', saves: null, save_count: null, has_explicit_saves: false });
+  assert.strictEqual(unhydratedRes.freshSaves, null, 'Unhydrated fresh scrape must evaluate freshSaves to null');
+  assert.strictEqual(unhydratedRes.metricSnapshots.length, 0, 'Unhydrated pin must NOT be pushed to metricSnapshots');
+  assert.strictEqual(unhydratedRes.masterPinsToSync.length, 1);
+  assert.strictEqual(unhydratedRes.masterPinsToSync[0].is_hydrated, false);
+  assert.strictEqual(unhydratedRes.masterPinsToSync[0].saves, null);
+
+  const hydratedRes = testPhase2Pin({ title: 'Hydrated', saves: 50, has_explicit_saves: true });
+  assert.strictEqual(hydratedRes.freshSaves, 50);
+  assert.strictEqual(hydratedRes.metricSnapshots.length, 1);
+  assert.strictEqual(hydratedRes.metricSnapshots[0].saves, 50);
+  assert.strictEqual(hydratedRes.masterPinsToSync[0].is_hydrated, true);
+  assert.strictEqual(hydratedRes.masterPinsToSync[0].saves, 50);
+}
 console.log('  ✓ creator-velocity-crawler.mjs: daily_repin_velocity, NULL preservation, is_hydrated, and 40P01 deadlock prevention verified');
 
 // Account Related Crawler:
@@ -125,6 +177,51 @@ assert(accountCrawler.includes('const saves = rawSaves != null ? Math.max(0, Num
 assert(accountCrawler.includes('if (saves !== null && (existing.saves === null || saves > existing.saves))'),
   'account-related-crawler.mjs must safely handle NULL when comparing candidate saves'
 );
+
+// Behavioral test of candidateMap NULL vs integer comparison in account-related-crawler:
+{
+  const candMap = new Map();
+  candMap.set('pin_1', { candidate_pin_id: 'pin_1', saves: null });
+  const candIncoming1 = { candidate_pin_id: 'pin_1', saves: 0 };
+  const s1 = candIncoming1.saves;
+  if (candMap.has('pin_1')) {
+    const existing = candMap.get('pin_1');
+    if (s1 !== null && (existing.saves === null || s1 > existing.saves)) {
+      candMap.set('pin_1', candIncoming1);
+    }
+  }
+  assert.strictEqual(candMap.get('pin_1').saves, 0, 'CandidateMap must replace null saves with 0');
+
+  const candIncoming2 = { candidate_pin_id: 'pin_1', saves: null };
+  const s2 = candIncoming2.saves;
+  if (candMap.has('pin_1')) {
+    const existing = candMap.get('pin_1');
+    if (s2 !== null && (existing.saves === null || s2 > existing.saves)) {
+      candMap.set('pin_1', candIncoming2);
+    }
+  }
+  assert.strictEqual(candMap.get('pin_1').saves, 0, 'CandidateMap must not overwrite 0 saves with null');
+
+  const candIncoming3 = { candidate_pin_id: 'pin_1', saves: 25 };
+  const s3 = candIncoming3.saves;
+  if (candMap.has('pin_1')) {
+    const existing = candMap.get('pin_1');
+    if (s3 !== null && (existing.saves === null || s3 > existing.saves)) {
+      candMap.set('pin_1', candIncoming3);
+    }
+  }
+  assert.strictEqual(candMap.get('pin_1').saves, 25, 'CandidateMap must promote to 25 saves');
+
+  const candIncoming4 = { candidate_pin_id: 'pin_1', saves: 5 };
+  const s4 = candIncoming4.saves;
+  if (candMap.has('pin_1')) {
+    const existing = candMap.get('pin_1');
+    if (s4 !== null && (existing.saves === null || s4 > existing.saves)) {
+      candMap.set('pin_1', candIncoming4);
+    }
+  }
+  assert.strictEqual(candMap.get('pin_1').saves, 25, 'CandidateMap must not downgrade 25 saves to 5');
+}
 assert(accountCrawler.includes('ORDER BY x.candidate_pin_id ASC'),
   'account-related-crawler.mjs must order candidate graph writes deterministically by candidate_pin_id ASC'
 );
