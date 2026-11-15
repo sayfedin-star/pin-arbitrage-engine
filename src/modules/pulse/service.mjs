@@ -293,7 +293,7 @@ async function queryActiveSerp(sql, folderIdNum) {
         SELECT 1 FROM keyword_folder_items fi 
         WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
       ))
-    ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST, ump.save_count DESC NULLS LAST
+    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 2500;
   `;
 }
@@ -340,7 +340,7 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
             SELECT 1 FROM keyword_folder_items fi 
             WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
           ))
-        ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST
+        ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
         LIMIT 2500
       )
       SELECT
@@ -377,7 +377,7 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
       FROM top_vault tv
       JOIN tracked_keywords tk ON tk.id = tv.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = tv.pin_id
-      ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST
+      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 2500;
     `
   ]);
@@ -416,7 +416,7 @@ async function queryViralCreatorPins(sql, folderIdNum) {
         WHERE fci.competitor_id = cbp.competitor_id AND fci.folder_id = ${folderIdNum}::int
       ))
       AND (COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(ump.delta_saves_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0 OR COALESCE(ump.save_count, 0) >= 50)
-    ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_saves_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST, ump.save_count DESC NULLS LAST
+    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 120;
   `;
 }

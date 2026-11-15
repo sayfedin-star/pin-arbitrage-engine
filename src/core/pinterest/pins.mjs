@@ -73,7 +73,7 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         if (res.body) await res.body.cancel().catch(() => {});
         for (const id of slice) {
           if (!resultsMap.has(id)) {
-            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: 0, repins: 0, status: res.status });
+            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null, status: res.status });
           }
         }
         continue;
@@ -90,17 +90,20 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         returnedIds.add(idStr);
 
         const hasExplicitSaves = Boolean(
-          pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
-          pin.aggregated_stats?.saves !== undefined ||
-          pin.save_count !== undefined
+          pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined && pin.aggregated_pin_data?.aggregated_stats?.saves !== null ||
+          pin.aggregated_stats?.saves !== undefined && pin.aggregated_stats?.saves !== null ||
+          pin.save_count !== undefined && pin.save_count !== null
         );
-        const saves = Number(
+        const rawSaves = (
           pin.aggregated_pin_data?.aggregated_stats?.saves ??
           pin.aggregated_stats?.saves ??
           pin.save_count ??
-          0
+          null
         );
-        const repins = Number(pin.repin_count ?? 0);
+        const saves = rawSaves !== null ? Number(rawSaves) : (hasExplicitSaves ? 0 : null);
+
+        const hasExplicitRepins = Boolean(pin.repin_count !== undefined && pin.repin_count !== null);
+        const repins = hasExplicitRepins ? Number(pin.repin_count) : null;
 
         const title = (
           pin.title ||
@@ -170,13 +173,13 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
 
       for (const id of slice) {
         if (!returnedIds.has(id) && !resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: 0, repins: 0 });
+          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null });
         }
       }
     } catch (_) {
       for (const id of slice) {
         if (!resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: 0, repins: 0 });
+          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null });
         }
       }
     }

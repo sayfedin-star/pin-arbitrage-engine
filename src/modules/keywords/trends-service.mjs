@@ -4,7 +4,7 @@
  * Extracts 52-week search momentum, seasonal peak estimation, demographics, and related trends.
  */
 
-import { getStandardPinterestHeaders } from '../../core/pinterest-client.mjs';
+import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest-client.mjs';
 
 const trendsCache = new Map();
 const inflightTrends = new Map();
@@ -76,7 +76,7 @@ export async function fetchPinterestInterestVolume(term) {
 
     let res;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
+      res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(7000) });
       if (!res.ok) return null;
       const json = await res.json();
       const data = json?.resource_response?.data;
@@ -408,7 +408,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       let res;
       try {
         const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanSeed)}&country=${country}`;
-        res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(6000) });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data)) {
@@ -440,7 +440,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
         let mRes;
         try {
           const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
-          mRes = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
+          mRes = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(3000) });
           if (mRes.ok) {
             const data = await mRes.json();
             if (Array.isArray(data) && data.length > 0) {
@@ -534,10 +534,10 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
       const demoUrl = `https://trends.pinterest.com/demographics/?terms=${encodeURIComponent(cleanTerm)}&country=${country}&end_date=${today}&days=365`;
 
       const [prefixRes, relatedRes, interestData, demoRes, collageList] = await Promise.allSettled([
-        fetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        fetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
+        pinterestFetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
+        pinterestFetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
         fetchPinterestInterestVolume(cleanTerm),
-        fetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) }),
+        pinterestFetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) }),
         fetchPinterestTrendsCollage(cleanTerm, country)
       ]);
 
@@ -744,7 +744,7 @@ export async function fetchPinterestTrendsCollage(term, country = 'US') {
 
   let res;
   try {
-    res = await fetch('https://trends.pinterest.com/term_images/', {
+    res = await pinterestFetch('https://trends.pinterest.com/term_images/', {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -801,7 +801,7 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
   });
 
   try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
+    const res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(7000) });
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
       return { success: false, error: `Pinterest returned HTTP ${res.status}` };

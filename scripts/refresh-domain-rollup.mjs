@@ -27,7 +27,24 @@ const sql = createSqlClient(dbUrl, {
   }
 });
 
+function startInstaBoxActivityLease(intervalMs = 300000) {
+  const machineId = process.env.INSTABOX_MACHINE_ID;
+  const apiKey = process.env.INSTABOX_API_KEY;
+  if (!machineId || !apiKey) return { stop: () => {} };
+  const timer = setInterval(async () => {
+    try {
+      await fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000)
+      }).catch(() => {});
+    } catch (_) {}
+  }, intervalMs);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
 console.log('[DomainRollup] Starting domain intelligence rollup refresh...');
+const activityLease = startInstaBoxActivityLease();
 const startTime = Date.now();
 
 try {
@@ -50,14 +67,17 @@ try {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   if (res.success) {
     console.log(`[DomainRollup] Successfully refreshed domain intelligence rollup in ${elapsed}s.`);
+    activityLease.stop();
     await sql.end?.({ timeout: 2 }).catch(() => {});
     process.exit(0);
   } else {
+    activityLease.stop();
     console.error(`[DomainRollup] Refresh failed in ${elapsed}s:`, res.error);
     await sql.end?.({ timeout: 2 }).catch(() => {});
     process.exit(1);
   }
 } catch (err) {
+  activityLease.stop();
   console.error('[DomainRollup] Unexpected error:', err.message);
   await sql.end?.({ timeout: 2 }).catch(() => {});
   process.exit(1);

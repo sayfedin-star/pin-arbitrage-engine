@@ -133,6 +133,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
       is_hydrated: isHydrated,
       daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
+      daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
       delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
       gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
       gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
@@ -408,6 +409,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
         delta_saves_24h: p.delta_saves_24h != null ? Number(p.delta_saves_24h) : null,
         delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
+        gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
+        gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
+        gains_10d: p.gains_10d != null ? Number(p.gains_10d) : null,
+        gains_15d: p.gains_15d != null ? Number(p.gains_15d) : null,
         is_product: Boolean(p.is_product || richMeta.is_product),
         is_video: Boolean(p.is_video || richMeta.is_video),
         creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
@@ -441,7 +446,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           visual_annotations jsonb, created_at_pinterest text,
           save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int,
           is_hydrated boolean, daily_save_velocity double precision, daily_repin_velocity double precision,
-          delta_saves_24h bigint, delta_repins_24h bigint, is_product boolean, is_video boolean, creation_method text,
+          delta_saves_24h bigint, delta_repins_24h bigint,
+          gains_5d bigint, gains_7d bigint, gains_10d bigint, gains_15d bigint,
+          is_product boolean, is_video boolean, creation_method text,
           image_signature text, canonical_pin_id text, first_discovered_pillar text,
           keyword_id int, rank_position int, is_displaced boolean, last_known_rank int, catalog_rank int,
           vacuum_opportunity_score double precision, competitor_id int, metadata jsonb
@@ -452,7 +459,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           rb.*,
           CASE
             WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
-            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
+            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND prev.save_count > 0 THEN
               CASE
                 WHEN prev.snapshot_date IS NOT NULL
                  AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
@@ -469,7 +476,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           END AS effective_save_velocity,
           CASE
             WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
-            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
+            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
               CASE
                 WHEN prev.snapshot_date IS NOT NULL
                  AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
@@ -486,7 +493,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           END AS effective_repin_velocity,
           CASE
             WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
-            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
+            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND prev.save_count > 0 THEN
               GREATEST(0, rb.save_count - prev.save_count)::bigint
             ELSE NULL
           END AS true_delta_saves_24h,
@@ -511,6 +518,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
           save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated,
           daily_save_velocity, daily_repin_velocity, delta_saves_24h, delta_repins_24h,
+          gains_5d, gains_7d, gains_10d, gains_15d,
           is_product, is_video, creation_method, image_signature, canonical_pin_id,
           first_discovered_pillar, first_discovered_at, first_saved_at, last_resaved_at, last_scraped_at, updated_at, metadata
         )
@@ -525,6 +533,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           cb.effective_save_velocity, cb.effective_repin_velocity,
           COALESCE(cb.delta_saves_24h, cb.true_delta_saves_24h),
           COALESCE(cb.delta_repins_24h, cb.true_delta_repins_24h),
+          cb.gains_5d, cb.gains_7d, cb.gains_10d, cb.gains_15d,
           cb.is_product, cb.is_video, cb.creation_method, cb.image_signature, cb.canonical_pin_id,
           cb.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), cb.metadata
         FROM computed_batch cb
@@ -557,6 +566,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity),
           delta_saves_24h = COALESCE(EXCLUDED.delta_saves_24h, universal_master_pins.delta_saves_24h),
           delta_repins_24h = COALESCE(EXCLUDED.delta_repins_24h, universal_master_pins.delta_repins_24h),
+          gains_5d = COALESCE(EXCLUDED.gains_5d, universal_master_pins.gains_5d),
+          gains_7d = COALESCE(EXCLUDED.gains_7d, universal_master_pins.gains_7d),
+          gains_10d = COALESCE(EXCLUDED.gains_10d, universal_master_pins.gains_10d),
+          gains_15d = COALESCE(EXCLUDED.gains_15d, universal_master_pins.gains_15d),
           last_resaved_at = NOW(),
           last_scraped_at = NOW(),
           updated_at = NOW()
@@ -1097,25 +1110,29 @@ export async function syncPinAcrossAllFourPillars({
       updated_at = NOW();
   `;
 
-  // 5. Query Active & Displaced SERP State (keyword_serp_positions)
+  // 5. Query Active & Displaced SERP State (keyword_serp_positions joined with universal_master_pins)
   const targetRows = await dbSql`
     SELECT
-      keyword_id, rank_position, is_displaced,
-      crawled_at, last_known_rank, vacuum_opportunity_score
-    FROM keyword_serp_positions
-    WHERE pin_id = ${cleanPinId}
-      AND is_displaced = FALSE
-      AND rank_position IS NOT NULL;
+      ksp.keyword_id, ksp.rank_position, ksp.is_displaced,
+      ksp.crawled_at, ksp.last_known_rank, ksp.vacuum_opportunity_score,
+      ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity
+    FROM keyword_serp_positions ksp
+    LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+    WHERE ksp.pin_id = ${cleanPinId}
+      AND ksp.is_displaced = FALSE
+      AND ksp.rank_position IS NOT NULL;
   `;
 
   let displacedRows = [];
   try {
     displacedRows = await dbSql`
       SELECT
-        keyword_id, last_known_rank, displaced_date, vacuum_opportunity_score, updated_at
-      FROM keyword_serp_positions
-      WHERE pin_id = ${cleanPinId}
-        AND is_displaced = TRUE;
+        ksp.keyword_id, ksp.last_known_rank, ksp.displaced_date, ksp.vacuum_opportunity_score, ksp.updated_at,
+        ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity
+      FROM keyword_serp_positions ksp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.pin_id = ${cleanPinId}
+        AND ksp.is_displaced = TRUE;
     `;
   } catch (dispErr) {
     console.warn(`[syncPinAcrossAllFourPillars] keyword_serp_positions displaced lookup note: ${dispErr.message}`);
@@ -1264,18 +1281,19 @@ export async function syncPinAcrossAllFourPillars({
   // 7. Upsert two-tier modern snapshot metrics (pins_daily_metrics)
   await dbSql`
     INSERT INTO pins_daily_metrics (
-      pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+      pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
     ) VALUES (
       ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${newSaves}, ${newRepins},
-      ${newComments}, ${newShares}, ${totalReactions}, ${syncVelocity}, NOW()
+      ${newComments}, ${newShares}, ${totalReactions}, ${syncVelocity}, ${syncRepinsDelta}, NOW()
     )
-    ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+    ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
       save_count = CASE WHEN ${hasExplicitScrapedSaves} OR EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
       repin_count = CASE WHEN EXCLUDED.repin_count > 0 OR ${hasExplicitScrapedSaves} THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
       daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity, 0),
+      daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity, 0),
       updated_at = NOW();
   `;
   await dbSql`
@@ -1327,7 +1345,9 @@ export async function syncPinAcrossAllFourPillars({
       comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), ${newComments}::int),
       share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), ${newShares}::int),
       reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
+      is_hydrated = TRUE,
       daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity, 0),
+      daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity, 0),
       delta_saves_24h = ROUND(COALESCE(${syncVelocity}::numeric, 0))::int,
       delta_repins_24h = COALESCE(${syncRepinsDelta}::int, delta_repins_24h, 0),
       last_scraped_at = NOW(),
@@ -2441,6 +2461,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
       is_canonical_root: isCanonicalRoot,
       save_count: Math.max(0, Number(masterRecord?.save_count || 0), Number(hubSerpRows[0]?.save_count || 0), Number(dailyTrajectory[0]?.save_count || 0)),
       repin_count: Math.max(0, Number(masterRecord?.repin_count || 0), Number(hubSerpRows[0]?.repin_count || 0), Number(dailyTrajectory[0]?.repin_count || 0)),
+      daily_repin_velocity: Number(masterRecord?.daily_repin_velocity || hubSerpRows[0]?.daily_repin_velocity || dailyTrajectory[0]?.daily_repin_velocity || 0),
       comment_count: Number(masterRecord?.comment_count || dailyTrajectory[0]?.comment_count || hubSerpRows[0]?.comment_count || 0),
       share_count: Number(masterRecord?.share_count || dailyTrajectory[0]?.share_count || hubSerpRows[0]?.share_count || 0),
       reaction_count: resolvedReactionCount,

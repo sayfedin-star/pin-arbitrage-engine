@@ -9,7 +9,7 @@
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
-import { getStandardPinterestHeaders } from '../../core/pinterest-client.mjs';
+import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest-client.mjs';
 
 // In-Memory True LRU Cache for Pinterest Typeahead (max 500 entries, 15m TTL)
 const typeaheadCache = new Map();
@@ -81,7 +81,7 @@ export async function fetchKeywordTypeahead(term) {
 
     let res;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (!res.ok) {
         return { success: false, term: cleanTerm, suggestions: [], error: `Pinterest Typeahead HTTP ${res.status}` };
       }

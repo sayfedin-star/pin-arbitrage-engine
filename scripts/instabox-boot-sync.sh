@@ -33,6 +33,11 @@ EOF
   exit 0
 fi
 
+if [ "${MODE}" = "--check-uptime" ] || [ "${MODE}" = "--reset-epoch" ]; then
+  check_and_reset_uptime_epoch
+  exit 0
+fi
+
 # ------------------------------------------------------------------------------
 # PostgreSQL Container Provisioning & Safe Parallel Query (/dev/shm >= 1G)
 # ------------------------------------------------------------------------------
@@ -116,6 +121,24 @@ sync_postgres_container() {
 }
 
 # ------------------------------------------------------------------------------
+# Preemptive 420-Minute Epoch Reset Safeguard (Zero-Cooldown Max-Run Reset)
+# ------------------------------------------------------------------------------
+check_and_reset_uptime_epoch() {
+  if [ -f "/proc/uptime" ]; then
+    local uptime_seconds
+    uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+    local uptime_minutes=$((uptime_seconds / 60))
+    if [ "${uptime_minutes}" -ge 420 ]; then
+      echo "[instabox-boot-sync] ⏳ Machine continuous uptime is ${uptime_minutes}m (>= 420m / 7h threshold)."
+      echo "[instabox-boot-sync] Executing preemptive suspend-and-resume to reset 480m max-run epoch with 0 cooldown..."
+      if command -v instabox >/dev/null 2>&1; then
+        instabox suspend && sleep 5 && instabox resume || true
+      fi
+    fi
+  fi
+}
+
+# ------------------------------------------------------------------------------
 # Mode 2: Boot / On-Demand Git + Dependencies + Migration Self-Sync
 # ------------------------------------------------------------------------------
 if [ ! -d "${APP_DIR}/.git" ]; then
@@ -130,6 +153,9 @@ if [ "$(id -u 2>/dev/null || echo 1)" = "0" ] && [ -n "${APP_OWNER}" ] && [ "${A
 fi
 
 cd "${APP_DIR}" || exit 0
+
+# Check if continuous uptime has reached the 420m threshold to reset the 480m epoch
+check_and_reset_uptime_epoch
 
 OLD_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
 echo "[instabox-boot-sync] Checking origin/main updates (current SHA: ${OLD_SHA})..."

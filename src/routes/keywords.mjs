@@ -241,8 +241,10 @@ export async function handleKeywordsRoutes({
         error: 'RATE_LIMITED',
         message: 'Too many batch-global-saves requests. Please retry shortly.',
         retry_after_seconds: rateLimit.retryAfterSec
-      }, 429);
-      res.headers.set('Retry-After', String(rateLimit.retryAfterSec));
+      }, 429, 0, { 'Retry-After': String(rateLimit.retryAfterSec) });
+      if (res?.headers?.set) {
+        res.headers.set('Retry-After', String(rateLimit.retryAfterSec));
+      }
       return res;
     }
     let body = {};

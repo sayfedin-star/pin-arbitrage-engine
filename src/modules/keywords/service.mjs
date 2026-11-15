@@ -23,7 +23,8 @@ import {
   getPinterestHeaders,
   PINTEREST_PAGE_HEADERS,
   fetchPinFromPinterest,
-  fetchPinsBatchFromPidgets
+  fetchPinsBatchFromPidgets,
+  pinterestFetch
 } from '../../core/pinterest/index.mjs';
 import { isSyntheticPinTitle, derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
 import { calculateDailyVelocity, isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
@@ -345,7 +346,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       let pinRes;
       try {
         const pinPageUrl = `https://www.pinterest.com/pin/${cleanPin}/`;
-        pinRes = await fetch(pinPageUrl, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(6000) });
+        pinRes = await pinterestFetch(pinPageUrl, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(6000) });
         if (pinRes.ok) {
           const html = await pinRes.text();
           const ext = extractPinData(html, cleanPin);
@@ -383,7 +384,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
             'x-pinterest-pws-handler': 'www/pin/[id].js'
           }
         });
-        vRes = await fetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
+        vRes = await pinterestFetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
         if (vRes.ok) {
           const vData = await vRes.json();
           rawResults = vData?.resource_response?.data?.results || [];
@@ -417,7 +418,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
 
       let res;
       try {
-        res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
         if (res.ok) {
           const data = await res.json();
           rawResults = data?.resource_response?.data?.results || [];
@@ -728,7 +729,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       let res;
       try {
-        res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
         if (res.status === 401 || res.status === 403 || res.status === 429) {
           if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
           const jitter = 2500 + Math.floor(Math.random() * 1500);
@@ -737,7 +738,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           if (cookie && String(cookie).trim()) {
             authHeaders['Cookie'] = formatPinterestCookie(cookie);
           }
-          res = await fetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
+          res = await pinterestFetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
         }
 
         if (!res.ok) {
@@ -759,7 +760,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               console.warn(`[BaseSearchResource] Encrypted e1_ pin IDs detected on page 1 for "${query}" — retrying with fallback authenticated session cookie...`);
               headers['Cookie'] = fallbackCookie;
               cookie = fallbackCookie;
-              const retryRes = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+              const retryRes = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
               if (retryRes.ok) {
                 const retryData = await retryRes.json();
                 const retryItems = retryData?.resource_response?.data?.results || [];
@@ -1033,22 +1034,30 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       // MONOTONIC SAVE RETENTION GUARD (IN-MEMORY):
       // Lifetime cumulative pin saves can NEVER legitimately drop to 0.
       const baseEntryForPin = baselineMap.get(pinId);
-      const baseSavesForPin = (baseEntryForPin && typeof baseEntryForPin === 'object') ? Number(baseEntryForPin.saves || 0) : Number(baseEntryForPin || 0);
-      const priorKnownSaves = Math.max(
-        Number(immediateData?.saves || 0),
-        baseSavesForPin,
-        Number(globalSavesMap.get(pinId) || 0)
-      );
+      const baseSavesForPin = (baseEntryForPin && typeof baseEntryForPin === 'object') ? (baseEntryForPin.saves != null ? Number(baseEntryForPin.saves) : null) : (baseEntryForPin != null ? Number(baseEntryForPin) : null);
+      const immSaves = immediateData?.saves != null ? Number(immediateData.saves) : null;
+      const globSaves = globalSavesMap.get(pinId) != null ? Number(globalSavesMap.get(pinId)) : null;
+
+      const priorKnownSavesCandidates = [immSaves, baseSavesForPin, globSaves].filter(v => v !== null && v >= 0);
+      const priorKnownSaves = priorKnownSavesCandidates.length > 0 ? Math.max(...priorKnownSavesCandidates) : null;
+
       const confirmedSaves = (saves > 0 || hasExplicitItemSaves)
         ? saves
         : priorKnownSaves;
-      const itemRepins = Number(item.repin_count || 0);
-      const confirmedRepins = itemRepins > 0
+
+      const hasExplicitItemRepins = item.repin_count !== undefined && item.repin_count !== null;
+      const itemRepins = hasExplicitItemRepins ? Number(item.repin_count) : null;
+      const immRepins = immediateData?.repins != null ? Number(immediateData.repins) : null;
+      const baseRepins = (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null) ? Number(baseEntryForPin.repins) : null;
+      const globRepins = globalRepinsMap.get(pinId) != null ? Number(globalRepinsMap.get(pinId)) : null;
+
+      const priorKnownRepinsCandidates = [immRepins, baseRepins, globRepins].filter(v => v !== null && v >= 0);
+      const priorKnownRepins = priorKnownRepinsCandidates.length > 0 ? Math.max(...priorKnownRepinsCandidates) : null;
+
+      const confirmedRepins = (itemRepins !== null && itemRepins > 0)
         ? itemRepins
-        : Math.max(
-            Number(immediateData?.repins || 0),
-            Number(globalRepinsMap.get(pinId) || 0)
-          );
+        : (hasExplicitItemRepins ? itemRepins : priorKnownRepins);
+
       const confirmedComments = Math.max(
         Number(item.comment_count || 0),
         Number(immediateData?.comments || 0)
@@ -1056,44 +1065,48 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       // 24h Daily Save Velocity is evaluated against previous day's baseline
       // Time-Normalized: Divides delta by pure UTC calendar days via calculateDailyVelocity SSOT
-      let velocity = 0;
-      if (baselineMap.has(pinId)) {
-        const baseDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object') ? baseEntryForPin.date : null;
-        velocity = calculateDailyVelocity({
-          currentSaves: confirmedSaves,
-          baselineSaves: baseSavesForPin,
-          repinCount: confirmedRepins,
-          currentRepins: confirmedRepins,
-          baselineRepins: (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null) ? Number(baseEntryForPin.repins) : 0,
-          currentDate: todayDate,
-          baselineDate: baseDateStr || baselineSnapshotDate,
-          createdAt: item.created_at_pinterest || item.created_at || null,
-          maxCap: 25000
-        });
-      } else if (immediateData) {
-        const immDateStr = immediateData.snapshotDate instanceof Date
-          ? immediateData.snapshotDate.toISOString().slice(0, 10)
-          : (immediateData.snapshotDate ? String(immediateData.snapshotDate).slice(0, 10) : '');
-        const todayIsoStr = todayDate.toISOString().slice(0, 10);
-        if (immDateStr && immDateStr < todayIsoStr) {
+      let velocity = null;
+      if (confirmedSaves !== null) {
+        if (baselineMap.has(pinId)) {
+          const baseDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object') ? baseEntryForPin.date : null;
           velocity = calculateDailyVelocity({
             currentSaves: confirmedSaves,
-            baselineSaves: immediateData.saves,
-            repinCount: confirmedRepins,
-            currentRepins: confirmedRepins,
-            baselineRepins: Number(immediateData.repins || 0),
+            baselineSaves: baseSavesForPin != null ? baseSavesForPin : 0,
+            repinCount: confirmedRepins != null ? confirmedRepins : 0,
+            currentRepins: confirmedRepins != null ? confirmedRepins : 0,
+            baselineRepins: (baseEntryForPin && typeof baseEntryForPin === 'object' && baseEntryForPin.repins != null) ? Number(baseEntryForPin.repins) : 0,
             currentDate: todayDate,
-            baselineDate: immediateData.snapshotDate,
+            baselineDate: baseDateStr || baselineSnapshotDate,
             createdAt: item.created_at_pinterest || item.created_at || null,
             maxCap: 25000
           });
+        } else if (immediateData && immediateData.saves != null) {
+          const immDateStr = immediateData.snapshotDate instanceof Date
+            ? immediateData.snapshotDate.toISOString().slice(0, 10)
+            : (immediateData.snapshotDate ? String(immediateData.snapshotDate).slice(0, 10) : '');
+          const todayIsoStr = todayDate.toISOString().slice(0, 10);
+          if (immDateStr && immDateStr < todayIsoStr) {
+            velocity = calculateDailyVelocity({
+              currentSaves: confirmedSaves,
+              baselineSaves: immediateData.saves,
+              repinCount: confirmedRepins != null ? confirmedRepins : 0,
+              currentRepins: confirmedRepins != null ? confirmedRepins : 0,
+              baselineRepins: Number(immediateData.repins || 0),
+              currentDate: todayDate,
+              baselineDate: immediateData.snapshotDate,
+              createdAt: item.created_at_pinterest || item.created_at || null,
+              maxCap: 25000
+            });
+          }
         }
       }
 
-      // Sanity bound to protect against malicious bot-farm spikes
-      velocity = Math.min(velocity, 25000);
-      pinVelocities.push(velocity);
-      totalVelocity += velocity;
+      if (velocity !== null) {
+        // Sanity bound to protect against malicious bot-farm spikes
+        velocity = Math.min(velocity, 25000);
+        pinVelocities.push(velocity);
+        totalVelocity += velocity;
+      }
 
       // Classify pin format & aspect ratio (PinArchive Parity)
       const isVideo = Boolean(item.is_video || item.videos);
@@ -1193,6 +1206,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         destination_url: destinationUrl,
         image_url: imageUrl,
         save_count: confirmedSaves,
+        has_explicit_saves: hasExplicitItemSaves,
         repin_count: confirmedRepins,
         comment_count: confirmedComments,
         daily_save_velocity: velocity,
@@ -1251,12 +1265,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               const pData = pidgetsMap.get(pidStr);
               if (!pData || pData.is_missing) continue;
 
-              const pidgetSaves = Number(pData.saves ?? pData.save_count ?? 0);
-              const pidgetRepins = Number(pData.repins ?? pData.repin_count ?? 0);
-              if (pidgetSaves > 0 || pData.has_explicit_saves) {
+              const pidgetSaves = (pData.saves !== undefined && pData.saves !== null) ? Number(pData.saves) : ((pData.save_count !== undefined && pData.save_count !== null) ? Number(pData.save_count) : null);
+              const pidgetRepins = (pData.repins !== undefined && pData.repins !== null) ? Number(pData.repins) : ((pData.repin_count !== undefined && pData.repin_count !== null) ? Number(pData.repin_count) : null);
+              if (pidgetSaves !== null && (pidgetSaves > 0 || pData.has_explicit_saves)) {
                 p.save_count = pidgetSaves;
+                p.has_explicit_saves = true;
               }
-              if (pidgetRepins > 0) {
+              if (pidgetRepins !== null) {
                 p.repin_count = pidgetRepins;
               }
               if (pData.title && !isSyntheticPinTitle(pData.title) && (!p.title || isSyntheticPinTitle(p.title))) {

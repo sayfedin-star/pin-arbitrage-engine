@@ -287,6 +287,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '060',
     name: 'clean_slate_4_table_ssot',
     aliases: ['060', '060_clean_slate_4_table_ssot', 'clean_slate_4_table_ssot']
+  },
+  '061_ssot_functions_views_and_indexes.sql': {
+    version: '061',
+    name: 'ssot_functions_views_and_indexes',
+    aliases: ['061', '061_ssot_functions_views_and_indexes', 'ssot_functions_views_and_indexes']
   }
 };
 

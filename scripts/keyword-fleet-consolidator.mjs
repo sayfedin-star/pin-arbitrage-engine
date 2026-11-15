@@ -150,15 +150,20 @@ async function main() {
 
     // 4. Fetch Top 5 Rising Pins in the Folder (Active only)
     const topRising = await sql`
-      SELECT DISTINCT ON (ksp.pin_id)
-        ksp.pin_id, ump.title, ump.image_url, ump.daily_save_velocity, ump.save_count, ump.clean_domain as domain
-      FROM keyword_folder_items kfi
-      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
-      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-      WHERE kfi.folder_id = ${folder.id}
-        AND ump.daily_save_velocity > 0
-        AND ksp.is_displaced = FALSE
-      ORDER BY ksp.pin_id, ump.daily_save_velocity DESC
+      WITH deduped_pins AS (
+        SELECT DISTINCT ON (ksp.pin_id)
+          ksp.pin_id, ump.title, ump.image_url, ump.daily_save_velocity, ump.save_count, ump.clean_domain as domain
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi.folder_id = ${folder.id}
+          AND ump.daily_save_velocity > 0
+          AND ksp.is_displaced = FALSE
+        ORDER BY ksp.pin_id, ump.daily_save_velocity DESC
+      )
+      SELECT *
+      FROM deduped_pins
+      ORDER BY daily_save_velocity DESC NULLS LAST
       LIMIT 5;
     `;
 
