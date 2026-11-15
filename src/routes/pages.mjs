@@ -49,9 +49,13 @@ export async function handlePagesRoutes(routeCtx) {
       }
       return effectiveReply.send(method === 'HEAD' ? '' : (body || ''));
     }
+    const lowerHeaders = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
     return {
       status,
-      headers,
+      headers: {
+        ...headers,
+        get: (h) => lowerHeaders.get(String(h).toLowerCase()) || null
+      },
       body: method === 'HEAD' ? null : body,
       text: async () => (method === 'HEAD' ? '' : (body || ''))
     };
