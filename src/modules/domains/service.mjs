@@ -12,6 +12,7 @@
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { hydrateDisplacedPinsMetadata } from '../keywords/service.mjs';
+import { normalizeCleanDomain as canonicalNormalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
@@ -100,25 +101,11 @@ export const BLOCKED_TLD_SUFFIXES = [
 
 /**
  * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * For Domain Intelligence Studio: enforces strict FQDN and filters internal / blocked domains.
  */
-export function normalizeCleanDomain(rawInput) {
-  if (!rawInput || typeof rawInput !== 'string') return '';
-  let cleaned = rawInput.trim().toLowerCase();
-  if (!cleaned) return '';
-  try {
-    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
-      cleaned = new URL(cleaned).hostname.toLowerCase();
-    } else {
-      cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
-    }
-  } catch (_) {
-    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
-  }
-  cleaned = cleaned.replace(/^www\./, '').trim();
-  if (!cleaned || !cleaned.includes('.') || IGNORED_INTERNAL_DOMAINS.includes(cleaned)) {
-    return '';
-  }
-  if (cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
+export function normalizeCleanDomain(rawInput, options = {}) {
+  const cleaned = canonicalNormalizeCleanDomain(rawInput, { strictFqdn: true, ...options });
+  if (!cleaned || IGNORED_INTERNAL_DOMAINS.includes(cleaned) || IGNORED_INTERNAL_DOMAINS.some(d => cleaned.endsWith('.' + d))) {
     return '';
   }
   if (BLOCKED_TLD_SUFFIXES.some(suffix => cleaned === suffix.slice(1) || cleaned.endsWith(suffix))) {
@@ -131,7 +118,99 @@ export function normalizeCleanDomain(rawInput) {
   if (parts.some(p => !p || p.startsWith('-') || p.endsWith('-'))) {
     return '';
   }
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(cleaned)) {
+    return '';
+  }
   return cleaned;
+}
+
+/**
+ * Computes Publisher Network Sybil Index & PBN detection metrics.
+ * Combines Herfindahl-Hirschman Index (HHI), Effective Creator Count, Bipartite Slug Overlap,
+ * Creative Multiplication Ratio, Sybil Risk Score, and Classification Tier.
+ * 
+ * @param {Object} params
+ * @param {Array} params.allPins
+ * @param {Map|Array} params.accountsMap
+ * @param {Map|Array} params.urlGroupsMap
+ * @param {Map|Array} params.crossMap
+ * @param {string} params.cleanDomain
+ * @returns {Object} Sybil PBN metrics
+ */
+export function computeSybilPbnMetrics({ allPins = [], accountsMap = new Map(), urlGroupsMap = new Map(), crossMap = new Map(), cleanDomain = '' } = {}) {
+  const accounts = accountsMap instanceof Map ? Array.from(accountsMap.values()) : (Array.isArray(accountsMap) ? accountsMap : []);
+  const urlGroups = urlGroupsMap instanceof Map ? Array.from(urlGroupsMap.values()) : (Array.isArray(urlGroupsMap) ? urlGroupsMap : []);
+  const totalDomainPins = Math.max(1, allPins.length);
+  const totalMoneySlugs = Math.max(1, urlGroups.length);
+
+  // 1. Herfindahl-Hirschman Index (HHI)
+  let sumSquaredShare = 0;
+  for (const acc of accounts) {
+    const share = (acc.pins_count || 0) / totalDomainPins;
+    sumSquaredShare += (share * share);
+  }
+  const hhi_creator_concentration = accounts.length > 0 ? Number(Math.min(1, Math.max(0, sumSquaredShare)).toFixed(4)) : 1;
+  
+  // 2. Effective Creator Count (1 / HHI)
+  const effective_creator_count = hhi_creator_concentration > 0 ? Number((1 / hhi_creator_concentration).toFixed(2)) : 1.0;
+
+  // 3. Bipartite Slug Overlap: proportion of money slugs pinned by >= 2 distinct creators
+  let multiCreatorSlugsCount = 0;
+  for (const u of urlGroups) {
+    const pins = u.pins || [];
+    const creatorsOnSlug = new Set(pins.map(p => p.creator_username).filter(Boolean));
+    if (creatorsOnSlug.size > 1) multiCreatorSlugsCount++;
+  }
+  const bipartite_slug_overlap = Number((multiCreatorSlugsCount / totalMoneySlugs).toFixed(4));
+
+  // 4. Creative Multiplication Ratio: unique visual images / distinct money slugs
+  const uniqueCreatives = new Set(allPins.map(p => p.image_signature || p.image_url || p.pin_id).filter(Boolean)).size;
+  const creative_multiplication_ratio = Number((uniqueCreatives / totalMoneySlugs).toFixed(2));
+
+  // 5. Cross-domain footprints / sister domains count
+  let sisterDomainsCount = 0;
+  if (crossMap instanceof Map) {
+    const allSister = new Set();
+    for (const list of crossMap.values()) {
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item?.domain) allSister.add(item.domain);
+        }
+      }
+    }
+    sisterDomainsCount = allSister.size;
+  }
+
+  // 6. Sybil Risk Score (0..100)
+  let sybil_risk_score = 0;
+  if (accounts.length > 1) {
+    const decentralizationScore = 1 - hhi_creator_concentration;
+    const hhiComponent = decentralizationScore * 35;
+    const overlapComponent = bipartite_slug_overlap * 35;
+    const sisterComponent = Math.min(20, sisterDomainsCount * 5);
+    const creativeComponent = Math.min(10, Math.max(0, (creative_multiplication_ratio - 1) * 2));
+    sybil_risk_score = Math.min(100, Math.max(0, Math.round(hhiComponent + overlapComponent + sisterComponent + creativeComponent)));
+  }
+
+  // 7. Sybil Tier: ORGANIC_BRAND / AMPLIFIED_CURATION / COORDINATED_SYBIL_RING
+  let sybil_tier = 'ORGANIC_BRAND';
+  if (sybil_risk_score >= 65) {
+    sybil_tier = 'COORDINATED_SYBIL_RING';
+  } else if (sybil_risk_score >= 30) {
+    sybil_tier = 'AMPLIFIED_CURATION';
+  }
+
+  return {
+    hhi_creator_concentration,
+    effective_creator_count,
+    bipartite_slug_overlap,
+    creative_multiplication_ratio,
+    sybil_risk_score,
+    sybil_tier,
+    multi_creator_slugs_count: multiCreatorSlugsCount,
+    total_money_slugs: totalMoneySlugs,
+    sister_domains_count: sisterDomainsCount
+  };
 }
 
 /**
@@ -825,7 +904,7 @@ export async function listDomainsIntelligence(sql, {
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
+        LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         (ksp.pin_id IS NOT NULL) AS is_serp_ranked
       FROM universal_master_pins ump
@@ -848,7 +927,7 @@ export async function listDomainsIntelligence(sql, {
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
+        LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         TRUE AS is_serp_ranked
       FROM keyword_serp_positions ksp
@@ -1257,9 +1336,10 @@ export async function refreshDomainIntelligenceRollup(sql) {
           ump.save_count::bigint AS saves,
           ump.repin_count::bigint AS repins,
           ump.daily_save_velocity::numeric AS velocity,
-          LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
+          LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-          (ksp.pin_id IS NOT NULL) AS is_serp_ranked
+          (ksp.pin_id IS NOT NULL) AS is_serp_ranked,
+          COALESCE(NULLIF(TRIM(ump.image_signature), ''), ump.pin_id) AS creative_signature
         FROM universal_master_pins ump
         LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
         WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
@@ -1277,7 +1357,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
           0::numeric AS velocity,
           '' AS username,
           '/' AS url_slug,
-          FALSE AS is_serp_ranked
+          FALSE AS is_serp_ranked,
+          'reg_' || drm.domain AS creative_signature
         FROM domain_registry_metadata drm
         WHERE drm.domain IS NOT NULL AND drm.domain <> '' AND drm.domain LIKE '%.%'
       ),
@@ -1292,7 +1373,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
           MAX(repins) AS repins,
           MAX(velocity) AS velocity,
           MAX(NULLIF(username, '')) AS sample_username,
-          COALESCE(MAX(NULLIF(url_slug, '/')), '/') AS url_slug
+          COALESCE(MAX(NULLIF(url_slug, '/')), '/') AS url_slug,
+          COALESCE(MAX(creative_signature), pin_id) AS creative_signature
         FROM raw_occurrences
         WHERE clean_domain IS NOT NULL
           AND clean_domain <> ''
@@ -1320,8 +1402,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
           END AS unique_urls,
           ROUND(
             COALESCE(
-              NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-              NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
+              NULLIF(COUNT(DISTINCT dp.creative_signature) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
+              NULLIF(COUNT(DISTINCT dp.creative_signature) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
               1
             )::numeric / 
             GREATEST(
@@ -1511,7 +1593,39 @@ export async function refreshDomainIntelligenceRollup(sql) {
         ads_txt_status = EXCLUDED.ads_txt_status,
         decay_rate_pct = EXCLUDED.decay_rate_pct,
         arbitrage_score = EXCLUDED.arbitrage_score,
-        refreshed_at = NOW();
+        refreshed_at = NOW()
+      WHERE
+        domain_intelligence_rollup.total_pins IS DISTINCT FROM EXCLUDED.total_pins OR
+        domain_intelligence_rollup.unique_urls IS DISTINCT FROM EXCLUDED.unique_urls OR
+        domain_intelligence_rollup.pins_per_url IS DISTINCT FROM EXCLUDED.pins_per_url OR
+        domain_intelligence_rollup.active_serp_pins IS DISTINCT FROM EXCLUDED.active_serp_pins OR
+        domain_intelligence_rollup.top3_pins IS DISTINCT FROM EXCLUDED.top3_pins OR
+        domain_intelligence_rollup.top10_pins IS DISTINCT FROM EXCLUDED.top10_pins OR
+        domain_intelligence_rollup.rank_11_50_pins IS DISTINCT FROM EXCLUDED.rank_11_50_pins OR
+        domain_intelligence_rollup.displaced_pins IS DISTINCT FROM EXCLUDED.displaced_pins OR
+        domain_intelligence_rollup.best_rank IS DISTINCT FROM EXCLUDED.best_rank OR
+        domain_intelligence_rollup.avg_rank IS DISTINCT FROM EXCLUDED.avg_rank OR
+        domain_intelligence_rollup.visibility_score IS DISTINCT FROM EXCLUDED.visibility_score OR
+        domain_intelligence_rollup.total_saves IS DISTINCT FROM EXCLUDED.total_saves OR
+        domain_intelligence_rollup.avg_saves IS DISTINCT FROM EXCLUDED.avg_saves OR
+        domain_intelligence_rollup.total_repins IS DISTINCT FROM EXCLUDED.total_repins OR
+        domain_intelligence_rollup.avg_velocity IS DISTINCT FROM EXCLUDED.avg_velocity OR
+        domain_intelligence_rollup.accounts_count IS DISTINCT FROM EXCLUDED.accounts_count OR
+        domain_intelligence_rollup.sample_accounts IS DISTINCT FROM EXCLUDED.sample_accounts OR
+        domain_intelligence_rollup.ad_network IS DISTINCT FROM EXCLUDED.ad_network OR
+        domain_intelligence_rollup.ad_manager_domain IS DISTINCT FROM EXCLUDED.ad_manager_domain OR
+        domain_intelligence_rollup.primary_pub_id IS DISTINCT FROM EXCLUDED.primary_pub_id OR
+        domain_intelligence_rollup.previous_ad_network IS DISTINCT FROM EXCLUDED.previous_ad_network OR
+        domain_intelligence_rollup.ad_switched_at IS DISTINCT FROM EXCLUDED.ad_switched_at OR
+        domain_intelligence_rollup.ad_network_history IS DISTINCT FROM EXCLUDED.ad_network_history OR
+        domain_intelligence_rollup.ads_txt_status IS DISTINCT FROM EXCLUDED.ads_txt_status OR
+        domain_intelligence_rollup.age_days IS DISTINCT FROM EXCLUDED.age_days OR
+        domain_intelligence_rollup.age_years IS DISTINCT FROM EXCLUDED.age_years OR
+        domain_intelligence_rollup.age_status IS DISTINCT FROM EXCLUDED.age_status OR
+        domain_intelligence_rollup.domain_created_at IS DISTINCT FROM EXCLUDED.domain_created_at OR
+        domain_intelligence_rollup.domain_expires_at IS DISTINCT FROM EXCLUDED.domain_expires_at OR
+        domain_intelligence_rollup.decay_rate_pct IS DISTINCT FROM EXCLUDED.decay_rate_pct OR
+        domain_intelligence_rollup.arbitrage_score IS DISTINCT FROM EXCLUDED.arbitrage_score;
     `;
     return { success: true, count: res?.length || 0 };
   } catch (err) {
@@ -1540,6 +1654,21 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, opti
   try {
     // Decoupled SSOT: ONLY update WHOIS age and ads.txt monetization fields.
     // NEVER overwrite total_pins, displaced_pins, active_serp_pins, total_saves, or avg_velocity.
+    // Guard: Do not insert total_pins = 0 stub rows into domain_intelligence_rollup when a domain has 0 pins in universal_master_pins.
+    const [existing] = await sql`
+      SELECT domain FROM domain_intelligence_rollup WHERE domain = ${canonicalDomain} LIMIT 1;
+    `;
+    if (!existing) {
+      const [pinCheck] = await sql`
+        SELECT 1 FROM universal_master_pins
+        WHERE (clean_domain = ${canonicalDomain} OR (${isOrganicVault}::boolean AND clean_domain = 'uploaded by user'))
+        LIMIT 1;
+      `;
+      if (!pinCheck) {
+        return null;
+      }
+    }
+
     const [result] = await sql`
       INSERT INTO domain_intelligence_rollup (
         domain, total_pins, total_saves, accounts_count, unique_urls, pins_per_url,
@@ -1927,7 +2056,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     throw err;
   };
 
-  const [ageInfo, adInfo, serpPins, archivePins, compPins, displacedPins, umpPins] = await Promise.all([
+  const [ageInfo, adInfo, serpPins, umpPins] = await Promise.all([
     isOrganicVault ? Promise.resolve({
       domain: 'Uploaded by user',
       age_days: null,
@@ -1954,7 +2083,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.title,
         ump.destination_url,
         ump.image_url,
-        ump.account_username AS creator_username,
+        COALESCE(ump.creator_username, '') AS creator_username,
         ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
@@ -1972,16 +2101,13 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       ORDER BY ksp.is_displaced ASC, ksp.rank_position ASC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'keyword_serp_positions')),
-    Promise.resolve([]),
-    Promise.resolve([]),
-    Promise.resolve([]),
     (fId === null && kId === null) ? sql`
       SELECT
         ump.pin_id,
         ump.title,
         ump.destination_url,
         ump.image_url,
-        ump.account_username AS creator_username,
+        COALESCE(ump.creator_username, '') AS creator_username,
         ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
@@ -2204,81 +2330,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 
   for (const r of serpPins) registerPin(r, 'serp');
 
-  // Pre-enrich displaced pins from Hub competitor/archive catalog if available (Tier 1 Hub lookup)
-  const hubCatalogLookup = new Map();
-  for (const r of compPins) {
-    if (r.pin_id && (r.destination_url || r.image_url)) hubCatalogLookup.set(String(r.pin_id), r);
-  }
-  for (const r of archivePins) {
-    if (r.pin_id && (r.destination_url || r.link || r.image_url) && !hubCatalogLookup.has(String(r.pin_id))) {
-      hubCatalogLookup.set(String(r.pin_id), r);
-    }
-  }
-
-  for (const dp of displacedPins) {
-    const pid = String(dp.pin_id || '').trim();
-    const cat = hubCatalogLookup.get(pid);
-    if (cat) {
-      dp.title = dp.title || cat.title || '';
-      dp.destination_url = dp.destination_url || cat.destination_url || cat.link || '';
-      dp.image_url = dp.image_url || cat.image_url || '';
-      dp.creator_username = dp.creator_username || cat.creator_username || '';
-      dp.board_name = dp.board_name || cat.board_name || '';
-      dp.created_at_pinterest = dp.created_at_pinterest || cat.created_at_pinterest || null;
-    }
-  }
-
-  // Hydrate displaced pins lacking creative metadata from universal_master_pins in bounded batches
-  const missingDisplacedPids = new Set();
-  for (const dp of displacedPins) {
-    const pid = String(dp.pin_id || '').trim();
-    if (!pid) continue;
-    const existing = pinsMap.get(pid);
-    if ((!existing || (!existing.destination_url && !existing.image_url)) && (!dp.destination_url && !dp.image_url)) {
-      missingDisplacedPids.add(pid);
-    }
-  }
-
-  const MAX_DISPLACED_HYDRATION = Math.min(200, Math.max(30, Number(displacedLimit || 30)));
-  if (missingDisplacedPids.size > 0) {
-    try {
-      const sortedMissingPids = displacedPins
-        .filter(dp => missingDisplacedPids.has(String(dp.pin_id || '').trim()))
-        .sort((a, b) => Number(b.saves || 0) - Number(a.saves || 0))
-        .map(dp => String(dp.pin_id).trim());
-
-      const boundedPids = Array.from(new Set(sortedMissingPids)).slice(0, MAX_DISPLACED_HYDRATION);
-      const rowsToHydrate = boundedPids.map(pid => ({ pin_id: pid }));
-      const hydratedRows = await hydrateDisplacedPinsMetadata(sql, rowsToHydrate);
-      const hydratedMap = new Map();
-      for (const h of (hydratedRows || [])) {
-        if (h && (h.destination_url || h.image_url || h.title)) {
-          hydratedMap.set(String(h.pin_id), h);
-        }
-      }
-      for (const r of displacedPins) {
-        const pid = String(r.pin_id || '').trim();
-        const h = hydratedMap.get(pid);
-        if (h) {
-          r.title = r.title || h.title || '';
-          r.destination_url = r.destination_url || h.destination_url || '';
-          r.image_url = r.image_url || h.image_url || '';
-          r.creator_username = r.creator_username || h.creator_username || '';
-          r.board_name = r.board_name || h.board_name || '';
-          r.dominant_color = r.dominant_color || h.dominant_color || null;
-          r.visual_annotations = (Array.isArray(r.visual_annotations) && r.visual_annotations.length > 0) ? r.visual_annotations : (h.visual_annotations || []);
-          r.created_at_pinterest = r.created_at_pinterest || h.created_at_pinterest || null;
-        }
-      }
-    } catch (hydrateErr) {
-      console.warn(`[getDomainDeepDossier] Non-fatal displaced hydration notice for ${cleanDomain}:`, hydrateErr.message);
-    }
-  }
-
-  for (const r of displacedPins) registerPin(r, 'displaced');
-
   // [INVARIANT: SERP-ONLY-RANKED-PINS-COUNTING]
-  // Enrich SERP & Displaced Vault pins from Competitor Catalog, PinArchive, and Master Pins without polluting pinsMap or moneyUrls.
+  // Enrich SERP & Displaced Vault pins from Master Pins without polluting pinsMap or moneyUrls.
   // Keep unranked catalog-only pins in a separate catalogOnlyMap (when viewing global scope) so Ranked Pins & Money Articles stay 100% pure.
   const catalogOnlyMap = new Map();
   const enrichOrCollectCatalogRow = (row, sourcePillar) => {
@@ -2325,13 +2378,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   };
 
   if (pinsMap.size > 0 || fId !== null || kId !== null) {
-    for (const r of compPins) enrichOrCollectCatalogRow(r, 'competitor');
-    for (const r of archivePins) enrichOrCollectCatalogRow(r, 'archive');
     for (const r of (umpPins || [])) enrichOrCollectCatalogRow(r, 'master');
   } else {
     // Fallback only for catalog-only domains that have 0 SERP/Vault occurrences globally
-    for (const r of compPins) registerPin(r, 'competitor');
-    for (const r of archivePins) registerPin(r, 'archive');
     for (const r of (umpPins || [])) registerPin(r, 'master');
   }
 
@@ -2503,6 +2552,30 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   // 4. Pillar 4: P2P Sybil Network & Ghost Creators Tracking
   const brandRoot = cleanDomain.split('.')[0].replace(/[^a-z0-9]/g, '');
 
+  // Calculate Creator HHI (Herfindahl-Hirschman Index) & Multi-Creator Slug Overlap
+  const totalDomainPins = Math.max(1, allPins.length);
+  let sumSquaredShare = 0;
+  for (const acc of accountsMap.values()) {
+    const share = (acc.pins_count || 0) / totalDomainPins;
+    sumSquaredShare += (share * share);
+  }
+  const hhiCreator = accountsMap.size > 0 ? Math.min(1, Math.max(0, sumSquaredShare)) : 1;
+  const decentralizationScore = 1 - hhiCreator; // (1 - HHI_creator)
+
+  // Multi-creator slug overlap: proportion of money slugs pinned by >= 2 distinct creators
+  let multiCreatorSlugsCount = 0;
+  for (const u of urlGroupsMap.values()) {
+    const creatorsOnSlug = new Set(u.pins.map(p => p.creator_username).filter(Boolean));
+    if (creatorsOnSlug.size > 1) multiCreatorSlugsCount++;
+  }
+  const totalMoneySlugs = Math.max(1, urlGroupsMap.size);
+  const slugOverlapRatio = multiCreatorSlugsCount / totalMoneySlugs;
+
+  // Publisher Network Sybil Index: C_sybil = (1 - HHI_creator) * (0.3 + 0.7 * slugOverlapRatio)
+  const cSybil = accountsMap.size <= 1
+    ? 0
+    : Number((decentralizationScore * (0.3 + 0.7 * slugOverlapRatio)).toFixed(3));
+
   // [INVARIANT: SARGABLE-INDEX-SEEK] Rule 9: Query creator_username directly without wrapping indexed column in expressions
   // Sort accounts by activity (pins_count & total_saves) to strictly bound to the true top 50 accounts
   const sortedAccounts = Array.from(accountsMap.values())
@@ -2518,12 +2591,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     try {
       crossFootprintRows = await sql`
         SELECT
-          ump.account_username AS username,
+          ump.creator_username AS username,
           ump.clean_domain AS cross_domain,
           COUNT(DISTINCT ksp.pin_id)::int AS pins_count
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-        WHERE ump.account_username = ANY(${cleanUsernames})
+        WHERE ump.creator_username = ANY(${cleanUsernames})
           AND ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
           AND ump.clean_domain <> ${cleanDomain}
           AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
@@ -2541,6 +2614,15 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     crossMap.get(u).push({ domain: r.cross_domain, pins_count: r.pins_count });
   }
 
+  // Compute full Publisher Network Sybil Index & PBN detection metrics
+  const sybilMetrics = computeSybilPbnMetrics({
+    allPins,
+    accountsMap,
+    urlGroupsMap,
+    crossMap,
+    cleanDomain
+  });
+
   const accountsList = Array.from(accountsMap.values()).map(acc => {
     const isBrand = acc.username === brandRoot ||
                     acc.username.includes(brandRoot) ||
@@ -2552,7 +2634,10 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       role: isBrand ? 'PRIMARY_BRAND' : 'SATELLITE_CREATOR',
       role_label: isBrand ? 'Primary Brand Account' : 'Satellite / Ghost Creator',
       sister_domains: sisterDomains,
-      is_sybil_ring: sisterDomains.length > 0
+      is_sybil_ring: sisterDomains.length > 0,
+      c_sybil: cSybil,
+      sybil_risk_score: sybilMetrics.sybil_risk_score,
+      sybil_tier: sybilMetrics.sybil_tier
     };
   }).sort((a, b) => (b.role === 'PRIMARY_BRAND' ? 1 : 0) - (a.role === 'PRIMARY_BRAND' ? 1 : 0) || b.total_saves - a.total_saves);
 
@@ -2678,9 +2763,21 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       vulnerable_pins_count: visualPins.filter(p => p.is_vulnerable).length,
       decaying_monopoly_count: keywordMonopoly.filter(k => k.is_decaying_monopoly).length,
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
+      sybil_index: cSybil,
+      c_sybil: cSybil,
+      sybil_risk_score: sybilMetrics.sybil_risk_score,
+      sybil_tier: sybilMetrics.sybil_tier,
+      effective_creator_count: sybilMetrics.effective_creator_count,
+      creative_multiplication_ratio: sybilMetrics.creative_multiplication_ratio,
+      bipartite_slug_overlap: sybilMetrics.bipartite_slug_overlap,
+      creator_hhi: Number(hhiCreator.toFixed(3)),
+      creator_decentralization: Number(decentralizationScore.toFixed(3)),
+      slug_overlap_ratio: Number(slugOverlapRatio.toFixed(3)),
+      multi_creator_slugs_count: multiCreatorSlugsCount,
       sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size,
       is_organic_vault: isOrganicVault
     },
+    sybil_pbn_metrics: sybilMetrics,
     ranked_pins: visualPins,
     catalog_pins: catalogOnlyVisualPins,
     money_urls: moneyUrls,

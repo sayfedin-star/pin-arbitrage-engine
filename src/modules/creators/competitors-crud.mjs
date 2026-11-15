@@ -260,9 +260,6 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
   if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
-  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
-  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
-  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
 
   const metaPayload = {
     auto_archive_winning: auto_archive_winning !== false
@@ -640,17 +637,28 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         OR competitor_history_snapshots.total_boards IS DISTINCT FROM EXCLUDED.total_boards;
     `;
 
-    // Self-heal any corrupted 0-metric historical snapshots for this competitor
-    await sql`
-      UPDATE competitor_history_snapshots
-      SET
-        monthly_reach = CASE WHEN monthly_reach = 0 AND ${Number(updated.monthly_reach || monthlyReach || 0)} > 0 THEN ${Number(updated.monthly_reach || monthlyReach || 0)} ELSE monthly_reach END,
-        profile_views = CASE WHEN profile_views = 0 AND ${Number(updated.profile_views || profileViews || 0)} > 0 THEN ${Number(updated.profile_views || profileViews || 0)} ELSE profile_views END,
-        total_pins = CASE WHEN total_pins = 0 AND ${Number(updated.total_pins || totalPins || 0)} > 0 THEN ${Number(updated.total_pins || totalPins || 0)} ELSE total_pins END,
-        total_boards = CASE WHEN total_boards = 0 AND ${Number(updated.total_boards || totalBoards || 0)} > 0 THEN ${Number(updated.total_boards || totalBoards || 0)} ELSE total_boards END
-      WHERE competitor_id = ${updated.id}
-        AND (monthly_reach = 0 OR profile_views = 0 OR total_pins = 0);
-    `.catch(() => {});
+    // Self-heal any corrupted 0-metric historical snapshots for this competitor (only when we have positive metrics)
+    const healReach = Number(updated.monthly_reach || monthlyReach || 0);
+    const healViews = Number(updated.profile_views || profileViews || 0);
+    const healPins = Number(updated.total_pins || totalPins || 0);
+    const healBoards = Number(updated.total_boards || totalBoards || 0);
+    if (healReach > 0 || healViews > 0 || healPins > 0 || healBoards > 0) {
+      await sql`
+        UPDATE competitor_history_snapshots
+        SET
+          monthly_reach = CASE WHEN monthly_reach = 0 AND ${healReach} > 0 THEN ${healReach} ELSE monthly_reach END,
+          profile_views = CASE WHEN profile_views = 0 AND ${healViews} > 0 THEN ${healViews} ELSE profile_views END,
+          total_pins = CASE WHEN total_pins = 0 AND ${healPins} > 0 THEN ${healPins} ELSE total_pins END,
+          total_boards = CASE WHEN total_boards = 0 AND ${healBoards} > 0 THEN ${healBoards} ELSE total_boards END
+        WHERE competitor_id = ${updated.id}
+          AND (
+            (monthly_reach = 0 AND ${healReach} > 0)
+            OR (profile_views = 0 AND ${healViews} > 0)
+            OR (total_pins = 0 AND ${healPins} > 0)
+            OR (total_boards = 0 AND ${healBoards} > 0)
+          );
+      `.catch(() => {});
+    }
 
     // Atomic batch upsert for initial boards via jsonb_to_recordset (1 single roundtrip instead of N queries)
     // Strictly skipped when pulse_only is active
@@ -1165,9 +1173,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
     return { qualified: false, matchedTier: null };
   }
 
-  const saves = Number(pin.saves || 0);
-  const repins = Number(pin.repins || 0);
-
+  const saves = Number(pin.saves ?? pin.save_count ?? 0);
+  const repins = Number(pin.repins ?? pin.repin_count ?? 0);
   let ageDays = (pin.age_days !== undefined && pin.age_days !== null) ? Number(pin.age_days) : NaN;
   if (isNaN(ageDays)) {
     const rawDate = pin.created_at_pinterest || pin.created_at;
@@ -1180,7 +1187,6 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   }
 
   const minSaves = Number(rules.tier1_min_saves ?? rules.min_saves ?? 100);
-
   // Tier 1: Star Performers (Cumulative Saves)
   if (saves >= minSaves) {
     return { qualified: true, matchedTier: 'tier1' };
@@ -1190,7 +1196,7 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   const minVelocity = Number(rules.tier2_min_velocity ?? 3.5);
   const maxVelocityAge = Number(rules.tier2_max_age_days ?? 60);
   const minRepins = Number(rules.tier2_min_repins ?? rules.min_repins ?? Math.max(100, minSaves));
-  const pinVelocity = Number(pin.velocity || (!isNaN(ageDays) && ageDays > 0 ? (saves / ageDays) : 0));
+  const pinVelocity = Number(pin.velocity || pin.daily_save_velocity || (!isNaN(ageDays) && ageDays > 0 ? (saves / ageDays) : 0));
   const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
   const matchesVelocity = pinVelocity >= minVelocity || (allowVelocityFallback && saves >= 50 && pinVelocity >= 2.0);
   if (

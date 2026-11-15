@@ -291,7 +291,7 @@ async function main() {
     mdReport += `| **[@${prof.username}](https://www.pinterest.com/${prof.username}/)** | ${formatNumber(prof.impressions)} (${formatDelta(prof.views_delta_7d)}) | ${formatNumber(prof.total_audience)} (${formatDelta(prof.reach_delta_7d)}) | ${formatNumber(prof.follower_count)} | ${formatNumber(prof.catalog_pins)} | **${formatNumber(prof.qualified_winners)}** | \`${syncTime}\` |\n`;
   }
   if (activeProfiles.length > 100) {
-    mdReport += `\n*Showing top 100 of ${formatNumber(activeProfiles.length)} active creators sorted by Total audience. Full catalog tracked across fleet shards.*\n`;
+    mdReport += `\n*Showing top 100 of ${formatNumber(activeProfiles.length)} active creators sorted by Total audience. Full catalog tracked in unified PostgreSQL database.*\n`;
   }
   mdReport += `\n`;
 
@@ -326,7 +326,7 @@ async function main() {
   console.log('\n[*] Running Automated Hub Storage Optimization & Compaction...');
   try {
     const hubResults = await optimizeHubStorage(sql);
-    console.log(`[✓] Hub Optimization Complete: Compacted ${hubResults.compactedCompetitors || 0} competitor rows, pruned ${hubResults.prunedSnapshots || 0} snapshots.`);
+    console.log(`[✓] Hub Optimization Complete: Cleaned ${hubResults?.cleanedSerpMetadata ?? 0} SERP rows, ${hubResults?.cleanedKwMetadata ?? 0} keyword rows, vacuumed ${(hubResults?.vacuumedTables || []).length} tables.`);
   } catch (optErr) {
     console.warn(`[!] Hub storage optimization warning: ${optErr.message}`);
   }

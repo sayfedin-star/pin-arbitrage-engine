@@ -10,8 +10,11 @@
  */
 
 import { escapeSqlWildcards, getCulinaryColorName, formatAge } from '../../utils.mjs';
+import { computeCrossPillarConvictionScore } from '../../lib/math.mjs';
 import { fetchKeywordTypeahead } from '../keywords/service.mjs';
 import { fetchPinterestBatchVelocity, fetchPinterestInterestVolume } from '../keywords/trends-service.mjs';
+
+export { computeCrossPillarConvictionScore };
 
 /**
  * 1. Fetch Cluster Executive Overview
@@ -565,6 +568,12 @@ export async function getGuidedSearchService(targetSql, { seedPinId }) {
 }
 
 /**
+ * Computes Cross-Pillar Conviction Score and Pillar Convergence Count.
+ * Integrates P2P candidate graph overlap, daily velocity growth, organic SERP presence, and domain arbitrage.
+ */
+
+
+/**
  * 12. Pixie Multi-Hit Intersections Ranking
  */
 export async function getIntersectionsService(targetSql, { minOverlap = 2, limit = 1000 }) {
@@ -632,6 +641,14 @@ export async function getIntersectionsService(targetSql, { minOverlap = 2, limit
       };
     });
 
+    const conviction = computeCrossPillarConvictionScore({
+      seedOverlapCount: r.seed_overlap_count,
+      dailyVelocity: r.daily_velocity,
+      saves: r.total_saves,
+      pixieScore: r.pixie_multihit_score,
+      isProduct: r.is_product
+    });
+
     return {
       ...r,
       engine_source: engine,
@@ -643,7 +660,10 @@ export async function getIntersectionsService(targetSql, { minOverlap = 2, limit
       originating_seed_details: seedDetails,
       image_url: r.image_url || '',
       is_video: Boolean(r.is_video),
-      ingestion_method: r.ingestion_method || 'uploaded'
+      ingestion_method: r.ingestion_method || 'uploaded',
+      conviction_score: conviction.conviction_score,
+      pillar_convergence_count: conviction.pillar_convergence_count,
+      conviction_details: conviction
     };
   });
 }
@@ -1002,4 +1022,185 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
   }
 
   return result;
+}
+
+/**
+ * Cross-Pillar P2P-to-SERP Convergence Engine
+ * 
+ * Joins Candidate Graph Nodes (Pillar 1 P2P graph) with Universal Master Pins,
+ * Organic Keyword SERP Positions (Pillar 2 SERP monopoly), and Domain Intelligence Rollup (Pillar 4 WHOIS & monetization)
+ * to rank viral organic arbitrage targets.
+ */
+export async function getCrossPillarArbitrageTargets(sql, options = {}) {
+  const sp = options.searchParams;
+  const rawLimit = options.limit ?? sp?.get?.('limit');
+  const rawOffset = options.offset ?? sp?.get?.('offset');
+  const rawMinVel = options.minVelocity ?? sp?.get?.('min_velocity') ?? sp?.get?.('minVelocity');
+  const rawMinScore = options.minScore ?? sp?.get?.('min_score') ?? sp?.get?.('minScore');
+  const rawMaxAge = options.maxDomainAgeDays ?? sp?.get?.('max_domain_age_days') ?? sp?.get?.('maxDomainAgeDays');
+  const rawSeedId = options.seedPinId ?? sp?.get?.('seed_pin_id') ?? sp?.get?.('seedPinId');
+
+  const parsedLim = Number(rawLimit);
+  const parsedOff = Number(rawOffset);
+  const parsedMinVel = Number(rawMinVel);
+  const parsedMinScore = Number(rawMinScore);
+  const parsedMaxAge = rawMaxAge != null && String(rawMaxAge).trim() !== '' ? Number(rawMaxAge) : null;
+
+  const lim = Math.max(1, Math.min(Number.isFinite(parsedLim) && parsedLim > 0 ? Math.floor(parsedLim) : 50, 200));
+  const off = Math.max(0, Number.isFinite(parsedOff) && parsedOff >= 0 ? Math.floor(parsedOff) : 0);
+  const minVel = Math.max(0, Number.isFinite(parsedMinVel) ? parsedMinVel : 0);
+  const minScore = Math.max(0, Number.isFinite(parsedMinScore) ? parsedMinScore : 0);
+  const maxAge = parsedMaxAge !== null && Number.isFinite(parsedMaxAge) && parsedMaxAge >= 0 ? Math.floor(parsedMaxAge) : null;
+  const seedId = rawSeedId && String(rawSeedId).trim() !== '' ? String(rawSeedId).trim() : null;
+
+  try {
+    const rows = await sql`
+      WITH scored AS (
+        SELECT
+          cgn.candidate_pin_id AS pin_id,
+          COALESCE(NULLIF(ump.title, ''), NULLIF(cgn.title, ''), '') AS title,
+          COALESCE(NULLIF(ump.clean_domain, ''), NULLIF(cgn.domain, ''), '') AS clean_domain,
+          COALESCE(ump.destination_url, '') AS destination_url,
+          COALESCE(NULLIF(ump.image_url, ''), NULLIF(cgn.image_url, ''), '') AS image_url,
+          COALESCE(ump.creator_username, '') AS creator_username,
+          COALESCE(ump.board_name, '') AS board_name,
+          COALESCE(ump.save_count, cgn.saves, 0)::bigint AS save_count,
+          COALESCE(ump.repin_count, cgn.repins, 0)::bigint AS repin_count,
+          COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0)::numeric AS velocity,
+          MAX(cgn.recgpt_transition_score)::numeric AS p2p_transition_score,
+          COUNT(DISTINCT cgn.seed_pin_id)::int AS seed_clusters_count,
+          COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE)::int AS organic_keywords_count,
+          MIN(ksp.rank_position) FILTER (WHERE ksp.is_displaced = FALSE)::int AS best_serp_rank,
+          COALESCE(dir.age_days, 365)::int AS domain_age_days,
+          COALESCE(dir.age_years, 1.0)::numeric AS domain_age_years,
+          COALESCE(dir.ad_network, 'unchecked') AS ad_network,
+          COALESCE(dir.arbitrage_score, 0)::numeric AS domain_arbitrage_score,
+          ROUND(
+            (
+              (COALESCE(MAX(cgn.recgpt_transition_score), 0) * 30.0) +
+              (LN(GREATEST(1.0, 1.0 + COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0))) * 15.0) +
+              (COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE) * 10.0) +
+              (CASE 
+                WHEN COALESCE(dir.age_days, 365) <= 365 THEN 25.0
+                WHEN COALESCE(dir.age_days, 365) <= 730 THEN 15.0
+                WHEN COALESCE(dir.age_days, 365) <= 1095 THEN 5.0
+                ELSE 0.0
+              END)
+            )::numeric,
+            2
+          ) AS convergence_score
+        FROM candidate_graph_nodes cgn
+        JOIN universal_master_pins ump ON ump.pin_id = cgn.candidate_pin_id
+        LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = cgn.candidate_pin_id
+        LEFT JOIN domain_intelligence_rollup dir ON dir.domain = COALESCE(NULLIF(ump.clean_domain, ''), NULLIF(cgn.domain, ''))
+        WHERE cgn.is_product = FALSE
+          AND COALESCE(ump.is_product, FALSE) = FALSE
+          AND (${seedId}::text IS NULL OR cgn.seed_pin_id = ${seedId})
+          AND COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0) >= ${minVel}
+          AND (${maxAge}::int IS NULL OR COALESCE(dir.age_days, 9999) <= ${maxAge})
+        GROUP BY 
+          cgn.candidate_pin_id,
+          ump.title, cgn.title,
+          ump.clean_domain, cgn.domain,
+          ump.destination_url,
+          ump.image_url, cgn.image_url,
+          ump.creator_username,
+          ump.board_name,
+          ump.save_count, cgn.saves,
+          ump.repin_count, cgn.repins,
+          ump.daily_save_velocity, cgn.daily_velocity,
+          dir.age_days, dir.age_years, dir.ad_network, dir.arbitrage_score
+      ),
+      filtered AS (
+        SELECT *
+        FROM scored
+        WHERE (${minScore}::numeric <= 0 OR convergence_score >= ${minScore}::numeric)
+      )
+      SELECT
+        f.*,
+        COUNT(*) OVER()::int AS full_count
+      FROM filtered f
+      ORDER BY f.convergence_score DESC, f.velocity DESC, f.p2p_transition_score DESC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+
+    const total = rows.length > 0 ? Number(rows[0].full_count || 0) : 0;
+    const items = rows.map(r => ({
+      pin_id: r.pin_id,
+      title: r.title,
+      clean_domain: r.clean_domain,
+      destination_url: r.destination_url,
+      image_url: r.image_url,
+      creator_username: r.creator_username,
+      board_name: r.board_name,
+      save_count: Number(r.save_count || 0),
+      repin_count: Number(r.repin_count || 0),
+      velocity: Number(r.velocity || 0),
+      p2p_transition_score: Number(r.p2p_transition_score || 0),
+      seed_clusters_count: Number(r.seed_clusters_count || 0),
+      organic_keywords_count: Number(r.organic_keywords_count || 0),
+      best_serp_rank: r.best_serp_rank != null ? Number(r.best_serp_rank) : null,
+      domain_age_days: Number(r.domain_age_days || 0),
+      domain_age_years: Number(r.domain_age_years || 0),
+      ad_network: r.ad_network,
+      domain_arbitrage_score: Number(r.domain_arbitrage_score || 0),
+      convergence_score: Number(r.convergence_score || 0)
+    }));
+
+    return {
+      success: true,
+      total,
+      count: items.length,
+      limit: lim,
+      offset: off,
+      targets: items,
+      items
+    };
+  } catch (err) {
+    console.warn(`[getCrossPillarArbitrageTargets] Error querying convergence targets:`, err.message);
+    return {
+      success: false,
+      error: err.message,
+      total: 0,
+      count: 0,
+      targets: [],
+      items: []
+    };
+  }
+}
+
+/**
+ * 15. Cross-Pillar Conviction Leaders Service
+ * Ranks convergence leaders across P2P candidate graph, SERP monopoly, and domain arbitrage.
+ */
+export async function getCrossPillarConvictionLeadersService(targetSql, options = {}) {
+  const result = await getCrossPillarArbitrageTargets(targetSql, options);
+  if (!result || !result.success) return result;
+  const enriched = (result.items || []).map(item => {
+    const conviction = computeCrossPillarConvictionScore({
+      seedOverlapCount: item.seed_clusters_count,
+      dailyVelocity: item.velocity,
+      saves: item.save_count,
+      pixieScore: item.p2p_transition_score,
+      serpRank: item.best_serp_rank,
+      serpKeywordsCount: item.organic_keywords_count,
+      isSerpRanked: item.organic_keywords_count > 0,
+      isProduct: false,
+      domainAgeDays: item.domain_age_days,
+      arbitrageScore: item.domain_arbitrage_score
+    });
+    return {
+      ...item,
+      conviction_score: conviction.conviction_score,
+      pillar_convergence_count: conviction.pillar_convergence_count,
+      conviction_details: conviction
+    };
+  }).sort((a, b) => b.conviction_score - a.conviction_score);
+
+  return {
+    ...result,
+    items: enriched,
+    targets: enriched,
+    leaders: enriched
+  };
 }

@@ -14,6 +14,10 @@ import fs from 'fs';
 import path from 'path';
 import * as acorn from 'acorn';
 
+if (typeof process.loadEnvFile === 'function') {
+  try { process.loadEnvFile(); } catch (_) {}
+}
+
 console.log('=== Running Forensic SQL Schema Parity & AST Landmine Audit ===\n');
 
 // 1. DDL Schema Definition for Core Tables (Unified PostgreSQL 4-Table SSOT — Post-Migration 060)
@@ -100,8 +104,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'last_scraped_at',
     'clean_domain',
     'first_saved_at',
-    'last_resaved_at',
-    'is_hydrated'
+    'last_resaved_at'
   ]),
   tracked_keywords: new Set([
     'id',
@@ -334,7 +337,50 @@ export const KNOWN_TABLE_COLUMNS = {
     'save_count',
     'created_at',
     'last_crawled_at'
+  ]),
+  mv_pulse_24h_summary: new Set([
+    'summary_id',
+    'active_pins_24h',
+    'active_domains_24h',
+    'active_creators_24h',
+    'avg_velocity_24h',
+    'max_velocity_24h',
+    'total_delta_saves_24h',
+    'refreshed_at'
   ])
+};
+
+// 2. Migration 062 SSOT Indexes & Function Parity Definitions
+export const MIGRATION_062_EXPECTED_INDEXES = new Set([
+  'idx_mv_pulse_24h_summary_id',
+  'idx_ump_visual_annotations_gin',
+  'idx_ump_hashtext_mod20',
+  'idx_ksp_hashtext_mod20',
+  'idx_cbp_hashtext_mod20',
+  'idx_ump_is_product',
+  'idx_cbp_competitor',
+  'idx_tk_lower_keyword',
+  'idx_cp_lower_username',
+  'uq_canonical_tracked_keywords'
+]);
+
+export const MIGRATION_062_DROPPED_INDEXES = new Set([
+  'idx_ump_last_scraped_at_desc',
+  'idx_ump_last_scraped_at',
+  'idx_ump_updated_at_desc',
+  'idx_ump_updated',
+  'idx_ksp_displaced_updated_desc',
+  'idx_pdm_pin_recorded_desc',
+  'idx_pdm_pin_snapshot_desc'
+]);
+
+export const CANONICAL_FUNCTION_SIGNATURES = {
+  pa_topic_clusters_page: {
+    name: 'pa_topic_clusters_page',
+    args: ['p_min_pins', 'p_search', 'p_limit', 'p_offset', 'p_account'],
+    argTypes: ['integer', 'text', 'integer', 'integer', 'text'],
+    returnColumns: new Set(['topic_name', 'pins_count', 'total_saves', 'avg_saves', 'avg_velocity'])
+  }
 };
 
 function scanDirectory(dir, fileList = []) {
@@ -415,7 +461,7 @@ for (const file of filesToScan) {
   walkAst(ast, (node) => {
     if (node.type === 'TaggedTemplateExpression') {
       const tagName = node.tag.name || (node.tag.property && node.tag.property.name) || '';
-      if (['sql', 'dbSql', 'targetSql', 'client', 'postgres'].includes(tagName)) {
+      if (['sql', 'dbSql', 'targetSql', 'client', 'postgres', 'tx'].includes(tagName)) {
         const queryText = node.quasi.quasis.map(q => q.value.raw).join(' __PARAM__ ');
         sqlBlocks.push({ query: queryText, line: node.loc?.start?.line || 1 });
       }
@@ -460,6 +506,18 @@ for (const file of filesToScan) {
         console.error(`   File: ${file}:${line}`);
         console.error(`   Fix:  Post-Migration 060 Unified PostgreSQL 4-Table SSOT eradicated '${legacyDropMatch[1]}'.\n`);
         violationCount++;
+      }
+    }
+
+    // Architectural Guard 4: Ban queries referencing HOT-blocking indexes dropped in Migration 062
+    if (!isTestOrMigrationOrSeed && !file.includes('ensure_indexes.mjs')) {
+      for (const droppedIdx of MIGRATION_062_DROPPED_INDEXES) {
+        if (new RegExp(`\\b${droppedIdx}\\b`, 'i').test(query)) {
+          console.error(`🚨 [ARCHITECTURAL GUARD] Query references dropped HOT-blocking index '${droppedIdx}'!`);
+          console.error(`   File: ${file}:${line}`);
+          console.error(`   Fix:  Migration 062 dropped '${droppedIdx}' to restore 100% PostgreSQL HOT updates.\n`);
+          violationCount++;
+        }
       }
     }
 
@@ -522,7 +580,7 @@ for (const file of filesToScan) {
 
       // Check EXCLUDED.column scoped strictly to INSERT INTO ${tableName} ... ON CONFLICT ... DO UPDATE SET clause
       const insertClauseRegex = new RegExp(
-        `\\bINSERT\\s+INTO\\s+${tableName}\\b[\\s\\S]*?\\bON\\s+CONFLICT[\\s\\S]*?\\bDO\\s+UPDATE\\s+SET\\s+([\\s\\S]*?)(?:\\bRETURNING\\b|\\bSELECT\\b|\\bINSERT\\b|\\bWITH\\b|;|\\)\\s*,|\\)\\s*SELECT|$)`,
+        `\\bINSERT\\s+INTO\\s+(?:public\\.)?${tableName}\\b[\\s\\S]*?\\bON\\s+CONFLICT[\\s\\S]*?\\bDO\\s+UPDATE\\s+SET\\s+([\\s\\S]*?)(?:\\bRETURNING\\b|\\bINSERT\\b|;|\\)\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s+AS\\s*\\(|\\)\\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\\b|$)`,
         'gi'
       );
       let clauseMatch;
@@ -543,6 +601,67 @@ for (const file of filesToScan) {
 
 
     }
+  }
+}
+
+// 4. Live PostgreSQL Schema & Migration 062 Parity Verification (if DB is reachable)
+const dbUrl = process.env.DATABASE_URL;
+if (dbUrl) {
+  try {
+    const { createSqlClient } = await import('../src/db/client.mjs');
+    const sql = createSqlClient(dbUrl, { connect_timeout: 2 });
+    const isOnline = await sql`SELECT 1 as live`.then(() => true).catch(() => false);
+    if (isOnline) {
+      console.log('\n[*] Verifying live PostgreSQL Schema, Migration 062 Indexes & Function Parity...');
+
+      // A. Verify mv_pulse_24h_summary
+      try {
+        await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+        await sql`SELECT * FROM public.mv_pulse_24h_summary LIMIT 1;`;
+        console.log('  ✓ [LIVE DB] mv_pulse_24h_summary refreshed cleanly and queried successfully.');
+      } catch (err) {
+        console.error(`🚨 [LIVE DB ERROR] Failed to refresh/query mv_pulse_24h_summary: ${err.message}`);
+        violationCount++;
+      }
+
+      // B. Verify pa_topic_clusters_page
+      try {
+        const clusterRows = await sql`SELECT * FROM public.pa_topic_clusters_page(1, NULL, 10, 0, NULL);`;
+        console.log(`  ✓ [LIVE DB] pa_topic_clusters_page(1, NULL, 10, 0, NULL) executed cleanly (${clusterRows.length} rows returned).`);
+      } catch (err) {
+        console.error(`🚨 [LIVE DB ERROR] Failed to execute pa_topic_clusters_page: ${err.message}`);
+        violationCount++;
+      }
+
+      // C. Verify pg_indexes: dropped indexes are gone, new 062 indexes exist
+      try {
+        const indexRows = await sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public';`;
+        const liveIndexes = new Set(indexRows.map(r => r.indexname));
+
+        for (const dropped of MIGRATION_062_DROPPED_INDEXES) {
+          if (liveIndexes.has(dropped)) {
+            console.error(`🚨 [LIVE DB ERROR] HOT-blocking index '${dropped}' still exists in pg_indexes!`);
+            violationCount++;
+          }
+        }
+
+        for (const expected of MIGRATION_062_EXPECTED_INDEXES) {
+          if (!liveIndexes.has(expected)) {
+            console.warn(`⚠️ [LIVE DB WARNING] Expected Migration 062 index '${expected}' not found in pg_indexes.`);
+          }
+        }
+        console.log('  ✓ [LIVE DB] Migration 062 index parity verified in pg_indexes.');
+      } catch (err) {
+        console.error(`🚨 [LIVE DB ERROR] Failed to inspect pg_indexes: ${err.message}`);
+        violationCount++;
+      }
+
+      await sql.end({ timeout: 2 }).catch(() => {});
+    } else {
+      console.log('\n[~] Live PostgreSQL database is not reachable at DATABASE_URL. Static AST verification passed 100%.');
+    }
+  } catch (err) {
+    console.log(`\n[~] Live database check skipped: ${err.message}`);
   }
 }
 

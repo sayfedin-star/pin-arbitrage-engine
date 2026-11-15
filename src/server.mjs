@@ -32,7 +32,9 @@ import {
   getCorsHeaders,
   jsonResponse,
   methodNotAllowedResponse,
-  corsOptionsResponse
+  corsOptionsResponse,
+  timingSafeEqualStr,
+  registerDefaultBackgroundQueue
 } from './http/security-and-response.mjs';
 
 export { createSqlClient, getSqlClient, getPoolStats, drainSqlClient };
@@ -126,6 +128,7 @@ export class AsyncTaskQueue {
 }
 
 export const serverBackgroundTaskQueue = new AsyncTaskQueue(4);
+registerDefaultBackgroundQueue(serverBackgroundTaskQueue);
 
 /**
  * Git Commit SHA resolver for active runtime telemetry and CI/CD verification
@@ -174,20 +177,6 @@ export function getGitCommitSha(forceRefresh = false) {
   return 'unknown';
 }
 
-/**
- * Timing-safe string comparison to prevent timing side-channel attacks on secret keys
- */
-function timingSafeEqualStr(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  let mismatch = a.length === b.length ? 0 : 1;
-  const maxLen = Math.max(a.length, b.length);
-  for (let i = 0; i < maxLen; i++) {
-    const charA = i < a.length ? a.charCodeAt(i) : 0;
-    const charB = i < b.length ? b.charCodeAt(i) : 0;
-    mismatch |= (charA ^ charB);
-  }
-  return mismatch === 0;
-}
 
 /**
  * Creates and configures the native Fastify application instance.
@@ -253,7 +242,7 @@ export function createFastifyApp(customEnv = {}) {
   const isTestOrLocal = (
     customEnv.ENVIRONMENT === 'test' ||
     customEnv.NODE_ENV === 'test' ||
-    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
+    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark|check(?:$|[_.\\/]))|\.test\.m?js$/i.test(arg)))
   );
 
   const env = {
@@ -507,88 +496,34 @@ export function createFastifyApp(customEnv = {}) {
     }
 
     const webResponse = await requestContextStorage.run(
-      { request, reply, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] },
+      { request, reply, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'] },
       async () => {
-        try {
-          const url = new URL(fullUrl);
-          const normalizedPath = normalizePath(url.pathname);
-          const pathLower = normalizedPath.toLowerCase();
-          const { searchParams } = url;
+        const url = new URL(fullUrl);
+        const normalizedPath = normalizePath(url.pathname);
+        const pathLower = normalizedPath.toLowerCase();
+        const { searchParams } = url;
 
-          const pageResponse = await handlePagesRoutes({
-            pathLower,
-            normalizedPath,
-            pathname: normalizedPath,
-            method,
-            searchParams,
-            HTML_HEADERS,
-            RESERVED_KEYWORD_SLUGS,
-            methodNotAllowedResponse,
-            jsonResponse,
-            isValidPinId,
-            reply
-          });
-          if (reply.sent) return reply;
-          if (pageResponse) return pageResponse;
+        const pageResponse = await handlePagesRoutes({
+          pathLower,
+          normalizedPath,
+          pathname: normalizedPath,
+          method,
+          searchParams,
+          HTML_HEADERS,
+          RESERVED_KEYWORD_SLUGS,
+          methodNotAllowedResponse,
+          jsonResponse,
+          isValidPinId,
+          reply
+        });
+        if (reply.sent) return reply;
+        if (pageResponse) return pageResponse;
 
-          return jsonResponse({
-            success: false,
-            error: 'NOT_FOUND',
-            message: `Endpoint '${normalizedPath}' not found on pin-arbitrage-engine.`
-          }, 404);
-        } finally {
-          const store = requestContextStorage.getStore();
-          if (store?.bgPromises?.length) {
-            // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
-            // Drain in-flight background promises iteratively with a 26-second ceiling. Offloaded completely to ctx.waitUntil
-            // so the HTTP response stream is returned immediately to the client without stalling.
-            const closePromise = (async () => {
-              let drainTimerId = null;
-              try {
-                const deadlineMs = Date.now() + 26000;
-                let processedCount = 0;
-
-                while (
-                  Array.isArray(store.bgPromises) &&
-                  processedCount < store.bgPromises.length &&
-                  Date.now() < deadlineMs
-                ) {
-                  const batch = store.bgPromises.slice(processedCount);
-                  processedCount = store.bgPromises.length;
-                  const remainingMs = Math.max(50, deadlineMs - Date.now());
-
-                  const timeoutGuard = new Promise((resolve) => {
-                    drainTimerId = setTimeout(resolve, remainingMs);
-                    if (drainTimerId && typeof drainTimerId.unref === 'function') drainTimerId.unref();
-                  });
-
-                  try {
-                    await Promise.race([
-                      Promise.allSettled(batch),
-                      timeoutGuard
-                    ]);
-                  } finally {
-                    if (drainTimerId !== null) {
-                      clearTimeout(drainTimerId);
-                      drainTimerId = null;
-                    }
-                  }
-                }
-              } catch (drainErr) {
-                console.warn('[Drain] Background tasks drain warning:', redactSecrets(drainErr?.message || String(drainErr)));
-              } finally {
-                if (drainTimerId !== null) {
-                  clearTimeout(drainTimerId);
-                  drainTimerId = null;
-                }
-              }
-            })();
-
-            if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
-              effectiveCtx.waitUntil(closePromise);
-            }
-          }
-        }
+        return jsonResponse({
+          success: false,
+          error: 'NOT_FOUND',
+          message: `Endpoint '${normalizedPath}' not found on pin-arbitrage-engine.`
+        }, 404);
       }
     );
 
@@ -598,15 +533,27 @@ export function createFastifyApp(customEnv = {}) {
 
     if (webResponse && typeof webResponse === 'object') {
       if (typeof webResponse.status === 'number') reply.code(webResponse.status);
-      if (webResponse.headers && typeof webResponse.headers.forEach === 'function') {
-        webResponse.headers.forEach((val, key) => {
-          reply.header(key, val);
-        });
+      if (webResponse.headers && typeof webResponse.headers === 'object') {
+        if (typeof webResponse.headers.forEach === 'function') {
+          webResponse.headers.forEach((val, key) => {
+            reply.header(key, val);
+          });
+        } else {
+          for (const [key, val] of Object.entries(webResponse.headers)) {
+            if (typeof val !== 'function') reply.header(key, val);
+          }
+        }
       }
-      if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302 || !webResponse.body) {
+      if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302) {
         return reply.send();
       }
-      const text = typeof webResponse.text === 'function' ? await webResponse.text() : String(webResponse);
+      if (webResponse._payload !== undefined) {
+        return reply.send(webResponse._payload);
+      }
+      if (!webResponse.body) {
+        return reply.send();
+      }
+      const text = typeof webResponse.text === 'function' ? await webResponse.text() : String(webResponse.body);
       return reply.send(text);
     }
     return reply.send();

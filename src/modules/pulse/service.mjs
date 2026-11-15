@@ -17,7 +17,12 @@
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
 
-import { normalizeAnnotationTag } from '../../domain/pin-intelligence.mjs';
+import {
+  isSyntheticGarbageTitle
+} from '../../domain/pin-intelligence.mjs';
+import {
+  computeAnscombeInflectionScore
+} from '../../lib/math.mjs';
 
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)
 export const pulseMemoryCache = new Map();
@@ -96,7 +101,7 @@ export function getCanonicalCreativeKey(p) {
  * - Object arrays: [{"name": "Summer Outfits", "idea_id": "123"}]
  * - Stringified JSON strings
  * - Wrapped objects: { tags: [...] }
- * Deduplicates intra-pin tags via canonical lemmatization, filters stopwords/labels < 2 chars, and omits hallucinated confidence scores.
+ * Deduplicates intra-pin tags, filters labels < 2 chars, and preserves { norm, display } structure.
  */
 export function extractCleanAnnotations(raw) {
   if (!raw) return [];
@@ -106,7 +111,7 @@ export function extractCleanAnnotations(raw) {
     try {
       arr = JSON.parse(arr);
     } catch (_) {
-      arr = [];
+      arr = arr.split(',').map(s => s.trim());
     }
   }
   if (arr && typeof arr === 'object' && !Array.isArray(arr) && Array.isArray(arr.tags)) {
@@ -124,7 +129,7 @@ export function extractCleanAnnotations(raw) {
       ? item.trim()
       : String(item?.display || item?.name || item?.tag || item?.label || item?.display_label || item?.term || item?.norm || '').trim();
     if (!label || label.length < 2) continue;
-    const norm = getNormalizedTag(label);
+    const norm = label.toLowerCase().replace(/\s+/g, ' ');
     if (!norm || norm.length < 2) continue;
     let duplicate = false;
     for (let j = 0; j < result.length; j++) {
@@ -262,8 +267,8 @@ async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
       COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
       COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
-      COALESCE(ump.description, '') AS description,
-      COALESCE(ump.alt_text, '') AS alt_text,
+      LEFT(COALESCE(ump.description, ''), 80) AS description,
+      LEFT(COALESCE(ump.alt_text, ''), 60) AS alt_text,
       ump.save_count,
       ump.repin_count,
       COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
@@ -363,8 +368,8 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
         COALESCE(NULLIF(ump.domain, ''), '') AS domain,
         COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
         COALESCE(NULLIF(ump.title, ''), '') AS title,
-        COALESCE(NULLIF(ump.description, ''), '') AS description,
-        COALESCE(NULLIF(ump.alt_text, ''), '') AS alt_text,
+        LEFT(COALESCE(NULLIF(ump.description, ''), ''), 80) AS description,
+        LEFT(COALESCE(NULLIF(ump.alt_text, ''), ''), 60) AS alt_text,
         COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
         COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
         COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
@@ -442,7 +447,8 @@ async function queryGuidedCapsules(sql, folderIdNum) {
       SELECT 1 FROM keyword_folder_items fi 
       WHERE fi.keyword_id = c.keyword_id AND fi.folder_id = ${folderIdNum}::int
     ))
-    ORDER BY c.score DESC, c.display_order ASC;
+    ORDER BY c.score DESC, c.display_order ASC
+    LIMIT 1000;
   `;
 }
 
@@ -723,12 +729,55 @@ async function queryWinnersAndDomains(sql) {
 
 /**
  * Query 7: Executive 24h Pulse KPI Telemetry from mv_pulse_24h_summary with fallback.
- * Queries mv_pulse_24h_summary for sub-millisecond execution, falling back cleanly
- * to universal_master_pins if the materialized view is empty, unrefreshed, or does not exist.
+ * Queries mv_pulse_24h_summary for sub-millisecond execution when folderIdNum is null,
+ * falling back cleanly to universal_master_pins if the materialized view is empty or unpopulated.
+ * When folderIdNum is specified, computes folder-specific KPIs joined against keyword_folder_items.
  */
-export async function queryKPIs(sql) {
+export async function queryKPIs(sql, folderIdNum = null) {
   if (!sql) return null;
-  // 1. Attempt rapid read from mv_pulse_24h_summary
+
+  // 1. When folderIdNum !== null, bypass global matview and compute folder-specific 24h KPIs
+  if (folderIdNum !== null && folderIdNum !== undefined) {
+    try {
+      const folderRows = await sql`
+        SELECT
+          COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
+            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
+          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
+          COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+          COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+          COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi.folder_id = ${folderIdNum}::int
+          AND ump.is_hydrated = TRUE
+          AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
+      `;
+      if (folderRows && folderRows.length > 0) {
+        const r = folderRows[0];
+        return {
+          active_pins_24h: Number(r.active_pins_24h || 0),
+          active_domains_24h: Number(r.active_domains_24h || 0),
+          active_creators_24h: Number(r.active_creators_24h || 0),
+          avg_velocity_24h: Number(r.avg_velocity_24h || 0),
+          max_velocity_24h: Number(r.max_velocity_24h || 0),
+          total_delta_saves_24h: Number(r.total_delta_saves_24h || 0),
+          refreshed_at: null,
+          from_matview: false
+        };
+      }
+    } catch (_err) {
+      return null;
+    }
+    return null;
+  }
+
+  // 2. When folderIdNum === null, use mv_pulse_24h_summary directly without falling back to a full table scan
+  // when active_pins_24h === 0 unless the matview is unpopulated.
+  let matviewPopulated = false;
   try {
     const rows = await sql`
       SELECT
@@ -744,7 +793,8 @@ export async function queryKPIs(sql) {
       WHERE summary_id = 1
       LIMIT 1;
     `;
-    if (rows && rows.length > 0 && Number(rows[0].active_pins_24h || 0) > 0) {
+    if (rows && rows.length > 0) {
+      matviewPopulated = true;
       return {
         active_pins_24h: Number(rows[0].active_pins_24h || 0),
         active_domains_24h: Number(rows[0].active_domains_24h || 0),
@@ -760,50 +810,42 @@ export async function queryKPIs(sql) {
     // Matview unpopulated or not yet created — proceed to fallback
   }
 
-  // 2. Fallback: Aggregate directly from universal_master_pins base table
-  try {
-    const fallbackRows = await sql`
-      SELECT
-        COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-        COUNT(DISTINCT ump.clean_domain)::bigint AS active_domains_24h,
-        COUNT(DISTINCT ump.creator_username)::bigint AS active_creators_24h,
-        COALESCE(ROUND(AVG(ump.daily_save_velocity), 2), 0)::numeric(12,2) AS avg_velocity_24h,
-        COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
-        COALESCE(SUM(ump.delta_saves_24h), 0)::bigint AS total_delta_saves_24h
-      FROM universal_master_pins ump
-      WHERE ump.last_scraped_at >= NOW() - INTERVAL '24 hours'
-         OR ump.updated_at >= NOW() - INTERVAL '24 hours';
-    `;
-    if (fallbackRows && fallbackRows.length > 0) {
-      const r = fallbackRows[0];
-      return {
-        active_pins_24h: Number(r.active_pins_24h || 0),
-        active_domains_24h: Number(r.active_domains_24h || 0),
-        active_creators_24h: Number(r.active_creators_24h || 0),
-        avg_velocity_24h: Number(r.avg_velocity_24h || 0),
-        max_velocity_24h: Number(r.max_velocity_24h || 0),
-        total_delta_saves_24h: Number(r.total_delta_saves_24h || 0),
-        refreshed_at: null,
-        from_matview: false
-      };
+  // 3. Fallback: Aggregate directly from universal_master_pins base table ONLY if matview is unpopulated
+  if (!matviewPopulated) {
+    try {
+      const fallbackRows = await sql`
+        SELECT
+          COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
+            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
+          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
+          COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+          COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+          COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
+        FROM universal_master_pins ump
+        WHERE ump.is_hydrated = TRUE
+          AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
+      `;
+      if (fallbackRows && fallbackRows.length > 0) {
+        const r = fallbackRows[0];
+        return {
+          active_pins_24h: Number(r.active_pins_24h || 0),
+          active_domains_24h: Number(r.active_domains_24h || 0),
+          active_creators_24h: Number(r.active_creators_24h || 0),
+          avg_velocity_24h: Number(r.avg_velocity_24h || 0),
+          max_velocity_24h: Number(r.max_velocity_24h || 0),
+          total_delta_saves_24h: Number(r.total_delta_saves_24h || 0),
+          refreshed_at: null,
+          from_matview: false
+        };
+      }
+    } catch (_err) {
+      // Both matview and base table query unavailable — return null for in-memory synthesis fallback
     }
-  } catch (_err) {
-    // Both matview and base table query unavailable — return null for in-memory synthesis fallback
   }
 
   return null;
-}
-
-/**
- * Checks whether a pin title is synthetic or low-signal placeholder
- */
-function isSyntheticGarbageTitle(title) {
-  if (!title || typeof title !== 'string') return true;
-  const t = title.trim().toLowerCase();
-  if (t.length < 5) return true;
-  if (t === 'untitled' || t.startsWith('untitled pin') || t === 'pin' || t === 'pinterest pin') return true;
-  if (/^\d+$/.test(t)) return true;
-  return false;
 }
 
 /**
@@ -1050,7 +1092,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   let computePromise;
   computePromise = (async () => {
-    // 4. Concurrent Execution of 7 Hub Queries (including viral creator pins & matview KPIs)
+    // 4. Concurrent Execution of 8 Hub Queries (including viral creator pins, matview KPIs, and P2P graph nodes)
     const [
       activeSerpRows,
       vaultData,
@@ -1066,7 +1108,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       queryBreakoutCreators(sql, folderIdNum),
       queryWinnersAndDomains(sql),
       queryViralCreatorPins(sql, folderIdNum).catch(() => []),
-      queryKPIs(sql).catch(() => null)
+      queryKPIs(sql, folderIdNum).catch(() => null)
     ]);
 
     const { vacuumRows, vaultPins } = vaultData;
@@ -1140,6 +1182,12 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         mergePinIntoMap(pinMap, pa, 'pinarchive_winner', keywordFoldersMap);
       }
     }
+
+    const candidatePinIds = Array.from(pinMap.keys());
+    const p2pGraphRows = candidatePinIds.length > 0
+      ? await sql`SELECT DISTINCT candidate_pin_id FROM candidate_graph_nodes WHERE candidate_pin_id = ANY(${candidatePinIds}::text[]);`.catch(() => [])
+      : [];
+    const p2pPinSet = new Set((p2pGraphRows || []).map(r => String(r.candidate_pin_id || '')));
 
     // 6. Process Merged Pins, Compute Unified 24h Velocity & Extract N-Grams
     const allActivePins = [];
@@ -1231,10 +1279,42 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
       p.window_saves_gain = windowSavesGain;
 
-      const dailyAvg7d = (p.gains_7d > 7) ? (p.gains_7d / 7) : 1;
-      const rawRatio = (effective24hGain || p.daily_save_velocity) / dailyAvg7d;
-      const accelerationRatio = Math.round(rawRatio * 100) / 100;
+      // Single-pass Anscombe & algorithmic velocity acceleration via SSOT math (uses precomputed p.pin_age_days)
+      const anscombeScores = computeAnscombeInflectionScore(p);
+      const accelerationRatio = anscombeScores.acceleration_score;
       const isAccelerating = accelerationRatio >= 1.5;
+
+      p.anscombe_z_gain = anscombeScores.anscombe_z_gain;
+      p.repin_lead_score = anscombeScores.repin_lead_score;
+
+      // Cross-Pillar Breakout Conviction Score (B_cross)
+      // 1. Normalized 24h velocity (logarithmic scaling: 0-100)
+      const velForScore = Math.max(0, p.effective_24h_gain > 0 ? p.effective_24h_gain : (p.daily_save_velocity || 0));
+      const sVel = Math.min(100, Math.round(Math.log10(velForScore + 1) * 33.3));
+      // 2. Multi-keyword SERP rank weight (0-100)
+      let rankWeightSum = 0;
+      if (Array.isArray(p.keywords)) {
+        for (let ki = 0; ki < p.keywords.length; ki++) {
+          const kw = p.keywords[ki];
+          const rPos = Number(kw.rank_position ?? kw.last_known_rank ?? 50);
+          rankWeightSum += Math.max(0.1, 1 - Math.min(50, rPos) / 55);
+        }
+      }
+      const sSerp = Math.min(100, Math.round(rankWeightSum * 35));
+      // 3. Competitor board presence (0-100)
+      const hasCompetitorBoard = Boolean(
+        (p.sources && p.sources.includes('creator_feed')) ||
+        (p.board_name && p.board_name.trim().length > 0 && p.creator_username)
+      );
+      const sComp = hasCompetitorBoard ? 100 : 0;
+      // 4. P2P graph presence (0-100)
+      const hasP2PGraph = p2pPinSet.has(String(p.pin_id));
+      const sP2p = hasP2PGraph ? 100 : 0;
+      // Unified B_cross conviction score: 40% velocity, 30% SERP rank, 15% competitor board, 15% P2P graph
+      const bCross = Math.min(100, Math.round((sVel * 0.40) + (sSerp * 0.30) + (sComp * 0.15) + (sP2p * 0.15)));
+      p.b_cross = bCross;
+      p.breakout_conviction_score = bCross;
+      p.breakout_score = Math.max(bCross, anscombeScores.breakout_score);
 
       const urlLeverageRatio = (p.url_global_saves > 0 && p.save_count > 0)
         ? Math.round((p.url_global_saves / p.save_count) * 100) / 100
@@ -1276,6 +1356,11 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       p.effective_24h_momentum = Math.round(effectiveMomentum * 100) / 100;
       p.acceleration_ratio = accelerationRatio;
       p.is_accelerating = isAccelerating;
+      p.breakout_conviction_score = bCross;
+      p.b_cross = bCross;
+      p.cross_pillar_conviction = bCross;
+      p.p2p_graph_presence = hasP2PGraph;
+      p.competitor_board_presence = hasCompetitorBoard;
       p.overlap_count = overlapCount;
       p.folder_overlap_count = folderOverlapCount;
       p.best_rank = bestRank;
@@ -1700,6 +1785,13 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         is_displaced: isDisplaced,
 
         // Backward-compatibility keys
+        anscombe_z_gain: p.anscombe_z_gain ?? 0,
+        repin_lead_score: p.repin_lead_score ?? 0,
+        breakout_score: p.breakout_score ?? p.breakout_conviction_score ?? p.b_cross ?? 0,
+        breakout_conviction_score: p.breakout_conviction_score ?? p.b_cross ?? 0,
+        b_cross: p.b_cross ?? 0,
+        p2p_graph_presence: Boolean(p.p2p_graph_presence),
+        competitor_board_presence: Boolean(p.competitor_board_presence),
         effective_24h_momentum: Number.isFinite(p.effective_24h_momentum) ? p.effective_24h_momentum : effective24hGain,
         acceleration_ratio: p.acceleration_ratio || 1.0,
         is_accelerating: Boolean(p.is_accelerating),
@@ -1806,7 +1898,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       if (cKey) seenCreativeKeys.add(cKey);
       breakoutPinsTop250.push(formatPinSummary(p));
     }
-
     for (let i = 0; i < paPinsList.length; i++) {
       const p = paPinsList[i];
       const cKey = getCanonicalCreativeKey(p);
@@ -1816,8 +1907,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         breakoutPinsTop250.push(formatPinSummary(p));
       }
     }
-
     for (let i = 0; i < skeletonPins.length; i++) {
+      if (breakoutPinsTop250.length >= 250) break;
       const p = skeletonPins[i];
       const cKey = getCanonicalCreativeKey(p);
       if (!seenBreakoutIds.has(p.pin_id) && (!cKey || !seenCreativeKeys.has(cKey))) {

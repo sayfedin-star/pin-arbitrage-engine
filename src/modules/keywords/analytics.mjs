@@ -11,6 +11,12 @@
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
 
+import {
+  resolveCanonicalPinTitle,
+  extractCanonicalAnnotations,
+  normalizeCleanDomain
+} from '../../domain/pin-intelligence.mjs';
+
 /**
  * Safely normalizes raw JSON/object metadata into a clean JS object.
  */
@@ -47,103 +53,14 @@ export function winsorize(values, upperPercentile = 0.95) {
 }
 
 /**
- * Safely extracts clean string title from raw Pinterest items,
- * preventing JSON format objects (e.g. {"args":[],"format":"..."}) from corrupting pin titles.
- * Traverses all Pinterest title variants, descriptions, link slugs, and visual annotations.
+ * Safely extracts clean string title from raw Pinterest items using canonical domain intelligence SSOT.
  */
 export function extractPinTitle(item, fallbackQuery = '') {
   if (!item) return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
-  
-  // 1. Primary explicit title fields
-  const primaryCandidates = [
-    item.title,
-    item.grid_title,
-    item.headline,
-    item.rich_metadata?.title,
-    item.rich_summary?.display_name,
-    item.rich_summary?.products?.[0]?.name,
-    item.story_pin_data?.metadata?.root?.title,
-    item.pin_join?.story_pin_data?.metadata?.root?.title,
-    item.seo_title,
-    item.seoTitle
-  ];
-
-  for (let c of primaryCandidates) {
-    if (!c) continue;
-    if (typeof c === 'object') {
-      c = c.text || c.title || c.headline || c.format || c.name || '';
-    }
-    let str = String(c || '').trim();
-    if (str.startsWith('{') && str.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(str);
-        str = String(parsed.text || parsed.title || parsed.format || str).trim();
-      } catch (_) {}
-    }
-    if (!str || str === 'Explore featured boards' || str === 'Untitled Pin' || str === '{}' || str === 'Related Interests') {
-      continue;
-    }
-    // Truncate long descriptions masquerading as titles to first sentence
-    if (str.length > 90 && (str.includes('\n') || str.includes('.') || str.includes('!'))) {
-      const firstSentence = str.split(/[\n.!?]/)[0].trim();
-      if (firstSentence.length > 5) return firstSentence.slice(0, 110);
-    }
-    return str.slice(0, 150);
+  const resolved = resolveCanonicalPinTitle(item);
+  if (resolved && resolved !== 'Pinterest Pin') {
+    return resolved;
   }
-
-  // 2. High-precision Fallback: Pinterest Computer-Vision Visual Annotation Taxonomy
-  const firstAnnotation = Array.isArray(item.pin_join?.visual_annotation)
-    ? item.pin_join.visual_annotation[0]
-    : null;
-  if (firstAnnotation && typeof firstAnnotation === 'string' && firstAnnotation.trim()) {
-    const cleanAnn = firstAnnotation.trim();
-    if (cleanAnn.length > 3 && cleanAnn !== 'Related Interests') {
-      return cleanAnn.slice(0, 120);
-    }
-  }
-
-  // 3. Fallback: Clean readable slug derived from destination link URL
-  if (item.link || item.url) {
-    try {
-      const u = new URL(item.link || item.url);
-      const pathParts = u.pathname.split('/').filter(Boolean);
-      const lastSlug = pathParts[pathParts.length - 1];
-      if (lastSlug && lastSlug.length > 3 && !/^\d+$/.test(lastSlug)) {
-        const readable = lastSlug
-          .replace(/[-_]+/g, ' ')
-          .replace(/\.html?$/i, '')
-          .replace(/\b\w/g, ch => ch.toUpperCase())
-          .trim();
-        if (readable.length > 4) return readable.slice(0, 120);
-      }
-    } catch (_) {}
-  }
-
-  // 4. Secondary fallback: First sentence of description or alt text (never a run-on essay)
-  const secondaryCandidates = [
-    item.seoAltText,
-    item.alt_text,
-    item.grid_description,
-    item.closeup_unified_description,
-    item.description
-  ];
-
-  for (let c of secondaryCandidates) {
-    if (!c) continue;
-    let str = String(c || '').trim();
-    if (!str || str === 'Untitled Pin') continue;
-    const firstSentence = str.split(/[\n.!?]/)[0].trim();
-    if (firstSentence && firstSentence.length > 5) {
-      return firstSentence.slice(0, 110);
-    }
-  }
-
-  // 5. Fallback: Board Name
-  if (item.board?.name && typeof item.board.name === 'string' && item.board.name.trim()) {
-    return `${item.board.name.trim()} Pin`;
-  }
-
-  // 6. Absolute fail-safe: clean readable query title
   return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
 }
 
@@ -349,19 +266,13 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     if (p.destination_url || p.domain) withDest++;
   }
 
-  // Semantic Computer Vision Annotations (pin_join tags)
+  // Semantic Computer Vision Annotations (pin_join tags) via canonical SSOT extractor
   const tagCounts = new Map();
   for (const p of sortedPins.slice(0, 30)) {
-    const tags = p.metadata?.visual_annotations || [];
-    if (Array.isArray(tags)) {
-      for (const t of tags) {
-        // [INVARIANT: DEFENSIVE-ANNOTATIONS-UNPACKING] Prevent [object Object] poisoning from raw objects
-        const rawTag = (typeof t === 'object' && t !== null) ? (t.name || t.tag || t.label || '') : String(t || '');
-        const cleanTag = rawTag.trim();
-        if (cleanTag && cleanTag !== '[object Object]') {
-          tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
-        }
-      }
+    const rawAnns = p.metadata?.visual_annotations || p.visual_annotations || [];
+    const tags = extractCanonicalAnnotations(rawAnns, { limit: 15 });
+    for (const cleanTag of tags) {
+      tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
     }
   }
 
@@ -380,14 +291,9 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
 
   for (const p of sortedPins) {
     totalSavesAll += Number(p.save_count || 0);
-    let d = (p.domain || '').trim().toLowerCase();
-    if (!d && p.destination_url) {
-      try {
-        d = new URL(p.destination_url).hostname.replace(/^www\./, '').toLowerCase();
-      } catch (_) {}
-    }
-    // Filter out unknown / user uploads / empty
-    if (!d || d === 'unknown' || d === 'uploaded by user' || d === 'null' || d === 'undefined') {
+    const d = normalizeCleanDomain(p.domain || p.destination_url || '', { strictFqdn: true });
+    // Filter out unknown / user uploads / organic / empty
+    if (!d || d === 'uploaded by user' || d === 'organic') {
       continue;
     }
     if (!domainMap.has(d)) {

@@ -29,7 +29,8 @@ import {
   getGuidedSearchService,
   getIntersectionsService,
   importRawJsonClusterDataService,
-  getDiscoveryTypeaheadService
+  getDiscoveryTypeaheadService,
+  getCrossPillarArbitrageTargets
 } from '../modules/cluster/service.mjs';
 
 import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pulse/service.mjs';
@@ -40,6 +41,7 @@ import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pul
 export function isClusterRoute(pathname) {
   return pathname === '/api/pulse/24h' ||
     pathname === '/api/pulse/blueprint' ||
+    pathname === '/api/cluster/arbitrage-convergence' ||
     pathname === '/api/overview' ||
     pathname === '/api/seeds' ||
     pathname.startsWith('/api/seeds/') ||
@@ -134,6 +136,47 @@ export async function handleClusterRoutes({
         success: false,
         error: 'PULSE_SERVICE_ERROR',
         message: redactSecrets ? redactSecrets(err.message) : err.message
+      }, 500);
+    }
+  }
+
+  // 0C. /api/cluster/arbitrage-convergence (Cross-Pillar P2P-to-SERP Convergence Engine)
+  if (pathname === '/api/cluster/arbitrage-convergence') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const limit = clampLimit(searchParams.get('limit'), 50, 200);
+    const rawOffset = Number(searchParams.get('offset') ?? 0);
+    const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? Math.floor(rawOffset) : 0;
+    const rawMinScore = Number(searchParams.get('min_score') ?? searchParams.get('minScore') ?? 0);
+    const minScore = Number.isFinite(rawMinScore) && rawMinScore >= 0 ? rawMinScore : 0;
+    const rawMinVel = Number(searchParams.get('min_velocity') ?? searchParams.get('minVelocity') ?? 0);
+    const minVelocity = Number.isFinite(rawMinVel) && rawMinVel >= 0 ? rawMinVel : 0;
+    const rawMaxAgeStr = searchParams.get('max_domain_age_days') ?? searchParams.get('maxDomainAgeDays');
+    const rawMaxAge = rawMaxAgeStr !== null && rawMaxAgeStr !== '' ? Number(rawMaxAgeStr) : null;
+    const maxDomainAgeDays = rawMaxAge !== null && Number.isFinite(rawMaxAge) && rawMaxAge >= 0 ? Math.floor(rawMaxAge) : null;
+    const seedPinId = searchParams.get('seed_pin_id') ?? searchParams.get('seedPinId') ?? null;
+
+    const options = { limit, offset, minScore, minVelocity, maxDomainAgeDays, seedPinId, searchParams };
+    try {
+      if (typeof getCrossPillarArbitrageTargets !== 'function') {
+        return jsonResponse({ success: true, total: 0, count: 0, limit, offset, targets: [], items: [] }, 200, 30);
+      }
+      const result = await getCrossPillarArbitrageTargets(sql, options);
+      if (!result || result.success === false) {
+        return jsonResponse({
+          success: false,
+          error: 'ARBITRAGE_CONVERGENCE_ERROR',
+          message: redactSecrets ? redactSecrets(result?.error || 'Failed to compute arbitrage convergence') : String(result?.error || 'Failed to compute arbitrage convergence')
+        }, 500);
+      }
+      return jsonResponse(result, 200, 30);
+    } catch (err) {
+      console.error('[Cluster Arbitrage Convergence Route Error]', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'ARBITRAGE_CONVERGENCE_ERROR',
+        message: redactSecrets ? redactSecrets(err?.message || String(err)) : String(err)
       }, 500);
     }
   }
@@ -371,7 +414,10 @@ export async function handleClusterRoutes({
         const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
         headers['Authorization'] = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
       }
-      const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, { headers });
+      const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, {
+        headers,
+        signal: AbortSignal.timeout(10000)
+      });
       if (res.ok) {
         const data = await res.json();
         const formatted = (data.workflow_runs || []).map(r => ({

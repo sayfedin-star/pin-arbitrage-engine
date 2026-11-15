@@ -33,6 +33,45 @@ async function computeExpectedToken(secret) {
   return hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Constant-time byte-by-byte comparison using WebCrypto SHA-256 digests + XOR loop
+ * to defend against timing side-channel attacks.
+ */
+async function timingSafeEqualWebCrypto(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const enc = new TextEncoder();
+  const [hashA, hashB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b))
+  ]);
+  const bytesA = new Uint8Array(hashA);
+  const bytesB = new Uint8Array(hashB);
+  let diff = 0;
+  for (let i = 0; i < 32; i++) {
+    diff |= (bytesA[i] ^ bytesB[i]);
+  }
+  return diff === 0 && a.length === b.length;
+}
+
+/**
+ * Constant-time membership check across an array of valid secrets/tokens using WebCrypto SHA-256.
+ * Accepts either (candidate, allowedValues) or (allowedValues, candidate).
+ */
+async function timingSafeIncludes(candidateOrList, allowedOrCandidate) {
+  const candidate = typeof candidateOrList === 'string' ? candidateOrList : (typeof allowedOrCandidate === 'string' ? allowedOrCandidate : null);
+  const allowedValues = Array.isArray(allowedOrCandidate) ? allowedOrCandidate : (Array.isArray(candidateOrList) ? candidateOrList : null);
+
+  if (!candidate || !allowedValues || allowedValues.length === 0) return false;
+
+  let matchFound = false;
+  for (const item of allowedValues) {
+    if (await timingSafeEqualWebCrypto(candidate, String(item))) {
+      matchFound = true;
+    }
+  }
+  return matchFound;
+}
+
 function parseCookie(request, name) {
   const cookieHeader = request.headers.get('Cookie') || '';
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
@@ -215,7 +254,7 @@ export default {
 
     // 1. Check Cookie
     const clientToken = parseCookie(request, AUTH_COOKIE_NAME);
-    if (clientToken && expectedTokens.includes(clientToken)) {
+    if (clientToken && (await timingSafeIncludes(clientToken, expectedTokens))) {
       isAuthorized = true;
     }
 
@@ -225,8 +264,8 @@ export default {
     const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
 
     if (
-      (headerApiKey && validPins.includes(headerApiKey)) ||
-      (bearerToken && validPins.includes(bearerToken))
+      (headerApiKey && (await timingSafeIncludes(headerApiKey, validPins))) ||
+      (bearerToken && (await timingSafeIncludes(bearerToken, validPins)))
     ) {
       isAuthorized = true;
     }
@@ -236,7 +275,7 @@ export default {
       try {
         const body = await request.json();
         const pinAttempt = (body?.pin || '').trim();
-        if (pinAttempt && validPins.includes(pinAttempt)) {
+        if (pinAttempt && (await timingSafeIncludes(pinAttempt, validPins))) {
           const token = await computeExpectedToken(pinAttempt);
           // Proactively wake the InstaBox VM immediately upon valid PIN authentication!
           if (apiKey) {

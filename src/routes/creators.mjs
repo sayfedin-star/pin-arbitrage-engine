@@ -5,8 +5,7 @@ import {
   getQualificationRules,
   updateQualificationRules,
   reEvaluateArchivedPins,
-  getPinDetailWithMetrics,
-  deletePinMetricSnapshot
+  getPinDetailWithMetrics
 } from '../modules/creators/service.mjs';
 
 /**
@@ -381,6 +380,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, board: boardData }, 200, 0);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -643,6 +644,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -661,6 +664,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -693,6 +698,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -713,6 +720,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const repo = 'sayfedin-star/pin-arbitrage-engine';
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10000),
       headers: {
         'User-Agent': 'PAE-Fastify-Engine',
         'Accept': 'application/vnd.github.v3+json',
@@ -978,14 +986,63 @@ export async function handleCreatorsRoutes(routeCtx) {
   }
 
   // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot & /api/competitors/pin-snapshot)
+  // Redirects to canonical pins_daily_metrics deletion pattern
   if (method === 'DELETE' && (pathname === '/api/competitors/pin-snapshot' || originalPathname === '/api/creators/pin-snapshot')) {
     invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
     const pinId = searchParams.get('pin_id') || body.pin_id;
     if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
-    const result = await deletePinMetricSnapshot(sql, snapshotId, pinId);
-    return jsonResponse(result);
+    const rawDate = /^\d{4}-\d{2}-\d{2}$/.test(String(snapshotId).trim())
+      ? String(snapshotId).trim()
+      : (searchParams.get('date') || body.date || null);
+    const targetDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate).trim()) ? String(rawDate).trim() : null;
+    if (!targetDate) {
+      return jsonResponse({ error: 'Valid YYYY-MM-DD snapshot date is required' }, 400);
+    }
+    const parsedDate = new Date(`${targetDate}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== targetDate) {
+      return jsonResponse({ error: 'Valid YYYY-MM-DD snapshot date is required' }, 400);
+    }
+    if (sql) {
+      try {
+        await sql`
+          DELETE FROM pins_daily_metrics
+          WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
+        `;
+        await sql`
+          UPDATE universal_master_pins
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{deleted_snapshot_dates}',
+            COALESCE(
+              (
+                SELECT jsonb_agg(DISTINCT d)
+                FROM jsonb_array_elements_text(
+                  CASE
+                    WHEN jsonb_typeof(metadata->'deleted_snapshot_dates') = 'array'
+                      THEN (metadata->'deleted_snapshot_dates') || jsonb_build_array(${targetDate}::text)
+                    ELSE jsonb_build_array(${targetDate}::text)
+                  END
+                ) AS d
+              ),
+              jsonb_build_array(${targetDate}::text)
+            ),
+            true
+          ),
+          updated_at = NOW()
+          WHERE pin_id = ${pinId};
+        `;
+      } catch (err) {
+        console.error(`[CreatorsRoute.DELETE snapshots] delete failed for pin ${pinId}:`, err?.message || err);
+        return jsonResponse({
+          success: false,
+          error: 'SNAPSHOT_DELETE_FAILED',
+          message: err?.message || String(err)
+        }, 500);
+      }
+    }
+    return jsonResponse({ success: true, deleted_snapshot: snapshotId, deleted_date: targetDate, pin_id: pinId });
   }
 
   return null;

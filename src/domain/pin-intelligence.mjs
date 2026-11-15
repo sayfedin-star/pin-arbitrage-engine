@@ -8,6 +8,54 @@
  * 4. Cross-Pillar Shared Pin Freshness Gate (18-Hour Deduplication Shield for VPS Crawlers)
  */
 
+/**
+ * Canonical domain normalizer SSOT.
+ * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * Supports options:
+ * - strictFqdn (boolean): when true, requires a valid domain with TLD and dot
+ * - preserveOrganic (boolean): when true, preserves 'uploaded by user' indicator
+ *
+ * @param {string} rawInput
+ * @param {object} [options={}]
+ * @param {boolean} [options.strictFqdn=false]
+ * @param {boolean} [options.preserveOrganic=false]
+ * @returns {string} Clean domain or empty string
+ */
+export function normalizeCleanDomain(rawInput, { strictFqdn = false, preserveOrganic = false } = {}) {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  const trimmed = rawInput.trim().toLowerCase();
+  if (!trimmed) return '';
+
+  const isOrganic = trimmed === 'uploaded by user' || trimmed === 'uploaded-by-user' || trimmed === 'organic';
+  if (isOrganic) {
+    return (preserveOrganic || !strictFqdn) ? 'uploaded by user' : '';
+  }
+
+  let cleaned = trimmed;
+  try {
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      cleaned = new URL(cleaned).hostname.toLowerCase();
+    } else {
+      cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
+    }
+  } catch (_) {
+    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
+  }
+
+  cleaned = cleaned.replace(/^www\./, '').trim();
+
+  if (strictFqdn) {
+    if (!cleaned || !cleaned.includes('.') || cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
+      return '';
+    }
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(cleaned)) {
+      return '';
+    }
+  }
+
+  return cleaned;
+}
+
 export const ANNOTATION_STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'you', 'are', 'was',
   'were', 'have', 'has', 'had', 'not', 'but', 'what', 'all', 'can', 'her', 'his',
@@ -575,7 +623,18 @@ export function buildRichPinMetadataPayload(pin = {}, existingMeta = {}) {
   merged.method = resolvedMethod;
   merged.is_product = Boolean(pin.is_product ?? incomingMeta.is_product ?? base.is_product ?? false);
   merged.is_video = Boolean(pin.is_video ?? incomingMeta.is_video ?? base.is_video ?? false);
-  merged.reactions = Math.max(0, Number(pin.reaction_count ?? pin.reactions ?? incomingMeta.reactions ?? base.reactions ?? 0));
+  const rawReactions = pin.reaction_count ?? pin.reactions ?? incomingMeta.reactions ?? base.reactions ?? 0;
+  let parsedReactions = 0;
+  if (rawReactions && typeof rawReactions === 'object') {
+    parsedReactions = Object.values(rawReactions).reduce((sum, v) => {
+      const n = Number(v);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+  } else {
+    const n = Number(rawReactions);
+    parsedReactions = Number.isFinite(n) ? n : 0;
+  }
+  merged.reactions = Math.max(0, parsedReactions);
 
   // Preserve live velocity & deltas inside metadata as well for backward-compatible JSONB readers
   assignIfDefined('save_count', pin.save_count ?? pin.saves);

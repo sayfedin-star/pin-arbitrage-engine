@@ -14,28 +14,50 @@ import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEF
 /**
  * Bulk upserts raw pins from Pinterest into 4-table SSOT (universal_master_pins & competitor_board_pins)
  */
-export async function upsertCompetitorPins(sql, competitorId, pins) {
+export async function upsertCompetitorPins(sql, competitorId, pins, options = {}) {
   if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
-  
+
   const numericId = Number(competitorId);
   const cleanedPins = [];
   for (const p of pins) {
     const pinId = String(p.pin_id || p.id || p.pinId || '').trim();
     if (!pinId) continue;
+
+    const rawSaves = p.save_count != null ? Number(p.save_count) : (p.saves != null ? Number(p.saves) : null);
+    const hasExplicitSaves = p.has_explicit_saves !== undefined
+      ? Boolean(p.has_explicit_saves)
+      : (rawSaves !== null && rawSaves > 0);
+    const rawRepins = p.repin_count != null ? Number(p.repin_count) : (p.repins != null ? Number(p.repins) : null);
+    const hasExplicitRepins = p.has_explicit_repins !== undefined
+      ? Boolean(p.has_explicit_repins)
+      : (rawRepins !== null && rawRepins > 0);
+
     cleanedPins.push({
+      ...p,
       pin_id: pinId,
       competitor_id: numericId,
+      creator_username: p.creator_username || options.creator_username || p.account_username || options.account_username || null,
+      account_username: p.account_username || options.account_username || p.creator_username || options.creator_username || null,
       title: p.title || '',
       description: p.description || '',
       link_domain: p.domain || p.link_domain || '',
-      destination_url: p.link || p.destination_url || '',
-      board_id: p.board_id || '',
+      destination_url: p.destination_url || p.link || '',
+      board_id: p.board_id || options.board_id || null,
       board_name: p.board_name || '',
       board_slug: (p.board_name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, ''),
       image_url: p.image_url || '',
-      save_count: p.save_count != null ? Number(p.save_count) : (p.saves != null ? Number(p.saves) : null),
-      repin_count: p.repin_count != null ? Number(p.repin_count) : (p.repins != null ? Number(p.repins) : null),
+      dominant_color: p.dominant_color || null,
+      image_signature: p.image_signature || null,
+      visual_annotations: p.visual_annotations || null,
+      canonical_pin_id: p.canonical_pin_id || null,
+      save_count: rawSaves,
+      repin_count: rawRepins,
       comment_count: p.comment_count != null ? Number(p.comment_count) : (p.comments != null ? Number(p.comments) : null),
+      has_explicit_saves: hasExplicitSaves,
+      has_explicit_repins: hasExplicitRepins,
+      was_live_scraped: p.was_live_scraped !== undefined
+        ? Boolean(p.was_live_scraped)
+        : (p.from_hydration_cache !== true && p.scrape_failed !== true && hasExplicitSaves),
       is_product: Boolean(p.is_product),
       created_at_pinterest: (p.created_at_pinterest && !isNaN(new Date(p.created_at_pinterest).getTime())) ? new Date(p.created_at_pinterest).toISOString() : null
     });
@@ -45,7 +67,8 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
 
   const res = await repoIngestPinsBatch(sql, cleanedPins, {
     competitor_id: numericId,
-    pillar: 'creator'
+    pillar: 'creator',
+    ...options
   });
   return (res.inserted || 0) + (res.updated || 0) || cleanedPins.length;
 }

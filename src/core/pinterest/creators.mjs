@@ -46,7 +46,10 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
     }).then(async r => {
-      if (!r.ok) return { ok: false, status: r.status };
+      if (!r.ok) {
+        if (r.body && !r.bodyUsed) await r.body.cancel().catch(() => {});
+        return { ok: false, status: r.status };
+      }
       return { ok: true, data: await r.json() };
     }),
     pinterestFetch(rssUrl, {
@@ -57,7 +60,10 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       signal: AbortSignal.timeout(timeoutMs),
       dispatcher
     }).then(async r => {
-      if (!r.ok) return { ok: false, status: r.status };
+      if (!r.ok) {
+        if (r.body && !r.bodyUsed) await r.body.cancel().catch(() => {});
+        return { ok: false, status: r.status };
+      }
       return { ok: true, xml: await r.text() };
     })
   ]);
@@ -128,6 +134,7 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       has_explicit_saves: hasExplicitSaves || saves > 0,
       repin_count: Number(p.repin_count || 0),
       repins: Number(p.repin_count || 0),
+      has_explicit_repins: Boolean(p.repin_count != null || Number(p.repin_count || 0) > 0),
       image_url: standardImg,
       image_hd_url: hdImg,
       created_at: pubDatesMap.get(pinId) || null,
@@ -386,14 +393,14 @@ export async function fetchUserResource(username, activeCookie = '', options = {
     }
     const json = await res.json();
     if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
-      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      const unauthRes = await fetchUserProfileUnauth(cleanUser, { dispatcher });
       if (unauthRes.ok) return unauthRes;
       const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
       return { ok: false, error: errMsg };
     }
     const data = json.resource_response?.data;
     if (!data) {
-      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      const unauthRes = await fetchUserProfileUnauth(cleanUser, { dispatcher });
       if (unauthRes.ok) return unauthRes;
       return { ok: false, error: 'no_data' };
     }
@@ -433,7 +440,7 @@ export async function fetchUserResource(username, activeCookie = '', options = {
       story_pin_count: data.story_pin_count !== undefined ? parseCleanMetric(data.story_pin_count, 0) : undefined
     };
   } catch (err) {
-    const unauthRes = await fetchUserProfileUnauth(cleanUser);
+    const unauthRes = await fetchUserProfileUnauth(cleanUser, { dispatcher });
     if (unauthRes.ok) return unauthRes;
     return { ok: false, error: err.message };
   }
@@ -582,7 +589,7 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
       }
     } catch (err) {
       if (page === 1) {
-        const unauth = await fetchUserProfileUnauth(cleanUser);
+        const unauth = await fetchUserProfileUnauth(cleanUser, { dispatcher });
         if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
           return { ok: true, boards: unauth.initial_boards };
         }
@@ -593,7 +600,7 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
   }
 
   if (boards.length === 0) {
-    const unauth = await fetchUserProfileUnauth(cleanUser);
+    const unauth = await fetchUserProfileUnauth(cleanUser, { dispatcher });
     if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
       return { ok: true, boards: unauth.initial_boards };
     }

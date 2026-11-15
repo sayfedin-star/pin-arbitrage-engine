@@ -1,0 +1,2038 @@
+1. Final Verdict
+
+BLOCK (NEEDS FIXES BEFORE MERGE)
+
+Reconciling our independent line-by-line review of PR #7 (Commit.txt) with the
+audit findings in Paste November 15, 2026 - 3:37PM confirms that PR #7 must
+remain blocked. Both reviews independently confirm the same 8 core regressions,
+and cross-verification uncovered both:
+
+1.  Additional production-fatal blockers missed by the second audit (most
+    critically, an EXCLUDED.was_live_scraped SQLSTATE 42703 crash on every
+    ingestPinsBatch() call, normalizePath() removal breaking
+    traversal/double-slash routing, and ESLint --max-warnings=0 unused-import
+    failures).
+2.  Defects inside several of the second audit's own draft patches (listed below
+    so they are not copied verbatim into main).
+
+2. Reconciled Audit of PR #7 + Critique of Second-Audit Draft Patches
+
+A. Critical Corrections to Paste November 15, 2026 - 3:37PM Draft Patches
+
+Before applying fixes, note these defects in the second audit's proposed
+snippets (fixed in Section 3 below):
+
+1.  Missed EXCLUDED.was_live_scraped SQLSTATE 42703 crash
+    (src/modules/pins/repository.mjs:737): universal_master_pins has no
+    was_live_scraped column (Migration 060). Keeping WHEN
+    EXCLUDED.was_live_scraped = TRUE crashes ingestPinsBatch(). Must use
+    COALESCE(EXCLUDED.last_scraped_at, universal_master_pins.last_scraped_at).
+2.  Patch 3A/3C (repository.mjs):
+      - Kept wasLiveScraped = Boolean(p.from_hydration_cache !== true && ...)
+        ignoring explicit p.was_live_scraped === false and unhydrated stubs
+        (!isUnhydratedSaves).
+      - Replaced the 0.15 save-correlation threshold for the 4x & >= 200 repin
+        jump rule with 0.25, and omitted rb.save_count > prev.save_count in
+        is_save_jump.
+      - ingestPinsBatch stub-merge only updated daily_save_velocity when == null
+        (failing to upgrade stub 0 to hydrated positive velocity).
+      - Patch 3E (fetchUniversalPinDossier) reads fields (k.prev_rank,
+        k.crawled_at, etc.) from getPinDossier without fallback if
+        universal_master_pins lacks the row while keyword_serp_positions has it;
+        querying universal_master_pins + pins_daily_metrics directly in
+        the 4-way Promise.all eliminates the duplicate queries safely.
+3.  Patch 4A/4C (062_ssot_hot_tuning_and_functions.sql, settings.mjs):
+      - Kept COALESCE(ump.daily_save_velocity, 0) in pa_topic_clusters_page,
+        which dilutes avg_velocity toward 0 on unhydrated pins (NULL).
+      - pae_sync_canonical_keyword() kept
+        COALESCE(NULLIF(TRIM(NEW.canonical_keyword), ''), NEW.keyword), which
+        fails to re-slugify on UPDATE tracked_keywords SET keyword = ... because
+        NEW.canonical_keyword still holds the old slug.
+4.  Patch 6A/6B (src/lib/math.mjs, src/modules/pulse/service.mjs):
+      - computeAnscombeInflectionScore still called
+        calculateVelocityAcceleration a second time, and
+        calculateVelocityAcceleration still missed p.pin_age_days (causing
+        ~10,000 new Date() allocations across 5,000 pins).
+      - Redeclaring function getNormalizedTag(label) at line 109 of
+        pulse/service.mjs collides with the existing getNormalizedTag
+        declaration (SyntaxError).
+      - Missed removing if (breakoutPinsTop250.length >= 250) break;
+        (pulse/service.mjs:1903, 1913, 1924) and .slice(0, 250) (2523).
+      - Proposed candidate_graph_nodes query still runs a full GROUP BY ...
+        LIMIT 10000 scan instead of seeking WHERE candidate_pin_id =
+        ANY(${candidatePinIds}::text[]).
+5.  Patch 7B (src/modules/keywords/folders-crossover.mjs):
+      - Kept MAX(CASE WHEN pm.recorded_date <= pm.latest_date - INTERVAL 'N
+        days' ...), which collapses 5d/7d/10d/15d repin gains to the oldest
+        snapshot in the 16-day window, and kept wrong >= 100 / >= 2000
+        thresholds instead of >= 10 / >= 200 + save-correlation guards.
+6.  Patch 8B (src/modules/cluster/service.mjs):
+      - Left duplicate computeCrossPillarConvictionScore exports in math.mjs and
+        cluster/service.mjs, left COALESCE(ump.clean_domain, cgn.domain) (broken
+        when ump.clean_domain = ''), and omitted Number.isFinite validation in
+        routes/cluster.mjs.
+7.  Patch 9D/9E (pages.mjs, server.mjs, api-routes.mjs, instabox-boot-sync.sh):
+      - Missed restoring normalizePath(url.pathname) in src/server.mjs and
+        src/plugins/api-routes.mjs.
+      - Added enumerable get and forEach functions onto pages.mjs headers
+        (should use Object.defineProperty(..., { enumerable: false })).
+      - instabox-boot-sync.sh checked "status" instead of InstaBox OpenAPI's
+        "state" (matching .github/workflows/ci.yml:108).
+
+B. Consolidated Blocker Registry (PR #7 file:line)
+
+| \#     | Severity     | Location (`file:line` in PR \#7 diff)                                                                                                                                                                                                          | Confirmed Defect                                                                                                                                                                                                                                                                                                                                                     | Disposition      |
+| ------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| **1**  | **CRITICAL** | `src/modules/pins/repository.mjs:435, 691-692, 736-739`                                                                                                                                                                                        | `EXCLUDED.was_live_scraped` does not exist on `universal_master_pins` (`SQLSTATE 42703` crash on every `ingestPinsBatch()`), and `wasLiveScraped` ignores explicit `false` / unhydrated stubs.                                                                                                                                                                       | **REJECT / FIX** |
+| **2**  | **CRITICAL** | `src/modules/creators/boards-service.mjs:599-611`, `creator-ingest.mjs:17-71`, `competitors-crud.mjs:1168-1169`, `repository.mjs:397-404`                                                                                                      | `filterQualified` drops non-winning board pins from `universal_master_pins` & `competitor_board_pins`; `qualifyPin()` reads only `.saves`/`.repins` (ignoring `save_count`/`repin_count`); `upsertCompetitorPins` broke return type (`number` -\> `object`).                                                                                                         | **REJECT / FIX** |
+| **3**  | **CRITICAL** | `062_ssot_hot_tuning_and_functions.sql:164-186`, `ensure_indexes.mjs:93-102, 147-178`, `settings.mjs:212-232`, `routes/keywords.mjs:970-978`                                                                                                   | `settings.mjs` & `routes/keywords.mjs` bypass `062` slugification/collision suffixing; `ensure_indexes.mjs` overwrites `pae_sync_canonical_keyword()` with a broken non-slugifying version, misses 2 index drops, and drifts on 6 index definitions.                                                                                                                 | **REJECT / FIX** |
+| **4**  | **CRITICAL** | `src/modules/pins/repository.mjs:163-341, 419-478, 551-771, 1668-1728`                                                                                                                                                                         | `ELSE 0` overwrites Phase 4 `NULL` semantics; `is_save_jump` misses Rule 4 & Rule 6 `>20x` and conflates Rule 2/3; `is_repin_jump` dropped save-correlation guards (`0.25`/`0.15`); `ELSE EXCLUDED.save_count` overwrites `0` with `NULL`; `masterPinDedupMap` drops hydrated duplicates after stubs; `fetchUniversalPinDossier` runs duplicate `ksp`/`cbp` queries. | **REJECT / FIX** |
+| **5**  | **HIGH**     | `src/core/pinterest-parser.mjs:657-680`, `src/core/pinterest/pins.mjs:413-425`, `creators.mjs:131`                                                                                                                                             | `extractRelayCompletedPayloads` splits on `,` inside quoted Relay request keys and caps at 250 chars; `fetchPinHybrid` omits `has_explicit_saves`/`has_explicit_repins` promotion; `creators.mjs` checks `!== undefined` on `null`.                                                                                                                                  | **MODIFY**       |
+| **6**  | **HIGH**     | `src/lib/math.mjs:215-317, 419`, `src/modules/pulse/service.mjs:1285-1327, 1872-1925, 2523`, `tests/round16-pulse-503-and-data-truth.test.mjs:462-467`                                                                                         | `computeAnscombeInflectionScore` returns `number` while `pulse/service.mjs` reads object properties; `math.mjs` misses `pin_age_days` causing 10,000 `new Date()` calls; `round16` relaxed CPU gates (`250/200ms` -\> `450ms`) and Pulse truncated `3500` -\> `500`/`250`; conflicting `computeCrossPillarConvictionScore` exports.                                  | **REJECT / FIX** |
+| **7**  | **HIGH**     | `062_ssot_hot_tuning_and_functions.sql:62-95`, `src/modules/creators/creator-analytics.mjs:2034-2078`                                                                                                                                          | Case-sensitive `DISTINCT ON` / `GROUP BY` splits topic variants; `COALESCE(ump.daily_save_velocity, 0)` dilutes `avg_velocity`; `creator-analytics.mjs` omits `@`/case normalization on `creator_username` and has unreachable `return []`.                                                                                                                          | **MODIFY**       |
+| **8**  | **HIGH**     | `src/modules/pulse/service.mjs:1117`, `src/modules/keywords/folders-crossover.mjs:173-179, 562-608, 1956-1990`                                                                                                                                 | Unscoped `candidate_graph_nodes LIMIT 5000`; `repinWindowRows` collapses `5d/7d/10d/15d` to oldest snapshot with wrong thresholds (`100`/`2000`) and fabricates `repin_velocity * 5/7/10/15` on `0`; `cleanExternalDomain` lets `pinterest.com`, `organic`, `unknown`, `localhost` leak through.                                                                     | **REJECT / FIX** |
+| **9**  | **HIGH**     | `src/routes/cluster.mjs:143-164`, `src/modules/cluster/service.mjs:1082-1190`                                                                                                                                                                  | Route double-wraps response (masking errors as HTTP 200) and drops query params; service ignores `minScore`, lacks `NaN` validation, fails on `ump.clean_domain = ''`, and ignores `ump.is_product`.                                                                                                                                                                 | **REJECT / FIX** |
+| **10** | **HIGH**     | `src/server.mjs:502`, `src/plugins/api-routes.mjs:113, 396-411`, `src/routes/pages.mjs:52-61`, `security-and-response.mjs:395-408`                                                                                                             | Removal of `normalizePath(url.pathname)` breaks double-slash (`//accounts`), trailing-slash, and `%2e%2e` path normalization; `pages.mjs` lacks non-enumerable `forEach`/`get`; `api-routes.mjs` mishandles `Headers`/`Response`/`204`.                                                                                                                              | **REJECT / FIX** |
+| **11** | **MEDIUM**   | `src/domain/pin-intelligence.mjs:51`, `src/modules/keywords/analytics.mjs:58-65, 294`                                                                                                                                                          | `normalizeCleanDomain(..., { strictFqdn: true })` rejects 1-char labels (`x.com`, `t.co`); `extractPinTitle` needs object-title unwrapping & `strictFqdn` domain filtering.                                                                                                                                                                                          | **MODIFY**       |
+| **12** | **MEDIUM**   | `src/modules/domains/service.mjs:907, 930, 1339, 1597-1618`, `src/modules/keywords/service.mjs:2216`, `src/routes/creators.mjs:978-991`                                                                                                        | Unnormalized `creator_username` in domain rollup/list; incomplete `IS DISTINCT FROM` guard in rollup upsert; case mismatch `'Uploaded by user'` in `computeVacuumOpportunityScore` SQL; silent no-op & missing tombstone/reconciliation in `DELETE /api/creators/pin-snapshot`.                                                                                      | **MODIFY**       |
+| **13** | **MEDIUM**   | `repository.mjs:16`, `folders-crossover.mjs:10,14`, `pulse/service.mjs:22-23`, `wake-shield/index.mjs:75`, `instabox-boot-sync.sh:48-57`, `migrate.mjs:538`, `creator-velocity-crawler.mjs:377`, `keyword-velocity-crawler.mjs:1098,1345,1579` | ESLint `--max-warnings=0` unused-var/unreachable failures; `instabox-boot-sync.sh` polls `?wait=25s` and `"status"` instead of `"state"`; `migrate.mjs` omits `sql.end()` on offline exit; `creator-velocity-crawler.mjs` can retain dirty velocity on `prevSaves <= 0`; `keyword-velocity-crawler.mjs` dropped `::uuid` cast.                                       | **MODIFY**       |
+
+3. Complete Drop-In Patch Code for All Required Fixes
+
+Patch 1: scripts/migrations/062_ssot_hot_tuning_and_functions.sql (Full File Replacement)
+
+-- Migration 062: SSOT HOT Tuning, Functions, and 20-Worker Partition Indexes
+-- 1. Recreates mv_pulse_24h_summary with strict 24h hydration filtering, synthetic domain filtering, and NULLIF deduplication.
+-- 2. Consolidates pa_topic_clusters_page with case-insensitive deduplication/grouping and NULL-safe AVG(velocity).
+-- 3. Drops HOT-blocking indexes.
+-- 4. Sets fillfactor = 80 on all 4 SSOT operational tables.
+-- 5. Creates 20-worker modulo partition indexes with exact % 20.
+-- 6. Collision-safe canonical_keyword backfill & trigger (always slugifies, handles UPDATE OF keyword, appends -<id> on duplicate/empty).
+
+-- 1. Recreate Materialized View for 24h Pulse Executive Telemetry
+DROP MATERIALIZED VIEW IF EXISTS public.mv_pulse_24h_summary CASCADE;
+
+CREATE MATERIALIZED VIEW public.mv_pulse_24h_summary AS
+SELECT
+  1 AS summary_id,
+  COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+  COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com'))::bigint AS active_domains_24h,
+  COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
+  COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+  COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+  COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h,
+  NOW() AS refreshed_at
+FROM public.universal_master_pins ump
+WHERE ump.is_hydrated = TRUE
+  AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_pulse_24h_summary_id
+  ON public.mv_pulse_24h_summary (summary_id);
+
+-- 2. Consolidate pa_topic_clusters_page into single canonical function
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, INT, TEXT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT, TEXT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(integer, text, integer, integer, text);
+
+CREATE OR REPLACE FUNCTION public.pa_topic_clusters_page(
+  p_min_pins INT DEFAULT 1,
+  p_search TEXT DEFAULT NULL,
+  p_limit INT DEFAULT 50,
+  p_offset INT DEFAULT 0,
+  p_account TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+  topic_name TEXT,
+  pins_count BIGINT,
+  total_saves NUMERIC,
+  avg_saves BIGINT,
+  avg_velocity NUMERIC
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_clean_account TEXT;
+  v_escaped_search TEXT;
+BEGIN
+  v_clean_account := NULLIF(LOWER(TRIM(REPLACE(COALESCE(p_account, ''), '@', ''))), '');
+  v_escaped_search := CASE
+    WHEN p_search IS NULL OR BTRIM(p_search) = '' THEN NULL
+    ELSE REPLACE(REPLACE(REPLACE(BTRIM(p_search), '\', '\\'), '%', '\%'), '_', '\_')
+  END;
+
+  RETURN QUERY
+  WITH extracted AS (
+    SELECT
+      CASE
+        WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+        WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+        ELSE NULL
+      END AS raw_topic,
+      ump.pin_id,
+      COALESCE(ump.save_count, 0) AS saves,
+      ump.daily_save_velocity AS velocity
+    FROM public.universal_master_pins ump,
+    LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(ump.visual_annotations) = 'array' THEN ump.visual_annotations ELSE '[]'::jsonb END) AS ann
+    WHERE (
+        (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+        OR
+        (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+      )
+      AND (v_clean_account IS NULL OR LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) = v_clean_account)
+  ),
+  deduped AS (
+    SELECT DISTINCT ON (e.pin_id, LOWER(e.raw_topic))
+      LOWER(e.raw_topic) AS norm_topic,
+      e.raw_topic,
+      e.pin_id,
+      e.saves,
+      e.velocity
+    FROM extracted e
+    ORDER BY e.pin_id, LOWER(e.raw_topic), e.raw_topic
+  ),
+  aggregated AS (
+    SELECT
+      MIN(d.raw_topic) AS t_name,
+      COUNT(d.pin_id)::BIGINT AS p_count,
+      COALESCE(SUM(d.saves), 0)::NUMERIC AS s_saves,
+      CASE WHEN COUNT(d.pin_id) > 0 THEN (COALESCE(SUM(d.saves), 0) / COUNT(d.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+      COALESCE(ROUND(AVG(d.velocity)::numeric, 2), 0::numeric) AS a_velocity
+    FROM deduped d
+    WHERE (v_escaped_search IS NULL OR d.raw_topic ILIKE '%' || v_escaped_search || '%' ESCAPE '\')
+    GROUP BY d.norm_topic
+    HAVING COUNT(d.pin_id) >= COALESCE(p_min_pins, 1)
+  )
+  SELECT
+    a.t_name AS topic_name,
+    a.p_count AS pins_count,
+    a.s_saves AS total_saves,
+    a.a_saves AS avg_saves,
+    a.a_velocity AS avg_velocity
+  FROM aggregated a
+  ORDER BY a.s_saves DESC
+  LIMIT COALESCE(p_limit, 50)
+  OFFSET COALESCE(p_offset, 0);
+END;
+$$;
+
+-- 3. Drop HOT-blocking and redundant indexes
+DROP INDEX IF EXISTS public.idx_ump_last_scraped_at_desc;
+DROP INDEX IF EXISTS public.idx_ump_last_scraped_at;
+DROP INDEX IF EXISTS public.idx_ump_updated_at_desc;
+DROP INDEX IF EXISTS public.idx_ump_updated;
+DROP INDEX IF EXISTS public.idx_ksp_displaced_updated_desc;
+DROP INDEX IF EXISTS public.idx_pdm_pin_recorded_desc;
+DROP INDEX IF EXISTS public.idx_pdm_pin_snapshot_desc;
+
+-- 4. Fillfactor 80 on all 4 SSOT tables for in-place HOT updates
+ALTER TABLE public.universal_master_pins SET (fillfactor = 80);
+ALTER TABLE public.keyword_serp_positions SET (fillfactor = 80);
+ALTER TABLE public.competitor_board_pins SET (fillfactor = 80);
+ALTER TABLE public.pins_daily_metrics SET (fillfactor = 80);
+
+-- 5. Create missing SSOT & 20-worker partition indexes
+CREATE INDEX IF NOT EXISTS idx_ump_visual_annotations_gin ON public.universal_master_pins USING gin (visual_annotations);
+CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON public.universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));
+CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON public.keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20), keyword_id);
+CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20), competitor_id);
+CREATE INDEX IF NOT EXISTS idx_ump_is_product ON public.universal_master_pins (is_product) WHERE is_product = TRUE;
+CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON public.tracked_keywords (LOWER(keyword));
+CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON public.competitor_profiles (LOWER(username));
+CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON public.competitor_board_pins (competitor_id, position ASC NULLS LAST);
+
+-- 6. Collision-safe canonical_keyword backfill & trigger
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tracked_keywords' AND column_name = 'canonical_keyword'
+  ) THEN
+    ALTER TABLE public.tracked_keywords ADD COLUMN canonical_keyword VARCHAR(255);
+  END IF;
+END $$;
+
+WITH computed AS (
+  SELECT
+    id,
+    COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(keyword), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''), 'kw') AS raw_slug,
+    ROW_NUMBER() OVER (
+      PARTITION BY COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(keyword), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''), 'kw')
+      ORDER BY id ASC
+    ) AS rn
+  FROM public.tracked_keywords
+)
+UPDATE public.tracked_keywords tk
+SET canonical_keyword = CASE
+  WHEN c.rn = 1 THEN LEFT(c.raw_slug, 255)
+  ELSE LEFT(c.raw_slug || '-' || tk.id::text, 255)
+END
+FROM computed c
+WHERE tk.id = c.id
+  AND (tk.canonical_keyword IS NULL OR tk.canonical_keyword = '' OR tk.canonical_keyword <> CASE WHEN c.rn = 1 THEN LEFT(c.raw_slug, 255) ELSE LEFT(c.raw_slug || '-' || tk.id::text, 255) END);
+
+CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  raw_input text;
+  base_slug text;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.keyword IS DISTINCT FROM OLD.keyword AND NEW.canonical_keyword IS NOT DISTINCT FROM OLD.canonical_keyword THEN
+    raw_input := NEW.keyword;
+  ELSE
+    raw_input := COALESCE(NULLIF(TRIM(NEW.canonical_keyword), ''), NEW.keyword);
+  END IF;
+
+  base_slug := COALESCE(
+    NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(raw_input, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
+    NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NEW.keyword, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
+    'kw'
+  );
+
+  IF EXISTS (
+    SELECT 1 FROM public.tracked_keywords
+    WHERE canonical_keyword = LEFT(base_slug, 255)
+      AND (NEW.id IS NULL OR id <> NEW.id)
+  ) THEN
+    NEW.canonical_keyword := LEFT(base_slug || '-' || COALESCE(NEW.id::text, (FLOOR(RANDOM() * 900000 + 100000))::text), 255);
+  ELSE
+    NEW.canonical_keyword := LEFT(base_slug, 255);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_tk_sync_canonical_keyword ON public.tracked_keywords;
+
+CREATE TRIGGER trg_tk_sync_canonical_keyword
+  BEFORE INSERT OR UPDATE OF keyword, canonical_keyword ON public.tracked_keywords
+  FOR EACH ROW EXECUTE FUNCTION public.pae_sync_canonical_keyword();
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords
+  ON public.tracked_keywords (canonical_keyword);
+
+-- 7. Record migration in schema_migrations
+INSERT INTO public.schema_migrations (version, name, checksum, applied_at)
+VALUES ('062', 'ssot_hot_tuning_and_functions', 'phase5_ssot_hot_tuning_062', NOW())
+ON CONFLICT (version) DO UPDATE SET applied_at = NOW();
+
+Patch 2: scripts/ensure_indexes.mjs, src/modules/keywords/settings.mjs, & src/routes/keywords.mjs
+
+// scripts/ensure_indexes.mjs (lines 90-105)
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_hydrated ON universal_master_pins(is_hydrated);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_pdm_pin_recorded_desc;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_pdm_pin_snapshot_desc;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_pdm_recorded_date ON pins_daily_metrics(recorded_date);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_cbp_pin;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_pin_id ON competitor_board_pins(pin_id);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_last_scraped_at_desc;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_last_scraped_at;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_updated_at_desc;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_updated;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_destination_url ON universal_master_pins(destination_url);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_date ON keyword_serp_positions(displaced_date) WHERE is_displaced = TRUE;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ksp_displaced_updated_desc;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_pin_displaced_rank ON keyword_serp_positions(pin_id, is_displaced ASC, rank_position ASC NULLS LAST);`.catch(() => {});
+
+// scripts/ensure_indexes.mjs (section 13, lines 147-178)
+  console.log('[*] 13. Ensuring 062 SSOT and 20-worker modulo partition indexes...');
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_visual_annotations_gin ON public.universal_master_pins USING gin (visual_annotations);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON public.universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON public.keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20), keyword_id);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20), competitor_id);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_product ON public.universal_master_pins (is_product) WHERE is_product = TRUE;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON public.competitor_board_pins (competitor_id, position ASC NULLS LAST);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON public.tracked_keywords (LOWER(keyword));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON public.competitor_profiles (LOWER(username));`.catch(() => {});
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords ON public.tracked_keywords (canonical_keyword);`.catch(() => {});
+
+  await sql`
+    CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      raw_input text;
+      base_slug text;
+    BEGIN
+      IF TG_OP = 'UPDATE' AND NEW.keyword IS DISTINCT FROM OLD.keyword AND NEW.canonical_keyword IS NOT DISTINCT FROM OLD.canonical_keyword THEN
+        raw_input := NEW.keyword;
+      ELSE
+        raw_input := COALESCE(NULLIF(TRIM(NEW.canonical_keyword), ''), NEW.keyword);
+      END IF;
+
+      base_slug := COALESCE(
+        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(raw_input, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
+        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NEW.keyword, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
+        'kw'
+      );
+
+      IF EXISTS (
+        SELECT 1 FROM public.tracked_keywords
+        WHERE canonical_keyword = LEFT(base_slug, 255)
+          AND (NEW.id IS NULL OR id <> NEW.id)
+      ) THEN
+        NEW.canonical_keyword := LEFT(base_slug || '-' || COALESCE(NEW.id::text, (FLOOR(RANDOM() * 900000 + 100000))::text), 255);
+      ELSE
+        NEW.canonical_keyword := LEFT(base_slug, 255);
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_tk_sync_canonical_keyword ON public.tracked_keywords;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_tk_sync_canonical_keyword
+      BEFORE INSERT OR UPDATE OF keyword, canonical_keyword ON public.tracked_keywords
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_canonical_keyword();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+
+// src/modules/keywords/settings.mjs (lines 209-236)
+  const [row] = await sql`
+    INSERT INTO tracked_keywords (
+      keyword,
+      canonical_keyword,
+      category,
+      target_pin_count,
+      crawl_pages_limit,
+      inspection_mode,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${cleanKeyword},
+      NULL,
+      ${category},
+      ${target_pin_count},
+      ${crawl_pages_limit},
+      ${inspection_mode},
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (keyword) DO UPDATE SET
+      canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
+      is_active = TRUE,
+      target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+      crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
+      inspection_mode = COALESCE(NULLIF(EXCLUDED.inspection_mode, ''), tracked_keywords.inspection_mode),
+      updated_at = NOW()
+    RETURNING *;
+  `;
+
+// src/routes/keywords.mjs (lines 966-982)
+    const imported = await sql`
+      INSERT INTO tracked_keywords (
+        keyword, canonical_keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
+      )
+      SELECT
+        u.kw,
+        NULL,
+        ${category}, 50, 2, 'full_catalog', TRUE, NOW()
+      FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
+      ON CONFLICT (keyword) DO UPDATE SET
+        canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
+        target_pin_count = COALESCE(tracked_keywords.target_pin_count, 50),
+        crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, 2),
+        inspection_mode = 'full_catalog',
+        is_active = TRUE,
+        updated_at = NOW()
+      RETURNING id, keyword, category, is_active;
+    `;
+
+Patch 3: src/modules/creators/competitors-crud.mjs, src/modules/creators/boards-service.mjs, & src/modules/creators/creator-ingest.mjs
+
+// src/modules/creators/competitors-crud.mjs (lines 1168-1169 in qualifyPin)
+  const saves = Number(pin.saves ?? pin.save_count ?? 0);
+  const repins = Number(pin.repins ?? pin.repin_count ?? 0);
+
+// src/modules/creators/boards-service.mjs (import line 9 & syncCompetitorBoardPins lines 598-612)
+import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules, qualifyPin } from './competitors-crud.mjs';
+import { upsertCompetitorPins } from './creator-ingest.mjs';
+...
+    // 1. Always persist 100% of raw board pin inventory into universal_master_pins & competitor_board_pins
+    const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
+    if (pins.length > 0 && numericId) {
+      await upsertCompetitorPins(sql, numericId, pins, {
+        creator_username: cleanUsername,
+        account_username: cleanUsername
+      });
+      if (mode !== 'discovery' && shouldAutoArchive) {
+        for (const p of pins) {
+          const qRes = qualifyPin(p, rules);
+          if (typeof qRes === 'boolean' ? qRes : Boolean(qRes?.qualified)) {
+            allQualifiedCount++;
+          }
+        }
+      }
+    }
+
+// src/modules/creators/creator-ingest.mjs (upsertCompetitorPins)
+export async function upsertCompetitorPins(sql, competitorId, pins, options = {}) {
+  if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
+
+  const numericId = Number(competitorId);
+  const cleanedPins = [];
+  for (const p of pins) {
+    const pinId = String(p.pin_id || p.id || p.pinId || '').trim();
+    if (!pinId) continue;
+    const rawSaves = p.save_count != null ? Number(p.save_count) : (p.saves != null ? Number(p.saves) : null);
+    const hasExplicitSaves = p.has_explicit_saves !== undefined
+      ? Boolean(p.has_explicit_saves)
+      : (rawSaves !== null && rawSaves > 0);
+    const rawRepins = p.repin_count != null ? Number(p.repin_count) : (p.repins != null ? Number(p.repins) : null);
+    const hasExplicitRepins = p.has_explicit_repins !== undefined
+      ? Boolean(p.has_explicit_repins)
+      : (rawRepins !== null && rawRepins > 0);
+
+    cleanedPins.push({
+      ...p,
+      pin_id: pinId,
+      competitor_id: numericId,
+      creator_username: p.creator_username || options.creator_username || p.account_username || options.account_username || null,
+      account_username: p.account_username || options.account_username || p.creator_username || options.creator_username || null,
+      title: p.title || '',
+      description: p.description || '',
+      link_domain: p.domain || p.link_domain || '',
+      destination_url: p.destination_url || p.link || '',
+      board_id: p.board_id || options.board_id || null,
+      board_name: p.board_name || '',
+      board_slug: (p.board_name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, ''),
+      image_url: p.image_url || '',
+      dominant_color: p.dominant_color || null,
+      image_signature: p.image_signature || null,
+      visual_annotations: p.visual_annotations || null,
+      canonical_pin_id: p.canonical_pin_id || null,
+      save_count: rawSaves,
+      repin_count: rawRepins,
+      comment_count: p.comment_count != null ? Number(p.comment_count) : (p.comments != null ? Number(p.comments) : null),
+      has_explicit_saves: hasExplicitSaves,
+      has_explicit_repins: hasExplicitRepins,
+      was_live_scraped: p.was_live_scraped !== undefined
+        ? Boolean(p.was_live_scraped)
+        : (p.from_hydration_cache !== true && p.scrape_failed !== true && hasExplicitSaves),
+      is_product: Boolean(p.is_product),
+      created_at_pinterest: (p.created_at_pinterest && !isNaN(new Date(p.created_at_pinterest).getTime())) ? new Date(p.created_at_pinterest).toISOString() : null
+    });
+  }
+
+  if (cleanedPins.length === 0) return 0;
+
+  const res = await repoIngestPinsBatch(sql, cleanedPins, {
+    competitor_id: numericId,
+    pillar: 'creator',
+    ...options
+  });
+  return (res.inserted || 0) + (res.updated || 0) || cleanedPins.length;
+}
+
+Patch 4: src/modules/pins/repository.mjs
+
+Fixes unused imports, EXCLUDED.was_live_scraped 42703 crash, ELSE NULL
+velocity/delta semantics, all 6 is_save_jump rules, is_repin_jump
+save-correlation guards (0.25/0.15), COALESCE zero-save protection,
+wasLiveScraped, stub-merge dedup, and fetchUniversalPinDossier duplicate query
+elimination.
+
+// src/modules/pins/repository.mjs (lines 15-19)
+import { calculateDailyVelocity, isMultiStageHydrationJump, isRepinHydrationJump, detectHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle } from '../../domain/pin-intelligence.mjs';
+import { qualifyPin } from '../creators/competitors-crud.mjs';
+
+-- In resavePinsMetricsBatch: replace evaluated_batch & computed_batch (lines 157-280)
+    evaluated_batch AS (
+      SELECT
+        rb.*,
+        prev.save_count AS prev_save_count,
+        prev.repin_count AS prev_repin_count,
+        prev.recorded_date AS prev_recorded_date,
+        CASE
+          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND rb.save_count > prev.save_count AND (
+            prev.save_count <= 0
+            OR (prev.save_count < 100 AND rb.save_count >= 500)
+            OR (prev.repin_count > 0 AND prev.save_count < prev.repin_count)
+            OR (prev.repin_count > 0 AND prev.save_count = prev.repin_count AND rb.save_count > COALESCE(NULLIF(rb.repin_count, 0), prev.repin_count) * 1.35)
+            OR (COALESCE(prev.repin_count, 0) = 0 AND COALESCE(rb.repin_count, 0) >= 25 AND rb.save_count >= prev.save_count * 2.5)
+            OR (prev.save_count > 0 AND rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
+            OR (prev.save_count < 500 AND (rb.save_count - prev.save_count) > 2000 AND (prev.save_count <= 0 OR (rb.save_count::numeric / GREATEST(1, prev.save_count)) > 20))
+          ) THEN true ELSE false
+        END AS is_save_jump,
+        CASE
+          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND rb.repin_count > prev.repin_count AND (
+            (prev.repin_count <= 0 AND rb.repin_count >= 10)
+            OR (
+              prev.repin_count < 100
+              AND rb.repin_count >= 500
+              AND (rb.save_count IS NULL OR prev.save_count IS NULL OR GREATEST(0, rb.save_count - prev.save_count) < (rb.repin_count - prev.repin_count) * 0.25)
+            )
+            OR (
+              prev.repin_count > 0
+              AND rb.repin_count >= prev.repin_count * 4
+              AND (rb.repin_count - prev.repin_count) >= 200
+              AND (rb.save_count IS NULL OR prev.save_count IS NULL OR GREATEST(0, rb.save_count - prev.save_count) < (rb.repin_count - prev.repin_count) * 0.15)
+            )
+          ) THEN true ELSE false
+        END AS is_repin_jump
+      FROM (
+        SELECT rb_sub.*, (NOW() AT TIME ZONE 'UTC')::date AS recorded_date
+        FROM raw_batch rb_sub
+      ) rb
+      LEFT JOIN LATERAL (
+        SELECT pm.save_count, pm.repin_count, pm.recorded_date
+        FROM pins_daily_metrics pm
+        WHERE pm.pin_id = rb.pin_id
+          AND pm.recorded_date < rb.recorded_date
+        ORDER BY pm.recorded_date DESC
+        LIMIT 1
+      ) prev ON TRUE
+    ),
+    computed_batch AS (
+      SELECT
+        eb.*,
+        CASE
+          WHEN eb.save_count IS NULL THEN NULL
+          WHEN eb.is_save_jump THEN 0::double precision
+          WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
+          WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
+           AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+            LEAST(
+              25000::double precision,
+              ROUND(
+                GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                2
+              )::double precision
+            )
+          ELSE NULL::double precision
+        END AS effective_velocity,
+        CASE
+          WHEN eb.repin_count IS NULL THEN NULL
+          WHEN eb.is_repin_jump THEN 0::double precision
+          WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
+          WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
+           AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+            LEAST(
+              25000::double precision,
+              ROUND(
+                GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                2
+              )::double precision
+            )
+          ELSE NULL::double precision
+        END AS effective_repin_velocity,
+        CASE
+          WHEN eb.save_count IS NULL THEN NULL
+          WHEN eb.is_save_jump THEN 0::bigint
+          WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint)
+          WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
+           AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+            LEAST(
+              25000::bigint,
+              ROUND(
+                GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+              )::bigint
+            )
+          ELSE NULL::bigint
+        END AS true_delta_saves_24h,
+        CASE
+          WHEN eb.repin_count IS NULL THEN NULL
+          WHEN eb.is_repin_jump THEN 0::int
+          WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000, GREATEST(0, eb.delta_repins_24h)::int)
+          WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
+           AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+           AND eb.repin_count > eb.prev_repin_count THEN
+            LEAST(
+              25000,
+              ROUND(
+                GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+              )::int
+            )
+          ELSE NULL::int
+        END AS effective_delta_repins_24h
+      FROM evaluated_batch eb
+    ),
+
+-- In resavePinsMetricsBatch upd_master (lines 285-296):
+        save_count = CASE
+          WHEN COALESCE(cb.save_count, 0) > 0 THEN cb.save_count
+          WHEN COALESCE(ump.save_count, 0) > 0 THEN ump.save_count
+          ELSE COALESCE(cb.save_count, ump.save_count)
+        END,
+        repin_count = CASE
+          WHEN COALESCE(cb.repin_count, 0) > 0 THEN cb.repin_count
+          WHEN COALESCE(ump.repin_count, 0) > 0 THEN ump.repin_count
+          ELSE COALESCE(cb.repin_count, ump.repin_count)
+        END,
+
+-- In resavePinsMetricsBatch ON CONFLICT (pin_id, recorded_date) DO UPDATE SET (lines 332-343):
+        save_count = CASE
+          WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count
+          WHEN COALESCE(pins_daily_metrics.save_count, 0) > 0 THEN pins_daily_metrics.save_count
+          ELSE COALESCE(EXCLUDED.save_count, pins_daily_metrics.save_count)
+        END,
+        repin_count = CASE
+          WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count
+          WHEN COALESCE(pins_daily_metrics.repin_count, 0) > 0 THEN pins_daily_metrics.repin_count
+          ELSE COALESCE(EXCLUDED.repin_count, pins_daily_metrics.repin_count)
+        END,
+
+// In ingestPinsBatch (lines 397-480):
+    if (options.filterQualified === true) {
+      const qRes = qualifyPin(p, options.rules);
+      const isQual = typeof qRes === 'boolean' ? qRes : Boolean(qRes?.qualified);
+      if (!isQual) {
+        filteredCount++;
+        continue;
+      }
+    }
+
+    const domainRaw = String(p.domain || p.link_domain || '').trim();
+    let destUrl = String(p.destination_url || p.link || '').trim();
+    let cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
+    if (!cleanDomain && destUrl) {
+      try { cleanDomain = normalizeCleanDomain(new URL(destUrl).hostname); } catch (_) {}
+    }
+
+    const boardId = String(p.board_id || options.board_id || '').trim() || null;
+    const boardName = String(p.board_name || p.boardName || '').trim() || null;
+    const boardSlug = String(p.board_slug || '').trim() || (boardName ? boardName.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') : null);
+    const competitorId = p.competitor_id != null ? Number(p.competitor_id) : (options.competitor_id != null ? Number(options.competitor_id) : null);
+    const kwId = p.keyword_id != null ? Number(p.keyword_id) : null;
+
+    if (!masterPinDedupMap.has(pid)) {
+      // ... keep existing masterPinDedupMap.set(pid, { ... }) block, changing ONLY wasLiveScraped line to:
+      const wasLiveScraped = p.was_live_scraped !== undefined
+        ? Boolean(p.was_live_scraped)
+        : Boolean(p.from_hydration_cache !== true && p.scrape_failed !== true && !p.fromCache && !isUnhydratedSaves);
+      // ...
+    } else {
+      const existing = masterPinDedupMap.get(pid);
+      const richMeta = buildRichPinMetadataPayload(p, existing.metadata || {});
+      const rawSaves = p.save_count ?? p.saves;
+      const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
+      const incomingSaves = isUnhydratedSaves ? null : Math.max(0, Number(rawSaves || 0));
+      const rawRepins = p.repin_count ?? p.repins;
+      const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined) || (p.has_explicit_repins === false && Number(rawRepins || 0) === 0);
+      const incomingRepins = isUnhydratedRepins ? null : Math.max(0, Number(rawRepins || 0));
+      const incomingWasLive = p.was_live_scraped !== undefined
+        ? Boolean(p.was_live_scraped)
+        : Boolean(p.from_hydration_cache !== true && p.scrape_failed !== true && !p.fromCache && !isUnhydratedSaves);
+
+      if (incomingSaves !== null) {
+        existing.save_count = existing.save_count !== null ? Math.max(Number(existing.save_count), incomingSaves) : incomingSaves;
+      }
+      if (incomingRepins !== null) {
+        existing.repin_count = existing.repin_count !== null ? Math.max(Number(existing.repin_count), incomingRepins) : incomingRepins;
+      }
+      for (const [k, alt] of [['comment_count', 'comments'], ['share_count', 'shares'], ['reaction_count', 'reactions']]) {
+        const val = p[k] ?? p[alt];
+        if (val != null && Number.isFinite(Number(val))) {
+          existing[k] = existing[k] != null ? Math.max(Number(existing[k]), Number(val)) : Number(val);
+        }
+      }
+      if (p.daily_save_velocity != null && Number.isFinite(Number(p.daily_save_velocity))) {
+        const v = Number(p.daily_save_velocity);
+        existing.daily_save_velocity = existing.daily_save_velocity != null ? Math.max(Number(existing.daily_save_velocity), v) : v;
+      }
+      if (p.daily_repin_velocity != null && Number.isFinite(Number(p.daily_repin_velocity))) {
+        const rv = Number(p.daily_repin_velocity);
+        existing.daily_repin_velocity = existing.daily_repin_velocity != null ? Math.max(Number(existing.daily_repin_velocity), rv) : rv;
+      }
+      for (const dk of ['delta_saves_24h', 'delta_repins_24h', 'gains_5d', 'gains_7d', 'gains_10d', 'gains_15d']) {
+        if (p[dk] != null && Number.isFinite(Number(p[dk]))) {
+          existing[dk] = existing[dk] != null ? Math.max(Number(existing[dk]), Number(p[dk])) : Number(p[dk]);
+        }
+      }
+      existing.is_hydrated = Boolean(existing.is_hydrated || !isUnhydratedSaves || p.is_hydrated === true);
+      existing.was_live_scraped = Boolean(existing.was_live_scraped || incomingWasLive);
+
+      const candidateTitle = String(p.title || '').trim();
+      if ((!existing.title || isSyntheticGarbageTitle(existing.title, pid)) && candidateTitle && !isSyntheticGarbageTitle(candidateTitle, pid)) {
+        existing.title = candidateTitle;
+      } else if (!existing.title && candidateTitle) {
+        existing.title = candidateTitle;
+      }
+      if (!existing.description && p.description) existing.description = String(p.description);
+      if (!existing.alt_text && p.alt_text) existing.alt_text = String(p.alt_text);
+      if (!existing.image_url && p.image_url) existing.image_url = String(p.image_url);
+      if (!existing.destination_url && destUrl) existing.destination_url = destUrl;
+      if (!existing.domain && domainRaw) existing.domain = domainRaw;
+      if (!existing.clean_domain && cleanDomain) existing.clean_domain = cleanDomain;
+      if (!existing.creator_username && (p.creator_username || p.account_username || cleanAccount)) {
+        existing.creator_username = String(p.creator_username || p.account_username || cleanAccount).replace(/^@/, '').trim().toLowerCase() || null;
+      }
+      if (!existing.board_id && boardId) existing.board_id = boardId;
+      if (!existing.board_name && boardName) existing.board_name = boardName;
+      if (!existing.board_slug && boardSlug) existing.board_slug = boardSlug;
+      if ((!existing.dominant_color || existing.dominant_color === '#888888') && p.dominant_color) {
+        existing.dominant_color = String(p.dominant_color);
+      }
+      if ((!existing.visual_annotations || existing.visual_annotations.length === 0) && Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0) {
+        existing.visual_annotations = p.visual_annotations;
+      }
+      if (!existing.image_signature && richMeta.image_signature) existing.image_signature = String(richMeta.image_signature);
+      if (!existing.canonical_pin_id && richMeta.canonical_pin_id) existing.canonical_pin_id = String(richMeta.canonical_pin_id);
+      if ((!existing.creation_method || existing.creation_method === 'pinterest_platform') && (p.creation_method || p.method)) {
+        existing.creation_method = String(p.creation_method || p.method);
+      }
+      existing.metadata = richMeta;
+    }
+
+-- In ingestPinsBatch: replace evaluated_batch, computed_batch, and ON CONFLICT updates (lines 545-772)
+      evaluated_batch AS (
+        SELECT
+          rb.*,
+          prev.save_count AS prev_save_count,
+          prev.repin_count AS prev_repin_count,
+          prev.recorded_date AS prev_recorded_date,
+          CASE
+            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND rb.save_count > prev.save_count AND (
+              prev.save_count <= 0
+              OR (prev.save_count < 100 AND rb.save_count >= 500)
+              OR (prev.repin_count > 0 AND prev.save_count < prev.repin_count)
+              OR (prev.repin_count > 0 AND prev.save_count = prev.repin_count AND rb.save_count > COALESCE(NULLIF(rb.repin_count, 0), prev.repin_count) * 1.35)
+              OR (COALESCE(prev.repin_count, 0) = 0 AND COALESCE(rb.repin_count, 0) >= 25 AND rb.save_count >= prev.save_count * 2.5)
+              OR (prev.save_count > 0 AND rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
+              OR (prev.save_count < 500 AND (rb.save_count - prev.save_count) > 2000 AND (prev.save_count <= 0 OR (rb.save_count::numeric / GREATEST(1, prev.save_count)) > 20))
+            ) THEN true ELSE false
+          END AS is_save_jump,
+          CASE
+            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND rb.repin_count > prev.repin_count AND (
+              (prev.repin_count <= 0 AND rb.repin_count >= 10)
+              OR (
+                prev.repin_count < 100
+                AND rb.repin_count >= 500
+                AND (rb.save_count IS NULL OR prev.save_count IS NULL OR GREATEST(0, rb.save_count - prev.save_count) < (rb.repin_count - prev.repin_count) * 0.25)
+              )
+              OR (
+                prev.repin_count > 0
+                AND rb.repin_count >= prev.repin_count * 4
+                AND (rb.repin_count - prev.repin_count) >= 200
+                AND (rb.save_count IS NULL OR prev.save_count IS NULL OR GREATEST(0, rb.save_count - prev.save_count) < (rb.repin_count - prev.repin_count) * 0.15)
+              )
+            ) THEN true ELSE false
+          END AS is_repin_jump
+        FROM (
+          SELECT rb_sub.*, (NOW() AT TIME ZONE 'UTC')::date AS recorded_date
+          FROM raw_batch rb_sub
+        ) rb
+        LEFT JOIN LATERAL (
+          SELECT pm.save_count, pm.repin_count, pm.recorded_date
+          FROM pins_daily_metrics pm
+          WHERE pm.pin_id = rb.pin_id
+            AND pm.recorded_date < rb.recorded_date
+          ORDER BY pm.recorded_date DESC
+          LIMIT 1
+        ) prev ON TRUE
+      ),
+      computed_batch AS (
+        SELECT
+          eb.*,
+          CASE
+            WHEN eb.save_count IS NULL THEN NULL
+            WHEN eb.is_save_jump THEN 0::double precision
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
+            WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
+             AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+              LEAST(
+                25000::double precision,
+                ROUND(
+                  GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                  / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                  2
+                )::double precision
+              )
+            ELSE NULL::double precision
+          END AS effective_save_velocity,
+          CASE
+            WHEN eb.repin_count IS NULL THEN NULL
+            WHEN eb.is_repin_jump THEN 0::double precision
+            WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
+            WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
+             AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+              LEAST(
+                25000::double precision,
+                ROUND(
+                  GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                  / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                  2
+                )::double precision
+              )
+            ELSE NULL::double precision
+          END AS effective_repin_velocity,
+          CASE
+            WHEN eb.save_count IS NULL THEN NULL
+            WHEN eb.is_save_jump THEN 0::bigint
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint)
+            WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
+             AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7 THEN
+              LEAST(
+                25000::bigint,
+                ROUND(
+                  GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                  / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                )::bigint
+              )
+            ELSE NULL::bigint
+          END AS true_delta_saves_24h,
+          CASE
+            WHEN eb.repin_count IS NULL THEN NULL
+            WHEN eb.is_repin_jump THEN 0::bigint
+            WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_repins_24h::bigint))
+            WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
+             AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+             AND eb.repin_count > eb.prev_repin_count THEN
+              LEAST(
+                25000::bigint,
+                ROUND(
+                  GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                  / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                )::bigint
+              )
+            ELSE NULL::bigint
+          END AS true_delta_repins_24h
+        FROM evaluated_batch eb
+      ),
+...
+-- In upsert_pins ON CONFLICT (pin_id) DO UPDATE SET (lines 713-741):
+          save_count = CASE
+            WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count
+            WHEN COALESCE(universal_master_pins.save_count, 0) > 0 THEN universal_master_pins.save_count
+            ELSE COALESCE(EXCLUDED.save_count, universal_master_pins.save_count)
+          END,
+          repin_count = CASE
+            WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count
+            WHEN COALESCE(universal_master_pins.repin_count, 0) > 0 THEN universal_master_pins.repin_count
+            ELSE COALESCE(EXCLUDED.repin_count, universal_master_pins.repin_count)
+          END,
+          ...
+          last_resaved_at = NOW(),
+          last_scraped_at = COALESCE(EXCLUDED.last_scraped_at, universal_master_pins.last_scraped_at),
+          updated_at = NOW()
+
+-- In pins_daily_metrics ON CONFLICT (pin_id, recorded_date) DO UPDATE SET (lines 762-772):
+          save_count = CASE
+            WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count
+            WHEN COALESCE(pins_daily_metrics.save_count, 0) > 0 THEN pins_daily_metrics.save_count
+            ELSE COALESCE(EXCLUDED.save_count, pins_daily_metrics.save_count)
+          END,
+          repin_count = CASE
+            WHEN COALESCE(EXCLUDED.repin_count, 0) > 0 THEN EXCLUDED.repin_count
+            WHEN COALESCE(pins_daily_metrics.repin_count, 0) > 0 THEN pins_daily_metrics.repin_count
+            ELSE COALESCE(EXCLUDED.repin_count, pins_daily_metrics.repin_count)
+          END,
+
+// In fetchUniversalPinDossier (lines 1704-1728):
+  const masterPinPromise = dbSql`
+    SELECT *
+    FROM universal_master_pins
+    WHERE pin_id = ${cleanPinId}
+    LIMIT 1;
+  `.catch((err) => { captureDbErr(err); return []; });
+
+  const dailySnapshotsPromise = dbSql`
+    SELECT
+      recorded_date AS snapshot_date, save_count, repin_count,
+      comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity,
+      updated_at
+    FROM pins_daily_metrics
+    WHERE pin_id = ${cleanPinId}
+    ORDER BY recorded_date DESC
+    LIMIT 90;
+  `.catch((err) => { captureDbErr(err); return []; });
+
+  const [
+    masterPinRows,
+    initialSnapshots,
+    hubSerpRowsRaw,
+    hubCompetitorRowsRaw
+  ] = await Promise.all([
+    masterPinPromise,
+    dailySnapshotsPromise,
+    hubSerpPromise,
+    hubCompetitorPromise
+  ]);
+
+  const row = masterPinRows?.[0] || null;
+  let masterRecord = null;
+  if (row) {
+    const meta = normalizeMetadata(row.metadata);
+    masterRecord = {
+      ...row,
+      metadata: meta,
+      creation_method: meta.creation_method || meta.method || row.creation_method || null
+    };
+  }
+
+Patch 5: src/core/pinterest-parser.mjs, src/core/pinterest/pins.mjs, & src/core/pinterest/creators.mjs
+
+// src/core/pinterest-parser.mjs (extractRelayCompletedPayloads)
+export function extractRelayCompletedPayloads(rawHtml) {
+  if (!rawHtml || typeof rawHtml !== 'string') return [];
+  const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
+  const relayPrefix = '__PWS_RELAY_REGISTER_COMPLETED_REQUEST__';
+  const results = [];
+  let searchPos = 0;
+
+  while ((searchPos = html.indexOf(relayPrefix, searchPos)) !== -1) {
+    let cursor = searchPos + relayPrefix.length;
+    while (cursor < html.length && /\s/.test(html[cursor])) cursor++;
+    if (cursor >= html.length || html[cursor] !== '(') {
+      searchPos += relayPrefix.length;
+      continue;
+    }
+
+    let argDepth = 0;
+    let argQuote = null;
+    let argEscaped = false;
+    let firstComma = -1;
+
+    for (let i = cursor + 1; i < html.length; i++) {
+      const ch = html[i];
+      if (argQuote) {
+        if (argEscaped) {
+          argEscaped = false;
+        } else if (ch === '\\') {
+          argEscaped = true;
+        } else if (ch === argQuote) {
+          argQuote = null;
+        }
+      } else {
+        if (ch === '"' || ch === "'" || ch === '`') {
+          argQuote = ch;
+        } else if (ch === '(' || ch === '{' || ch === '[') {
+          argDepth++;
+        } else if (ch === '}' || ch === ']') {
+          if (argDepth > 0) argDepth--;
+        } else if (ch === ')') {
+          if (argDepth === 0) {
+            searchPos = i + 1;
+            break;
+          }
+          argDepth--;
+        } else if (ch === ',' && argDepth === 0) {
+          firstComma = i;
+          break;
+        }
+      }
+    }
+
+    if (firstComma === -1) {
+      if (searchPos <= cursor) searchPos = cursor + 1;
+      continue;
+    }
+
+    let braceStart = firstComma + 1;
+    while (braceStart < html.length && /\s/.test(html[braceStart])) braceStart++;
+    if (braceStart >= html.length || html[braceStart] !== '{') {
+      searchPos = firstComma + 1;
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+    let foundEnd = -1;
+
+    for (let i = braceStart; i < html.length; i++) {
+      const ch = html[i];
+      if (inString) {
+        if (isEscaped) {
+          isEscaped = false;
+        } else if (ch === '\\') {
+          isEscaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else {
+        if (ch === '"') {
+          inString = true;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            foundEnd = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (foundEnd === -1) {
+      searchPos = braceStart + 1;
+      continue;
+    }
+
+    searchPos = foundEnd;
+
+    try {
+      const jsonStr = html.slice(braceStart, foundEnd);
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed === 'object') {
+        results.push(parsed);
+      }
+    } catch (_) {}
+  }
+
+  return results;
+}
+
+// src/core/pinterest/pins.mjs (lines 413-425 in fetchPinHybrid)
+        if (p.saves !== null && p.saves !== undefined) {
+          ssrRes.pin.saves = (ssrRes.pin.saves !== null && ssrRes.pin.saves !== undefined)
+            ? Math.max(Number(ssrRes.pin.saves), Number(p.saves))
+            : Number(p.saves);
+          ssrRes.pin.save_count = ssrRes.pin.saves;
+          if (p.has_explicit_saves || Number(p.saves) > 0) ssrRes.pin.has_explicit_saves = true;
+        }
+        if (p.repins !== null && p.repins !== undefined) {
+          ssrRes.pin.repins = (ssrRes.pin.repins !== null && ssrRes.pin.repins !== undefined)
+            ? Math.max(Number(ssrRes.pin.repins), Number(p.repins))
+            : Number(p.repins);
+          ssrRes.pin.repin_count = ssrRes.pin.repins;
+          if (p.has_explicit_repins || Number(p.repins) > 0) ssrRes.pin.has_explicit_repins = true;
+        }
+
+// src/core/pinterest/creators.mjs (line 131)
+      has_explicit_repins: Boolean(p.repin_count != null || Number(p.repin_count || 0) > 0),
+
+Patch 6: src/lib/math.mjs, src/modules/pulse/service.mjs, & tests/round16-pulse-503-and-data-truth.test.mjs
+
+// src/lib/math.mjs (replaces computeAnscombeInflectionScore, computeCrossPillarConvictionScore, and calculateVelocityAcceleration)
+function _computeVelocityTelemetry(pinOrCurrentVel, maybeGains7dOrPriorVel = null, maybeOptions = {}) {
+  let currentVel = 0;
+  let baseVel = 0;
+  let repinVel = 0;
+  let commentVel = 0;
+  let ageDays = 0;
+  let kappa = 5;
+  let baselineDays = 6;
+
+  if (typeof pinOrCurrentVel === 'number') {
+    currentVel = Math.max(0, pinOrCurrentVel);
+    const opts = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+    kappa = Math.max(1, Number(opts.kappa ?? 5));
+    baselineDays = Math.max(1, Number(opts.baselineDays ?? 6));
+    repinVel = Math.max(0, Number(opts.repinVelocity ?? opts.daily_repin_velocity ?? 0));
+    commentVel = Math.max(0, Number(opts.commentVelocity ?? opts.comments ?? 0));
+    if (opts.ageDays != null) {
+      ageDays = Math.max(0, Number(opts.ageDays));
+    } else if (opts.createdAt || opts.created_at_pinterest) {
+      const ms = new Date(opts.createdAt || opts.created_at_pinterest).getTime();
+      if (Number.isFinite(ms) && ms > 0) ageDays = Math.max(0, (Date.now() - ms) / 86400000);
+    }
+
+    if (opts.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(opts.baselineVelocity));
+    } else if (maybeGains7dOrPriorVel != null && Number.isFinite(Number(maybeGains7dOrPriorVel))) {
+      const g = Number(maybeGains7dOrPriorVel);
+      baseVel = opts.isGains7d ? Math.max(0, g / 7) : Math.max(0, g);
+    }
+  } else if (pinOrCurrentVel && typeof pinOrCurrentVel === 'object') {
+    const p = pinOrCurrentVel;
+    const opts = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+    currentVel = Math.max(0, Number(opts.currentVelocity ?? p.daily_save_velocity ?? p.velocity ?? p.currentVelocity ?? 0));
+    kappa = Math.max(1, Number(opts.kappa ?? p.kappa ?? 5));
+    baselineDays = Math.max(1, Number(opts.baselineDays ?? p.baselineDays ?? 6));
+
+    if (opts.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(opts.baselineVelocity));
+    } else if (p.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(p.baselineVelocity));
+    } else if (p.priorVelocity != null) {
+      baseVel = Math.max(0, Number(p.priorVelocity));
+    } else if (p.gains_7d != null && Number(p.gains_7d) > 0) {
+      baseVel = Math.max(0, Number(p.gains_7d) / 7);
+    } else if (p.gains_5d != null && Number(p.gains_5d) > 0) {
+      baseVel = Math.max(0, Number(p.gains_5d) / 5);
+    }
+
+    repinVel = Math.max(0, Number(p.daily_repin_velocity ?? p.repinVelocity ?? p.delta_repins_24h ?? 0));
+    commentVel = Math.max(0, Number(p.comment_count ?? p.comments ?? p.commentVelocity ?? 0));
+
+    const precomputedAge = opts.ageDays ?? p.pin_age_days ?? p.pinAgeDays ?? p.age_days;
+    if (precomputedAge != null) {
+      ageDays = Math.max(0, Number(precomputedAge));
+    } else if (p.created_at_pinterest || p.created_at || p.createdAt) {
+      const ms = new Date(p.created_at_pinterest || p.created_at || p.createdAt).getTime();
+      if (Number.isFinite(ms) && ms > 0) ageDays = Math.max(0, (Date.now() - ms) / 86400000);
+    }
+  } else {
+    return { anscombe_z_gain: 0, repin_lead_score: 0, acceleration_score: 0, breakout_score: 0 };
+  }
+
+  const smoothedBase = Math.max(0, (baseVel * baselineDays + kappa) / (baselineDays + 1));
+  const anscombeCurr = 2 * Math.sqrt(currentVel + 0.375);
+  const anscombeBase = 2 * Math.sqrt(smoothedBase + 0.375);
+  const rawAcceleration = anscombeCurr - anscombeBase;
+
+  const repinLeadRaw = Math.min(2.0, (repinVel * 1.5 + commentVel * 2.0) / Math.max(1, currentVel + 1));
+  const leadBoost = 1.0 + repinLeadRaw;
+  const ageDecay = 1.0 / Math.sqrt(1.0 + (ageDays / 180.0));
+  const finalAcceleration = rawAcceleration * leadBoost * ageDecay;
+
+  const acceleration_score = Number.isFinite(finalAcceleration) ? Math.round(finalAcceleration * 100) / 100 : 0;
+  const anscombe_z_gain = Number.isFinite(rawAcceleration) ? Math.round(rawAcceleration * 100) / 100 : 0;
+  const repin_lead_score = Number.isFinite(repinLeadRaw) ? Math.round(repinLeadRaw * 100) / 100 : 0;
+  const breakout_score = Math.min(100, Math.max(0, Math.round(
+    (Math.max(0, anscombe_z_gain) * 12) + (repin_lead_score * 15) + (Math.max(0, acceleration_score) * 10)
+  )));
+
+  return { anscombe_z_gain, repin_lead_score, acceleration_score, breakout_score };
+}
+
+export function computeAnscombeInflectionScore(pin, options = {}) {
+  if (pin == null) {
+    return { anscombe_z_gain: 0, repin_lead_score: 0, acceleration_score: 0, breakout_score: 0 };
+  }
+  return _computeVelocityTelemetry(pin, null, options);
+}
+
+export function computeCrossPillarConvictionScore(params = {}) {
+  if (!params || typeof params !== 'object') {
+    return {
+      conviction_score: 0,
+      pillar_convergence_count: 0,
+      convergence_tier: 'UNCONVERGED',
+      p2p_factor: 0,
+      velocity_factor: 0,
+      serp_factor: 0,
+      age_factor: 0
+    };
+  }
+
+  const seedOverlap = Math.max(0, Number(params.seed_overlap_count ?? params.seedOverlapCount ?? params.seedOverlap ?? params.overlap ?? 0));
+  const multihit = Math.max(0, Number(params.pixie_multihit_score ?? params.pixieScore ?? params.multihitScore ?? params.multihit ?? 0));
+  const couplingRho = Math.max(0, Number(params.coupling_rho ?? params.couplingRho ?? 0));
+  const velocity = Math.max(0, Number(params.daily_save_velocity ?? params.dailyVelocity ?? params.daily_velocity ?? params.velocity ?? 0));
+  const saves = Math.max(0, Number(params.save_count ?? params.total_saves ?? params.saves ?? 0));
+  const serpRank = params.rank_position ?? params.serpRank ?? params.rank ?? null;
+  const serpKeywords = Math.max(0, Number(params.serp_keywords_count ?? params.serpKeywordsCount ?? params.serpCount ?? params.keywords_count ?? 0));
+  const isSerpRanked = Boolean(params.isSerpRanked ?? params.is_serp_ranked ?? ((serpRank != null && Number(serpRank) > 0 && Number(serpRank) <= 50) || serpKeywords > 0));
+  const isCompetitor = Boolean(params.is_competitor ?? params.isCompetitor ?? params.competitor_id ?? params.creator_username ?? params.account_username);
+  const domain = String(params.domain ?? params.clean_domain ?? '').trim();
+  const rawAge = params.domain_age_days ?? params.domainAgeDays;
+  const domainAgeDays = rawAge != null ? Number(rawAge) : null;
+  const arbitrageScore = Math.max(0, Number(params.arbitrage_score ?? params.arbitrageScore ?? 0));
+  const isProduct = Boolean(params.is_product ?? params.isProduct);
+
+  let pillars = 0;
+  if (seedOverlap >= 1 || multihit > 0 || couplingRho > 0) pillars++;
+  if (isSerpRanked) pillars++;
+  if (isCompetitor || velocity >= 2.0 || saves >= 1000) pillars++;
+  if ((domain && domain !== 'uploaded by user' && domain.includes('.')) || (domainAgeDays != null && domainAgeDays > 0 && domainAgeDays <= 1095) || arbitrageScore > 0) pillars++;
+
+  const p2pFactor = (seedOverlap > 0 || multihit > 0 || couplingRho > 0)
+    ? Math.min(35, Math.log2(Math.max(1, seedOverlap) + 1) * 15 + (couplingRho * 10) + (multihit > 100 ? 5 : 0))
+    : 0;
+
+  const velocityFactor = Math.min(25, Math.log1p(velocity) * 6 + (saves > 1000 ? Math.log10(saves) * 1.5 : 0));
+
+  let serpFactor = 0;
+  if (isSerpRanked) {
+    const rank = serpRank != null && Number(serpRank) > 0 ? Number(serpRank) : 50;
+    const rankBonus = rank <= 3 ? 15 : (rank <= 10 ? 10 : 5);
+    const kwBonus = Math.min(10, Math.max(1, serpKeywords) * 2);
+    serpFactor = rankBonus + kwBonus;
+  }
+
+  let ageFactor = 0;
+  if (domainAgeDays != null && domainAgeDays > 0) {
+    if (domainAgeDays <= 365) ageFactor = 15;
+    else if (domainAgeDays <= 730) ageFactor = 10;
+    else if (domainAgeDays <= 1095) ageFactor = 5;
+  } else if (arbitrageScore > 0) {
+    ageFactor = Math.min(15, arbitrageScore * 0.15);
+  }
+
+  const productMultiplier = isProduct ? 0.5 : 1.0;
+  const rawScore = (p2pFactor + velocityFactor + serpFactor + ageFactor) * productMultiplier;
+  const conviction_score = Number(Math.min(100, Math.max(0, rawScore)).toFixed(1));
+
+  let convergence_tier = 'UNCONVERGED';
+  if (pillars >= 3 && conviction_score >= 70) {
+    convergence_tier = 'HIGH_CONVICTION_QUAD_PILLAR';
+  } else if (pillars >= 2 && conviction_score >= 45) {
+    convergence_tier = 'CONVERGENT_DUAL_PILLAR';
+  } else if (pillars >= 1 && conviction_score >= 20) {
+    convergence_tier = 'EMERGING_SINGLE_PILLAR';
+  }
+
+  return {
+    conviction_score,
+    pillar_convergence_count: pillars,
+    convergence_tier,
+    p2p_factor: Number(p2pFactor.toFixed(1)),
+    velocity_factor: Number(velocityFactor.toFixed(1)),
+    serp_factor: Number(serpFactor.toFixed(1)),
+    age_factor: Number(ageFactor.toFixed(1))
+  };
+}
+
+export function calculateVelocityAcceleration(pinOrCurrentVel, maybeGains7dOrPriorVel = null, maybeOptions = {}) {
+  return _computeVelocityTelemetry(pinOrCurrentVel, maybeGains7dOrPriorVel, maybeOptions).acceleration_score;
+}
+
+// src/modules/pulse/service.mjs (clean imports, scoped candidate_graph_nodes, single-pass Anscombe, 3,500-pin feed)
+import {
+  normalizeAnnotationTag,
+  isSyntheticGarbageTitle
+} from '../../domain/pin-intelligence.mjs';
+import {
+  computeAnscombeInflectionScore
+} from '../../lib/math.mjs';
+...
+    // Remove candidate_graph_nodes LIMIT 5000 from Promise.all; instead after pinMap is populated run:
+    const candidatePinIds = Array.from(pinMap.keys());
+    const p2pGraphRows = candidatePinIds.length > 0
+      ? await sql`SELECT DISTINCT candidate_pin_id FROM candidate_graph_nodes WHERE candidate_pin_id = ANY(${candidatePinIds}::text[]);`.catch(() => [])
+      : [];
+    const p2pPinSet = new Set((p2pGraphRows || []).map(r => String(r.candidate_pin_id || '')));
+...
+      // Single-pass Anscombe & acceleration (uses precomputed p.pin_age_days -> zero Date allocations)
+      const anscombeScores = computeAnscombeInflectionScore(p);
+      const accelerationRatio = anscombeScores.acceleration_score;
+      const isAccelerating = accelerationRatio >= 1.5;
+
+      p.anscombe_z_gain = anscombeScores.anscombe_z_gain;
+      p.repin_lead_score = anscombeScores.repin_lead_score;
+
+      const velForScore = Math.max(0, p.effective_24h_gain > 0 ? p.effective_24h_gain : (p.daily_save_velocity || 0));
+      const sVel = Math.min(100, Math.round(Math.log10(velForScore + 1) * 33.3));
+
+      let rankWeightSum = 0;
+      if (Array.isArray(p.keywords)) {
+        for (let ki = 0; ki < p.keywords.length; ki++) {
+          const kw = p.keywords[ki];
+          const rPos = Number(kw.rank_position ?? kw.last_known_rank ?? 50);
+          rankWeightSum += Math.max(0.1, 1 - Math.min(50, rPos) / 55);
+        }
+      }
+      const sSerp = Math.min(100, Math.round(rankWeightSum * 35));
+
+      const hasCompetitorBoard = Boolean(
+        (p.sources && p.sources.includes('creator_feed')) ||
+        (p.board_name && p.board_name.trim().length > 0 && p.creator_username)
+      );
+      const sComp = hasCompetitorBoard ? 100 : 0;
+
+      const hasP2PGraph = p2pPinSet.has(String(p.pin_id));
+      const sP2p = hasP2PGraph ? 100 : 0;
+
+      const bCross = Math.min(100, Math.round((sVel * 0.40) + (sSerp * 0.30) + (sComp * 0.15) + (sP2p * 0.15)));
+      p.b_cross = bCross;
+      p.breakout_conviction_score = bCross;
+      p.breakout_score = Math.max(bCross, anscombeScores.breakout_score);
+...
+      // Restore Round 16 3,500-pin un-truncated feed (lines 1872-1930 & 2523):
+      if (p.is_hydrated_int === 1) {
+        if ((hasGain || hydratedPins.length < 100) && hydratedPins.length < 3500) {
+          hydratedPins.push(p);
+        }
+      } else {
+...
+    for (let i = 0; i < hydratedPins.length; i++) {
+      const p = hydratedPins[i];
+      const cKey = getCanonicalCreativeKey(p);
+      if (seenBreakoutIds.has(p.pin_id) || (cKey && seenCreativeKeys.has(cKey))) continue;
+      seenBreakoutIds.add(p.pin_id);
+      if (cKey) seenCreativeKeys.add(cKey);
+      breakoutPinsTop250.push(formatPinSummary(p));
+    }
+
+    for (let i = 0; i < paPinsList.length; i++) {
+      const p = paPinsList[i];
+      const cKey = getCanonicalCreativeKey(p);
+      if (!seenBreakoutIds.has(p.pin_id) && (!cKey || !seenCreativeKeys.has(cKey))) {
+        seenBreakoutIds.add(p.pin_id);
+        if (cKey) seenCreativeKeys.add(cKey);
+        breakoutPinsTop250.push(formatPinSummary(p));
+      }
+    }
+
+    for (let i = 0; i < skeletonPins.length; i++) {
+      const p = skeletonPins[i];
+      const cKey = getCanonicalCreativeKey(p);
+      if (!seenBreakoutIds.has(p.pin_id) && (!cKey || !seenCreativeKeys.has(cKey))) {
+        seenBreakoutIds.add(p.pin_id);
+        if (cKey) seenCreativeKeys.add(cKey);
+        breakoutPinsTop250.push(formatPinSummary(p));
+      }
+    }
+...
+      kpis,
+      breakout_pins: breakoutPinsTop250,
+
+// tests/round16-pulse-503-and-data-truth.test.mjs (lines 461-469)
+    assert.ok(
+      wallElapsedMs < 250,
+      `Wall-clock execution time (${wallElapsedMs.toFixed(2)}ms) must be strictly < 250ms`
+    );
+    assert.ok(
+      cpuElapsedMs < 200,
+      `Synchronous V8 CPU execution time (${cpuElapsedMs.toFixed(2)}ms) must be strictly < 200ms`
+    );
+
+Patch 7: src/domain/pin-intelligence.mjs, src/modules/keywords/analytics.mjs, & src/modules/keywords/folders-crossover.mjs
+
+// src/domain/pin-intelligence.mjs (inside normalizeCleanDomain)
+  if (strictFqdn) {
+    if (!cleaned || !cleaned.includes('.') || cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
+      return '';
+    }
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:[a-z]{2,}|xn--[a-z0-9]{2,})$/.test(cleaned)) {
+      return '';
+    }
+  }
+
+// src/modules/keywords/analytics.mjs (imports + extractPinTitle + line 294)
+import {
+  resolveCanonicalPinTitle,
+  extractCanonicalAnnotations,
+  normalizeCleanDomain,
+  isSyntheticGarbageTitle
+} from '../../domain/pin-intelligence.mjs';
+...
+export function extractPinTitle(item, fallbackQuery = '') {
+  if (!item) return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
+  const normalizedItem = (item.title && typeof item.title === 'object')
+    ? { ...item, title: item.title.text || item.title.title || item.title.headline || item.title.format || item.title.name || '' }
+    : item;
+  const resolved = resolveCanonicalPinTitle(normalizedItem);
+  if (resolved && resolved !== 'Pinterest Pin' && resolved !== '[object Object]' && !isSyntheticGarbageTitle(resolved)) {
+    return resolved;
+  }
+  return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
+}
+...
+// Line 294:
+    const d = normalizeCleanDomain(p.domain || p.destination_url || '', { strictFqdn: true });
+    if (!d || d === 'uploaded by user') {
+      continue;
+    }
+
+// src/modules/keywords/folders-crossover.mjs (clean imports + helpers + SQL + multi_window_gains)
+import {
+  extractCanonicalAnnotations,
+  normalizeAnnotationTag,
+  isSyntheticGarbageTitle,
+  resolveCanonicalPinTitle,
+  normalizeCleanDomain
+} from '../../domain/pin-intelligence.mjs';
+...
+export function isSyntheticPinTitle(title) {
+  if (!title || typeof title !== 'string') return true;
+  const t = title.trim();
+  if (!t || /(^|\s+)(Inspiration|Idea)$/i.test(t) || t === 'Pinterest Visual Guide' || t === 'Pinterest Pin Idea') return true;
+  return isSyntheticGarbageTitle(t);
+}
+
+export function derivePinTitle(title, destinationUrl = '', keyword = '', boardName = '', visualAnnotations = [], description = '', altText = '', seoTitle = '') {
+  const resolved = resolveCanonicalPinTitle({
+    title,
+    destination_url: destinationUrl,
+    keyword,
+    board_name: boardName,
+    visual_annotations: visualAnnotations,
+    description,
+    alt_text: altText,
+    metadata: { seo_title: seoTitle }
+  });
+  if (resolved && resolved !== 'Pinterest Pin') {
+    return resolved;
+  }
+  if (keyword) {
+    return keyword.charAt(0).toUpperCase() + keyword.slice(1) + ' Inspiration';
+  }
+  return 'Pinterest Visual Guide';
+}
+
+const INVALID_EXTERNAL_DOMAINS = new Set([
+  'uploaded by user', 'uploaded by pinner', 'uploaded-by-user', 'organic',
+  'pinterest.com', 'i.pinimg.com', 'pinimg.com', 'pin.it', 'pinterest',
+  'null', 'undefined', 'unknown', 'none', 'localhost', 'direct'
+]);
+
+export function cleanExternalDomain(domainStr) {
+  if (!domainStr || typeof domainStr !== 'string') return '';
+  const cleaned = normalizeCleanDomain(domainStr, { strictFqdn: true, preserveOrganic: false });
+  if (!cleaned) return '';
+  if (INVALID_EXTERNAL_DOMAINS.has(cleaned)) return '';
+  if (cleaned === 'localhost' || /(?:^|\.)pinterest\.[a-z.]+$/.test(cleaned) || /(?:^|\.)pinimg\.[a-z.]+$/.test(cleaned)) {
+    return '';
+  }
+  return cleaned;
+}
+
+-- src/modules/keywords/folders-crossover.mjs (repinWindowRows query, lines 562-609)
+    sql`
+      WITH folder_pins AS (
+        SELECT DISTINCT c.pin_id
+        FROM keyword_folder_items i
+        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+      ),
+      pin_metrics AS (
+        SELECT
+          pdm.pin_id,
+          pdm.recorded_date,
+          pdm.repin_count,
+          COALESCE(pdm.save_count, 0) AS save_count,
+          FIRST_VALUE(pdm.repin_count) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) AS latest_repins,
+          FIRST_VALUE(COALESCE(pdm.save_count, 0)) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) AS latest_saves,
+          FIRST_VALUE(pdm.recorded_date) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) AS latest_date
+        FROM pins_daily_metrics pdm
+        JOIN folder_pins fp ON fp.pin_id = pdm.pin_id
+        WHERE pdm.recorded_date >= (NOW() AT TIME ZONE 'UTC')::date - INTERVAL '18 days'
+          AND pdm.repin_count IS NOT NULL
+      ),
+      pin_baselines AS (
+        SELECT
+          pm.pin_id,
+          pm.latest_repins,
+          pm.latest_saves,
+          (ARRAY_AGG(pm.repin_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '5 days'))[1] AS repins_base_5d,
+          (ARRAY_AGG(pm.save_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '5 days'))[1] AS saves_base_5d,
+          (ARRAY_AGG(pm.repin_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '7 days'))[1] AS repins_base_7d,
+          (ARRAY_AGG(pm.save_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '7 days'))[1] AS saves_base_7d,
+          (ARRAY_AGG(pm.repin_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '10 days'))[1] AS repins_base_10d,
+          (ARRAY_AGG(pm.save_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '10 days'))[1] AS saves_base_10d,
+          (ARRAY_AGG(pm.repin_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '15 days'))[1] AS repins_base_15d,
+          (ARRAY_AGG(pm.save_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '15 days'))[1] AS saves_base_15d
+        FROM pin_metrics pm
+        GROUP BY pm.pin_id, pm.latest_repins, pm.latest_saves
+      ),
+      repin_deltas AS (
+        SELECT
+          pb.pin_id,
+          CASE
+            WHEN pb.repins_base_5d IS NULL OR pb.latest_repins <= pb.repins_base_5d THEN 0
+            WHEN pb.repins_base_5d <= 0 AND pb.latest_repins >= 10 THEN 0
+            WHEN pb.repins_base_5d < 100 AND pb.latest_repins >= 500 AND GREATEST(0, pb.latest_saves - pb.saves_base_5d) < (pb.latest_repins - pb.repins_base_5d) * 0.25 THEN 0
+            WHEN pb.repins_base_5d > 0 AND pb.latest_repins >= pb.repins_base_5d * 4 AND (pb.latest_repins - pb.repins_base_5d) >= 200 AND GREATEST(0, pb.latest_saves - pb.saves_base_5d) < (pb.latest_repins - pb.repins_base_5d) * 0.15 THEN 0
+            ELSE pb.latest_repins - pb.repins_base_5d
+          END AS repins_5d,
+          CASE
+            WHEN pb.repins_base_7d IS NULL OR pb.latest_repins <= pb.repins_base_7d THEN 0
+            WHEN pb.repins_base_7d <= 0 AND pb.latest_repins >= 10 THEN 0
+            WHEN pb.repins_base_7d < 100 AND pb.latest_repins >= 500 AND GREATEST(0, pb.latest_saves - pb.saves_base_7d) < (pb.latest_repins - pb.repins_base_7d) * 0.25 THEN 0
+            WHEN pb.repins_base_7d > 0 AND pb.latest_repins >= pb.repins_base_7d * 4 AND (pb.latest_repins - pb.repins_base_7d) >= 200 AND GREATEST(0, pb.latest_saves - pb.saves_base_7d) < (pb.latest_repins - pb.repins_base_7d) * 0.15 THEN 0
+            ELSE pb.latest_repins - pb.repins_base_7d
+          END AS repins_7d,
+          CASE
+            WHEN pb.repins_base_10d IS NULL OR pb.latest_repins <= pb.repins_base_10d THEN 0
+            WHEN pb.repins_base_10d <= 0 AND pb.latest_repins >= 10 THEN 0
+            WHEN pb.repins_base_10d < 100 AND pb.latest_repins >= 500 AND GREATEST(0, pb.latest_saves - pb.saves_base_10d) < (pb.latest_repins - pb.repins_base_10d) * 0.25 THEN 0
+            WHEN pb.repins_base_10d > 0 AND pb.latest_repins >= pb.repins_base_10d * 4 AND (pb.latest_repins - pb.repins_base_10d) >= 200 AND GREATEST(0, pb.latest_saves - pb.saves_base_10d) < (pb.latest_repins - pb.repins_base_10d) * 0.15 THEN 0
+            ELSE pb.latest_repins - pb.repins_base_10d
+          END AS repins_10d,
+          CASE
+            WHEN pb.repins_base_15d IS NULL OR pb.latest_repins <= pb.repins_base_15d THEN 0
+            WHEN pb.repins_base_15d <= 0 AND pb.latest_repins >= 10 THEN 0
+            WHEN pb.repins_base_15d < 100 AND pb.latest_repins >= 500 AND GREATEST(0, pb.latest_saves - pb.saves_base_15d) < (pb.latest_repins - pb.repins_base_15d) * 0.25 THEN 0
+            WHEN pb.repins_base_15d > 0 AND pb.latest_repins >= pb.repins_base_15d * 4 AND (pb.latest_repins - pb.repins_base_15d) >= 200 AND GREATEST(0, pb.latest_saves - pb.saves_base_15d) < (pb.latest_repins - pb.repins_base_15d) * 0.15 THEN 0
+            ELSE pb.latest_repins - pb.repins_base_15d
+          END AS repins_15d
+        FROM pin_baselines pb
+      )
+      SELECT
+        COALESCE(SUM(repins_5d), 0)::bigint AS repins_5d,
+        COALESCE(SUM(repins_7d), 0)::bigint AS repins_7d,
+        COALESCE(SUM(repins_10d), 0)::bigint AS repins_10d,
+        COALESCE(SUM(repins_15d), 0)::bigint AS repins_15d
+      FROM repin_deltas;
+    `.catch(() => [{ repins_5d: 0, repins_7d: 0, repins_10d: 0, repins_15d: 0 }])
+
+// src/modules/keywords/folders-crossover.mjs (lines 1956-1992 — authentic DB totals, zero synthetic extrapolation)
+  const sqlRepin5d = Number(repinWindowRows?.[0]?.repins_5d || 0);
+  const sqlRepin7d = Number(repinWindowRows?.[0]?.repins_7d || 0);
+  const sqlRepin10d = Number(repinWindowRows?.[0]?.repins_10d || 0);
+  const sqlRepin15d = Number(repinWindowRows?.[0]?.repins_15d || 0);
+...
+        '24h': { saves: allPins.reduce((sum, p) => sum + (p.delta_saves_24h || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.delta_repins_24h || 0), 0) },
+        '5d': { saves: allPins.reduce((sum, p) => sum + (p.gains_5d || 0), 0), repins: sqlRepin5d },
+        '7d': { saves: allPins.reduce((sum, p) => sum + (p.gains_7d || 0), 0), repins: sqlRepin7d },
+        '10d': { saves: allPins.reduce((sum, p) => sum + (p.gains_10d || 0), 0), repins: sqlRepin10d },
+        '15d': { saves: allPins.reduce((sum, p) => sum + (p.gains_15d || 0), 0), repins: sqlRepin15d },
+        'all': { saves: allPins.reduce((sum, p) => sum + (p.save_count || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.repin_count || 0), 0) }
+
+Patch 8: src/modules/cluster/service.mjs & src/routes/cluster.mjs
+
+// src/modules/cluster/service.mjs (import & re-export unified computeCrossPillarConvictionScore)
+import { computeCrossPillarConvictionScore } from '../../lib/math.mjs';
+export { computeCrossPillarConvictionScore };
+
+// Replace getCrossPillarArbitrageTargets (lines 1082-1191):
+export async function getCrossPillarArbitrageTargets(sql, options = {}) {
+  const sp = options.searchParams;
+  const rawLimit = Number(options.limit ?? sp?.get?.('limit') ?? 50);
+  const rawOffset = Number(options.offset ?? sp?.get?.('offset') ?? 0);
+  const rawMinVel = Number(options.minVelocity ?? options.min_velocity ?? sp?.get?.('min_velocity') ?? sp?.get?.('minVelocity') ?? 0);
+  const rawMinScore = Number(options.minScore ?? options.min_score ?? sp?.get?.('min_score') ?? sp?.get?.('minScore') ?? 0);
+  const rawMaxAge = options.maxDomainAgeDays ?? options.max_age_days ?? sp?.get?.('max_age_days') ?? sp?.get?.('maxDomainAgeDays');
+  const parsedMaxAge = rawMaxAge != null && rawMaxAge !== '' ? Number(rawMaxAge) : null;
+
+  const lim = Math.max(1, Math.min(Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 50, 200));
+  const off = Math.max(0, Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0);
+  const minVel = Math.max(0, Number.isFinite(rawMinVel) ? rawMinVel : 0);
+  const minScore = Math.max(0, Number.isFinite(rawMinScore) ? rawMinScore : 0);
+  const maxAge = (parsedMaxAge !== null && Number.isFinite(parsedMaxAge) && parsedMaxAge >= 0) ? Math.trunc(parsedMaxAge) : null;
+  const seedRaw = options.seedPinId ?? options.seed_pin_id ?? sp?.get?.('seed_pin_id') ?? sp?.get?.('seedPinId');
+  const seedId = seedRaw ? String(seedRaw).trim() : null;
+
+  try {
+    const rows = await sql`
+      WITH scored AS (
+        SELECT
+          cgn.candidate_pin_id AS pin_id,
+          COALESCE(NULLIF(ump.title, ''), NULLIF(cgn.title, ''), '') AS title,
+          COALESCE(NULLIF(ump.clean_domain, ''), NULLIF(cgn.domain, ''), '') AS clean_domain,
+          COALESCE(ump.destination_url, '') AS destination_url,
+          COALESCE(NULLIF(ump.image_url, ''), NULLIF(cgn.image_url, ''), '') AS image_url,
+          COALESCE(ump.creator_username, '') AS creator_username,
+          COALESCE(ump.board_name, '') AS board_name,
+          COALESCE(ump.save_count, cgn.saves, 0)::bigint AS save_count,
+          COALESCE(ump.repin_count, cgn.repins, 0)::bigint AS repin_count,
+          COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0)::numeric AS velocity,
+          MAX(cgn.recgpt_transition_score)::numeric AS p2p_transition_score,
+          COUNT(DISTINCT cgn.seed_pin_id)::int AS seed_clusters_count,
+          COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE)::int AS organic_keywords_count,
+          MIN(ksp.rank_position) FILTER (WHERE ksp.is_displaced = FALSE)::int AS best_serp_rank,
+          COALESCE(dir.age_days, 365)::int AS domain_age_days,
+          COALESCE(dir.age_years, 1.0)::numeric AS domain_age_years,
+          COALESCE(dir.ad_network, 'unchecked') AS ad_network,
+          COALESCE(dir.arbitrage_score, 0)::numeric AS domain_arbitrage_score,
+          ROUND(
+            (
+              (COALESCE(MAX(cgn.recgpt_transition_score), 0) * 30.0) +
+              (LN(GREATEST(1.0, 1.0 + COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0))) * 15.0) +
+              (COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE) * 10.0) +
+              (CASE 
+                WHEN COALESCE(dir.age_days, 365) <= 365 THEN 25.0
+                WHEN COALESCE(dir.age_days, 365) <= 730 THEN 15.0
+                WHEN COALESCE(dir.age_days, 365) <= 1095 THEN 5.0
+                ELSE 0.0
+              END)
+            )::numeric,
+            2
+          ) AS convergence_score
+        FROM candidate_graph_nodes cgn
+        JOIN universal_master_pins ump ON ump.pin_id = cgn.candidate_pin_id
+        LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = cgn.candidate_pin_id
+        LEFT JOIN domain_intelligence_rollup dir ON dir.domain = COALESCE(NULLIF(ump.clean_domain, ''), NULLIF(cgn.domain, ''))
+        WHERE COALESCE(cgn.is_product, FALSE) = FALSE
+          AND COALESCE(ump.is_product, FALSE) = FALSE
+          AND (${seedId}::text IS NULL OR cgn.seed_pin_id = ${seedId})
+          AND COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0) >= ${minVel}
+          AND (${maxAge}::int IS NULL OR COALESCE(dir.age_days, 9999) <= ${maxAge})
+        GROUP BY 
+          cgn.candidate_pin_id,
+          ump.title, cgn.title,
+          ump.clean_domain, cgn.domain,
+          ump.destination_url,
+          ump.image_url, cgn.image_url,
+          ump.creator_username,
+          ump.board_name,
+          ump.save_count, cgn.saves,
+          ump.repin_count, cgn.repins,
+          ump.daily_save_velocity, cgn.daily_velocity,
+          dir.age_days, dir.age_years, dir.ad_network, dir.arbitrage_score
+      )
+      SELECT *, COUNT(*) OVER()::int AS full_count
+      FROM scored
+      WHERE (${minScore}::numeric <= 0 OR convergence_score >= ${minScore}::numeric)
+      ORDER BY convergence_score DESC, velocity DESC, p2p_transition_score DESC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+
+    const total = rows.length > 0 ? Number(rows[0].full_count || 0) : 0;
+    const items = rows.map(r => ({
+      pin_id: r.pin_id,
+      title: r.title,
+      clean_domain: r.clean_domain,
+      destination_url: r.destination_url,
+      image_url: r.image_url,
+      creator_username: r.creator_username,
+      board_name: r.board_name,
+      save_count: Number(r.save_count || 0),
+      repin_count: Number(r.repin_count || 0),
+      velocity: Number(r.velocity || 0),
+      p2p_transition_score: Number(r.p2p_transition_score || 0),
+      seed_clusters_count: Number(r.seed_clusters_count || 0),
+      organic_keywords_count: Number(r.organic_keywords_count || 0),
+      best_serp_rank: r.best_serp_rank != null ? Number(r.best_serp_rank) : null,
+      domain_age_days: Number(r.domain_age_days || 0),
+      domain_age_years: Number(r.domain_age_years || 0),
+      ad_network: r.ad_network,
+      domain_arbitrage_score: Number(r.domain_arbitrage_score || 0),
+      convergence_score: Number(r.convergence_score || 0)
+    }));
+
+    return {
+      success: true,
+      total,
+      count: items.length,
+      limit: lim,
+      offset: off,
+      targets: items,
+      items
+    };
+  } catch (err) {
+    console.warn(`[getCrossPillarArbitrageTargets] Error querying convergence targets:`, err.message);
+    return {
+      success: false,
+      error: err.message,
+      total: 0,
+      count: 0,
+      targets: [],
+      items: []
+    };
+  }
+}
+
+// src/routes/cluster.mjs (lines 143-166)
+  // 0C. /api/cluster/arbitrage-convergence (Cross-Pillar P2P-to-SERP Convergence Engine)
+  if (pathname === '/api/cluster/arbitrage-convergence') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const limit = clampLimit(searchParams.get('limit'), 50, 200);
+    const offsetRaw = Number(searchParams.get('offset') || 0);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? Math.trunc(offsetRaw) : 0;
+    const minScoreRaw = Number(searchParams.get('min_score') ?? searchParams.get('minScore') ?? 0);
+    const minScore = Number.isFinite(minScoreRaw) ? Math.max(0, minScoreRaw) : 0;
+    const minVelRaw = Number(searchParams.get('min_velocity') ?? searchParams.get('minVelocity') ?? 0);
+    const minVelocity = Number.isFinite(minVelRaw) ? Math.max(0, minVelRaw) : 0;
+    const maxAgeRaw = searchParams.get('max_age_days') ?? searchParams.get('maxDomainAgeDays');
+    const maxAgeParsed = maxAgeRaw !== null && maxAgeRaw !== '' ? Number(maxAgeRaw) : null;
+    const maxDomainAgeDays = (maxAgeParsed !== null && Number.isFinite(maxAgeParsed) && maxAgeParsed >= 0) ? Math.trunc(maxAgeParsed) : null;
+    const seedPinId = searchParams.get('seed_pin_id') || searchParams.get('seedPinId') || null;
+
+    const options = { limit, offset, minScore, minVelocity, maxDomainAgeDays, seedPinId };
+    try {
+      const result = await getCrossPillarArbitrageTargets(sql, options);
+      if (!result || result.success === false) {
+        return jsonResponse({
+          success: false,
+          error: 'ARBITRAGE_CONVERGENCE_ERROR',
+          message: redactSecrets ? redactSecrets(result?.error || 'Failed to compute convergence targets') : (result?.error || 'Failed to compute convergence targets')
+        }, 500, 0);
+      }
+      return jsonResponse(result, 200, 30);
+    } catch (err) {
+      console.error('[Cluster Arbitrage Convergence Route Error]', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'ARBITRAGE_CONVERGENCE_ERROR',
+        message: redactSecrets ? redactSecrets(err?.message || String(err)) : String(err)
+      }, 500);
+    }
+  }
+
+Patch 9: src/modules/creators/creator-analytics.mjs, src/modules/domains/service.mjs, src/modules/keywords/service.mjs, & src/routes/creators.mjs
+
+// src/modules/creators/creator-analytics.mjs (getTopicClusters fallback lines 2020-2078)
+  } catch (_err) {
+    const cleanAcctNorm = cleanAccount ? cleanAccount.replace(/^@+/, '').trim().toLowerCase() : null;
+    const rows = await sql`
+      WITH extracted AS (
+        SELECT
+          CASE
+            WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+            WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+            ELSE NULL
+          END AS raw_topic,
+          p.pin_id,
+          COALESCE(p.save_count, 0) AS saves,
+          p.daily_save_velocity AS velocity
+        FROM universal_master_pins p
+        LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.visual_annotations) = 'array' THEN p.visual_annotations ELSE '[]'::jsonb END) AS ann ON TRUE
+        WHERE (${cleanAcctNorm}::text IS NULL OR LOWER(TRIM(REPLACE(COALESCE(p.creator_username, ''), '@', ''))) = ${cleanAcctNorm})
+      ),
+      deduped AS (
+        SELECT DISTINCT ON (e.pin_id, LOWER(TRIM(e.raw_topic)))
+          e.pin_id,
+          LOWER(TRIM(e.raw_topic)) AS norm_topic,
+          TRIM(e.raw_topic) AS raw_topic,
+          e.saves,
+          e.velocity
+        FROM extracted e
+        WHERE e.raw_topic IS NOT NULL AND TRIM(e.raw_topic) <> ''
+          AND (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
+        ORDER BY e.pin_id, LOWER(TRIM(e.raw_topic)), TRIM(e.raw_topic)
+      ),
+      aggregated AS (
+        SELECT
+          MIN(d.raw_topic) AS t_name,
+          count(DISTINCT d.pin_id)::BIGINT AS p_count,
+          coalesce(sum(d.saves), 0)::NUMERIC AS s_saves,
+          CASE WHEN count(DISTINCT d.pin_id) > 0 THEN (coalesce(sum(d.saves), 0) / count(DISTINCT d.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+          coalesce(round(avg(d.velocity)::numeric, 2), 0::numeric) AS a_velocity
+        FROM deduped d
+        GROUP BY d.norm_topic
+        HAVING count(DISTINCT d.pin_id) >= ${minNum}
+      )
+      SELECT
+        a.t_name AS topic_name,
+        a.p_count AS pins_count,
+        a.s_saves AS total_saves,
+        a.a_saves AS avg_saves,
+        a.a_velocity AS avg_velocity
+      FROM aggregated a
+      ORDER BY a.s_saves DESC
+      LIMIT ${lim}
+      OFFSET ${off};
+    `;
+
+    return rows.map(r => ({
+      name: r.topic_name,
+      pins_count: Number(r.pins_count || 0),
+      total_saves: Number(r.total_saves || 0),
+      avg_saves: Number(r.avg_saves || 0),
+      avg_velocity: Number(r.avg_velocity || 0),
+    }));
+  }
+}
+
+// src/modules/domains/service.mjs (lines 907, 930, 1339, and 1597-1619)
+// Lines 907, 930, 1339:
+          LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
+
+// In refreshDomainIntelligenceRollup ON CONFLICT ... WHERE (lines 1597-1619):
+        domain_intelligence_rollup.total_pins IS DISTINCT FROM EXCLUDED.total_pins OR
+        domain_intelligence_rollup.unique_urls IS DISTINCT FROM EXCLUDED.unique_urls OR
+        domain_intelligence_rollup.pins_per_url IS DISTINCT FROM EXCLUDED.pins_per_url OR
+        domain_intelligence_rollup.active_serp_pins IS DISTINCT FROM EXCLUDED.active_serp_pins OR
+        domain_intelligence_rollup.top3_pins IS DISTINCT FROM EXCLUDED.top3_pins OR
+        domain_intelligence_rollup.top10_pins IS DISTINCT FROM EXCLUDED.top10_pins OR
+        domain_intelligence_rollup.rank_11_50_pins IS DISTINCT FROM EXCLUDED.rank_11_50_pins OR
+        domain_intelligence_rollup.displaced_pins IS DISTINCT FROM EXCLUDED.displaced_pins OR
+        domain_intelligence_rollup.best_rank IS DISTINCT FROM EXCLUDED.best_rank OR
+        domain_intelligence_rollup.avg_rank IS DISTINCT FROM EXCLUDED.avg_rank OR
+        domain_intelligence_rollup.visibility_score IS DISTINCT FROM EXCLUDED.visibility_score OR
+        domain_intelligence_rollup.total_saves IS DISTINCT FROM EXCLUDED.total_saves OR
+        domain_intelligence_rollup.avg_saves IS DISTINCT FROM EXCLUDED.avg_saves OR
+        domain_intelligence_rollup.total_repins IS DISTINCT FROM EXCLUDED.total_repins OR
+        domain_intelligence_rollup.avg_velocity IS DISTINCT FROM EXCLUDED.avg_velocity OR
+        domain_intelligence_rollup.accounts_count IS DISTINCT FROM EXCLUDED.accounts_count OR
+        domain_intelligence_rollup.sample_accounts IS DISTINCT FROM EXCLUDED.sample_accounts OR
+        domain_intelligence_rollup.ad_network IS DISTINCT FROM EXCLUDED.ad_network OR
+        domain_intelligence_rollup.ad_manager_domain IS DISTINCT FROM EXCLUDED.ad_manager_domain OR
+        domain_intelligence_rollup.primary_pub_id IS DISTINCT FROM EXCLUDED.primary_pub_id OR
+        domain_intelligence_rollup.previous_ad_network IS DISTINCT FROM EXCLUDED.previous_ad_network OR
+        domain_intelligence_rollup.ad_switched_at IS DISTINCT FROM EXCLUDED.ad_switched_at OR
+        domain_intelligence_rollup.ad_network_history IS DISTINCT FROM EXCLUDED.ad_network_history OR
+        domain_intelligence_rollup.ads_txt_status IS DISTINCT FROM EXCLUDED.ads_txt_status OR
+        domain_intelligence_rollup.age_days IS DISTINCT FROM EXCLUDED.age_days OR
+        domain_intelligence_rollup.age_years IS DISTINCT FROM EXCLUDED.age_years OR
+        domain_intelligence_rollup.age_status IS DISTINCT FROM EXCLUDED.age_status OR
+        domain_intelligence_rollup.domain_created_at IS DISTINCT FROM EXCLUDED.domain_created_at OR
+        domain_intelligence_rollup.domain_expires_at IS DISTINCT FROM EXCLUDED.domain_expires_at OR
+        domain_intelligence_rollup.lookup_status IS DISTINCT FROM EXCLUDED.lookup_status OR
+        domain_intelligence_rollup.decay_rate_pct IS DISTINCT FROM EXCLUDED.decay_rate_pct OR
+        domain_intelligence_rollup.arbitrage_score IS DISTINCT FROM EXCLUDED.arbitrage_score;
+
+// src/modules/keywords/service.mjs (line 2216)
+      COUNT(*) FILTER (WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))::int AS domainless_top10
+
+// src/routes/creators.mjs (lines 984-995)
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(snapshotId)) ? String(snapshotId) : (searchParams.get('date') || body.date || null);
+    if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(targetDate))) {
+      return jsonResponse({ success: false, error: 'BAD_REQUEST', message: 'A valid snapshot date (YYYY-MM-DD) is required' }, 400);
+    }
+    if (sql) {
+      await sql`
+        DELETE FROM pins_daily_metrics
+        WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
+      `;
+      await sql`
+        UPDATE universal_master_pins
+        SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{deleted_snapshot_dates}',
+              (
+                SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+                FROM jsonb_array_elements_text(
+                  COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)
+                ) AS elem
+              )
+            ),
+            updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {});
+    }
+    return jsonResponse({ success: true, deleted_snapshot: snapshotId, deleted_date: targetDate, pin_id: pinId });
+
+Patch 10: src/server.mjs, src/plugins/api-routes.mjs, src/routes/pages.mjs, & src/http/security-and-response.mjs
+
+// src/server.mjs (import normalizePath and restore at line 502)
+import {
+  requestContextStorage,
+  redactSecrets,
+  normalizePath,
+  safeWaitUntil,
+  ...
+} from './http/security-and-response.mjs';
+...
+        const url = new URL(fullUrl);
+        const normalizedPath = normalizePath(url.pathname);
+        const pathLower = normalizedPath.toLowerCase();
+
+// src/plugins/api-routes.mjs (import normalizePath, restore at line 113, and harden Response/204 forwarding at lines 396-411)
+import {
+  requestContextStorage,
+  redactSecrets,
+  normalizePath,
+  ...
+} from '../http/security-and-response.mjs';
+...
+          const url = new URL(fullUrl);
+          const pathname = normalizePath(url.pathname);
+          const { searchParams } = url;
+...
+    if (routeResult && typeof routeResult === 'object') {
+      if (typeof routeResult.status === 'number') {
+        reply.code(routeResult.status);
+      }
+      if (routeResult.headers) {
+        if (typeof routeResult.headers.forEach === 'function') {
+          routeResult.headers.forEach((val, key) => reply.header(key, val));
+        } else if (typeof routeResult.headers === 'object') {
+          for (const [key, val] of Object.entries(routeResult.headers)) {
+            if (typeof val !== 'function') reply.header(key, val);
+          }
+        }
+      }
+      if (routeResult.status === 204) {
+        return reply.send();
+      }
+      if (routeResult._payload !== undefined) {
+        return reply.send(routeResult._payload);
+      }
+      if (typeof Response !== 'undefined' && routeResult instanceof Response) {
+        const text = await routeResult.text();
+        return reply.send(text);
+      }
+      return reply.send(routeResult);
+    }
+
+// src/routes/pages.mjs (lines 52-62 — non-enumerable get & forEach + ok)
+    const lowerHeaders = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    const outHeaders = { ...headers };
+    Object.defineProperties(outHeaders, {
+      get: { value: (h) => lowerHeaders.get(String(h).toLowerCase()) || null, enumerable: false },
+      forEach: { value: (cb) => Object.entries(headers).forEach(([k, v]) => cb(v, k)), enumerable: false }
+    });
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: outHeaders,
+      body: method === 'HEAD' ? null : body,
+      text: async () => (method === 'HEAD' ? '' : (body || ''))
+    };
+
+// src/http/security-and-response.mjs (helper used on non-Fastify return objects of jsonResponse, methodNotAllowedResponse, corsOptionsResponse)
+function toCompatHeaders(headers) {
+  const lower = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  const out = { ...headers };
+  Object.defineProperties(out, {
+    get: { value: (h) => lower.get(String(h).toLowerCase()) || null, enumerable: false },
+    forEach: { value: (cb) => Object.entries(headers).forEach(([k, v]) => cb(v, k)), enumerable: false }
+  });
+  return out;
+}
+
+Return ok: status >= 200 && status < 300, status, headers:
+toCompatHeaders(headers) from the fallback branches of jsonResponse,
+methodNotAllowedResponse, and corsOptionsResponse.
+
+Patch 11: Operational Scripts, wake-shield, & tests/phase5-forensic-overhaul.test.mjs
+
+// scripts/creator-velocity-crawler.mjs (lines 373-384)
+  if (isSameDay) {
+    if (prevSaves <= 0) {
+      return { velocity: 0, deltaSaves: 0 };
+    }
+    if (deltaSaves === 0) {
+      return { velocity: safePrevVelocity, deltaSaves: 0 };
+    }
+    const isJump = detectHydrationJump(freshSaves, prevSaves, freshRepins, prevRepins);
+    const safeDelta = isJump ? 0 : deltaSaves;
+    return {
+      velocity: Math.min(25000, Math.max(safePrevVelocity, safeDelta)),
+      deltaSaves: safeDelta
+    };
+  }
+
+// scripts/keyword-velocity-crawler.mjs (lines 1098-1099, 1345-1346, 1579-1580)
+                  crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_token END,
+                  crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_until END
+
+// scripts/migrate.mjs (inside catch (connErr) around line 538)
+    if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(connErr.message)) {
+      await sql.end({ timeout: 1 }).catch(() => {});
+      ...
+
+# scripts/instabox-boot-sync.sh (lines 48-61)
+          local poll_retries=25
+          while [ "${poll_retries}" -gt 0 ]; do
+            local vm_state
+            vm_state=$(curl -s "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}" \
+              -H "Authorization: Bearer ${INSTABOX_API_KEY}" 2>/dev/null \
+              | sed -nE 's/.*"(state|status)"[[:space:]]*:[[:space:]]*"([^"]+)".*/\2/p' | head -n1 || echo "")
+            if [ "${vm_state}" = "suspended" ] || [ "${vm_state}" = "stopped" ]; then
+              break
+            fi
+            sleep 2
+            poll_retries=$((poll_retries - 1))
+          done
+
+// workers/wake-shield/src/index.mjs (line 75)
+// Remove unused: const constantTimeIncludes = timingSafeIncludes;
+
+// tests/phase5-forensic-overhaul.test.mjs (update line 41 + test computeAnscombeInflectionScore & computeCrossPillarConvictionScore)
+// Line 41:
+  assert.match(m62Content, /DISTINCT ON \(e\.pin_id, LOWER\(e\.raw_topic\)\)/i);
+
+// In Phase 5.2 test block (importing computeAnscombeInflectionScore, computeCrossPillarConvictionScore from ../src/lib/math.mjs):
+  const anscombe = computeAnscombeInflectionScore({
+    daily_save_velocity: 25,
+    gains_7d: 140,
+    delta_repins_24h: 10,
+    pin_age_days: 30
+  });
+  assert.strictEqual(typeof anscombe, 'object');
+  assert.ok(Number.isFinite(anscombe.anscombe_z_gain));
+  assert.ok(Number.isFinite(anscombe.repin_lead_score));
+  assert.ok(Number.isFinite(anscombe.acceleration_score));
+  assert.ok(Number.isFinite(anscombe.breakout_score));
+
+  const conviction = computeCrossPillarConvictionScore({
+    seedOverlapCount: 3,
+    dailyVelocity: 25,
+    saves: 2500,
+    serpRank: 4,
+    serpKeywordsCount: 2,
+    domainAgeDays: 200
+  });
+  assert.ok(conviction.conviction_score > 0 && conviction.pillar_convergence_count >= 3);
+
+Post-Fix Verification Gate Before Merge
+
+Run and verify clean pass across all gates:
+
+1.  npm run check (confirms zero ESLint --max-warnings=0 failures,
+    verify_ui_routes_reorganization.mjs double-slash robustness,
+    verify_sql_schema_parity.mjs, and Acorn AST checks).
+2.  npm run test:offline && npm test (confirms round16 passes < 250ms wall /
+    < 200ms CPU for 3,500 hydrated pins and phase4/phase5 pass).
+3.  Live PostgreSQL smoke test: node scripts/migrate.mjs && node
+    scripts/ensure_indexes.mjs && node scripts/verify_sql_schema_parity.mjs + a
+    real ingestPinsBatch() call verifying zero 42703 / 23505 / 42P10 errors.

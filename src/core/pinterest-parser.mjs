@@ -313,10 +313,23 @@ export function formatPin(pin) {
     null
   );
 
+  const isUnhydratedStub = Boolean(
+    pin.is_hydrated === false ||
+    pin.is_search_stub ||
+    pin.is_stub ||
+    pin.stub ||
+    pin._source === 'BaseSearchResource' ||
+    pin.resource === 'BaseSearchResource' ||
+    pin.has_explicit_saves === false
+  );
+
   let repins = null;
-  if (hasExplicitRepinsField || (rawRepinsMetric !== null && rawRepinsMetric > 0)) {
+  if (pin.has_explicit_repins === false || (isUnhydratedStub && (rawRepinsMetric === null || rawRepinsMetric === 0))) {
+    repins = null;
+  } else if (hasExplicitRepinsField || (rawRepinsMetric !== null && rawRepinsMetric > 0)) {
     repins = rawRepinsMetric !== null ? rawRepinsMetric : 0;
   }
+  const hasExplicitRepins = repins !== null;
 
   // Check explicit saves field presence
   const hasExplicitSavesField = Boolean(
@@ -359,7 +372,9 @@ export function formatPin(pin) {
   // An unhydrated pin must have save_count = null (NOT 0).
   // Only assign a numeric value if explicit saves are confirmed in the payload.
   let saves = null;
-  if (hasExplicitSavesField || (rawSavesMetric !== null && rawSavesMetric > 0)) {
+  if (pin.has_explicit_saves === false || (isUnhydratedStub && (rawSavesMetric === null || rawSavesMetric === 0))) {
+    saves = null;
+  } else if (hasExplicitSavesField || (rawSavesMetric !== null && rawSavesMetric > 0)) {
     saves = rawSavesMetric !== null ? rawSavesMetric : 0;
   }
   const hasExplicitSaves = saves !== null;
@@ -564,6 +579,7 @@ export function formatPin(pin) {
     has_explicit_saves: hasExplicitSaves,
     repin_count: repins,
     repins,
+    has_explicit_repins: hasExplicitRepins,
     comment_count: comments,
     comments,
     share_count: shareCount,
@@ -632,6 +648,122 @@ export function formatPin(pin) {
 }
 
 /**
+ * Extracts all JSON payloads from __PWS_RELAY_REGISTER_COMPLETED_REQUEST__(requestId, payload)
+ * calls using quote/escape-aware balanced brace parsing.
+ *
+ * @param {string} rawHtml
+ * @returns {Array<object>} Array of parsed JSON payloads
+ */
+export function extractRelayCompletedPayloads(rawHtml) {
+  if (!rawHtml || typeof rawHtml !== 'string') return [];
+  const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
+  const relayPrefix = '__PWS_RELAY_REGISTER_COMPLETED_REQUEST__';
+  const results = [];
+  let searchPos = 0;
+
+  while ((searchPos = html.indexOf(relayPrefix, searchPos)) !== -1) {
+    let cursor = searchPos + relayPrefix.length;
+    while (cursor < html.length && /\s/.test(html[cursor])) cursor++;
+    if (cursor >= html.length || html[cursor] !== '(') {
+      searchPos += relayPrefix.length;
+      continue;
+    }
+
+    let argDepth = 0;
+    let argQuote = null;
+    let argEscaped = false;
+    let firstComma = -1;
+    for (let i = cursor + 1; i < html.length; i++) {
+      const ch = html[i];
+      if (argQuote) {
+        if (argEscaped) {
+          argEscaped = false;
+        } else if (ch === '\\') {
+          argEscaped = true;
+        } else if (ch === argQuote) {
+          argQuote = null;
+        }
+      } else {
+        if (ch === '"' || ch === "'" || ch === '`') {
+          argQuote = ch;
+        } else if (ch === '(' || ch === '{' || ch === '[') {
+          argDepth++;
+        } else if (ch === '}' || ch === ']') {
+          if (argDepth > 0) argDepth--;
+        } else if (ch === ')') {
+          if (argDepth === 0) {
+            searchPos = i + 1;
+            break;
+          }
+          argDepth--;
+        } else if (ch === ',' && argDepth === 0) {
+          firstComma = i;
+          break;
+        }
+      }
+    }
+
+    if (firstComma === -1) {
+      if (searchPos <= cursor) searchPos = cursor + 1;
+      continue;
+    }
+
+    let braceStart = firstComma + 1;
+    while (braceStart < html.length && /\s/.test(html[braceStart])) braceStart++;
+    if (braceStart >= html.length || html[braceStart] !== '{') {
+      searchPos = firstComma + 1;
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+    let foundEnd = -1;
+
+    for (let i = braceStart; i < html.length; i++) {
+      const ch = html[i];
+      if (inString) {
+        if (isEscaped) {
+          isEscaped = false;
+        } else if (ch === '\\') {
+          isEscaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else {
+        if (ch === '"') {
+          inString = true;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            foundEnd = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (foundEnd === -1) {
+      searchPos = braceStart + 1;
+      continue;
+    }
+
+    searchPos = foundEnd;
+    try {
+      const jsonStr = html.slice(braceStart, foundEnd);
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed === 'object') {
+        results.push(parsed);
+      }
+    } catch (_) {}
+  }
+
+  return results;
+}
+
+/**
  * Extract pin data from raw HTML using the multi-stage fallback hierarchy:
  * 1. __PWS_DATA__ SSR JSON script tag
  * 2. Relay Completed Requests (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
@@ -659,11 +791,9 @@ export function extractPinFromHtml(rawHtml, pinId) {
   }
 
   // Stage 2: Relay Completed Requests
-  const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
-  let rMatch;
-  while ((rMatch = relayRegex.exec(html)) !== null) {
+  const relayPayloads = extractRelayCompletedPayloads(html);
+  for (const payload of relayPayloads) {
     try {
-      const payload = JSON.parse(rMatch[2]);
       const v3 = payload?.data?.v3GetPinQueryv2?.data;
       if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
         if (!mergedPin) mergedPin = {};
@@ -887,6 +1017,9 @@ export async function fetchAndExtractPin(pinId, options = {}) {
           pinResult.saves = resourcePin.saves;
           pinResult.has_explicit_saves = true;
         }
+        if (resourcePin.has_explicit_repins) {
+          pinResult.has_explicit_repins = true;
+        }
         if (resourcePin.repin_count) pinResult.repin_count = resourcePin.repin_count;
         if (resourcePin.comment_count) pinResult.comment_count = resourcePin.comment_count;
         if (resourcePin.annotations && resourcePin.annotations.length > 0) {
@@ -912,6 +1045,9 @@ export async function fetchAndExtractPin(pinId, options = {}) {
           pinResult.save_count = pidgetsPin.save_count;
           pinResult.saves = pidgetsPin.saves;
           pinResult.has_explicit_saves = true;
+        }
+        if (pidgetsPin.has_explicit_repins) {
+          pinResult.has_explicit_repins = true;
         }
         if (pidgetsPin.repin_count) pinResult.repin_count = pidgetsPin.repin_count;
       }

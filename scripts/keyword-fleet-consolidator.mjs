@@ -141,7 +141,7 @@ async function main() {
     const deadPins = Number(folderStats?.dead_pins || 0);
     const totalCatalogSaves = Number(folderStats?.total_catalog_saves || 0);
 
-    // 3. Mark folder updated_at in Neon to trigger fresh cache on next UI query
+    // 3. Mark folder updated_at in database to trigger fresh cache on next UI query
     await sql`
       UPDATE keyword_folders 
       SET updated_at = NOW() 
@@ -243,7 +243,9 @@ async function main() {
       WHERE ksp.keyword_id = ${kw.id}
         AND ksp.is_displaced = FALSE;
     `;
-    const rawVelocities = pinVelRows.map(r => Number(r.daily_save_velocity || 0));
+    const rawVelocities = pinVelRows
+      .filter(r => r.daily_save_velocity != null)
+      .map(r => Number(r.daily_save_velocity));
     const winsorizedVelocities = winsorize(rawVelocities, 0.95);
     const avgVelocity = winsorizedVelocities.length > 0
       ? Math.round(winsorizedVelocities.reduce((a, b) => a + b, 0) / winsorizedVelocities.length)
@@ -440,7 +442,7 @@ async function main() {
   try {
     console.log('[*] Executing Automated Hub Storage Self-Healing Maintenance...');
     const optRes = await optimizeHubStorage(sql);
-    console.log(`  ✓ Storage Maintenance: Pruned older snapshots: ${optRes.prunedSnapshots}, Compacted competitors: ${optRes.compactedCompetitors}`);
+    console.log(`  ✓ Storage Maintenance: Cleaned SERP metadata: ${optRes?.cleanedSerpMetadata ?? 0}, Cleaned Keyword metadata: ${optRes?.cleanedKwMetadata ?? 0}, Vacuumed: ${(optRes?.vacuumedTables || []).length} tables`);
   } catch (optErr) {
     console.warn('[!] Hub Storage maintenance non-fatal warning:', optErr.message);
   }

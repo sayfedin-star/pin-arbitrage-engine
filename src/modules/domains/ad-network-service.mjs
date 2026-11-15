@@ -489,14 +489,17 @@ export async function fetchAdsTxt(cleanDomain) {
     }
 
     if (res.status === 403) {
+      try { if (res.body && !res.bodyUsed) await res.body.cancel(); } catch (_) {}
       return { ok: false, status: 'protected', content: '', httpStatus: 403 };
     }
 
     if (res.status === 404) {
+      try { if (res.body && !res.bodyUsed) await res.body.cancel(); } catch (_) {}
       return { ok: true, status: 'not_found', content: '', httpStatus: 404 };
     }
 
     if (!res.ok) {
+      try { if (res.body && !res.bodyUsed) await res.body.cancel(); } catch (_) {}
       return { ok: false, status: 'failed', content: '', httpStatus: res.status };
     }
 

@@ -7,13 +7,13 @@
  * against the live local application server.
  * 
  * Includes VETO AUTHORITY Visual Geometry, Overflow Clipping,
- * Timeframe Filter, Hydration Suppression, and Hub-Shard Parity Audits.
+ * Timeframe Filter, Hydration Suppression, and 4-Table SSOT Parity Audits.
  * 
  * Mandatory Adversarial Tests:
  * 1. Test 1 (/folders/:id/settings — Room 5 Visual Geometry & Un-nesting)
  * 2. Test 2 (Switch Folder Dropdown Unclipped Geometry & elementFromPoint hit-test)
  * 3. Test 3 (/pins/:id Timeframe Selector 7D/15D/30D/ALL, [SERP #null] Absence, Hydration Spike Suppression)
- * 4. Test 4 (Hub <-> 99 Shards Latency & unified_postgres Parity)
+ * 4. Test 4 (PostgreSQL 4-Table SSOT Latency & Native Fastify Parity)
  * Plus Primary Route Matrix (11 routes), Theme Toggle, Header Badges & Sidebar Highlight retention.
  */
 
@@ -222,17 +222,17 @@ async function runRealBrowserVerification() {
     test1_room5_geometry: null,
     test2_dropdown_unclipped: null,
     test3_pin_timeframe_and_suppression: null,
-    test4_hub_shards_parity_and_latency: null,
+    test4_ssot_parity_and_latency: null,
     route_matrix: {},
     interactive_tests: {},
     summary: { totalPassed: 0, totalFailed: 0, errors: [] }
   };
 
   // ---------------------------------------------------------------------------
-  // TEST 4: Hub <-> 99 Shards Latency & unified_postgres Parity
+  // TEST 4: PostgreSQL 4-Table SSOT Latency & Native Fastify Parity
   // ---------------------------------------------------------------------------
   console.log('\n' + '-'.repeat(80));
-  console.log('[TEST 4/4] Probing Hub <-> 99 Shards Latency & unified_postgres Parity...');
+  console.log('[TEST 4/4] Probing PostgreSQL 4-Table SSOT Latency & Native Fastify Parity...');
   console.log('-'.repeat(80));
 
   let mockQueries = [];
@@ -246,7 +246,7 @@ async function runRealBrowserVerification() {
   const testPins = [{ pin_id: '123456789', title: 'Test Pin', rank_position: 1, save_count: 100 }];
   const testDisplaced = [{ pin_id: '987654321', last_known_rank: 5 }];
 
-  // 4A. Test unified_postgres mode
+  // 4A. Test 4-table SSOT mode
   mockQueries = [];
   await insertNewPinsBatch(mockHubSql, testPins, 'keyword').catch(e => console.error('ingest error:', e));
   const offloadUnifiedQueriesCount = mockQueries.length;
@@ -256,7 +256,7 @@ async function runRealBrowserVerification() {
   const hydrateUnifiedQueriesCount = mockQueries.length;
 
   const unifiedPass = offloadUnifiedQueriesCount > 0 && hydrateUnifiedQueriesCount > 0;
-  console.log(`      ${unifiedPass ? '✓ PASS' : '✗ FAIL'} unified_postgres parity: ingest queries=${offloadUnifiedQueriesCount}, hydrate queries=${hydrateUnifiedQueriesCount}`);
+  console.log(`      ${unifiedPass ? '✓ PASS' : '✗ FAIL'} 4-table SSOT parity: ingest queries=${offloadUnifiedQueriesCount}, hydrate queries=${hydrateUnifiedQueriesCount}`);
 
   // 1. Launch local server
   console.log(`\n[Server Setup] Spawning live application server on ${BASE_URL}...`);
@@ -309,9 +309,9 @@ async function runRealBrowserVerification() {
   }
 
   const allLatenciesAcceptable = Object.values(latencies).every(l => l.latencyMs < 2000 && l.status === 200);
-  testReport.test4_hub_shards_parity_and_latency = {
+  testReport.test4_ssot_parity_and_latency = {
     ok: unifiedPass && allLatenciesAcceptable,
-    unifiedPostgresParity: {
+    ssotPostgresParity: {
       offloadQueries: offloadUnifiedQueriesCount,
       hydrateQueries: hydrateUnifiedQueriesCount,
       pass: unifiedPass
@@ -822,7 +822,7 @@ async function runRealBrowserVerification() {
     { name: 'Test 1: Room 5 Visual Geometry', ok: testReport.test1_room5_geometry?.ok },
     { name: 'Test 2: Dropdown Unclipped Geometry', ok: testReport.test2_dropdown_unclipped?.ok },
     { name: 'Test 3: Timeframe & Hydration Suppression', ok: testReport.test3_pin_timeframe_and_suppression?.ok },
-    { name: 'Test 4: Hub-Shard Latency & Parity', ok: testReport.test4_hub_shards_parity_and_latency?.ok },
+    { name: 'Test 4: PostgreSQL 4-Table SSOT Latency & Fastify Parity', ok: testReport.test4_ssot_parity_and_latency?.ok },
     { name: 'Test 5: Round 5 Cross-Impact, Room 3 & Ghost Board Shield', ok: testReport.test5_round5_cross_impact?.ok }
   ];
 

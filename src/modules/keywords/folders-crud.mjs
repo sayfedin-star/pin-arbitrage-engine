@@ -71,7 +71,7 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
         END AS item_source,
         ksp.is_displaced,
         LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
+        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -189,7 +189,7 @@ export async function getFolder(sql, folderId) {
         END AS item_source,
         ksp.is_displaced,
         LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
+        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -759,7 +759,7 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
         kfi.folder_id,
         ksp.keyword_id,
         ksp.pin_id,
-        LOWER(TRIM(ump.account_username)) AS clean_username,
+        LOWER(TRIM(ump.creator_username)) AS clean_username,
         ump.save_count,
         ump.daily_save_velocity,
         COALESCE(ksp.rank_position, ksp.last_known_rank) AS current_rank,
@@ -768,8 +768,8 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
-        AND ump.account_username IS NOT NULL AND ump.account_username <> ''
-        AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
     ),
     aggregated_creators AS (
       SELECT
@@ -872,12 +872,12 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
     WHERE fci.folder_id = ${fid}
       AND LOWER(TRIM(cp.username)) NOT IN (
-        SELECT LOWER(TRIM(ump.account_username))
+        SELECT LOWER(TRIM(ump.creator_username))
         FROM keyword_folder_items kfi2
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi2.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE kfi2.folder_id = ${fid} AND ksp.is_displaced = FALSE
-          AND ump.account_username IS NOT NULL AND ump.account_username <> ''
+          AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
       );
   `;
 
@@ -1037,14 +1037,14 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
   } else {
     // Extract unique ranking creators from active SERP for this folder's keywords
     const serpCreators = await sql`
-      SELECT DISTINCT LOWER(TRIM(ump.account_username)) AS username
+      SELECT DISTINCT LOWER(TRIM(ump.creator_username)) AS username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
         AND ksp.is_displaced IS FALSE
-        AND ump.account_username IS NOT NULL AND ump.account_username <> ''
-        AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
+        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
     `;
     targetUsernames = (serpCreators || [])
       .map(r => normalizePinterestUsername(r.username))
@@ -1201,13 +1201,13 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
 
     const linked = await sql`
       WITH ranked_creators AS (
-        SELECT DISTINCT LOWER(TRIM(ump.account_username)) AS username
+        SELECT DISTINCT LOWER(TRIM(ump.creator_username)) AS username
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE ksp.keyword_id = ${kid}
           AND ksp.is_displaced IS FALSE
-          AND ump.account_username IS NOT NULL AND ump.account_username <> ''
-          AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+          AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
       ),
       upserted_profiles AS (
         INSERT INTO competitor_profiles (

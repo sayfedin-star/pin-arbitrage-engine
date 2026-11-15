@@ -6,8 +6,8 @@
 import { formatPinterestCookie } from '../../utils.mjs';
 import { fetchBoardsResource, fetchBoardDetailUnauth, fetchBoardFeedResource, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import crypto from 'node:crypto';
-import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules } from './competitors-crud.mjs';
-import { upsertCompetitorPins, ingestPinsBatch } from './creator-ingest.mjs';
+import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules, qualifyPin } from './competitors-crud.mjs';
+import { upsertCompetitorPins } from './creator-ingest.mjs';
 
 /**
  * Deterministic Synthetic Board ID Generator
@@ -420,8 +420,11 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
   let scraped = null;
   try {
     const sRes = await fetchBoardDetailUnauth(cleanUsername, rawBoard);
-    if (sRes.ok && sRes.board) {
-      scraped = sRes.board;
+    if (sRes?.ok) {
+      const candidate = sRes.board || sRes;
+      if (candidate && (candidate.board_id || candidate.name)) {
+        scraped = candidate;
+      }
     }
   } catch (err) {
     console.warn(`[getOrSyncBoardDetail] Anonymous board scrape failed for ${cleanUsername}/${rawBoard}:`, err.message);
@@ -593,17 +596,22 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }));
     totalFetched += pins.length;
 
-    // 1. Raw inventory upsert to universal_master_pins and competitor_board_pins
-    if (pins.length > 0 && numericId) {
-      await upsertCompetitorPins(sql, numericId, pins);
-    }
-
-    // 2. Filter through 3-tier OR rules & ingest qualified winning pins
-    // Only run during refresh/daily sync; in discovery mode, parallel shards handle deep Relay v3 enrichment!
+    // 1. Always persist 100% of raw board pin inventory to universal_master_pins & competitor_board_pins in a single pass
     const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
-    if (pins.length > 0 && mode !== 'discovery' && shouldAutoArchive) {
-      const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
-      allQualifiedCount += (ingestRes.added + ingestRes.updated);
+    if (pins.length > 0 && numericId) {
+      await upsertCompetitorPins(sql, numericId, pins, {
+        creator_username: cleanUsername,
+        account_username: cleanUsername,
+        filterQualified: false
+      });
+      if (mode !== 'discovery' && shouldAutoArchive) {
+        for (const p of pins) {
+          const qRes = qualifyPin(p, rules);
+          if (typeof qRes === 'boolean' ? qRes : Boolean(qRes?.qualified)) {
+            allQualifiedCount++;
+          }
+        }
+      }
     }
 
     // Real-time progress feedback in workflow logs

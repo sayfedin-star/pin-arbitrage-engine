@@ -209,6 +209,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
   const [row] = await sql`
     INSERT INTO tracked_keywords (
       keyword,
+      canonical_keyword,
       category,
       target_pin_count,
       crawl_pages_limit,
@@ -218,6 +219,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       updated_at
     ) VALUES (
       ${cleanKeyword},
+      NULL,
       ${category},
       ${target_pin_count},
       ${crawl_pages_limit},
@@ -227,10 +229,11 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       NOW()
     )
     ON CONFLICT (keyword) DO UPDATE SET
+      canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
       is_active = TRUE,
       target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
       crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-      inspection_mode = EXCLUDED.inspection_mode,
+      inspection_mode = COALESCE(NULLIF(EXCLUDED.inspection_mode, ''), tracked_keywords.inspection_mode),
       updated_at = NOW()
     RETURNING *;
   `;
@@ -276,7 +279,7 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
         updated_at
       ) VALUES (
         ${normalized},
-        ${cleanSlug},
+        NULL,
         'Organic Search',
         50,
         2,
@@ -286,11 +289,11 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
         NOW()
       )
       ON CONFLICT (keyword) DO UPDATE SET
-        canonical_keyword = COALESCE(tracked_keywords.canonical_keyword, EXCLUDED.canonical_keyword),
+        canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
         is_active = TRUE,
         target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
         crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-        inspection_mode = EXCLUDED.inspection_mode,
+        inspection_mode = COALESCE(NULLIF(EXCLUDED.inspection_mode, ''), tracked_keywords.inspection_mode),
         updated_at = NOW()
       RETURNING *;
     `;

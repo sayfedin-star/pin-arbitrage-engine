@@ -49,7 +49,27 @@ export async function handlePagesRoutes(routeCtx) {
       }
       return effectiveReply.send(method === 'HEAD' ? '' : (body || ''));
     }
-    return new Response(method === 'HEAD' ? null : body, { status, headers });
+    const lowerHeaders = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    const outHeaders = { ...headers };
+    Object.defineProperties(outHeaders, {
+      get: {
+        value: (h) => lowerHeaders.get(String(h).toLowerCase()) ?? null,
+        enumerable: false
+      },
+      forEach: {
+        value: (cb) => {
+          for (const [k, v] of Object.entries(outHeaders)) cb(v, k, outHeaders);
+        },
+        enumerable: false
+      }
+    });
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: outHeaders,
+      body: method === 'HEAD' ? null : body,
+      text: async () => (method === 'HEAD' ? '' : (body || ''))
+    };
   };
 
   // 1. Fast Edge Favicon Interception [INVARIANT: FAST-EDGE-FAVICON]

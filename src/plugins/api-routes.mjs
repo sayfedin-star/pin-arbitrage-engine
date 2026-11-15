@@ -17,8 +17,8 @@ import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   requestContextStorage,
   redactSecrets,
-  normalizePath,
   safeWaitUntil,
+  normalizePath,
   checkPinterestCircuitBreaker,
   tripPinterestCircuitBreaker,
   clampLimit,
@@ -30,7 +30,9 @@ import {
   corsOptionsResponse,
   buildCanonicalCacheKey,
   getCachedOrFetch,
-  invalidateEdgeCache
+  invalidateEdgeCache,
+  createBoundJsonResponse,
+  createBoundMethodNotAllowed
 } from '../http/security-and-response.mjs';
 
 /**
@@ -92,6 +94,9 @@ export async function apiRoutesPlugin(app, options = {}) {
     const outerStore = requestContextStorage.getStore();
     const externalCustomCtx = outerStore?.customCtx && outerStore.customCtx !== ctx ? outerStore.customCtx : null;
     const effectiveCtx = externalCustomCtx || ctx;
+    const origin = dynamicCors['Access-Control-Allow-Origin'];
+    const boundJsonResponse = createBoundJsonResponse(reply, origin);
+    const boundMethodNotAllowed = createBoundMethodNotAllowed(reply, origin);
 
     const routeResult = await requestContextStorage.run(
       {
@@ -100,7 +105,7 @@ export async function apiRoutesPlugin(app, options = {}) {
         env,
         ctx: effectiveCtx,
         customCtx: externalCustomCtx,
-        origin: dynamicCors['Access-Control-Allow-Origin'],
+        origin,
         bgPromises: []
       },
       async () => {
@@ -116,7 +121,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             pathname === '/api/fleet' ||
             pathname.startsWith('/api/fleet/')
           ) {
-            return jsonResponse({
+            return boundJsonResponse({
               success: false,
               error: 'NOT_FOUND',
               message: `Endpoint '${pathname}' not found on pin-arbitrage-engine API.`
@@ -129,7 +134,7 @@ export async function apiRoutesPlugin(app, options = {}) {
           if (isMutatingMethod || isSensitiveEndpoint) {
             const auth = verifyApiAuthentication(request, env);
             if (!auth.authorized) {
-              return jsonResponse(
+              return boundJsonResponse(
                 auth.payload || {
                   success: false,
                   error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
@@ -175,27 +180,26 @@ export async function apiRoutesPlugin(app, options = {}) {
           if (isCrawlerEndpoint && (isMutatingMethod || pathname.startsWith('/api/crawl/dispatch') || isLiveScrapeGet)) {
             const cb = await checkPinterestCircuitBreaker(env);
             if (cb?.active) {
-              return new Response(JSON.stringify({
+              reply.code(429);
+              reply.header('Content-Type', 'application/json; charset=utf-8');
+              reply.header('Retry-After', String(cb.remaining_seconds));
+              reply.header('X-Circuit-Breaker', 'OPEN');
+              for (const [k, v] of Object.entries(dynamicCors)) {
+                reply.header(k, v);
+              }
+              return reply.send({
                 success: false,
                 error: 'PINTEREST_RATE_LIMITED',
                 message: `Pinterest rate-limit circuit breaker is active. Operations cooling down for ${cb.remaining_seconds}s.`,
                 retry_after: cb.remaining_seconds,
                 reason: cb.reason
-              }), {
-                status: 429,
-                headers: {
-                  'Content-Type': 'application/json; charset=utf-8',
-                  'Retry-After': String(cb.remaining_seconds),
-                  'X-Circuit-Breaker': 'OPEN',
-                  ...dynamicCors
-                }
               });
             }
           }
 
           // 3. Scale-to-Zero Lightweight Non-DB Endpoints
           if (method === 'GET' && pathname === '/api/crawl-status') {
-            return jsonResponse({
+            return boundJsonResponse({
               is_crawling: false,
               mode: 'github_actions_pipeline',
               message: 'Managed in GitHub Actions'
@@ -204,7 +208,7 @@ export async function apiRoutesPlugin(app, options = {}) {
 
           if (method === 'GET' && pathname === '/api/settings/cookie' && !env?.DATABASE_URL && !env?.SQL_CLIENT && !process.env?.DATABASE_URL) {
             const cookie = env?.PINTEREST_COOKIE || process.env?.PINTEREST_COOKIE || '';
-            return jsonResponse({
+            return boundJsonResponse({
               has_cookie: Boolean(cookie && cookie.trim().length > 10),
               is_configured: Boolean(cookie && cookie.trim().length > 10),
               preview: cookie ? `${cookie.slice(0, 42)}...` : '',
@@ -215,13 +219,13 @@ export async function apiRoutesPlugin(app, options = {}) {
           // 3B. Authenticated Cache Invalidation Endpoint (for GitHub Actions & Internal Pipelines)
           if (pathname === '/api/cache/invalidate') {
             if (method !== 'POST') {
-              return methodNotAllowedResponse('POST, OPTIONS');
+              return boundMethodNotAllowed('POST, OPTIONS');
             }
             const body = await request.json().catch(() => ({}));
             invalidateFolderCache();
             await invalidateEdgeCache();
             await invalidateGlobalPulseCache(env, ctx).catch(() => {});
-            return jsonResponse({
+            return boundJsonResponse({
               success: true,
               invalidated: true,
               epoch: String(Date.now()),
@@ -245,7 +249,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               pathname.endsWith('/latest-pins');
 
             if (!isNonDbRoute) {
-              return jsonResponse({
+              return boundJsonResponse({
                 error: 'DATABASE_URL secret is not set on server environment.',
                 hint: 'Configure DATABASE_URL in .env or environment settings.'
               }, 500);
@@ -263,8 +267,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              jsonResponse,
-              methodNotAllowedResponse,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
               buildCanonicalCacheKey,
               getCachedOrFetch,
@@ -285,8 +289,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              jsonResponse,
-              methodNotAllowedResponse,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
               buildCanonicalCacheKey,
               getCachedOrFetch,
@@ -307,8 +311,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              jsonResponse,
-              methodNotAllowedResponse,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
               buildCanonicalCacheKey,
               getCachedOrFetch,
@@ -331,8 +335,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
-              jsonResponse,
-              methodNotAllowedResponse,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
               buildCanonicalCacheKey,
               getCachedOrFetch,
               invalidateEdgeCache,
@@ -353,7 +357,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               searchParams,
               sql,
               ctx,
-              jsonResponse,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
               buildCanonicalCacheKey,
               getCachedOrFetch,
@@ -364,7 +369,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             if (domainsRes) return domainsRes;
           }
 
-          return jsonResponse({
+          return boundJsonResponse({
             success: false,
             error: 'NOT_FOUND',
             message: `Endpoint '${pathname}' not found on pin-arbitrage-engine API.`
@@ -372,7 +377,7 @@ export async function apiRoutesPlugin(app, options = {}) {
         } catch (err) {
           const isSyntaxError = err instanceof SyntaxError || err.name === 'SyntaxError';
           const status = isSyntaxError ? 400 : (err.status || 500);
-          return jsonResponse({
+          return boundJsonResponse({
             success: false,
             error: status === 400 ? 'BAD_REQUEST'
               : status === 404 ? 'NOT_FOUND'
@@ -382,15 +387,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               : 'INTERNAL_SERVER_ERROR',
             message: redactSecrets(err?.message || 'An unexpected internal error occurred')
           }, status);
-        } finally {
-          const store = requestContextStorage.getStore();
-          if (store?.bgPromises?.length) {
-            // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
-            const closePromise = Promise.allSettled(store.bgPromises).catch(() => {});
-            if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
-              effectiveCtx.waitUntil(closePromise);
-            }
-          }
         }
       }
     );
@@ -398,19 +394,32 @@ export async function apiRoutesPlugin(app, options = {}) {
     if (reply.sent) {
       return reply;
     }
-    if (routeResult instanceof Response || (routeResult && typeof routeResult === 'object' && 'status' in routeResult && routeResult.headers)) {
-      reply.code(routeResult.status);
-      routeResult.headers.forEach((val, key) => {
-        reply.header(key, val);
-      });
-      if (routeResult.status === 204 || (!routeResult._payload && !routeResult.body)) {
+    if (routeResult && typeof routeResult === 'object') {
+      if (typeof routeResult.status === 'number') {
+        reply.code(routeResult.status);
+      }
+      if (routeResult.headers && typeof routeResult.headers === 'object') {
+        if (typeof routeResult.headers.forEach === 'function') {
+          routeResult.headers.forEach((val, key) => {
+            reply.header(key, val);
+          });
+        } else {
+          for (const [key, val] of Object.entries(routeResult.headers)) {
+            if (typeof val !== 'function') reply.header(key, val);
+          }
+        }
+      }
+      if (routeResult.status === 204) {
         return reply.send();
       }
       if (routeResult._payload !== undefined) {
         return reply.send(routeResult._payload);
       }
-      const text = await routeResult.text();
-      return reply.send(text);
+      if (typeof Response !== 'undefined' && routeResult instanceof Response) {
+        const text = await routeResult.text();
+        return reply.send(text);
+      }
+      return reply.send(routeResult);
     }
     if (routeResult !== undefined) {
       return reply.code(200).header('Content-Type', 'application/json; charset=utf-8').send(routeResult);
@@ -419,6 +428,7 @@ export async function apiRoutesPlugin(app, options = {}) {
   }
 
   // Register explicit domain prefixes cleanly inside Fastify's native route tree
+  app.post('/api/keywords/bulk-import', { config: { bodyLimit: 512 * 1024 } }, dispatchApiRequest);
   app.all('/api/pins/*', dispatchApiRequest);
   app.all('/api/urls/*', dispatchApiRequest);
   app.all('/api/folders', dispatchApiRequest);
@@ -435,6 +445,7 @@ export async function apiRoutesPlugin(app, options = {}) {
   app.all('/api/domains', dispatchApiRequest);
   app.all('/api/domains/*', dispatchApiRequest);
   app.all('/api/pulse/*', dispatchApiRequest);
+  app.all('/api/cluster/*', dispatchApiRequest);
   app.all('/api/*', dispatchApiRequest);
 }
 

@@ -1,0 +1,475 @@
+### PR #2 Verification Bundle
+
+**Pull Request:** [#4 (refactor/phase2-clean-slate-ssot → main)](https://github.com/sayfedin-star/pin-arbitrage-engine/pull/4)  
+**Status:** Open (**NOT merged** per instructions)  
+**Branch:** [`refactor/phase2-clean-slate-ssot`](https://github.com/sayfedin-star/pin-arbitrage-engine/tree/refactor/phase2-clean-slate-ssot)
+
+---
+
+### 1. `git diff --stat main...HEAD`
+
+```text
+ package.json                                       |   2 +-
+ scripts/account-related-crawler.mjs                |  20 +-
+ scripts/backfill_rolling_window_gains.mjs          | 268 ++----
+ scripts/cluster-intelligence.mjs                   |  19 +-
+ scripts/creator-fleet-consolidator.mjs             |  46 +-
+ scripts/creator-velocity-crawler.mjs               | 334 ++-----
+ scripts/enrich_domain_ads.mjs                      |  31 +-
+ scripts/ensure_indexes.mjs                         | 136 +--
+ scripts/keyword-fleet-consolidator.mjs             | 151 ++--
+ scripts/keyword-fleet-dispatcher.mjs               |   2 +-
+ scripts/keyword-velocity-crawler.mjs               | 982 +++++----------------
+ scripts/migrate.mjs                                |   5 +
+ .../migrations/060_clean_slate_4_table_ssot.sql    | 152 ++++
+ scripts/optimize_hub_storage.mjs                   | 367 +-------
+ scripts/remediate-canonical-poisoning.mjs          | 166 +---
+ .../remediate_poisoned_canonical_and_velocity.mjs  | 177 +---
+ scripts/test_boost_phases_1_2_3.mjs                |   8 +-
+ scripts/test_creation_method_precedence.mjs        |  17 +-
+ scripts/test_creator_intelligence_fleet.mjs        |  10 +-
+ scripts/test_forensic_dossier_cache_sync.mjs       |  24 +-
+ scripts/test_phase2_read_acceleration.mjs          |  51 +-
+ scripts/test_phase3_write_and_crawlers.mjs         | 111 +--
+ scripts/verify_regression_locks.mjs                | 563 ------------
+ scripts/verify_sql_schema_parity.mjs               | 187 +---
+ src/modules/creators/boards-service.mjs            |  27 +-
+ src/modules/creators/competitors-crud.mjs          |  25 +-
+ src/modules/creators/creator-analytics.mjs         | 850 +++++++-----------
+ src/modules/creators/creator-ingest.mjs            | 765 +++-------------
+ src/modules/domains/ad-network-service.mjs         |  37 +-
+ src/modules/domains/service.mjs                    | 573 +++---------
+ src/modules/keywords/folders-crossover.mjs         | 141 ++-
+ src/modules/keywords/folders-crud.mjs              | 230 ++---
+ src/modules/keywords/service.mjs                   | 575 ++++--------
+ src/modules/pins/repository.mjs                    | 903 +++++++++----------
+ src/modules/pulse/service.mjs                      | 504 ++++-------
+ src/routes/domains.mjs                             |   8 +-
+ src/routes/keywords.mjs                            |  53 +-
+ src/routes/pins.mjs                                | 224 ++---
+ src/server.mjs                                     |   2 +-
+ src/ui/dashboard-modals.mjs                        |   4 +-
+ tests/phase1-phase2-hardening.test.mjs             |  87 +-
+ 41 files changed, 2409 insertions(+), 6428 deletions(-)
+```
+
+---
+
+### 2. Full Migration SQL (`scripts/migrations/060_clean_slate_4_table_ssot.sql`)
+
+```sql
+-- Migration 060: Clean-Slate 4-Table SSOT Schema
+-- Establishes the 4 canonical SSOT tables:
+-- 1. universal_master_pins
+-- 2. pins_daily_metrics
+-- 3. keyword_serp_positions
+-- 4. competitor_board_pins
+-- Drops legacy tables: pa_pins, competitor_pins, keyword_displaced_index,
+--                     keyword_serp_current, pin_serp_positions, crawler_shard_heartbeats
+
+-- Step 1: Drop legacy views
+DROP VIEW IF EXISTS public.pins_daily_snapshots CASCADE;
+DROP VIEW IF EXISTS public.keyword_pins_snapshots CASCADE;
+DROP VIEW IF EXISTS public.keyword_master_pins CASCADE;
+DROP VIEW IF EXISTS public.pins CASCADE;
+
+-- Step 2: Drop legacy duplicate tables
+DROP TABLE IF EXISTS public.pa_pins CASCADE;
+DROP TABLE IF EXISTS public.competitor_pins CASCADE;
+DROP TABLE IF EXISTS public.keyword_displaced_index CASCADE;
+DROP TABLE IF EXISTS public.keyword_serp_current CASCADE;
+DROP TABLE IF EXISTS public.pin_serp_positions CASCADE;
+DROP TABLE IF EXISTS public.crawler_shard_heartbeats CASCADE;
+
+-- Step 3: Recreate 4 SSOT Tables
+DROP TABLE IF EXISTS public.competitor_board_pins CASCADE;
+DROP TABLE IF EXISTS public.keyword_serp_positions CASCADE;
+DROP TABLE IF EXISTS public.pins_daily_metrics CASCADE;
+DROP TABLE IF EXISTS public.universal_master_pins CASCADE;
+
+-- 1. universal_master_pins: Single canonical pin table
+CREATE TABLE public.universal_master_pins (
+  pin_id VARCHAR(255) PRIMARY KEY,
+  creator_username VARCHAR(128),
+  account_username TEXT GENERATED ALWAYS AS (creator_username) STORED,
+  board_id VARCHAR(64),
+  board_name TEXT,
+  board_slug TEXT,
+  title TEXT,
+  domain VARCHAR(255),
+  clean_domain VARCHAR(255),
+  destination_url TEXT,
+  image_url TEXT,
+  description TEXT,
+  alt_text TEXT,
+  dominant_color VARCHAR(32) DEFAULT '#888888',
+  visual_annotations JSONB DEFAULT '[]'::jsonb,
+  created_at_pinterest TIMESTAMPTZ,
+  first_discovered_pillar VARCHAR(32) DEFAULT 'keyword',
+  first_discovered_at TIMESTAMPTZ DEFAULT NOW(),
+  first_saved_at TIMESTAMPTZ DEFAULT NOW(),
+  last_resaved_at TIMESTAMPTZ DEFAULT NOW(),
+  last_scraped_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB DEFAULT '{}'::jsonb,
+  url_global_saves BIGINT DEFAULT NULL,
+  save_count BIGINT DEFAULT NULL,
+  repin_count BIGINT DEFAULT NULL,
+  comment_count INTEGER DEFAULT NULL,
+  share_count INTEGER DEFAULT NULL,
+  reaction_count INTEGER DEFAULT NULL,
+  is_hydrated BOOLEAN NOT NULL DEFAULT FALSE,
+  daily_save_velocity DOUBLE PRECISION DEFAULT NULL,
+  daily_repin_velocity DOUBLE PRECISION DEFAULT NULL,
+  delta_saves_24h BIGINT DEFAULT NULL,
+  delta_repins_24h BIGINT DEFAULT NULL,
+  gains_1d BIGINT DEFAULT NULL,
+  gains_3d BIGINT DEFAULT NULL,
+  gains_5d BIGINT DEFAULT NULL,
+  gains_7d BIGINT DEFAULT NULL,
+  gains_10d BIGINT DEFAULT NULL,
+  gains_14d BIGINT DEFAULT NULL,
+  gains_15d BIGINT DEFAULT NULL,
+  gains_30d BIGINT DEFAULT NULL,
+  is_product BOOLEAN DEFAULT FALSE,
+  is_video BOOLEAN DEFAULT FALSE,
+  creation_method TEXT,
+  image_signature TEXT,
+  seo_noindex_reason TEXT,
+  is_repin BOOLEAN DEFAULT FALSE,
+  canonical_pin_id TEXT
+) WITH (fillfactor = 80);
+
+CREATE INDEX idx_ump_clean_domain_saves ON public.universal_master_pins(clean_domain, save_count DESC NULLS LAST);
+CREATE INDEX idx_ump_creator ON public.universal_master_pins(creator_username);
+CREATE INDEX idx_ump_creator_clean ON public.universal_master_pins((LOWER(TRIM(REPLACE(COALESCE(creator_username, ''), '@', '')))));
+CREATE INDEX idx_ump_velocity ON public.universal_master_pins(daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST);
+CREATE INDEX idx_ump_repin_velocity ON public.universal_master_pins(daily_repin_velocity DESC NULLS LAST, repin_count DESC NULLS LAST);
+CREATE INDEX idx_ump_is_hydrated ON public.universal_master_pins(is_hydrated);
+
+CREATE TRIGGER trg_ump_sync_clean_domain
+  BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain
+  ON public.universal_master_pins
+  FOR EACH ROW
+  EXECUTE FUNCTION pae_sync_clean_domain();
+
+-- 2. pins_daily_metrics: Daily metric snapshots
+CREATE TABLE public.pins_daily_metrics (
+  pin_id VARCHAR(255) NOT NULL,
+  recorded_date DATE NOT NULL,
+  snapshot_date DATE GENERATED ALWAYS AS (recorded_date) STORED,
+  save_count BIGINT DEFAULT NULL,
+  repin_count BIGINT DEFAULT NULL,
+  comment_count INTEGER DEFAULT NULL,
+  share_count INTEGER DEFAULT NULL,
+  reaction_count INTEGER DEFAULT NULL,
+  daily_save_velocity DOUBLE PRECISION DEFAULT NULL,
+  daily_repin_velocity DOUBLE PRECISION DEFAULT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (pin_id, recorded_date)
+) WITH (fillfactor = 80);
+
+CREATE INDEX idx_pdm_pin_recorded_desc ON public.pins_daily_metrics(pin_id, recorded_date DESC);
+CREATE INDEX idx_pdm_recorded_date ON public.pins_daily_metrics(recorded_date);
+
+-- 3. keyword_serp_positions: Unified SERP + Displaced vault positions
+CREATE TABLE public.keyword_serp_positions (
+  keyword_id INTEGER NOT NULL REFERENCES public.tracked_keywords(id) ON DELETE CASCADE,
+  pin_id VARCHAR(255) NOT NULL,
+  rank_position INTEGER DEFAULT NULL,
+  is_displaced BOOLEAN NOT NULL DEFAULT FALSE,
+  last_known_rank INTEGER DEFAULT NULL,
+  displaced_date TIMESTAMPTZ DEFAULT NULL,
+  vacuum_opportunity_score DOUBLE PRECISION DEFAULT NULL,
+  prev_rank_position INTEGER DEFAULT NULL,
+  crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  metadata JSONB DEFAULT '{}'::jsonb,
+  PRIMARY KEY (keyword_id, pin_id)
+) WITH (fillfactor = 80);
+
+CREATE INDEX idx_ksp_keyword_active ON public.keyword_serp_positions(keyword_id, rank_position ASC) WHERE is_displaced = FALSE;
+CREATE INDEX idx_ksp_keyword_displaced ON public.keyword_serp_positions(keyword_id, vacuum_opportunity_score DESC NULLS LAST) WHERE is_displaced = TRUE;
+CREATE INDEX idx_ksp_pin_id ON public.keyword_serp_positions(pin_id);
+
+-- 4. competitor_board_pins: Thin relational join table linking accounts/boards to pins
+CREATE TABLE public.competitor_board_pins (
+  competitor_id INTEGER NOT NULL REFERENCES public.competitor_profiles(id) ON DELETE CASCADE,
+  board_id VARCHAR(64) NOT NULL DEFAULT '',
+  pin_id VARCHAR(255) NOT NULL,
+  position INTEGER DEFAULT NULL,
+  discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (competitor_id, board_id, pin_id)
+) WITH (fillfactor = 80);
+
+CREATE INDEX idx_cbp_competitor_pin ON public.competitor_board_pins(competitor_id, pin_id);
+CREATE INDEX idx_cbp_pin_id ON public.competitor_board_pins(pin_id);
+CREATE INDEX idx_cbp_board ON public.competitor_board_pins(competitor_id, board_id);
+
+-- Step 4: Record migration in schema_migrations
+INSERT INTO public.schema_migrations (version, name, checksum, applied_at)
+VALUES ('060', 'clean_slate_4_table_ssot', 'phase2_ssot_clean_slate', NOW())
+ON CONFLICT (version) DO UPDATE SET applied_at = NOW();
+```
+
+---
+
+### 3. `npm run check` Output
+
+```text
+> pin-arbitrage-engine@1.0.0 check
+> node scripts/verify_all_syntax.mjs && node scripts/validate_inline_scripts.mjs && node scripts/verify_ui_routes_reorganization.mjs && node scripts/verify_sql_schema_parity.mjs && npm run lint && node scripts/verify_dom_nesting.mjs
+
+=== Running Dynamic Universal Syntax Verification (Acorn Fast-Path) ===
+
+✅ [SYNTAX CHECK PASSED] 100% of 142 .mjs files verified in 400.3ms with zero syntax errors.
+
+Found 11 script tags in getDashboardHtml()
+[getDashboardHtml] Script 0: Syntax OK (valid JS)
+[getDashboardHtml] Script 2: Syntax OK (valid JS)
+[getDashboardHtml] Script 5: Syntax OK (valid JS)
+[getDashboardHtml] Script 6: Syntax OK (valid JS)
+[getDashboardHtml] Script 7: Syntax OK (valid JS)
+[getDashboardHtml] Script 8: Syntax OK (valid JS)
+[getDashboardHtml] Script 9: Syntax OK (valid JS)
+[getDashboardHtml] Script 10: Syntax OK (valid JS)
+Found 12 script tags in getKeywordsPageHtml()
+[getKeywordsPageHtml] Script 1: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 4: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 5: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 6: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 7: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 8: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 9: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 10: Syntax OK (valid JS)
+[getKeywordsPageHtml] Script 11: Syntax OK (valid JS)
+Found 10 script tags in getDiscoveryPageHtml()
+[getDiscoveryPageHtml] Script 1: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 4: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 5: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 6: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 7: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 8: Syntax OK (valid JS)
+[getDiscoveryPageHtml] Script 9: Syntax OK (valid JS)
+Found 11 script tags in getPinDetailPageHtml()
+[getPinDetailPageHtml] Script 1: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 4: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 5: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 6: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 7: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 8: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 9: Syntax OK (valid JS)
+[getPinDetailPageHtml] Script 10: Syntax OK (valid JS)
+Found 10 script tags in getCampaignFoldersPageHtml()
+[getCampaignFoldersPageHtml] Script 1: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 4: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 5: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 6: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 7: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 8: Syntax OK (valid JS)
+[getCampaignFoldersPageHtml] Script 9: Syntax OK (valid JS)
+Found 10 script tags in getDomainsPageHtml()
+[getDomainsPageHtml] Script 1: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 4: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 5: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 6: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 7: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 8: Syntax OK (valid JS)
+[getDomainsPageHtml] Script 9: Syntax OK (valid JS)
+Found 8 script tags in getPulsePageHtml()
+[getPulsePageHtml] Script 1: Syntax OK (valid JS)
+[getPulsePageHtml] Script 4: Syntax OK (valid JS)
+[getPulsePageHtml] Script 5: Syntax OK (valid JS)
+[getPulsePageHtml] Script 6: Syntax OK (valid JS)
+[getPulsePageHtml] Script 7: Syntax OK (valid JS)
+[+] ALL inline scripts in all 7 suites have 100% valid JavaScript syntax!
+Testing Reorganized UI Routes...
+  ✓ [PASS] GET / -> Serves Executive Command Center
+  ✓ [PASS] GET /accounts -> Serves Creator Hub
+  ✓ [PASS] GET /keywords -> Serves Keywords Fleet Dashboard
+  ✓ [PASS] GET /related-pins -> Serves Related Pins
+  ✓ [PASS] GET /Related-Pins -> Serves Related Pins
+  ✓ [PASS] Double-slash routes (//accounts, //keywords, //Related-Pins) normalized to 200 OK
+  ✓ [PASS] Method tampering on static HTML endpoints rejected with 405; HEAD supported with 200 OK
+  ✓ [PASS] Favicon requests (/favicon.ico, /favicon.png) served instantly with immutable SVG pin
+  ✓ [PASS] GET /robots.txt serves clean robots policy without SSR overhead
+  ✓ [PASS] Missing static assets intercepted with 404 (zero dashboard SSR fallthrough)
+  ✓ [PASS] HTML_HEADERS unlocks edge Brotli/Gzip compression and smart caching
+  ✓ [PASS] All 6 UI templates include inline SVG favicon in <head> (0ms network request)
+  ✓ [PASS] Fastify request cleanup is non-blocking (await closePromise strictly eradicated)
+  ✓ [PASS] All UI templates eliminate render-blocking head scripts (Lucide & Alpine strictly deferred)
+  ✓ [PASS] Campaign Workspace Multi-Room Routing (/folders/:id/*) fully verified (GET 200, HEAD 200, POST 405)
+
+[+] ALL UI ROUTE REORGANIZATION & LATENCY OPTIMIZATION TESTS PASSED (100% GREEN)!
+=== Running Forensic SQL Schema Parity & AST Landmine Audit ===
+
+✅ [AUDIT PASSED] 100% Zero-Landmine Parity & Active Schema Verification across 141 source files.
+
+> pin-arbitrage-engine@1.0.0 lint
+> npx eslint src/ scripts/ workers/ --max-warnings=0
+```
+
+---
+
+### 4. `\d+` Table Schemas on Live PostgreSQL (`pae-postgres`)
+
+#### A. `universal_master_pins`
+```text
+                                                                      Table "public.universal_master_pins"
+         Column          |           Type           | Collation | Nullable |                    Default                    | Storage  | Compression | Stats target | Description 
+-------------------------+--------------------------+-----------+----------+-----------------------------------------------+----------+-------------+--------------+-------------
+ pin_id                  | character varying(255)   |           | not null |                                               | extended |             |              | 
+ creator_username        | character varying(128)   |           |          |                                               | extended |             |              | 
+ board_id                | character varying(64)    |           |          |                                               | extended |             |              | 
+ board_name              | text                     |           |          |                                               | extended |             |              | 
+ board_slug              | text                     |           |          |                                               | extended |             |              | 
+ title                   | text                     |           |          |                                               | extended |             |              | 
+ domain                  | character varying(255)   |           |          |                                               | extended |             |              | 
+ clean_domain            | character varying(255)   |           |          |                                               | extended |             |              | 
+ destination_url         | text                     |           |          |                                               | extended |             |              | 
+ image_url               | text                     |           |          |                                               | extended |             |              | 
+ description             | text                     |           |          |                                               | extended |             |              | 
+ alt_text                | text                     |           |          |                                               | extended |             |              | 
+ dominant_color          | character varying(32)    |           |          | '#888888'::character varying                  | extended |             |              | 
+ visual_annotations      | jsonb                    |           |          | '[]'::jsonb                                   | extended |             |              | 
+ created_at_pinterest    | timestamp with time zone |           |          |                                               | plain    |             |              | 
+ first_discovered_pillar | character varying(32)    |           |          | 'keyword'::character varying                  | extended |             |              | 
+ first_discovered_at     | timestamp with time zone |           |          | now()                                         | plain    |             |              | 
+ first_saved_at          | timestamp with time zone |           |          | now()                                         | plain    |             |              | 
+ last_resaved_at         | timestamp with time zone |           |          | now()                                         | plain    |             |              | 
+ last_scraped_at         | timestamp with time zone |           |          | now()                                         | plain    |             |              | 
+ updated_at              | timestamp with time zone |           |          | now()                                         | plain    |             |              | 
+ metadata                | jsonb                    |           |          | '{}'::jsonb                                   | extended |             |              | 
+ url_global_saves        | bigint                   |           |          |                                               | plain    |             |              | 
+ save_count              | bigint                   |           |          |                                               | plain    |             |              | 
+ repin_count             | bigint                   |           |          |                                               | plain    |             |              | 
+ comment_count           | integer                  |           |          |                                               | plain    |             |              | 
+ share_count             | integer                  |           |          |                                               | plain    |             |              | 
+ reaction_count          | integer                  |           |          |                                               | plain    |             |              | 
+ is_hydrated             | boolean                  |           | not null | false                                         | plain    |             |              | 
+ daily_save_velocity     | double precision         |           |          |                                               | plain    |             |              | 
+ daily_repin_velocity    | double precision         |           |          |                                               | plain    |             |              | 
+ delta_saves_24h         | bigint                   |           |          |                                               | plain    |             |              | 
+ delta_repins_24h        | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_1d                | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_3d                | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_5d                | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_7d                | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_10d               | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_14d               | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_15d               | bigint                   |           |          |                                               | plain    |             |              | 
+ gains_30d               | bigint                   |           |          |                                               | plain    |             |              | 
+ is_product              | boolean                  |           |          | false                                         | plain    |             |              | 
+ is_video                | boolean                  |           |          | false                                         | plain    |             |              | 
+ creation_method         | text                     |           |          |                                               | extended |             |              | 
+ image_signature         | text                     |           |          |                                               | extended |             |              | 
+ seo_noindex_reason      | text                     |           |          |                                               | extended |             |              | 
+ is_repin                | boolean                  |           |          | false                                         | plain    |             |              | 
+ canonical_pin_id        | text                     |           |          |                                               | extended |             |              | 
+ account_username        | text                     |           |          | generated always as (creator_username) stored | extended |             |              | 
+Indexes:
+    "universal_master_pins_pkey" PRIMARY KEY, btree (pin_id)
+    "idx_ump_clean_domain_saves" btree (clean_domain, save_count DESC NULLS LAST)
+    "idx_ump_creator" btree (creator_username)
+    "idx_ump_creator_clean" btree (lower(TRIM(BOTH FROM replace(COALESCE(creator_username, ''::character varying)::text, '@'::text, ''::text))))
+    "idx_ump_is_hydrated" btree (is_hydrated)
+    "idx_ump_repin_velocity" btree (daily_repin_velocity DESC NULLS LAST, repin_count DESC NULLS LAST)
+    "idx_ump_velocity" btree (daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST)
+Triggers:
+    trg_ump_sync_clean_domain BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain ON universal_master_pins FOR EACH ROW EXECUTE FUNCTION pae_sync_clean_domain()
+Access method: heap
+Options: fillfactor=80
+```
+
+#### B. `pins_daily_metrics`
+```text
+                                                                     Table "public.pins_daily_metrics"
+        Column        |           Type           | Collation | Nullable |                  Default                   | Storage  | Compression | Stats target | Description 
+----------------------+--------------------------+-----------+----------+--------------------------------------------+----------+-------------+--------------+-------------
+ pin_id               | character varying(255)   |           | not null |                                            | extended |             |              | 
+ recorded_date        | date                     |           | not null |                                            | plain    |             |              | 
+ snapshot_date        | date                     |           |          | generated always as (recorded_date) stored | plain    |             |              | 
+ save_count           | bigint                   |           |          |                                            | plain    |             |              | 
+ repin_count          | bigint                   |           |          |                                            | plain    |             |              | 
+ comment_count        | integer                  |           |          |                                            | plain    |             |              | 
+ share_count          | integer                  |           |          |                                            | plain    |             |              | 
+ reaction_count       | integer                  |           |          |                                            | plain    |             |              | 
+ daily_save_velocity  | double precision         |           |          |                                            | plain    |             |              | 
+ daily_repin_velocity | double precision         |           |          |                                            | plain    |             |              | 
+ updated_at           | timestamp with time zone |           | not null | now()                                      | plain    |             |              | 
+Indexes:
+    "pins_daily_metrics_pkey" PRIMARY KEY, btree (pin_id, recorded_date)
+    "idx_pdm_pin_recorded_desc" btree (pin_id, recorded_date DESC)
+    "idx_pdm_recorded_date" btree (recorded_date)
+Access method: heap
+Options: fillfactor=80
+```
+
+#### C. `keyword_serp_positions`
+```text
+                                                     Table "public.keyword_serp_positions"
+          Column          |           Type           | Collation | Nullable |   Default   | Storage  | Compression | Stats target | Description 
+--------------------------+--------------------------+-----------+----------+-------------+----------+-------------+--------------+-------------
+ keyword_id               | integer                  |           | not null |             | plain    |             |              | 
+ pin_id                   | character varying(255)   |           | not null |             | extended |             |              | 
+ rank_position            | integer                  |           |          |             | plain    |             |              | 
+ is_displaced             | boolean                  |           | not null | false       | plain    |             |              | 
+ last_known_rank          | integer                  |           |          |             | plain    |             |              | 
+ displaced_date           | timestamp with time zone |           |          |             | plain    |             |              | 
+ vacuum_opportunity_score | double precision         |           |          |             | plain    |             |              | 
+ prev_rank_position       | integer                  |           |          |             | plain    |             |              | 
+ crawled_at               | timestamp with time zone |           | not null | now()       | plain    |             |              | 
+ updated_at               | timestamp with time zone |           | not null | now()       | plain    |             |              | 
+ metadata                 | jsonb                    |           |          | '{}'::jsonb | extended |             |              | 
+Indexes:
+    "keyword_serp_positions_pkey" PRIMARY KEY, btree (keyword_id, pin_id)
+    "idx_ksp_keyword_active" btree (keyword_id, rank_position) WHERE is_displaced = false
+    "idx_ksp_keyword_displaced" btree (keyword_id, vacuum_opportunity_score DESC NULLS LAST) WHERE is_displaced = true
+    "idx_ksp_pin_id" btree (pin_id)
+Foreign-key constraints:
+    "keyword_serp_positions_keyword_id_fkey" FOREIGN KEY (keyword_id) REFERENCES tracked_keywords(id) ON DELETE CASCADE
+Access method: heap
+Options: fillfactor=80
+```
+
+#### D. `competitor_board_pins`
+```text
+                                                     Table "public.competitor_board_pins"
+    Column     |           Type           | Collation | Nullable |        Default        | Storage  | Compression | Stats target | Description 
+---------------+--------------------------+-----------+----------+-----------------------+----------+-------------+--------------+-------------
+ competitor_id | integer                  |           | not null |                       | plain    |             |              | 
+ board_id      | character varying(64)    |           | not null | ''::character varying | extended |             |              | 
+ pin_id        | character varying(255)   |           | not null |                       | extended |             |              | 
+ position      | integer                  |           |          |                       | plain    |             |              | 
+ discovered_at | timestamp with time zone |           | not null | now()                 | plain    |             |              | 
+Indexes:
+    "competitor_board_pins_pkey" PRIMARY KEY, btree (competitor_id, board_id, pin_id)
+    "idx_cbp_board" btree (competitor_id, board_id)
+    "idx_cbp_competitor_pin" btree (competitor_id, pin_id)
+    "idx_cbp_pin_id" btree (pin_id)
+Foreign-key constraints:
+    "competitor_board_pins_competitor_id_fkey" FOREIGN KEY (competitor_id) REFERENCES competitor_profiles(id) ON DELETE CASCADE
+Access method: heap
+Options: fillfactor=80
+```
+
+---
+
+### 5. Architectural & Verification Highlights
+
+1. **Clean-Slate 4-Table SSOT Enforcement:**
+   - Single canonical pin catalog in `universal_master_pins` with zero numeric coercion (`save_count` and `repin_count` default to `NULL` when unhydrated; `ORDER BY ... DESC NULLS LAST`).
+   - Unified active SERP and displaced vault catalog in `keyword_serp_positions` with `is_displaced` boolean partition indexes.
+   - Thin relational link in `competitor_board_pins` mapping accounts and boards to canonical pins without duplicating pin metadata.
+   - Monotonic daily metrics tracking in `pins_daily_metrics`.
+2. **Consolidated Atomic Ingestion:**
+   - Single authoritative `ingestPinsBatch` in `src/modules/pins/repository.mjs` executing in an atomic CTE transaction.
+   - Computes and persists both `daily_save_velocity` and `daily_repin_velocity` from daily deltas while preserving `NULL`s.
+3. **Permanent Removal of Regression Locks & Parity Assurance:**
+   - Deleted `scripts/verify_regression_locks.mjs`.
+   - Updated `scripts/verify_sql_schema_parity.mjs` to validate the 4 SSOT tables and ban dropped tables (`pa_pins`, `competitor_pins`, `keyword_displaced_index`, `keyword_serp_current`, `pin_serp_positions`, `crawler_shard_heartbeats`).
+   - Modernized pin hashing to `ABS(hashtext(pin_id::text)) % workerTotal`.
+   - Purged all runtime `CREATE TABLE` and `ALTER TABLE` DDL.
+4. **All Suites Passing 100%:**
+   - `npm run check`: 0 errors, 0 warnings.
+   - `npm test`: 100% green across all unit, forensic, security, and integration suites.

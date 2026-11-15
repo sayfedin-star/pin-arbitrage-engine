@@ -41,9 +41,6 @@ export async function optimizeHubStorage(sql) {
   if (!sql) throw new Error('optimizeHubStorage requires an active SQL client.');
 
   const results = {
-    archivedDisplaced: 0,
-    prunedSnapshots: 0,
-    compactedCompetitors: 0,
     cleanedSerpMetadata: 0,
     cleanedKwMetadata: 0,
     vacuumedTables: []
@@ -56,16 +53,16 @@ export async function optimizeHubStorage(sql) {
       SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'share_count' - 'dominant_color' - 'board_name' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
       WHERE metadata IS NOT NULL
         AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','share_count','dominant_color','board_name','description','alt_text','rich_metadata','visual_objects','seo_related_interests'];
-    `.catch(() => []);
-    results.cleanedSerpMetadata = serpClean.length || 0;
+    `.catch(() => ({ count: 0 }));
+    results.cleanedSerpMetadata = serpClean?.count ?? serpClean?.length ?? 0;
 
     const kwClean = await sql`
       UPDATE tracked_keywords
       SET metadata = COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins' - 'crawl_lock'
       WHERE metadata IS NOT NULL
         AND metadata ?| array['last_dropped_pins', 'popular_pins', 'crawl_lock'];
-    `.catch(() => []);
-    results.cleanedKwMetadata = kwClean.length || 0;
+    `.catch(() => ({ count: 0 }));
+    results.cleanedKwMetadata = kwClean?.count ?? kwClean?.length ?? 0;
   } catch (err) {
     console.warn('[optimizeHubStorage] Strip metadata warning:', err.message);
   }

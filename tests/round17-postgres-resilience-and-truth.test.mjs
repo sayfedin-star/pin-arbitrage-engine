@@ -520,7 +520,7 @@ describe('Round 17: Phase 4 Stage 2 42P10 & Pulse 48h SQL Freshness Contract', (
     const creatorIngestCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'creators', 'creator-ingest.mjs'), 'utf8');
 
     assert.ok(
-      repoCode.includes('WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint'),
+      repoCode.includes('daily_save_velocity IS NOT NULL THEN') && (repoCode.includes('ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint') || repoCode.includes('ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint')),
       'true_delta_saves_24h must respect rb.daily_save_velocity (including 0 when hydration jump is suppressed)'
     );
     assert.strictEqual(

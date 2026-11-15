@@ -4,55 +4,29 @@
  */
 
 /**
- * Detects multi-stage hydration jumps where unhydrated or stub pin records
- * receive lifetime metric backfills, preventing astronomical velocity spikes.
+ * Evaluates the canonical 6-rule anti-hydration jump invariants.
  * [INVARIANT: ANTI-HYDRATION-SPIKE]
  *
- * Flag isHydrationJump = true whenever ANY of the following holds:
- * 1. prev.save_count === 0 && curr.save_count > 0
+ * Rules:
+ * 1. prev.save_count <= 0 && curr.save_count > 0
  * 2. prev.save_count < prev.repin_count
  * 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
  * 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
  * 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
- * 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count = 0 or curr / prev > 20)
+ * 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
  *
- * @param {object} params
- * @returns {boolean} True if the transition represents a multi-stage hydration jump
+ * @param {number} curSaves
+ * @param {number} prevSaves
+ * @param {number} curRepins
+ * @param {number} prevRepins
+ * @returns {boolean} True if transition is a hydration jump
  */
-// [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Anti-Hydration Jump Detection
-export function detectHydrationJump(params, maybePrevSaves = 0, maybeCurRepins = 0, maybePrevRepins = 0) {
-  let curSaves = 0;
-  let prevSaves = 0;
-  let curRepins = 0;
-  let prevRepins = 0;
-
-  if (typeof params === 'number') {
-    curSaves = params;
-    prevSaves = Number(maybePrevSaves || 0);
-    curRepins = Number(maybeCurRepins || 0);
-    prevRepins = Number(maybePrevRepins || 0);
-  } else if (params && typeof params === 'object') {
-    if (params.prev || params.curr) {
-      curSaves = Number(params.curr?.save_count ?? params.curr?.saves ?? params.curr?.currentSaves ?? 0);
-      prevSaves = Number(params.prev?.save_count ?? params.prev?.saves ?? params.prev?.baselineSaves ?? 0);
-      curRepins = Number(params.curr?.repin_count ?? params.curr?.repins ?? params.curr?.currentRepins ?? 0);
-      prevRepins = Number(params.prev?.repin_count ?? params.prev?.repins ?? params.prev?.baselineRepins ?? 0);
-    } else {
-      curSaves = Number(params.currentSaves ?? params.save_count ?? params.curr_saves ?? params.currSaves ?? 0);
-      prevSaves = Number(params.baselineSaves ?? params.prev_saves ?? params.prevSaves ?? params.base_saves ?? 0);
-      curRepins = Number(params.currentRepins ?? params.repin_count ?? params.curr_repins ?? params.curRepins ?? 0);
-      prevRepins = Number(params.baselineRepins ?? params.prev_repins ?? params.prevRepins ?? params.base_repins ?? 0);
-    }
-  } else {
-    return false;
-  }
-
+export function evaluateCanonicalHydrationRules(curSaves, prevSaves, curRepins, prevRepins) {
   if (!Number.isFinite(curSaves) || !Number.isFinite(prevSaves)) return false;
 
   const rawDelta = Math.max(0, curSaves - prevSaves);
   if (rawDelta === 0) return false;
 
-  // [INVARIANT: ANTI-HYDRATION-SPIKE]
   // 1. prev.save_count <= 0 && curr.save_count > 0
   if (prevSaves <= 0 && curSaves > 0) {
     return true;
@@ -69,7 +43,7 @@ export function detectHydrationJump(params, maybePrevSaves = 0, maybeCurRepins =
     return true;
   }
 
-  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
+  // 4. prev.repin_count === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5
   if (prevRepins === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5) {
     return true;
   }
@@ -79,12 +53,63 @@ export function detectHydrationJump(params, maybePrevSaves = 0, maybeCurRepins =
     return true;
   }
 
-  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)
   if (rawDelta > 2000 && prevSaves < 500 && (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Detects multi-stage hydration jumps where unhydrated or stub pin records
+ * receive lifetime metric backfills, preventing astronomical velocity spikes.
+ * [INVARIANT: ANTI-HYDRATION-SPIKE]
+ *
+ * @param {object|number} params - Options object, or current saves count
+ * @param {number|object} [maybePrevSaves=0]
+ * @param {number} [maybeCurRepins=0]
+ * @param {number} [maybePrevRepins=0]
+ * @returns {boolean} True if the transition represents a multi-stage hydration jump
+ */
+// [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Anti-Hydration Jump Detection
+export function detectHydrationJump(params, maybePrevSaves = 0, maybeCurRepins = 0, maybePrevRepins = 0) {
+  let curSaves = 0;
+  let prevSaves = 0;
+  let curRepins = 0;
+  let prevRepins = 0;
+
+  if (typeof params === 'number') {
+    curSaves = params;
+    prevSaves = Number(maybePrevSaves || 0);
+    curRepins = Number(maybeCurRepins || 0);
+    prevRepins = Number(maybePrevRepins || 0);
+  } else if (params && typeof params === 'object') {
+    if (maybePrevSaves && typeof maybePrevSaves === 'object') {
+      const prev = params;
+      const curr = maybePrevSaves;
+      prevSaves = Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0);
+      curSaves = Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0);
+      prevRepins = Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0);
+      curRepins = Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0);
+    } else if (params.prev || params.curr) {
+      const prev = params.prev;
+      const curr = params.curr;
+      prevSaves = typeof prev === 'number' ? prev : Number(prev?.save_count ?? prev?.saves ?? prev?.baselineSaves ?? prev?.prev_saves ?? 0);
+      curSaves = typeof curr === 'number' ? curr : Number(curr?.save_count ?? curr?.saves ?? curr?.currentSaves ?? curr?.cur_saves ?? 0);
+      prevRepins = typeof prev === 'object' ? Number(prev?.repin_count ?? prev?.repins ?? prev?.baselineRepins ?? prev?.prev_repins ?? 0) : 0;
+      curRepins = typeof curr === 'object' ? Number(curr?.repin_count ?? curr?.repins ?? curr?.currentRepins ?? curr?.cur_repins ?? 0) : 0;
+    } else {
+      curSaves = Number(params.currentSaves ?? params.save_count ?? params.curr_saves ?? params.currSaves ?? 0);
+      prevSaves = Number(params.baselineSaves ?? params.prev_saves ?? params.prevSaves ?? params.base_saves ?? 0);
+      curRepins = Number(params.currentRepins ?? params.repin_count ?? params.curr_repins ?? params.curRepins ?? 0);
+      prevRepins = Number(params.baselineRepins ?? params.prev_repins ?? params.prevRepins ?? params.base_repins ?? 0);
+    }
+  } else {
+    return false;
+  }
+
+  return evaluateCanonicalHydrationRules(curSaves, prevSaves, curRepins, prevRepins);
 }
 
 /**
@@ -183,40 +208,200 @@ export function calculateDailyVelocity(params) {
 
 /**
  * Multi-stage hydration jump detector for trajectory snapshots.
- * Flags transitions where unhydrated stub records receive historical lifetime metric backfills.
+ * Canonical alias mapped directly to detectHydrationJump SSOT.
  */
-export function isMultiStageHydrationJump(prev, curr) {
-  if (!prev || !curr) return false;
-  const pSaves = typeof prev === 'number' ? prev : Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0);
-  const cSaves = typeof curr === 'number' ? curr : Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0);
-  const pRepins = typeof prev === 'object' ? Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0) : 0;
-  const cRepins = typeof curr === 'object' ? Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0) : 0;
+export const isMultiStageHydrationJump = detectHydrationJump;
 
-  if (!Number.isFinite(pSaves) || !Number.isFinite(cSaves)) return false;
+/**
+ * Computes the Anscombe Inflection Score for a pin.
+ * Applies the Anscombe variance-stabilizing transformation A(x) = 2 * sqrt(x + 3/8)
+ * to stabilize Poisson variance across low-count and high-count pin metric distributions,
+ * measuring the statistical significance of velocity inflection.
+ *
+ * @param {object|number} pin - Pin record or current velocity number
+ * @param {object} [options={}] - Optional tuning parameters
+ * @returns {number} Anscombe inflection score
+ */
+function _computeVelocityTelemetry(pinOrCurrentVel, maybeGains7dOrPriorVel = null, maybeOptions = {}) {
+  let currentVel = 0;
+  let baseVel = 0;
+  let repinVel = 0;
+  let commentVel = 0;
+  let ageDays = 0;
+  let kappa = 5;
+  let baselineDays = 6;
 
-  const rawDelta = Math.max(0, cSaves - pSaves);
-  if (rawDelta === 0) return false;
+  if (typeof pinOrCurrentVel === 'number') {
+    currentVel = Math.max(0, pinOrCurrentVel);
+    const opts = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+    kappa = Math.max(1, Number(opts.kappa ?? 5));
+    baselineDays = Math.max(1, Number(opts.baselineDays ?? 6));
+    repinVel = Math.max(0, Number(opts.repinVelocity ?? opts.daily_repin_velocity ?? 0));
+    commentVel = Math.max(0, Number(opts.commentVelocity ?? opts.comments ?? 0));
+    if (opts.ageDays !== undefined) {
+      ageDays = opts.ageDays != null ? Math.max(0, Number(opts.ageDays)) : 0;
+    } else if (opts.createdAt || opts.created_at_pinterest) {
+      const ms = new Date(opts.createdAt || opts.created_at_pinterest).getTime();
+      if (Number.isFinite(ms) && ms > 0) ageDays = Math.max(0, (Date.now() - ms) / 86400000);
+    }
+    if (opts.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(opts.baselineVelocity));
+    } else if (maybeGains7dOrPriorVel != null && Number.isFinite(Number(maybeGains7dOrPriorVel))) {
+      const g = Number(maybeGains7dOrPriorVel);
+      baseVel = opts.isGains7d ? Math.max(0, g / 7) : Math.max(0, g);
+    }
+  } else if (pinOrCurrentVel && typeof pinOrCurrentVel === 'object') {
+    const p = pinOrCurrentVel;
+    const opts = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+    currentVel = Math.max(0, Number(opts.currentVelocity ?? p.daily_save_velocity ?? p.velocity ?? p.currentVelocity ?? 0));
+    kappa = Math.max(1, Number(opts.kappa ?? p.kappa ?? 5));
+    baselineDays = Math.max(1, Number(opts.baselineDays ?? p.baselineDays ?? 6));
+    if (opts.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(opts.baselineVelocity));
+    } else if (p.baselineVelocity != null) {
+      baseVel = Math.max(0, Number(p.baselineVelocity));
+    } else if (p.priorVelocity != null) {
+      baseVel = Math.max(0, Number(p.priorVelocity));
+    } else if (p.gains_7d != null && Number(p.gains_7d) > 0) {
+      baseVel = Math.max(0, Number(p.gains_7d) / 7);
+    } else if (p.gains_5d != null && Number(p.gains_5d) > 0) {
+      baseVel = Math.max(0, Number(p.gains_5d) / 5);
+    }
+    repinVel = Math.max(0, Number(p.daily_repin_velocity ?? p.repinVelocity ?? p.delta_repins_24h ?? 0));
+    commentVel = Math.max(0, Number(p.comment_count ?? p.comments ?? p.commentVelocity ?? 0));
+    const precomputedAge = opts.ageDays !== undefined
+      ? opts.ageDays
+      : (p.pin_age_days !== undefined
+          ? p.pin_age_days
+          : (p.pinAgeDays !== undefined ? p.pinAgeDays : p.age_days));
+    if (precomputedAge !== undefined) {
+      ageDays = precomputedAge != null ? Math.max(0, Number(precomputedAge)) : 0;
+    } else if (p.created_at_pinterest || p.created_at || p.createdAt) {
+      const ms = new Date(p.created_at_pinterest || p.created_at || p.createdAt).getTime();
+      if (Number.isFinite(ms) && ms > 0) ageDays = Math.max(0, (Date.now() - ms) / 86400000);
+    }
+  } else {
+    return { anscombe_z_gain: 0, repin_lead_score: 0, acceleration_score: 0, breakout_score: 0 };
+  }
 
-  // 1. prev.save_count <= 0 && curr.save_count > 0
-  if (pSaves <= 0 && cSaves > 0) return true;
+  const smoothedBase = Math.max(0, (baseVel * baselineDays + kappa) / (baselineDays + 1));
+  const anscombeCurr = 2 * Math.sqrt(currentVel + 0.375);
+  const anscombeBase = 2 * Math.sqrt(smoothedBase + 0.375);
+  const rawAcceleration = anscombeCurr - anscombeBase;
 
-  // 2. prev.save_count < prev.repin_count
-  if (pRepins > 0 && pSaves < pRepins) return true;
+  const repinLeadRaw = Math.min(2.0, (repinVel * 1.5 + commentVel * 2.0) / Math.max(1, currentVel + 1));
+  const leadBoost = 1.0 + repinLeadRaw;
+  const ageDecay = 1.0 / Math.sqrt(1.0 + (ageDays / 180.0));
+  const finalAcceleration = rawAcceleration * leadBoost * ageDecay;
 
-  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
-  const effCurRepins = cRepins > 0 ? cRepins : pRepins;
-  if (pRepins > 0 && pSaves === pRepins && cSaves > effCurRepins * 1.35) return true;
+  const acceleration_score = Number.isFinite(finalAcceleration) ? Math.round(finalAcceleration * 100) / 100 : 0;
+  const anscombe_z_gain = Number.isFinite(rawAcceleration) ? Math.round(rawAcceleration * 100) / 100 : 0;
+  const repin_lead_score = Number.isFinite(repinLeadRaw) ? Math.round(repinLeadRaw * 100) / 100 : 0;
+  const breakout_score = Math.min(100, Math.max(0, Math.round(
+    (Math.max(0, anscombe_z_gain) * 12) + (repin_lead_score * 15) + (Math.max(0, acceleration_score) * 10)
+  )));
 
-  // 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= pSaves * 2.5
-  if (pRepins === 0 && cRepins >= 25 && cSaves >= pSaves * 2.5) return true;
+  return { anscombe_z_gain, repin_lead_score, acceleration_score, breakout_score };
+}
 
-  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
-  if (pSaves > 0 && (cSaves / pSaves) >= 4.0 && (cSaves - pSaves) >= 2500) return true;
+/**
+ * Computes Anscombe-transformed velocity inflection telemetry object for a pin.
+ */
+export function computeAnscombeInflectionScore(pin, options = {}) {
+  if (!pin || typeof pin !== 'object') {
+    return { anscombe_z_gain: 0, repin_lead_score: 0, acceleration_score: 0, breakout_score: 0 };
+  }
+  return _computeVelocityTelemetry(pin, null, options);
+}
 
-  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
-  if (rawDelta > 2000 && pSaves < 500 && (pSaves <= 0 || (cSaves / Math.max(1, pSaves)) > 20)) return true;
+/**
+ * Computes unified Cross-Pillar Conviction Score (0-100) across:
+ * 1. P2P Graph Resonance (seed overlap, pixie multihit, coupling_rho)
+ * 2. SERP Dominance (active SERP ranking and keyword footprint)
+ * 3. Velocity & Viral Momentum
+ * 4. Domain Authority & Arbitrage Eligibility
+ *
+ * @param {object} params
+ * @returns {object} { conviction_score, pillar_convergence_count, convergence_tier, p2p_factor, velocity_factor, serp_factor, age_factor }
+ */
+export function computeCrossPillarConvictionScore(params = {}) {
+  if (!params || typeof params !== 'object') {
+    return {
+      conviction_score: 0,
+      pillar_convergence_count: 0,
+      convergence_tier: 'UNCONVERGED',
+      p2p_factor: 0,
+      velocity_factor: 0,
+      serp_factor: 0,
+      age_factor: 0
+    };
+  }
 
-  return false;
+  const seedOverlap = Math.max(0, Number(params.seed_overlap_count ?? params.seedOverlapCount ?? params.seedOverlap ?? params.overlap ?? 0));
+  const multihit = Math.max(0, Number(params.pixie_multihit_score ?? params.pixieScore ?? params.multihitScore ?? params.multihit ?? 0));
+  const couplingRho = Math.max(0, Number(params.coupling_rho ?? params.couplingRho ?? 0));
+  const velocity = Math.max(0, Number(params.daily_save_velocity ?? params.dailyVelocity ?? params.daily_velocity ?? params.velocity ?? 0));
+  const saves = Math.max(0, Number(params.save_count ?? params.total_saves ?? params.saves ?? 0));
+  const serpRank = params.rank_position ?? params.serpRank ?? params.rank ?? null;
+  const serpKeywords = Math.max(0, Number(params.serp_keywords_count ?? params.serpKeywordsCount ?? params.serpCount ?? params.keywords_count ?? 0));
+  const isSerpRanked = Boolean(params.isSerpRanked ?? params.is_serp_ranked ?? ((serpRank != null && Number(serpRank) > 0 && Number(serpRank) <= 50) || serpKeywords > 0));
+  const isCompetitor = Boolean(params.is_competitor ?? params.isCompetitor ?? params.competitor_id ?? params.creator_username ?? params.account_username);
+  const domain = String(params.domain ?? params.clean_domain ?? '').trim();
+  const rawAge = params.domain_age_days ?? params.domainAgeDays;
+  const domainAgeDays = rawAge != null ? Number(rawAge) : null;
+  const arbitrageScore = Math.max(0, Number(params.arbitrage_score ?? params.arbitrageScore ?? 0));
+  const isProduct = Boolean(params.is_product ?? params.isProduct);
+
+  let pillars = 0;
+  if (seedOverlap >= 1 || multihit > 0 || couplingRho > 0) pillars++;
+  if (isSerpRanked) pillars++;
+  if (isCompetitor || velocity >= 2.0 || saves >= 1000) pillars++;
+  if ((domain && domain !== 'uploaded by user' && domain.includes('.')) || (domainAgeDays != null && domainAgeDays > 0 && domainAgeDays <= 1095) || arbitrageScore > 0) pillars++;
+
+  const p2pFactor = (seedOverlap > 0 || multihit > 0 || couplingRho > 0)
+    ? Math.min(35, Math.log2(Math.max(1, seedOverlap) + 1) * 15 + (couplingRho * 10) + (multihit > 100 ? 5 : 0))
+    : 0;
+  const velocityFactor = Math.min(25, Math.log1p(velocity) * 6 + (saves > 1000 ? Math.log10(saves) * 1.5 : 0));
+
+  let serpFactor = 0;
+  if (isSerpRanked) {
+    const rank = serpRank != null && Number(serpRank) > 0 ? Number(serpRank) : 50;
+    const rankBonus = rank <= 3 ? 15 : (rank <= 10 ? 10 : 5);
+    const kwBonus = Math.min(10, Math.max(1, serpKeywords) * 2);
+    serpFactor = rankBonus + kwBonus;
+  }
+
+  let ageFactor = 0;
+  if (domainAgeDays != null && domainAgeDays > 0) {
+    if (domainAgeDays <= 365) ageFactor = 15;
+    else if (domainAgeDays <= 730) ageFactor = 10;
+    else if (domainAgeDays <= 1095) ageFactor = 5;
+  } else if (arbitrageScore > 0) {
+    ageFactor = Math.min(15, arbitrageScore * 0.15);
+  }
+
+  const productMultiplier = isProduct ? 0.5 : 1.0;
+  const rawScore = (p2pFactor + velocityFactor + serpFactor + ageFactor) * productMultiplier;
+  const conviction_score = Number(Math.min(100, Math.max(0, rawScore)).toFixed(1));
+
+  let convergence_tier = 'UNCONVERGED';
+  if (pillars >= 3 && conviction_score >= 70) {
+    convergence_tier = 'HIGH_CONVICTION_QUAD_PILLAR';
+  } else if (pillars >= 2 && conviction_score >= 45) {
+    convergence_tier = 'CONVERGENT_DUAL_PILLAR';
+  } else if (pillars >= 1 && conviction_score >= 20) {
+    convergence_tier = 'EMERGING_SINGLE_PILLAR';
+  }
+
+  return {
+    conviction_score,
+    pillar_convergence_count: pillars,
+    convergence_tier,
+    p2p_factor: Number(p2pFactor.toFixed(1)),
+    velocity_factor: Number(velocityFactor.toFixed(1)),
+    serp_factor: Number(serpFactor.toFixed(1)),
+    age_factor: Number(ageFactor.toFixed(1))
+  };
 }
 
 /**
@@ -236,7 +421,7 @@ export function isRepinHydrationJump(prev, curr) {
   const rawRepinDelta = Math.max(0, cRepins - pRepins);
   if (rawRepinDelta === 0) return false;
 
-  if (typeof prev === 'object' && typeof curr === 'object' && isMultiStageHydrationJump(prev, curr)) {
+  if (isMultiStageHydrationJump(prev, curr)) {
     return true;
   }
 
@@ -253,6 +438,25 @@ export function isRepinHydrationJump(prev, curr) {
   }
 
   return false;
+}
+
+/**
+ * Calculates algorithmic velocity acceleration combining:
+ * 1. Anscombe variance-stabilizing transformation for Poisson noise: A(x) = 2 * sqrt(x + 3/8)
+ * 2. 6-day prior baseline Laplace smoothing with kappa = 5
+ * 3. Repin and comment leading indicator boost
+ * 4. Half-life age decay
+ *
+ * Supports both object call: calculateVelocityAcceleration(pinObject)
+ * and positional call: calculateVelocityAcceleration(currentVelocity, gains7dOrPriorVel, options)
+ *
+ * @param {object|number} pinOrCurrentVel
+ * @param {number} [maybeGains7dOrPriorVel=null]
+ * @param {object} [maybeOptions={}]
+ * @returns {number} Rounded acceleration score
+ */
+export function calculateVelocityAcceleration(pinOrCurrentVel, maybeGains7dOrPriorVel = null, maybeOptions = {}) {
+  return _computeVelocityTelemetry(pinOrCurrentVel, maybeGains7dOrPriorVel, maybeOptions).acceleration_score;
 }
 
 /**

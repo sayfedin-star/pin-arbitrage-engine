@@ -408,6 +408,9 @@ export async function handleKeywordsRoutes({
 
     if (res?.success) {
       invalidateGlobalPulseCache(env, ctx).catch(() => {});
+      if (typeof invalidateEdgeCache === 'function') {
+        await invalidateEdgeCache('keywords').catch(() => {});
+      }
     }
 
     // [INVARIANT: EDGE-ONLY-SERP-DISCOVERY]
@@ -431,6 +434,7 @@ export async function handleKeywordsRoutes({
         try {
           const dRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`, {
             method: 'POST',
+            signal: AbortSignal.timeout(10000),
             headers: {
               'Accept': 'application/vnd.github.v3+json',
               'Authorization': authHeader,
@@ -892,22 +896,26 @@ export async function handleKeywordsRoutes({
     }
 
     let body;
-    try {
-      const rawText = await request.text();
-      if (rawText.length > 512 * 1024) {
+    if (request.body && typeof request.body === 'object') {
+      body = request.body;
+    } else {
+      try {
+        const rawText = typeof request.text === 'function' ? await request.text() : (typeof request.body === 'string' ? request.body : '');
+        if (rawText.length > 512 * 1024) {
+          return jsonResponse({
+            success: false,
+            error: 'PAYLOAD_TOO_LARGE',
+            message: 'Payload size exceeds the 512KB limit'
+          }, 413);
+        }
+        body = rawText ? JSON.parse(rawText) : {};
+      } catch (parseErr) {
         return jsonResponse({
           success: false,
-          error: 'PAYLOAD_TOO_LARGE',
-          message: 'Payload size exceeds the 512KB limit'
-        }, 413);
+          error: 'BAD_REQUEST',
+          message: 'Malformed JSON payload: ' + parseErr.message
+        }, 400);
       }
-      body = JSON.parse(rawText);
-    } catch (parseErr) {
-      return jsonResponse({
-        success: false,
-        error: 'BAD_REQUEST',
-        message: 'Malformed JSON payload: ' + parseErr.message
-      }, 400);
     }
 
     if (!body || typeof body !== 'object') {
@@ -963,12 +971,15 @@ export async function handleKeywordsRoutes({
     const uniqueValidKeywords = [...new Set(validKeywords)];
     const imported = await sql`
       INSERT INTO tracked_keywords (
-        keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
+        keyword, canonical_keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
       )
       SELECT
-        u.kw, ${category}, 50, 2, 'full_catalog', TRUE, NOW()
+        u.kw,
+        NULL,
+        ${category}, 50, 2, 'full_catalog', TRUE, NOW()
       FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
       ON CONFLICT (keyword) DO UPDATE SET
+        canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
         target_pin_count = COALESCE(tracked_keywords.target_pin_count, 50),
         crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, 2),
         inspection_mode = 'full_catalog',
@@ -1192,6 +1203,10 @@ export async function handleKeywordsRoutes({
         maxRepins
       }, { env, ctx });
       const isDry = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
+      if (!isDry && typeof invalidateEdgeCache === 'function') {
+        await invalidateEdgeCache('folders').catch(() => {});
+        await invalidateEdgeCache('keywords').catch(() => {});
+      }
       return jsonResponse(result);
     }
 

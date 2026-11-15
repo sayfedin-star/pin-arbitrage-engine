@@ -6,6 +6,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 export { getCulinaryColorName, formatAge } from '../utils.mjs';
 
@@ -60,17 +61,13 @@ export function normalizePath(rawPathname) {
   return '/' + stack.join('/');
 }
 
-// Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks)
+// Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks via SHA-256 digest + timingSafeEqual)
 export function timingSafeEqualStr(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  let mismatch = a.length === b.length ? 0 : 1;
-  const maxLen = Math.max(a.length, b.length);
-  for (let i = 0; i < maxLen; i++) {
-    const charA = i < a.length ? a.charCodeAt(i) : 0;
-    const charB = i < b.length ? b.charCodeAt(i) : 0;
-    mismatch |= (charA ^ charB);
-  }
-  return mismatch === 0;
+  const hashA = createHash('sha256').update(a).digest();
+  const hashB = createHash('sha256').update(b).digest();
+  const isHashMatch = timingSafeEqual(hashA, hashB);
+  return isHashMatch && (a.length === b.length);
 }
 
 export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operation timed out') {
@@ -100,7 +97,13 @@ export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operati
   }
 }
 
-export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task', timeoutMs = 25000) {
+let defaultBackgroundQueue = null;
+
+export function registerDefaultBackgroundQueue(queue) {
+  defaultBackgroundQueue = queue;
+}
+
+export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task') {
   let effectiveCtx = null;
   let effectivePromise = null;
 
@@ -125,34 +128,18 @@ export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskNam
   }
 
   if (!effectivePromise || typeof effectivePromise.then !== 'function') return;
-  effectivePromise.catch(() => {});
-
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
-    if (timer && typeof timer.unref === 'function') timer.unref();
+  effectivePromise.catch(err => {
+    console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
   });
-  const guardedPromise = Promise.race([effectivePromise, timeoutPromise])
-    .catch(err => {
-      console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
-    })
-    .finally(() => {
-      clearTimeout(timer);
-    });
-
-  const storage = globalThis.__requestContextStorage || requestContextStorage;
-  const store = storage?.getStore?.();
-  if (store) {
-    if (!Array.isArray(store.bgPromises)) store.bgPromises = [];
-    store.bgPromises.push(guardedPromise);
-  }
 
   if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
     try {
-      effectiveCtx.waitUntil(guardedPromise);
+      effectiveCtx.waitUntil(effectivePromise);
     } catch {
       // Request context may have already closed
     }
+  } else if (defaultBackgroundQueue && typeof defaultBackgroundQueue.add === 'function') {
+    defaultBackgroundQueue.add(() => effectivePromise).catch(() => {});
   }
 }
 
@@ -220,16 +207,15 @@ export function getCorsHeaders(requestOrigin = null, env = {}) {
 export function verifyApiAuthentication(request, env = {}) {
   // Reject URL query string tokens to prevent leakages in server logs (CWE-598)
   try {
-    const url = new URL(request.url);
+    const rawUrl = request?.url || request?.raw?.url || '/';
+    const url = new URL(rawUrl, 'http://127.0.0.1');
     if (url.searchParams.has('api_key') || url.searchParams.has('key')) {
+      const payload = { success: false, error: 'UNAUTHORIZED', message: 'Passing API keys in URL query string is deprecated and forbidden. Use x-api-key or Authorization header.' };
       return {
         authorized: false,
         status: 401,
-        reason: 'Passing API keys in URL query string is deprecated and forbidden. Use x-api-key or Authorization header.',
-        response: new Response(
-          JSON.stringify({ success: false, error: 'Passing API keys in URL query string is deprecated and forbidden. Use x-api-key or Authorization header.' }),
-          { status: 401, headers: { 'content-type': 'application/json' } }
-        )
+        reason: payload.message,
+        payload
       };
     }
   } catch (_) {}
@@ -239,7 +225,7 @@ export function verifyApiAuthentication(request, env = {}) {
     env?.NODE_ENV === 'test' ||
     Boolean(globalThis.__PAE_TEST_MODE__) ||
     (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
-    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
+    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark|check(?:$|[_.\\/]))|\.test\.m?js$/i.test(arg)))
   );
   const envSecretKey = env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET);
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
@@ -269,11 +255,7 @@ export function verifyApiAuthentication(request, env = {}) {
       authorized: false,
       status: 503,
       reason: payload.message,
-      payload,
-      response: new Response(
-        JSON.stringify(payload),
-        { status: 503, headers: { 'content-type': 'application/json' } }
-      )
+      payload
     };
   }
 
@@ -293,11 +275,7 @@ export function verifyApiAuthentication(request, env = {}) {
       authorized: isMatch,
       status: isMatch ? 200 : 401,
       reason: isMatch ? null : 'Unauthorized: Invalid authentication token.',
-      payload,
-      response: isMatch ? null : new Response(
-        JSON.stringify(payload),
-        { status: 401, headers: { 'content-type': 'application/json' } }
-      )
+      payload
     };
   }
 
@@ -306,38 +284,39 @@ export function verifyApiAuthentication(request, env = {}) {
     authorized: false,
     status: 401,
     reason: missingPayload.message,
-    payload: missingPayload,
-    response: new Response(
-      JSON.stringify(missingPayload),
-      { status: 401, headers: { 'content-type': 'application/json' } }
-    )
+    payload: missingPayload
   };
 }
 
 export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, customCors = null) {
-  const responsePayload = data;
+  let responsePayload = data;
 
   // Enforce uniform JSON error schema for HTTP 4xx and 5xx
   if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
     if (responsePayload.success === undefined) {
-      responsePayload.success = false;
+      responsePayload = { ...responsePayload, success: false };
     }
     if (!responsePayload.error) {
-      responsePayload.error = status === 400 ? 'BAD_REQUEST'
-        : status === 401 ? 'UNAUTHORIZED'
-        : status === 403 ? 'FORBIDDEN'
-        : status === 404 ? 'NOT_FOUND'
-        : status === 405 ? 'METHOD_NOT_ALLOWED'
-        : status === 413 ? 'PAYLOAD_TOO_LARGE'
-        : status === 503 ? 'SERVICE_UNAVAILABLE'
-        : 'INTERNAL_SERVER_ERROR';
+      responsePayload = {
+        ...responsePayload,
+        error: status === 400 ? 'BAD_REQUEST'
+          : status === 401 ? 'UNAUTHORIZED'
+          : status === 403 ? 'FORBIDDEN'
+          : status === 404 ? 'NOT_FOUND'
+          : status === 405 ? 'METHOD_NOT_ALLOWED'
+          : status === 413 ? 'PAYLOAD_TOO_LARGE'
+          : status === 503 ? 'SERVICE_UNAVAILABLE'
+          : 'INTERNAL_SERVER_ERROR'
+      };
     }
   }
 
   // Automatically sanitize any error payloads before sending over the wire
   if (responsePayload && typeof responsePayload === 'object') {
-    if (typeof responsePayload.error === 'string') responsePayload.error = redactSecrets(responsePayload.error);
-    if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
+    const sanitized = { ...responsePayload };
+    if (typeof sanitized.error === 'string') sanitized.error = redactSecrets(sanitized.error);
+    if (typeof sanitized.message === 'string') sanitized.message = redactSecrets(sanitized.message);
+    responsePayload = sanitized;
   }
 
   const store = requestContextStorage.getStore();
@@ -365,6 +344,24 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
   return reply.send(responsePayload);
 }
 
+function toCompatHeaders(headers) {
+  const outHeaders = { ...headers };
+  const lowerHeaders = new Map(Object.entries(outHeaders).map(([k, v]) => [k.toLowerCase(), v]));
+  Object.defineProperties(outHeaders, {
+    get: {
+      value: (h) => lowerHeaders.get(String(h).toLowerCase()) ?? null,
+      enumerable: false
+    },
+    forEach: {
+      value: (cb) => {
+        for (const [k, v] of Object.entries(outHeaders)) cb(v, k, outHeaders);
+      },
+      enumerable: false
+    }
+  });
+  return outHeaders;
+}
+
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
   const effectiveReply = reply || store?.reply;
@@ -372,29 +369,34 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
     return sendJsonResponse(effectiveReply, data, status, cacheSeconds, customCors);
   }
 
-  const responsePayload = data;
+  let responsePayload = data;
 
   // Enforce uniform JSON error schema for HTTP 4xx and 5xx
   if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
     if (responsePayload.success === undefined) {
-      responsePayload.success = false;
+      responsePayload = { ...responsePayload, success: false };
     }
     if (!responsePayload.error) {
-      responsePayload.error = status === 400 ? 'BAD_REQUEST'
-        : status === 401 ? 'UNAUTHORIZED'
-        : status === 403 ? 'FORBIDDEN'
-        : status === 404 ? 'NOT_FOUND'
-        : status === 405 ? 'METHOD_NOT_ALLOWED'
-        : status === 413 ? 'PAYLOAD_TOO_LARGE'
-        : status === 503 ? 'SERVICE_UNAVAILABLE'
-        : 'INTERNAL_SERVER_ERROR';
+      responsePayload = {
+        ...responsePayload,
+        error: status === 400 ? 'BAD_REQUEST'
+          : status === 401 ? 'UNAUTHORIZED'
+          : status === 403 ? 'FORBIDDEN'
+          : status === 404 ? 'NOT_FOUND'
+          : status === 405 ? 'METHOD_NOT_ALLOWED'
+          : status === 413 ? 'PAYLOAD_TOO_LARGE'
+          : status === 503 ? 'SERVICE_UNAVAILABLE'
+          : 'INTERNAL_SERVER_ERROR'
+      };
     }
   }
 
   // Automatically sanitize any error payloads before sending over the wire
   if (responsePayload && typeof responsePayload === 'object') {
-    if (typeof responsePayload.error === 'string') responsePayload.error = redactSecrets(responsePayload.error);
-    if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
+    const sanitized = { ...responsePayload };
+    if (typeof sanitized.error === 'string') sanitized.error = redactSecrets(sanitized.error);
+    if (typeof sanitized.message === 'string') sanitized.message = redactSecrets(sanitized.message);
+    responsePayload = sanitized;
   }
 
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
@@ -409,70 +411,126 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...(customCors || {})
   };
-  headers['Content-Type'] = 'application/json; charset=utf-8';
   if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }
-  const res = new Response(JSON.stringify(responsePayload), {
+
+  return {
+    ok: status >= 200 && status < 300,
     status,
-    headers
-  });
-  res._payload = responsePayload;
-  return res;
+    headers: toCompatHeaders(headers),
+    _payload: responsePayload,
+    json: async () => responsePayload,
+    text: async () => JSON.stringify(responsePayload)
+  };
+}
+
+export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
+  const store = requestContextStorage.getStore();
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  const payload = {
+    success: false,
+    error: 'METHOD_NOT_ALLOWED',
+    message: `HTTP method not allowed. Allowed methods: ${allow}`
+  };
+
+  reply.code(405);
+  reply.header('Content-Type', 'application/json; charset=utf-8');
+  reply.header('Allow', allow);
+  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+  reply.header('Access-Control-Allow-Methods', allow);
+  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  if (customCors) {
+    for (const [k, v] of Object.entries(customCors)) {
+      reply.header(k, v);
+    }
+  }
+
+  return reply.send(payload);
+}
+
+export function createBoundJsonResponse(reply, origin = '*') {
+  return function boundJsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
+    const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
+    return sendJsonResponse(reply, data, status, cacheSeconds, cors);
+  };
+}
+
+export function createBoundMethodNotAllowed(reply, origin = '*') {
+  return function boundMethodNotAllowed(allow, customCors = null) {
+    const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
+    return sendMethodNotAllowedResponse(reply, allow, cors);
+  };
 }
 
 export function methodNotAllowedResponse(allow, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
   const effectiveReply = reply || store?.reply;
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
-
   if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-    effectiveReply.code(405);
-    effectiveReply.header('Content-Type', 'application/json; charset=utf-8');
-    effectiveReply.header('Allow', allow);
-    effectiveReply.header('Access-Control-Allow-Origin', resolvedOrigin);
-    effectiveReply.header('Access-Control-Allow-Methods', allow);
-    effectiveReply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
-    effectiveReply.header('X-Content-Type-Options', 'nosniff');
-    effectiveReply.header('X-Frame-Options', 'DENY');
-    effectiveReply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    return effectiveReply.send({
-      success: false,
-      error: 'METHOD_NOT_ALLOWED',
-      message: `HTTP method not allowed. Allowed methods: ${allow}`
-    });
+    return sendMethodNotAllowedResponse(effectiveReply, allow, customCors);
   }
 
-  return new Response(JSON.stringify({
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  const payload = {
     success: false,
     error: 'METHOD_NOT_ALLOWED',
     message: `HTTP method not allowed. Allowed methods: ${allow}`
-  }), {
+  };
+
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Allow': allow,
+    'Access-Control-Allow-Origin': resolvedOrigin,
+    'Access-Control-Allow-Methods': allow,
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...(customCors || {})
+  };
+
+  return {
+    ok: false,
     status: 405,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Allow': allow,
-      'Access-Control-Allow-Origin': resolvedOrigin,
-      'Access-Control-Allow-Methods': allow,
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-      ...(customCors || {})
-    }
-  });
+    headers: toCompatHeaders(headers),
+    _payload: payload,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload)
+  };
 }
 
-export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, PUT, PATCH, DELETE, OPTIONS') {
+export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, PUT, PATCH, DELETE, OPTIONS', reply = null) {
+  const store = requestContextStorage.getStore();
+  const effectiveReply = reply || store?.reply;
   const cors = getCorsHeaders(requestOrigin, env);
-  return new Response(null, {
-    status: 204,
-    headers: {
-      ...cors,
-      'Access-Control-Allow-Methods': allow,
-      'Access-Control-Max-Age': '86400'
+  const headers = {
+    ...cors,
+    'Access-Control-Allow-Methods': allow,
+    'Access-Control-Max-Age': '86400'
+  };
+
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    effectiveReply.code(204);
+    for (const [k, v] of Object.entries(headers)) {
+      effectiveReply.header(k, v);
     }
-  });
+    return effectiveReply.send();
+  }
+
+  return {
+    ok: true,
+    status: 204,
+    headers: toCompatHeaders(headers),
+    _payload: null,
+    json: async () => null,
+    text: async () => ''
+  };
 }
 
 // [INVARIANT: EDGE-COMPRESSION-AND-SMART-CACHING]
@@ -490,6 +548,32 @@ export const HTML_HEADERS = {
 export const edgeCache = new Map();
 export const inflightPromises = new Map();
 const MAX_CACHE_ENTRIES = 512;
+let cacheEpoch = 0;
+let globalClearEpoch = 0;
+const prefixInvalidationEpochs = new Map();
+
+function isCacheWriteValid(key, startEpoch) {
+  if (globalClearEpoch > startEpoch) return false;
+  for (const [pfx, ep] of prefixInvalidationEpochs.entries()) {
+    if (ep > startEpoch && key.startsWith(pfx)) return false;
+  }
+  return true;
+}
+
+function setBoundedCacheEntry(key, value, ttlMs, staleMs) {
+  if (edgeCache.has(key)) {
+    edgeCache.delete(key);
+  } else if (edgeCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = edgeCache.keys().next().value;
+    if (oldestKey) edgeCache.delete(oldestKey);
+  }
+  const now = Date.now();
+  edgeCache.set(key, {
+    data: value,
+    expiresAt: now + ttlMs,
+    staleUntil: now + ttlMs + staleMs
+  });
+}
 
 export function buildCanonicalCacheKey(prefix, params = {}) {
   const sortedEntries = Object.entries(params)
@@ -511,6 +595,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
     // Stale-While-Revalidate: return stale data immediately, revalidate in background
     if (now < cached.staleUntil) {
       if (!inflightPromises.has(key)) {
+        const revalEpoch = cacheEpoch;
         const revalPromise = (async () => {
           try {
             let timerId;
@@ -532,12 +617,8 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
               !fresh._degraded &&
               !fresh.is_degraded
             );
-            if (isCacheable) {
-              edgeCache.set(key, {
-                data: fresh,
-                expiresAt: Date.now() + ttlMs,
-                staleUntil: Date.now() + ttlMs + staleMs
-              });
+            if (isCacheable && isCacheWriteValid(key, revalEpoch)) {
+              setBoundedCacheEntry(key, fresh, ttlMs, staleMs);
             }
             return fresh;
           } catch (_) {} finally {
@@ -561,6 +642,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
   }
 
   // 3. Cache Miss or Force Refresh: Fetch fresh data with single-flight deduplication
+  const fetchEpoch = cacheEpoch;
   const promise = (async () => {
     try {
       let timerId;
@@ -582,16 +664,8 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
         !fresh._degraded &&
         !fresh.is_degraded
       );
-      if (isCacheable) {
-        if (edgeCache.size >= MAX_CACHE_ENTRIES) {
-          const oldestKey = edgeCache.keys().next().value;
-          if (oldestKey) edgeCache.delete(oldestKey);
-        }
-        edgeCache.set(key, {
-          data: fresh,
-          expiresAt: Date.now() + ttlMs,
-          staleUntil: Date.now() + ttlMs + staleMs
-        });
+      if (isCacheable && isCacheWriteValid(key, fetchEpoch)) {
+        setBoundedCacheEntry(key, fresh, ttlMs, staleMs);
       }
 
       return fresh;
@@ -605,9 +679,13 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
 }
 
 export async function invalidateEdgeCache(prefix = '') {
+  const nextEpoch = ++cacheEpoch;
   if (!prefix) {
+    globalClearEpoch = nextEpoch;
+    prefixInvalidationEpochs.clear();
     edgeCache.clear();
   } else {
+    prefixInvalidationEpochs.set(prefix, nextEpoch);
     for (const k of edgeCache.keys()) {
       if (k.startsWith(prefix)) {
         edgeCache.delete(k);
