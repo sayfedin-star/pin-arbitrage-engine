@@ -1003,3 +1003,122 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
 
   return result;
 }
+
+/**
+ * Cross-Pillar P2P-to-SERP Convergence Engine
+ * 
+ * Joins Candidate Graph Nodes (Pillar 1 P2P graph) with Universal Master Pins,
+ * Organic Keyword SERP Positions (Pillar 2 SERP monopoly), and Domain Intelligence Rollup (Pillar 4 WHOIS & monetization)
+ * to rank viral organic arbitrage targets.
+ */
+export async function getCrossPillarArbitrageTargets(sql, options = {}) {
+  const lim = Math.max(1, Math.min(Number(options.limit) || 50, 200));
+  const off = Math.max(0, Number(options.offset) || 0);
+  const minVel = Math.max(0, Number(options.minVelocity) || 0);
+  const maxAge = options.maxDomainAgeDays != null ? Number(options.maxDomainAgeDays) : null;
+  const seedId = options.seedPinId ? String(options.seedPinId).trim() : null;
+
+  try {
+    const rows = await sql`
+      SELECT
+        cgn.candidate_pin_id AS pin_id,
+        COALESCE(ump.title, cgn.title, '') AS title,
+        COALESCE(ump.clean_domain, cgn.domain, '') AS clean_domain,
+        COALESCE(ump.destination_url, '') AS destination_url,
+        COALESCE(ump.image_url, cgn.image_url, '') AS image_url,
+        COALESCE(ump.creator_username, '') AS creator_username,
+        COALESCE(ump.board_name, '') AS board_name,
+        COALESCE(ump.save_count, cgn.saves, 0)::bigint AS save_count,
+        COALESCE(ump.repin_count, cgn.repins, 0)::bigint AS repin_count,
+        COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0)::numeric AS velocity,
+        MAX(cgn.recgpt_transition_score)::numeric AS p2p_transition_score,
+        COUNT(DISTINCT cgn.seed_pin_id)::int AS seed_clusters_count,
+        COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE)::int AS organic_keywords_count,
+        MIN(ksp.rank_position) FILTER (WHERE ksp.is_displaced = FALSE)::int AS best_serp_rank,
+        COALESCE(dir.age_days, 365)::int AS domain_age_days,
+        COALESCE(dir.age_years, 1.0)::numeric AS domain_age_years,
+        COALESCE(dir.ad_network, 'unchecked') AS ad_network,
+        COALESCE(dir.arbitrage_score, 0)::numeric AS domain_arbitrage_score,
+        ROUND(
+          (
+            (COALESCE(MAX(cgn.recgpt_transition_score), 0) * 30.0) +
+            (LN(GREATEST(1.0, 1.0 + COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0))) * 15.0) +
+            (COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE) * 10.0) +
+            (CASE 
+              WHEN COALESCE(dir.age_days, 365) <= 365 THEN 25.0
+              WHEN COALESCE(dir.age_days, 365) <= 730 THEN 15.0
+              WHEN COALESCE(dir.age_days, 365) <= 1095 THEN 5.0
+              ELSE 0.0
+            END)
+          )::numeric,
+          2
+        ) AS convergence_score,
+        COUNT(*) OVER()::int AS full_count
+      FROM candidate_graph_nodes cgn
+      JOIN universal_master_pins ump ON ump.pin_id = cgn.candidate_pin_id
+      LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = cgn.candidate_pin_id
+      LEFT JOIN domain_intelligence_rollup dir ON dir.domain = COALESCE(ump.clean_domain, cgn.domain)
+      WHERE cgn.is_product = FALSE
+        AND (${seedId}::text IS NULL OR cgn.seed_pin_id = ${seedId})
+        AND COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0) >= ${minVel}
+        AND (${maxAge}::int IS NULL OR COALESCE(dir.age_days, 9999) <= ${maxAge})
+      GROUP BY 
+        cgn.candidate_pin_id,
+        ump.title, cgn.title,
+        ump.clean_domain, cgn.domain,
+        ump.destination_url,
+        ump.image_url, cgn.image_url,
+        ump.creator_username,
+        ump.board_name,
+        ump.save_count, cgn.saves,
+        ump.repin_count, cgn.repins,
+        ump.daily_save_velocity, cgn.daily_velocity,
+        dir.age_days, dir.age_years, dir.ad_network, dir.arbitrage_score
+      ORDER BY convergence_score DESC, velocity DESC, p2p_transition_score DESC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+
+    const total = rows.length > 0 ? Number(rows[0].full_count || 0) : 0;
+    const items = rows.map(r => ({
+      pin_id: r.pin_id,
+      title: r.title,
+      clean_domain: r.clean_domain,
+      destination_url: r.destination_url,
+      image_url: r.image_url,
+      creator_username: r.creator_username,
+      board_name: r.board_name,
+      save_count: Number(r.save_count || 0),
+      repin_count: Number(r.repin_count || 0),
+      velocity: Number(r.velocity || 0),
+      p2p_transition_score: Number(r.p2p_transition_score || 0),
+      seed_clusters_count: Number(r.seed_clusters_count || 0),
+      organic_keywords_count: Number(r.organic_keywords_count || 0),
+      best_serp_rank: r.best_serp_rank != null ? Number(r.best_serp_rank) : null,
+      domain_age_days: Number(r.domain_age_days || 0),
+      domain_age_years: Number(r.domain_age_years || 0),
+      ad_network: r.ad_network,
+      domain_arbitrage_score: Number(r.domain_arbitrage_score || 0),
+      convergence_score: Number(r.convergence_score || 0)
+    }));
+
+    return {
+      success: true,
+      total,
+      count: items.length,
+      limit: lim,
+      offset: off,
+      targets: items,
+      items
+    };
+  } catch (err) {
+    console.warn(`[getCrossPillarArbitrageTargets] Error querying convergence targets:`, err.message);
+    return {
+      success: false,
+      error: err.message,
+      total: 0,
+      count: 0,
+      targets: [],
+      items: []
+    };
+  }
+}

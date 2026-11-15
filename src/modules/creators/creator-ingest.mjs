@@ -14,7 +14,7 @@ import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEF
 /**
  * Bulk upserts raw pins from Pinterest into 4-table SSOT (universal_master_pins & competitor_board_pins)
  */
-export async function upsertCompetitorPins(sql, competitorId, pins) {
+export async function upsertCompetitorPins(sql, competitorId, pins, options = {}) {
   if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
   
   const numericId = Number(competitorId);
@@ -23,6 +23,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
     const pinId = String(p.pin_id || p.id || p.pinId || '').trim();
     if (!pinId) continue;
     cleanedPins.push({
+      ...p,
       pin_id: pinId,
       competitor_id: numericId,
       title: p.title || '',
@@ -45,9 +46,10 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
 
   const res = await repoIngestPinsBatch(sql, cleanedPins, {
     competitor_id: numericId,
-    pillar: 'creator'
+    pillar: 'creator',
+    ...options
   });
-  return (res.inserted || 0) + (res.updated || 0) || cleanedPins.length;
+  return res;
 }
 
 /**

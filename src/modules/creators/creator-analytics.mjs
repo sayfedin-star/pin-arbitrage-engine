@@ -786,7 +786,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(ump.clean_domain ILIKE '%etsy%' OR ump.clean_domain ILIKE '%shopify%' OR ump.clean_domain ILIKE '%amazon%' OR ump.destination_url ILIKE '%/listing/%' OR ump.destination_url ILIKE '%/product/%' OR ump.destination_url ILIKE '%/item/%' OR ump.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (COALESCE(ump.save_count, 0) >= 100 OR COALESCE(ump.daily_save_velocity, 0) >= 3.5) AS is_qualified,
-      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -810,6 +810,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         OR ump.clean_domain ILIKE '%pin.it%'
       )
       AND (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL)
+      AND ksp.is_displaced = FALSE
       AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
@@ -1058,7 +1059,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     SELECT
       ep.*,
       (ep.save_count >= 100 OR ep.repin_count >= 100 OR ep.velocity >= 3.5) AS is_qualified,
-      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -1072,7 +1073,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       ORDER BY ksp_sub.is_displaced ASC, ksp_sub.rank_position ASC NULLS LAST, ksp_sub.last_known_rank ASC NULLS LAST
       LIMIT 1
     ) ksp ON TRUE
-    WHERE (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL))
+    WHERE (${ranked_only} = FALSE OR ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE))
       AND (${minSavesNum} = 0 OR ep.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(ep.title) LIKE ${searchPattern} OR LOWER(ep.description) LIKE ${searchPattern} OR LOWER(ep.curator_username) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR ep.board_slug = ${cleanBoardSlug})
@@ -1094,13 +1095,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       FROM competitor_board_pins cbp
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
       LEFT JOIN LATERAL (
-        SELECT ksp_sub.rank_position
+        SELECT ksp_sub.rank_position, ksp_sub.is_displaced
         FROM keyword_serp_positions ksp_sub
         WHERE ksp_sub.pin_id = cbp.pin_id AND (ksp_sub.rank_position IS NOT NULL OR ksp_sub.last_known_rank IS NOT NULL)
+        ORDER BY ksp_sub.is_displaced ASC, ksp_sub.rank_position ASC NULLS LAST
         LIMIT 1
       ) ksp ON TRUE
       WHERE cbp.competitor_id = ${numericId}
-        AND (${ranked_only} = FALSE OR ksp.rank_position IS NOT NULL)
+        AND (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL AND ksp.is_displaced = FALSE))
         AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
         AND (${searchPattern}::text IS NULL OR LOWER(ump.title) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
         AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
@@ -1955,7 +1957,7 @@ export async function getPinArchiveOverview(sql) {
     `,
     sql`
       SELECT *
-      FROM pa_topic_clusters_page(1, NULL, 1, 0);
+      FROM pa_topic_clusters_page(1, NULL, 1, 0, NULL);
     `.catch(() => [])
   ]);
 
@@ -1985,7 +1987,34 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
 
-  if (cleanAccount) {
+  try {
+    const rows = await sql`
+      SELECT
+        topic_name,
+        pins_count::bigint AS pins_count,
+        total_saves::numeric AS total_saves,
+        avg_saves::bigint AS avg_saves,
+        avg_velocity::numeric AS avg_velocity
+      FROM pa_topic_clusters_page(
+        ${minNum},
+        ${searchPattern},
+        ${lim},
+        ${off},
+        ${cleanAccount}
+      );
+    `;
+
+    if (Array.isArray(rows)) {
+      return rows.map(r => ({
+        name: r.topic_name,
+        pins_count: Number(r.pins_count || 0),
+        total_saves: Number(r.total_saves || 0),
+        avg_saves: Number(r.avg_saves || 0),
+        avg_velocity: Number(r.avg_velocity || 0),
+      }));
+    }
+  } catch (err) {
+    // Fallback inline CTE if stored procedure is not yet compiled or in local test environment
     const rows = await sql`
       WITH extracted AS (
         SELECT
@@ -2002,7 +2031,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
           p.daily_save_velocity AS velocity
         FROM universal_master_pins p
         LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.visual_annotations) = 'array' THEN p.visual_annotations ELSE '[]'::jsonb END) AS ann ON TRUE
-        WHERE p.creator_username = ${cleanAccount}
+        WHERE (${cleanAccount}::text IS NULL OR p.creator_username = ${cleanAccount})
       ),
       aggregated AS (
         SELECT
@@ -2010,7 +2039,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
           count(DISTINCT e.pin_id)::BIGINT AS p_count,
           coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
           CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
-          round(avg(e.velocity), 2) AS a_velocity
+          round(avg(e.velocity)::numeric, 2) AS a_velocity
         FROM extracted e
         WHERE e.raw_topic IS NOT NULL AND TRIM(e.raw_topic) <> ''
           AND (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
@@ -2031,42 +2060,13 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
 
     return rows.map(r => ({
       name: r.topic_name,
-      pins_count: Number(r.pins_count),
-      total_saves: Number(r.total_saves),
-      avg_saves: Number(r.avg_saves),
-      avg_velocity: Number(r.avg_velocity),
-    }));
-  }
-
-  try {
-    const rows = await sql`
-      SELECT
-        topic_name,
-        pins_count::bigint AS pins_count,
-        total_saves::numeric AS total_saves,
-        avg_saves::bigint AS avg_saves,
-        avg_velocity::numeric AS avg_velocity
-      FROM pa_topic_clusters_page(
-        ${minNum},
-        ${searchPattern},
-        ${lim},
-        ${off}
-      );
-    `;
-
-    if (!Array.isArray(rows)) return [];
-
-    return rows.map(r => ({
-      name: r.topic_name,
       pins_count: Number(r.pins_count || 0),
       total_saves: Number(r.total_saves || 0),
       avg_saves: Number(r.avg_saves || 0),
       avg_velocity: Number(r.avg_velocity || 0),
     }));
-  } catch (err) {
-    console.warn('[getTopicClusters] Stored procedure query failed, returning fallback empty list:', err.message);
-    return [];
   }
+  return [];
 }
 
 
@@ -2489,14 +2489,7 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
 }
 
 
-/**
- * Delete a specific pin metric snapshot
- */
-export async function deletePinMetricSnapshot(sql, snapshotId, pinId) {
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-  // pa_pin_metrics is eradicated on Central Hub. Daily snapshots live on Shards.
-  return { success: true };
-}
+
 
 // Modular Creator Hub Settings & Configuration
 export {
