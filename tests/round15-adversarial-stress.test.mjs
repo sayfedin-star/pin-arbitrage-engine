@@ -29,15 +29,15 @@ function createStressMockSql(overrides = {}) {
       : (typeof strings === 'string' ? strings : String(strings));
 
     // 1. Active SERP
-    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_current')) {
+    if (rawQuery.includes('kw_folders') && (rawQuery.includes('keyword_serp_positions') || rawQuery.includes('keyword_serp_current'))) {
       return overrides.activeSerpRows || [];
     }
     // 2A. Displaced Vacuum Counts
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('displaced_top10_24h_count')) {
+    if (rawQuery.includes('displaced_top10_24h_count')) {
       return overrides.vacuumCounts || [];
     }
     // 2B. Displaced Top Vault Surge Pins
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('ORDER BY GREATEST(')) {
+    if ((rawQuery.includes('top_vault') || rawQuery.includes('keyword_displaced_index')) && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('is_displaced = TRUE'))) {
       return overrides.vaultPins || [];
     }
     // 3. Guided Search Capsules
@@ -53,11 +53,11 @@ function createStressMockSql(overrides = {}) {
       return overrides.paWinners || [];
     }
     // 5B. Domain Rollups
-    if (rawQuery.includes('FROM domain_intelligence_rollup dir')) {
+    if (rawQuery.includes('FROM domain_intelligence_rollup dir') || rawQuery.includes('FROM mv_pulse_24h_summary')) {
       return overrides.domainRollups || [];
     }
     // 6. Creator Viral Pins
-    if (rawQuery.includes('FROM competitor_pins cpin')) {
+    if (rawQuery.includes('FROM competitor_board_pins cbp') || rawQuery.includes('FROM competitor_pins cpin')) {
       return overrides.viralCreatorPins || [];
     }
 

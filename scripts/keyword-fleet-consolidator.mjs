@@ -274,7 +274,7 @@ async function main() {
 
     // 4. Compute Visual Annotations Crossover & Core Anchors (Active only)
     const serpPins = await sql`
-      SELECT ksp.pin_id, ump.title, ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.image_url, ump.metadata->'visual_annotations' as visual_annotations
+      SELECT ksp.pin_id, ump.title, ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.image_url, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations
       FROM keyword_serp_positions ksp
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE ksp.keyword_id = ${kw.id}
@@ -506,15 +506,6 @@ async function main() {
 async function runKeywordJanitorGC() {
   console.log('\n[*] Running Automated Keyword Janitor GC...');
   try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS keyword_tombstones (
-        keyword_id INT PRIMARY KEY,
-        keyword TEXT,
-        deleted_at TIMESTAMPTZ DEFAULT NOW(),
-        purged_at TIMESTAMPTZ
-      );
-    `.catch(() => {});
-
     // Sweep any orphan keyword_ids in keyword_serp_positions missing from tracked_keywords
     await sql`
       INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at)

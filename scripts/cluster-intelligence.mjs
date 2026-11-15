@@ -1634,10 +1634,6 @@ async function main() {
       last_crawled_at: null
     });
   } else {
-    // Defensively ensure atomic lease columns exist on cluster_seeds
-    await sqlWithRetry(() => sql`ALTER TABLE cluster_seeds ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`).catch(() => {});
-    await sqlWithRetry(() => sql`ALTER TABLE cluster_seeds ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`).catch(() => {});
-
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
     seedsToProcess = await sqlWithRetry(() => sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at

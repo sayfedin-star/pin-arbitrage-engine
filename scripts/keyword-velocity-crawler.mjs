@@ -651,129 +651,14 @@ async function flushBatchToHub(pinsChunk, kw) {
   const isFolder = Boolean(kw?.folder_id);
   const isGlobalFleet = Boolean(kw?.is_global_fleet && Array.isArray(kw?.all_keyword_ids) && kw.all_keyword_ids.length > 0);
 
-  const payloadJson = JSON.stringify(pinsChunk.map(p => {
-    const rawMeta = (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {};
-    const imgSig = rawMeta.image_signature ? String(rawMeta.image_signature).trim() : null;
-    const canId = rawMeta.canonical_pin_id ? String(rawMeta.canonical_pin_id).trim() : null;
-    let bCount = null;
-    if (rawMeta.board_pin_count != null && !isNaN(Number(rawMeta.board_pin_count))) {
-      bCount = Number(rawMeta.board_pin_count);
-    }
-    return {
-      pin_id: String(p.pin_id),
-      authentic_saves: Number(p.save_count || 0),
-      has_explicit_saves: Boolean(p.has_explicit_saves || Number(p.save_count || 0) > 0),
-      authentic_repins: Number(p.repin_count || 0),
-      authentic_comments: Number(p.comment_count || 0),
-      authentic_shares: Number(p.share_count || 0),
-      daily_save_velocity: Number(p.daily_save_velocity || 0),
-      delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
-      gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
-      gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
-      gains_10d: p.gains_10d != null ? Number(p.gains_10d) : null,
-      gains_15d: p.gains_15d != null ? Number(p.gains_15d) : null,
-      from_hydration_cache: Boolean(p.from_hydration_cache),
-      creator: String(p.creator_username || ''),
-      board: String(p.board_name || ''),
-      dominant_color: String(p.dominant_color || '#888888'),
-      created_at_pinterest: p.created_at_pinterest || null,
-      method: String(p.creation_method || p.method || 'pinterest_platform'),
-      is_dead: Boolean(p.is_deleted),
-      visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-      image_sig: imgSig || null,
-      canonical_pin_id: canId || null,
-      board_pin_count: bCount
-    };
-  }));
+  const payloadJson = JSON.stringify(pinsChunk.map(p => ({
+    pin_id: String(p.pin_id),
+    from_hydration_cache: Boolean(p.from_hydration_cache)
+  })));
 
   const kwIds = (isGlobalFleet || isFolder) ? (kw.all_keyword_ids || [kw.id]) : [kw.id];
 
-  // 1. Update single source of truth: universal_master_pins
-  await sql`
-    UPDATE universal_master_pins ump
-    SET 
-      save_count = CASE
-        WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND (u.authentic_saves > 0 OR COALESCE(u.has_explicit_saves, false) = true)
-        THEN u.authentic_saves::bigint
-        WHEN u.authentic_saves > 0
-        THEN u.authentic_saves::bigint
-        ELSE COALESCE(ump.save_count, 0)
-      END,
-      repin_count = CASE
-        WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_repins > 0
-        THEN u.authentic_repins::bigint
-        WHEN u.authentic_repins > 0
-        THEN u.authentic_repins::bigint
-        ELSE COALESCE(ump.repin_count, 0)
-      END,
-      comment_count = GREATEST(COALESCE(ump.comment_count, 0), u.authentic_comments::int),
-      share_count = GREATEST(COALESCE(ump.share_count, 0), u.authentic_shares::int),
-      daily_save_velocity = CASE 
-        WHEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-        THEN COALESCE(u.daily_save_velocity::double precision, ump.daily_save_velocity, 0)
-        WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::double precision
-        WHEN u.daily_save_velocity IS NOT NULL 
-         AND (u.daily_save_velocity > 0 OR (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date)
-        THEN u.daily_save_velocity::double precision
-        ELSE COALESCE(ump.daily_save_velocity, 0)
-      END,
-      daily_repin_velocity = CASE
-        WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h::double precision
-        ELSE ump.daily_repin_velocity
-      END,
-      delta_repins_24h = CASE
-        WHEN u.delta_repins_24h IS NOT NULL THEN u.delta_repins_24h
-        ELSE COALESCE(ump.delta_repins_24h, 0)
-      END,
-      gains_5d = CASE WHEN u.gains_5d IS NOT NULL THEN u.gains_5d ELSE ump.gains_5d END,
-      gains_7d = CASE WHEN u.gains_7d IS NOT NULL THEN u.gains_7d ELSE ump.gains_7d END,
-      gains_10d = CASE WHEN u.gains_10d IS NOT NULL THEN u.gains_10d ELSE ump.gains_10d END,
-      gains_15d = CASE WHEN u.gains_15d IS NOT NULL THEN u.gains_15d ELSE ump.gains_15d END,
-      creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ump.creator_username END,
-      board_name = CASE WHEN u.board <> '' THEN u.board ELSE ump.board_name END,
-      dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ump.dominant_color END,
-      created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ump.created_at_pinterest END,
-      creation_method = CASE
-        WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
-        ELSE COALESCE(NULLIF(ump.creation_method, ''), u.method, 'pinterest_platform')
-      END,
-      visual_annotations = CASE 
-        WHEN jsonb_typeof(u.visual_annotations) = 'array' AND jsonb_array_length(u.visual_annotations) > 0 
-        THEN u.visual_annotations 
-        ELSE ump.visual_annotations 
-      END,
-      is_hydrated = TRUE,
-      last_scraped_at = CASE WHEN u.from_hydration_cache THEN ump.last_scraped_at ELSE NOW() END,
-      updated_at = NOW()
-    FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-      pin_id text,
-      authentic_saves bigint,
-      has_explicit_saves boolean,
-      authentic_repins int,
-      authentic_comments int,
-      authentic_shares int,
-      daily_save_velocity numeric,
-      delta_repins_24h int,
-      gains_5d int,
-      gains_7d int,
-      gains_10d int,
-      gains_15d int,
-      from_hydration_cache boolean,
-      creator text,
-      board text,
-      dominant_color text,
-      created_at_pinterest text,
-      method text,
-      is_dead boolean,
-      visual_annotations jsonb,
-      image_sig text,
-      canonical_pin_id text,
-      board_pin_count int
-    )
-    WHERE ump.pin_id = u.pin_id;
-  `;
-
-  // 2. Update keyword_serp_positions
+  // Update keyword_serp_positions (vacuum opportunity score & crawled_at)
   await sql`
     UPDATE keyword_serp_positions ksp
     SET
@@ -917,37 +802,51 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
         }
       }
 
-      const currentSnap = {
-        snapshot_date: todayUtcIso,
-        save_count: sp.save_count != null ? Number(sp.save_count) : 0,
-        repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
-      };
-      const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
-      if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
-        if (sp.was_live_scraped !== false) {
-          sp.daily_save_velocity = Number(gains.daily_save_velocity);
-        } else {
-          sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
-        }
-      } else if (todayPrevSnap && sp.was_live_scraped !== false) {
-        const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
-        if (prevTodaySaves > 0) {
-          const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
-          const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
-            ? Number(todayPrevSnap.daily_save_velocity || 0)
-            : 0;
-          sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
-        } else {
+      if (sp.save_count != null) {
+        const currentSnap = {
+          snapshot_date: todayUtcIso,
+          save_count: Number(sp.save_count),
+          repin_count: sp.repin_count != null ? Number(sp.repin_count) : 0
+        };
+        const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
+        if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
+          if (sp.was_live_scraped !== false) {
+            sp.daily_save_velocity = Number(gains.daily_save_velocity);
+          } else {
+            sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
+          }
+        } else if (todayPrevSnap && sp.was_live_scraped !== false) {
+          const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
+          if (prevTodaySaves > 0) {
+            const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
+            const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
+              ? Number(todayPrevSnap.daily_save_velocity || 0)
+              : 0;
+            sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
+          } else {
+            sp.daily_save_velocity = 0;
+          }
+        } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
           sp.daily_save_velocity = 0;
         }
-      } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
-        sp.daily_save_velocity = 0;
+        sp.delta_repins_24h = gains.delta_repins_24h;
+        sp.gains_5d = gains.gains_5d;
+        sp.gains_7d = gains.gains_7d;
+        sp.gains_10d = gains.gains_10d;
+        sp.gains_15d = gains.gains_15d;
+      } else {
+        sp.save_count = null;
+        sp.repin_count = sp.repin_count != null ? Number(sp.repin_count) : null;
+        sp.daily_save_velocity = null;
+        sp.daily_repin_velocity = null;
+        sp.delta_saves_24h = null;
+        sp.delta_repins_24h = null;
+        sp.gains_5d = null;
+        sp.gains_7d = null;
+        sp.gains_10d = null;
+        sp.gains_15d = null;
+        sp.is_hydrated = false;
       }
-      sp.delta_repins_24h = gains.delta_repins_24h;
-      sp.gains_5d = gains.gains_5d;
-      sp.gains_7d = gains.gains_7d;
-      sp.gains_10d = gains.gains_10d;
-      sp.gains_15d = gains.gains_15d;
     }
 
     if (timedOut) {
@@ -1060,11 +959,12 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
       catalog_rank: cp.catalog_rank || cp.rank_position,
       last_known_rank: cp.last_known_rank,
       is_displaced: Boolean(cp.is_displaced),
-      save_count: cp.save_count != null ? Number(cp.save_count) : 0,
-      repin_count: cp.repin_count != null ? Number(cp.repin_count) : 0,
-      comment_count: cp.comment_count != null ? Number(cp.comment_count) : 0,
-      share_count: cp.share_count != null ? Number(cp.share_count) : 0,
-      daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : 0
+      save_count: cp.save_count != null ? Number(cp.save_count) : null,
+      repin_count: cp.repin_count != null ? Number(cp.repin_count) : null,
+      comment_count: cp.comment_count != null ? Number(cp.comment_count) : null,
+      share_count: cp.share_count != null ? Number(cp.share_count) : null,
+      daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : null,
+      is_hydrated: Boolean(cp.is_hydrated || cp.is_deep_hydrated)
     };
 
     if (Array.isArray(cp.folder_positions) && cp.folder_positions.length > 0) {

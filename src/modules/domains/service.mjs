@@ -1973,12 +1973,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.destination_url,
         ump.image_url,
         ump.account_username AS creator_username,
-        (ump.metadata->>'board_name') AS board_name,
+        ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
         ump.dominant_color,
-        COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
       FROM keyword_serp_positions ksp
@@ -2000,12 +2000,12 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.destination_url,
         ump.image_url,
         ump.account_username AS creator_username,
-        (ump.metadata->>'board_name') AS board_name,
+        ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
         ump.dominant_color,
-        COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
       FROM universal_master_pins ump

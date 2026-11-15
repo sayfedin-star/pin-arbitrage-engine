@@ -792,7 +792,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       COUNT(*) OVER()::int AS full_count
     FROM competitor_board_pins cbp
     JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-    LEFT JOIN competitor_boards cb ON cb.id = cbp.board_id
+    LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
     LEFT JOIN LATERAL (
       SELECT ksp_sub.rank_position, k.keyword AS active_keyword, ksp_sub.last_known_rank, ksp_sub.is_displaced
       FROM keyword_serp_positions ksp_sub
@@ -873,7 +873,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(ump.is_product, false) AS is_product
       FROM competitor_board_pins cbp
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      LEFT JOIN competitor_boards cb ON cb.id = cbp.board_id
+      LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
       WHERE cbp.competitor_id = ${numericId}
         AND (
           (${activeScope} = 'ecosystem' AND (

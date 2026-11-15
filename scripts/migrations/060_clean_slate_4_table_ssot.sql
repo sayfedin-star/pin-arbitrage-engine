@@ -146,6 +146,14 @@ CREATE INDEX idx_cbp_competitor_pin ON public.competitor_board_pins(competitor_i
 CREATE INDEX idx_cbp_pin_id ON public.competitor_board_pins(pin_id);
 CREATE INDEX idx_cbp_board ON public.competitor_board_pins(competitor_id, board_id);
 
+-- 5. keyword_tombstones: Audit log of deleted keywords pending cleanup
+CREATE TABLE IF NOT EXISTS public.keyword_tombstones (
+  keyword_id INTEGER PRIMARY KEY,
+  keyword TEXT,
+  deleted_at TIMESTAMPTZ DEFAULT NOW(),
+  purged_at TIMESTAMPTZ
+);
+
 -- Step 4: Record migration in schema_migrations
 INSERT INTO public.schema_migrations (version, name, checksum, applied_at)
 VALUES ('060', 'clean_slate_4_table_ssot', 'phase2_ssot_clean_slate', NOW())

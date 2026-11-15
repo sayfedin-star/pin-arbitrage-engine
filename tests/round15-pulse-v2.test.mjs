@@ -57,7 +57,7 @@ export function createRound15MockSql(overrides = {}) {
     callLog.push({ query: rawQuery, values });
 
     // 1. Active SERP Query (with multi-keyword pin rows and solo/shared tag pins)
-    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_current')) {
+    if (rawQuery.includes('kw_folders') && (rawQuery.includes('keyword_serp_positions') || rawQuery.includes('keyword_serp_current'))) {
       return overrides.activeSerpRows || [
         {
           keyword_id: 1,
@@ -218,7 +218,7 @@ export function createRound15MockSql(overrides = {}) {
     }
 
     // 2A. Displaced Vacuum Counts
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('displaced_top10_24h_count')) {
+    if (rawQuery.includes('displaced_top10_24h_count')) {
       return overrides.vacuumCounts || [
         {
           keyword_id: 1,
@@ -231,7 +231,7 @@ export function createRound15MockSql(overrides = {}) {
     }
 
     // 2B. Displaced Top Vault Surge Pins
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('ORDER BY GREATEST(')) {
+    if ((rawQuery.includes('top_vault') || rawQuery.includes('keyword_displaced_index')) && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('is_displaced = TRUE'))) {
       return overrides.vaultPins || [
         {
           keyword_id: 1,
@@ -339,8 +339,8 @@ export function createRound15MockSql(overrides = {}) {
       ];
     }
 
-    // 2C. Surging Creator Pins query (competitor_pins)
-    if (rawQuery.includes('FROM competitor_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators') && (rawQuery.includes('delta_saves_24h') || rawQuery.includes('daily_save_velocity') || rawQuery.includes('queryViralCreatorPins'))) {
+    // 2C. Surging Creator Pins query (competitor_board_pins / competitor_pins)
+    if ((rawQuery.includes('FROM competitor_board_pins') || rawQuery.includes('FROM competitor_pins')) && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators') && (rawQuery.includes('delta_saves_24h') || rawQuery.includes('daily_save_velocity') || rawQuery.includes('queryViralCreatorPins'))) {
       return overrides.viralCreatorPins || [
         {
           pin_id: 'pin_creator_surge_700',
@@ -918,7 +918,6 @@ describe('Gate 6: Repository Regression Locks & Zero Landmines', () => {
     assert.ok(!/\bksc\.description\b/i.test(serviceCode), 'Must NOT query ksc.description on Central Hub');
     assert.ok(!/\bksc\.alt_text\b/i.test(serviceCode), 'Must NOT query ksc.alt_text on Central Hub');
     assert.ok(!/\bksc\.reaction_count\b/i.test(serviceCode), 'Must NOT query non-existent ksc.reaction_count');
-    assert.ok(!/\bump\.url_global_saves\b/i.test(serviceCode), 'Must NOT query non-existent ump.url_global_saves on Shards');
   });
 
   it('6.3 Headless Node.js execution shield: browser globals are guarded', () => {

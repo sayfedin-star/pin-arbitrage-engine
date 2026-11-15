@@ -49,7 +49,7 @@ export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
     const missingIds = needsHydration.map(r => String(r.pin_id)).filter(Boolean);
     if (missingIds.length > 0) {
       const masterRows = await sql`
-        SELECT ump.pin_id, ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url, ump.account_username AS creator_username, (ump.metadata->>'board_name') AS board_name, ump.dominant_color, COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
+        SELECT ump.pin_id, ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url, ump.account_username AS creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
         FROM universal_master_pins ump
         WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
         LIMIT 2000;
@@ -1862,9 +1862,9 @@ export async function getKeywordPins(sql, keywordId) {
       ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
       ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
       ump.account_username AS creator_username,
-      (ump.metadata->>'board_name') AS board_name,
+      ump.board_name,
       ump.dominant_color,
-      COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+      COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
       ump.created_at_pinterest, ump.creation_method,
       ump.metadata, ksp.crawled_at, ksp.updated_at, ksp.is_displaced, ksp.vacuum_opportunity_score
     FROM keyword_serp_positions ksp
@@ -1936,9 +1936,9 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
         ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
         ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
         ump.account_username AS creator_username,
-        (ump.metadata->>'board_name') AS board_name,
+        ump.board_name,
         ump.dominant_color,
-        COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         ump.created_at_pinterest, ump.creation_method,
         ump.metadata, ksp.crawled_at, ksp.updated_at, ksp.is_displaced, ksp.vacuum_opportunity_score
       FROM keyword_serp_positions ksp
@@ -2170,7 +2170,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       ump.destination_url,
       ump.image_url,
       ump.account_username AS creator_username,
-      (ump.metadata->>'board_name') AS board_name,
+      ump.board_name,
       ksp.last_known_rank,
       ksp.displaced_date,
       'displaced_active' AS status,
@@ -2186,8 +2186,8 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       ump.daily_save_velocity AS calculated_velocity,
       ump.daily_repin_velocity,
       ksp.vacuum_opportunity_score,
-      COALESCE(ump.metadata->>'alt_text', '') AS seo_alt_text,
-      COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS annotations,
+      COALESCE(ump.alt_text, '') AS seo_alt_text,
+      COALESCE(ump.visual_annotations, '[]'::jsonb) AS annotations,
       COALESCE(NULLIF(ump.dominant_color, ''), '#888888') AS dominant_color,
       ump.created_at_pinterest,
       COALESCE(NULLIF(ump.creation_method, ''), 'pinterest_platform') AS creation_method,

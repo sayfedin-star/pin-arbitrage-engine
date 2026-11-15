@@ -50,125 +50,8 @@ export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
   if (!Array.isArray(pins) || pins.length === 0) {
     return { inserted: 0 };
   }
-
-  const dedupMap = new Map();
-  for (const p of pins) {
-    const pid = String(p?.pin_id || p?.id || '').trim();
-    if (!pid) continue;
-    if (!dedupMap.has(pid)) {
-      const domainRaw = String(p.domain || p.link_domain || '').trim();
-      const destUrl = String(p.destination_url || p.link || '').trim();
-      const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
-      const richMeta = buildRichPinMetadataPayload(p);
-      const rawSaves = p.save_count ?? p.saves;
-      const isUnhydrated = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
-      const saveCount = isUnhydrated ? null : Math.max(0, Number(rawSaves || 0));
-
-      dedupMap.set(pid, {
-        pin_id: pid,
-        creator_username: String(p.creator_username || p.account_username || '').replace(/^@/, '').trim().toLowerCase(),
-        board_name: String(p.board_name || '').trim(),
-        board_slug: String(p.board_slug || '').trim(),
-        title: String(p.title || '').trim(),
-        domain: cleanDomain || domainRaw,
-        clean_domain: cleanDomain,
-        destination_url: destUrl,
-        image_url: String(p.image_url || '').trim(),
-        description: String(p.description || '').trim(),
-        alt_text: String(p.alt_text || '').trim(),
-        dominant_color: String(p.dominant_color || '#888888').trim(),
-        visual_annotations: Array.isArray(p.visual_annotations)
-          ? p.visual_annotations
-          : (Array.isArray(p.annotations) ? p.annotations : []),
-        created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-        save_count: saveCount,
-        repin_count: Math.max(0, Number(p.repin_count ?? p.repins ?? 0)),
-        comment_count: Math.max(0, Number(p.comment_count ?? p.comments ?? 0)),
-        share_count: Math.max(0, Number(p.share_count ?? p.shares ?? 0)),
-        reaction_count: Math.max(0, Number(p.reaction_count ?? 0)),
-        daily_save_velocity: 0,
-        is_product: Boolean(p.is_product || richMeta.is_product),
-        is_video: Boolean(p.is_video || richMeta.is_video),
-        creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
-        image_signature: richMeta.image_signature ? String(richMeta.image_signature) : null,
-        canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null,
-        first_discovered_pillar: String(pillar || 'keyword'),
-        keyword_id: p.keyword_id != null ? Number(p.keyword_id) : null,
-        rank_position: p.rank_position != null ? Number(p.rank_position) : null,
-        is_displaced: Boolean(p.is_displaced),
-        last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
-        catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
-        metadata: richMeta
-      });
-    }
-  }
-
-  const rows = Array.from(dedupMap.values()).sort((a, b) => a.pin_id.localeCompare(b.pin_id));
-  if (rows.length === 0) return { inserted: 0 };
-
-  const payloadJson = JSON.stringify(rows);
-
-  const insertedRows = await sql`
-    WITH ins_pins AS (
-      INSERT INTO universal_master_pins (
-        pin_id, creator_username, board_name, board_slug, title, domain, clean_domain, destination_url,
-        image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity,
-        delta_saves_24h, delta_repins_24h,
-        is_product, is_video, creation_method, image_signature, canonical_pin_id,
-        first_discovered_pillar, first_discovered_at, first_saved_at, last_resaved_at, last_scraped_at, updated_at, metadata
-      )
-      SELECT
-        u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain,
-        COALESCE(NULLIF(u.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(u.domain, '')), '^www\.', ''))),
-        u.destination_url,
-        u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-        NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz,
-        u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, 0,
-        0, 0,
-        u.is_product, u.is_video, u.creation_method, u.image_signature, u.canonical_pin_id,
-        u.first_discovered_pillar, NOW(), NOW(), NOW(), NOW(), NOW(), u.metadata
-      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-        pin_id text, creator_username text, board_name text, board_slug text, title text, domain text, clean_domain text,
-        destination_url text, image_url text, description text, alt_text text, dominant_color text,
-        visual_annotations jsonb, created_at_pinterest text,
-        save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int,
-        daily_save_velocity numeric, is_product boolean, is_video boolean, creation_method text,
-        image_signature text, canonical_pin_id text, first_discovered_pillar text, metadata jsonb
-      )
-      ORDER BY u.pin_id ASC
-      ON CONFLICT (pin_id) DO NOTHING
-      RETURNING pin_id
-    ),
-    ins_metrics AS (
-      INSERT INTO pins_daily_metrics (
-        pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
-      )
-      SELECT
-        u.pin_id,
-        (NOW() AT TIME ZONE 'UTC')::date,
-        u.save_count,
-        u.repin_count,
-        u.comment_count,
-        u.share_count,
-        u.reaction_count,
-        NULL,
-        NULL,
-        NOW()
-      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-        pin_id text, save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int
-      )
-      ORDER BY u.pin_id ASC
-      ON CONFLICT (pin_id, recorded_date) DO NOTHING
-    )
-    SELECT pin_id FROM ins_pins;
-  `;
-
-  if (rows.some(r => r.keyword_id && r.keyword_id > 0)) {
-    await upsertPinSerpPositionsBatch(sql, payloadJson);
-  }
-
-  return { inserted: Array.isArray(insertedRows) ? insertedRows.length : 0 };
+  const result = await ingestPinsBatch(sql, pins, { pillar });
+  return { inserted: result.inserted ?? result.ingested ?? 0 };
 }
 
 /**
@@ -590,6 +473,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ELSE NULL
           END AS effective_repin_velocity,
           CASE
+            WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
             WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
               GREATEST(0, rb.save_count - prev.save_count)::bigint
             ELSE NULL

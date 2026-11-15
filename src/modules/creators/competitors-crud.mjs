@@ -954,7 +954,7 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
       ump.save_count
     FROM competitor_board_pins cbp
     JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-    LEFT JOIN competitor_boards cb ON cb.id = cbp.board_id
+    LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
     WHERE cbp.competitor_id = ${numericId} AND cbp.pin_id = ANY(${cleanIds});
   `;
 
