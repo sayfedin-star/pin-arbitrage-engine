@@ -83,9 +83,9 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
         ...prev,
         ...s,
         snapshot_date: dStr,
-        save_count: Number(s.save_count || prev.save_count || 0),
-        repin_count: Number(s.repin_count || prev.repin_count || 0),
-        daily_save_velocity: Number(s.daily_save_velocity || prev.daily_save_velocity || 0)
+        save_count: Math.max(Number(s.save_count || 0), Number(prev.save_count || 0)),
+        repin_count: Math.max(Number(s.repin_count || 0), Number(prev.repin_count || 0)),
+        daily_save_velocity: Math.max(Number(s.daily_save_velocity || 0), Number(prev.daily_save_velocity || 0))
       });
     }
   }

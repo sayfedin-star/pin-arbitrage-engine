@@ -41,9 +41,6 @@ export async function optimizeHubStorage(sql) {
   if (!sql) throw new Error('optimizeHubStorage requires an active SQL client.');
 
   const results = {
-    archivedDisplaced: 0,
-    prunedSnapshots: 0,
-    compactedCompetitors: 0,
     cleanedSerpMetadata: 0,
     cleanedKwMetadata: 0,
     vacuumedTables: []

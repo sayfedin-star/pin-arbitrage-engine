@@ -313,10 +313,23 @@ export function formatPin(pin) {
     null
   );
 
+  const isUnhydratedStub = Boolean(
+    pin.is_hydrated === false ||
+    pin.is_search_stub ||
+    pin.is_stub ||
+    pin.stub ||
+    pin._source === 'BaseSearchResource' ||
+    pin.resource === 'BaseSearchResource' ||
+    pin.has_explicit_saves === false
+  );
+
   let repins = null;
-  if (hasExplicitRepinsField || (rawRepinsMetric !== null && rawRepinsMetric > 0)) {
+  if (pin.has_explicit_repins === false || (isUnhydratedStub && (rawRepinsMetric === null || rawRepinsMetric === 0))) {
+    repins = null;
+  } else if (hasExplicitRepinsField || (rawRepinsMetric !== null && rawRepinsMetric > 0)) {
     repins = rawRepinsMetric !== null ? rawRepinsMetric : 0;
   }
+  const hasExplicitRepins = repins !== null;
 
   // Check explicit saves field presence
   const hasExplicitSavesField = Boolean(
@@ -359,7 +372,9 @@ export function formatPin(pin) {
   // An unhydrated pin must have save_count = null (NOT 0).
   // Only assign a numeric value if explicit saves are confirmed in the payload.
   let saves = null;
-  if (hasExplicitSavesField || (rawSavesMetric !== null && rawSavesMetric > 0)) {
+  if (pin.has_explicit_saves === false || (isUnhydratedStub && (rawSavesMetric === null || rawSavesMetric === 0))) {
+    saves = null;
+  } else if (hasExplicitSavesField || (rawSavesMetric !== null && rawSavesMetric > 0)) {
     saves = rawSavesMetric !== null ? rawSavesMetric : 0;
   }
   const hasExplicitSaves = saves !== null;
@@ -564,6 +579,7 @@ export function formatPin(pin) {
     has_explicit_saves: hasExplicitSaves,
     repin_count: repins,
     repins,
+    has_explicit_repins: hasExplicitRepins,
     comment_count: comments,
     comments,
     share_count: shareCount,
@@ -887,6 +903,9 @@ export async function fetchAndExtractPin(pinId, options = {}) {
           pinResult.saves = resourcePin.saves;
           pinResult.has_explicit_saves = true;
         }
+        if (resourcePin.has_explicit_repins) {
+          pinResult.has_explicit_repins = true;
+        }
         if (resourcePin.repin_count) pinResult.repin_count = resourcePin.repin_count;
         if (resourcePin.comment_count) pinResult.comment_count = resourcePin.comment_count;
         if (resourcePin.annotations && resourcePin.annotations.length > 0) {
@@ -912,6 +931,9 @@ export async function fetchAndExtractPin(pinId, options = {}) {
           pinResult.save_count = pidgetsPin.save_count;
           pinResult.saves = pidgetsPin.saves;
           pinResult.has_explicit_saves = true;
+        }
+        if (pidgetsPin.has_explicit_repins) {
+          pinResult.has_explicit_repins = true;
         }
         if (pidgetsPin.repin_count) pinResult.repin_count = pidgetsPin.repin_count;
       }

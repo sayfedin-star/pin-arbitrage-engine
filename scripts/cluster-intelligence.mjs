@@ -105,30 +105,8 @@ function cleanString(val) {
   return '';
 }
 
-/**
- * Clean and format Pinterest cookie to comply with RFC 6265
- * Handles full cookie strings, key-value pairs, or raw _pinterest_sess tokens
- */
-export function formatPinterestCookie(rawCookie) {
-  if (!rawCookie || typeof rawCookie !== 'string') return '';
-  let cookie = rawCookie.trim();
-  if (cookie.startsWith('"') && cookie.endsWith('"')) {
-    cookie = cookie.slice(1, -1).trim();
-  }
-  // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
-  cookie = cookie.replace(/_auth="?[^;"]+"?;?\s*/g, '').trim();
-  // If user pasted just the raw session token (starts with TWc9, contains Mg==, or lacks '=')
-  if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
-    return `_pinterest_sess="${cookie.replace(/"/g, '')}"; _auth=0;`;
-  }
-  // Ensure _pinterest_sess value is quoted per RFC 6265 if user provided without quotes
-  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
-  // If user provided a cookie string with '=', ensure _auth=0 is present
-  if (!cookie.includes('_auth=')) {
-    cookie = `${cookie.replace(/;$/, '')}; _auth=0;`;
-  }
-  return cookie;
-}
+import { formatPinterestCookie } from '../src/utils.mjs';
+export { formatPinterestCookie };
 
 /**
  * Resilient database query wrapper: retries on transient connection or rate-limit errors
@@ -1600,7 +1578,7 @@ async function main() {
       FROM cluster_seeds
       WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
         AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(pin_id::text)) % 20) = ${shardIdx}::int)
+        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(pin_id::text)::bigint) % 20) = ${shardIdx}::int)
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);

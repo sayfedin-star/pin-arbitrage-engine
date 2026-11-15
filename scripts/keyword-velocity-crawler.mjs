@@ -53,10 +53,7 @@ import {
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
-
-function registerTargetShards(_pins) {
-  // Unified single-database mode: no per-shard tracking needed.
-}
+import { Semaphore } from '../src/utils.mjs';
 
 let undiciAgent = null;
 try {
@@ -133,40 +130,6 @@ const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
 const maxPins = maxSerpPins;
 
 
-/**
- * Concurrency & Rate Limiting Controls (Configurable via Environment)
- */
-class Semaphore {
-  constructor(max) {
-    this.max = max;
-    this.count = 0;
-    this.queue = [];
-  }
-  async acquire() {
-    if (this.count < this.max) {
-      this.count++;
-      return;
-    }
-    await new Promise(resolve => this.queue.push(resolve));
-  }
-  release() {
-    this.count--;
-    if (this.queue.length > 0) {
-      this.count++;
-      const next = this.queue.shift();
-      next();
-    }
-  }
-  async run(fn) {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
-}
-
 const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '12', 10));
 const BATCH_SIZE = Math.max(10, parseInt(process.env.BATCH_SIZE || '250', 10));
 const SLEEP_MS_MIN = Math.max(150, parseInt(process.env.SLEEP_MS_MIN || '300', 10));
@@ -186,19 +149,6 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
  * authentic telemetry if freshly enriched within 18h or within hard cooldown.
  */
 export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
-    return {
-      shouldFetch: false,
-      reason: 'ssot_freshness_gate_18h',
-      reuseTelemetry: {
-        save_count: pin.save_count != null ? Number(pin.save_count) : null,
-        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-        share_count: pin.share_count != null ? Number(pin.share_count) : null,
-        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
-      }
-    };
-  }
   const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const isDeepHydrated = Boolean(
@@ -250,6 +200,21 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const isGenericOrMissingMethod = !currentMethod || currentMethod === 'pinterest_platform';
   if (isGenericOrMissingMethod) {
     return { shouldFetch: true, reason: 'missing_or_generic_creation_method', reuseTelemetry: null };
+  }
+
+  // Only after deep hydration, rich treasures, and authentic method are validated, check 18h freshness gate
+  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
+    return {
+      shouldFetch: false,
+      reason: 'ssot_freshness_gate_18h',
+      reuseTelemetry: {
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
+      }
+    };
   }
 
   const lastCrawlDateStr = new Date(lastCrawlMs).toISOString().slice(0, 10);
@@ -668,7 +633,8 @@ async function flushBatchToHub(pinsChunk, kw) {
 
   const payloadJson = JSON.stringify(pinsChunk.map(p => ({
     pin_id: String(p.pin_id),
-    from_hydration_cache: Boolean(p.from_hydration_cache)
+    from_hydration_cache: Boolean(p.from_hydration_cache),
+    scrape_failed: Boolean(p.scrape_failed)
   })));
 
   const kwIds = (isGlobalFleet || isFolder) ? (kw.all_keyword_ids || [kw.id]) : [kw.id];
@@ -678,16 +644,18 @@ async function flushBatchToHub(pinsChunk, kw) {
     UPDATE keyword_serp_positions ksp
     SET
       vacuum_opportunity_score = CASE 
-        WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 5 THEN 85
-        WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 15 THEN 75
-        WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 50 THEN 60
-        ELSE 45
+        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 5 THEN 85
+        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 15 THEN 75
+        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 50 THEN 60
+        WHEN ksp.is_displaced = TRUE THEN 45
+        ELSE ksp.vacuum_opportunity_score
       END,
-      crawled_at = CASE WHEN u.from_hydration_cache THEN ksp.crawled_at ELSE NOW() END,
+      crawled_at = CASE WHEN NOT u.from_hydration_cache AND NOT u.scrape_failed THEN NOW() ELSE ksp.crawled_at END,
       updated_at = NOW()
     FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
       pin_id text,
-      from_hydration_cache boolean
+      from_hydration_cache boolean,
+      scrape_failed boolean
     )
     WHERE ksp.pin_id = u.pin_id
       AND ksp.keyword_id = ANY(${kwIds}::int[]);
@@ -763,6 +731,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
       throw new Error(`Unified Postgres flush aborted after timeout (${FLUSH_TIMEOUT_MS}ms limit)`);
     }
 
+    const activeSql = sql?.noRetry || sql;
     const sortedPins = [...enrichedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
 
     // 1. Fetch 16-day historical snapshots for rolling gains computation (satisfies up to 15-day window)
@@ -772,7 +741,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
     try {
       for (let i = 0; i < pinIds.length; i += 500) {
         const idChunk = pinIds.slice(i, i + 500);
-        const chunkSnaps = await sql`
+        const chunkSnaps = await activeSql`
           SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
           FROM pins_daily_metrics
           WHERE pin_id = ANY(${idChunk}::text[])
@@ -893,14 +862,14 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
     for (let i = 0; i < sortedPins.length; i += 500) {
       const batchSlice = sortedPins.slice(i, i + 500);
       if (process.env.INGEST_MODE === 'discrete') {
-        await insertNewPinsBatch(sql, batchSlice, 'keyword');
-        await resavePinsMetricsBatch(sql, batchSlice);
-      } else if (typeof sql.transaction === 'function' && process.env.INGEST_MODE === 'tx') {
-        await sql.transaction([
+        await insertNewPinsBatch(activeSql, batchSlice, 'keyword');
+        await resavePinsMetricsBatch(activeSql, batchSlice);
+      } else if (typeof activeSql.transaction === 'function' && process.env.INGEST_MODE === 'tx') {
+        await activeSql.transaction([
           (tx) => ingestPinsBatch(tx, batchSlice, { pillar: 'keyword' })
         ]);
       } else {
-        await ingestPinsBatch(sql, batchSlice, { pillar: 'keyword' });
+        await ingestPinsBatch(activeSql, batchSlice, { pillar: 'keyword' });
       }
     }
 
@@ -1073,7 +1042,7 @@ async function run() {
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_folder_${fid}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
+      (globalThis.__PAE_LOCAL_RUN_ID = `run_folder_${fid}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
     );
 
     let phase1aTotalFailureC = false;
@@ -1098,9 +1067,14 @@ async function run() {
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
           serpErrorCount++;
-          const sqlState = String(err?.code || '');
-          const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-          console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${sqlState || 'N/A'}):`, err.message);
+          let isFatalSqlError = false;
+          if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
+            isFatalSqlError = false;
+          } else {
+            const sqlState = String(err?.code || '');
+            isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+          }
+          console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${err?.code || 'N/A'}):`, err.message);
           if (isFatalSqlError && !fatalSerpDbErr) {
             fatalSerpDbErr = err;
           }
@@ -1114,8 +1088,7 @@ async function run() {
                   updated_at = NOW(),
                   crawl_lease_token = NULL,
                   crawl_lease_until = NULL
-              WHERE id = ${kid}
-                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+              WHERE id = ${kid};
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
           } catch (barrierErr) {
             console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
@@ -1197,7 +1170,7 @@ async function run() {
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE kfi.folder_id = ${fid} AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''
           AND (${isOnlyActive}::boolean = FALSE OR ksp.is_displaced = FALSE)
-          AND (ABS(hashtext(ksp.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+          AND (ABS(hashtext(ksp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
@@ -1245,7 +1218,6 @@ async function run() {
     // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
     const myPins = allPins;
 
-    registerTargetShards(myPins);
     console.log(`[*] Total Unique Folder Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {
@@ -1323,7 +1295,7 @@ async function run() {
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_kw_${kwRow.id}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
+      (globalThis.__PAE_LOCAL_RUN_ID = `run_kw_${kwRow.id}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
     );
 
     if (enableSerpHarvest) {
@@ -1341,9 +1313,14 @@ async function run() {
           });
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
-          const sqlState = String(err?.code || '');
-          const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-          console.warn(`[Phase 1A] Lead Runner SERP error (code=${sqlState || 'N/A'}):`, err.message);
+          let isFatalSqlError = false;
+          if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
+            isFatalSqlError = false;
+          } else {
+            const sqlState = String(err?.code || '');
+            isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+          }
+          console.warn(`[Phase 1A] Lead Runner SERP error (code=${err?.code || 'N/A'}):`, err.message);
           if (isFatalSqlError) {
             fatalSerpDbErrB = err;
           }
@@ -1359,8 +1336,7 @@ async function run() {
                 updated_at = NOW(),
                 crawl_lease_token = NULL,
                 crawl_lease_until = NULL
-              WHERE id = ${kwRow.id}
-                AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+              WHERE id = ${kwRow.id};
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             barrierUpdated = true;
           } catch (barrierErr) {
@@ -1436,7 +1412,7 @@ async function run() {
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE ksp.keyword_id = ${kwRow.id} AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''
         AND (${isOnlyActive}::boolean = FALSE OR ksp.is_displaced = FALSE)
-        AND (ABS(hashtext(ksp.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+        AND (ABS(hashtext(ksp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
         AND NOT EXISTS (
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = ksp.pin_id
@@ -1465,7 +1441,6 @@ async function run() {
 
     // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
     const myPins = allPins;
-    registerTargetShards(myPins);
     console.log(`[*] Total Catalog Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {
@@ -1543,7 +1518,7 @@ async function run() {
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
       globalThis.__PAE_LOCAL_RUN_ID ||
-      `run_fleet_${crawlScope}_${workerTotal === 1 ? crypto.randomUUID() : 'matrix'}`
+      (globalThis.__PAE_LOCAL_RUN_ID = `run_fleet_${crawlScope}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
     );
 
     // -------------------------------------------------------------------------
@@ -1575,9 +1550,14 @@ async function run() {
             console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins)`);
           } catch (err) {
             serpErrorCount++;
-            const sqlState = String(err?.code || '');
-            const isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-            console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${sqlState || 'N/A'}): ${err.message}`);
+            let isFatalSqlError = false;
+            if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
+              isFatalSqlError = false;
+            } else {
+              const sqlState = String(err?.code || '');
+              isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+            }
+            console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${err?.code || 'N/A'}): ${err.message}`);
             if (isFatalSqlError && !fatalSerpDbErr) {
               fatalSerpDbErr = err;
             }
@@ -1591,8 +1571,7 @@ async function run() {
                     updated_at = NOW(),
                     crawl_lease_token = NULL,
                     crawl_lease_until = NULL
-                WHERE id = ${kid}
-                  AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
+                WHERE id = ${kid};
               `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             } catch (barrierErr) {
               console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
@@ -1671,7 +1650,7 @@ async function run() {
         WHERE ksp.keyword_id = ANY(${allFleetKeywordIds})
           AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''
           AND (${crawlScope === 'active_serp'}::boolean = FALSE OR ksp.is_displaced = FALSE)
-          AND (ABS(hashtext(ksp.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+          AND (ABS(hashtext(ksp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
           AND (
             ksp.is_displaced = FALSE
             OR COALESCE(ksp.last_known_rank, 999) <= 50
@@ -1724,7 +1703,6 @@ async function run() {
       }
     }
 
-    registerTargetShards(myPins);
     console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} Assigned Unique Slice: ${myPins.length} pins (${myPins.filter(p => !p.is_displaced).length} active + ${myPins.filter(p => p.is_displaced).length} vault)`);
 
     if (myPins.length === 0) {

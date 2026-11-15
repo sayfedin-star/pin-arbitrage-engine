@@ -155,6 +155,7 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
           has_explicit_saves: hasExplicitSaves || saves > 0,
           repins,
           repin_count: repins,
+          has_explicit_repins: Boolean(hasExplicitRepins || (repins !== null && repins > 0)),
           title,
           description: pin.description || '',
           domain,
@@ -211,17 +212,71 @@ export function extractPinData(rawHtml, pinId) {
   if (!rawHtml || typeof rawHtml !== 'string') return null;
   const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
 
-  // 1. Relay Completed Request Calls
-  const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
-  let rMatch;
+  // 1. Relay Completed Request Calls using balanced-brace parsing
+  const relayPrefix = '__PWS_RELAY_REGISTER_COMPLETED_REQUEST__';
   let mergedRelayPin = null;
+  let searchPos = 0;
 
-  while ((rMatch = relayRegex.exec(html)) !== null) {
+  while ((searchPos = html.indexOf(relayPrefix, searchPos)) !== -1) {
+    const startParen = html.indexOf('(', searchPos + relayPrefix.length);
+    if (startParen === -1) {
+      searchPos += relayPrefix.length;
+      continue;
+    }
+    const firstComma = html.indexOf(',', startParen);
+    if (firstComma === -1) {
+      searchPos = startParen + 1;
+      continue;
+    }
+    const braceStart = html.indexOf('{', firstComma);
+    if (braceStart === -1 || braceStart - firstComma > 250) {
+      searchPos = firstComma + 1;
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+    let foundEnd = -1;
+
+    for (let i = braceStart; i < html.length; i++) {
+      const ch = html[i];
+      if (inString) {
+        if (isEscaped) {
+          isEscaped = false;
+        } else if (ch === '\\') {
+          isEscaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else {
+        if (ch === '"') {
+          inString = true;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            foundEnd = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (foundEnd === -1) {
+      searchPos = braceStart + 1;
+      continue;
+    }
+
+    searchPos = foundEnd;
+
     try {
-      const payload = JSON.parse(rMatch[2]);
+      const payload = JSON.parse(html.slice(braceStart, foundEnd));
       const v3 = payload?.data?.v3GetPinQueryv2?.data;
       if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
         if (!mergedRelayPin) mergedRelayPin = {};
+        Object.assign(mergedRelayPin, v3);
         const realId = v3.entityId || (typeof v3.id === 'string' && /^\d+$/.test(v3.id) ? v3.id : null);
         if (realId) mergedRelayPin.id = realId;
 
@@ -340,6 +395,7 @@ export function extractPinData(rawHtml, pinId) {
       if (ogRepins !== null) {
         coreResult.repins = ogRepins;
         coreResult.repin_count = ogRepins;
+        coreResult.has_explicit_repins = true;
       }
       return coreResult;
     }
@@ -355,6 +411,7 @@ export function extractPinData(rawHtml, pinId) {
     if (ogRepins !== null) {
       formatted.repins = ogRepins;
       formatted.repin_count = ogRepins;
+      formatted.has_explicit_repins = true;
     }
     return formatted;
   }
@@ -513,7 +570,8 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
             saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
             repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
             comments: Math.max(parsed.comments || 0, fallbackPin.comments || 0),
-            has_explicit_saves: Boolean(parsed.has_explicit_saves || fallbackPin.has_explicit_saves || fallbackPin.saves > 0)
+            has_explicit_saves: Boolean(parsed.has_explicit_saves || fallbackPin.has_explicit_saves || fallbackPin.saves > 0),
+            has_explicit_repins: Boolean(parsed.has_explicit_repins || fallbackPin.has_explicit_repins || (fallbackPin.repins !== null && fallbackPin.repins > 0))
           };
         }
       }

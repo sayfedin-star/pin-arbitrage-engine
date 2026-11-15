@@ -128,6 +128,7 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       has_explicit_saves: hasExplicitSaves || saves > 0,
       repin_count: Number(p.repin_count || 0),
       repins: Number(p.repin_count || 0),
+      has_explicit_repins: Boolean(p.repin_count !== undefined || Number(p.repin_count || 0) > 0),
       image_url: standardImg,
       image_hd_url: hdImg,
       created_at: pubDatesMap.get(pinId) || null,

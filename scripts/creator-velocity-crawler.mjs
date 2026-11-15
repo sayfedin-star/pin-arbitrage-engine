@@ -53,8 +53,8 @@ import {
   fetchUserResource,
   fetchPinFromPinterest
 } from './lib/pinterest.mjs';
-import { formatPinterestCookie, sanitizeForJsonb } from '../src/utils.mjs';
-import { calculateDailyVelocity, isRepinHydrationJump } from '../src/lib/math.mjs';
+import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
+import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
@@ -118,40 +118,6 @@ const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
 const AUTO_PROMOTE_PULSE_DELTA_24H = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_24H || 25000);
 const AUTO_PROMOTE_PULSE_DELTA_7D = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_7D || 100000);
-
-/**
- * Concurrency Limiter Semaphore
- */
-class Semaphore {
-  constructor(max) {
-    this.max = max;
-    this.count = 0;
-    this.queue = [];
-  }
-  async acquire() {
-    if (this.count < this.max) {
-      this.count++;
-      return;
-    }
-    await new Promise(resolve => this.queue.push(resolve));
-  }
-  release() {
-    this.count--;
-    if (this.queue.length > 0) {
-      this.count++;
-      const next = this.queue.shift();
-      next();
-    }
-  }
-  async run(fn) {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
-}
 
 /**
  * Commit daily metric snapshots directly to pins_daily_metrics in Unified PostgreSQL.
@@ -408,7 +374,12 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, 
     return { velocity: safePrevVelocity, deltaSaves };
   }
   if (isSameDay && deltaSaves > 0 && prevSaves > 0) {
-    return { velocity: Math.max(safePrevVelocity, deltaSaves), deltaSaves };
+    const isJump = detectHydrationJump(freshSaves, prevSaves, freshRepins, prevRepins);
+    const safeDelta = isJump ? 0 : deltaSaves;
+    return {
+      velocity: Math.min(25000, Math.max(safePrevVelocity, safeDelta)),
+      deltaSaves: safeDelta
+    };
   }
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE] Delegate to canonical velocity function with 0-baseline protection
@@ -495,11 +466,23 @@ async function run() {
 
     console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId}) [target: ${targetPages} pages, early-stop: ${earlyStop}, pulseOnly: ${isPulseOnly}]`);
 
+    const runToken = String(
+      process.env.CRAWL_RUN_ID ||
+      (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
+      globalThis.__PAE_LOCAL_RUN_ID ||
+      (globalThis.__PAE_LOCAL_RUN_ID = `run_creator_${targetId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
+    );
+
     // -------------------------------------------------------------------------
     // Phase 1: Profile & Board List on Worker 0, then 20-Worker Parallel Board Swarm
     // -------------------------------------------------------------------------
     if (workerIndex === 0) {
-      console.log(`\n[*] [Phase 1: Worker 0] Ingesting profile, board list, and feed for @${targetAccount}...`);
+      console.log(`\n[*] [Phase 1: Worker 0] Ingesting profile, board list, and feed for @${targetAccount} (token: ${runToken})...`);
+      await sql`
+        UPDATE competitor_profiles
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'crawling_phase1', 'phase1_run_id', ${runToken}::text, 'phase1_time', NOW()::text)
+        WHERE id = ${targetId};
+      `.catch(() => {});
 
       try {
         await syncCompetitorProfile(sql, targetAccount, cookie, { pulseOnly: isPulseOnly });
@@ -527,7 +510,7 @@ async function run() {
         // Signal boards_ready so all workers can partition and crawl boards in parallel
         await sql`
           UPDATE competitor_profiles
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_time', NOW()::text)
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_run_id', ${runToken}::text, 'phase1_time', NOW()::text)
           WHERE id = ${targetId};
         `.catch(() => {});
         console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for parallel board swarm.`);
@@ -535,30 +518,31 @@ async function run() {
         console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
         await sql`
           UPDATE competitor_profiles
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'phase1_done', 'phase1_time', NOW()::text)
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_run_id', ${runToken}::text, 'phase1_time', NOW()::text)
           WHERE id = ${targetId};
         `.catch(() => {});
       }
     } else {
-      // Workers 1..19 wait for Worker 0 to announce boards_ready (or phase1_done)
-      console.log(`\n[*] [Phase 1: Worker ${workerIndex + 1}/${workerTotal}] Waiting for Worker 0 to announce boards_ready...`);
+      // Workers 1..19 wait for Worker 0 to announce boards_ready
+      console.log(`\n[*] [Phase 1: Worker ${workerIndex + 1}/${workerTotal}] Waiting for Worker 0 to announce boards_ready (token: ${runToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 180000; // 3 min ceiling
       const isCI = process.env.GITHUB_ACTIONS === 'true';
 
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
         const [prof] = await sql`
-          SELECT metadata->>'phase1_status' AS status
+          SELECT metadata->>'phase1_status' AS status,
+                 metadata->>'phase1_run_id' AS run_id
           FROM competitor_profiles
           WHERE id = ${targetId};
         `.catch(() => [null]);
 
-        if (prof && (prof.status === 'boards_ready' || prof.status === 'crawling_boards' || prof.status === 'phase1_done')) {
+        if (prof && prof.run_id === runToken && (prof.status === 'boards_ready' || prof.status === 'crawling_boards' || prof.status === 'phase1_done')) {
           console.log(`[Phase 1] Boards ready signal received from Worker 0 in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
         }
 
-        if (!isCI && (!prof || prof.status !== 'crawling_phase1')) {
+        if (!isCI && (!prof || (prof.run_id !== runToken && prof.status !== 'crawling_phase1'))) {
           console.log(`[Phase 1] Local single-worker test detected. Proceeding.`);
           break;
         }
@@ -640,7 +624,7 @@ async function run() {
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
       WHERE cbp.competitor_id = ${targetId}
         AND cbp.pin_id IS NOT NULL AND cbp.pin_id <> ''
-        AND (ABS(hashtext(cbp.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+        AND (ABS(hashtext(cbp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
       ORDER BY cbp.pin_id ASC;
     `;
 
@@ -1358,7 +1342,7 @@ async function run() {
         p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest
       FROM universal_master_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.creator_username
-      WHERE (ABS(hashtext(p.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+      WHERE (ABS(hashtext(p.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
         AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
       ORDER BY p.save_count DESC NULLS LAST;
     `;

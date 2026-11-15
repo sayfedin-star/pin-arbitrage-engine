@@ -27,6 +27,84 @@ export function formatPinterestCookie(rawCookie) {
 }
 
 /**
+ * Sanitizes any cookie string to guarantee unauthenticated guest state (_auth=0).
+ * Strips logged-in user tokens (_auth=1) which cause Pinterest to return zeros.
+ *
+ * @param {string|null|undefined} rawCookie
+ * @returns {string}
+ */
+export function sanitizeGuestCookie(rawCookie) {
+  if (!rawCookie || typeof rawCookie !== 'string') {
+    return '';
+  }
+  let cookie = rawCookie.trim();
+  if (cookie.startsWith('"') && cookie.endsWith('"')) {
+    cookie = cookie.slice(1, -1).trim();
+  }
+  if (!cookie) return '';
+
+  // Support raw _pinterest_sess token values (e.g. TWc9PS... or Mg==... without key=value format)
+  if (
+    !cookie.includes('=') ||
+    cookie.startsWith('TWc9') ||
+    cookie.startsWith('Mg==') ||
+    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
+  ) {
+    const cleanToken = cookie.replace(/"/g, '').trim();
+    return `_auth=0; _pinterest_sess="${cleanToken}"`;
+  }
+
+  // [INVARIANT: STRICT-GUEST-SCRAPING]
+  // Never allow _auth=1 (logged-in session). Strip any _auth key and enforce _auth=0.
+  cookie = cookie.replace(/_auth\s*=\s*"?1"?;?\s*/gi, '').trim();
+  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
+  if (!/_auth\s*=\s*"?0"?/i.test(cookie)) {
+    cookie = `_auth=0; ${cookie}`.trim();
+  }
+  // Clean double semicolons and extra spaces
+  return cookie
+    .replace(/;\s*;/g, ';')
+    .replace(/;\s+/g, '; ')
+    .replace(/^;\s*/, '')
+    .replace(/;\s*$/, '')
+    .trim();
+}
+
+/**
+ * Concurrency Limiter Semaphore
+ */
+export class Semaphore {
+  constructor(max) {
+    this.max = max;
+    this.count = 0;
+    this.queue = [];
+  }
+  async acquire() {
+    if (this.count < this.max) {
+      this.count++;
+      return;
+    }
+    await new Promise(resolve => this.queue.push(resolve));
+  }
+  release() {
+    this.count--;
+    if (this.queue.length > 0) {
+      this.count++;
+      const next = this.queue.shift();
+      next();
+    }
+  }
+  async run(fn) {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+}
+
+/**
  * Deep Null-Byte & Serialization Sanitizer
  * - Recursively strips PostgreSQL-incompatible null bytes (\u0000) from objects, keys, arrays, and strings.
  * - Safely converts BigInt to Number (or string if exceeding MAX_SAFE_INTEGER) preventing JSON.stringify TypeError.
