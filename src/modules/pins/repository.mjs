@@ -132,8 +132,8 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
       reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
       is_hydrated: isHydrated,
-      daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
-      daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
+      daily_save_velocity: (saveCount !== null && p.daily_save_velocity != null) ? Number(p.daily_save_velocity) : (saveCount !== null && p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
+      daily_repin_velocity: (repinCount !== null && p.daily_repin_velocity != null) ? Number(p.daily_repin_velocity) : null,
       delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
       gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
       gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
@@ -405,8 +405,8 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
         reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
         is_hydrated: isHydrated,
-        daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
-        daily_repin_velocity: p.daily_repin_velocity != null ? Number(p.daily_repin_velocity) : null,
+        daily_save_velocity: (saveCount !== null && p.daily_save_velocity != null) ? Number(p.daily_save_velocity) : (saveCount !== null && p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
+        daily_repin_velocity: (repinCount !== null && p.daily_repin_velocity != null) ? Number(p.daily_repin_velocity) : null,
         delta_saves_24h: p.delta_saves_24h != null ? Number(p.delta_saves_24h) : null,
         delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
         gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
@@ -458,6 +458,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         SELECT
           rb.*,
           CASE
+            WHEN rb.save_count IS NULL THEN NULL
             WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
             WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND prev.save_count > 0 THEN
               CASE
@@ -475,6 +476,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ELSE NULL
           END AS effective_save_velocity,
           CASE
+            WHEN rb.repin_count IS NULL THEN NULL
             WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
             WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
               CASE
@@ -942,7 +944,9 @@ export async function syncPinAcrossAllFourPillars({
   const rawSaves = (scrapedPin.saves !== undefined && scrapedPin.saves !== null)
     ? scrapedPin.saves
     : ((scrapedPin.save_count !== undefined && scrapedPin.save_count !== null) ? scrapedPin.save_count : null);
-  const newSaves = (rawSaves !== null && rawSaves !== '' && Number.isFinite(Number(rawSaves)))
+  const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined || rawSaves === '')
+    || (scrapedPin.has_explicit_saves === false && Number(rawSaves || 0) === 0);
+  const newSaves = (!isUnhydratedSaves && Number.isFinite(Number(rawSaves)))
     ? Math.max(0, Number(rawSaves))
     : null;
   const hasExplicitScrapedSaves = Boolean(scrapedPin.has_explicit_saves) || (newSaves !== null && newSaves > 0);
@@ -950,7 +954,10 @@ export async function syncPinAcrossAllFourPillars({
   const rawRepins = (scrapedPin.repins !== undefined && scrapedPin.repins !== null)
     ? scrapedPin.repins
     : ((scrapedPin.repin_count !== undefined && scrapedPin.repin_count !== null) ? scrapedPin.repin_count : null);
-  const newRepins = (rawRepins !== null && rawRepins !== '' && Number.isFinite(Number(rawRepins)))
+  const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined || rawRepins === '')
+    || (scrapedPin.has_explicit_repins === false && Number(rawRepins || 0) === 0)
+    || (scrapedPin.has_explicit_saves === false && Number(rawRepins || 0) === 0);
+  const newRepins = (!isUnhydratedRepins && Number.isFinite(Number(rawRepins)))
     ? Math.max(0, Number(rawRepins))
     : null;
 

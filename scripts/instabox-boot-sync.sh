@@ -30,15 +30,22 @@ check_and_reset_uptime_epoch() {
     if [ "${uptime_minutes}" -ge 420 ] || [ "${force_reset}" -eq 1 ]; then
       echo "[instabox-boot-sync] ⏳ Machine continuous uptime is ${uptime_minutes}m (>= 420m / 7h threshold or forced reset)."
       echo "[instabox-boot-sync] Executing preemptive suspend-and-resume to reset 480m max-run epoch with 0 cooldown..."
-      if command -v instabox >/dev/null 2>&1; then
-        # When orchestrated externally or on host with instabox CLI:
+      # Suspending the guest VM halts CPU execution before subsequent shell commands run;
+      # in production, machine power transitions must be orchestrated externally (host CLI or CI).
+      if [ "${INSTABOX_ORCHESTRATOR:-0}" = "1" ] || [ -n "${INSTABOX_HOST:-}" ]; then
+        if command -v instabox >/dev/null 2>&1; then
+          echo "[instabox-boot-sync] Running external orchestrator suspend/resume cycle..."
+          instabox suspend && sleep 5 && instabox resume || true
+        elif [ -n "${INSTABOX_API_KEY:-}" ] && [ -n "${INSTABOX_MACHINE_ID:-}" ]; then
+          echo "[instabox-boot-sync] Triggering suspend via InstaBox OpenAPI from external orchestrator..."
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/suspend" \
+            -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+        fi
+      elif command -v instabox >/dev/null 2>&1; then
+        # When orchestrated externally on host with instabox CLI:
         instabox suspend && sleep 5 && instabox resume || true
-      elif [ -n "${INSTABOX_API_KEY:-}" ] && [ -n "${INSTABOX_MACHINE_ID:-}" ]; then
-        echo "[instabox-boot-sync] Triggering suspend via InstaBox OpenAPI (orchestrator handles resume)..."
-        curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/suspend" \
-          -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
       else
-        echo "[instabox-boot-sync] Notice: 'instabox' CLI not installed in-VM. Suspend/resume cycle should be triggered from external orchestrator."
+        echo "[instabox-boot-sync] Notice: Running in-VM without external orchestrator. Machine suspend halts guest execution; power transitions must be orchestrated from host CLI, CI workflow, or wake-shield."
       fi
     else
       echo "[instabox-boot-sync] Continuous uptime is ${uptime_minutes}m (< 420m threshold). No epoch reset needed."
