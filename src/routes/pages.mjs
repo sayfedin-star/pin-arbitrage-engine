@@ -11,6 +11,8 @@
  * on all /api/... requests and health checks.
  */
 
+import { requestContextStorage } from '../http/security-and-response.mjs';
+
 // [INVARIANT: FAST-EDGE-FAVICON]
 // Clean inline SVG pin favicon to serve browser requests instantly (0ms network round-trip)
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📌</text></svg>';
@@ -36,6 +38,20 @@ export async function handlePagesRoutes(routeCtx) {
     isValidPinId
   } = routeCtx;
 
+  const store = requestContextStorage?.getStore?.();
+  const effectiveReply = routeCtx.reply || store?.reply;
+
+  const sendNative = (body, status = 200, headers = {}) => {
+    if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+      effectiveReply.code(status);
+      for (const [k, v] of Object.entries(headers)) {
+        effectiveReply.header(k, v);
+      }
+      return effectiveReply.send(method === 'HEAD' ? '' : (body || ''));
+    }
+    return new Response(method === 'HEAD' ? null : body, { status, headers });
+  };
+
   // 1. Fast Edge Favicon Interception [INVARIANT: FAST-EDGE-FAVICON]
   const isFavicon = pathLower === '/favicon.ico' ||
     pathLower === '/favicon.png' ||
@@ -48,13 +64,10 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : FAVICON_SVG, {
-      status: 200,
-      headers: {
-        'Content-Type': 'image/svg+xml; charset=utf-8',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        'X-Content-Type-Options': 'nosniff'
-      }
+    return sendNative(FAVICON_SVG, 200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff'
     });
   }
 
@@ -63,13 +76,10 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : 'User-agent: *\nDisallow: /api/\n', {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'public, max-age=86400',
-        'X-Content-Type-Options': 'nosniff'
-      }
+    return sendNative('User-agent: *\nDisallow: /api/\n', 200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400',
+      'X-Content-Type-Options': 'nosniff'
     });
   }
 
@@ -79,13 +89,10 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : 'Asset Not Found', {
-      status: 404,
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600',
-        'X-Content-Type-Options': 'nosniff'
-      }
+    return sendNative('Asset Not Found', 404, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Content-Type-Options': 'nosniff'
     });
   }
 
@@ -94,12 +101,9 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': '/',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      }
+    return sendNative(null, 302, {
+      'Location': '/',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
     });
   }
 
@@ -114,13 +118,10 @@ export async function handlePagesRoutes(routeCtx) {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
-    return new Response(getDiscoveryPageHtml(), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
   }
 
   // 4C. Level 5: 24-Hour Algorithmic Pulse & Crossover Studio (/pulse, /24h)
@@ -136,13 +137,10 @@ export async function handlePagesRoutes(routeCtx) {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const { getPulsePageHtml } = await import('../pulse-ui.mjs');
-    return new Response(getPulsePageHtml(''), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
   }
 
   // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id) [CAP-07]
@@ -160,13 +158,10 @@ export async function handlePagesRoutes(routeCtx) {
       );
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const { getPinDetailPageHtml } = await import('../pin-details-ui.mjs');
-    return new Response(getPinDetailPageHtml(cleanPinId), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getPinDetailPageHtml(cleanPinId), 200, HTML_HEADERS);
   }
 
   // 5B. Canonical URL Unification: 301 Permanent Redirect for legacy /:username/pin/:pin_id
@@ -192,12 +187,9 @@ export async function handlePagesRoutes(routeCtx) {
       }
       const queryString = targetParams.toString();
       const redirectLocation = `/pin/${cleanLegacyPinId}${queryString ? `?${queryString}` : ''}`;
-      return new Response(null, {
-        status: 301,
-        headers: {
-          'Location': redirectLocation,
-          'Cache-Control': 'public, max-age=86400'
-        }
+      return sendNative(null, 301, {
+        'Location': redirectLocation,
+        'Cache-Control': 'public, max-age=86400'
       });
     }
   }
@@ -209,7 +201,7 @@ export async function handlePagesRoutes(routeCtx) {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
 
     const segments = normalizedPath.split('/').filter(Boolean);
@@ -217,7 +209,7 @@ export async function handlePagesRoutes(routeCtx) {
     if (segments.length <= 1) {
       // /folders -> Folder Hub Index
       const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-      return new Response(getCampaignFoldersPageHtml(''), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getCampaignFoldersPageHtml(''), 200, HTML_HEADERS);
     }
 
     let folderId = segments[1] || '';
@@ -227,19 +219,19 @@ export async function handlePagesRoutes(routeCtx) {
     if (!room) {
       // Room 1: /folders/:id -> Crossover & Super-Pins Room
       const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-      return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getCampaignFoldersPageHtml(folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'keywords') {
       // Room 2: /folders/:id/keywords -> Scoped Keywords Fleet Dashboard
       const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
-      return new Response(getKeywordsPageHtml('', '', folderId), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getKeywordsPageHtml('', '', folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'creators') {
       // Room 3: /folders/:id/creators -> Scoped Creator Hub
       const { getDashboardHtml } = await import('../dashboard-ui.mjs');
-      return new Response(getDashboardHtml(folderId), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getDashboardHtml(folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'domains') {
@@ -247,24 +239,24 @@ export async function handlePagesRoutes(routeCtx) {
       let domainParam = segments[3] || '';
       try { domainParam = decodeURIComponent(domainParam); } catch (_) {}
       const { getDomainsPageHtml } = await import('../domains-ui.mjs');
-      return new Response(getDomainsPageHtml(domainParam, folderId), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getDomainsPageHtml(domainParam, folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'settings') {
       // Room 5: /folders/:id/settings -> Dedicated Folder Settings & Control Room
       const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-      return new Response(getCampaignFoldersPageHtml(folderId, 'settings'), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getCampaignFoldersPageHtml(folderId, 'settings'), 200, HTML_HEADERS);
     }
 
     if (room === 'pulse' || room === '24h') {
       // Room 6: /folders/:id/pulse -> Scoped 24h Pulse Radar
       const { getPulsePageHtml } = await import('../pulse-ui.mjs');
-      return new Response(getPulsePageHtml(folderId), { status: 200, headers: HTML_HEADERS });
+      return sendNative(getPulsePageHtml(folderId), 200, HTML_HEADERS);
     }
 
     // Fallback to Room 1
     const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-    return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });
+    return sendNative(getCampaignFoldersPageHtml(folderId), 200, HTML_HEADERS);
   }
 
   // 7. Level 4B: Dedicated Domain Intelligence & SERP Monopoly Studio (/domains & /domains/:domain)
@@ -273,16 +265,13 @@ export async function handlePagesRoutes(routeCtx) {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const segments = normalizedPath.split('/').filter(Boolean);
     let domain = segments[1] || '';
     try { domain = decodeURIComponent(domain); } catch (_) {}
     const { getDomainsPageHtml } = await import('../domains-ui.mjs');
-    return new Response(getDomainsPageHtml(domain), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getDomainsPageHtml(domain), 200, HTML_HEADERS);
   }
 
   // 8. Level 1A & Level 2: Keywords Dashboard (/keywords) & SERP Radar (/keywords/:slug)
@@ -297,41 +286,29 @@ export async function handlePagesRoutes(routeCtx) {
     // Defend against reserved slugs
     if (rawSlug && RESERVED_KEYWORD_SLUGS.has(slugLower)) {
       if (slugLower === 'discovery') {
-        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
-        return new Response(getDiscoveryPageHtml(), {
-          status: 200,
-          headers: HTML_HEADERS
-        });
+        return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
       }
       if (slugLower === 'folders') {
-        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         const folderId = segments[2] || '';
         let cleanFolderId = folderId;
         try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
         const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-        return new Response(getCampaignFoldersPageHtml(cleanFolderId), {
-          status: 200,
-          headers: HTML_HEADERS
-        });
+        return sendNative(getCampaignFoldersPageHtml(cleanFolderId), 200, HTML_HEADERS);
       }
       if (slugLower === 'domains') {
-        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         let domain = segments[2] || '';
         try { domain = decodeURIComponent(domain); } catch (_) {}
         const { getDomainsPageHtml } = await import('../domains-ui.mjs');
-        return new Response(getDomainsPageHtml(domain), {
-          status: 200,
-          headers: HTML_HEADERS
-        });
+        return sendNative(getDomainsPageHtml(domain), 200, HTML_HEADERS);
       }
       if (slugLower === 'pulse' || slugLower === '24h') {
-        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         const { getPulsePageHtml } = await import('../pulse-ui.mjs');
-        return new Response(getPulsePageHtml(''), {
-          status: 200,
-          headers: HTML_HEADERS
-        });
+        return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
       }
     }
 
@@ -343,13 +320,10 @@ export async function handlePagesRoutes(routeCtx) {
     }
 
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
-    return new Response(getKeywordsPageHtml(slug), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getKeywordsPageHtml(slug), 200, HTML_HEADERS);
   }
 
   // 9. Serve Frontend Dashboard HTML for root or any creator handle route (e.g. /wifesrecipesbyme, /accounts)
@@ -358,13 +332,10 @@ export async function handlePagesRoutes(routeCtx) {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: HTML_HEADERS });
+      return sendNative(null, 200, HTML_HEADERS);
     }
     const { getDashboardHtml } = await import('../dashboard-ui.mjs');
-    return new Response(getDashboardHtml(), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return sendNative(getDashboardHtml(), 200, HTML_HEADERS);
   }
 
   return null;

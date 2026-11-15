@@ -19,7 +19,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { createSqlClient, getSqlClient } from './db/client.mjs';
+import { createSqlClient, getSqlClient, getPoolStats, drainSqlClient } from './db/client.mjs';
 import { apiRoutesPlugin } from './plugins/api-routes.mjs';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import {
@@ -35,7 +35,7 @@ import {
   corsOptionsResponse
 } from './http/security-and-response.mjs';
 
-export { createSqlClient, getSqlClient };
+export { createSqlClient, getSqlClient, getPoolStats, drainSqlClient };
 
 // Auto-load .env if present via built-in Node 20.12+/22+ API
 if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function') {
@@ -47,20 +47,10 @@ if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function')
   } catch (_) {}
 }
 
-let cachedServerSqlClient = null;
-let cachedServerDsn = '';
-
 export function getServerSqlClient(dsn) {
-  const targetDsn = dsn || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
+  const targetDsn = dsn !== undefined ? dsn : (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
   if (!targetDsn) return null;
-  if (cachedServerSqlClient && cachedServerDsn === targetDsn) {
-    return cachedServerSqlClient;
-  }
-  cachedServerDsn = targetDsn;
-  cachedServerSqlClient = createSqlClient(targetDsn, {
-    max: Number(process.env.PG_POOL_MAX || 10)
-  });
-  return cachedServerSqlClient;
+  return getSqlClient({ DATABASE_URL: targetDsn });
 }
 
 export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL) ? getServerSqlClient() : null;
@@ -74,10 +64,6 @@ export async function dbHealthCheck(client) {
   } catch (err) {
     return { status: 'error', error: err?.message || String(err) };
   }
-}
-
-export function getPoolStats() {
-  return { active: 1, idle: 0 };
 }
 
 /**
@@ -128,6 +114,14 @@ export class AsyncTaskQueue {
 
   get active() {
     return this.running;
+  }
+
+  async drain(timeoutMs = 4000) {
+    if (this.running === 0 && this.queue.length === 0) return;
+    const start = Date.now();
+    while ((this.running > 0 || this.queue.length > 0) && (Date.now() - start < timeoutMs)) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
   }
 }
 
@@ -278,6 +272,27 @@ export function createFastifyApp(customEnv = {}) {
     delete env.PIN_ARBITRAGE_SECRET;
   }
 
+  app.addHook('onClose', async () => {
+    try {
+      await serverBackgroundTaskQueue.drain(4000);
+    } catch (qErr) {
+      console.warn('[server.mjs onClose task queue drain warning]:', qErr?.message || qErr);
+    }
+    if (env.SQL_CLIENT && typeof env.SQL_CLIENT.end === 'function') {
+      try {
+        await env.SQL_CLIENT.end({ timeout: 5 });
+      } catch (err) {
+        console.warn('[server.mjs onClose custom sql warning]:', redactSecrets(err?.message || String(err)));
+      }
+    } else {
+      try {
+        await drainSqlClient({ timeout: 5 });
+      } catch (err) {
+        console.warn('[server.mjs onClose warning]:', redactSecrets(err?.message || String(err)));
+      }
+    }
+  });
+
   // Non-blocking background task queue context
   const ctx = {
     waitUntil(p) {
@@ -313,6 +328,8 @@ export function createFastifyApp(customEnv = {}) {
       status: isHealthy ? 'healthy' : 'degraded',
       server: 'node_native_pae_server',
       database: dbStatus,
+      database_pool: getPoolStats(currentSql),
+      pool: getPoolStats(currentSql),
       topology: env.DATABASE_TOPOLOGY || 'unified_postgres',
       commit: getGitCommitSha(),
       uptime_seconds: Math.floor(process.uptime()),
@@ -480,14 +497,17 @@ export function createFastifyApp(customEnv = {}) {
     const effectiveCtx = externalCustomCtx || ctx;
 
     if (method === 'OPTIONS') {
-      const optRes = corsOptionsResponse(requestOrigin, env, 'GET, POST, DELETE, OPTIONS');
-      reply.code(optRes.status);
-      optRes.headers.forEach((val, key) => reply.header(key, val));
+      reply.code(204);
+      for (const [k, v] of Object.entries(dynamicCors)) {
+        reply.header(k, v);
+      }
+      reply.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      reply.header('Access-Control-Max-Age', '86400');
       return reply.send();
     }
 
     const webResponse = await requestContextStorage.run(
-      { request, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] },
+      { request, reply, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] },
       async () => {
         try {
           const url = new URL(fullUrl);
@@ -505,8 +525,10 @@ export function createFastifyApp(customEnv = {}) {
             RESERVED_KEYWORD_SLUGS,
             methodNotAllowedResponse,
             jsonResponse,
-            isValidPinId
+            isValidPinId,
+            reply
           });
+          if (reply.sent) return reply;
           if (pageResponse) return pageResponse;
 
           return jsonResponse({
@@ -570,16 +592,24 @@ export function createFastifyApp(customEnv = {}) {
       }
     );
 
-    reply.code(webResponse.status);
-    webResponse.headers.forEach((val, key) => {
-      reply.header(key, val);
-    });
-
-    if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302 || !webResponse.body) {
-      return reply.send();
+    if (reply.sent) {
+      return reply;
     }
-    const buf = Buffer.from(await webResponse.arrayBuffer());
-    return reply.send(buf);
+
+    if (webResponse && typeof webResponse === 'object') {
+      if (typeof webResponse.status === 'number') reply.code(webResponse.status);
+      if (webResponse.headers && typeof webResponse.headers.forEach === 'function') {
+        webResponse.headers.forEach((val, key) => {
+          reply.header(key, val);
+        });
+      }
+      if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302 || !webResponse.body) {
+        return reply.send();
+      }
+      const text = typeof webResponse.text === 'function' ? await webResponse.text() : String(webResponse);
+      return reply.send(text);
+    }
+    return reply.send();
   });
 
   return app;
@@ -625,9 +655,9 @@ export async function handleAppRequest(request, customEnv = {}, customCtx = null
   const method = (request.method || 'GET').toUpperCase();
   let payload;
   if (method !== 'GET' && method !== 'HEAD') {
-    const ab = await request.arrayBuffer();
-    if (ab.byteLength > 0) {
-      payload = Buffer.from(ab);
+    const text = await request.text();
+    if (text) {
+      payload = text;
     }
   }
 
@@ -683,6 +713,42 @@ export function createServer(customEnv = {}) {
 }
 
 /**
+ * Registers SIGTERM and SIGINT listeners to gracefully close Fastify and drain PostgreSQL connections.
+ *
+ * @param {object} app - Fastify instance
+ * @param {Function} [sqlClient] - PostgreSQL client instance
+ */
+export function registerGracefulShutdown(app, sqlClient = null) {
+  let isShuttingDown = false;
+  const shutdown = async (signal) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[PAE Server] Received ${signal}. Starting graceful shutdown...`);
+    try {
+      if (app && typeof app.close === 'function') {
+        // app.close() invokes the Fastify onClose hook, which drains serverBackgroundTaskQueue and calls drainSqlClient()
+        await app.close();
+      } else {
+        await serverBackgroundTaskQueue.drain(4000);
+        if (sqlClient && typeof sqlClient.end === 'function') {
+          await sqlClient.end({ timeout: 5 });
+        } else {
+          await drainSqlClient({ timeout: 5 });
+        }
+      }
+      console.log('[PAE Server] Graceful shutdown completed cleanly.');
+      process.exit(0);
+    } catch (err) {
+      console.error('[PAE Server] Fatal error during graceful shutdown:', err);
+      process.exit(1);
+    }
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
+}
+
+/**
  * Boots the Fastify HTTP server
  */
 export async function startServer(
@@ -711,6 +777,11 @@ export async function startServer(
 
   const server = app.server;
   server.fastify = app;
+
+  if (!isTestEnv) {
+    registerGracefulShutdown(app, customEnv.SQL_CLIENT || getServerSqlClient(resolvedDsn));
+  }
+
   return server;
 }
 
@@ -735,10 +806,12 @@ export default {
   createServer,
   createRequestListener,
   startServer,
+  registerGracefulShutdown,
   serverBackgroundTaskQueue,
   AsyncTaskQueue,
   getGitCommitSha,
   sql,
   dbHealthCheck,
-  getPoolStats
+  getPoolStats,
+  drainSqlClient
 };

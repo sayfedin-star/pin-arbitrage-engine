@@ -358,13 +358,13 @@ export async function handleClusterRoutes({
     return jsonResponse(enriched, 200, 8);
   }
 
-  // 4. GET /api/workflow/runs (Cloudflare Worker GitHub API integration)
+  // 4. GET /api/workflow/runs (Node.js GitHub API integration)
   if (method === 'GET' && pathname === '/api/workflow/runs') {
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
     const repo = 'sayfedin-star/pin-arbitrage-engine';
     try {
       const headers = {
-        'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+        'User-Agent': 'PAE-Fastify-Engine',
         'Accept': 'application/vnd.github.v3+json'
       };
       if (ghToken) {
@@ -393,13 +393,13 @@ export async function handleClusterRoutes({
     }
   }
 
-  // 5. POST /api/workflow/trigger (Cloudflare Worker GitHub API dispatch)
+  // 5. POST /api/workflow/trigger (Node.js GitHub API dispatch)
   if (method === 'POST' && pathname === '/api/workflow/trigger') {
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
     if (!ghToken) {
       return jsonResponse({
         success: false,
-        error: 'GitHub Token secret not configured in Cloudflare Workers settings. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret.'
+        error: 'GitHub Token secret not configured in server environment. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret.'
       }, 400);
     }
     const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
@@ -423,7 +423,7 @@ export async function handleClusterRoutes({
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/dispatches`, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+        'User-Agent': 'PAE-Fastify-Engine',
         'Accept': 'application/vnd.github.v3+json',
         'Authorization': authHeader,
         'Content-Type': 'application/json'
@@ -450,7 +450,7 @@ export async function handleClusterRoutes({
       const errText = await res.text();
       let errDetail = errText;
       if (res.status === 401) {
-        errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in Cloudflare has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+        errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in server environment has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
       }
       return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errDetail}` }, res.status);
     }

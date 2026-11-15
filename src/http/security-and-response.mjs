@@ -2,7 +2,7 @@
  * Pure HTTP Security, Context, Caching & Response Utilities
  *
  * Framework-agnostic primitives shared across Fastify routes, plugins,
- * and services (extracted during Phase 1 Worker-to-Fastify unification).
+ * and services.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -32,8 +32,7 @@ export function redactSecrets(str) {
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
     .replace(/(_pinterest_sess=)[^;\s"']+/gi, '$1[REDACTED_COOKIE]')
-    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]')
-    .replace(/ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.neon\.tech/gi, '[REDACTED_NEON_HOST]');
+    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]');
 }
 
 // Normalized Path Resolver (Resolves traversal %2e%2e, removes duplicate/trailing slashes)
@@ -246,28 +245,40 @@ export function verifyApiAuthentication(request, env = {}) {
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
   const secretKey = envSecretKey || (isTestOrLocalDev ? '' : processSecretKey) || '';
 
+  const getHeader = (name) => {
+    if (request && request.headers) {
+      if (typeof request.headers.get === 'function') {
+        return request.headers.get(name);
+      }
+      return request.headers[name.toLowerCase()] || request.headers[name] || null;
+    }
+    return null;
+  };
+
   // If secret key is missing, allow test/local dev; in production, fail-closed unconditionally
   if (!secretKey) {
     if (isTestOrLocalDev) {
       return { authorized: true };
     }
+    const payload = {
+      success: false,
+      error: 'AUTH_NOT_CONFIGURED',
+      message: 'API_SECRET_KEY is not configured on server. Access denied.'
+    };
     return {
       authorized: false,
       status: 503,
-      reason: 'API_SECRET_KEY is not configured on server. Access denied.',
+      reason: payload.message,
+      payload,
       response: new Response(
-        JSON.stringify({
-          success: false,
-          error: 'AUTH_NOT_CONFIGURED',
-          message: 'API_SECRET_KEY is not configured on server. Access denied.'
-        }),
+        JSON.stringify(payload),
         { status: 503, headers: { 'content-type': 'application/json' } }
       )
     };
   }
 
-  const headerKey = request.headers.get('x-api-key');
-  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
+  const headerKey = getHeader('x-api-key');
+  const authHeader = getHeader('Authorization') || getHeader('authorization') || '';
   let bearerKey = null;
   if (authHeader.toLowerCase().startsWith('bearer ')) {
     bearerKey = authHeader.slice(7).trim();
@@ -277,29 +288,33 @@ export function verifyApiAuthentication(request, env = {}) {
 
   if (incomingToken) {
     const isMatch = timingSafeEqualStr(incomingToken, secretKey);
+    const payload = isMatch ? null : { success: false, error: 'UNAUTHORIZED', message: 'Unauthorized: Invalid authentication token.' };
     return {
       authorized: isMatch,
       status: isMatch ? 200 : 401,
       reason: isMatch ? null : 'Unauthorized: Invalid authentication token.',
+      payload,
       response: isMatch ? null : new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized: Invalid authentication token.' }),
+        JSON.stringify(payload),
         { status: 401, headers: { 'content-type': 'application/json' } }
       )
     };
   }
 
+  const missingPayload = { success: false, error: 'UNAUTHORIZED', message: 'Missing authentication credentials (Bearer token or x-api-key required).' };
   return {
     authorized: false,
     status: 401,
-    reason: 'Missing authentication credentials (Bearer token or x-api-key required).',
+    reason: missingPayload.message,
+    payload: missingPayload,
     response: new Response(
-      JSON.stringify({ success: false, error: 'Missing authentication credentials (Bearer token or x-api-key required).' }),
+      JSON.stringify(missingPayload),
       { status: 401, headers: { 'content-type': 'application/json' } }
     )
   };
 }
 
-export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
+export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, customCors = null) {
   const responsePayload = data;
 
   // Enforce uniform JSON error schema for HTTP 4xx and 5xx
@@ -328,6 +343,62 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   const store = requestContextStorage.getStore();
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
 
+  reply.code(status);
+  reply.header('Content-Type', 'application/json; charset=utf-8');
+  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+  reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  if (customCors) {
+    for (const [k, v] of Object.entries(customCors)) {
+      reply.header(k, v);
+    }
+  }
+
+  if (cacheSeconds > 0) {
+    reply.header('Cache-Control', `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`);
+  }
+
+  return reply.send(responsePayload);
+}
+
+export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null, reply = null) {
+  const store = requestContextStorage.getStore();
+  const effectiveReply = reply || store?.reply;
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    return sendJsonResponse(effectiveReply, data, status, cacheSeconds, customCors);
+  }
+
+  const responsePayload = data;
+
+  // Enforce uniform JSON error schema for HTTP 4xx and 5xx
+  if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
+    if (responsePayload.success === undefined) {
+      responsePayload.success = false;
+    }
+    if (!responsePayload.error) {
+      responsePayload.error = status === 400 ? 'BAD_REQUEST'
+        : status === 401 ? 'UNAUTHORIZED'
+        : status === 403 ? 'FORBIDDEN'
+        : status === 404 ? 'NOT_FOUND'
+        : status === 405 ? 'METHOD_NOT_ALLOWED'
+        : status === 413 ? 'PAYLOAD_TOO_LARGE'
+        : status === 503 ? 'SERVICE_UNAVAILABLE'
+        : 'INTERNAL_SERVER_ERROR';
+    }
+  }
+
+  // Automatically sanitize any error payloads before sending over the wire
+  if (responsePayload && typeof responsePayload === 'object') {
+    if (typeof responsePayload.error === 'string') responsePayload.error = redactSecrets(responsePayload.error);
+    if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
+  }
+
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': resolvedOrigin,
@@ -342,15 +413,36 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }
-  return new Response(JSON.stringify(responsePayload), {
+  const res = new Response(JSON.stringify(responsePayload), {
     status,
     headers
   });
+  res._payload = responsePayload;
+  return res;
 }
 
-export function methodNotAllowedResponse(allow, customCors = null) {
+export function methodNotAllowedResponse(allow, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
+  const effectiveReply = reply || store?.reply;
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    effectiveReply.code(405);
+    effectiveReply.header('Content-Type', 'application/json; charset=utf-8');
+    effectiveReply.header('Allow', allow);
+    effectiveReply.header('Access-Control-Allow-Origin', resolvedOrigin);
+    effectiveReply.header('Access-Control-Allow-Methods', allow);
+    effectiveReply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+    effectiveReply.header('X-Content-Type-Options', 'nosniff');
+    effectiveReply.header('X-Frame-Options', 'DENY');
+    effectiveReply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return effectiveReply.send({
+      success: false,
+      error: 'METHOD_NOT_ALLOWED',
+      message: `HTTP method not allowed. Allowed methods: ${allow}`
+    });
+  }
+
   return new Response(JSON.stringify({
     success: false,
     error: 'METHOD_NOT_ALLOWED',

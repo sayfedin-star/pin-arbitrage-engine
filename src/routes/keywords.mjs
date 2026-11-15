@@ -80,7 +80,8 @@ export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
 
   if (originHeader) {
     try {
-      const reqOrigin = new URL(request.url).origin.toLowerCase();
+      const rawReqUrl = request.fullUrl || request.url || '';
+      const reqOrigin = new URL(rawReqUrl, 'http://localhost').origin.toLowerCase();
       const callerOrigin = new URL(originHeader).origin.toLowerCase();
       const allowedList = String(env?.ALLOWED_ORIGINS || '')
         .split(',')
@@ -677,7 +678,7 @@ export async function handleKeywordsRoutes({
     return jsonResponse(result);
   }
 
-  // 13. Edge-Native Search Autocomplete API via Cloudflare D1
+  // 13. Fast Search Autocomplete API
   if (method === 'GET' && (pathname === '/api/search/autocomplete' || pathname === '/api/keywords/autocomplete')) {
     const q = String(searchParams.get('q') || searchParams.get('query') || '').trim();
     if (!q) {
