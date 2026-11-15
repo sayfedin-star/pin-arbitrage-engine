@@ -245,28 +245,40 @@ export function verifyApiAuthentication(request, env = {}) {
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
   const secretKey = envSecretKey || (isTestOrLocalDev ? '' : processSecretKey) || '';
 
+  const getHeader = (name) => {
+    if (request && request.headers) {
+      if (typeof request.headers.get === 'function') {
+        return request.headers.get(name);
+      }
+      return request.headers[name.toLowerCase()] || request.headers[name] || null;
+    }
+    return null;
+  };
+
   // If secret key is missing, allow test/local dev; in production, fail-closed unconditionally
   if (!secretKey) {
     if (isTestOrLocalDev) {
       return { authorized: true };
     }
+    const payload = {
+      success: false,
+      error: 'AUTH_NOT_CONFIGURED',
+      message: 'API_SECRET_KEY is not configured on server. Access denied.'
+    };
     return {
       authorized: false,
       status: 503,
-      reason: 'API_SECRET_KEY is not configured on server. Access denied.',
+      reason: payload.message,
+      payload,
       response: new Response(
-        JSON.stringify({
-          success: false,
-          error: 'AUTH_NOT_CONFIGURED',
-          message: 'API_SECRET_KEY is not configured on server. Access denied.'
-        }),
+        JSON.stringify(payload),
         { status: 503, headers: { 'content-type': 'application/json' } }
       )
     };
   }
 
-  const headerKey = request.headers.get('x-api-key');
-  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
+  const headerKey = getHeader('x-api-key');
+  const authHeader = getHeader('Authorization') || getHeader('authorization') || '';
   let bearerKey = null;
   if (authHeader.toLowerCase().startsWith('bearer ')) {
     bearerKey = authHeader.slice(7).trim();
@@ -276,23 +288,27 @@ export function verifyApiAuthentication(request, env = {}) {
 
   if (incomingToken) {
     const isMatch = timingSafeEqualStr(incomingToken, secretKey);
+    const payload = isMatch ? null : { success: false, error: 'UNAUTHORIZED', message: 'Unauthorized: Invalid authentication token.' };
     return {
       authorized: isMatch,
       status: isMatch ? 200 : 401,
       reason: isMatch ? null : 'Unauthorized: Invalid authentication token.',
+      payload,
       response: isMatch ? null : new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized: Invalid authentication token.' }),
+        JSON.stringify(payload),
         { status: 401, headers: { 'content-type': 'application/json' } }
       )
     };
   }
 
+  const missingPayload = { success: false, error: 'UNAUTHORIZED', message: 'Missing authentication credentials (Bearer token or x-api-key required).' };
   return {
     authorized: false,
     status: 401,
-    reason: 'Missing authentication credentials (Bearer token or x-api-key required).',
+    reason: missingPayload.message,
+    payload: missingPayload,
     response: new Response(
-      JSON.stringify({ success: false, error: 'Missing authentication credentials (Bearer token or x-api-key required).' }),
+      JSON.stringify(missingPayload),
       { status: 401, headers: { 'content-type': 'application/json' } }
     )
   };
@@ -350,8 +366,10 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
 }
 
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null, reply = null) {
-  if (reply && typeof reply.send === 'function' && !reply.sent) {
-    return sendJsonResponse(reply, data, status, cacheSeconds, customCors);
+  const store = requestContextStorage.getStore();
+  const effectiveReply = reply || store?.reply;
+  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
+    return sendJsonResponse(effectiveReply, data, status, cacheSeconds, customCors);
   }
 
   const responsePayload = data;
@@ -379,7 +397,6 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
     if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
   }
 
-  const store = requestContextStorage.getStore();
   const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
 
   const headers = {

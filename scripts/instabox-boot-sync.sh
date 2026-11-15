@@ -69,6 +69,17 @@ sync_postgres_container() {
 
   if [ "${needs_recreate}" -eq 1 ]; then
     echo "[instabox-boot-sync] Launching pae-postgres with --shm-size=1g and TMPDIR=/data/tmp..."
+    local pg_pass="${POSTGRES_PASSWORD:-}"
+    if [ -z "${pg_pass}" ] && [ -f /data/app/.env ]; then
+      pg_pass=$(grep -E '^DATABASE_URL=' /data/app/.env | head -n1 | sed -E 's/.*:\/\/([^:]+):([^@]+)@.*/\2/' || true)
+    fi
+    if [ -z "${pg_pass}" ] && [ -f "${APP_DIR}/.env" ]; then
+      pg_pass=$(grep -E '^DATABASE_URL=' "${APP_DIR}/.env" | head -n1 | sed -E 's/.*:\/\/([^:]+):([^@]+)@.*/\2/' || true)
+    fi
+    if [ -z "${pg_pass}" ]; then
+      pg_pass="pae_secure_default"
+    fi
+
     docker run -d \
       --name pae-postgres \
       --restart unless-stopped \
@@ -77,8 +88,8 @@ sync_postgres_container() {
       -v /data/tmp:/data/tmp \
       -e TMPDIR=/data/tmp \
       -e POSTGRES_DB=pin_arbitrage \
-      -e POSTGRES_PASSWORD=pae_secure_password_2026 \
-      -p 5432:5432 \
+      -e POSTGRES_PASSWORD="${pg_pass}" \
+      -p 127.0.0.1:5432:5432 \
       postgres:16-alpine
   fi
 

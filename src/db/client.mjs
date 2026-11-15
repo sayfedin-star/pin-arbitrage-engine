@@ -140,13 +140,15 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
 
   if (origBegin) {
     pgClient.begin = async (...args) => {
-      activeQueryCount++;
-      totalQueryCount++;
-      try {
-        return await withDbRetry(() => origBegin(...args), retryOptions);
-      } finally {
-        activeQueryCount = Math.max(0, activeQueryCount - 1);
-      }
+      return await withDbRetry(async () => {
+        activeQueryCount++;
+        totalQueryCount++;
+        try {
+          return await origBegin(...args);
+        } finally {
+          activeQueryCount = Math.max(0, activeQueryCount - 1);
+        }
+      }, retryOptions);
     };
   }
 
@@ -216,13 +218,17 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
 
   const executeWithRetry = () => {
     if (!settledPromise) {
-      activeQueryCount++;
-      totalQueryCount++;
       settledPromise = (async () => {
         try {
-          return await new Promise((resolve, reject) => {
-            origThen(resolve, reject);
-          });
+          activeQueryCount++;
+          totalQueryCount++;
+          try {
+            return await new Promise((resolve, reject) => {
+              origThen(resolve, reject);
+            });
+          } finally {
+            activeQueryCount = Math.max(0, activeQueryCount - 1);
+          }
         } catch (err) {
           const maxRetries = Math.max(0, Number(retryOptions.maxRetries ?? 4));
           if (!isTransientPgConnectionError(err) || maxRetries === 0) {
@@ -255,8 +261,6 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
             maxRetries: Math.max(0, maxRetries - 1),
             baseDelayMs: Math.min(maxDelayMs, baseDelayMs * 2)
           });
-        } finally {
-          activeQueryCount = Math.max(0, activeQueryCount - 1);
         }
       })();
     }

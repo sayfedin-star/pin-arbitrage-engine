@@ -33,19 +33,6 @@ import {
   invalidateEdgeCache
 } from '../http/security-and-response.mjs';
 
-function buildFastifyHeaders(rawHeaders = {}) {
-  const webHeaders = new Headers();
-  for (const [key, value] of Object.entries(rawHeaders)) {
-    if (Array.isArray(value)) {
-      for (const v of value) webHeaders.append(key, String(v));
-    } else if (value !== undefined) {
-      webHeaders.set(key, String(value));
-    }
-  }
-  return webHeaders;
-}
-
-
 /**
  * Registers native Fastify API dispatch across all domain sub-routers.
  * Exact routes on the parent app (e.g. /api/health, /api/internal/*) continue to take precedence.
@@ -59,9 +46,8 @@ export async function apiRoutesPlugin(app, options = {}) {
     const host = request.headers?.host || `127.0.0.1:${process.env.PORT || 3000}`;
     const protocol = request.protocol || 'http';
     const fullUrl = `${protocol}://${host}${rawUrl}`;
-    const webHeaders = buildFastifyHeaders(request.headers);
     const method = (request.method || 'GET').toUpperCase();
-    const requestOrigin = webHeaders.get('Origin');
+    const requestOrigin = request.headers?.origin || request.headers?.Origin || null;
     const dynamicCors = getCorsHeaders(requestOrigin, env, fullUrl);
 
     if (method === 'OPTIONS') {
@@ -143,16 +129,14 @@ export async function apiRoutesPlugin(app, options = {}) {
           if (isMutatingMethod || isSensitiveEndpoint) {
             const auth = verifyApiAuthentication(request, env);
             if (!auth.authorized) {
-              if (auth.response) {
-                reply.code(auth.response.status);
-                auth.response.headers.forEach((val, key) => reply.header(key, val));
-                return reply.send(await auth.response.text());
-              }
-              return jsonResponse({
-                success: false,
-                error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
-                message: auth.reason || 'Authentication required for mutating or sensitive operations.'
-              }, auth.status || 401);
+              return jsonResponse(
+                auth.payload || {
+                  success: false,
+                  error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
+                  message: auth.reason || 'Authentication required for mutating or sensitive operations.'
+                },
+                auth.status || 401
+              );
             }
           }
 
