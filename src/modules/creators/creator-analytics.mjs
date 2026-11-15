@@ -749,7 +749,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
   // [OPTIMIZED SARGABLE: 4-Table SSOT join with keyword_serp_positions]
   const rowsPromise = activeScope === 'official'
-    ? sql`
+    ? (ranked_only
+      ? sql`
     SELECT 
       cbp.competitor_id,
       cbp.board_id,
@@ -808,7 +809,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         OR ump.clean_domain ILIKE '%pinterest.%'
         OR ump.clean_domain ILIKE '%pin.it%'
       )
-      AND (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL))
+      AND (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL)
       AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
@@ -841,6 +842,135 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       ump.save_count DESC NULLS LAST
     LIMIT ${pLim} OFFSET ${offset};
   `
+      : sql`
+    WITH filtered_pins AS (
+      SELECT 
+        cbp.competitor_id,
+        cbp.board_id,
+        cbp.pin_id,
+        cb.name AS cb_board_name,
+        ump.title,
+        ump.description,
+        COALESCE(ump.clean_domain, ump.domain, '') AS clean_domain,
+        ump.destination_url,
+        ump.board_name,
+        ump.board_slug,
+        ump.image_url,
+        ump.save_count,
+        ump.repin_count,
+        ump.comment_count,
+        ump.share_count,
+        ump.daily_save_velocity,
+        ump.delta_saves_24h,
+        ump.delta_repins_24h,
+        ump.dominant_color,
+        ump.visual_annotations,
+        ump.alt_text,
+        ump.created_at_pinterest,
+        ump.first_discovered_at,
+        ump.updated_at,
+        ump.is_product,
+        COUNT(*) OVER()::int AS full_count
+      FROM competitor_board_pins cbp
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
+      WHERE cbp.competitor_id = ${numericId}
+        AND (
+          ${primaryDomain} = ''
+          OR COALESCE(ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
+          OR ump.clean_domain ILIKE '%pinterest.%'
+          OR ump.clean_domain ILIKE '%pin.it%'
+        )
+        AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
+        AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
+        AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
+        AND (${qualified_only} = FALSE OR (COALESCE(ump.save_count, 0) >= 100 OR COALESCE(ump.daily_save_velocity, 0) >= 3.5))
+        AND (${isHighVelocity} = FALSE OR COALESCE(ump.daily_save_velocity, 0) >= 10)
+        AND (${isChangedOnly} = FALSE OR COALESCE(ump.daily_save_velocity, 0) > 0)
+        AND (
+          ${stageFilter}::text IS NULL OR
+          (${stageFilter} = 'DORMANT' AND COALESCE(ump.daily_save_velocity, 0) < 0.5) OR
+          (${stageFilter} = 'COOLING' AND COALESCE(ump.daily_save_velocity, 0) >= 0.5 AND COALESCE(ump.daily_save_velocity, 0) < 2.0) OR
+          (${stageFilter} = 'NEW' AND COALESCE(ump.daily_save_velocity, 0) >= 0.5 AND COALESCE(ump.created_at_pinterest, ump.first_discovered_at) >= NOW() - INTERVAL '14 days') OR
+          (${stageFilter} = 'GROWING' AND COALESCE(ump.daily_save_velocity, 0) >= 10.0 AND (COALESCE(ump.created_at_pinterest, ump.first_discovered_at) < NOW() - INTERVAL '14 days' OR COALESCE(ump.created_at_pinterest, ump.first_discovered_at) IS NULL)) OR
+          (${stageFilter} = 'MATURE' AND COALESCE(ump.daily_save_velocity, 0) >= 2.0 AND COALESCE(ump.daily_save_velocity, 0) < 10.0 AND (COALESCE(ump.created_at_pinterest, ump.first_discovered_at) < NOW() - INTERVAL '14 days' OR COALESCE(ump.created_at_pinterest, ump.first_discovered_at) IS NULL))
+        )
+        AND (${product_only} = FALSE OR (
+          COALESCE(ump.is_product, false) OR 
+          COALESCE(ump.clean_domain ILIKE '%etsy%' OR ump.clean_domain ILIKE '%shopify%' OR ump.clean_domain ILIKE '%amazon%' OR ump.destination_url ILIKE '%/listing/%' OR ump.destination_url ILIKE '%/product/%' OR ump.destination_url ILIKE '%/item/%' OR ump.destination_url ILIKE '%gumroad.com%', false)
+        ) = TRUE)
+        AND (${articles_only} = FALSE OR (
+          COALESCE(ump.is_product, false) = FALSE AND 
+          COALESCE(ump.clean_domain ILIKE '%etsy%' OR ump.clean_domain ILIKE '%shopify%' OR ump.clean_domain ILIKE '%amazon%' OR ump.destination_url ILIKE '%/listing/%' OR ump.destination_url ILIKE '%/product/%' OR ump.destination_url ILIKE '%/item/%' OR ump.destination_url ILIKE '%gumroad.com%', false) = FALSE
+        ))
+      ORDER BY 
+        CASE WHEN ${sort} = 'saves_desc' THEN ump.save_count END DESC NULLS LAST,
+        CASE WHEN ${sort} = 'repins_desc' THEN ump.repin_count END DESC NULLS LAST,
+        CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN ump.daily_save_velocity END DESC NULLS LAST,
+        CASE WHEN ${sort} = 'comments' OR ${sort} = 'comments_desc' THEN ump.comment_count END DESC NULLS LAST,
+        CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN ump.created_at_pinterest END DESC NULLS LAST,
+        CASE WHEN ${sort} = 'oldest' OR ${sort} = 'created_asc' THEN ump.created_at_pinterest END ASC NULLS LAST,
+        ump.save_count DESC NULLS LAST
+      LIMIT ${pLim} OFFSET ${offset}
+    )
+    SELECT 
+      fp.competitor_id,
+      fp.board_id,
+      fp.pin_id,
+      'official'::text AS attribution_source,
+      ${cleanUsername || ''}::text AS curator_username,
+      COALESCE(fp.title, '') AS title,
+      COALESCE(fp.description, '') AS description,
+      COALESCE(fp.clean_domain, '') AS link_domain,
+      COALESCE(fp.destination_url, '') AS destination_url,
+      COALESCE(fp.cb_board_name, fp.board_name, '') AS board_name,
+      fp.board_slug,
+      COALESCE(fp.image_url, '') AS image_url,
+      COALESCE(fp.save_count, 0)::bigint AS save_count,
+      COALESCE(fp.repin_count, 0)::bigint AS repin_count,
+      COALESCE(fp.comment_count, 0)::int AS comment_count,
+      COALESCE(fp.share_count, 0)::bigint AS share_count,
+      COALESCE(fp.daily_save_velocity, 0)::numeric AS velocity,
+      COALESCE(fp.delta_saves_24h, fp.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+      COALESCE(fp.delta_repins_24h, 0)::numeric AS delta_repins_24h,
+      COALESCE(NULLIF(fp.dominant_color, '#888888'), '#888888') AS dominant_color,
+      COALESCE(
+        CASE WHEN jsonb_typeof(fp.visual_annotations) = 'array' AND jsonb_array_length(fp.visual_annotations) > 0 THEN fp.visual_annotations ELSE NULL END,
+        '[]'::jsonb
+      ) AS annotations,
+      '{}'::jsonb AS reactions,
+      COALESCE(fp.alt_text, '') AS alt_text,
+      fp.created_at_pinterest,
+      fp.first_discovered_at AS first_seen_at,
+      fp.updated_at AS last_seen_at,
+      (
+        COALESCE(fp.is_product, false) OR 
+        COALESCE(fp.clean_domain ILIKE '%etsy%' OR fp.clean_domain ILIKE '%shopify%' OR fp.clean_domain ILIKE '%amazon%' OR fp.destination_url ILIKE '%/listing/%' OR fp.destination_url ILIKE '%/product/%' OR fp.destination_url ILIKE '%/item/%' OR fp.destination_url ILIKE '%gumroad.com%', false)
+      ) AS is_product,
+      (COALESCE(fp.save_count, 0) >= 100 OR COALESCE(fp.daily_save_velocity, 0) >= 3.5) AS is_qualified,
+      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
+      CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
+      ksp.active_keyword,
+      fp.full_count
+    FROM filtered_pins fp
+    LEFT JOIN LATERAL (
+      SELECT ksp_sub.rank_position, k.keyword AS active_keyword, ksp_sub.last_known_rank, ksp_sub.is_displaced
+      FROM keyword_serp_positions ksp_sub
+      LEFT JOIN tracked_keywords k ON k.id = ksp_sub.keyword_id
+      WHERE ksp_sub.pin_id = fp.pin_id
+      ORDER BY ksp_sub.is_displaced ASC, ksp_sub.rank_position ASC NULLS LAST, ksp_sub.last_known_rank ASC NULLS LAST
+      LIMIT 1
+    ) ksp ON TRUE
+    ORDER BY 
+      CASE WHEN ${sort} = 'saves_desc' THEN fp.save_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'repins_desc' THEN fp.repin_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN fp.daily_save_velocity END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'comments' OR ${sort} = 'comments_desc' THEN fp.comment_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN fp.created_at_pinterest END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'oldest' OR ${sort} = 'created_asc' THEN fp.created_at_pinterest END ASC NULLS LAST,
+      fp.save_count DESC NULLS LAST;
+  `)
     : sql`
     WITH eco_pool AS (
       SELECT

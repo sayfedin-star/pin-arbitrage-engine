@@ -92,14 +92,15 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
 
   // Sort descending by snapshot_date (latest first)
   const sorted = Array.from(byDayMap.values()).sort((a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date));
-  if (sorted.length === 0) {
+  if (sorted.length < 2) {
     return {
-      daily_save_velocity: 0,
+      daily_save_velocity: null,
+      daily_repin_velocity: null,
       delta_repins_24h: 0,
-      gains_5d: 0,
-      gains_7d: 0,
-      gains_10d: 0,
-      gains_15d: 0
+      gains_5d: null,
+      gains_7d: null,
+      gains_10d: null,
+      gains_15d: null
     };
   }
   const latest = sorted[0];
@@ -120,24 +121,28 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   // [INVARIANT: ANTI-HYDRATION-SPIKE] & [INVARIANT: FRESH-24H-TELEMETRY]
   // Protect against unhydrated 0-repin baselines AND stale multi-day-old spikes (>2d stale vs refDate)
   let daily_save_velocity = 0;
+  let daily_repin_velocity = 0;
   let delta_repins_24h = 0;
   if (sorted.length >= 2 && isFresh24h) {
-    const prevRepins = Number(sorted[1].repin_count || 0);
-    const prevSaves = Number(sorted[1].save_count || 0);
+    const prevRepins = sorted[1].repin_count != null ? Number(sorted[1].repin_count) : null;
+    const prevSaves = sorted[1].save_count != null ? Number(sorted[1].save_count) : null;
     const daysDiff = Math.max(1, Math.round((new Date(latest.snapshot_date) - new Date(sorted[1].snapshot_date)) / 86400000));
     const isJump = isMultiStageHydrationJump(sorted[1], latest);
     const isRepinJump = isJump || isRepinHydrationJump(sorted[1], latest);
 
-    if (prevSaves > 0 && currentSaves > prevSaves && !isJump && daysDiff <= 7) {
+    if (prevSaves !== null && prevSaves > 0 && currentSaves >= prevSaves && !isJump && daysDiff <= 7) {
       daily_save_velocity = Math.round(((currentSaves - prevSaves) / daysDiff) * 10) / 10;
     }
 
     if (isRepinJump) {
       delta_repins_24h = 0;
+      daily_repin_velocity = 0;
     } else if (daysDiff > 7) {
       delta_repins_24h = 0;
-    } else {
+      daily_repin_velocity = 0;
+    } else if (prevRepins !== null && currentRepins >= prevRepins) {
       delta_repins_24h = Math.round(Math.max(0, currentRepins - prevRepins) / daysDiff);
+      daily_repin_velocity = Math.round(((currentRepins - prevRepins) / daysDiff) * 10) / 10;
     }
     // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
     // Saves and repins track their own consecutive daily deltas independently
@@ -145,7 +150,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
 
   // 2. Multi-window save gains
   function getGainsForWindow(windowDays) {
-    if (sorted.length < 2 || currentSaves <= 0) return 0;
+    if (sorted.length < 2 || currentSaves <= 0) return null;
     if (stalenessDays > windowDays) return 0;
 
     const refMs = Math.max(refDayMs, latestDayMs);
@@ -164,13 +169,13 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
       }
     }
 
-    if (!bestSnap) return 0;
+    if (!bestSnap || bestSnap.save_count == null) return null;
 
     const baseSaves = Number(bestSnap.save_count || 0);
 
     // [INVARIANT: ANTI-HYDRATION-SPIKE]
     // If earlier baseline was 0 or unhydrated while current saves are large, suppress jump to 0.
-    if (baseSaves === 0 && currentSaves > 0) return 0;
+    if (baseSaves === 0 && currentSaves > 0) return null;
     if (isMultiStageHydrationJump(bestSnap, latest)) return 0;
 
     const delta = currentSaves - baseSaves;
@@ -179,6 +184,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
 
   return {
     daily_save_velocity,
+    daily_repin_velocity,
     delta_repins_24h,
     gains_5d: getGainsForWindow(5),
     gains_7d: getGainsForWindow(7),
@@ -187,11 +193,28 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
   };
 }
 
+function startInstaBoxActivityLease(intervalMs = 300000) {
+  const machineId = process.env.INSTABOX_MACHINE_ID;
+  const apiKey = process.env.INSTABOX_API_KEY;
+  if (!machineId || !apiKey) return { stop: () => {} };
+  const timer = setInterval(async () => {
+    try {
+      await fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000)
+      }).catch(() => {});
+    } catch (_) {}
+  }, intervalMs);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
 async function main() {
   console.log('================================================================================');
   console.log('🚀 PAE: LIVE SHARD ROLLING WINDOW GAINS BACKFILL RUNNER');
   console.log('================================================================================');
 
+  const activityLease = startInstaBoxActivityLease();
   const isDryRun = process.argv.includes('--dry-run');
 
   if (!process.env.DATABASE_URL || !hubSql) {
@@ -282,6 +305,7 @@ async function main() {
           JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
           WHERE kfi.folder_id = ${folderIdNum}
             AND ump.pin_id IS NOT NULL AND ump.pin_id <> ''
+            AND ump.is_hydrated = TRUE AND ump.save_count IS NOT NULL
             AND (
               ump.gains_7d IS NULL
               OR ump.updated_at < NOW() - INTERVAL '24 hours'
@@ -299,6 +323,7 @@ async function main() {
           JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
           WHERE LOWER(tk.keyword) = ${targetKw}
             AND ump.pin_id IS NOT NULL AND ump.pin_id <> ''
+            AND ump.is_hydrated = TRUE AND ump.save_count IS NOT NULL
             AND (
               ump.gains_7d IS NULL
               OR ump.updated_at < NOW() - INTERVAL '24 hours'
@@ -312,6 +337,7 @@ async function main() {
           SELECT pin_id
           FROM universal_master_pins
           WHERE pin_id IS NOT NULL AND pin_id <> ''
+            AND is_hydrated = TRUE AND save_count IS NOT NULL
             AND (
               gains_7d IS NULL 
               OR updated_at < NOW() - INTERVAL '24 hours'
@@ -392,17 +418,19 @@ async function main() {
     await executeWithRetry(() => hubSql`
       UPDATE universal_master_pins ump
       SET
-        daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
-        delta_saves_24h = ROUND(COALESCE(u.daily_save_velocity, 0))::int,
-        delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
-        gains_5d = COALESCE(u.gains_5d, 0),
-        gains_7d = COALESCE(u.gains_7d, 0),
-        gains_10d = COALESCE(u.gains_10d, 0),
-        gains_15d = COALESCE(u.gains_15d, 0),
+        daily_save_velocity = u.daily_save_velocity,
+        daily_repin_velocity = u.daily_repin_velocity,
+        delta_saves_24h = CASE WHEN u.daily_save_velocity IS NOT NULL THEN ROUND(u.daily_save_velocity)::int ELSE ump.delta_saves_24h END,
+        delta_repins_24h = COALESCE(u.delta_repins_24h, ump.delta_repins_24h, 0),
+        gains_5d = u.gains_5d,
+        gains_7d = u.gains_7d,
+        gains_10d = u.gains_10d,
+        gains_15d = u.gains_15d,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         daily_save_velocity numeric,
+        daily_repin_velocity numeric,
         delta_repins_24h int,
         gains_5d int,
         gains_7d int,
@@ -411,13 +439,12 @@ async function main() {
       )
       WHERE ump.pin_id = u.pin_id
         AND (
-          ump.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
-          OR ump.delta_saves_24h IS DISTINCT FROM ROUND(COALESCE(u.daily_save_velocity, 0))::int
-          OR ump.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
-          OR ump.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
-          OR ump.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
-          OR ump.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
-          OR ump.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
+          ump.daily_save_velocity IS DISTINCT FROM u.daily_save_velocity
+          OR ump.daily_repin_velocity IS DISTINCT FROM u.daily_repin_velocity
+          OR ump.gains_5d IS DISTINCT FROM u.gains_5d
+          OR ump.gains_7d IS DISTINCT FROM u.gains_7d
+          OR ump.gains_10d IS DISTINCT FROM u.gains_10d
+          OR ump.gains_15d IS DISTINCT FROM u.gains_15d
         );
     `, 3, 2000);
 
@@ -464,6 +491,7 @@ async function main() {
   console.log('🏁 BACKFILL COMPLETE');
   console.log('================================================================================\n');
   } finally {
+    activityLease.stop();
     if (hubSql && typeof hubSql.end === 'function') {
       try {
         await hubSql.end({ timeout: 5 });

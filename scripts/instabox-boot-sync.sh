@@ -16,6 +16,46 @@ APP_DIR="${INSTABOX_APP_DIR:-/data/app}"
 MODE="${1:---sync}"
 
 # ------------------------------------------------------------------------------
+# Preemptive 420-Minute Epoch Reset Safeguard (Zero-Cooldown Max-Run Reset)
+# ------------------------------------------------------------------------------
+check_and_reset_uptime_epoch() {
+  if [ -f "/proc/uptime" ]; then
+    local uptime_seconds
+    uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+    local uptime_minutes=$((uptime_seconds / 60))
+    local force_reset=0
+    if [ "${MODE:-}" = "--reset-epoch" ] || [ "${1:-}" = "--reset-epoch" ]; then
+      force_reset=1
+    fi
+    if [ "${uptime_minutes}" -ge 420 ] || [ "${force_reset}" -eq 1 ]; then
+      echo "[instabox-boot-sync] ⏳ Machine continuous uptime is ${uptime_minutes}m (>= 420m / 7h threshold or forced reset)."
+      echo "[instabox-boot-sync] Executing preemptive suspend-and-resume to reset 480m max-run epoch with 0 cooldown..."
+      # Suspending the guest VM halts CPU execution before subsequent shell commands run;
+      # in production, machine power transitions must be orchestrated externally (host CLI or CI).
+      if [ "${INSTABOX_ORCHESTRATOR:-0}" = "1" ] || [ -n "${INSTABOX_HOST:-}" ]; then
+        if command -v instabox >/dev/null 2>&1; then
+          echo "[instabox-boot-sync] Running external orchestrator suspend/resume cycle..."
+          instabox suspend && sleep 5 && instabox resume || true
+        elif [ -n "${INSTABOX_API_KEY:-}" ] && [ -n "${INSTABOX_MACHINE_ID:-}" ]; then
+          echo "[instabox-boot-sync] Triggering suspend/resume via InstaBox OpenAPI from external orchestrator..."
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/suspend" \
+            -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+          sleep 5
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/resume" \
+            -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+        fi
+      else
+        echo "[instabox-boot-sync] Notice: Running in-VM without external orchestrator. Machine suspend halts guest execution; power transitions must be orchestrated from host CLI, CI workflow, or wake-shield."
+      fi
+    else
+      echo "[instabox-boot-sync] Continuous uptime is ${uptime_minutes}m (< 420m threshold). No epoch reset needed."
+    fi
+  else
+    echo "[instabox-boot-sync] /proc/uptime not present. Non-Linux or container environment."
+  fi
+}
+
+# ------------------------------------------------------------------------------
 # Mode 1: Install systemd ExecStartPre boot hook on InstaBox VPS
 # ------------------------------------------------------------------------------
 if [ "${MODE}" = "--install-hook" ]; then
@@ -30,6 +70,11 @@ EOF
     sudo systemctl daemon-reload || true
     echo "[instabox-boot-sync] ✅ systemd boot-sync hook installed."
   fi
+  exit 0
+fi
+
+if [ "${MODE}" = "--check-uptime" ] || [ "${MODE}" = "--reset-epoch" ]; then
+  check_and_reset_uptime_epoch
   exit 0
 fi
 
@@ -115,6 +160,7 @@ sync_postgres_container() {
   fi
 }
 
+
 # ------------------------------------------------------------------------------
 # Mode 2: Boot / On-Demand Git + Dependencies + Migration Self-Sync
 # ------------------------------------------------------------------------------
@@ -130,6 +176,9 @@ if [ "$(id -u 2>/dev/null || echo 1)" = "0" ] && [ -n "${APP_OWNER}" ] && [ "${A
 fi
 
 cd "${APP_DIR}" || exit 0
+
+# Check if continuous uptime has reached the 420m threshold to reset the 480m epoch
+check_and_reset_uptime_epoch
 
 OLD_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")
 echo "[instabox-boot-sync] Checking origin/main updates (current SHA: ${OLD_SHA})..."

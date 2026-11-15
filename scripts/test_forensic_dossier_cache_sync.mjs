@@ -146,7 +146,10 @@ async function runForensicAudit() {
 
     // Verify it also updates two-tier tables
     const hasTwoTierShardUpdate = (syncCode.includes('INSERT INTO pins_daily_metrics') || workerContent.includes('INSERT INTO pins_daily_metrics')) &&
-                                  (syncCode.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE') || workerContent.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE'));
+                                  (syncCode.includes('ON CONFLICT (pin_id, recorded_date) DO UPDATE') ||
+                                   syncCode.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE') ||
+                                   workerContent.includes('ON CONFLICT (pin_id, recorded_date) DO UPDATE') ||
+                                   workerContent.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE'));
     record(
       'Scenario 2',
       'Live sync updates Two-Tier pins_daily_metrics on Shard with GREATEST aggregation',

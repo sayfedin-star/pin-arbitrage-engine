@@ -281,7 +281,22 @@ export function formatPin(pin) {
 
   const annotations = Array.from(annotationsMap.values());
 
-  const repins = parseCleanMetric(
+  const hasExplicitRepinsField = Boolean(
+    st.repins !== undefined && st.repins !== null ||
+    st.repin_count !== undefined && st.repin_count !== null ||
+    st.repinCount !== undefined && st.repinCount !== null ||
+    pin.repin_count !== undefined && pin.repin_count !== null ||
+    pin.repinCount !== undefined && pin.repinCount !== null ||
+    pin.repins !== undefined && pin.repins !== null ||
+    pin.aggregated_pin_data?.repins !== undefined && pin.aggregated_pin_data?.repins !== null ||
+    pin.aggregatedStats?.repins !== undefined && pin.aggregatedStats?.repins !== null ||
+    pin.aggregatedStats?.repin_count !== undefined && pin.aggregatedStats?.repin_count !== null ||
+    pin.aggregatedPinData?.aggregatedStats?.repins !== undefined && pin.aggregatedPinData?.aggregatedStats?.repins !== null ||
+    pin.done_count !== undefined && pin.done_count !== null ||
+    pin.doneCount !== undefined && pin.doneCount !== null
+  );
+
+  const rawRepinsMetric = parseCleanMetric(
     st.repins ??
     st.repin_count ??
     st.repinCount ??
@@ -294,8 +309,14 @@ export function formatPin(pin) {
     pin.aggregatedPinData?.aggregatedStats?.repins ??
     pin.done_count ??
     pin.doneCount ??
-    0
+    null,
+    null
   );
+
+  let repins = null;
+  if (hasExplicitRepinsField || (rawRepinsMetric !== null && rawRepinsMetric > 0)) {
+    repins = rawRepinsMetric !== null ? rawRepinsMetric : 0;
+  }
 
   // Check explicit saves field presence
   const hasExplicitSavesField = Boolean(
@@ -385,9 +406,7 @@ export function formatPin(pin) {
     }
   }
 
-  const velocity = (saves !== null && ageDays !== null && ageDays > 0)
-    ? Math.round((saves / ageDays) * 100) / 100
-    : 0;
+  const velocity = null;
 
   // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
   const isCarousel = Boolean(

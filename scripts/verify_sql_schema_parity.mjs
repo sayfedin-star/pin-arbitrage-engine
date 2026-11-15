@@ -101,7 +101,7 @@ export const KNOWN_TABLE_COLUMNS = {
     'clean_domain',
     'first_saved_at',
     'last_resaved_at',
-    'is_deep_hydrated'
+    'is_hydrated'
   ]),
   tracked_keywords: new Set([
     'id',

@@ -51,10 +51,26 @@ async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
       LIMIT 30;
     `.catch(() => []);
 
-    if (!Array.isArray(remainingRows) || remainingRows.length === 0) return;
+    if (!Array.isArray(remainingRows) || remainingRows.length === 0) {
+      await sql`
+        UPDATE universal_master_pins
+        SET
+          is_hydrated = FALSE,
+          save_count = NULL,
+          repin_count = NULL,
+          daily_save_velocity = NULL,
+          daily_repin_velocity = NULL,
+          delta_saves_24h = NULL,
+          delta_repins_24h = NULL,
+          updated_at = NOW()
+        WHERE pin_id = ${pinId};
+      `.catch(() => {});
+      return;
+    }
 
     // Chronological order (oldest -> newest) to recalculate bridged velocities
     const chrono = [...remainingRows].reverse();
+    const updateBatch = [];
     for (let i = 0; i < chrono.length; i++) {
       const curr = chrono[i];
       const currDateStr = curr.recorded_date instanceof Date
@@ -79,13 +95,26 @@ async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
       }
       curr.recomputed_save_velocity = newSaveVel;
       curr.recomputed_repin_velocity = newRepinVel;
+      updateBatch.push({
+        recorded_date: currDateStr,
+        daily_save_velocity: newSaveVel,
+        daily_repin_velocity: newRepinVel
+      });
+    }
+
+    if (updateBatch.length > 0) {
       await sql`
-        UPDATE pins_daily_metrics
+        UPDATE pins_daily_metrics pdm
         SET
-          daily_save_velocity = ${newSaveVel},
-          daily_repin_velocity = ${newRepinVel}
-        WHERE pin_id = ${pinId} AND recorded_date = ${currDateStr}::date;
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating velocity for pin ${pinId}:`, err?.message || err); });
+          daily_save_velocity = u.daily_save_velocity,
+          daily_repin_velocity = u.daily_repin_velocity
+        FROM jsonb_to_recordset(${JSON.stringify(updateBatch)}::jsonb) AS u(
+          recorded_date date,
+          daily_save_velocity numeric,
+          daily_repin_velocity numeric
+        )
+        WHERE pdm.pin_id = ${pinId} AND pdm.recorded_date = u.recorded_date;
+      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed batch updating velocities for pin ${pinId}:`, err?.message || err); });
     }
 
     const latest = chrono[chrono.length - 1];

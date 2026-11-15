@@ -842,10 +842,10 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
             sp.daily_save_velocity = 0;
           }
         } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
-          sp.daily_save_velocity = 0;
+          sp.daily_save_velocity = gains.daily_save_velocity ?? null;
         }
         sp.delta_repins_24h = gains.delta_repins_24h;
-        sp.daily_repin_velocity = gains.delta_repins_24h != null ? Number(gains.delta_repins_24h) : 0;
+        sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
         sp.gains_5d = gains.gains_5d;
         sp.gains_7d = gains.gains_7d;
         sp.gains_10d = gains.gains_10d;
@@ -1190,6 +1190,7 @@ async function run() {
           ump.save_count, ump.repin_count, ump.daily_save_velocity,
           ump.created_at_pinterest, ump.creation_method,
           ump.is_hydrated AS is_deep_hydrated,
+          ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
           ksp.crawled_at, ksp.updated_at, ksp.is_displaced
         FROM keyword_serp_positions ksp
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksp.keyword_id
@@ -1218,7 +1219,8 @@ async function run() {
         f.pin_id, f.keyword_id, f.rank_position, f.last_known_rank,
         f.save_count, f.repin_count, f.daily_save_velocity,
         f.created_at_pinterest, f.creation_method,
-        f.is_deep_hydrated, f.crawled_at, f.updated_at, f.is_displaced,
+        f.is_deep_hydrated, f.last_scraped_at, f.visual_annotations, f.image_signature, f.metadata, f.title, f.domain, f.destination_url, f.image_url,
+        f.crawled_at, f.updated_at, f.is_displaced,
         ap.folder_positions
       FROM folder_ksp f
       JOIN aggregated_positions ap ON ap.pin_id = f.pin_id
@@ -1428,6 +1430,7 @@ async function run() {
         ump.save_count, ump.repin_count, ump.daily_save_velocity,
         ump.created_at_pinterest, ump.creation_method,
         ump.is_hydrated AS is_deep_hydrated,
+        ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
         ksp.crawled_at, ksp.updated_at, ksp.is_displaced
       FROM keyword_serp_positions ksp
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -1659,6 +1662,7 @@ async function run() {
           ump.save_count, ump.repin_count, ump.daily_save_velocity,
           ump.created_at_pinterest, ump.creation_method,
           ump.is_hydrated AS is_deep_hydrated,
+          ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
           ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
           CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
           CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ksp.crawled_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
@@ -1696,7 +1700,8 @@ async function run() {
         g.pin_id, g.keyword_id, g.rank_position, g.last_known_rank,
         g.save_count, g.repin_count, g.daily_save_velocity,
         g.created_at_pinterest, g.creation_method,
-        g.is_deep_hydrated, g.crawled_at, g.updated_at, g.is_displaced,
+        g.is_deep_hydrated, g.last_scraped_at, g.visual_annotations, g.image_signature, g.metadata, g.title, g.domain, g.destination_url, g.image_url,
+        g.crawled_at, g.updated_at, g.is_displaced,
         g.baseline_day_saves, g.baseline_day_date,
         ap.folder_positions
       FROM global_ksp g

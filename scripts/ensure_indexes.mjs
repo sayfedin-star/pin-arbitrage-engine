@@ -93,7 +93,14 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_recorded_desc ON pins_daily_metrics(pin_id, recorded_date DESC);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_recorded_date ON pins_daily_metrics(recorded_date);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON competitor_board_pins(competitor_id, position ASC NULLS LAST);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_pin ON competitor_board_pins(pin_id);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_cbp_pin;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_pin_id ON competitor_board_pins(pin_id);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_last_scraped_at_desc ON universal_master_pins(last_scraped_at DESC);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_updated_at_desc ON universal_master_pins(updated_at DESC);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_destination_url ON universal_master_pins(destination_url);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_date ON keyword_serp_positions(displaced_date) WHERE is_displaced = TRUE;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_updated_desc ON keyword_serp_positions(updated_at DESC) WHERE is_displaced = TRUE;`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_pin_displaced_rank ON keyword_serp_positions(pin_id, is_displaced ASC, rank_position ASC NULLS LAST);`.catch(() => {});
 
   console.log('[*] 12. Ensuring clean_domain B-Tree indexes and pae_sync_clean_domain triggers...');
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC NULLS LAST);`.catch(() => {});

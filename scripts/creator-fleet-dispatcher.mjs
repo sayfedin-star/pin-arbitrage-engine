@@ -148,7 +148,7 @@ async function main() {
     const fid = parseInt(rawFolderId, 10);
     console.log(`[Config] Folder Scope:      ID ${fid}`);
     const [folderRow] = await sql`
-      SELECT id, name, metadata, status FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+      SELECT id, name, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
     `;
     if (folderRow) {
       const folderMeta = typeof folderRow.metadata === 'object' && folderRow.metadata !== null
@@ -158,8 +158,7 @@ async function main() {
         folderMeta.pause_competitors ||
         folderMeta.block_fleet ||
         folderMeta.block_gha_fleet ||
-        folderMeta.status === 'paused' ||
-        (folderRow.status && String(folderRow.status).toLowerCase() === 'paused')
+        folderMeta.status === 'paused'
       );
       if (isCompetitorPaused) {
         console.log(`\n  [!] GUARD: Folder "${folderRow.name}" competitor tracking is paused (pause_competitors=${Boolean(folderMeta.pause_competitors)}, block_fleet=${Boolean(folderMeta.block_fleet)}).`);

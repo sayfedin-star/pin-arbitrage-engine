@@ -705,6 +705,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         repin_count,
         comment_count,
         daily_save_velocity,
+        daily_repin_velocity,
         delta_repins_24h,
         gains_5d,
         gains_7d,
@@ -829,11 +830,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         folder_age_days: folderAgeDays,
         delta_saves_24h: delta24h,
         delta_repins_24h: safeNum(row.delta_repins_24h, 0),
-        gains_5d: safeNum(row.gains_5d, Math.round(vel * 5)),
+        daily_repin_velocity: safeNum(row.daily_repin_velocity, null),
+        gains_5d: safeNum(row.gains_5d, null),
         // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Authentic Multi-Window Gains
-        gains_7d: safeNum(row.gains_7d, Math.round(vel * 7)),
-        gains_10d: safeNum(row.gains_10d, Math.round(vel * 10)),
-        gains_15d: safeNum(row.gains_15d, Math.round(vel * 15)),
+        gains_7d: safeNum(row.gains_7d, null),
+        gains_10d: safeNum(row.gains_10d, null),
+        gains_15d: safeNum(row.gains_15d, null),
         rankings: []
       });
     } else {
@@ -890,6 +892,9 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
           existingPin.delta_saves_24h = delta24h;
         }
         existingPin.delta_repins_24h = Math.max(existingPin.delta_repins_24h || 0, safeNum(row.delta_repins_24h, 0));
+        if (row.daily_repin_velocity != null && (existingPin.daily_repin_velocity == null || Number(row.daily_repin_velocity) > Number(existingPin.daily_repin_velocity))) {
+          existingPin.daily_repin_velocity = safeNum(row.daily_repin_velocity, null);
+        }
         existingPin.effective_velocity = existingPin.daily_save_velocity || 0;
         existingPin.velocity_source = 'saves';
       }
