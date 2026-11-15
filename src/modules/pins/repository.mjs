@@ -175,9 +175,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       SELECT
         rb.*,
         CASE
-          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
+          WHEN rb.save_count IS NULL THEN NULL
+          WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
+          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND prev.save_count > 0 THEN
             CASE
-              WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
               WHEN prev.snapshot_date IS NOT NULL
                AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
                AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
@@ -192,9 +193,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
           ELSE NULL
         END AS effective_velocity,
         CASE
-          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
+          WHEN rb.repin_count IS NULL THEN NULL
+          WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
+          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND prev.save_count IS NOT NULL AND prev.save_count > 0 THEN
             CASE
-              WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
               WHEN prev.snapshot_date IS NOT NULL
                AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
                AND NOT (prev.repin_count < 100 AND rb.repin_count >= 500)
@@ -209,9 +211,9 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
           ELSE NULL
         END AS effective_repin_velocity,
         CASE
-          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
+          WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
+          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND prev.save_count > 0 THEN
             CASE
-              WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::double precision, rb.daily_save_velocity))::bigint
               WHEN prev.snapshot_date IS NOT NULL
                AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
                AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
@@ -225,9 +227,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
           ELSE NULL
         END AS true_delta_saves_24h,
         CASE
+          WHEN rb.repin_count IS NULL THEN NULL
           WHEN rb.delta_repins_24h IS NOT NULL THEN GREATEST(0, rb.delta_repins_24h)::int
-          WHEN prev.repin_count IS NOT NULL
-           AND prev.snapshot_date IS NOT NULL
+          WHEN prev.repin_count IS NULL THEN NULL
+          WHEN prev.snapshot_date IS NOT NULL
            AND ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date) <= 7
            AND rb.repin_count > prev.repin_count
            AND NOT (
@@ -271,10 +274,10 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         daily_repin_velocity = COALESCE(cb.effective_repin_velocity, ump.daily_repin_velocity),
         delta_saves_24h = COALESCE(cb.true_delta_saves_24h, ump.delta_saves_24h),
         delta_repins_24h = COALESCE(cb.effective_delta_repins_24h, ump.delta_repins_24h),
-        gains_5d = COALESCE(cb.gains_5d, ump.gains_5d, 0),
-        gains_7d = COALESCE(cb.gains_7d, ump.gains_7d, 0),
-        gains_10d = COALESCE(cb.gains_10d, ump.gains_10d, 0),
-        gains_15d = COALESCE(cb.gains_15d, ump.gains_15d, 0),
+        gains_5d = COALESCE(cb.gains_5d, ump.gains_5d),
+        gains_7d = COALESCE(cb.gains_7d, ump.gains_7d),
+        gains_10d = COALESCE(cb.gains_10d, ump.gains_10d),
+        gains_15d = COALESCE(cb.gains_15d, ump.gains_15d),
         created_at_pinterest = COALESCE(ump.created_at_pinterest, NULLIF(TRIM(cb.created_at_pinterest), '')::timestamptz),
         last_resaved_at = NOW(),
         last_scraped_at = NOW(),
@@ -960,6 +963,7 @@ export async function syncPinAcrossAllFourPillars({
   const newRepins = (!isUnhydratedRepins && Number.isFinite(Number(rawRepins)))
     ? Math.max(0, Number(rawRepins))
     : null;
+  const hasExplicitScrapedRepins = Boolean(scrapedPin.has_explicit_repins) || (newRepins !== null && newRepins > 0);
 
   const rawComments = (scrapedPin.comments !== undefined && scrapedPin.comments !== null)
     ? scrapedPin.comments
@@ -1318,7 +1322,7 @@ export async function syncPinAcrossAllFourPillars({
     )
     ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
       save_count = CASE WHEN ${hasExplicitScrapedSaves} OR EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE pins_daily_metrics.save_count END,
-      repin_count = CASE WHEN EXCLUDED.repin_count > 0 OR ${hasExplicitScrapedSaves} THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
+      repin_count = CASE WHEN EXCLUDED.repin_count IS NOT NULL AND (${hasExplicitScrapedRepins} OR EXCLUDED.repin_count > 0) THEN EXCLUDED.repin_count ELSE pins_daily_metrics.repin_count END,
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
@@ -1371,7 +1375,7 @@ export async function syncPinAcrossAllFourPillars({
              ELSE '{}'::jsonb
            END,
       save_count = CASE WHEN ${hasExplicitScrapedSaves} OR ${newSaves !== null && newSaves > 0} THEN ${newSaves}::bigint ELSE universal_master_pins.save_count END,
-      repin_count = CASE WHEN ${newRepins !== null && newRepins > 0} OR ${hasExplicitScrapedSaves} THEN ${newRepins}::int ELSE universal_master_pins.repin_count END,
+      repin_count = CASE WHEN ${newRepins !== null} AND (${hasExplicitScrapedRepins} OR ${newRepins !== null && newRepins > 0}) THEN ${newRepins}::int ELSE universal_master_pins.repin_count END,
       comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), ${newComments}::int),
       share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), ${newShares}::int),
       reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),

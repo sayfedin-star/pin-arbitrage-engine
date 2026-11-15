@@ -195,6 +195,38 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
   assert.strictEqual(trueZeroPdmInsert.values[2], 0, 'Must insert 0 repin_count when has_explicit_saves = true');
   const trueZeroUmpUpdate = trueZeroQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
   assert.match(trueZeroUmpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR true\)/i, 'Must set is_hydrated = TRUE when has_explicit_saves = true');
+
+  // Verify scrape with saves: 150 and repins: null preserves existing repin_count (no NULL overwrite)
+  const repinNullQueries = [];
+  const mockRepinNullSql = (strings, ...values) => {
+    const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
+    repinNullQueries.push({ rawSql, values });
+    if (rawSql.includes('FROM keyword_serp_positions') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    if (rawSql.includes('FROM pins_daily_metrics') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    return Promise.resolve([]);
+  };
+
+  await syncPinAcrossAllFourPillars({
+    sql: mockRepinNullSql,
+    pinId: '123456789016',
+    scrapedPin: {
+      pin_id: '123456789016',
+      title: 'Repin Null Pin',
+      saves: 150,
+      repins: null
+    },
+    fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789016' })
+  });
+
+  const repinNullPdmInsert = repinNullQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(repinNullPdmInsert);
+  assert.strictEqual(repinNullPdmInsert.values[1], 150, 'Must insert 150 saves');
+  assert.strictEqual(repinNullPdmInsert.values[2], null, 'Must insert null repins');
+  assert.match(repinNullPdmInsert.rawSql, /repin_count = CASE WHEN EXCLUDED\.repin_count IS NOT NULL AND \(false OR EXCLUDED\.repin_count > 0\) THEN EXCLUDED\.repin_count ELSE pins_daily_metrics\.repin_count END/, 'Conflict DO UPDATE must gate repin_count on EXCLUDED.repin_count IS NOT NULL');
+
+  const repinNullUmpUpdate = repinNullQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
+  assert.ok(repinNullUmpUpdate);
+  assert.match(repinNullUmpUpdate.rawSql, /repin_count = CASE WHEN false AND \(false OR false\) THEN null::int ELSE universal_master_pins\.repin_count END/, 'universal_master_pins update must preserve existing repin_count when newRepins is null');
 });
 
 test('Phase 4.3: ingestPinsBatch preserves rolling gains and gates velocity on positive prior saves', async () => {
@@ -287,4 +319,48 @@ test('Phase 4.9: InstaBox free-tier resilience (420m epoch reset and activity le
 
   const rollingGains = fs.readFileSync(path.resolve(process.cwd(), 'scripts/backfill_rolling_window_gains.mjs'), 'utf8');
   assert.match(rollingGains, /startInstaBoxActivityLease/, 'Must start activity lease in backfill_rolling_window_gains');
+});
+
+test('Phase 4.10: resavePinsMetricsBatch preserves NULL on rolling gains and repin deltas, and guards velocity on positive prior saves', async () => {
+  const queries = [];
+  const mockSql = (strings, ...values) => {
+    const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
+    queries.push({ rawSql, values });
+    return Promise.resolve([]);
+  };
+
+  await resavePinsMetricsBatch(mockSql, [{
+    pin_id: '111222333444',
+    domain: 'example.com',
+    save_count: 300,
+    repin_count: null,
+    gains_5d: null,
+    gains_7d: null,
+    gains_10d: null,
+    gains_15d: null
+  }]);
+
+  const batchQuery = queries.find(q => q.rawSql.includes('WITH raw_batch AS'));
+  assert.ok(batchQuery, 'Must execute batch CTE query');
+
+  // Verify gains_* in upd_master do NOT fall back to 0
+  assert.match(batchQuery.rawSql, /gains_5d = COALESCE\(cb\.gains_5d, ump\.gains_5d\),/);
+  assert.match(batchQuery.rawSql, /gains_7d = COALESCE\(cb\.gains_7d, ump\.gains_7d\),/);
+  assert.match(batchQuery.rawSql, /gains_10d = COALESCE\(cb\.gains_10d, ump\.gains_10d\),/);
+  assert.match(batchQuery.rawSql, /gains_15d = COALESCE\(cb\.gains_15d, ump\.gains_15d\),/);
+  assert.doesNotMatch(batchQuery.rawSql, /gains_5d = COALESCE\(cb\.gains_5d, ump\.gains_5d, 0\)/);
+
+  // Verify velocity computation guards on prev.save_count > 0 and preserves caller velocity
+  assert.match(batchQuery.rawSql, /WHEN rb\.save_count IS NULL THEN NULL/);
+  assert.match(batchQuery.rawSql, /WHEN rb\.daily_save_velocity IS NOT NULL THEN GREATEST\(0::double precision, rb\.daily_save_velocity\)/);
+  assert.match(batchQuery.rawSql, /prev\.save_count IS NOT NULL AND rb\.save_count IS NOT NULL AND prev\.save_count > 0/);
+
+  // Verify repin velocity computation guards on prev.save_count > 0 and repin_count IS NULL
+  assert.match(batchQuery.rawSql, /WHEN rb\.repin_count IS NULL THEN NULL/);
+  assert.match(batchQuery.rawSql, /WHEN rb\.daily_repin_velocity IS NOT NULL THEN GREATEST\(0::double precision, rb\.daily_repin_velocity\)/);
+
+  // Verify effective_delta_repins_24h returns NULL on NULL repin_count or prev.repin_count
+  assert.match(batchQuery.rawSql, /WHEN rb\.repin_count IS NULL/);
+  assert.match(batchQuery.rawSql, /WHEN prev\.repin_count IS NULL THEN NULL/);
+  assert.match(batchQuery.rawSql, /delta_repins_24h = COALESCE\(cb\.effective_delta_repins_24h, ump\.delta_repins_24h\)/);
 });

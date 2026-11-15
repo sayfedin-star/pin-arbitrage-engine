@@ -37,13 +37,13 @@ check_and_reset_uptime_epoch() {
           echo "[instabox-boot-sync] Running external orchestrator suspend/resume cycle..."
           instabox suspend && sleep 5 && instabox resume || true
         elif [ -n "${INSTABOX_API_KEY:-}" ] && [ -n "${INSTABOX_MACHINE_ID:-}" ]; then
-          echo "[instabox-boot-sync] Triggering suspend via InstaBox OpenAPI from external orchestrator..."
+          echo "[instabox-boot-sync] Triggering suspend/resume via InstaBox OpenAPI from external orchestrator..."
           curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/suspend" \
             -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
+          sleep 5
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}/resume" \
+            -H "Authorization: Bearer ${INSTABOX_API_KEY}" -H "Content-Type: application/json" >/dev/null 2>&1 || true
         fi
-      elif command -v instabox >/dev/null 2>&1; then
-        # When orchestrated externally on host with instabox CLI:
-        instabox suspend && sleep 5 && instabox resume || true
       else
         echo "[instabox-boot-sync] Notice: Running in-VM without external orchestrator. Machine suspend halts guest execution; power transitions must be orchestrated from host CLI, CI workflow, or wake-shield."
       fi
