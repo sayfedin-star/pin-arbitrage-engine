@@ -1538,22 +1538,7 @@ async function main() {
   console.log(`  Pinterest Algorithmic Arbitrage Engine (P2P Cluster Core)  `);
   console.log(`=============================================================`);
 
-  // Watchdog: Sweep stale crawler heartbeats (>15m) to timed_out to prevent zombie queues
-  try {
-    const reaped = await sqlWithRetry(() => sql`
-      UPDATE crawler_shard_heartbeats
-      SET status = 'timed_out',
-          updated_at = NOW()
-      WHERE status IN ('booting', 'running', 'processing', 'crawling_boards')
-        AND updated_at < NOW() - INTERVAL '15 minutes'
-      RETURNING competitor_id, shard_number;
-    `);
-    if (reaped && reaped.length > 0) {
-      console.log(`[Watchdog] Swept ${reaped.length} stale crawler shard heartbeats (>15m) -> timed_out.`);
-    }
-  } catch (reapErr) {
-    // Non-fatal if table doesn't exist or concurrent lock
-  }
+
 
   let targetPinArg = null;
   const seedIdx = process.argv.indexOf('--seed');
@@ -1659,7 +1644,7 @@ async function main() {
       FROM cluster_seeds
       WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
         AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-        AND (${shardIdx}::int IS NULL OR MOD(ABS(('x' || SUBSTR(MD5(pin_id::text), 1, 8))::bit(32)::int::bigint), 20) = ${shardIdx}::int)
+        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(pin_id::text)) % 20) = ${shardIdx}::int)
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);

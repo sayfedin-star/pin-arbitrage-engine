@@ -384,7 +384,7 @@ export function createFastifyApp(customEnv = {}) {
     const payload = request.body || {};
     const items = Array.isArray(payload.pins) ? payload.pins : (Array.isArray(payload.items) ? payload.items : []);
     const creator = payload.creator || payload.account_username || null;
-    const ingestType = payload.type || (creator ? 'competitor_pins' : 'pins');
+    const ingestType = payload.type || (creator ? 'creator_pins' : 'pins');
 
     const currentSql = env.SQL_CLIENT || getServerSqlClient(env.DATABASE_URL);
     if (items.length > 0 && currentSql) {

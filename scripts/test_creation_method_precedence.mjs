@@ -7,7 +7,7 @@
  * Verifies:
  * 1. evaluateHydrationGuard invalidation on generic or missing creation_method.
  * 2. service.mjs preparedPins & hubSerpPayload null-preservation.
- * 3. SQL CASE Precedence logic for keyword_serp_current upsert & crawler hub flush.
+ * 3. SQL CASE Precedence logic for universal_master_pins upsert & crawler hub flush.
  * 4. crawler buildUnifiedSyncList & inspectPin extraMeta preservation.
  * 5. d1-metadata metaObj injection.
  * 6. Live Central Hub & Shards database verification for test pins.
@@ -322,21 +322,14 @@ if (!process.env.DATABASE_URL) {
   }
 
   if (dbOnline) {
-  await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in keyword_serp_current', async () => {
+  await runAsyncTest('Live Central Hub: Remediated pins have authentic creation_method in universal_master_pins', async () => {
     const hubSql = neon(process.env.DATABASE_URL);
-    let rows = await hubSql`
+    const rows = await hubSql`
       SELECT pin_id, creation_method, metadata->>'creation_method' as meta_cm
-      FROM keyword_serp_current
+      FROM universal_master_pins
       WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
     `;
-    if (rows.length === 0) {
-      rows = await hubSql`
-        SELECT pin_id, metadata->>'creation_method' as creation_method, metadata->>'creation_method' as meta_cm
-        FROM universal_master_pins
-        WHERE pin_id IN ('330803535154760775', '693132198915648745', '155233518398209329');
-      `;
-    }
-    assert(rows.length > 0, 'Must have rows in keyword_serp_current or universal_master_pins');
+    assert(rows.length > 0, 'Must have rows in universal_master_pins');
 
     for (const r of rows) {
       if (r.pin_id === '330803535154760775') {

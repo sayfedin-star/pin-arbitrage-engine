@@ -585,9 +585,10 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     if (!isPulseOnly) {
       try {
         const [agg] = await sql`
-          SELECT COALESCE(SUM(save_count), 0)::bigint AS total_saves, COALESCE(SUM(repin_count), 0)::bigint AS total_repins
-          FROM competitor_pins
-          WHERE competitor_id = ${updated.id};
+          SELECT COALESCE(SUM(ump.save_count), 0)::bigint AS total_saves, COALESCE(SUM(ump.repin_count), 0)::bigint AS total_repins
+          FROM competitor_board_pins cbp
+          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+          WHERE cbp.competitor_id = ${updated.id};
         `;
         if (agg) {
           pinAgg.total_saves = Number(agg.total_saves || 0);
@@ -930,7 +931,7 @@ export async function getCompetitorSeeds(sql, competitorId) {
 
 
 /**
- * Add pin IDs as seeds for a competitor, populating titles and thumbnails from competitor_pins if available.
+ * Add pin IDs as seeds for a competitor, populating titles and thumbnails from 4-table SSOT if available.
  * Fully atomic, deadlock-free monotonic batch upsert via jsonb_to_recordset.
  */
 export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
@@ -946,13 +947,15 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
 
   const metaRows = await sql`
     SELECT 
-      cp.pin_id,
-      cp.title,
-      cp.image_url,
-      cp.board_name,
-      cp.save_count
-    FROM competitor_pins cp
-    WHERE cp.competitor_id = ${numericId} AND cp.pin_id = ANY(${cleanIds});
+      cbp.pin_id,
+      ump.title,
+      ump.image_url,
+      cb.name AS board_name,
+      ump.save_count
+    FROM competitor_board_pins cbp
+    JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+    LEFT JOIN competitor_boards cb ON cb.id = cbp.board_id
+    WHERE cbp.competitor_id = ${numericId} AND cbp.pin_id = ANY(${cleanIds});
   `;
 
   const metaMap = new Map();

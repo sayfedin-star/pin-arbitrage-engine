@@ -54,7 +54,7 @@ async function main() {
   console.log('   🚀 KEYWORD INTELLIGENCE & VELOCITY FLEET DISPATCHER (20-RUNNER)');
   console.log('================================================================');
 
-  // Self-heal PostgreSQL SERIAL/BIGSERIAL sequences after migration so keyword_serp_current / tracked_keywords inserts never collide on _pkey
+  // Self-heal PostgreSQL SERIAL/BIGSERIAL sequences after migration so table inserts never collide on _pkey
   try {
     await sql`
       DO $$

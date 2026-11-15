@@ -3,7 +3,7 @@
  *
  * Centerpiece daily command intelligence engine:
  * 1. Executes 5 ultra-fast, zero-Cartesian Hub queries concurrently via Promise.all.
- * 2. Strictly obeys Central Hub Skeletal Compaction (no description/alt_text/seo_title on keyword_serp_current).
+ * 2. Strictly obeys Central Hub Skeletal Compaction (no description/alt_text/seo_title on keyword_serp_positions).
  * 3. In-memory N-Gram Set Mining for 1-Gram, 2-Pairs (A+B), and 3-Triplets (A+B+C) with 10-annotation cap per pin.
  * 4. Guided Search Capsules cross-keyword bridge detection across 1,398 capsules.
  * 5. Breakout Creators with historical snapshot delta fallbacks and Top 3 Driver Pins.
@@ -249,76 +249,57 @@ async function queryActiveSerp(sql, folderIdNum) {
     )
     SELECT
       COUNT(*) OVER()::int AS full_count,
-      ksc.keyword_id,
+      ksp.keyword_id,
       tk.keyword AS keyword_text,
       tk.category AS keyword_category,
       COALESCE(kwf.folders, '[]'::jsonb) AS folders,
-      ksc.pin_id,
-      ksc.rank_position,
-      ksc.prev_rank_position,
-      COALESCE(NULLIF(ksc.title, ''), NULLIF(ump.title, ''), '') AS title,
-      COALESCE(NULLIF(ksc.domain, ''), NULLIF(ump.domain, ''), '') AS domain,
-      COALESCE(NULLIF(ksc.destination_url, ''), NULLIF(ump.destination_url, ''), '') AS destination_url,
-      COALESCE(NULLIF(ksc.image_url, ''), NULLIF(ump.image_url, ''), '') AS image_url,
-      COALESCE(NULLIF(ksc.creator_username, ''), NULLIF(ump.creator_username, ''), '') AS creator_username,
-      COALESCE(NULLIF(ksc.board_name, ''), NULLIF(ump.board_name, ''), '') AS board_name,
+      ksp.pin_id,
+      ksp.rank_position,
+      ksp.prev_rank_position,
+      COALESCE(NULLIF(ump.title, ''), '') AS title,
+      COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+      COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+      COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+      COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
+      COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
       COALESCE(ump.description, '') AS description,
       COALESCE(ump.alt_text, '') AS alt_text,
-      COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0) AS save_count,
-      COALESCE(NULLIF(ksc.repin_count, 0), ump.repin_count, 0) AS repin_count,
-      CASE
-        WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ksc.daily_save_velocity
-        WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ump.daily_save_velocity
-        ELSE 0
-      END AS daily_save_velocity,
-      CASE
-        WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ksc.daily_save_velocity
-        WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ump.daily_save_velocity
-        ELSE 0
-      END AS delta_saves_24h,
-      CASE
-        WHEN ksc.delta_repins_24h IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ksc.delta_repins_24h
-        WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-        THEN ump.delta_repins_24h
-        ELSE 0
-      END AS delta_repins_24h,
-      COALESCE(ksc.gains_5d, 0) AS gains_5d,
-      COALESCE(ksc.gains_7d, 0) AS gains_7d,
-      COALESCE(ksc.gains_10d, 0) AS gains_10d,
-      COALESCE(ksc.gains_15d, 0) AS gains_15d,
-      COALESCE(ksc.url_global_saves, 0) AS url_global_saves,
+      ump.save_count,
+      ump.repin_count,
+      COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
+      COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
+      COALESCE(ump.gains_5d, 0) AS gains_5d,
+      COALESCE(ump.gains_7d, 0) AS gains_7d,
+      COALESCE(ump.gains_10d, 0) AS gains_10d,
+      COALESCE(ump.gains_15d, 0) AS gains_15d,
+      COALESCE(ump.url_global_saves, 0) AS url_global_saves,
       COALESCE(
-        CASE WHEN ksc.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ksc.dominant_color ELSE NULL END,
         CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
         '#888888'
       ) AS dominant_color,
-      COALESCE(NULLIF(ksc.visual_annotations, '[]'::jsonb), NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
-      COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-      COALESCE(NULLIF(ksc.creation_method, ''), NULLIF(ksc.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
-      ksc.crawled_at
-    FROM keyword_serp_current ksc
-    JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-    LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksc.keyword_id
-    WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE
-      AND ksc.rank_position IS NOT NULL
-      AND ksc.rank_position >= 1
+      COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+      ump.created_at_pinterest,
+      COALESCE(NULLIF(ump.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
+      ksp.crawled_at
+    FROM keyword_serp_positions ksp
+    JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+    LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksp.keyword_id
+    WHERE ksp.is_displaced = FALSE
+      AND ksp.rank_position IS NOT NULL
+      AND ksp.rank_position >= 1
       AND (${folderIdNum}::int IS NULL OR EXISTS (
         SELECT 1 FROM keyword_folder_items fi 
-        WHERE fi.keyword_id = ksc.keyword_id AND fi.folder_id = ${folderIdNum}::int
+        WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
       ))
-    ORDER BY GREATEST(COALESCE(ksc.daily_save_velocity, ump.daily_save_velocity, 0), COALESCE(ksc.delta_repins_24h, ump.delta_repins_24h, 0)) DESC, COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0) DESC
+    ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 2500;
   `;
 }
 
 /**
- * Query 2: Displaced Vault Surge & 24h SERP Vacuum (keyword_displaced_index)
+ * Query 2: Displaced Vault Surge & 24h SERP Vacuum (keyword_serp_positions WHERE is_displaced = TRUE)
  * Part 2A: Aggregates displaced counts per keyword.
  * Part 2B: Full Surging Displaced Vault Pins hydrated from universal_master_pins SSOT.
  */
@@ -326,109 +307,77 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
   const [vacuumRows, vaultPinsRaw] = await Promise.all([
     sql`
       SELECT
-        kdi.keyword_id,
+        ksp.keyword_id,
         tk.keyword AS keyword_text,
-        COUNT(*) FILTER (WHERE kdi.displaced_date >= CURRENT_DATE - 1)::int AS displaced_24h_count,
-        COUNT(*) FILTER (WHERE kdi.displaced_date >= CURRENT_DATE - 1 AND kdi.last_known_rank <= 10)::int AS displaced_top10_24h_count,
-        COUNT(*) FILTER (WHERE kdi.last_known_rank <= 10)::int AS displaced_top10_7d_count
-      FROM keyword_displaced_index kdi
-      JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      WHERE kdi.displaced_date >= CURRENT_DATE - 7
+        COUNT(*) FILTER (WHERE ksp.displaced_date >= CURRENT_DATE - 1)::int AS displaced_24h_count,
+        COUNT(*) FILTER (WHERE ksp.displaced_date >= CURRENT_DATE - 1 AND ksp.last_known_rank <= 10)::int AS displaced_top10_24h_count,
+        COUNT(*) FILTER (WHERE ksp.last_known_rank <= 10)::int AS displaced_top10_7d_count
+      FROM keyword_serp_positions ksp
+      JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+      WHERE ksp.is_displaced = TRUE
+        AND ksp.displaced_date >= CURRENT_DATE - 7
         AND (${folderIdNum}::int IS NULL OR EXISTS (
           SELECT 1 FROM keyword_folder_items fi 
-          WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
+          WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
         ))
-      GROUP BY kdi.keyword_id, tk.keyword;
+      GROUP BY ksp.keyword_id, tk.keyword;
     `,
     sql`
       WITH top_vault AS MATERIALIZED (
         SELECT
-          kdi.keyword_id,
-          kdi.pin_id,
-          kdi.last_known_rank,
-          kdi.vacuum_opportunity_score,
-          kdi.displaced_date,
-          kdi.save_count,
-          kdi.repin_count,
-          kdi.daily_save_velocity,
-          kdi.delta_repins_24h,
-          kdi.gains_5d,
-          kdi.gains_7d,
-          kdi.gains_10d,
-          kdi.gains_15d,
-          kdi.domain,
-          kdi.creator_username,
-          kdi.updated_at
-        FROM keyword_displaced_index kdi
-        WHERE (COALESCE(kdi.daily_save_velocity, 0) > 0 OR COALESCE(kdi.delta_repins_24h, 0) > 0)
-          AND kdi.updated_at >= NOW() - INTERVAL '48 hours'
+          ksp.keyword_id,
+          ksp.pin_id,
+          ksp.last_known_rank,
+          ksp.vacuum_opportunity_score,
+          ksp.displaced_date,
+          ksp.updated_at
+        FROM keyword_serp_positions ksp
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE ksp.is_displaced = TRUE
+          AND (COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
+          AND ksp.updated_at >= NOW() - INTERVAL '48 hours'
           AND (${folderIdNum}::int IS NULL OR EXISTS (
             SELECT 1 FROM keyword_folder_items fi 
-            WHERE fi.keyword_id = kdi.keyword_id AND fi.folder_id = ${folderIdNum}::int
+            WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
           ))
-        ORDER BY GREATEST(COALESCE(kdi.daily_save_velocity, 0), COALESCE(kdi.delta_repins_24h, 0)) DESC
+        ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST
         LIMIT 2500
       )
       SELECT
-        kdi.keyword_id,
+        tv.keyword_id,
         tk.keyword AS keyword_text,
         tk.category AS keyword_category,
-        kdi.pin_id,
-        kdi.last_known_rank,
-        kdi.vacuum_opportunity_score,
-        kdi.displaced_date,
-        COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) AS save_count,
-        COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0) AS repin_count,
-        CASE
-          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN kdi.daily_save_velocity
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          ELSE 0
-        END AS daily_save_velocity,
-        CASE
-          WHEN ump.delta_saves_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.delta_saves_24h
-          ELSE 0
-        END AS delta_saves_24h,
-        CASE
-          WHEN kdi.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN kdi.delta_repins_24h
-          WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.delta_repins_24h
-          ELSE 0
-        END AS delta_repins_24h,
-        COALESCE(kdi.gains_5d, 0) AS gains_5d,
-        COALESCE(kdi.gains_7d, 0) AS gains_7d,
-        COALESCE(kdi.gains_10d, 0) AS gains_10d,
-        COALESCE(kdi.gains_15d, 0) AS gains_15d,
-        COALESCE(NULLIF(kdi.domain, ''), NULLIF(ump.domain, ''), NULLIF(pa.domain, ''), NULLIF(cpin.link_domain, ''), '') AS domain,
-        COALESCE(NULLIF(kdi.creator_username, ''), NULLIF(ump.creator_username, ''), NULLIF(pa.account_username, ''), '') AS creator_username,
-        COALESCE(NULLIF(ump.title, ''), NULLIF(pa.title, ''), NULLIF(cpin.title, ''), '') AS title,
-        COALESCE(NULLIF(ump.description, ''), NULLIF(pa.description, ''), NULLIF(cpin.description, ''), '') AS description,
-        COALESCE(NULLIF(ump.alt_text, ''), NULLIF(pa.alt_text, ''), NULLIF(cpin.alt_text, ''), '') AS alt_text,
-        COALESCE(NULLIF(ump.image_url, ''), NULLIF(pa.image_url, ''), NULLIF(cpin.image_url, ''), '') AS image_url,
-        COALESCE(NULLIF(ump.destination_url, ''), NULLIF(pa.link, ''), NULLIF(cpin.destination_url, ''), '') AS destination_url,
-        COALESCE(NULLIF(ump.board_name, ''), NULLIF(pa.board_name, ''), NULLIF(cpin.board_name, ''), '') AS board_name,
+        tv.pin_id,
+        tv.last_known_rank,
+        tv.vacuum_opportunity_score,
+        tv.displaced_date,
+        ump.save_count,
+        ump.repin_count,
+        COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
+        COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
+        COALESCE(ump.gains_5d, 0) AS gains_5d,
+        COALESCE(ump.gains_7d, 0) AS gains_7d,
+        COALESCE(ump.gains_10d, 0) AS gains_10d,
+        COALESCE(ump.gains_15d, 0) AS gains_15d,
+        COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+        COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.description, ''), '') AS description,
+        COALESCE(NULLIF(ump.alt_text, ''), '') AS alt_text,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
         COALESCE(
           CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
-          CASE WHEN pa.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN pa.dominant_color ELSE NULL END,
           NULL
         ) AS dominant_color,
-        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), NULLIF(pa.annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
-        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest, cpin.created_at_pinterest) AS created_at_pinterest
-      FROM top_vault kdi
-      JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      LEFT JOIN pa_pins pa ON pa.pin_id = kdi.pin_id
-      LEFT JOIN LATERAL (
-        SELECT title, description, alt_text, image_url, destination_url, link_domain, board_name, metadata, created_at_pinterest
-        FROM public.competitor_pins cp
-        WHERE cp.pin_id = kdi.pin_id AND cp.is_deleted = FALSE
-        LIMIT 1
-      ) cpin ON (ump.image_url IS NULL OR ump.image_url = '')
-      WHERE COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-      ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, kdi.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, kdi.delta_repins_24h, 0)) DESC
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+        ump.created_at_pinterest
+      FROM top_vault tv
+      JOIN tracked_keywords tk ON tk.id = tv.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = tv.pin_id
+      ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST
       LIMIT 2500;
     `
   ]);
@@ -437,64 +386,37 @@ async function queryVaultAndVacuum(sql, folderIdNum, env) {
 }
 
 /**
- * Query 6: Top 150 Surging Competitor & Creator Pins (competitor_pins + competitor_profiles)
- * // [CRITICAL SCHEMA INVARIANT: In competitor_pins, daily velocity is in metadata->>'daily_save_velocity',
- * //  delta_saves_24h in metadata->>'delta_saves_24h', and domain is link_domain]
+ * Query 6: Top 150 Surging Competitor & Creator Pins (competitor_board_pins + universal_master_pins)
  */
 async function queryViralCreatorPins(sql, folderIdNum) {
   return await sql`
     SELECT
-      cpin.pin_id,
-      COALESCE(NULLIF(ump.title, ''), cpin.title, '') AS title,
-      COALESCE(NULLIF(ump.description, ''), cpin.description, '') AS description,
-      COALESCE(NULLIF(ump.alt_text, ''), cpin.alt_text, '') AS alt_text,
-      COALESCE(NULLIF(ump.image_url, ''), cpin.image_url, '') AS image_url,
-      COALESCE(NULLIF(ump.destination_url, ''), cpin.destination_url, '') AS destination_url,
-      COALESCE(NULLIF(ump.domain, ''), cpin.link_domain, '') AS domain,
-      COALESCE(NULLIF(cpin.board_name, ''), ump.board_name, '') AS board_name,
+      ump.pin_id,
+      COALESCE(NULLIF(ump.title, ''), '') AS title,
+      COALESCE(NULLIF(ump.description, ''), '') AS description,
+      COALESCE(NULLIF(ump.alt_text, ''), '') AS alt_text,
+      COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+      COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+      COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+      COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
       cp.username AS creator_username,
-      GREATEST(COALESCE(ump.save_count, 0), COALESCE(cpin.save_count, 0)) AS save_count,
-      GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cpin.repin_count, 0)) AS repin_count,
-      m.daily_save_velocity,
-      m.delta_saves_24h,
-      m.delta_repins_24h,
-      COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-      COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), NULLIF(cpin.metadata->'visual_annotations', '[]'::jsonb), NULLIF(cpin.metadata->'annotations', '[]'::jsonb), '[]'::jsonb) AS visual_annotations
-    FROM competitor_pins cpin
-    JOIN competitor_profiles cp ON cp.id = cpin.competitor_id
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
-    CROSS JOIN LATERAL (
-      SELECT
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0)
-          ELSE 0
-        END AS daily_save_velocity,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
-          ELSE 0
-        END AS delta_saves_24h,
-        CASE
-          WHEN ump.delta_repins_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.delta_repins_24h
-          WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_repins_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
-          ELSE 0
-        END AS delta_repins_24h
-    ) m
-    WHERE cpin.is_deleted = FALSE
-      AND (cpin.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'] OR COALESCE(ump.daily_save_velocity, 0) > 0)
+      ump.save_count,
+      ump.repin_count,
+      COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
+      COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
+      COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
+      ump.created_at_pinterest,
+      COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations
+    FROM competitor_board_pins cbp
+    JOIN competitor_profiles cp ON cp.id = cbp.competitor_id
+    JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+    WHERE COALESCE(NULLIF(ump.image_url, ''), '') <> ''
       AND (${folderIdNum}::int IS NULL OR cp.source_folder_id = ${folderIdNum}::int OR EXISTS (
         SELECT 1 FROM folder_competitor_items fci 
-        WHERE fci.competitor_id = cpin.competitor_id AND fci.folder_id = ${folderIdNum}::int
+        WHERE fci.competitor_id = cbp.competitor_id AND fci.folder_id = ${folderIdNum}::int
       ))
-      AND (m.daily_save_velocity > 0 OR m.delta_saves_24h > 0 OR m.delta_repins_24h > 0)
-    ORDER BY GREATEST(m.daily_save_velocity, m.delta_saves_24h, m.delta_repins_24h) DESC
+      AND (COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(ump.delta_saves_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0 OR COALESCE(ump.save_count, 0) >= 50)
+    ORDER BY GREATEST(COALESCE(ump.daily_save_velocity, 0), COALESCE(ump.delta_saves_24h, 0), COALESCE(ump.delta_repins_24h, 0)) DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 120;
   `;
 }
@@ -605,136 +527,41 @@ async function queryBreakoutCreators(sql, folderIdNum) {
     ),
     candidate_creator_pins AS (
       SELECT
-        cpin.competitor_id,
-        cpin.pin_id,
-        COALESCE(NULLIF(ump.title, ''), cpin.title) AS title,
-        COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) AS image_url,
-        COALESCE(NULLIF(cpin.board_name, ''), ump.board_name) AS board_name,
-        COALESCE(NULLIF(ump.domain, ''), cpin.link_domain) AS link_domain,
-        COALESCE(NULLIF(ump.destination_url, ''), cpin.destination_url) AS destination_url,
-        GREATEST(COALESCE(ump.save_count, 0), COALESCE(cpin.save_count, 0))::bigint AS save_count,
-        GREATEST(COALESCE(ump.repin_count, 0), COALESCE(cpin.repin_count, 0))::int AS repin_count,
-        COALESCE(clean_metrics.delta_saves_24h, clean_metrics.daily_save_velocity, 0)::numeric AS delta_saves_24h,
-        clean_metrics.daily_save_velocity::numeric AS daily_save_velocity,
-        COALESCE(cpin.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
-      FROM competitor_pins cpin
-      JOIN top_creators tc ON tc.id = cpin.competitor_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = cpin.pin_id
-      CROSS JOIN LATERAL (
-        SELECT
-          CASE
-            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN ump.daily_save_velocity
-            WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'daily_save_velocity', '[^0-9.-]', '', 'g'), '')::numeric, 0)
-            ELSE 0
-          END AS daily_save_velocity,
-          CASE
-            WHEN ump.delta_saves_24h IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN ump.delta_saves_24h
-            WHEN COALESCE(cpin.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(NULLIF(regexp_replace(cpin.metadata->>'delta_saves_24h', '[^0-9.-]', '', 'g'), '')::numeric, 0)
-            ELSE 0
-          END AS delta_saves_24h
-      ) clean_metrics
-      WHERE cpin.is_deleted = FALSE
-        AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) IS NOT NULL AND COALESCE(NULLIF(ump.image_url, ''), cpin.image_url) <> ''
-
-      UNION ALL
-
-      SELECT
-        tc.id AS competitor_id,
-        pa.pin_id,
-        COALESCE(NULLIF(ump.title, ''), pa.title) AS title,
-        COALESCE(NULLIF(ump.image_url, ''), pa.image_url) AS image_url,
-        COALESCE(NULLIF(pa.board_name, ''), ump.board_name) AS board_name,
-        COALESCE(NULLIF(ump.domain, ''), pa.domain) AS link_domain,
-        COALESCE(NULLIF(ump.destination_url, ''), pa.link) AS destination_url,
-        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS save_count,
-        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::int AS repin_count,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(pa.velocity, 0)
-          ELSE 0
-        END::numeric AS delta_saves_24h,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(pa.velocity, 0)
-          ELSE 0
-        END::numeric AS daily_save_velocity,
-        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest
-      FROM pa_pins pa
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(pa.account_username, '@', '')))
-      WHERE COALESCE(NULLIF(ump.image_url, ''), pa.image_url) IS NOT NULL AND COALESCE(NULLIF(ump.image_url, ''), pa.image_url) <> ''
-
-      UNION ALL
-
-      SELECT
-        tc.id AS competitor_id,
-        ksc.pin_id,
-        COALESCE(NULLIF(ksc.title, ''), ump.title, '') AS title,
-        COALESCE(NULLIF(ksc.image_url, ''), ump.image_url, '') AS image_url,
-        COALESCE(NULLIF(ksc.board_name, ''), ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(ksc.domain, ''), ump.domain, '') AS link_domain,
-        COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '') AS destination_url,
-        COALESCE(ksc.save_count, 0)::bigint AS save_count,
-        COALESCE(ksc.repin_count, 0)::int AS repin_count,
-        CASE
-          WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ksc.daily_save_velocity
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          ELSE 0
-        END::numeric AS delta_saves_24h,
-        CASE
-          WHEN ksc.daily_save_velocity IS NOT NULL AND COALESCE(ksc.crawled_at, ksc.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ksc.daily_save_velocity
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          ELSE 0
-        END::numeric AS daily_save_velocity,
-        COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest
-      FROM keyword_serp_current ksc
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username), '@', '')))
-      WHERE COALESCE(NULLIF(ksc.image_url, ''), ump.image_url, '') <> ''
-
-      UNION ALL
-
-      SELECT
-        tc.id AS competitor_id,
-        kdi.pin_id,
-        COALESCE(ump.title, '') AS title,
-        COALESCE(ump.image_url, '') AS image_url,
-        COALESCE(ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(kdi.domain, ''), ump.domain, '') AS link_domain,
-        COALESCE(ump.destination_url, '') AS destination_url,
-        COALESCE(kdi.save_count, 0)::bigint AS save_count,
-        COALESCE(kdi.repin_count, 0)::int AS repin_count,
-        CASE
-          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN kdi.daily_save_velocity
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          ELSE 0
-        END::numeric AS delta_saves_24h,
-        CASE
-          WHEN kdi.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, kdi.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN kdi.daily_save_velocity
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          ELSE 0
-        END::numeric AS daily_save_velocity,
+        cbp.competitor_id,
+        ump.pin_id,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
+        COALESCE(NULLIF(ump.domain, ''), '') AS link_domain,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+        ump.save_count,
+        ump.repin_count,
+        COALESCE(ump.delta_saves_24h, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
         ump.created_at_pinterest
-      FROM keyword_displaced_index kdi
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username), '@', '')))
-      WHERE COALESCE(ump.image_url, '') <> ''
+      FROM competitor_board_pins cbp
+      JOIN top_creators tc ON tc.id = cbp.competitor_id
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      WHERE COALESCE(NULLIF(ump.image_url, ''), '') <> ''
+
+      UNION ALL
+
+      SELECT
+        tc.id AS competitor_id,
+        ump.pin_id,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
+        COALESCE(NULLIF(ump.domain, ''), '') AS link_domain,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+        ump.save_count,
+        ump.repin_count,
+        COALESCE(ump.delta_saves_24h, ump.daily_save_velocity, 0)::numeric AS delta_saves_24h,
+        COALESCE(ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
+        ump.created_at_pinterest
+      FROM universal_master_pins ump
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(ump.creator_username, '@', '')))
+      WHERE COALESCE(NULLIF(ump.image_url, ''), '') <> ''
     ),
     deduped_creator_pins AS (
       SELECT DISTINCT ON (ccp.competitor_id, ccp.pin_id)
@@ -831,46 +658,35 @@ async function queryBreakoutCreators(sql, folderIdNum) {
 }
 
 /**
- * Query 5: PinArchive 24h Winners & Domain Arbitrage Leaders
+ * Query 5: PinArchive 24h Winners & Domain Arbitrage Leaders (universal_master_pins SSOT)
  */
 async function queryWinnersAndDomains(sql) {
   const [paWinners, domainRollups] = await Promise.all([
     sql`
       SELECT
-        pa.pin_id,
-        COALESCE(NULLIF(pa.account_username, ''), ump.creator_username) AS account_username,
-        COALESCE(NULLIF(ump.title, ''), pa.title) AS title,
-        COALESCE(NULLIF(ump.description, ''), pa.description) AS description,
-        COALESCE(NULLIF(ump.destination_url, ''), pa.link) AS link,
-        COALESCE(NULLIF(ump.domain, ''), pa.domain) AS domain,
-        COALESCE(NULLIF(pa.board_name, ''), ump.board_name) AS board_name,
-        COALESCE(NULLIF(ump.image_url, ''), pa.image_url) AS image_url,
-        COALESCE(NULLIF(ump.dominant_color, '#888888'), pa.dominant_color, '#888888') AS dominant_color,
-        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0) AS repins,
-        GREATEST(COALESCE(pa.comments, 0), COALESCE(ump.comment_count, 0)) AS comments,
-        eff.velocity AS velocity,
-        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), pa.annotations, '[]'::jsonb) AS annotations,
-        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest,
-        pa.first_seen_at,
-        pa.last_updated_at
-      FROM pa_pins pa
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      CROSS JOIN LATERAL (
-        SELECT
-          CASE
-            WHEN NULLIF(ump.daily_save_velocity, 0) IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN ump.daily_save_velocity
-            WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(pa.velocity, 0)
-            ELSE 0
-          END AS velocity
-      ) eff
+        ump.pin_id,
+        COALESCE(NULLIF(ump.creator_username, ''), '') AS account_username,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.description, ''), '') AS description,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS link,
+        COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.dominant_color, '#888888'), '#888888') AS dominant_color,
+        ump.save_count AS saves,
+        ump.repin_count AS repins,
+        COALESCE(ump.comment_count, 0) AS comments,
+        COALESCE(ump.daily_save_velocity, 0) AS velocity,
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS annotations,
+        ump.created_at_pinterest,
+        ump.first_discovered_at AS first_seen_at,
+        ump.updated_at AS last_updated_at
+      FROM universal_master_pins ump
       WHERE (
-        eff.velocity > 0
-        OR (COALESCE(ump.save_count, pa.saves, 0) >= 100 AND COALESCE(ump.last_scraped_at, pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
+        COALESCE(ump.daily_save_velocity, 0) > 0
+        OR (COALESCE(ump.save_count, 0) >= 100 AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
       )
-      ORDER BY eff.velocity DESC, COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
+      ORDER BY COALESCE(ump.daily_save_velocity, 0) DESC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 100;
     `,
     sql`

@@ -569,7 +569,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
     };
   }
 
-  // 2. Query Live Active Catalog from keyword_serp_current for all folder keywords (Migration 019)
+  // 2. Query Live Active Catalog from keyword_serp_positions for all folder keywords
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
   // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
   // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
@@ -581,37 +581,38 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
           c.keyword_id,
           c.pin_id,
           c.rank_position,
-          c.title,
-          c.domain,
-          c.destination_url,
-          c.image_url,
-          c.creator_username,
-          c.board_name,
-          c.dominant_color,
-          c.visual_annotations,
-          c.creation_method,
-          c.save_count,
-          c.repin_count,
-          c.comment_count,
-          c.daily_save_velocity,
-          c.delta_repins_24h,
-          c.gains_5d,
-          c.gains_7d,
-          c.gains_10d,
-          c.gains_15d,
-          c.created_at_pinterest,
+          ump.title,
+          COALESCE(ump.clean_domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          ump.account_username AS creator_username,
+          (ump.metadata->>'board_name') AS board_name,
+          ump.dominant_color,
+          COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+          ump.creation_method,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.delta_repins_24h,
+          ump.gains_5d,
+          ump.gains_7d,
+          ump.gains_10d,
+          ump.gains_15d,
+          ump.created_at_pinterest,
           c.crawled_at,
-          c.baseline_day_saves,
           c.updated_at AS snapshot_date,
-          (c.metadata->>'aspect_ratio') AS aspect_ratio,
-          (c.metadata->>'format') AS format,
-          (c.metadata->>'seo_title') AS seo_title,
+          (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+          (ump.metadata->>'format') AS format,
+          (ump.metadata->>'seo_title') AS seo_title,
           tk.keyword AS keyword_text,
           i.added_at AS folder_added_at,
-          ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY c.save_count DESC NULLS LAST, c.daily_save_velocity DESC NULLS LAST) AS pin_rn
+          ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY ump.save_count DESC NULLS LAST, ump.daily_save_velocity DESC NULLS LAST) AS pin_rn
         FROM keyword_folder_items i
         JOIN tracked_keywords tk ON tk.id = i.keyword_id
-        JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = c.pin_id
         WHERE i.folder_id = ${fid}
           AND c.is_displaced IS FALSE
           AND c.rank_position IS NOT NULL
@@ -621,49 +622,41 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         ra.keyword_id,
         ra.pin_id,
         ra.rank_position,
-        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.title, ''), ump.title, '') ELSE NULL END AS title,
-        COALESCE(NULLIF(ra.domain, ''), ump.domain, '') AS domain,
-        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.destination_url, ''), ump.destination_url, '') ELSE NULL END AS destination_url,
-        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.image_url, ''), ump.image_url, '') ELSE NULL END AS image_url,
-        COALESCE(NULLIF(ra.creator_username, ''), ump.creator_username, '') AS creator_username,
-        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.board_name, ''), ump.board_name, '') ELSE NULL END AS board_name,
-        COALESCE(NULLIF(NULLIF(ra.dominant_color, ''), '#888888'), NULLIF(ump.dominant_color, '#888888'), NULLIF(ra.dominant_color, ''), ump.dominant_color) AS dominant_color,
-        CASE
-          WHEN ra.pin_rn = 1 THEN
-            CASE
-              WHEN ra.visual_annotations IS NOT NULL AND jsonb_typeof(ra.visual_annotations) = 'array' AND jsonb_array_length(ra.visual_annotations) > 0 THEN ra.visual_annotations
-              ELSE ump.visual_annotations
-            END
-          ELSE NULL
-        END AS visual_annotations,
+        ra.title,
+        ra.domain,
+        ra.destination_url,
+        ra.image_url,
+        ra.creator_username,
+        ra.board_name,
+        ra.dominant_color,
+        ra.visual_annotations,
         ra.creation_method,
-        COALESCE(NULLIF(ra.save_count, 0), ump.save_count, 0) AS save_count,
-        COALESCE(NULLIF(ra.repin_count, 0), ump.repin_count, 0) AS repin_count,
-        GREATEST(COALESCE(ra.comment_count, 0), COALESCE(ump.comment_count, 0)) AS comment_count,
-        COALESCE(ra.daily_save_velocity, ump.daily_save_velocity, 0) AS daily_save_velocity,
-        COALESCE(ra.delta_repins_24h, ump.delta_repins_24h, 0) AS delta_repins_24h,
+        ra.save_count,
+        ra.repin_count,
+        ra.comment_count,
+        ra.daily_save_velocity,
+        ra.daily_repin_velocity,
+        ra.delta_repins_24h,
         ra.gains_5d,
         ra.gains_7d,
         ra.gains_10d,
         ra.gains_15d,
-        COALESCE(ra.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
+        ra.created_at_pinterest,
         ra.crawled_at,
-        ra.baseline_day_saves,
         ra.snapshot_date,
-        COALESCE(NULLIF(ra.aspect_ratio, ''), (ump.metadata->>'aspect_ratio')) AS aspect_ratio,
+        ra.aspect_ratio,
         ra.format,
-        CASE WHEN ra.pin_rn = 1 THEN COALESCE(NULLIF(ra.seo_title, ''), (ump.metadata->>'seo_title')) ELSE NULL END AS seo_title,
+        ra.seo_title,
         ra.keyword_text,
         ra.folder_added_at
       FROM ranked_active ra
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = ra.pin_id
-      ORDER BY ra.pin_rn ASC, ra.save_count DESC, ra.daily_save_velocity DESC;
+      ORDER BY ra.pin_rn ASC, ra.save_count DESC NULLS LAST, ra.daily_save_velocity DESC NULLS LAST;
     `,
     sql`
       WITH active_pin_ids AS (
         SELECT DISTINCT c.pin_id
         FROM keyword_folder_items i
-        JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
         WHERE i.folder_id = ${fid}
           AND c.is_displaced IS FALSE
           AND c.rank_position IS NOT NULL
@@ -673,18 +666,19 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         SELECT
           kdi.keyword_id,
           kdi.pin_id,
-          kdi.last_known_rank AS rank_position,
-          COALESCE(kdi.domain, '') AS domain,
-          COALESCE(kdi.creator_username, '') AS creator_username,
-          COALESCE(kdi.save_count, 0) AS save_count,
-          COALESCE(kdi.repin_count, 0) AS repin_count,
-          COALESCE(kdi.comment_count, 0) AS comment_count,
-          COALESCE(kdi.daily_save_velocity, 0) AS daily_save_velocity,
-          COALESCE(kdi.delta_repins_24h, 0) AS delta_repins_24h,
-          kdi.gains_5d,
-          kdi.gains_7d,
-          kdi.gains_10d,
-          kdi.gains_15d,
+          COALESCE(kdi.last_known_rank, kdi.rank_position) AS rank_position,
+          COALESCE(ump.clean_domain, '') AS domain,
+          COALESCE(ump.account_username, '') AS creator_username,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.delta_repins_24h,
+          ump.gains_5d,
+          ump.gains_7d,
+          ump.gains_10d,
+          ump.gains_15d,
           kdi.updated_at AS snapshot_date,
           tk.keyword AS keyword_text,
           i.added_at AS folder_added_at,
@@ -692,14 +686,14 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
           (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
           ROW_NUMBER() OVER (
             PARTITION BY kdi.pin_id
-            ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, kdi.daily_save_velocity DESC NULLS LAST, kdi.save_count DESC NULLS LAST
+            ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
           ) AS pin_rn
         FROM keyword_folder_items i
         JOIN tracked_keywords tk ON tk.id = i.keyword_id
-        JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
+        JOIN keyword_serp_positions kdi ON kdi.keyword_id = i.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
         WHERE i.folder_id = ${fid}
-          AND kdi.last_known_rank IS NOT NULL
-          AND kdi.last_known_rank >= 1
+          AND kdi.is_displaced IS TRUE
       )
       SELECT
         keyword_id,
@@ -1009,7 +1003,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
       });
     };
 
-    // Central Hub Fallback: 100% Pure Unified PostgreSQL (universal_master_pins, keyword_serp_current, competitor_pins, pa_pins)
+    // Central Hub Fallback: 100% Pure Unified PostgreSQL (universal_master_pins)
     const stillMissingFromHub = missingMetaPins.filter(p => {
       const e = enrichedMap.get(p.pin_id);
       const hasTitle = Boolean(p.raw_title || (e && e.title && !isSyntheticPinTitle(e.title)));
@@ -1021,9 +1015,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
       const hubLookupIds = stillMissingFromHub.map(p => p.pin_id);
       try {
         const hubMeta = await sql`
-          SELECT ump.pin_id, ump.title, ump.domain, ump.destination_url, ump.image_url,
-                 ump.creator_username, ump.board_name, ump.dominant_color, ump.visual_annotations,
-                 ump.alt_text,
+          SELECT ump.pin_id, ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
+                 ump.account_username AS creator_username, (ump.metadata->>'board_name') AS board_name, ump.dominant_color,
+                 COALESCE(ump.metadata->'visual_annotations', '[]'::jsonb) AS visual_annotations,
+                 (ump.metadata->>'alt_text') AS alt_text,
                  ump.description,
                  (ump.metadata->>'seo_title') AS seo_title,
                  ump.created_at_pinterest,

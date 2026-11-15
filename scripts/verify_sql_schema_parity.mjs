@@ -16,79 +16,31 @@ import * as acorn from 'acorn';
 
 console.log('=== Running Forensic SQL Schema Parity & AST Landmine Audit ===\n');
 
-// 1. DDL Schema Definition for Core Tables (Unified PostgreSQL SSOT — Post-Migration 058)
+// 1. DDL Schema Definition for Core Tables (Unified PostgreSQL 4-Table SSOT — Post-Migration 060)
 export const KNOWN_TABLE_COLUMNS = {
-  keyword_serp_current: new Set([
-    'id',
+  keyword_serp_positions: new Set([
     'keyword_id',
     'pin_id',
     'rank_position',
-    'title',
-    'domain',
-    'destination_url',
-    'image_url',
-    'creator_username',
-    'board_name',
-    'save_count',
-    'repin_count',
-    'daily_save_velocity',
-    'dominant_color',
-    'visual_annotations',
-    'crawled_at',
-    'created_at_pinterest',
-    'creation_method',
     'is_displaced',
     'last_known_rank',
     'displaced_date',
     'vacuum_opportunity_score',
-    'comment_count',
-    'share_count',
-    'metadata',
-    'updated_at',
     'prev_rank_position',
-    'baseline_day_saves',
-    'baseline_day_date',
-    'clean_domain',
-    'delta_repins_24h',
-    'gains_5d',
-    'gains_7d',
-    'gains_10d',
-    'gains_15d',
-    'url_global_saves'
-  ]),
-  keyword_displaced_index: new Set([
-    'keyword_id',
-    'pin_id',
-    'last_known_rank',
-    'vacuum_opportunity_score',
-    'displaced_date',
-    'save_count',
-    'repin_count',
-    'comment_count',
-    'share_count',
-    'daily_save_velocity',
+    'crawled_at',
     'updated_at',
-    'domain',
-    'clean_domain',
-    'creator_username',
-    'delta_repins_24h',
-    'gains_5d',
-    'gains_7d',
-    'gains_10d',
-    'gains_15d'
+    'metadata'
   ]),
-  pin_serp_positions: new Set([
+  competitor_board_pins: new Set([
+    'competitor_id',
+    'board_id',
     'pin_id',
-    'snapshot_date',
-    'keyword_id',
-    'rank_position',
-    'is_displaced',
-    'last_known_rank',
-    'catalog_rank',
-    'updated_at'
+    'position',
+    'discovered_at'
   ]),
   pins_daily_metrics: new Set([
     'pin_id',
+    'recorded_date',
     'snapshot_date',
     'save_count',
     'repin_count',
@@ -96,28 +48,13 @@ export const KNOWN_TABLE_COLUMNS = {
     'share_count',
     'reaction_count',
     'daily_save_velocity',
+    'daily_repin_velocity',
     'updated_at'
-  ]),
-  pins_daily_snapshots: new Set([
-    'id',
-    'pin_id',
-    'keyword_id',
-    'competitor_id',
-    'rank_position',
-    'is_displaced',
-    'last_known_rank',
-    'save_count',
-    'repin_count',
-    'comment_count',
-    'share_count',
-    'reaction_count',
-    'daily_save_velocity',
-    'snapshot_date',
-    'created_at'
   ]),
   universal_master_pins: new Set([
     'pin_id',
     'creator_username',
+    'account_username',
     'board_id',
     'board_name',
     'board_slug',
@@ -140,13 +77,19 @@ export const KNOWN_TABLE_COLUMNS = {
     'comment_count',
     'share_count',
     'reaction_count',
+    'is_hydrated',
     'daily_save_velocity',
+    'daily_repin_velocity',
     'delta_saves_24h',
     'delta_repins_24h',
+    'gains_1d',
+    'gains_3d',
     'gains_5d',
     'gains_7d',
     'gains_10d',
+    'gains_14d',
     'gains_15d',
+    'gains_30d',
     'is_product',
     'is_video',
     'creation_method',
@@ -280,33 +223,6 @@ export const KNOWN_TABLE_COLUMNS = {
     'created_at',
     'updated_at'
   ]),
-  competitor_pins: new Set([
-    'id',
-    'competitor_id',
-    'pin_id',
-    'title',
-    'description',
-    'link_domain',
-    'destination_url',
-    'board_name',
-    'image_url',
-    'save_count',
-    'repin_count',
-    'comment_count',
-    'created_at_pinterest',
-    'first_seen_at',
-    'last_seen_at',
-    'metadata',
-    'is_product',
-    'alt_text',
-    'enrichment_status',
-    'updated_at',
-    'enrich_attempts',
-    'claim_token',
-    'board_slug',
-    'is_deleted',
-    'clean_domain'
-  ]),
   competitor_history_snapshots: new Set([
     'id',
     'competitor_id',
@@ -318,31 +234,6 @@ export const KNOWN_TABLE_COLUMNS = {
     'recorded_date',
     'metadata',
     'created_at'
-  ]),
-  pa_pins: new Set([
-    'pin_id',
-    'account_username',
-    'title',
-    'description',
-    'link',
-    'domain',
-    'board_name',
-    'image_url',
-    'dominant_color',
-    'saves',
-    'repins',
-    'comments',
-    'share_count',
-    'reactions',
-    'velocity',
-    'annotations',
-    'is_video',
-    'is_product',
-    'created_at_pinterest',
-    'first_seen_at',
-    'last_updated_at',
-    'alt_text',
-    'clean_domain'
   ]),
   pa_qualification_rules: new Set([
     'id',
@@ -492,10 +383,10 @@ for (const file of filesToScan) {
   const content = fs.readFileSync(file, 'utf8');
 
   // 1. File-wide Code-Level Checks
-  if (/crawled_at\s*=\s*COALESCE\s*\(\s*(?:keyword_serp_current\.)?crawled_at\s*,\s*EXCLUDED\.crawled_at\s*\)/i.test(content)) {
-    console.error(`🚨 [LANDMINE DETECTED] Inverted crawled_at COALESCE in keyword_serp_current upsert`);
+  if (/crawled_at\s*=\s*COALESCE\s*\(\s*(?:keyword_serp_positions\.)?crawled_at\s*,\s*EXCLUDED\.crawled_at\s*\)/i.test(content)) {
+    console.error(`🚨 [LANDMINE DETECTED] Inverted crawled_at COALESCE in keyword_serp_positions upsert`);
     console.error(`   File: ${file}`);
-    console.error(`   Fix:  EXCLUDED.crawled_at must precede keyword_serp_current.crawled_at\n`);
+    console.error(`   Fix:  EXCLUDED.crawled_at must precede keyword_serp_positions.crawled_at\n`);
     violationCount++;
   }
 
@@ -561,13 +452,13 @@ for (const file of filesToScan) {
       violationCount++;
     }
 
-    // Architectural Guard 3: Ban queries targeting tables/views permanently dropped in Migration 058
+    // Architectural Guard 3: Ban queries targeting tables/views permanently dropped in Migration 060
     if (!isTestOrMigrationOrSeed && !file.includes('optimize_hub_storage.mjs')) {
-      const legacyDropMatch = query.match(/\b(?:FROM|INTO|UPDATE|JOIN)\s+(?:public\.)?(pa_pin_metrics|neon_projects_registry|keyword_displaced_pins|creator_profiles|creator_boards)\b/i);
+      const legacyDropMatch = query.match(/\b(?:FROM|INTO|UPDATE|JOIN)\s+(?:public\.)?(pa_pin_metrics|neon_projects_registry|keyword_displaced_pins|creator_boards|pa_pins|competitor_pins|keyword_displaced_index|keyword_serp_current|pin_serp_positions|crawler_shard_heartbeats)\b/i);
       if (legacyDropMatch) {
         console.error(`🚨 [ARCHITECTURAL GUARD] Query references dropped legacy table/view '${legacyDropMatch[1]}'!`);
         console.error(`   File: ${file}:${line}`);
-        console.error(`   Fix:  Post-Migration 058 Unified PostgreSQL SSOT eradicated '${legacyDropMatch[1]}'.\n`);
+        console.error(`   Fix:  Post-Migration 060 Unified PostgreSQL 4-Table SSOT eradicated '${legacyDropMatch[1]}'.\n`);
         violationCount++;
       }
     }
@@ -650,37 +541,7 @@ for (const file of filesToScan) {
         }
       }
 
-      // Explicit bans for known historic regressions:
-      if (tableName === 'keyword_serp_current') {
-        if (/(?:sc|ksc|keyword_serp_current)\.reaction_count\b/i.test(query) ||
-            (!/\bFROM\s*\(/i.test(query) && /,\s*reaction_count\s*,/i.test(query))) {
-          console.error(`🚨 [LANDMINE DETECTED] Fake reaction_count in SQL query on keyword_serp_current`);
-          console.error(`   File: ${file}:${line}`);
-          console.error(`   Fix:  keyword_serp_current does NOT have reaction_count column in SQL; use 0 as reaction_count\n`);
-          violationCount++;
-        }
-      }
 
-      if (tableName === 'keyword_displaced_index') {
-        if (/\blast_rank\b/i.test(query)) {
-          console.error(`🚨 [LANDMINE DETECTED] Fake column last_rank on keyword_displaced_index`);
-          console.error(`   File: ${file}:${line}`);
-          console.error(`   Fix:  keyword_displaced_index uses last_known_rank, NOT last_rank\n`);
-          violationCount++;
-        }
-        if (/\blast_saves\b/i.test(query)) {
-          console.error(`🚨 [LANDMINE DETECTED] Fake column last_saves on keyword_displaced_index`);
-          console.error(`   File: ${file}:${line}`);
-          console.error(`   Fix:  keyword_displaced_index uses save_count, NOT last_saves\n`);
-          violationCount++;
-        }
-        if (/\blast_checked_at\b/i.test(query)) {
-          console.error(`🚨 [LANDMINE DETECTED] Fake column last_checked_at on keyword_displaced_index`);
-          console.error(`   File: ${file}:${line}`);
-          console.error(`   Fix:  keyword_displaced_index uses updated_at, NOT last_checked_at\n`);
-          violationCount++;
-        }
-      }
     }
   }
 }

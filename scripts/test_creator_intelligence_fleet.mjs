@@ -163,16 +163,14 @@ runTest('Crawler integrates board crawling and respects board filters in Mode B'
   assert(content.includes('targetBoardsInput'), 'Crawler must support targetBoardsInput filter');
 });
 
-runTest('Crawler uses crawler_shard_heartbeats for zero-hang peer barrier synchronization', () => {
+runTest('Crawler uses ABS(hashtext(pin_id::text)) % workerTotal for deterministic partitioning', () => {
   const content = fs.readFileSync(path.resolve(process.cwd(), 'scripts/creator-velocity-crawler.mjs'), 'utf8');
-  assert(content.includes('crawler_shard_heartbeats'), 'Crawler must coordinate via crawler_shard_heartbeats');
-  assert(content.includes('crawling_phase1'), 'Crawler must declare crawling_phase1 state');
-  assert(content.includes('phase1_done'), 'Crawler must declare phase1_done state');
+  assert(content.includes('ABS(hashtext('), 'Crawler must partition pins using ABS(hashtext(...))');
 });
 
-runTest('reconcileQualifiedCatalogPins checks physical is_deleted column for index seek parity', () => {
+runTest('reconcileQualifiedCatalogPins evaluates qualification on competitor_board_pins and universal_master_pins', () => {
   const content = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/creators/creator-ingest.mjs'), 'utf8');
-  assert(content.includes('(cp.is_deleted IS NULL OR cp.is_deleted = FALSE)'), 'reconcile query must check physical is_deleted column');
+  assert(content.includes('competitor_board_pins') && content.includes('universal_master_pins'), 'reconcile query must join competitor_board_pins and universal_master_pins');
 });
 
 // -----------------------------------------------------------------------------

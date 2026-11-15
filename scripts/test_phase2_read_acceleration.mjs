@@ -153,7 +153,7 @@ async function runPhase2Verification() {
   // =========================================================================
   console.log('\n[TEST 4] fetchUniversalPinDossier Unified PostgreSQL Parallel Queries');
 
-  await testAsync('fetchUniversalPinDossier queries universal_master_pins and keyword_serp_current concurrently', async () => {
+  await testAsync('fetchUniversalPinDossier queries universal_master_pins and keyword_serp_positions concurrently', async () => {
     let masterQueried = false;
     let serpQueried = false;
 
@@ -165,6 +165,7 @@ async function runPhase2Verification() {
           pin_id: '999888777666',
           title: 'Parallel Dossier Pin',
           domain: 'example.com',
+          clean_domain: 'example.com',
           destination_url: 'https://example.com/item',
           image_url: 'https://example.com/image.jpg',
           save_count: 500,
@@ -173,16 +174,13 @@ async function runPhase2Verification() {
           visual_annotations: ['baking', 'dessert']
         }];
       }
-      if (q.includes('FROM keyword_serp_current')) {
+      if (q.includes('FROM keyword_serp_positions')) {
         serpQueried = true;
         return [{
           keyword_id: 10,
           pin_id: '999888777666',
-          title: 'Parallel Dossier Pin',
-          save_count: 500,
-          repin_count: 120,
           rank_position: 1,
-          visual_annotations: ['dessert', 'pastry']
+          is_displaced: false
         }];
       }
       if (q.includes('FROM pins_daily_snapshots') || q.includes('FROM pins_daily_metrics')) {
@@ -198,65 +196,50 @@ async function runPhase2Verification() {
     assert.strictEqual(dossier.success, true, 'Dossier must return success: true');
     assert.strictEqual(dossier.pin_id, '999888777666', 'Pin ID must match');
     assert.strictEqual(masterQueried, true, 'universal_master_pins query must have executed');
-    assert.strictEqual(serpQueried, true, 'keyword_serp_current query must have executed concurrently');
-    // Set union of visual annotations: ['baking', 'dessert'] + ['dessert', 'pastry'] -> 3 items
-    assert.strictEqual(dossier.creative?.visual_annotations?.length, 3, 'Visual annotations must be unified set union');
+    assert.strictEqual(serpQueried, true, 'keyword_serp_positions query must have executed concurrently');
+    assert.strictEqual(dossier.creative?.visual_annotations?.length, 2, 'Visual annotations must match');
   });
 
   // =========================================================================
   // 5. Active Catalog Direct Reads with Fallback in getKeywordPins
   // =========================================================================
-  console.log('\n[TEST 5] getKeywordPins Active Catalog (keyword_serp_current) & Fallback');
+  console.log('\n[TEST 5] getKeywordPins Active Catalog (keyword_serp_positions) & Fallback');
 
-  await testAsync('getKeywordPins reads from keyword_serp_current when active rows exist', async () => {
-    let serpCurrentQueried = false;
-    let snapshotsQueried = false;
+  await testAsync('getKeywordPins reads from keyword_serp_positions when active rows exist', async () => {
+    let serpQueried = false;
 
     const mockSql = async (strings) => {
       const q = String(strings);
-      if (q.includes('FROM keyword_serp_current')) {
-        serpCurrentQueried = true;
+      if (q.includes('FROM keyword_serp_positions')) {
+        serpQueried = true;
         return [
           { pin_id: '111', rank_position: 1, title: 'Pin 1' },
           { pin_id: '222', rank_position: 2, title: 'Pin 2' }
         ];
-      }
-      if (q.includes('FROM keyword_pins_snapshots')) {
-        snapshotsQueried = true;
-        return [];
       }
       return [];
     };
 
     const pins = await getKeywordPins(mockSql, 42);
     assert.strictEqual(pins.length, 2, 'Must retrieve 2 pins from active catalog');
-    assert.strictEqual(serpCurrentQueried, true, 'keyword_serp_current must be queried first');
-    assert.strictEqual(snapshotsQueried, false, 'keyword_pins_snapshots must NOT be queried when active rows exist');
+    assert.strictEqual(serpQueried, true, 'keyword_serp_positions must be queried first');
   });
 
-  await testAsync('getKeywordPins returns empty array when keyword_serp_current is empty (zero Hub snapshots)', async () => {
-    let serpCurrentQueried = false;
-    let snapshotsQueried = false;
+  await testAsync('getKeywordPins returns empty array when keyword_serp_positions is empty', async () => {
+    let serpQueried = false;
 
     const mockSql = async (strings) => {
       const q = String(strings);
-      if (q.includes('FROM keyword_serp_current')) {
-        serpCurrentQueried = true;
+      if (q.includes('FROM keyword_serp_positions')) {
+        serpQueried = true;
         return []; // 0 active rows
-      }
-      if (q.includes('FROM keyword_pins_snapshots')) {
-        snapshotsQueried = true;
-        return [
-          { pin_id: '999', rank_position: 1, title: 'Legacy Pin 1' }
-        ];
       }
       return [];
     };
 
     const pins = await getKeywordPins(mockSql, 99);
     assert.strictEqual(pins.length, 0, 'Must return empty array');
-    assert.strictEqual(serpCurrentQueried, true, 'keyword_serp_current must be checked');
-    assert.strictEqual(snapshotsQueried, false, 'keyword_pins_snapshots must NOT be queried on Hub');
+    assert.strictEqual(serpQueried, true, 'keyword_serp_positions must be checked');
   });
 
   console.log('\n' + '='.repeat(80));

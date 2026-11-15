@@ -316,17 +316,18 @@ async function main() {
   }
 
   if (seedIds.length === 0) {
-    // Fail-safe auto-seeding: fetch top 10 saved pins from competitor_pins if available
+    // Fail-safe auto-seeding: fetch top 10 saved pins from competitor_board_pins if available
     const topPins = await sql`
-      SELECT pin_id 
-      FROM competitor_pins 
-      WHERE competitor_id = ${competitorId} 
-      ORDER BY save_count DESC NULLS LAST 
+      SELECT cbp.pin_id 
+      FROM competitor_board_pins cbp
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      WHERE cbp.competitor_id = ${competitorId} 
+      ORDER BY ump.save_count DESC NULLS LAST 
       LIMIT 10;
     `;
     if (topPins.length > 0) {
       seedIds = topPins.map(p => p.pin_id);
-      console.log(`[*] No explicit seeds found, auto-seeded top ${seedIds.length} winning pins from competitor_pins.`);
+      console.log(`[*] No explicit seeds found, auto-seeded top ${seedIds.length} winning pins from competitor_board_pins.`);
     } else {
       console.log('[-] No seed pins found to crawl. Register seeds first via UI or --pins argument.');
       process.exit(0);
@@ -337,9 +338,10 @@ async function main() {
   const cleanSeedIds = [...new Set(seedIds)].sort();
   if (cleanSeedIds.length > 0) {
     const metaRows = await sql`
-      SELECT pin_id, title, image_url, board_name, save_count
-      FROM competitor_pins
-      WHERE competitor_id = ${competitorId} AND pin_id = ANY(${cleanSeedIds});
+      SELECT cbp.pin_id, ump.title, ump.image_url, ump.board_name, ump.save_count
+      FROM competitor_board_pins cbp
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      WHERE cbp.competitor_id = ${competitorId} AND cbp.pin_id = ANY(${cleanSeedIds});
     `;
     const metaMap = new Map();
     for (const m of metaRows) metaMap.set(m.pin_id, m);
