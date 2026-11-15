@@ -373,18 +373,18 @@ export function createRound16MockSql(dataset, overrides = {}) {
       : (typeof strings === 'string' ? strings : String(strings));
     callLog.push({ query: rawQuery, values });
 
-    // 1. Active SERP Query (with kw_folders CTE and keyword_serp_current)
-    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_current')) {
+    // 1. Active SERP Query (with kw_folders CTE and keyword_serp_positions)
+    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_positions')) {
       return overrides.activeSerpRows || dataset.activeSerpRows;
     }
 
     // 2A. Displaced Vacuum Counts
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('displaced_top10_24h_count')) {
+    if (rawQuery.includes('displaced_top10_24h_count')) {
       return overrides.vacuumCounts || dataset.vacuumCounts;
     }
 
     // 2B. Displaced Top Vault Surge Pins
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('daily_save_velocity > 0'))) {
+    if (rawQuery.includes('top_vault') && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('daily_save_velocity > 0') || rawQuery.includes('is_displaced = TRUE'))) {
       return overrides.vaultPins || dataset.vaultPins;
     }
 
@@ -393,8 +393,8 @@ export function createRound16MockSql(dataset, overrides = {}) {
       return overrides.creatorRows || dataset.creatorRows;
     }
 
-    // 2C. Surging Creator Pins query (competitor_pins)
-    if (rawQuery.includes('FROM competitor_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators')) {
+    // 2C. Surging Creator Pins query (competitor_board_pins)
+    if (rawQuery.includes('FROM competitor_board_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators')) {
       return overrides.viralCreatorPins || dataset.viralCreatorPins;
     }
 
@@ -403,13 +403,8 @@ export function createRound16MockSql(dataset, overrides = {}) {
       return overrides.capsuleRows || dataset.capsuleRows;
     }
 
-    // 5A. PinArchive Winners
-    if (rawQuery.includes('FROM pa_pins pa')) {
-      return overrides.paWinners || dataset.paWinners;
-    }
-
-    // 5B. Domain Rollups
-    if (rawQuery.includes('FROM domain_intelligence_rollup dir')) {
+    // 5. Domain Rollups
+    if (rawQuery.includes('FROM domain_intelligence_rollup dir') || rawQuery.includes('FROM mv_pulse_24h_summary')) {
       return overrides.domainRollups || dataset.domainRollups;
     }
 
@@ -563,15 +558,15 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
     clearAllPulseCaches();
   });
 
-  it('2.1 queryBreakoutCreators query avoids unshielded ::numeric casts and uses safe CROSS JOIN LATERAL', async () => {
+  it('2.1 queryBreakoutCreators query avoids unshielded ::numeric casts and uses physical SSOT columns', async () => {
     const dataset = buildProductionScaleDataset();
     const mockSql = createRound16MockSql(dataset);
 
     await getGlobal24hPulseService(mockSql, {}, { forceRefresh: true, bypassCache: true, testId: 'gate2_1' });
 
     const callLog = mockSql.getCallLog();
-    const creatorQuery = callLog.find(c => c.query.includes('FROM top_creators') || c.query.includes('ranked_pins AS ('));
-    assert.ok(creatorQuery, 'Query for breakout creators (ranked_pins) must be executed');
+    const creatorQuery = callLog.find(c => c.query.includes('FROM top_creators') || c.query.includes('active_creators'));
+    assert.ok(creatorQuery, 'Query for breakout creators must be executed');
 
     const rawSql = creatorQuery.query;
 
@@ -589,17 +584,9 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
       false,
       'queryBreakoutCreators must NOT use unshielded (cpin.metadata->>\'daily_save_velocity\')::numeric'
     );
-
-    // Assert that safe CROSS JOIN LATERAL or regex sanitization is used
-    const hasSafeLateral = /CROSS\s+JOIN\s+LATERAL/i.test(rawSql);
-    const hasRegexShield = /NULLIF\s*\(\s*regexp_replace/i.test(rawSql);
-    assert.ok(
-      hasSafeLateral || hasRegexShield,
-      'queryBreakoutCreators must use CROSS JOIN LATERAL with NULLIF(regexp_replace(...)) to protect against malformed metadata'
-    );
   });
 
-  it('2.2 queryViralCreatorPins uses CROSS JOIN LATERAL, pre-filters cpin.metadata ?| array[...], and caps at LIMIT 120', async () => {
+  it('2.2 queryViralCreatorPins uses physical columns on universal_master_pins and caps at LIMIT 120', async () => {
     const dataset = buildProductionScaleDataset();
     const mockSql = createRound16MockSql(dataset);
 
@@ -607,7 +594,7 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
 
     const callLog = mockSql.getCallLog();
     const viralPinsQuery = callLog.find(c =>
-      c.query.includes('FROM competitor_pins') &&
+      c.query.includes('FROM competitor_board_pins') &&
       !c.query.includes('top_creators') &&
       !c.query.includes('active_creators')
     );
@@ -615,25 +602,11 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
 
     const rawSql = viralPinsQuery.query;
 
-    // Must use CROSS JOIN LATERAL
-    assert.match(
-      rawSql,
-      /CROSS\s+JOIN\s+LATERAL/i,
-      'queryViralCreatorPins must use CROSS JOIN LATERAL to calculate regex-cleaned metrics once per row'
-    );
-
-    // Must pre-filter JSONB keys with ?| or ? operator
-    const hasJsonbKeyPreFilter = /cpin\.metadata\s*(\?\||\?)/.test(rawSql);
-    assert.ok(
-      hasJsonbKeyPreFilter,
-      'queryViralCreatorPins must pre-filter with cpin.metadata ?| or ? to eliminate full-table 162k regex scans'
-    );
-
     // Must cap at LIMIT 120
     assert.match(
       rawSql,
-      /LIMIT\s+120\b/i,
-      'queryViralCreatorPins must be bounded by LIMIT 120'
+      /LIMIT\s+120/i,
+      'queryViralCreatorPins must cap results at LIMIT 120'
     );
   });
 });
@@ -973,24 +946,17 @@ describe('Gate 5: Vault Hub-Enrichment & Anti-Skeleton Ranking Gate', () => {
     );
   });
 
-  it('5.3 Top 100 pa_pins are merged into pinMap and enrich matching pins', async () => {
+  it('5.3 4-table SSOT: legacy pa_pins is dropped and universal_master_pins provides canonical pins', async () => {
     const dataset = buildProductionScaleDataset();
     const mockSql = createRound16MockSql(dataset);
 
-    const payload = await getGlobal24hPulseService(mockSql, {}, { forceRefresh: true, bypassCache: true, testId: 'gate5_3' });
-    const pins = Array.isArray(payload.breakout_pins)
-      ? payload.breakout_pins
-      : (payload.breakout_pins.top_breakouts || []);
-
-    // Verify that qualified pa_pins winners are merged into pinMap
-    const paPin = pins.find(p => p.pin_id === 'pin_prod_pa_1');
-    assert.ok(
-      paPin,
-      'Qualified PinArchive winner pin_prod_pa_1 must be merged into pinMap and appear in breakout_pins'
-    );
-    assert.ok(
-      paPin.sources && paPin.sources.includes('pinarchive_winner'),
-      "paPin.sources must include 'pinarchive_winner'"
+    await getGlobal24hPulseService(mockSql, {}, { forceRefresh: true, bypassCache: true, testId: 'gate5_3' });
+    const callLog = mockSql.getCallLog();
+    const hasPaPinsQuery = callLog.some(c => c.query.includes('FROM pa_pins'));
+    assert.strictEqual(
+      hasPaPinsQuery,
+      false,
+      'Pulse service in 4-table SSOT must NOT query dropped table pa_pins'
     );
   });
 });

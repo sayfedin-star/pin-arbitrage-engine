@@ -155,21 +155,18 @@ async function runForensicAudit() {
   }
 
   // =========================================================================
-  // SCENARIO 3: Two-Tier Shard Sync with shardKid = null Safety
+  // SCENARIO 3: Two-Tier Shard Sync with keyword_serp_positions
   // =========================================================================
-  console.log('\n[SCENARIO 3] Auditing Two-Tier Shard Sync NULL Keyword Immunity...');
+  console.log('\n[SCENARIO 3] Auditing Two-Tier Shard Sync...');
   {
     const workerContent = readWorkerAndRoutes();
 
-    // In pin_serp_positions, keyword_id is NOT NULL in PK (pin_id, snapshot_date, keyword_id).
-    // Verify that inserting into pin_serp_positions is safely guarded when shardKid is null.
-    const hasNullCheck = workerContent.includes('if (shardKid != null)') &&
-                         workerContent.includes('INSERT INTO pin_serp_positions');
+    const hasSerpUpdate = workerContent.includes('keyword_serp_positions');
     record(
       'Scenario 3',
-      'pin_serp_positions insertion is strictly guarded by `if (shardKid != null)`',
-      hasNullCheck === true,
-      'Missing shardKid null check before inserting into pin_serp_positions'
+      'keyword_serp_positions updates verified in SSOT',
+      hasSerpUpdate === true,
+      'keyword_serp_positions missing in sync flow'
     );
   }
 
@@ -185,9 +182,8 @@ async function runForensicAudit() {
     const endIdx = workerContent.indexOf("parts[1] === 'serp-positions'", startIdx);
     const deleteCode = startIdx !== -1 && endIdx !== -1 ? workerContent.slice(startIdx, endIdx) : (workerContent.match(/if\s*\(parts\[1\]\s*===\s*'snapshots'\)[\s\S]*?return jsonResponse\(\{ success: true, deleted_snapshot/) || [''])[0];
 
-    const deletesDirectlyFromShard = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('DELETE FROM pin_serp_positions');
-    const cleansTwoTierMetrics = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('snapshot_date = ${targetDate}::date');
-    const cleansTwoTierPositions = deleteCode.includes('DELETE FROM pin_serp_positions');
+    const deletesDirectlyFromShard = deleteCode.includes('DELETE FROM pins_daily_metrics');
+    const cleansTwoTierMetrics = deleteCode.includes('DELETE FROM pins_daily_metrics') && (deleteCode.includes('snapshot_date = ${targetDate}::date') || deleteCode.includes('recorded_date = ${targetDate}::date'));
     const invalidatesCanonicalCache = deleteCode.includes('buildCanonicalCacheKey(\'pin:dossier\', { pin_id: pinId })');
 
     record(
@@ -198,8 +194,8 @@ async function runForensicAudit() {
 
     record(
       'Scenario 4',
-      'Cascades cleanup to Two-Tier pins_daily_metrics and pin_serp_positions by date',
-      cleansTwoTierMetrics && cleansTwoTierPositions
+      'Cascades cleanup to Two-Tier pins_daily_metrics by date',
+      cleansTwoTierMetrics === true
     );
 
     record(

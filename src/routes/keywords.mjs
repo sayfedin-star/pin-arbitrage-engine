@@ -192,7 +192,7 @@ export async function handleKeywordsRoutes({
         if (sql && count > 0) {
           safeWaitUntil(ctx, (async () => {
             await sql`
-              UPDATE keyword_serp_current
+              UPDATE universal_master_pins
               SET url_global_saves = ${count}
               WHERE destination_url = ${cleanUrl}
                  OR destination_url = ${cleanUrl + '/'}
@@ -282,13 +282,13 @@ export async function handleKeywordsRoutes({
       }
     }
 
-    // Write-Back UPDATE to keyword_serp_current.url_global_saves via safeWaitUntil
+    // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
     if (sql && writeBackEntries.length > 0) {
       safeWaitUntil(ctx, (async () => {
         for (const entry of writeBackEntries) {
           if (entry.count > 0 && entry.url) {
             await sql`
-              UPDATE keyword_serp_current
+              UPDATE universal_master_pins
               SET url_global_saves = ${entry.count}
               WHERE destination_url = ${entry.url}
                  OR destination_url = ${entry.url + '/'}
@@ -316,8 +316,7 @@ export async function handleKeywordsRoutes({
     const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
 
 
-    const epoch = '0';
-    const cacheKey = buildCanonicalCacheKey(`keywords:hub:ep:${epoch}`, {
+    const cacheKey = buildCanonicalCacheKey('keywords:hub', {
       search,
       limit,
       offset,
@@ -325,14 +324,12 @@ export async function handleKeywordsRoutes({
     });
 
     if (forceRefresh) {
-      // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
-      // Invalidate edge memory cache; do not blank D1 SQLite table during refresh
+      // Invalidate edge memory cache
       await invalidateEdgeCache('keywords');
       await invalidateEdgeCache(cacheKey);
     }
 
-    // [INVARIANT: 6H-EPOCH-BACKED-EDGE-TTL]
-    // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms) backed by fleet:cache_epoch
+    // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms)
     const SIX_HOURS_MS = 21600000;
     const ONE_HOUR_MS = 3600000;
 
@@ -344,7 +341,7 @@ export async function handleKeywordsRoutes({
           offset,
           folderId
         });
-      }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh, epoch });
+      }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh });
 
 
       return jsonResponse({
@@ -567,34 +564,23 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
     }
 
-    // 1. Ensure persistent distributed tombstone table exists on Central Hub
-    await sql`
-      CREATE TABLE IF NOT EXISTS keyword_tombstones (
-        keyword_id INT PRIMARY KEY,
-        keyword TEXT,
-        deleted_at TIMESTAMPTZ DEFAULT NOW(),
-        shards_purged BOOLEAN DEFAULT FALSE,
-        purged_at TIMESTAMPTZ
-      );
-    `.catch(() => {});
-
-    // 2. Fetch keyword metadata for the tombstone audit trail
+    // 1. Fetch keyword metadata for the tombstone audit trail
     const existingKw = await sql`
       SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
     `.catch(() => []);
 
-    // 3. Record tombstones in unified keyword_tombstones audit trail
+    // 2. Record tombstones in unified keyword_tombstones audit trail
     if (existingKw.length > 0) {
       await sql`
-        INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged, purged_at)
-        SELECT u.id, u.keyword, NOW(), TRUE, NOW()
+        INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, purged_at)
+        SELECT u.id, u.keyword, NOW(), NOW()
         FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
-        ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), shards_purged = TRUE, purged_at = NOW();
+        ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), purged_at = NOW();
       `.catch(() => {});
     }
 
-    // 4. Clean Central Hub items & execute deletion from tracked_keywords
-    await sql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+    // 3. Clean Central Hub items & execute deletion from tracked_keywords
+    await sql`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
 
@@ -631,17 +617,12 @@ export async function handleKeywordsRoutes({
         console.warn('[Tombstone] Failed to record ignored pin:', err.message);
       });
 
-      // Manual Deletion Only Directive: remove from unified keyword catalog & keyword snapshots & displaced vault
+      // Remove from keyword_serp_positions
       const delRes = await sql`
-        DELETE FROM keyword_serp_current
+        DELETE FROM keyword_serp_positions
         WHERE keyword_id = ${keywordId} AND pin_id = ${pinId}
         RETURNING pin_id;
       `;
-      await sql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId} AND keyword_id = ${keywordId};`.catch(() => {});
-      await sql`
-        DELETE FROM keyword_displaced_index
-        WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
-      `.catch(() => {});
 
 
       return jsonResponse({
@@ -1216,8 +1197,6 @@ export async function handleKeywordsRoutes({
         const withDiscovery = searchParams.get('discovery') !== 'false';
         const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
         const vaultScope = searchParams.get('vault_scope') || 'high_signal';
-
-        let epoch = '0';
 
         let payload;
         if (withDiscovery) {

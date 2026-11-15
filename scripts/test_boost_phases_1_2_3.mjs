@@ -64,7 +64,7 @@ runTest('Phase 1.3: src/modules/competitors/service.mjs imports computePinStage 
   assert.ok(compServiceCode.includes('qualified_total'), 'Must compute and return qualified_total');
   assert.ok(compServiceCode.includes('high_velocity'), 'Must handle high_velocity filter');
   assert.ok(compServiceCode.includes('changed_only'), 'Must handle changed_only filter');
-  assert.ok(compServiceCode.includes('pa.velocity'), 'Must sort by or project pa.velocity');
+  assert.ok(compServiceCode.includes('ump.daily_save_velocity'), 'Must sort by or project ump.daily_save_velocity');
 });
 
 runTest('Phase 1.4: src/dashboard-ui.mjs unified tab routing and filter controls', () => {
@@ -106,8 +106,8 @@ runTest('Phase 2.1: creator-velocity-crawler.mjs calls reconcileQualifiedCatalog
 });
 
 runTest('Phase 2.2: creator-velocity-crawler.mjs eliminates LIMIT 50 bottleneck across winning pins slice', () => {
-  assert.ok(crawlerCode.includes('FROM pa_pins p'), 'Must query winning pins from pa_pins');
-  assert.ok(!crawlerCode.includes('SELECT pin_id, account_username FROM pa_pins LIMIT 50'), 'Must avoid legacy LIMIT 50 bottleneck');
+  assert.ok(crawlerCode.includes('FROM universal_master_pins p'), 'Must query winning pins from universal_master_pins');
+  assert.ok(!crawlerCode.includes('LIMIT 50'), 'Must avoid legacy LIMIT 50 bottleneck');
 });
 
 runTest('Phase 2.3: creator-velocity-crawler.mjs implements 8-worker concurrent pool and two-speed fetch', () => {
@@ -124,7 +124,7 @@ runTest('Phase 2.4: creator-velocity-crawler.mjs implements monotonic saves fall
 });
 
 runTest('Phase 2.5: creator-velocity-crawler.mjs normalizes daily refresh velocity via computeNormalized24hVelocity', () => {
-  assert.ok(crawlerCode.includes('p.velocity, p.last_updated_at, p.created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
+  assert.ok(crawlerCode.includes('last_updated_at') && crawlerCode.includes('created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
   assert.ok(crawlerCode.includes('computeNormalized24hVelocity'), 'Must compute normalized 24h velocity');
 
   // Functional simulation of velocity normalization math

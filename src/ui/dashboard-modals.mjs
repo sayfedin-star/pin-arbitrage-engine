@@ -1727,11 +1727,11 @@ export function getDashboardModalsHtml() {
         </div>
       </div>
 
-      <!-- Section 4: Winning Pin Qualification Criteria (pa_pins) -->
+      <!-- Section 4: Winning Pin Qualification Criteria -->
       <div class="space-y-3">
         <div class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#71717A] flex items-center space-x-1.5">
           <i data-lucide="award" class="w-3.5 h-3.5 text-emerald-500"></i>
-          <span>Inherited Qualification Rules (pa_pins)</span>
+          <span>Inherited Qualification Rules</span>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="p-3 rounded-xl bg-slate-50/50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A] space-y-1.5">

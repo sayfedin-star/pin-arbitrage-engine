@@ -175,29 +175,31 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
     const jsonPayload = JSON.stringify(chunk);
     await withDbRetry(() => dbSql`
       INSERT INTO pins_daily_metrics (
-        pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+        pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
       )
       SELECT 
         x.pin_id, 
         (NOW() AT TIME ZONE 'UTC')::date, 
-        COALESCE(x.saves, 0)::bigint, 
-        COALESCE(x.repins, 0)::int, 
+        x.saves::bigint, 
+        x.repins::bigint, 
         COALESCE(x.comments, 0)::int,
         COALESCE(x.share_count, 0)::int,
         COALESCE(x.reaction_count, 0)::int,
-        COALESCE(x.velocity, 0)::numeric,
+        x.velocity::numeric,
+        x.repin_velocity::numeric,
         NOW()
       FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-        pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC
+        pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC, repin_velocity NUMERIC
       )
       ORDER BY x.pin_id ASC
-      ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
-        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(pins_daily_metrics.save_count, 0) END,
-        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(pins_daily_metrics.repin_count, 0) END,
-        comment_count = CASE WHEN EXCLUDED.comment_count > 0 THEN EXCLUDED.comment_count ELSE COALESCE(pins_daily_metrics.comment_count, 0) END,
-        share_count = CASE WHEN EXCLUDED.share_count > 0 THEN EXCLUDED.share_count ELSE COALESCE(pins_daily_metrics.share_count, 0) END,
-        reaction_count = CASE WHEN EXCLUDED.reaction_count > 0 THEN EXCLUDED.reaction_count ELSE COALESCE(pins_daily_metrics.reaction_count, 0) END,
+      ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
+        save_count = EXCLUDED.save_count,
+        repin_count = EXCLUDED.repin_count,
+        comment_count = EXCLUDED.comment_count,
+        share_count = EXCLUDED.share_count,
+        reaction_count = EXCLUDED.reaction_count,
         daily_save_velocity = EXCLUDED.daily_save_velocity,
+        daily_repin_velocity = EXCLUDED.daily_repin_velocity,
         updated_at = NOW();
     `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
     totalCommitted += chunk.length;
@@ -467,19 +469,6 @@ async function run() {
     if (workerIndex === 0) {
       console.log(`\n[*] [Phase 1: Worker 0] Ingesting profile, board list, and feed for @${targetAccount}...`);
 
-      // Register Phase 1 heartbeat
-      await sql`
-        INSERT INTO crawler_shard_heartbeats (
-          competitor_id, shard_number, shard_total, status, updated_at
-        ) VALUES (
-          ${targetId}, 0, ${workerTotal}, 'crawling_phase1', NOW()
-        )
-        ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
-          shard_total = ${workerTotal},
-          status = 'crawling_phase1',
-          updated_at = NOW();
-      `.catch(() => {});
-
       try {
         await syncCompetitorProfile(sql, targetAccount, cookie, { pulseOnly: isPulseOnly });
       } catch (err) {
@@ -503,21 +492,19 @@ async function run() {
           console.warn(`[Phase 1] Pins discovery warning:`, err.message);
         }
 
-        // Signal boards_ready so all 20 workers can partition and crawl boards in parallel
+        // Signal boards_ready so all workers can partition and crawl boards in parallel
         await sql`
-          UPDATE crawler_shard_heartbeats
-          SET status = 'boards_ready',
-              updated_at = NOW()
-          WHERE competitor_id = ${targetId} AND shard_number = 0;
+          UPDATE competitor_profiles
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_time', NOW()::text)
+          WHERE id = ${targetId};
         `.catch(() => {});
-        console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for 20-worker parallel board swarm.`);
+        console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for parallel board swarm.`);
       } else {
         console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
         await sql`
-          UPDATE crawler_shard_heartbeats
-          SET status = 'phase1_done',
-              updated_at = NOW()
-          WHERE competitor_id = ${targetId} AND shard_number = 0;
+          UPDATE competitor_profiles
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'phase1_done', 'phase1_time', NOW()::text)
+          WHERE id = ${targetId};
         `.catch(() => {});
       }
     } else {
@@ -528,21 +515,19 @@ async function run() {
       const isCI = process.env.GITHUB_ACTIONS === 'true';
 
       while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
-        const [hb] = await sql`
-          SELECT status, updated_at
-          FROM crawler_shard_heartbeats
-          WHERE competitor_id = ${targetId}
-            AND shard_number = 0
-            AND updated_at > NOW() - INTERVAL '10 minutes';
+        const [prof] = await sql`
+          SELECT metadata->>'phase1_status' AS status
+          FROM competitor_profiles
+          WHERE id = ${targetId};
         `.catch(() => [null]);
 
-        if (hb && (hb.status === 'boards_ready' || hb.status === 'crawling_boards' || hb.status === 'phase1_done')) {
+        if (prof && (prof.status === 'boards_ready' || prof.status === 'crawling_boards' || prof.status === 'phase1_done')) {
           console.log(`[Phase 1] Boards ready signal received from Worker 0 in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
         }
 
-        if (!isCI && (!hb || hb.status !== 'crawling_phase1')) {
-          console.log(`[Phase 1] Local single-worker test detected (no active Worker 0 heartbeat). Proceeding.`);
+        if (!isCI && (!prof || prof.status !== 'crawling_phase1')) {
+          console.log(`[Phase 1] Local single-worker test detected. Proceeding.`);
           break;
         }
 
@@ -556,20 +541,8 @@ async function run() {
     }
 
     // -------------------------------------------------------------------------
-    // Phase 1B: 20-Worker Parallel Board Swarm (board_idx % workerTotal === workerIndex)
+    // Phase 1B: Parallel Board Swarm (board_idx % workerTotal === workerIndex)
     // -------------------------------------------------------------------------
-    await sql`
-      INSERT INTO crawler_shard_heartbeats (
-        competitor_id, shard_number, shard_total, status, updated_at
-      ) VALUES (
-        ${targetId}, ${workerIndex}, ${workerTotal}, 'crawling_boards', NOW()
-      )
-      ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
-        shard_total = ${workerTotal},
-        status = 'crawling_boards',
-        updated_at = NOW();
-    `.catch(() => {});
-
     if (crawlMode === 'sharded_boards' || targetBoardsInput || crawlMode !== 'refresh') {
       try {
         const boards = await sql`
@@ -608,14 +581,6 @@ async function run() {
       }
     }
 
-    // Mark worker board phase complete in heartbeats table
-    await sql`
-      UPDATE crawler_shard_heartbeats
-      SET status = 'phase1_done',
-          updated_at = NOW()
-      WHERE competitor_id = ${targetId} AND shard_number = ${workerIndex};
-    `.catch(() => {});
-
     if (workerIndex === 0) {
       await sql`
         UPDATE competitor_profiles
@@ -624,48 +589,25 @@ async function run() {
       `.catch(() => {});
     }
 
-    // Fast Barrier Sync across all 20 workers after parallel board crawling before Phase 2
-    if (workerTotal > 1 && process.env.GITHUB_ACTIONS === 'true') {
-      const boardBarrierStart = Date.now();
-      const BOARD_BARRIER_TIMEOUT_MS = 180000;
-      while (Date.now() - boardBarrierStart < BOARD_BARRIER_TIMEOUT_MS) {
-        const [pendingRow] = await sql`
-          SELECT COUNT(*)::int AS pending
-          FROM crawler_shard_heartbeats
-          WHERE competitor_id = ${targetId}
-            AND shard_number <> ${workerIndex}
-            AND status IN ('crawling_phase1', 'boards_ready', 'crawling_boards')
-            AND updated_at > NOW() - INTERVAL '5 minutes';
-        `.catch(() => [{ pending: 0 }]);
-
-        const pendingBoards = Number(pendingRow?.pending || 0);
-        if (pendingBoards === 0) {
-          console.log(`[Phase 1B] All workers finished board ingestion in ${Math.round((Date.now() - boardBarrierStart) / 1000)}s!`);
-          break;
-        }
-        await sleep(2000);
-      }
-    }
-
     // -------------------------------------------------------------------------
-    // Phase 2: 20-Runner Catalog Slice (CRC32 Modulo Partition)
+    // Phase 2: Catalog Slice (ABS(hashtext(pin_id)) % workerTotal === workerIndex)
     // -------------------------------------------------------------------------
     console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Fetching catalog slice for @${targetAccount}...`);
 
-    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (competitor_pins)
     const catalogPins = await sql`
-      SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, cp.save_count, cp.repin_count, cp.comment_count,
-             cp.enrichment_status, cp.created_at_pinterest, cp.updated_at AS last_updated_at,
-             COALESCE((cp.metadata->>'daily_save_velocity')::numeric, (cp.metadata->>'velocity')::numeric, 0) AS prev_velocity,
+      SELECT cbp.pin_id, cbp.competitor_id, cbp.board_id,
+             ump.board_name, ump.save_count, ump.repin_count, ump.comment_count,
+             ump.created_at_pinterest, ump.updated_at AS last_updated_at,
+             ump.daily_save_velocity AS prev_velocity,
              ump.last_scraped_at, ump.save_count AS ump_saves, ump.repin_count AS ump_repins, ump.comment_count AS ump_comments,
              ump.share_count AS ump_shares, ump.daily_save_velocity AS ump_velocity,
-             ump.visual_annotations, ump.image_signature, ump.creation_method, ump.metadata AS ump_metadata
-      FROM competitor_pins cp
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-      WHERE cp.competitor_id = ${targetId}
-        AND cp.pin_id IS NOT NULL AND cp.pin_id <> ''
-        AND MOD(ABS(('x' || SUBSTR(MD5(cp.pin_id::text), 1, 8))::bit(32)::int::bigint), ${workerTotal}) = ${workerIndex}
-      ORDER BY cp.id ASC;
+             ump.visual_annotations, ump.creation_method, ump.metadata AS ump_metadata
+      FROM competitor_board_pins cbp
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      WHERE cbp.competitor_id = ${targetId}
+        AND cbp.pin_id IS NOT NULL AND cbp.pin_id <> ''
+        AND (ABS(hashtext(cbp.pin_id::text)) % ${workerTotal}) = ${workerIndex}
+      ORDER BY cbp.pin_id ASC;
     `;
 
     const myCatalogSlice = catalogPins;
@@ -793,58 +735,14 @@ async function run() {
     }
 
     if (refreshedPins.length > 0) {
-      const sorted = [...refreshedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-      const cleanRefreshed = sanitizeForJsonb(sorted);
-      const jsonPayload = JSON.stringify(cleanRefreshed);
-
-      // 1. Commit active telemetry to competitor_pins on Central Hub
-      const commitSql = sql?.noRetry || sql;
-      await withDbRetry(() => commitSql`
-        UPDATE competitor_pins AS cp
-        SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
-            repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
-            comment_count = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(cp.comment_count, 0) END,
-            enrichment_status = 'enriched',
-            metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
-              'delta_saves_24h', x.delta_saves,
-              'delta_repins_24h', x.delta_repins,
-              'daily_save_velocity', x.velocity
-            ),
-            updated_at = NOW()
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-          pin_id VARCHAR(64),
-          saves BIGINT,
-          repins BIGINT,
-          comments INT,
-          delta_saves NUMERIC,
-          delta_repins NUMERIC,
-          velocity NUMERIC
-        )
-        WHERE cp.competitor_id = ${targetId}
-          AND cp.pin_id = x.pin_id;
-      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-
-      // 2. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
+      // 1. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
         await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
       }
 
-      // 3. Sync master pins to universal_master_pins in Unified PostgreSQL
+      // 2. Sync master pins to universal_master_pins in Unified PostgreSQL
       if (masterPinsToSync.length > 0) {
         await syncPinsToMasterCatalog(sql, masterPinsToSync);
-      }
-
-      // 4. One-Way Promotion of qualified pins into pa_pins
-      // [INVARIANT: RUNNER-0-RECONCILIATION-LEADER] Only worker 0 runs reconciliation to prevent stampede
-      if (workerIndex === 0) {
-        try {
-          const recon = await reconcileQualifiedCatalogPins(sql, targetId);
-          if (recon?.promoted_or_updated > 0) {
-            console.log(`[Phase 2] Promoted ${recon.promoted_or_updated} qualified pins into pa_pins.`);
-          }
-        } catch (rErr) {
-          console.warn(`[Phase 2] Qualification reconciliation warning:`, rErr.message);
-        }
       }
     }
 
@@ -927,19 +825,6 @@ async function run() {
     } catch (setErr) {
       console.warn(`[!] Failed to load dynamic creator hub settings (using fallback defaults):`, setErr.message);
     }
-
-    // Register Phase 1 heartbeat
-    await sql`
-      INSERT INTO crawler_shard_heartbeats (
-        competitor_id, shard_number, shard_total, status, updated_at
-      ) VALUES (
-        0, ${workerIndex}, ${workerTotal}, 'crawling_phase1', NOW()
-      )
-      ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
-        shard_total = ${workerTotal},
-        status = 'crawling_phase1',
-        updated_at = NOW();
-    `.catch(() => {});
 
     let accountsProcessed = 0;
     const pulseAccounts = [];
@@ -1313,11 +1198,6 @@ async function run() {
           accountsProcessed++;
           if (accountsProcessed % 50 === 0) {
             console.log(`  [Phase 1A Progress] Inspected ${accountsProcessed}/${pulseAccounts.length} pulse_only accounts...`);
-            await sql`
-              UPDATE crawler_shard_heartbeats
-              SET updated_at = NOW()
-              WHERE competitor_id = 0 AND shard_number = ${workerIndex};
-            `.catch(() => {});
           }
           await sleep(randomJitterMs(120, 250));
         }
@@ -1370,17 +1250,8 @@ async function run() {
             maxPages: targetPages,
             cookie: cookie
           });
+          await reconcileQualifiedCatalogPins(sql, acc.id);
         } catch (_) {}
-
-        // 4. Reconcile & Promote Qualified Catalog Pins into pa_pins
-        try {
-          const recon = await reconcileQualifiedCatalogPins(sql, acc.id);
-          if (recon?.promoted_or_updated > 0) {
-            console.log(`[✓] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
-          }
-        } catch (rErr) {
-          console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
-        }
       } else {
         console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);
       }
@@ -1392,69 +1263,25 @@ async function run() {
       `.catch(() => {});
 
       accountsProcessed++;
-      if (accountsProcessed > 0 && accountsProcessed % 25 === 0) {
-        await sql`
-          UPDATE crawler_shard_heartbeats
-          SET updated_at = NOW()
-          WHERE competitor_id = 0 AND shard_number = ${workerIndex};
-        `.catch(() => {});
-      }
-    }
-
-    // Mark Phase 1 complete in heartbeats table
-    await sql`
-      UPDATE crawler_shard_heartbeats
-      SET status = 'phase1_done',
-          updated_at = NOW()
-      WHERE competitor_id = 0 AND shard_number = ${workerIndex};
-    `.catch(() => {});
-
-    // -------------------------------------------------------------------------
-    // Barrier Sync across all 20 fleet workers
-    // -------------------------------------------------------------------------
-    if (workerTotal > 1) {
-      console.log(`\n[*] Barrier Sync: Waiting for peer workers to complete discovery across ${allFleetAccountIds.length} accounts...`);
-      const barrierStart = Date.now();
-      const BARRIER_TIMEOUT_MS = 240000; // 4 min max wait
-
-      while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
-        const [pendingRow] = await sql`
-          SELECT COUNT(*)::int AS pending
-          FROM crawler_shard_heartbeats
-          WHERE competitor_id = 0
-            AND shard_number <> ${workerIndex}
-            AND status = 'crawling_phase1'
-            AND updated_at > NOW() - INTERVAL '5 minutes';
-        `.catch(() => [{ pending: 0 }]);
-
-        const pendingCount = Number(pendingRow?.pending || 0);
-        if (pendingCount === 0) {
-          console.log(`[✓] Barrier Sync cleared in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
-          break;
-        }
-        console.log(`  [Phase 1 Sync] ${pendingCount} peer worker(s) still in discovery...`);
-        await sleep(2500);
-      }
     }
 
     // -------------------------------------------------------------------------
-    // PHASE 2: Global Winning Pins Slice Refresh (crc32(pin_id) % 20 === worker_index)
+    // PHASE 2: Global Master Pins Slice Refresh (ABS(hashtext(pin_id)) % workerTotal === workerIndex)
     // -------------------------------------------------------------------------
-    console.log(`\n[*] [Phase 2] Querying all active winning pins from pa_pins on Central Hub...`);
+    console.log(`\n[*] [Phase 2] Querying all active master pins from universal_master_pins on Central Hub...`);
 
-    // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 3: Neon Egress & Shard Pushdown (pa_pins)
     const myWinningSlice = await sql`
       SELECT 
-        p.pin_id, p.account_username, p.board_name,
-        p.saves, p.repins, p.comments, p.share_count,
-        p.velocity, p.last_updated_at, p.created_at_pinterest
-      FROM pa_pins p
-      LEFT JOIN competitor_profiles cp ON cp.username = p.account_username
-      WHERE MOD(ABS(('x' || SUBSTR(MD5(p.pin_id::text), 1, 8))::bit(32)::int::bigint), ${workerTotal}) = ${workerIndex}
+        p.pin_id, p.creator_username AS account_username, p.board_name,
+        p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
+        p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest
+      FROM universal_master_pins p
+      LEFT JOIN competitor_profiles cp ON cp.username = p.creator_username
+      WHERE (ABS(hashtext(p.pin_id::text)) % ${workerTotal}) = ${workerIndex}
         AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
-      ORDER BY p.saves DESC;
+      ORDER BY p.save_count DESC NULLS LAST;
     `;
-    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global winning pins.`);
+    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global master pins.`);
 
     let refreshedWinningCount = 0;
     const refreshedPins = [];
@@ -1558,61 +1385,12 @@ async function run() {
     }
 
     if (refreshedPins.length > 0) {
-      const sorted = [...refreshedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-      const cleanRefreshed = sanitizeForJsonb(sorted);
-      const jsonPayload = JSON.stringify(cleanRefreshed);
-
-      const commitSql = sql?.noRetry || sql;
-      // 1. Atomic batch commit to pa_pins on Hub
-      await withDbRetry(() => commitSql`
-        UPDATE pa_pins AS p
-        SET saves = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(p.saves, 0) END,
-            repins = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(p.repins, 0) END,
-            comments = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(p.comments, 0) END,
-            share_count = CASE WHEN x.share_count > 0 THEN x.share_count::bigint ELSE COALESCE(p.share_count, 0) END,
-            velocity = x.velocity,
-            last_updated_at = NOW()
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-          pin_id VARCHAR(64),
-          saves BIGINT,
-          repins BIGINT,
-          comments INT,
-          share_count BIGINT,
-          velocity NUMERIC
-        )
-        WHERE p.pin_id = x.pin_id;
-      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-
-      // 2. Atomic batch commit to competitor_pins on Hub
-      await withDbRetry(() => commitSql`
-        UPDATE competitor_pins AS cp
-        SET save_count = CASE WHEN x.saves > 0 THEN x.saves::bigint ELSE COALESCE(cp.save_count, 0) END,
-            repin_count = CASE WHEN x.repins > 0 THEN x.repins::bigint ELSE COALESCE(cp.repin_count, 0) END,
-            comment_count = CASE WHEN x.comments > 0 THEN x.comments::int ELSE COALESCE(cp.comment_count, 0) END,
-            metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object(
-              'delta_saves_24h', x.delta_saves,
-              'delta_repins_24h', x.delta_repins,
-              'daily_save_velocity', x.velocity
-            ),
-            updated_at = NOW()
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-          pin_id VARCHAR(64),
-          saves BIGINT,
-          repins BIGINT,
-          comments INT,
-          delta_saves NUMERIC,
-          delta_repins NUMERIC,
-          velocity NUMERIC
-        )
-        WHERE cp.pin_id = x.pin_id;
-      `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-
-      // 3. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
+      // 1. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
       if (metricSnapshots.length > 0) {
         await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
       }
 
-      // 4. Sync master pins to universal_master_pins in Unified PostgreSQL
+      // 2. Sync master pins to universal_master_pins in Unified PostgreSQL
       if (masterPinsToSync.length > 0) {
         await syncPinsToMasterCatalog(sql, masterPinsToSync);
       }

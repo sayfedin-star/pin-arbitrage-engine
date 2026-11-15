@@ -94,29 +94,18 @@ assert(
 console.log('  ✓ Full-suite 100% cache parity confirmed across Competitors, Board Ideas, and PinArchive');
 
 // -------------------------------------------------------------
-// Test 3: PinArchive Service Atomic Transactions & Deadlock Immunity
+// Test 3: PinRepository Unified Ingest Atomic Transactions & Deadlock Immunity
 // -------------------------------------------------------------
-console.log('\n[Test 3] Verifying PinArchive Service bulk writes & transactions...');
+console.log('\n[Test 3] Verifying PinRepository Unified Ingest bulk writes & transactions...');
 
-import { ingestPinsBatch } from '../src/modules/creators/service.mjs';
+import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 
-const pinarchiveServiceContent = fs.readdirSync('src/modules/creators')
-  .filter(f => f.endsWith('.mjs'))
-  .map(f => fs.readFileSync(`src/modules/creators/${f}`, 'utf8'))
-  .join('\n');
+const pinRepoContent = fs.readFileSync('src/modules/pins/repository.mjs', 'utf8');
 
-// Ensure Neon HTTP array transaction and TCP begin are supported
+// Ensure atomic transaction and deterministic ordering
 assert(
-  pinarchiveServiceContent.includes('buildPinsQuery'),
-  'ingestPinsBatch must pass lazy query builders to sql.transaction for Neon HTTP compatibility'
-);
-
-// [INVARIANT: ZERO-HUB-SNAPSHOTS]
-// pa_pin_metrics is eradicated on Central Hub; only pa_pins query executes on Hub
-const orderPinIdAscMatches = (pinarchiveServiceContent.match(/ORDER BY raw\.pin_id ASC/g) || []).length;
-assert(
-  orderPinIdAscMatches >= 1,
-  'ingestPinsBatch must order by raw.pin_id ASC in pa_pins upsert'
+  pinRepoContent.includes('ORDER BY cb.pin_id ASC'),
+  'ingestPinsBatch must order by cb.pin_id ASC in universal_master_pins upsert'
 );
 
 // Functional test with mock TCP transaction runner (sql.begin)
@@ -125,7 +114,7 @@ let queriesRun = 0;
 const mockTx = (strings, ...args) => {
   queriesRun++;
   const sqlText = strings.join('?');
-  if (sqlText.includes('pa_pins')) {
+  if (sqlText.includes('universal_master_pins')) {
     return [{ is_inserted: true }];
   }
   return [];
@@ -150,19 +139,18 @@ const testPins = [
     pin_id: '111222',
     title: 'Test Pin A',
     saves: 10,
-    reactions: '{"heart": 3}',
-    annotations: '["diy", "crafts"]'
+    reactions: { heart: 3 },
+    annotations: ['diy', 'crafts']
   }
 ];
 
 const ingestResult = await ingestPinsBatch(mockSql, testPins);
 assert.strictEqual(txBegun, true, 'Transaction runner must be called');
-assert.strictEqual(queriesRun, 1, 'pa_pins query must execute in transaction under ZERO-HUB-SNAPSHOTS');
+assert.strictEqual(queriesRun, 1, 'universal_master_pins query must execute in atomic transaction');
 assert.strictEqual(ingestResult.ok, true, 'Ingest result must succeed');
 
-// Functional test with mock Neon HTTP array transaction runner (sql.transaction([q1]))
+// Functional test with mock Neon HTTP array/callback transaction runner
 let httpTxBegun = false;
-let receivedQueries = null;
 let parsedPayload = null;
 
 const mockNeonSql = (strings, ...args) => {
@@ -173,16 +161,18 @@ const mockNeonSql = (strings, ...args) => {
       parsedPayload = JSON.parse(arg);
     }
   }
-  return { sqlText, args };
+  return [{ is_inserted: true }];
 };
 
-mockNeonSql.transaction = async (queries) => {
+mockNeonSql.transaction = async (callbackOrQueries) => {
   httpTxBegun = true;
-  receivedQueries = queries;
-  assert(Array.isArray(queries), 'Neon HTTP transaction strictly requires an array of queries');
-  assert.strictEqual(queries.length, 1, 'Must submit [qPins] array under ZERO-HUB-SNAPSHOTS');
-  for (const q of queries) {
-    if (typeof q === 'function') q(mockNeonSql);
+  if (typeof callbackOrQueries === 'function') {
+    return await callbackOrQueries(mockNeonSql);
+  }
+  if (Array.isArray(callbackOrQueries)) {
+    for (const q of callbackOrQueries) {
+      if (typeof q === 'function') q(mockNeonSql);
+    }
   }
   return [[{ is_inserted: true }]];
 };
@@ -191,13 +181,12 @@ const neonIngestResult = await ingestPinsBatch(mockNeonSql, testPins);
 assert.strictEqual(httpTxBegun, true, 'Neon HTTP transaction must be invoked');
 assert.strictEqual(neonIngestResult.ok, true, 'Neon Ingest result must succeed');
 
-// Verify Double-Stringification Immunity: annotations must be Array, reactions must be Object
+// Verify Double-Stringification Immunity: visual_annotations must be Array
 assert(parsedPayload, 'JSON payload must be constructed');
 for (const p of parsedPayload) {
-  assert(Array.isArray(p.annotations), `annotations must be an Array, not string scalar: ${JSON.stringify(p.annotations)}`);
-  assert(typeof p.reactions === 'object' && !Array.isArray(p.reactions), `reactions must be an Object, not string scalar: ${JSON.stringify(p.reactions)}`);
+  assert(Array.isArray(p.visual_annotations), `visual_annotations must be an Array, not string scalar: ${JSON.stringify(p.visual_annotations)}`);
 }
-console.log('  ✓ ingestPinsBatch verified: Neon HTTP array contract, TCP begin, and double-stringification immunity passed');
+console.log('  ✓ ingestPinsBatch verified: atomic transaction contract, TCP begin, and payload immunity passed');
 
 // -------------------------------------------------------------
 // Test 4: Keyword Folders Service Set-Based Atomic Writes
@@ -392,46 +381,30 @@ const optContent = fs.readFileSync('scripts/optimize_hub_storage.mjs', 'utf8');
 
 // Hub Crawler Lean Payload and stripped metadata
 assert(
-  kwCrawlerContent.includes('jsonb_strip_nulls(jsonb_build_object('),
-  'keyword-velocity-crawler.mjs must use jsonb_strip_nulls for lean Hub metadata'
-);
-assert(
-  kwCrawlerContent.includes('has_treasures\', TRUE'),
-  'keyword-velocity-crawler.mjs must include has_treasures: true to preserve 4h/18h cache guard'
-);
-assert(
-  !kwCrawlerContent.includes("'method', u.method"),
-  'keyword-velocity-crawler.mjs must NOT store redundant table columns (method) in metadata'
-);
-assert(
-  !kwCrawlerContent.includes("'dominant_color', u.dominant_color"),
-  'keyword-velocity-crawler.mjs must NOT store redundant table columns (dominant_color) in metadata'
+  kwCrawlerContent.includes('sanitizePinMeta'),
+  'keyword-velocity-crawler.mjs must define sanitizePinMeta for lean Hub metadata'
 );
 
-// Optimize Hub Storage non-destructive protections
+// Optimize Hub Storage & PinRepository non-destructive protections
 assert(
-  optContent.includes('sanitizeMeta'),
-  'optimize_hub_storage.mjs must define sanitizeMeta to purge empty string attributes'
+  optContent.includes('keyword_serp_positions') && optContent.includes('universal_master_pins'),
+  'optimize_hub_storage.mjs must maintain keyword_serp_positions and universal_master_pins'
 );
 assert(
-  optContent.includes('COALESCE(universal_master_pins.metadata, \'{}\'::jsonb) || jsonb_strip_nulls(EXCLUDED.metadata)'),
-  'optimize_hub_storage.mjs must use non-destructive jsonb_strip_nulls metadata merge'
+  pinRepoContent.includes('creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, \'\'), universal_master_pins.creator_username)'),
+  'PinRepository must preserve creator_username on conflict'
 );
 assert(
-  optContent.includes('creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, \'\'), universal_master_pins.creator_username)'),
-  'optimize_hub_storage.mjs must preserve creator_username on conflict'
+  pinRepoContent.includes('board_name = COALESCE(NULLIF(EXCLUDED.board_name, \'\'), universal_master_pins.board_name)'),
+  'PinRepository must preserve board_name on conflict'
 );
 assert(
-  optContent.includes('board_name = COALESCE(NULLIF(EXCLUDED.board_name, \'\'), universal_master_pins.board_name)'),
-  'optimize_hub_storage.mjs must preserve board_name on conflict'
+  pinRepoContent.includes('dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN'),
+  'PinRepository must preserve dominant_color on conflict'
 );
 assert(
-  optContent.includes('dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, \'\'), universal_master_pins.dominant_color)'),
-  'optimize_hub_storage.mjs must preserve dominant_color on conflict'
-);
-assert(
-  optContent.includes('visual_annotations = CASE'),
-  'optimize_hub_storage.mjs must preserve visual_annotations on conflict'
+  pinRepoContent.includes('visual_annotations = CASE'),
+  'PinRepository must preserve visual_annotations on conflict'
 );
 
 console.log('  ✓ Lean Hub payload & non-destructive shard merge verified (100% treasure safe)');
@@ -444,12 +417,12 @@ console.log('\n[Test 10] Verifying Consolidator Hub Vacuum & D1 UTC Date Precisi
 const consolidatorContent = fs.readFileSync('scripts/keyword-fleet-consolidator.mjs', 'utf8');
 
 assert(
-  consolidatorContent.includes('VACUUM (ANALYZE) keyword_serp_current;'),
-  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on keyword_serp_current'
+  consolidatorContent.includes('VACUUM (ANALYZE) keyword_serp_positions;'),
+  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on keyword_serp_positions'
 );
 assert(
-  consolidatorContent.includes('VACUUM (ANALYZE) keyword_displaced_index;'),
-  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on keyword_displaced_index'
+  consolidatorContent.includes('VACUUM (ANALYZE) universal_master_pins;'),
+  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on universal_master_pins'
 );
 assert(
   consolidatorContent.includes('VACUUM (ANALYZE) tracked_keywords;'),
@@ -466,7 +439,6 @@ console.log('  ✓ Consolidator Hub Table Vacuum & fleet-router eradication veri
 // -------------------------------------------------------------
 console.log('\n[Test 11] Verifying Unified PostgreSQL PinRepository exports & De-Sharded SSOT...');
 
-const pinRepoContent = fs.readFileSync('src/modules/pins/repository.mjs', 'utf8');
 const pinRepoMod = await import('../src/modules/pins/repository.mjs');
 
 assert.strictEqual(typeof pinRepoMod.fetchUniversalPinDossier, 'function', 'PinRepository must export fetchUniversalPinDossier');
@@ -519,7 +491,6 @@ assert(
   'keyword-velocity-crawler.mjs must define sanitizePinMeta in Unified Postgres flush'
 );
 assert(
-  pinRepoContent.includes("dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color)") &&
   pinRepoContent.includes("dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888')"),
   'src/modules/pins/repository.mjs must guard dominant_color against empty/default values in universal_master_pins upsert'
 );

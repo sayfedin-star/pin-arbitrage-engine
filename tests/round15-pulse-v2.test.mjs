@@ -57,7 +57,7 @@ export function createRound15MockSql(overrides = {}) {
     callLog.push({ query: rawQuery, values });
 
     // 1. Active SERP Query (with multi-keyword pin rows and solo/shared tag pins)
-    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_current')) {
+    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_positions')) {
       return overrides.activeSerpRows || [
         {
           keyword_id: 1,
@@ -218,7 +218,7 @@ export function createRound15MockSql(overrides = {}) {
     }
 
     // 2A. Displaced Vacuum Counts
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('displaced_top10_24h_count')) {
+    if (rawQuery.includes('displaced_top10_24h_count')) {
       return overrides.vacuumCounts || [
         {
           keyword_id: 1,
@@ -231,7 +231,7 @@ export function createRound15MockSql(overrides = {}) {
     }
 
     // 2B. Displaced Top Vault Surge Pins
-    if (rawQuery.includes('FROM keyword_displaced_index kdi') && rawQuery.includes('ORDER BY GREATEST(')) {
+    if (rawQuery.includes('top_vault') && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('is_displaced = TRUE'))) {
       return overrides.vaultPins || [
         {
           keyword_id: 1,
@@ -339,8 +339,8 @@ export function createRound15MockSql(overrides = {}) {
       ];
     }
 
-    // 2C. Surging Creator Pins query (competitor_pins)
-    if (rawQuery.includes('FROM competitor_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators') && (rawQuery.includes('delta_saves_24h') || rawQuery.includes('daily_save_velocity') || rawQuery.includes('queryViralCreatorPins'))) {
+    // 2C. Surging Creator Pins query (competitor_board_pins)
+    if (rawQuery.includes('FROM competitor_board_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators') && (rawQuery.includes('delta_saves_24h') || rawQuery.includes('daily_save_velocity') || rawQuery.includes('queryViralCreatorPins'))) {
       return overrides.viralCreatorPins || [
         {
           pin_id: 'pin_creator_surge_700',
@@ -369,25 +369,6 @@ export function createRound15MockSql(overrides = {}) {
         { id: 3, keyword_id: 1, term: 'easy_meals', display_label: 'Easy ', score: 90.0, dominant_color: '#3b82f6', display_order: 2, keyword_text: 'quick dinner recipes', keyword_category: 'Food' },
         { id: 4, keyword_id: 1, term: 'healthy', display_label: 'Healthy', score: 88.0, dominant_color: '#10b981', display_order: 3, keyword_text: 'easy dinner recipes', keyword_category: 'Food' },
         { id: 5, keyword_id: 2, term: 'healthy_meals', display_label: 'HEALTHY', score: 85.0, dominant_color: '#10b981', display_order: 2, keyword_text: 'chicken dinner ideas', keyword_category: 'Food' }
-      ];
-    }
-
-    // 5A. PinArchive Winners
-    if (rawQuery.includes('FROM pa_pins pa')) {
-      return overrides.paWinners || [
-        {
-          pin_id: 'pin_pa_winner_01',
-          account_username: 'chefjohn',
-          title: 'Lemon Herb Chicken',
-          domain: 'foodieblog.com',
-          board_name: 'Best Chicken',
-          image_url: 'https://i.pinimg.com/236x/lemon.jpg',
-          dominant_color: '#f59e0b',
-          saves: 14500,
-          repins: 4200,
-          velocity: 310.0,
-          annotations: ['Lemon Chicken', 'Easy Dinners']
-        }
       ];
     }
 
@@ -911,14 +892,14 @@ describe('Gate 6: Repository Regression Locks & Zero Landmines', () => {
     assert.ok(out.includes('SYNTAX CHECK PASSED'), 'Must pass syntax check');
   });
 
-  it('6.2 Hub skeletal compaction: no queries select description or alt_text from keyword_serp_current', () => {
+  it('6.2 Hub skeletal compaction: pulse service does not query legacy keyword_serp_current', () => {
     const serviceCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'service.mjs'), 'utf8');
 
     // Central Hub Skeletal Compaction Invariant
     assert.ok(!/\bksc\.description\b/i.test(serviceCode), 'Must NOT query ksc.description on Central Hub');
     assert.ok(!/\bksc\.alt_text\b/i.test(serviceCode), 'Must NOT query ksc.alt_text on Central Hub');
     assert.ok(!/\bksc\.reaction_count\b/i.test(serviceCode), 'Must NOT query non-existent ksc.reaction_count');
-    assert.ok(!/\bump\.url_global_saves\b/i.test(serviceCode), 'Must NOT query non-existent ump.url_global_saves on Shards');
+    assert.ok(!/keyword_serp_current/i.test(serviceCode), 'Must NOT query dropped table keyword_serp_current');
   });
 
   it('6.3 Headless Node.js execution shield: browser globals are guarded', () => {

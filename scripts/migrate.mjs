@@ -282,6 +282,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '059',
     name: 'add_trgm_index_domain_rollup',
     aliases: ['059', '059_add_trgm_index_domain_rollup', 'add_trgm_index_domain_rollup']
+  },
+  '060_clean_slate_4_table_ssot.sql': {
+    version: '060',
+    name: 'clean_slate_4_table_ssot',
+    aliases: ['060', '060_clean_slate_4_table_ssot', 'clean_slate_4_table_ssot']
   }
 };
 

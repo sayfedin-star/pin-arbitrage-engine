@@ -205,14 +205,16 @@ async function main() {
   console.log('[*] Compiling Creator Hub performance matrix...');
   const activeProfiles = await sql`
     WITH winners_agg AS (
-      SELECT account_username, COUNT(*)::int AS qualified_winners
-      FROM pa_pins
-      GROUP BY account_username
+      SELECT creator_username AS account_username, COUNT(*)::int AS qualified_winners
+      FROM universal_master_pins
+      WHERE is_hydrated = TRUE AND (COALESCE(save_count, 0) >= 500 OR COALESCE(daily_save_velocity, 0) >= 5)
+      GROUP BY creator_username
     ),
     catalog_agg AS (
-      SELECT competitor_id, COUNT(*)::int AS catalog_pins
-      FROM competitor_pins
-      GROUP BY competitor_id
+      SELECT cp.id AS competitor_id, COUNT(cbp.pin_id)::int AS catalog_pins
+      FROM competitor_profiles cp
+      LEFT JOIN competitor_board_pins cbp ON cbp.competitor_id = cp.id
+      GROUP BY cp.id
     )
     SELECT 
       cp.id,
@@ -250,19 +252,19 @@ async function main() {
   const topRisingPins = await sql`
     SELECT 
       pin_id,
-      account_username,
+      creator_username AS account_username,
       title,
       domain,
-      link,
-      saves,
-      repins,
-      velocity,
-      last_updated_at
-    FROM pa_pins
-    WHERE (${targetAccount} = '' OR account_username = ${targetAccount})
-      AND velocity > 0
-      AND last_updated_at >= NOW() - INTERVAL '48 hours'
-    ORDER BY velocity DESC NULLS LAST
+      destination_url AS link,
+      save_count AS saves,
+      repin_count AS repins,
+      daily_save_velocity AS velocity,
+      updated_at AS last_updated_at
+    FROM universal_master_pins
+    WHERE (${targetAccount} = '' OR creator_username = ${targetAccount})
+      AND daily_save_velocity > 0
+      AND updated_at >= NOW() - INTERVAL '48 hours'
+    ORDER BY daily_save_velocity DESC NULLS LAST
     LIMIT 10;
   `;
 
@@ -276,8 +278,8 @@ async function main() {
   mdReport += `| **Total Active Creators** | **${formatNumber(totalActiveCreators)}** | Monitored creator accounts |\n`;
   mdReport += `| **Combined Impressions** | **${formatNumber(totalCombinedImpressions)}** | \`profile_views\` (Profile Impressions) |\n`;
   mdReport += `| **Combined Total Audience** | **${formatNumber(totalCombinedAudience)}** | \`monthly_reach\` (Unique Monthly Audience) |\n`;
-  mdReport += `| **Total Catalog Inventory** | **${formatNumber(totalCatalogPins)}** | \`competitor_pins\` (Compacted skeletal rows) |\n`;
-  mdReport += `| **Total Qualified Winners** | **${formatNumber(totalQualifiedWinners)}** | \`pa_pins\` (Proven winners showcase) |\n\n`;
+  mdReport += `| **Total Catalog Inventory** | **${formatNumber(totalCatalogPins)}** | \`competitor_board_pins\` |\n`;
+  mdReport += `| **Total Qualified Winners** | **${formatNumber(totalQualifiedWinners)}** | \`universal_master_pins\` |\n\n`;
 
   mdReport += `### 📋 Active Creators Performance Matrix\n\n`;
   mdReport += `| Creator | Impressions (7d Delta) | Total audience (7d Delta) | Followers | Catalog Pins | Qualified Winners | Last Synced |\n`;
@@ -331,10 +333,10 @@ async function main() {
 
   console.log('[*] Executing non-blocking VACUUM (ANALYZE) on Creator Hub tables...');
   try {
-    await sql`VACUUM (ANALYZE) competitor_pins;`.catch(err => console.warn('    [!] VACUUM competitor_pins warning:', err.message));
+    await sql`VACUUM (ANALYZE) competitor_board_pins;`.catch(err => console.warn('    [!] VACUUM competitor_board_pins warning:', err.message));
     await sql`VACUUM (ANALYZE) competitor_profiles;`.catch(err => console.warn('    [!] VACUUM competitor_profiles warning:', err.message));
-    await sql`VACUUM (ANALYZE) pa_pins;`.catch(err => console.warn('    [!] VACUUM pa_pins warning:', err.message));
-    console.log('[✓] VACUUM (ANALYZE) successfully performed on competitor_pins, competitor_profiles, and pa_pins.');
+    await sql`VACUUM (ANALYZE) universal_master_pins;`.catch(err => console.warn('    [!] VACUUM universal_master_pins warning:', err.message));
+    console.log('[✓] VACUUM (ANALYZE) successfully performed on competitor_board_pins, competitor_profiles, and universal_master_pins.');
   } catch (vErr) {
     console.warn('[!] VACUUM warning (non-fatal):', vErr.message);
   }

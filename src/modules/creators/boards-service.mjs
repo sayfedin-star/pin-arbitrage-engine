@@ -54,17 +54,18 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
     console.warn(`[getCompetitorBoards] Boards query error for ID ${numericId}:`, err.message);
   }
 
-  // Discover & merge any additional boards from competitor_pins
+  // Discover & merge any additional boards from competitor_board_pins
   try {
     const rawBoards = await sql`
       SELECT 
-        COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
+        COALESCE(NULLIF(TRIM(ump.board_name), ''), 'General') AS name,
         COUNT(*)::int AS pin_count,
         0::int AS follower_count,
-        MAX(created_at_pinterest) AS last_pinned_at,
-        MIN(created_at_pinterest) AS created_at
-      FROM competitor_pins
-      WHERE competitor_id = ${numericId} AND board_name IS NOT NULL AND TRIM(board_name) <> ''
+        MAX(ump.created_at_pinterest) AS last_pinned_at,
+        MIN(ump.created_at_pinterest) AS created_at
+      FROM competitor_board_pins cbp
+      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+      WHERE cbp.competitor_id = ${numericId} AND ump.board_name IS NOT NULL AND TRIM(ump.board_name) <> ''
       GROUP BY name
       ORDER BY pin_count DESC;
     `;
@@ -122,7 +123,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
     };
   });
 
-  // Fallback: Populate missing board covers using the top saved pin from pa_pins for that board
+  // Fallback: Populate missing board covers using the top saved pin from universal_master_pins for that board
   const boardsNeedingCover = boards.filter(b => !b.image_cover_url && b.name);
   if (boardsNeedingCover.length > 0 && cleanUser) {
     try {
@@ -130,10 +131,10 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
         SELECT DISTINCT ON (LOWER(TRIM(board_name)))
           LOWER(TRIM(board_name)) AS b_name,
           image_url
-        FROM pa_pins
-        WHERE account_username = ${cleanUser}
+        FROM universal_master_pins
+        WHERE creator_username = ${cleanUser}
           AND image_url IS NOT NULL AND image_url <> ''
-        ORDER BY LOWER(TRIM(board_name)), saves DESC;
+        ORDER BY LOWER(TRIM(board_name)), save_count DESC NULLS LAST;
       `;
       const coverMap = new Map();
       for (const row of pinCovers) {
@@ -521,7 +522,7 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
 
 
 /**
- * Harvest pins from a specific board of a competitor into competitor_pins and pa_pins (board-level crawling).
+ * Harvest pins from a specific board of a competitor into universal_master_pins and competitor_board_pins (board-level crawling).
  */
 export async function syncCompetitorBoardPins(sql, competitorId, username, board, { mode = 'daily', maxPages = 50, cookie = '' } = {}) {
   let cleanUsername = normalizePinterestUsername(username);
@@ -592,12 +593,12 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }));
     totalFetched += pins.length;
 
-    // 1. Raw inventory upsert to competitor_pins
+    // 1. Raw inventory upsert to universal_master_pins and competitor_board_pins
     if (pins.length > 0 && numericId) {
       await upsertCompetitorPins(sql, numericId, pins);
     }
 
-    // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
+    // 2. Filter through 3-tier OR rules & ingest qualified winning pins
     // Only run during refresh/daily sync; in discovery mode, parallel shards handle deep Relay v3 enrichment!
     const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
     if (pins.length > 0 && mode !== 'discovery' && shouldAutoArchive) {

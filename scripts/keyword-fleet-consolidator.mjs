@@ -65,11 +65,13 @@ async function main() {
 
     // 1. Recalculate Winsorized avg_daily_velocity per keyword in the folder from freshly inspected SERP pins
     const folderKwPinVels = await sql`
-      SELECT kfi.keyword_id, ksc.daily_save_velocity
+      SELECT kfi.keyword_id, ump.daily_save_velocity
       FROM keyword_folder_items kfi
-      LEFT JOIN keyword_serp_current ksc
-        ON ksc.keyword_id = kfi.keyword_id
-       AND COALESCE(ksc.is_displaced, FALSE) = FALSE
+      JOIN keyword_serp_positions ksp
+        ON ksp.keyword_id = kfi.keyword_id
+       AND ksp.is_displaced = FALSE
+      JOIN universal_master_pins ump
+        ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${folder.id};
     `;
     const folderVelsByKw = new Map();
@@ -105,10 +107,10 @@ async function main() {
     const clusterKeywords = await sql`
       SELECT 
         tk.id, tk.keyword, tk.category, tk.avg_daily_velocity, tk.last_crawled_at,
-        COUNT(DISTINCT ksc.pin_id)::int as pin_count
+        COUNT(DISTINCT ksp.pin_id)::int as pin_count
       FROM keyword_folder_items kfi
       JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
-      LEFT JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
+      LEFT JOIN keyword_serp_positions ksp ON ksp.keyword_id = tk.id AND ksp.is_displaced = FALSE
       WHERE kfi.folder_id = ${folder.id}
       GROUP BY tk.id, tk.keyword, tk.category, tk.avg_daily_velocity, tk.last_crawled_at
       ORDER BY tk.avg_daily_velocity DESC NULLS LAST;
@@ -117,18 +119,14 @@ async function main() {
     // 2. Folder-wide Unified Catalog Metrics
     const [folderStats] = await sql`
       SELECT 
-        COUNT(DISTINCT ksc.pin_id)::int as total_unique_pins,
-        COUNT(DISTINCT ksc.pin_id) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE)::int as active_pins,
-        COALESCE((
-          SELECT COUNT(DISTINCT kdi.pin_id)::int
-          FROM keyword_displaced_index kdi
-          JOIN keyword_folder_items kfi2 ON kfi2.keyword_id = kdi.keyword_id
-          WHERE kfi2.folder_id = ${folder.id}
-        ), 0)::int as displaced_vault,
-        COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.metadata->>'is_deleted' = 'true' OR ksc.metadata->>'status' = 'archived_404')::int as dead_pins,
-        COALESCE(SUM(ksc.save_count) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE), 0)::bigint as total_catalog_saves
-      FROM keyword_serp_current ksc
-      JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+        COUNT(DISTINCT ksp.pin_id)::int as total_unique_pins,
+        COUNT(DISTINCT ksp.pin_id) FILTER (WHERE ksp.is_displaced = FALSE)::int as active_pins,
+        COUNT(DISTINCT ksp.pin_id) FILTER (WHERE ksp.is_displaced = TRUE)::int as displaced_vault,
+        0::int as dead_pins,
+        COALESCE(SUM(ump.save_count) FILTER (WHERE ksp.is_displaced = FALSE), 0)::bigint as total_catalog_saves
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${folder.id};
     `;
 
@@ -152,14 +150,15 @@ async function main() {
 
     // 4. Fetch Top 5 Rising Pins in the Folder (Active only)
     const topRising = await sql`
-      SELECT DISTINCT ON (ksc.pin_id)
-        ksc.pin_id, ksc.title, ksc.image_url, ksc.daily_save_velocity, ksc.save_count, ksc.domain
-      FROM keyword_serp_current ksc
-      JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+      SELECT DISTINCT ON (ksp.pin_id)
+        ksp.pin_id, ump.title, ump.image_url, ump.daily_save_velocity, ump.save_count, ump.clean_domain as domain
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${folder.id}
-        AND ksc.daily_save_velocity > 0
-        AND COALESCE(ksc.is_displaced, FALSE) = FALSE
-      ORDER BY ksc.pin_id, ksc.daily_save_velocity DESC
+        AND ump.daily_save_velocity > 0
+        AND ksp.is_displaced = FALSE
+      ORDER BY ksp.pin_id, ump.daily_save_velocity DESC
       LIMIT 5;
     `;
 
@@ -223,18 +222,21 @@ async function main() {
     // 1. Calculate Active SERP metrics & Save Velocity (Active only)
     const [velRow] = await sql`
       SELECT 
-        COUNT(*) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE)::int as active_count,
-        COALESCE(SUM(save_count) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE), 0)::bigint as total_active_saves,
-        COALESCE(SUM(repin_count) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE), 0)::bigint as total_active_repins
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kw.id};
+        COUNT(*)::int as active_count,
+        COALESCE(SUM(ump.save_count), 0)::bigint as total_active_saves,
+        COALESCE(SUM(ump.repin_count), 0)::bigint as total_active_repins
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.keyword_id = ${kw.id}
+        AND ksp.is_displaced = FALSE;
     `;
 
     const pinVelRows = await sql`
-      SELECT daily_save_velocity
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kw.id}
-        AND COALESCE(is_displaced, FALSE) = FALSE;
+      SELECT ump.daily_save_velocity
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.keyword_id = ${kw.id}
+        AND ksp.is_displaced = FALSE;
     `;
     const rawVelocities = pinVelRows.map(r => Number(r.daily_save_velocity || 0));
     const winsorizedVelocities = winsorize(rawVelocities, 0.95);
@@ -259,29 +261,25 @@ async function main() {
 
     // 3. Catalog & Vault Telemetry
     const [displacedStats] = await sql`
-      SELECT COUNT(DISTINCT pin_id) as displaced_vault
-      FROM keyword_displaced_index
-      WHERE keyword_id = ${kw.id};
+      SELECT COUNT(DISTINCT pin_id)::int as displaced_vault
+      FROM keyword_serp_positions
+      WHERE keyword_id = ${kw.id}
+        AND is_displaced = TRUE;
     `.catch(() => [{ displaced_vault: 0 }]);
 
     const displacedVault = Number(displacedStats?.displaced_vault || 0);
     const totalCatalog = activeCount + displacedVault;
-    const [deadStats] = await sql`
-      SELECT COUNT(DISTINCT pin_id)::int as dead_pins
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kw.id}
-        AND (metadata->>'is_deleted' = 'true' OR metadata->>'status' = 'archived_404');
-    `.catch(() => [{ dead_pins: 0 }]);
-    const deadPins = Number(deadStats?.dead_pins || 0);
+    const deadPins = 0;
     const totalCatalogSaves = totalActiveSaves;
 
     // 4. Compute Visual Annotations Crossover & Core Anchors (Active only)
     const serpPins = await sql`
-      SELECT pin_id, title, save_count, repin_count, daily_save_velocity, image_url, visual_annotations
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kw.id}
-        AND COALESCE(is_displaced, FALSE) = FALSE
-      ORDER BY rank_position ASC;
+      SELECT ksp.pin_id, ump.title, ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.image_url, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.keyword_id = ${kw.id}
+        AND ksp.is_displaced = FALSE
+      ORDER BY ksp.rank_position ASC NULLS LAST;
     `;
 
     const tagCounts = new Map();
@@ -361,11 +359,13 @@ async function main() {
 
     // 1. Recalculate Winsorized 95th-percentile avg_daily_velocity per active keyword from freshly inspected SERP pins
     const allActivePinVels = await sql`
-      SELECT tk.id AS keyword_id, ksc.daily_save_velocity
+      SELECT tk.id AS keyword_id, ump.daily_save_velocity
       FROM tracked_keywords tk
-      LEFT JOIN keyword_serp_current ksc
-        ON ksc.keyword_id = tk.id
-       AND COALESCE(ksc.is_displaced, FALSE) = FALSE
+      JOIN keyword_serp_positions ksp
+        ON ksp.keyword_id = tk.id
+       AND ksp.is_displaced = FALSE
+      JOIN universal_master_pins ump
+        ON ump.pin_id = ksp.pin_id
       WHERE tk.is_active = TRUE;
     `;
     const velsByKw = new Map();
@@ -398,9 +398,9 @@ async function main() {
     const keywords = await sql`
       SELECT 
         tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.avg_daily_velocity, tk.last_crawled_at,
-        COUNT(DISTINCT ksc.pin_id) as total_inspected_pins
+        COUNT(DISTINCT ksp.pin_id)::int as total_inspected_pins
       FROM tracked_keywords tk
-      LEFT JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
+      LEFT JOIN keyword_serp_positions ksp ON ksp.keyword_id = tk.id
       WHERE tk.is_active = TRUE
       GROUP BY tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.avg_daily_velocity, tk.last_crawled_at
       ORDER BY tk.last_crawled_at DESC NULLS LAST;
@@ -443,8 +443,10 @@ async function main() {
   // 6. Hub Sequential Table Vacuum & Statistics Refresh (Consolidator isolated run)
   try {
     console.log('[*] Executing Hub Sequential Table Vacuum & Statistics Refresh...');
-    await sql`VACUUM (ANALYZE) keyword_serp_current;`.catch((e) => console.warn('  [!] VACUUM keyword_serp_current warning:', e?.message || e));
-    await sql`VACUUM (ANALYZE) keyword_displaced_index;`.catch((e) => console.warn('  [!] VACUUM keyword_displaced_index warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) keyword_serp_positions;`.catch((e) => console.warn('  [!] VACUUM keyword_serp_positions warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) universal_master_pins;`.catch((e) => console.warn('  [!] VACUUM universal_master_pins warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) pins_daily_metrics;`.catch((e) => console.warn('  [!] VACUUM pins_daily_metrics warning:', e?.message || e));
+    await sql`VACUUM (ANALYZE) competitor_board_pins;`.catch((e) => console.warn('  [!] VACUUM competitor_board_pins warning:', e?.message || e));
     await sql`VACUUM (ANALYZE) tracked_keywords;`.catch((e) => console.warn('  [!] VACUUM tracked_keywords warning:', e?.message || e));
     console.log('  ✓ Hub Tables Vacuumed and Statistics Refreshed.');
   } catch (vacErr) {
@@ -492,42 +494,32 @@ async function main() {
 
 /**
  * Automated Keyword Janitor Garbage Collection (Orphan SERP Positions GC)
- * Purges pin_serp_positions in Unified PostgreSQL SSOT for keywords tracked in keyword_tombstones.
+ * Purges keyword_serp_positions in Unified PostgreSQL SSOT for keywords tracked in keyword_tombstones.
  * 
  * Production Inquest Guarantees:
  * 1. Real Lifecycle: Sourced directly from persistent `keyword_tombstones` populated upon keyword deletion.
  * 2. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
  *    preserving their historical SERP rank trajectories intact for charts and analytics.
- * 3. Run-Once Semantics: Tombstones are atomically updated with shards_purged = TRUE and purged_at = NOW(),
+ * 3. Run-Once Semantics: Tombstones are atomically updated with purged_at = NOW(),
  *    permanently preventing repeated GC sweeps across subsequent fleet runs.
  */
 async function runKeywordJanitorGC() {
   console.log('\n[*] Running Automated Keyword Janitor GC...');
   try {
+    // Sweep any orphan keyword_ids in keyword_serp_positions missing from tracked_keywords
     await sql`
-      CREATE TABLE IF NOT EXISTS keyword_tombstones (
-        keyword_id INT PRIMARY KEY,
-        keyword TEXT,
-        deleted_at TIMESTAMPTZ DEFAULT NOW(),
-        shards_purged BOOLEAN DEFAULT FALSE,
-        purged_at TIMESTAMPTZ
-      );
-    `.catch(() => {});
-
-    // Sweep any orphan keyword_ids in keyword_serp_current missing from tracked_keywords
-    await sql`
-      INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged)
-      SELECT DISTINCT ksc.keyword_id, '<orphan>', NOW(), FALSE
-      FROM keyword_serp_current ksc
-      LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
-      WHERE tk.id IS NULL AND ksc.keyword_id IS NOT NULL
+      INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at)
+      SELECT DISTINCT ksp.keyword_id, '<orphan>', NOW()
+      FROM keyword_serp_positions ksp
+      LEFT JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+      WHERE tk.id IS NULL AND ksp.keyword_id IS NOT NULL
       ON CONFLICT (keyword_id) DO NOTHING;
     `.catch(() => {});
 
     const pendingTombstones = await sql`
       SELECT keyword_id, keyword
       FROM keyword_tombstones
-      WHERE shards_purged = FALSE;
+      WHERE purged_at IS NULL;
     `.catch(() => []);
 
     if (!pendingTombstones || pendingTombstones.length === 0) {
@@ -536,27 +528,23 @@ async function runKeywordJanitorGC() {
     }
 
     const purgeIds = pendingTombstones.map(r => Number(r.keyword_id)).filter(id => id && !isNaN(id));
-    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Purging pin_serp_positions in Unified PostgreSQL...`);
+    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Purging keyword_serp_positions in Unified PostgreSQL...`);
 
     await sql`
-      DELETE FROM pin_serp_positions
+      DELETE FROM keyword_serp_positions
       WHERE keyword_id = ANY(${purgeIds});
     `;
 
-    // Atomic State Transition: Mark shards_purged = true to guarantee strictly-once execution
+    // Atomic State Transition: Mark purged_at = NOW() to guarantee strictly-once execution
     await sql`
       UPDATE keyword_tombstones
-      SET shards_purged = TRUE,
-          purged_at = NOW()
+      SET purged_at = NOW()
       WHERE keyword_id = ANY(${purgeIds});
     `.catch(err => {
-      console.warn('    [!] Failed marking shards_purged on keyword_tombstones:', err.message);
+      console.warn('    [!] Failed marking purged_at on keyword_tombstones:', err.message);
     });
 
-    // Clean any lingering records for purged tombstones
-    await sql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${purgeIds});`.catch(() => {});
-
-    console.log(`    [+] Janitor GC: Purged ${purgeIds.length} tombstone keywords and marked shards_purged = TRUE.`);
+    console.log(`    [+] Janitor GC: Purged ${purgeIds.length} tombstone keywords.`);
     return purgeIds.length;
   } catch (gcErr) {
     console.warn('    [!] Keyword Janitor GC non-fatal warning:', gcErr.message);

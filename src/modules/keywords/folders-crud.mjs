@@ -63,36 +63,37 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     active_folder_pins AS (
       SELECT
         kfi.folder_id,
-        ksc.pin_id,
-        ksc.is_displaced,
-        LOWER(TRIM(ksc.domain)) AS clean_domain,
-        LOWER(TRIM(ksc.creator_username)) AS clean_username
+        ksp.pin_id,
+        ksp.is_displaced,
+        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-      WHERE ksc.is_displaced = FALSE
-        AND ksc.rank_position IS NOT NULL
-        AND ksc.rank_position >= 1
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
     ),
     vault_folder_pins AS (
       SELECT
         kfi.folder_id,
-        kdi.pin_id,
-        LOWER(TRIM(kdi.domain)) AS clean_domain,
-        LOWER(TRIM(kdi.creator_username)) AS clean_username
+        ksp.pin_id,
+        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-      WHERE kdi.last_known_rank IS NOT NULL
-        AND kdi.last_known_rank >= 1
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.is_displaced = TRUE
     ),
     active_unique_pins AS (
       SELECT
         kfi.folder_id,
-        COUNT(DISTINCT ksc.pin_id)::int AS active_pins_count
+        COUNT(DISTINCT ksp.pin_id)::int AS active_pins_count
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
-      WHERE ksc.is_displaced = FALSE
-        AND ksc.rank_position IS NOT NULL
-        AND ksc.rank_position >= 1
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      WHERE ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
       GROUP BY kfi.folder_id
     ),
     combined_summary AS (
@@ -200,39 +201,40 @@ export async function getFolder(sql, folderId) {
     active_folder_pins AS (
       SELECT
         kfi.folder_id,
-        ksc.pin_id,
-        ksc.is_displaced,
-        LOWER(TRIM(ksc.domain)) AS clean_domain,
-        LOWER(TRIM(ksc.creator_username)) AS clean_username
+        ksp.pin_id,
+        ksp.is_displaced,
+        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
-        AND ksc.is_displaced = FALSE
-        AND ksc.rank_position IS NOT NULL
-        AND ksc.rank_position >= 1
+        AND ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
     ),
     vault_folder_pins AS (
       SELECT
         kfi.folder_id,
-        kdi.pin_id,
-        LOWER(TRIM(kdi.domain)) AS clean_domain,
-        LOWER(TRIM(kdi.creator_username)) AS clean_username
+        ksp.pin_id,
+        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.account_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
-        AND kdi.last_known_rank IS NOT NULL
-        AND kdi.last_known_rank >= 1
+        AND ksp.is_displaced = TRUE
     ),
     active_unique_pins AS (
       SELECT
         kfi.folder_id,
-        COUNT(DISTINCT ksc.pin_id)::int AS active_pins_count
+        COUNT(DISTINCT ksp.pin_id)::int AS active_pins_count
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
-        AND ksc.is_displaced = FALSE
-        AND ksc.rank_position IS NOT NULL
-        AND ksc.rank_position >= 1
+        AND ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
       GROUP BY kfi.folder_id
     ),
     combined_summary AS (
@@ -314,7 +316,7 @@ export async function getFolder(sql, folderId) {
     JOIN tracked_keywords tk ON tk.id = i.keyword_id
     LEFT JOIN (
       SELECT keyword_id, COUNT(*)::int as cnt
-      FROM keyword_serp_current
+      FROM keyword_serp_positions
       WHERE is_displaced = FALSE AND rank_position >= 1
         AND keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fid})
       GROUP BY keyword_id
@@ -798,36 +800,19 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     WITH all_folder_pins AS (
       SELECT
         kfi.folder_id,
-        ksc.keyword_id,
-        ksc.pin_id,
-        LOWER(TRIM(ksc.creator_username)) AS clean_username,
-        ksc.save_count,
-        ksc.daily_save_velocity,
-        ksc.rank_position AS current_rank,
-        FALSE AS is_displaced
+        ksp.keyword_id,
+        ksp.pin_id,
+        LOWER(TRIM(ump.account_username)) AS clean_username,
+        ump.save_count,
+        ump.daily_save_velocity,
+        COALESCE(ksp.rank_position, ksp.last_known_rank) AS current_rank,
+        ksp.is_displaced
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
-        AND ksc.is_displaced = FALSE
-        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
-        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
-
-      UNION ALL
-
-      SELECT
-        kfi.folder_id,
-        kdi.keyword_id,
-        kdi.pin_id,
-        LOWER(TRIM(kdi.creator_username)) AS clean_username,
-        kdi.save_count,
-        kdi.daily_save_velocity,
-        kdi.last_known_rank AS current_rank,
-        TRUE AS is_displaced
-      FROM keyword_folder_items kfi
-      JOIN keyword_displaced_index kdi ON kdi.keyword_id = kfi.keyword_id
-      WHERE kfi.folder_id = ${fid}
-        AND kdi.creator_username IS NOT NULL AND kdi.creator_username <> ''
-        AND LOWER(TRIM(kdi.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ump.account_username IS NOT NULL AND ump.account_username <> ''
+        AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
     ),
     aggregated_creators AS (
       SELECT
@@ -930,11 +915,12 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
     WHERE fci.folder_id = ${fid}
       AND LOWER(TRIM(cp.username)) NOT IN (
-        SELECT LOWER(TRIM(ksc.creator_username))
+        SELECT LOWER(TRIM(ump.account_username))
         FROM keyword_folder_items kfi2
-        JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi2.keyword_id
-        WHERE kfi2.folder_id = ${fid} AND ksc.is_displaced = FALSE
-          AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi2.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi2.folder_id = ${fid} AND ksp.is_displaced = FALSE
+          AND ump.account_username IS NOT NULL AND ump.account_username <> ''
       );
   `;
 
@@ -1094,13 +1080,14 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
   } else {
     // Extract unique ranking creators from active SERP for this folder's keywords
     const serpCreators = await sql`
-      SELECT DISTINCT LOWER(TRIM(ksc.creator_username)) AS username
+      SELECT DISTINCT LOWER(TRIM(ump.account_username)) AS username
       FROM keyword_folder_items kfi
-      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
-        AND ksc.is_displaced IS FALSE
-        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
-        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
+        AND ksp.is_displaced IS FALSE
+        AND ump.account_username IS NOT NULL AND ump.account_username <> ''
+        AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
     `;
     targetUsernames = (serpCreators || [])
       .map(r => normalizePinterestUsername(r.username))
@@ -1257,12 +1244,13 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
 
     const linked = await sql`
       WITH ranked_creators AS (
-        SELECT DISTINCT LOWER(TRIM(ksc.creator_username)) AS username
-        FROM keyword_serp_current ksc
-        WHERE ksc.keyword_id = ${kid}
-          AND ksc.is_displaced IS FALSE
-          AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
-          AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        SELECT DISTINCT LOWER(TRIM(ump.account_username)) AS username
+        FROM keyword_serp_positions ksp
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE ksp.keyword_id = ${kid}
+          AND ksp.is_displaced IS FALSE
+          AND ump.account_username IS NOT NULL AND ump.account_username <> ''
+          AND LOWER(TRIM(ump.account_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
       ),
       upserted_profiles AS (
         INSERT INTO competitor_profiles (
@@ -1323,7 +1311,7 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
 }
 
 /**
- * Identify candidate pins for smart pruning across keyword_serp_current and keyword_displaced_index
+ * Identify candidate pins for smart pruning across keyword_serp_positions
  */
 export async function getPruningCandidates(sql, folderId, options = {}) {
   const fid = Number(folderId);
@@ -1347,60 +1335,29 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
 
   return await sql`
     SELECT
-      ksc.keyword_id,
-      ksc.pin_id,
-      ksc.title,
-      ksc.save_count,
-      ksc.repin_count,
-      ksc.daily_save_velocity,
-      ksc.is_displaced,
-      ksc.created_at_pinterest,
+      ksp.keyword_id,
+      ksp.pin_id,
+      ump.title,
+      ump.save_count,
+      ump.repin_count,
+      ump.daily_save_velocity,
+      ksp.is_displaced,
+      ump.created_at_pinterest,
       tk.keyword,
       i.added_at AS folder_added_at
     FROM keyword_folder_items i
     JOIN tracked_keywords tk ON tk.id = i.keyword_id
-    JOIN keyword_serp_current ksc ON ksc.keyword_id = i.keyword_id
+    JOIN keyword_serp_positions ksp ON ksp.keyword_id = i.keyword_id
+    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
     WHERE i.folder_id = ${fid}
       AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
       AND (
         (${targetScope} = 'all') OR
-        (${targetScope} = 'displaced' AND ksc.is_displaced = TRUE) OR
-        (${targetScope} = 'active' AND ksc.is_displaced = FALSE)
+        (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
+        (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
       )
-      AND (${resolvedMaxSaves === null} OR COALESCE(ksc.save_count, 0) <= ${resolvedMaxSaves})
-      AND (${resolvedMaxRepins === null} OR COALESCE(ksc.repin_count, 0) <= ${resolvedMaxRepins})
-      AND (
-        ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
-        ksc.created_at_pinterest IS NULL OR
-        ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
-      )
-      AND (
-        ${resolvedMinFolderAge === null} OR
-        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-      )
-
-    UNION ALL
-
-    SELECT
-      kdi.keyword_id,
-      kdi.pin_id,
-      COALESCE(ump.title, NULL::text) AS title,
-      kdi.save_count,
-      kdi.repin_count,
-      kdi.daily_save_velocity,
-      TRUE AS is_displaced,
-      ump.created_at_pinterest AS created_at_pinterest,
-      tk.keyword,
-      i.added_at AS folder_added_at
-    FROM keyword_folder_items i
-    JOIN tracked_keywords tk ON tk.id = i.keyword_id
-    JOIN keyword_displaced_index kdi ON kdi.keyword_id = i.keyword_id
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-    WHERE i.folder_id = ${fid}
-      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
-      AND (${targetScope} IN ('all', 'displaced'))
-      AND (${resolvedMaxSaves === null} OR COALESCE(kdi.save_count, 0) <= ${resolvedMaxSaves})
-      AND (${resolvedMaxRepins === null} OR COALESCE(kdi.repin_count, 0) <= ${resolvedMaxRepins})
+      AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
+      AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
       AND (
         ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
         ump.created_at_pinterest IS NULL OR
@@ -1409,10 +1366,6 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
       AND (
         ${resolvedMinFolderAge === null} OR
         (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM keyword_serp_current ksc_dup
-        WHERE ksc_dup.keyword_id = kdi.keyword_id AND ksc_dup.pin_id = kdi.pin_id
       );
   `;
 }
@@ -1452,7 +1405,7 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
   const resolvedMaxSaves = max_saves !== null && max_saves !== undefined ? Number(max_saves) : (maxSaves !== null ? Number(maxSaves) : null);
   const resolvedMaxRepins = max_repins !== null && max_repins !== undefined ? Number(max_repins) : (maxRepins !== null ? Number(maxRepins) : null);
 
-  // 1. Identify Candidate Pins from keyword_serp_current and keyword_displaced_index
+  // 1. Identify Candidate Pins from keyword_serp_positions
   const candidates = await getPruningCandidates(sql, fid, {
     keywordIds: validKids,
     scope: targetScope,
@@ -1538,19 +1491,14 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
     });
   }
 
-  // B. Delete from Central Hub operational tables using atomic paired UNNEST tuple deletion
+  // B. Delete from keyword_serp_positions using atomic paired UNNEST tuple deletion
   // [INVARIANT: ATOMIC-UNNEST-TUPLE-DELETION]
   // Eliminates Cartesian cross-product (K x P) data-loss bug by strictly matching (keyword_id, pin_id) tuples
   if (pruneKeywordIds.length > 0) {
     await sql`
-      DELETE FROM keyword_serp_current ksc
+      DELETE FROM keyword_serp_positions ksp
       USING (SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid) target
-      WHERE ksc.keyword_id = target.kid AND ksc.pin_id = target.pid;
-    `;
-    await sql`
-      DELETE FROM keyword_displaced_index kdi
-      USING (SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid) target
-      WHERE kdi.keyword_id = target.kid AND kdi.pin_id = target.pid;
+      WHERE ksp.keyword_id = target.kid AND ksp.pin_id = target.pid;
     `;
   }
 

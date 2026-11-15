@@ -8,8 +8,7 @@
  *    or suspiciously inflated save_count / daily_save_velocity.
  * 2. Queries live Pinterest PinResource directly (zero canonical hop) to obtain each pin's
  *    authentic save_count and repin_count.
- * 3. Repairs polluted save_count rows across universal_master_pins, pins_daily_metrics,
- *    keyword_serp_current, keyword_displaced_index, competitor_pins, and pa_pins.
+ * 3. Repairs polluted save_count rows across universal_master_pins and pins_daily_metrics.
  * 4. Recomputes exact 24h velocity & rolling window gains (5d/7d/10d/15d) from clean snapshots.
  */
 
@@ -131,40 +130,6 @@ async function main() {
               WHERE pin_id = ${row.pin_id};
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 
-            await withDbRetry(() => sql`
-              UPDATE keyword_serp_current
-              SET
-                save_count = ${trueSaves}::bigint,
-                repin_count = GREATEST(COALESCE(repin_count, 0), ${trueRepins}::int),
-                baseline_day_saves = CASE
-                  WHEN baseline_day_saves IS NOT NULL AND baseline_day_saves > ${trueSaves}::bigint
-                  THEN ${trueSaves}::bigint
-                  ELSE baseline_day_saves
-                END,
-                updated_at = NOW()
-              WHERE pin_id = ${row.pin_id};
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-
-            await withDbRetry(() => sql`
-              UPDATE keyword_displaced_index
-              SET
-                save_count = ${trueSaves}::bigint,
-                repin_count = GREATEST(COALESCE(repin_count, 0), ${trueRepins}::int),
-                updated_at = NOW()
-              WHERE pin_id = ${row.pin_id};
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-
-            await withDbRetry(() => sql`
-              UPDATE competitor_pins
-              SET save_count = ${trueSaves}::bigint, updated_at = NOW()
-              WHERE pin_id = ${row.pin_id} AND save_count > ${trueSaves}::bigint;
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 }).catch(() => {});
-
-            await withDbRetry(() => sql`
-              UPDATE pa_pins
-              SET saves = ${trueSaves}::bigint, last_updated_at = NOW()
-              WHERE pin_id = ${row.pin_id} AND saves > ${trueSaves}::bigint;
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 }).catch(() => {});
           }
         } catch (_) {}
 
@@ -179,18 +144,12 @@ async function main() {
     // Step 2: Recompute authentic 24h velocity & rolling gains across all active, displaced & non-zero UMP pins
     console.log('\n[*] Recomputing authentic 24h velocity & rolling gains from pins_daily_metrics...');
     const allTrackedPins = await withDbRetry(() => sql`
-      SELECT pin_id FROM (
-        SELECT pin_id FROM keyword_serp_current WHERE pin_id IS NOT NULL
-        UNION
-        SELECT pin_id FROM keyword_displaced_index WHERE pin_id IS NOT NULL
-        UNION
-        SELECT pin_id FROM universal_master_pins
-        WHERE COALESCE(daily_save_velocity, 0) > 0
-           OR COALESCE(delta_saves_24h, 0) > 0
-           OR COALESCE(delta_repins_24h, 0) > 0
-           OR COALESCE(gains_5d, 0) > 0
-           OR COALESCE(gains_7d, 0) > 0
-      ) t;
+      SELECT pin_id FROM universal_master_pins
+      WHERE COALESCE(daily_save_velocity, 0) > 0
+         OR COALESCE(delta_saves_24h, 0) > 0
+         OR COALESCE(delta_repins_24h, 0) > 0
+         OR COALESCE(gains_5d, 0) > 0
+         OR COALESCE(gains_7d, 0) > 0;
     `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
 
     const pinIds = allTrackedPins.map(r => String(r.pin_id));
@@ -199,32 +158,18 @@ async function main() {
     const CHUNK_SIZE = 500;
     for (let i = 0; i < pinIds.length; i += CHUNK_SIZE) {
       const chunkIds = pinIds.slice(i, i + CHUNK_SIZE);
-      const [snaps, freshKsc] = await withDbRetry(() => Promise.all([
-        sql`
-          SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
-          FROM pins_daily_metrics
-          WHERE pin_id = ANY(${chunkIds}::text[])
-            AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-          ORDER BY snapshot_date DESC;
-        `,
-        sql`
-          SELECT pin_id, (crawled_at AT TIME ZONE 'UTC')::date AS snapshot_date,
-                 save_count, repin_count, daily_save_velocity
-          FROM keyword_serp_current
-          WHERE pin_id = ANY(${chunkIds}::text[])
-            AND crawled_at >= NOW() - INTERVAL '48 hours'
-            AND save_count > 0;
-        `
-      ]), { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
+      const snaps = await withDbRetry(() => sql`
+        SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+        FROM pins_daily_metrics
+        WHERE pin_id = ANY(${chunkIds}::text[])
+          AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
+        ORDER BY snapshot_date DESC;
+      `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
 
       const snapMap = new Map();
       for (const s of snaps) {
         if (!snapMap.has(s.pin_id)) snapMap.set(s.pin_id, []);
         snapMap.get(s.pin_id).push(s);
-      }
-      for (const kRow of freshKsc) {
-        if (!snapMap.has(kRow.pin_id)) snapMap.set(kRow.pin_id, []);
-        snapMap.get(kRow.pin_id).push(kRow);
       }
 
       const updates = [];
@@ -243,66 +188,6 @@ async function main() {
       }
 
       const payloadJson = JSON.stringify(updates);
-
-      await withDbRetry(() => sql`
-        UPDATE keyword_serp_current ksc
-        SET
-          daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
-          delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
-          gains_5d = COALESCE(u.gains_5d, 0),
-          gains_7d = COALESCE(u.gains_7d, 0),
-          gains_10d = COALESCE(u.gains_10d, 0),
-          gains_15d = COALESCE(u.gains_15d, 0),
-          updated_at = NOW()
-        FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-          pin_id text,
-          daily_save_velocity numeric,
-          delta_repins_24h int,
-          gains_5d int,
-          gains_7d int,
-          gains_10d int,
-          gains_15d int
-        )
-        WHERE ksc.pin_id = u.pin_id
-          AND (
-            ksc.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
-            OR ksc.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
-            OR ksc.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
-            OR ksc.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
-            OR ksc.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
-            OR ksc.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
-          );
-      `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
-
-      await withDbRetry(() => sql`
-        UPDATE keyword_displaced_index kdi
-        SET
-          daily_save_velocity = COALESCE(u.daily_save_velocity, 0),
-          delta_repins_24h = COALESCE(u.delta_repins_24h, 0),
-          gains_5d = COALESCE(u.gains_5d, 0),
-          gains_7d = COALESCE(u.gains_7d, 0),
-          gains_10d = COALESCE(u.gains_10d, 0),
-          gains_15d = COALESCE(u.gains_15d, 0),
-          updated_at = NOW()
-        FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-          pin_id text,
-          daily_save_velocity numeric,
-          delta_repins_24h int,
-          gains_5d int,
-          gains_7d int,
-          gains_10d int,
-          gains_15d int
-        )
-        WHERE kdi.pin_id = u.pin_id
-          AND (
-            kdi.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0)
-            OR kdi.delta_repins_24h IS DISTINCT FROM COALESCE(u.delta_repins_24h, 0)
-            OR kdi.gains_5d IS DISTINCT FROM COALESCE(u.gains_5d, 0)
-            OR kdi.gains_7d IS DISTINCT FROM COALESCE(u.gains_7d, 0)
-            OR kdi.gains_10d IS DISTINCT FROM COALESCE(u.gains_10d, 0)
-            OR kdi.gains_15d IS DISTINCT FROM COALESCE(u.gains_15d, 0)
-          );
-      `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
 
       await withDbRetry(() => sql`
         UPDATE universal_master_pins ump
@@ -350,40 +235,6 @@ async function main() {
           AND pm.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0);
       `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
     }
-
-    // Step 3: Synchronize pa_pins and competitor_pins velocities with universal_master_pins & decay >48h stale velocities
-    console.log('\n[*] Synchronizing pa_pins & competitor_pins velocities and decaying >48h stale velocities...');
-    await withDbRetry(() => sql`
-      UPDATE pa_pins pa
-      SET velocity = CASE
-        WHEN COALESCE(ump.last_scraped_at, ump.updated_at, pa.last_updated_at) >= NOW() - INTERVAL '48 hours'
-        THEN COALESCE(ump.daily_save_velocity, 0)
-        ELSE 0
-      END
-      FROM universal_master_pins ump
-      WHERE pa.pin_id = ump.pin_id
-        AND pa.velocity IS DISTINCT FROM (
-          CASE
-            WHEN COALESCE(ump.last_scraped_at, ump.updated_at, pa.last_updated_at) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(ump.daily_save_velocity, 0)
-            ELSE 0
-          END
-        );
-    `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
-
-    await withDbRetry(() => sql`
-      UPDATE pa_pins
-      SET velocity = 0
-      WHERE velocity > 0
-        AND last_updated_at < NOW() - INTERVAL '48 hours';
-    `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
-
-    await withDbRetry(() => sql`
-      UPDATE competitor_pins cp
-      SET metadata = (cp.metadata - 'daily_save_velocity' - 'delta_saves_24h' - 'delta_repins_24h')
-      WHERE cp.updated_at < NOW() - INTERVAL '48 hours'
-        AND cp.metadata ?| array['daily_save_velocity', 'delta_saves_24h', 'delta_repins_24h'];
-    `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
 
     console.log('\n✅ Remediation & Velocity Reconciliation Complete!');
   } finally {

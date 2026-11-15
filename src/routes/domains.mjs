@@ -91,17 +91,15 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
-      const epoch = '0';
-      const cacheKey = buildCanonicalCacheKey(`domains:leaderboard:ep:${epoch}`, cacheParams);
-      // [INVARIANT: 6H-EPOCH-BACKED-EDGE-TTL]
-      // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms) backed by fleet:cache_epoch
+      const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
+      // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms)
       const SIX_HOURS_MS = 21600000;
       const ONE_HOUR_MS = 3600000;
       const data = isForceRefresh
         ? await listDomainsIntelligenceFast(sql, cacheParams)
         : await getCachedOrFetch(cacheKey, async () => {
             return await listDomainsIntelligenceFast(sql, cacheParams);
-          }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh, epoch });
+          }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh });
 
       // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page
       if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {

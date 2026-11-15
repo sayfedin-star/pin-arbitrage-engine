@@ -4,7 +4,7 @@
  * Cross-Pillar Domain Intelligence, SERP Monopoly & WHOIS Age Engine
  *
  * Features:
- * - Unifies domain occurrences across keyword_serp_current (SERP Radar), pa_pins (PinArchive), and competitor_pins.
+ * - Unifies domain occurrences across universal_master_pins and keyword_serp_positions.
  * - Fetch-Once Domain Age lookup via api.domainee.dev with automatic IANA RDAP fallback and 8000ms AbortSignal timeout.
  * - Computes SERP Visibility Score, Pin-to-Article Multiplication Ratio, Multi-Account Network Detection, and Arbitrage Score.
  * - Deep Domain Dossier: Ranked Pins per Keyword, Top Money Article Slugs (with creative pin variations), and Keyword Monopoly Matrix.
@@ -632,21 +632,9 @@ export async function getDatabaseEnrichmentStats(sql) {
 
     const [stats] = await sql`
       WITH all_domains AS (
-        SELECT DISTINCT domain AS clean_domain
-        FROM keyword_serp_current
-        WHERE domain IS NOT NULL AND domain <> ''
-        UNION
-        SELECT DISTINCT COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain
+        SELECT DISTINCT ump.clean_domain
         FROM universal_master_pins ump
-        WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
-        UNION
-        SELECT DISTINCT cp.link_domain AS clean_domain
-        FROM competitor_pins cp
-        WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-        UNION
-        SELECT DISTINCT kdi.domain AS clean_domain
-        FROM keyword_displaced_index kdi
-        WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
+        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
         UNION
         SELECT DISTINCT domain AS clean_domain
         FROM domain_registry_metadata
@@ -706,42 +694,13 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
   const candidateRows = await sql`
     WITH all_candidates AS (
       SELECT
-        ksc.domain AS clean_domain,
-        SUM(GREATEST(0, (51 - COALESCE(ksc.rank_position, 50))))::bigint AS visibility_score,
-        SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
-      FROM keyword_serp_current ksc
-      WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-      GROUP BY ksc.domain
-
-      UNION ALL
-
-      SELECT
-        COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain,
-        0::bigint AS visibility_score,
+        ump.clean_domain,
+        SUM(GREATEST(0, (51 - COALESCE(ksp.rank_position, ksp.last_known_rank, 50))))::bigint AS visibility_score,
         SUM(COALESCE(ump.save_count, 0))::bigint AS total_saves
       FROM universal_master_pins ump
-      WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
-      GROUP BY COALESCE(NULLIF(ump.clean_domain, ''), ump.domain)
-
-      UNION ALL
-
-      SELECT
-        cp.link_domain AS clean_domain,
-        0::bigint AS visibility_score,
-        SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
-      FROM competitor_pins cp
-      WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-      GROUP BY cp.link_domain
-
-      UNION ALL
-
-      SELECT
-        kdi.domain AS clean_domain,
-        SUM(GREATEST(0, (51 - COALESCE(kdi.last_known_rank, 50))))::bigint AS visibility_score,
-        SUM(COALESCE(kdi.save_count, 0))::bigint AS total_saves
-      FROM keyword_displaced_index kdi
-      WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
-      GROUP BY kdi.domain
+      LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
+      WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+      GROUP BY ump.clean_domain
     ),
     aggregated AS (
       SELECT
@@ -852,161 +811,51 @@ export async function listDomainsIntelligence(sql, {
 
   const rows = await sql`
     WITH raw_occurrences AS (
-      -- Pillar 2: Keyword SERP Radar
+      -- SERP Occurrences (Active & Displaced)
       SELECT
         CASE 
-          WHEN LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain)))
+          WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
         END AS clean_domain,
-        ksc.pin_id,
-        ksc.keyword_id,
-        CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
-        ksc.is_displaced,
-        COALESCE(NULLIF(ksc.save_count, 0), ump.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ksc.repin_count, 0), ump.repin_count, 0)::bigint AS repins,
-        COALESCE(NULLIF(ksc.daily_save_velocity, 0), ump.daily_save_velocity, 0)::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username, ''), '@', '')) AS username,
-        COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-        TRUE AS is_serp_ranked
-      FROM keyword_serp_current ksc
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-      WHERE (${pillar} IN ('all', 'serp', 'competitors'))
-        AND COALESCE(NULLIF(ksc.domain, ''), ump.domain) IS NOT NULL
-        AND COALESCE(NULLIF(ksc.domain, ''), ump.domain) <> ''
-        AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-        AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
-
-      UNION ALL
-
-      -- Pillar 4: PinArchive Winning Pins (enriched via universal_master_pins SSOT)
-      SELECT
-        CASE 
-          WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE pa.clean_domain
-        END AS clean_domain,
-        pa.pin_id,
-        NULL::int AS keyword_id,
-        NULL::int AS active_rank,
-        FALSE AS is_displaced,
-        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(pa.velocity, 0)
-          ELSE 0
-        END::numeric AS velocity,
-        CASE
-          WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-          WHEN RTRIM(SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-          ELSE ''
-        END AS username,
-        COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(ump.destination_url, ''), pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-        FALSE AS is_serp_ranked
-      FROM pa_pins pa
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      WHERE ${includeArchiveAndComp} = TRUE
-        AND (${pillar} IN ('all', 'archive'))
-        AND pa.clean_domain IS NOT NULL AND pa.clean_domain <> ''
-
-      UNION ALL
-
-      -- Pillar 1: Competitor Catalog Pins
-      SELECT
-        CASE 
-          WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE cp.clean_domain
-        END AS clean_domain,
-        cp.pin_id,
-        NULL::int AS keyword_id,
-        NULL::int AS active_rank,
-        FALSE AS is_displaced,
-        COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity::numeric
-          WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(
-            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            0::numeric
-          )
-          ELSE 0::numeric
-        END AS velocity,
-        CASE
-          WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(COALESCE(prof.username, ''))
-          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(COALESCE(prof.username, ''))
-          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(cp.clean_domain, '-', ''), '.', 1) THEN LOWER(COALESCE(prof.username, ''))
-          ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
-        END AS username,
-        COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-        FALSE AS is_serp_ranked
-      FROM competitor_pins cp
-      LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-      WHERE ${includeArchiveAndComp} = TRUE
-        AND (${pillar} IN ('all', 'competitors'))
-        AND cp.clean_domain IS NOT NULL AND cp.clean_domain <> ''
-
-      UNION ALL
-
-      -- Displaced Pillar: keyword_displaced_index enriched via universal_master_pins SSOT
-      SELECT
-        CASE 
-          WHEN LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain)))
-        END AS clean_domain,
-        kdi.pin_id,
-        kdi.keyword_id,
-        NULL::int AS active_rank,
-        TRUE AS is_displaced,
-        COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0)::bigint AS repins,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), kdi.daily_save_velocity, 0)::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username, ''), '@', '')) AS username,
+        ksp.pin_id,
+        ksp.keyword_id,
+        CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_rank,
+        ksp.is_displaced,
+        ump.save_count::bigint AS saves,
+        ump.repin_count::bigint AS repins,
+        ump.daily_save_velocity::numeric AS velocity,
+        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         TRUE AS is_serp_ranked
-      FROM keyword_displaced_index kdi
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      -- [INVARIANT: CAMPAIGN-FOLDER-DISPLACED-PINS-PRESERVATION]
-      WHERE (${pillar} IN ('all', 'serp', 'displaced', 'competitors'))
-        AND COALESCE(NULLIF(kdi.domain, ''), ump.domain) IS NOT NULL
-        AND COALESCE(NULLIF(kdi.domain, ''), ump.domain) <> ''
-        AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-        AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE (${pillar} IN ('all', 'serp', 'competitors', 'displaced'))
+        AND ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+        AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
 
       UNION ALL
 
       -- Universal Master Pins SSOT (Direct Domain Footprint)
       SELECT
         CASE 
-          WHEN COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-          ELSE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain)))
+          WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
         END AS clean_domain,
         ump.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS active_rank,
         FALSE AS is_displaced,
-        COALESCE(ump.save_count, 0)::bigint AS saves,
-        COALESCE(ump.repin_count, 0)::bigint AS repins,
-        COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
-        CASE
-          WHEN ump.first_discovered_pillar = 'creator'
-            AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
-            AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1)
-            AND RTRIM(SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
-          THEN ''
-          ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
-        END AS username,
+        ump.save_count::bigint AS saves,
+        ump.repin_count::bigint AS repins,
+        ump.daily_save_velocity::numeric AS velocity,
+        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
       FROM universal_master_pins ump
       WHERE ${includeArchiveAndComp} = TRUE
-        AND (${pillar} IN ('all', 'serp', 'competitors'))
-        AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
+        AND (${pillar} IN ('all', 'competitors', 'archive'))
+        AND ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
 
       UNION ALL
 
@@ -1048,9 +897,10 @@ export async function listDomainsIntelligence(sql, {
         AND clean_domain LIKE '%.%'
         AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern})
         AND (${pillar} <> 'competitors' OR clean_domain IN (
-          SELECT link_domain
-          FROM competitor_pins
-          WHERE link_domain IS NOT NULL AND link_domain <> ''
+          SELECT ump.clean_domain
+          FROM competitor_board_pins cbp
+          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+          WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
         ))
       GROUP BY clean_domain, pin_id
     ),
@@ -1395,145 +1245,42 @@ export async function refreshDomainIntelligenceRollup(sql) {
       WITH raw_occurrences AS (
         SELECT
           CASE 
-            WHEN LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(TRIM(COALESCE(NULLIF(ksc.domain, ''), ump.domain)))
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
-          ksc.pin_id,
-          ksc.keyword_id,
-          CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
-          ksc.is_displaced,
-          COALESCE(NULLIF(ump.save_count, 0), ksc.save_count, 0)::bigint AS saves,
-          COALESCE(NULLIF(ump.repin_count, 0), ksc.repin_count, 0)::bigint AS repins,
-          COALESCE(NULLIF(ump.daily_save_velocity, 0), ksc.daily_save_velocity, 0)::numeric AS velocity,
-          LOWER(REPLACE(COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username, ''), '@', '')) AS username,
-          COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-          TRUE AS is_serp_ranked
-        FROM keyword_serp_current ksc
-        LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-        WHERE COALESCE(NULLIF(ksc.domain, ''), ump.domain) IS NOT NULL
-          AND COALESCE(NULLIF(ksc.domain, ''), ump.domain) <> ''
-
-        UNION ALL
-
-        SELECT
-          CASE 
-            WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE pa.clean_domain
-          END AS clean_domain,
-          pa.pin_id,
-          NULL::int AS keyword_id,
-          NULL::int AS active_rank,
-          FALSE AS is_displaced,
-          COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
-          COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-          CASE
-            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN ump.daily_save_velocity
-            WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(pa.velocity, 0)
-            ELSE 0
-          END::numeric AS velocity,
-          CASE
-            WHEN pa.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-            WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-            WHEN RTRIM(SPLIT_PART(REPLACE(pa.clean_domain, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', '')), '_', '') THEN LOWER(REPLACE(COALESCE(pa.account_username, ump.creator_username, ''), '@', ''))
-            ELSE ''
-          END AS username,
-          COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(ump.destination_url, ''), pa.link, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-          FALSE AS is_serp_ranked
-        FROM pa_pins pa
-        LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-        WHERE pa.clean_domain IS NOT NULL AND pa.clean_domain <> ''
-
-        UNION ALL
-
-        -- Competitor Pins
-        SELECT
-          CASE 
-            WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE cp.clean_domain
-          END AS clean_domain,
-          cp.pin_id,
-          NULL::int AS keyword_id,
-          NULL::int AS active_rank,
-          FALSE AS is_displaced,
-          COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
-          COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
-          -- [INVARIANT: ACCURATE-COMPETITOR-VELOCITY] Extract authentic live daily velocity from competitor pins
-          CASE
-            WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN ump.daily_save_velocity::numeric
-            WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-            THEN COALESCE(
-              NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-              NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-              0::numeric
-            )
-            ELSE 0::numeric
-          END AS velocity,
-          CASE
-            WHEN cp.clean_domain IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
-            WHEN cprof.website_url IS NOT NULL AND cprof.website_url <> '' AND LOWER(cprof.website_url) LIKE '%' || cp.clean_domain || '%' THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
-            WHEN REPLACE(LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(cp.clean_domain, '-', ''), '.', 1) THEN LOWER(REPLACE(COALESCE(cprof.username, ''), '@', ''))
-            ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
-          END AS username,
-          COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NULLIF(cp.destination_url, ''), ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-          FALSE AS is_serp_ranked
-        FROM competitor_pins cp
-        LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
-        LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-        WHERE cp.clean_domain IS NOT NULL AND cp.clean_domain <> ''
-
-        UNION ALL
-
-        -- Displaced Pillar: keyword_displaced_index enriched via universal_master_pins SSOT
-        SELECT
-          CASE 
-            WHEN LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(TRIM(COALESCE(NULLIF(kdi.domain, ''), ump.domain)))
-          END AS clean_domain,
-          kdi.pin_id,
-          kdi.keyword_id,
-          NULL::int AS active_rank,
-          TRUE AS is_displaced,
-          COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0)::bigint AS saves,
-          COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0)::bigint AS repins,
-          COALESCE(NULLIF(ump.daily_save_velocity, 0), kdi.daily_save_velocity, 0)::numeric AS velocity,
-          LOWER(REPLACE(COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username, ''), '@', '')) AS username,
+          ksp.pin_id,
+          ksp.keyword_id,
+          CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_rank,
+          ksp.is_displaced,
+          ump.save_count::bigint AS saves,
+          ump.repin_count::bigint AS repins,
+          ump.daily_save_velocity::numeric AS velocity,
+          LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           TRUE AS is_serp_ranked
-        FROM keyword_displaced_index kdi
-        LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-        WHERE COALESCE(NULLIF(kdi.domain, ''), ump.domain) IS NOT NULL
-          AND COALESCE(NULLIF(kdi.domain, ''), ump.domain) <> ''
+        FROM keyword_serp_positions ksp
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
 
         UNION ALL
 
-        -- Universal Master Pins SSOT
         SELECT
           CASE 
-            WHEN COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain)))
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
           ump.pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,
           FALSE AS is_displaced,
-          COALESCE(ump.save_count, 0)::bigint AS saves,
-          COALESCE(ump.repin_count, 0)::bigint AS repins,
-          COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
-          CASE
-            WHEN ump.first_discovered_pillar = 'creator'
-              AND COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic')
-              AND REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '') <> SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1)
-              AND RTRIM(SPLIT_PART(REPLACE(COALESCE(NULLIF(ump.clean_domain, ''), LOWER(TRIM(ump.domain))), '-', ''), '.', 1), 's') <> REPLACE(LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', '')), '_', '')
-            THEN ''
-            ELSE LOWER(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))
-          END AS username,
+          ump.save_count::bigint AS saves,
+          ump.repin_count::bigint AS repins,
+          ump.daily_save_velocity::numeric AS velocity,
+          LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
         FROM universal_master_pins ump
-        WHERE ump.domain IS NOT NULL AND ump.domain <> ''
+        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
 
         UNION ALL
 
@@ -2215,161 +1962,55 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }) : fetchAndCacheDomainAdNetwork(sql, cleanDomain, { fastPath }).catch(() => null),
     sql`
       SELECT
-        ksc.pin_id,
-        ksc.keyword_id,
+        ksp.pin_id,
+        ksp.keyword_id,
         tk.keyword AS keyword_name,
-        ksc.rank_position,
-        ksc.last_known_rank,
-        ksc.is_displaced,
-        ksc.displaced_date,
-        COALESCE(NULLIF(ksc.title, ''), ump.title, '') AS title,
-        COALESCE(NULLIF(ksc.destination_url, ''), ump.destination_url, '') AS destination_url,
-        COALESCE(NULLIF(ksc.image_url, ''), ump.image_url, '') AS image_url,
-        COALESCE(NULLIF(ksc.creator_username, ''), ump.creator_username, '') AS creator_username,
-        COALESCE(NULLIF(ksc.board_name, ''), ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(ump.save_count, 0), ksc.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), ksc.repin_count, 0)::bigint AS repins,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), ksc.daily_save_velocity, 0)::numeric AS velocity,
-        COALESCE(NULLIF(ksc.dominant_color, '#888888'), ump.dominant_color, ksc.dominant_color) AS dominant_color,
-        CASE
-          WHEN jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0 THEN ksc.visual_annotations
-          ELSE COALESCE(ump.visual_annotations, '[]'::jsonb)
-        END AS visual_annotations,
-        COALESCE(ksc.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-        COALESCE(ump.metadata, '{}'::jsonb) || COALESCE(ksc.metadata, '{}'::jsonb) AS metadata
-      FROM keyword_serp_current ksc
-      LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksc.pin_id
-      WHERE (
-          ksc.clean_domain = ${cleanDomain}
-          OR (ksc.clean_domain IS NULL AND ump.clean_domain = ${cleanDomain})
-          OR (${isOrganicVault}::boolean AND (ksc.clean_domain = 'uploaded by user' OR (ksc.clean_domain IS NULL AND ump.clean_domain = 'uploaded by user')))
-        )
-        AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-        AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
-      ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, COALESCE(NULLIF(ump.save_count, 0), ksc.save_count, 0) DESC
-      LIMIT 5000;
-    `.catch(err => guardQueryTimeout(err, 'keyword_serp_current')),
-    sql`
-      SELECT
-        pa.pin_id,
-        COALESCE(NULLIF(ump.title, ''), pa.title, '') AS title,
-        COALESCE(NULLIF(ump.destination_url, ''), pa.link, '') AS destination_url,
-        COALESCE(NULLIF(ump.image_url, ''), pa.image_url, '') AS image_url,
-        CASE
-          WHEN ${isOrganicVault}::boolean THEN COALESCE(NULLIF(pa.account_username, ''), ump.creator_username)
-          WHEN REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') = SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1) THEN pa.account_username
-          WHEN RTRIM(SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1), 's') = REPLACE(LOWER(REPLACE(COALESCE(pa.account_username, ''), '@', '')), '_', '') THEN pa.account_username
-          ELSE NULL
-        END AS creator_username,
-        COALESCE(NULLIF(pa.board_name, ''), ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), pa.repins, 0)::bigint AS repins,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity
-          WHEN COALESCE(pa.last_updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(pa.velocity, 0)
-          ELSE 0
-        END::numeric AS velocity,
-        COALESCE(NULLIF(ump.dominant_color, '#888888'), pa.dominant_color) AS dominant_color,
-        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), pa.annotations) AS visual_annotations,
-        COALESCE(ump.created_at_pinterest, pa.created_at_pinterest) AS created_at_pinterest
-      FROM pa_pins pa
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      WHERE (pa.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND pa.clean_domain = 'uploaded by user'))
-      ORDER BY COALESCE(NULLIF(ump.save_count, 0), pa.saves, 0) DESC
-      LIMIT 5000;
-    `.catch(err => guardQueryTimeout(err, 'pa_pins')),
-    sql`
-      SELECT
-        cp.pin_id,
-        COALESCE(NULLIF(ump.title, ''), cp.title, '') AS title,
-        COALESCE(NULLIF(ump.destination_url, ''), cp.destination_url, '') AS destination_url,
-        COALESCE(NULLIF(ump.image_url, ''), cp.image_url, '') AS image_url,
-        CASE
-          WHEN ${isOrganicVault}::boolean THEN prof.username
-          WHEN prof.website_url IS NOT NULL AND prof.website_url <> '' AND LOWER(prof.website_url) LIKE '%' || ${cleanDomain} || '%' THEN prof.username
-          WHEN REPLACE(LOWER(COALESCE(prof.username, '')), '_', '') = SPLIT_PART(REPLACE(${cleanDomain}, '-', ''), '.', 1) THEN prof.username
-          ELSE NULLIF(ump.creator_username, '')
-        END AS creator_username,
-        COALESCE(NULLIF(cp.board_name, ''), ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), cp.repin_count, 0)::bigint AS repins,
-        CASE
-          WHEN ump.daily_save_velocity IS NOT NULL AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN ump.daily_save_velocity::numeric
-          WHEN COALESCE(cp.updated_at, NOW()) >= NOW() - INTERVAL '48 hours'
-          THEN COALESCE(
-            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            0::numeric
-          )
-          ELSE 0::numeric
-        END AS velocity,
-        ump.dominant_color,
-        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-        COALESCE(cp.created_at_pinterest, ump.created_at_pinterest) AS created_at_pinterest,
-        COALESCE(ump.metadata, '{}'::jsonb) || COALESCE(cp.metadata, '{}'::jsonb) AS metadata
-      FROM competitor_pins cp
-      LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
-      WHERE (cp.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND cp.clean_domain = 'uploaded by user'))
-      ORDER BY COALESCE(NULLIF(ump.save_count, 0), cp.save_count, 0) DESC
-      LIMIT 5000;
-    `.catch(err => guardQueryTimeout(err, 'competitor_pins')),
-    sql`
-      SELECT
-        kdi.pin_id,
-        kdi.keyword_id,
-        tk.keyword AS keyword_name,
-        NULL::int AS rank_position,
-        kdi.last_known_rank,
-        TRUE AS is_displaced,
-        kdi.displaced_date,
-        COALESCE(ump.title, '') AS title,
-        COALESCE(ump.destination_url, '') AS destination_url,
-        COALESCE(ump.image_url, '') AS image_url,
-        COALESCE(NULLIF(kdi.creator_username, ''), ump.creator_username, '') AS creator_username,
-        COALESCE(ump.board_name, '') AS board_name,
-        COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0)::bigint AS saves,
-        COALESCE(NULLIF(ump.repin_count, 0), kdi.repin_count, 0)::bigint AS repins,
-        COALESCE(NULLIF(ump.daily_save_velocity, 0), kdi.daily_save_velocity, 0)::numeric AS velocity,
+        ksp.rank_position,
+        ksp.last_known_rank,
+        ksp.is_displaced,
+        ksp.displaced_date,
+        ump.title,
+        ump.destination_url,
+        ump.image_url,
+        ump.account_username AS creator_username,
+        ump.board_name,
+        ump.save_count::bigint AS saves,
+        ump.repin_count::bigint AS repins,
+        ump.daily_save_velocity::numeric AS velocity,
         ump.dominant_color,
         COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
-      FROM keyword_displaced_index kdi
-      LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      LEFT JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-      WHERE (
-          kdi.clean_domain = ${cleanDomain}
-          OR (kdi.clean_domain IS NULL AND ump.clean_domain = ${cleanDomain})
-          OR (${isOrganicVault}::boolean AND (kdi.clean_domain = 'uploaded by user' OR (kdi.clean_domain IS NULL AND ump.clean_domain = 'uploaded by user')))
-        )
-        AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-        AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
-      ORDER BY COALESCE(NULLIF(ump.save_count, 0), kdi.save_count, 0) DESC
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      LEFT JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+      WHERE (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND ump.clean_domain = 'uploaded by user'))
+        AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
+      ORDER BY ksp.is_displaced ASC, ksp.rank_position ASC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 5000;
-    `.catch(err => guardQueryTimeout(err, 'keyword_displaced_index')),
+    `.catch(err => guardQueryTimeout(err, 'keyword_serp_positions')),
+    Promise.resolve([]),
+    Promise.resolve([]),
+    Promise.resolve([]),
     (fId === null && kId === null) ? sql`
       SELECT
         ump.pin_id,
-        COALESCE(ump.title, '') AS title,
-        COALESCE(ump.destination_url, '') AS destination_url,
-        COALESCE(ump.image_url, '') AS image_url,
-        COALESCE(ump.creator_username, '') AS creator_username,
-        COALESCE(ump.board_name, '') AS board_name,
-        COALESCE(ump.save_count, 0)::bigint AS saves,
-        COALESCE(ump.repin_count, 0)::bigint AS repins,
-        COALESCE(ump.daily_save_velocity, 0)::numeric AS velocity,
+        ump.title,
+        ump.destination_url,
+        ump.image_url,
+        ump.account_username AS creator_username,
+        ump.board_name,
+        ump.save_count::bigint AS saves,
+        ump.repin_count::bigint AS repins,
+        ump.daily_save_velocity::numeric AS velocity,
         ump.dominant_color,
         COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
         ump.created_at_pinterest,
         COALESCE(ump.metadata, '{}'::jsonb) AS metadata
       FROM universal_master_pins ump
       WHERE (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND ump.clean_domain = 'uploaded by user'))
-      ORDER BY COALESCE(ump.save_count, 0) DESC
+      ORDER BY ump.save_count DESC NULLS LAST
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'universal_master_pins')) : Promise.resolve([])
   ]);
@@ -2415,7 +2056,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
 
     // [INVARIANT: DEFENSIVE-ANNOTATIONS-UNPACKING]
-    // Safely unpack rich object annotations (e.g. { name: '...', url: '...' } from pa_pins / Pinterest GraphQL)
+    // Safely unpack rich object annotations (e.g. { name: '...', url: '...' } from Pinterest GraphQL)
     parsedAnnotations = (Array.isArray(parsedAnnotations) ? parsedAnnotations : [])
       .map(item => {
         if (typeof item === 'string') return item.trim();
@@ -2895,23 +2536,15 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     try {
       crossFootprintRows = await sql`
         SELECT
-          creator_username AS username,
-          domain AS cross_domain,
-          COUNT(DISTINCT pin_id)::int AS pins_count
-        FROM (
-          SELECT creator_username, domain, pin_id, keyword_id
-          FROM keyword_serp_current
-          WHERE creator_username = ANY(${cleanUsernames})
-            AND domain IS NOT NULL AND domain <> ''
-            AND domain <> ${cleanDomain}
-          UNION ALL
-          SELECT creator_username, domain, pin_id, keyword_id
-          FROM keyword_displaced_index
-          WHERE creator_username = ANY(${cleanUsernames})
-            AND domain IS NOT NULL AND domain <> ''
-            AND domain <> ${cleanDomain}
-        ) u
-        WHERE (${fId}::int IS NULL OR u.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+          ump.account_username AS username,
+          ump.clean_domain AS cross_domain,
+          COUNT(DISTINCT ksp.pin_id)::int AS pins_count
+        FROM keyword_serp_positions ksp
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE ump.account_username = ANY(${cleanUsernames})
+          AND ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+          AND ump.clean_domain <> ${cleanDomain}
+          AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         GROUP BY 1, 2
         ORDER BY 3 DESC
         LIMIT 60;

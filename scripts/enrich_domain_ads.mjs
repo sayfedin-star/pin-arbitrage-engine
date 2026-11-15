@@ -83,32 +83,23 @@ async function run() {
   const candidateRows = await sql`
     WITH all_candidates AS (
       SELECT
-        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
-        SUM(GREATEST(0, (51 - COALESCE(ksc.rank_position, 50))))::bigint AS visibility_score,
-        SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
-      FROM keyword_serp_current ksc
-      WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-      GROUP BY clean_domain
+        ump.clean_domain,
+        SUM(GREATEST(0, (51 - COALESCE(ksp.rank_position, 50))))::bigint AS visibility_score,
+        SUM(COALESCE(ump.save_count, 0))::bigint AS total_saves
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+      GROUP BY ump.clean_domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(ump.domain, '^www\\.', '')) AS clean_domain,
+        ump.clean_domain,
         0::bigint AS visibility_score,
-        0::bigint AS total_saves
+        SUM(COALESCE(ump.save_count, 0))::bigint AS total_saves
       FROM universal_master_pins ump
-      WHERE ump.domain IS NOT NULL AND ump.domain <> ''
-      GROUP BY clean_domain
-
-      UNION ALL
-
-      SELECT
-        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
-        0::bigint AS visibility_score,
-        SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
-      FROM competitor_pins cp
-      WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-      GROUP BY clean_domain
+      WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+      GROUP BY ump.clean_domain
     ),
     aggregated AS (
       SELECT

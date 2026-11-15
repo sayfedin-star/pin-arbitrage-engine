@@ -17,10 +17,10 @@ import {
 
 import { fetchPinFromPinterest, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 
-// [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in universal_master_pins and keyword_serp_current
+// Record deleted date in universal_master_pins
 async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
   if (!sql || !targetDate) return;
-  const masterP = sql`
+  await sql`
     INSERT INTO universal_master_pins (pin_id, metadata, updated_at)
     VALUES (${pinId}, jsonb_build_object('deleted_snapshot_dates', jsonb_build_array(${targetDate})), NOW())
     ON CONFLICT (pin_id) DO UPDATE
@@ -34,35 +34,20 @@ async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
     ),
     updated_at = NOW();
   `.catch((err) => { console.error(`[PinsRoute.tombstone] Master tombstone write failed for pin ${pinId}:`, err?.message || err); });
-
-  const serpP = sql`
-    UPDATE keyword_serp_current
-    SET metadata = jsonb_set(
-      COALESCE(metadata, '{}'::jsonb),
-      '{deleted_snapshot_dates}',
-      (
-        SELECT jsonb_agg(DISTINCT elem)
-        FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
-      )
-    )
-    WHERE pin_id = ${pinId};
-  `.catch((err) => { console.error(`[PinsRoute.tombstone] SERP tombstone write failed for pin ${pinId}:`, err?.message || err); });
-
-  await Promise.all([masterP, serpP]);
 }
 
 /**
- * Reconciles a pin's bridged daily_save_velocity and save_count across pins_daily_metrics,
- * universal_master_pins, keyword_serp_current, and keyword_displaced_index after any snapshot deletion.
+ * Reconciles a pin's bridged daily_save_velocity, daily_repin_velocity, save_count, and repin_count across
+ * pins_daily_metrics and universal_master_pins after any snapshot deletion.
  */
 async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
   if (!sql || !pinId) return;
   try {
     const remainingRows = await sql`
-      SELECT snapshot_date, save_count, repin_count, comment_count, share_count, daily_save_velocity
+      SELECT recorded_date, save_count, repin_count, comment_count, share_count, daily_save_velocity, daily_repin_velocity
       FROM pins_daily_metrics
       WHERE pin_id = ${pinId}
-      ORDER BY snapshot_date DESC
+      ORDER BY recorded_date DESC
       LIMIT 30;
     `.catch(() => []);
 
@@ -72,78 +57,57 @@ async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
     const chrono = [...remainingRows].reverse();
     for (let i = 0; i < chrono.length; i++) {
       const curr = chrono[i];
-      const currDateStr = curr.snapshot_date instanceof Date
-        ? curr.snapshot_date.toISOString().slice(0, 10)
-        : String(curr.snapshot_date).slice(0, 10);
-      let newVel = 0;
+      const currDateStr = curr.recorded_date instanceof Date
+        ? curr.recorded_date.toISOString().slice(0, 10)
+        : String(curr.recorded_date).slice(0, 10);
+      let newSaveVel = null;
+      let newRepinVel = null;
       if (i > 0) {
         const prev = chrono[i - 1];
-        const prevDateStr = prev.snapshot_date instanceof Date
-          ? prev.snapshot_date.toISOString().slice(0, 10)
-          : String(prev.snapshot_date).slice(0, 10);
+        const prevDateStr = prev.recorded_date instanceof Date
+          ? prev.recorded_date.toISOString().slice(0, 10)
+          : String(prev.recorded_date).slice(0, 10);
         const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
-        const savesDiff = Math.max(0, Number(curr.save_count || 0) - Number(prev.save_count || 0));
-        if (Number(prev.save_count || 0) > 0 && savesDiff > 0) {
-          newVel = Math.round((savesDiff / daysDiff) * 10) / 10;
+        if (curr.save_count !== null && prev.save_count !== null) {
+          const savesDiff = Math.max(0, Number(curr.save_count) - Number(prev.save_count));
+          newSaveVel = Math.round((savesDiff / daysDiff) * 10) / 10;
+        }
+        if (curr.repin_count !== null && prev.repin_count !== null) {
+          const repinsDiff = Math.max(0, Number(curr.repin_count) - Number(prev.repin_count));
+          newRepinVel = Math.round((repinsDiff / daysDiff) * 10) / 10;
         }
       }
-      curr.recomputed_velocity = newVel;
-      if (Math.abs(Number(curr.daily_save_velocity || 0) - newVel) > 0.05) {
-        await sql`
-          UPDATE pins_daily_metrics
-          SET daily_save_velocity = ${newVel}
-          WHERE pin_id = ${pinId} AND snapshot_date = ${currDateStr}::date;
-        `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating velocity for pin ${pinId}:`, err?.message || err); });
-      }
+      curr.recomputed_save_velocity = newSaveVel;
+      curr.recomputed_repin_velocity = newRepinVel;
+      await sql`
+        UPDATE pins_daily_metrics
+        SET
+          daily_save_velocity = ${newSaveVel},
+          daily_repin_velocity = ${newRepinVel}
+        WHERE pin_id = ${pinId} AND recorded_date = ${currDateStr}::date;
+      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating velocity for pin ${pinId}:`, err?.message || err); });
     }
 
     const latest = chrono[chrono.length - 1];
-    const prev = chrono.length >= 2 ? chrono[chrono.length - 2] : null;
-    const latestSaves = Number(latest.save_count || 0);
-    const latestRepins = Number(latest.repin_count || 0);
-    const latestVel = Number(latest.recomputed_velocity || 0);
-    const latestDeltaSaves = Math.round(latestVel);
-    let latestDeltaRepins = 0;
-    if (prev && Number(prev.repin_count || 0) > 0 && latestRepins > Number(prev.repin_count || 0)) {
-      const currDateStr = latest.snapshot_date instanceof Date ? latest.snapshot_date.toISOString().slice(0, 10) : String(latest.snapshot_date).slice(0, 10);
-      const prevDateStr = prev.snapshot_date instanceof Date ? prev.snapshot_date.toISOString().slice(0, 10) : String(prev.snapshot_date).slice(0, 10);
-      const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
-      latestDeltaRepins = Math.round((latestRepins - Number(prev.repin_count || 0)) / daysDiff);
-    }
+    const latestSaves = latest.save_count !== null ? Number(latest.save_count) : null;
+    const latestRepins = latest.repin_count !== null ? Number(latest.repin_count) : null;
+    const latestSaveVel = latest.recomputed_save_velocity;
+    const latestRepinVel = latest.recomputed_repin_velocity;
+    const latestDeltaSaves = latestSaveVel !== null ? Math.round(latestSaveVel) : null;
+    const latestDeltaRepins = latestRepinVel !== null ? Math.round(latestRepinVel) : null;
 
-    await Promise.all([
-      sql`
-        UPDATE universal_master_pins
-        SET
-          save_count = ${latestSaves},
-          repin_count = ${latestRepins},
-          daily_save_velocity = ${latestVel},
-          delta_saves_24h = ${latestDeltaSaves},
-          delta_repins_24h = ${latestDeltaRepins},
-          updated_at = NOW()
-        WHERE pin_id = ${pinId};
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating universal_master_pins for pin ${pinId}:`, err?.message || err); }),
-      sql`
-        UPDATE keyword_serp_current
-        SET
-          save_count = ${latestSaves},
-          repin_count = ${latestRepins},
-          daily_save_velocity = ${latestVel},
-          delta_repins_24h = ${latestDeltaRepins},
-          updated_at = NOW()
-        WHERE pin_id = ${pinId};
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_serp_current for pin ${pinId}:`, err?.message || err); }),
-      sql`
-        UPDATE keyword_displaced_index
-        SET
-          save_count = ${latestSaves},
-          repin_count = ${latestRepins},
-          daily_save_velocity = ${latestVel},
-          delta_repins_24h = ${latestDeltaRepins},
-          updated_at = NOW()
-        WHERE pin_id = ${pinId};
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating keyword_displaced_index for pin ${pinId}:`, err?.message || err); })
-    ]);
+    await sql`
+      UPDATE universal_master_pins
+      SET
+        save_count = ${latestSaves},
+        repin_count = ${latestRepins},
+        daily_save_velocity = ${latestSaveVel},
+        daily_repin_velocity = ${latestRepinVel},
+        delta_saves_24h = ${latestDeltaSaves},
+        delta_repins_24h = ${latestDeltaRepins},
+        updated_at = NOW()
+      WHERE pin_id = ${pinId};
+    `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating universal_master_pins for pin ${pinId}:`, err?.message || err); });
   } catch (err) {
     console.error(`[PinsRoute.reconcile] Snapshot delete reconciliation failed for pin ${pinId}:`, err?.message || err);
   }
@@ -260,47 +224,13 @@ export async function handlePinsRoutes({
     }
 
     let targetDate = isDateParam ? rawSnapshotParam : null;
-    let targetKwId = null;
 
-    // 1. If numeric ID passed, resolve date and keyword from view
-    if (!targetDate && sql) {
-      const [snapRow] = await sql`
-        SELECT snapshot_date, keyword_id FROM pins_daily_snapshots WHERE id = ${rawSnapshotParam}::bigint LIMIT 1;
-      `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Lookup failed for snapshot ${rawSnapshotParam}:`, err?.message || err); return []; });
-      targetDate = snapRow?.snapshot_date ? new Date(snapRow.snapshot_date).toISOString().slice(0, 10) : null;
-      targetKwId = snapRow?.keyword_id || null;
-    }
-
-    // Delete from base tables pin_serp_positions & pins_daily_metrics, NOT view
     if (targetDate && sql) {
-      if (targetKwId) {
-        await sql`
-          DELETE FROM pin_serp_positions
-          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date AND keyword_id = ${targetKwId};
-        `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
-        // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
-        const [remaining] = await sql`
-          SELECT COUNT(*)::int AS count FROM pin_serp_positions
-          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
-        `.catch(() => [{ count: 0 }]);
-        if (!remaining || remaining.count === 0) {
-          await sql`
-            DELETE FROM pins_daily_metrics
-            WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
-          `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
-          await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
-        }
-      } else {
-        await sql`
-          DELETE FROM pin_serp_positions
-          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
-        `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Bulk pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
-        await sql`
-          DELETE FROM pins_daily_metrics
-          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
-        `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] Bulk pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
-        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
-      }
+      await sql`
+        DELETE FROM pins_daily_metrics
+        WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
+      `.catch((err) => { console.error(`[PinsRoute.DELETE snapshots] pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
+      await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
       await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
     }
 
@@ -311,7 +241,7 @@ export async function handlePinsRoutes({
     return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
   }
 
-  // 1A. DELETE /api/pins/:pin_id/serp-positions (Delete specific SERP position for a keyword on a date)
+  // 1A. DELETE /api/pins/:pin_id/serp-positions (Delete specific SERP position for a keyword)
   if (parts[1] === 'serp-positions') {
     if (method !== 'DELETE') {
       return methodNotAllowedResponse('DELETE, OPTIONS');
@@ -329,35 +259,20 @@ export async function handlePinsRoutes({
       try { body = await request.json(); } catch (_) {}
     }
     const kwId = Number(body.keyword_id || searchParams.get('keyword_id'));
-    const snapshotDate = String(body.snapshot_date || searchParams.get('snapshot_date') || '').trim();
 
-    if (!kwId || isNaN(kwId) || !/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+    if (!kwId || isNaN(kwId)) {
       return jsonResponse({
         success: false,
         error: 'BAD_REQUEST',
-        message: 'Valid numeric keyword_id and YYYY-MM-DD snapshot_date are required'
+        message: 'Valid numeric keyword_id is required'
       }, 400);
     }
 
-    // Delete from positions table
+    // Delete from keyword_serp_positions table
     await sql`
-      DELETE FROM pin_serp_positions
-      WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
+      DELETE FROM keyword_serp_positions
+      WHERE pin_id = ${pinId} AND keyword_id = ${kwId};
     `.catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, err?.message || err); });
-
-    // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
-    const [remaining] = await sql`
-      SELECT COUNT(*)::int AS count FROM pin_serp_positions
-      WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-    `.catch(() => [{ count: 0 }]);
-    if (!remaining || remaining.count === 0) {
-      await sql`
-        DELETE FROM pins_daily_metrics
-        WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-      `.catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed pruning metrics for pin ${pinId}:`, err?.message || err); });
-      await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: snapshotDate });
-      await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
-    }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
@@ -366,8 +281,7 @@ export async function handlePinsRoutes({
     return jsonResponse({
       success: true,
       pin_id: pinId,
-      keyword_id: kwId,
-      snapshot_date: snapshotDate
+      keyword_id: kwId
     });
   }
 
@@ -436,7 +350,7 @@ export async function handlePinsRoutes({
             comment_count = ${Number(promoted.comment_count || 0)},
             share_count = ${Number(promoted.share_count || 0)},
             updated_at = COALESCE(NULLIF(${String(promoted.recorded_at || '')}, '')::timestamptz, NOW())
-          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          WHERE pin_id = ${pinId} AND recorded_date = ${snapshotDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] Intraday promotion failed for pin ${pinId}:`, err?.message || err); });
         await sql`
           UPDATE universal_master_pins
@@ -456,16 +370,11 @@ export async function handlePinsRoutes({
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] Intraday metadata prune failed for pin ${pinId}:`, err?.message || err); });
         await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
       } else {
-        // Delete metrics and positions for the entire date
+        // Delete metrics for the entire date
         await sql`
           DELETE FROM pins_daily_metrics
-          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          WHERE pin_id = ${pinId} AND recorded_date = ${snapshotDate}::date;
         `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] pins_daily_metrics delete failed for pin ${pinId}:`, err?.message || err); });
-
-        await sql`
-          DELETE FROM pin_serp_positions
-          WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-        `.catch((err) => { console.error(`[PinsRoute.DELETE daily-metrics] pin_serp_positions delete failed for pin ${pinId}:`, err?.message || err); });
 
         await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: snapshotDate });
         await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
@@ -550,11 +459,8 @@ export async function handlePinsRoutes({
       // Cascade delete across unified PostgreSQL tables
       await sql`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] universal_master_pins delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pins_daily_metrics delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pin_serp_positions delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM keyword_serp_current WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_serp_current delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM keyword_displaced_index WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_displaced_index delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM competitor_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] competitor_pins delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM pa_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pa_pins delete failed for ${pinId}:`, err?.message || err); });
+      await sql`DELETE FROM keyword_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_serp_positions delete failed for ${pinId}:`, err?.message || err); });
+      await sql`DELETE FROM competitor_board_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] competitor_board_pins delete failed for ${pinId}:`, err?.message || err); });
 
       // Invalidate Edge Caches synchronously
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);

@@ -819,11 +819,9 @@ export async function getDatabaseMonetizationStats(sql) {
 
     const rows = await sql`
       WITH all_distinct AS (
-        SELECT ksc.domain AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-        UNION
-        SELECT COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain FROM universal_master_pins ump WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
-        UNION
-        SELECT cp.link_domain AS clean_domain FROM competitor_pins cp WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+        SELECT DISTINCT ump.clean_domain
+        FROM universal_master_pins ump
+        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
       ),
       filtered_candidates AS (
         SELECT clean_domain
@@ -942,32 +940,13 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
   const candidateRows = await sql`
     WITH all_candidates AS (
       SELECT
-        ksc.domain AS clean_domain,
-        SUM(CASE WHEN ksc.is_displaced = FALSE THEN GREATEST(1, 101 - ksc.rank_position) ELSE 1 END)::bigint AS visibility_score,
-        SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
-      FROM keyword_serp_current ksc
-      WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-      GROUP BY ksc.domain
-
-      UNION ALL
-
-      SELECT
-        COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) AS clean_domain,
-        0::bigint AS visibility_score,
+        ump.clean_domain,
+        SUM(CASE WHEN ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL THEN GREATEST(1, 101 - ksp.rank_position) ELSE 1 END)::bigint AS visibility_score,
         SUM(COALESCE(ump.save_count, 0))::bigint AS total_saves
       FROM universal_master_pins ump
-      WHERE COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) IS NOT NULL AND COALESCE(NULLIF(ump.clean_domain, ''), ump.domain) <> ''
-      GROUP BY COALESCE(NULLIF(ump.clean_domain, ''), ump.domain)
-
-      UNION ALL
-
-      SELECT
-        cp.link_domain AS clean_domain,
-        0::bigint AS visibility_score,
-        SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
-      FROM competitor_pins cp
-      WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-      GROUP BY cp.link_domain
+      LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
+      WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
+      GROUP BY ump.clean_domain
     ),
     aggregated AS (
       SELECT

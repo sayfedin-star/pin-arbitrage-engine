@@ -109,18 +109,18 @@ test('Phase 1.2: fetchAdsTxt rejects private IPs, metadata hosts, and unsafe red
   }
 });
 
-test('Phase 2.1: syncPinAcrossAllFourPillars keeps creative fields in universal_master_pins and strips them from secondary metadata', async () => {
+test('Phase 2.1: syncPinAcrossAllFourPillars keeps creative fields in universal_master_pins and updates SSOT tables', async () => {
   const queries = [];
   const mockSql = (strings, ...values) => {
     const queryText = strings.join(' ? ');
     queries.push({ queryText, values });
-    if (queryText.includes('FROM keyword_serp_current') && queryText.includes('SELECT')) {
+    if (queryText.includes('FROM keyword_serp_positions') && queryText.includes('SELECT')) {
       return Promise.resolve([{
         keyword_id: 101,
+        rank_position: 1,
+        is_displaced: false,
         save_count: 50,
         repin_count: 10,
-        baseline_day_saves: 40,
-        baseline_day_date: '2026-11-12',
         crawled_at: '2026-11-12T00:00:00Z'
       }]);
     }
@@ -157,31 +157,14 @@ test('Phase 2.1: syncPinAcrossAllFourPillars keeps creative fields in universal_
   assert.equal(masterMeta.description, 'Full creative description that should live only in master SSOT');
   assert.equal(masterMeta.board_name, 'Dinner Ideas');
 
-  const serpUpdate = queries.find((q) => q.queryText.includes('UPDATE keyword_serp_current'));
-  assert.ok(serpUpdate, 'Expected keyword_serp_current update');
-  const serpMetaJson = serpUpdate.values.find((v) => typeof v === 'string' && v.includes('"creation_method"'));
-  assert.ok(serpMetaJson, 'Expected secondary metadata JSON for keyword_serp_current');
-  const serpMeta = JSON.parse(serpMetaJson);
-  assert.equal('alt_text' in serpMeta, false);
-  assert.equal('description' in serpMeta, false);
-  assert.equal('seo_title' in serpMeta, false);
-  assert.equal('seo_description' in serpMeta, false);
-  assert.equal('board_name' in serpMeta, false);
-  assert.equal(serpMeta.creation_method, 'carousel');
+  const metricsInsert = queries.find((q) => q.queryText.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(metricsInsert, 'Expected pins_daily_metrics insert');
 
-  const compUpdate = queries.find((q) => q.queryText.includes('UPDATE competitor_pins'));
-  assert.ok(compUpdate, 'Expected competitor_pins update');
-  const compMetaJson = compUpdate.values.find((v) => typeof v === 'string' && v.includes('"creation_method"'));
-  assert.ok(compMetaJson, 'Expected secondary metadata JSON for competitor_pins');
-  const compMeta = JSON.parse(compMetaJson);
-  assert.equal('alt_text' in compMeta, false);
-  assert.equal('description' in compMeta, false);
-  assert.equal('seo_title' in compMeta, false);
-  assert.equal('seo_description' in compMeta, false);
-  assert.equal('board_name' in compMeta, false);
+  const kspUpsert = queries.find((q) => q.queryText.includes('keyword_serp_positions'));
+  assert.ok(kspUpsert, 'Expected keyword_serp_positions upsert');
 });
 
-test('Phase 2.2: creator-ingest omits description and alt_text writes on competitor_pins and pa_pins', async () => {
+test('Phase 2.2: creator-ingest writes to 4-table SSOT without dropped tables', async () => {
   const queries = [];
   const mockSql = (strings, ...values) => {
     const queryText = strings.join(' ? ');
@@ -192,39 +175,6 @@ test('Phase 2.2: creator-ingest omits description and alt_text writes on competi
         username: 'testcreator',
         qualification_rules: {}
       }]);
-    }
-    if (queryText.includes('FROM competitor_pins') && queryText.includes('SELECT')) {
-      return Promise.resolve([
-        {
-          competitor_id: 1,
-          pin_id: '1234567890',
-          account_username: 'testcreator',
-          title: 'Qualified Pin',
-          link: 'https://example.com/post',
-          domain: 'example.com',
-          link_domain: 'example.com',
-          destination_url: 'https://example.com/post',
-          board_name: 'Board',
-          board_slug: 'board',
-          image_url: 'https://i.pinimg.com/originals/a.jpg',
-          dominant_color: '#888888',
-          saves: 500,
-          repins: 120,
-          comments: 10,
-          share_count: 0,
-          reactions: {},
-          velocity: 10.5,
-          annotations: [],
-          is_video: false,
-          save_count: 500,
-          repin_count: 120,
-          comment_count: 10,
-          is_product: false,
-          created_at_pinterest: new Date().toISOString(),
-          first_seen_at: new Date().toISOString(),
-          last_updated_at: new Date().toISOString()
-        }
-      ]);
     }
     return Promise.resolve([]);
   };
@@ -245,22 +195,17 @@ test('Phase 2.2: creator-ingest omits description and alt_text writes on competi
     }
   ]);
 
-  const compInsert = queries.find((q) => q.queryText.includes('INSERT INTO competitor_pins'));
-  assert.ok(compInsert);
-  assert.equal(/\bdescription\b/.test(compInsert.queryText), false);
-  assert.equal(/\balt_text\b/.test(compInsert.queryText), false);
+  const masterUpsert = queries.find((q) => q.queryText.includes('universal_master_pins'));
+  assert.ok(masterUpsert, 'Expected universal_master_pins upsert');
+  const boardPinsUpsert = queries.find((q) => q.queryText.includes('competitor_board_pins'));
+  assert.ok(boardPinsUpsert, 'Expected competitor_board_pins upsert');
 
   queries.length = 0;
   await reEvaluateCompetitorPins(mockSql, 1);
-  const paPromote = queries.find((q) => q.queryText.includes('INSERT INTO pa_pins'));
-  assert.ok(paPromote);
-  assert.equal(/\bdescription\b/.test(paPromote.queryText), false);
-  assert.equal(/\balt_text\b/.test(paPromote.queryText), false);
+  const evalQuery = queries.find((q) => q.queryText.includes('competitor_board_pins'));
+  assert.ok(evalQuery, 'Expected competitor_board_pins evaluation query');
 
   queries.length = 0;
   await reconcileQualifiedCatalogPins(mockSql);
-  const paReconcile = queries.find((q) => q.queryText.includes('INSERT INTO pa_pins'));
-  assert.ok(paReconcile);
-  assert.equal(/\bdescription\b/.test(paReconcile.queryText), false);
-  assert.equal(/\balt_text\b/.test(paReconcile.queryText), false);
+  assert.equal(queries.some((q) => q.queryText.includes('competitor_pins') || q.queryText.includes('pa_pins')), false, 'Must not reference dropped tables');
 });
