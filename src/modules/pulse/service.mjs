@@ -97,23 +97,50 @@ export function getCanonicalCreativeKey(p) {
 }
 
 /**
- * Normalizes and extracts clean visual annotations from polymorphic shapes using canonical domain intelligence SSOT.
- * Deduplicates intra-pin tags via canonical lemmatization, filters stopwords/labels < 2 chars, and formats title case.
+ * Normalizes and extracts clean visual annotations from polymorphic shapes:
+ * - Plain string arrays: ["Dinner Ideas", "Quick Meals"]
+ * - Object arrays: [{"name": "Summer Outfits", "idea_id": "123"}]
+ * - Stringified JSON strings
+ * - Wrapped objects: { tags: [...] }
+ * Deduplicates intra-pin tags, filters labels < 2 chars, and preserves { norm, display } structure.
  */
 export function extractCleanAnnotations(raw) {
   if (!raw) return [];
   if (Array.isArray(raw) && raw._clean) return raw._clean;
-  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object' && raw[0]?.norm && raw[0]?.display) {
-    return raw;
+  let arr = raw;
+  if (typeof arr === 'string' && arr.trim()) {
+    try {
+      arr = JSON.parse(arr);
+    } catch (_) {
+      arr = arr.split(',').map(s => s.trim());
+    }
   }
-  const canonicalTags = extractCanonicalAnnotations(raw, { limit: 20 });
-  const result = canonicalTags.map(tag => ({
-    norm: normalizeAnnotationTag(tag, { lemmatize: true }) || tag,
-    display: formatTagTitleCase(tag)
-  }));
-  if (Array.isArray(raw)) {
-    try { raw._clean = result; } catch (_) {}
+  if (arr && typeof arr === 'object' && !Array.isArray(arr) && Array.isArray(arr.tags)) {
+    arr = arr.tags;
   }
+  if (!Array.isArray(arr)) return [];
+  if (arr._clean) return arr._clean;
+  if (arr.length === 0) return [];
+  if (typeof arr[0] === 'object' && arr[0]?.norm && arr[0]?.display) return arr;
+
+  const result = [];
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const label = typeof item === 'string'
+      ? item.trim()
+      : String(item?.display || item?.name || item?.tag || item?.label || item?.display_label || item?.term || item?.norm || '').trim();
+    if (!label || label.length < 2) continue;
+    const norm = label.toLowerCase().replace(/\s+/g, ' ');
+    if (!norm || norm.length < 2) continue;
+    let duplicate = false;
+    for (let j = 0; j < result.length; j++) {
+      if (result[j].norm === norm) { duplicate = true; break; }
+    }
+    if (!duplicate) {
+      result.push({ norm, display: label });
+    }
+  }
+  try { arr._clean = result; } catch (_) {}
   return result;
 }
 
