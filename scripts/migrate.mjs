@@ -530,8 +530,23 @@ export async function runMigrations({
 
   const sql = createSqlClient(dbUrl);
 
-  await ensureSchemaMigrationsTable(sql);
-  const applied = await getAppliedMigrations(sql);
+  let applied;
+  try {
+    await ensureSchemaMigrationsTable(sql);
+    applied = await getAppliedMigrations(sql);
+  } catch (connErr) {
+    if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(connErr.message)) {
+      console.warn('================================================================================');
+      console.warn('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
+      console.warn('================================================================================');
+      console.warn(`[!] Target Database:     ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
+      console.warn(`[!] Status:              Database is offline or unreachable (${connErr.message}).`);
+      console.warn(`    Schema migrations will be applied when the database container boots up.`);
+      console.warn('================================================================================\n');
+      return { applied: 0, skipped: 0, total: 0, offline: true };
+    }
+    throw connErr;
+  }
   const allFiles = getMigrationFiles(migrationsDir);
 
   console.log('================================================================================');

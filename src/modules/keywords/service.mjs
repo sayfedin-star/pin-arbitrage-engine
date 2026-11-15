@@ -38,10 +38,49 @@ import {
 } from '../pins/repository.mjs';
 
 /**
- * Legacy metadata hydration shim (displaced queries join universal_master_pins directly in unified postgres).
+ * Batch-hydrates slim displaced index rows with creative metadata from universal_master_pins.
  */
 export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
-  return indexRows || [];
+  if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
+  const needsHydration = indexRows.filter(r => !r.title || !r.image_url);
+  if (needsHydration.length === 0 || !sql) return indexRows;
+
+  try {
+    const masterMap = new Map();
+    const missingIds = needsHydration.map(r => String(r.pin_id)).filter(Boolean);
+    if (missingIds.length > 0) {
+      const masterRows = await sql`
+        SELECT ump.pin_id, ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
+        FROM universal_master_pins ump
+        WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
+        LIMIT 2000;
+      `.catch(() => []);
+      for (const hr of (masterRows || [])) {
+        if (hr && (hr.title || hr.image_url)) {
+          masterMap.set(String(hr.pin_id), hr);
+        }
+      }
+    }
+
+    return indexRows.map(row => {
+      const m = masterMap.get(String(row.pin_id));
+      if (!m) return row;
+      return {
+        ...row,
+        title: row.title || m.title || '',
+        domain: row.domain || m.domain || '',
+        destination_url: row.destination_url || m.destination_url || '',
+        image_url: row.image_url || m.image_url || '',
+        creator_username: row.creator_username || m.creator_username || '',
+        board_name: row.board_name || m.board_name || '',
+        dominant_color: row.dominant_color || m.dominant_color || '#888888',
+        visual_annotations: (Array.isArray(row.visual_annotations) && row.visual_annotations.length > 0) ? row.visual_annotations : (m.visual_annotations || []),
+        created_at_pinterest: row.created_at_pinterest || m.created_at_pinterest || null
+      };
+    });
+  } catch (_) {
+    return indexRows;
+  }
 }
 
 // In-Memory Mutex for process-local fast-fail
