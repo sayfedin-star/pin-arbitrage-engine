@@ -190,11 +190,11 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
       shouldFetch: false,
       reason: 'ssot_freshness_gate_18h',
       reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
       }
     };
   }
@@ -230,11 +230,11 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
       shouldFetch: false,
       reason: 'displaced_cooldown_active',
       reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
       }
     };
   }
@@ -262,10 +262,10 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
         shouldFetch: false,
         reason: 'hard_cooldown_cross_midnight_preserve_metrics',
         reuseTelemetry: {
-          save_count: Number(pin.save_count || 0),
-          repin_count: Number(pin.repin_count || 0),
-          comment_count: Number(pin.comment_count || 0),
-          share_count: Number(pin.share_count || 0),
+          save_count: pin.save_count != null ? Number(pin.save_count) : null,
+          repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+          comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+          share_count: pin.share_count != null ? Number(pin.share_count) : null,
           daily_save_velocity: 0
         }
       };
@@ -274,11 +274,11 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
       shouldFetch: false,
       reason: 'hard_cooldown_under_4h',
       reuseTelemetry: {
-        save_count: Number(pin.save_count || 0),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
       }
     };
   }
@@ -289,11 +289,11 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
       shouldFetch: false,
       reason: 'fresh_same_day_cache',
       reuseTelemetry: {
-        save_count: Number(pin.save_count),
-        repin_count: Number(pin.repin_count || 0),
-        comment_count: Number(pin.comment_count || 0),
-        share_count: Number(pin.share_count || 0),
-        daily_save_velocity: Number(pin.daily_save_velocity || 0)
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
       }
     };
   }
@@ -339,6 +339,7 @@ async function inspectPin(pin, kw) {
       keyword_id: pin.keyword_id || kw?.id || null,
       is_deleted: false,
       from_hydration_cache: true,
+      is_hydrated: Boolean(pin.is_hydrated || pin.is_deep_hydrated || (guard.reuseTelemetry.save_count != null)),
       extra_meta: (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : (pin.extra_meta || {})
     };
   }
@@ -441,21 +442,29 @@ async function inspectPin(pin, kw) {
     return null;
   }
 
-  const detailSaves = Number(detail?.saves ?? detail?.save_count ?? 0);
-  const prevKnownSaves = Number(pin.save_count || 0);
-  const hasExplicitDetailSaves = Boolean(detail?.has_explicit_saves) || detailSaves > 0;
+  const detailSaves = (detail?.saves != null || detail?.save_count != null)
+    ? Number(detail?.saves ?? detail?.save_count)
+    : null;
+  const prevKnownSaves = pin.save_count != null ? Number(pin.save_count) : null;
+  const hasExplicitDetailSaves = Boolean(detail?.has_explicit_saves) || (detailSaves !== null && detailSaves > 0);
   // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE]
   // Trust explicit live saves from Pinterest so previously inflated/repin-conflated save_count self-heals,
   // preserving prevKnownSaves only if an endpoint omitted the saves field completely (!hasExplicitDetailSaves).
   const authenticSaves = hasExplicitDetailSaves
     ? detailSaves
     : prevKnownSaves;
-  const detailRepins = Math.max(Number(detail?.repins || 0), Number(detail?.repin_count || 0));
-  const authenticRepins = detailRepins > 0
+  const detailRepins = (detail?.repins != null || detail?.repin_count != null)
+    ? Math.max(Number(detail?.repins || 0), Number(detail?.repin_count || 0))
+    : null;
+  const authenticRepins = (detailRepins !== null && detailRepins > 0)
     ? detailRepins
-    : Number(pin.repin_count || 0);
-  const authenticComments = Number(detail?.comments || detail?.comment_count || 0);
-  const authenticShares = Number(detail?.shares || detail?.share_count || 0);
+    : (pin.repin_count != null ? Number(pin.repin_count) : null);
+  const authenticComments = (detail?.comments != null || detail?.comment_count != null)
+    ? Number(detail?.comments ?? detail?.comment_count)
+    : (pin.comment_count != null ? Number(pin.comment_count) : null);
+  const authenticShares = (detail?.shares != null || detail?.share_count != null)
+    ? Number(detail?.shares ?? detail?.share_count)
+    : (pin.share_count != null ? Number(pin.share_count) : null);
 
   // Live Velocity Delta Generation (Immunized against Phase 1A -> Phase 1B same-day zeroing):
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -468,10 +477,14 @@ async function inspectPin(pin, kw) {
   );
   const baselineSaves = hasExplicitBaseline
     ? Number(pin.baseline_day_saves)
-    : Number(pin.save_count || 0);
-  let computedVelocity = (baselineSaves <= 0) ? 0 : Number(pin.daily_save_velocity || 0);
+    : (pin.save_count != null ? Number(pin.save_count) : null);
+  let computedVelocity = (baselineSaves === null)
+    ? null
+    : ((baselineSaves <= 0) ? 0 : (pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null));
 
-  if (baselineSaves <= 0) {
+  if (authenticSaves === null) {
+    computedVelocity = null;
+  } else if (baselineSaves === null || baselineSaves <= 0) {
     // [INVARIANT: ANTI-HYDRATION-SPIKE] Transition from unhydrated/zero saves to positive is a baseline calibration.
     // If baselineSaves <= 0, do NOT retain dirty pin.daily_save_velocity; set it to 0.
     computedVelocity = 0;
@@ -634,6 +647,7 @@ async function inspectPin(pin, kw) {
     keyword_id: pin.keyword_id || kw?.id || null,
     is_deleted: isDead,
     from_hydration_cache: false,
+    is_hydrated: Boolean(detail && (hasExplicitDetailSaves || (detailRepins !== null && detailRepins > 0)) && authenticSaves !== null),
     extra_meta: extraMeta
   };
 }
@@ -1643,7 +1657,7 @@ async function run() {
           ump.created_at_pinterest, ump.creation_method,
           ump.is_hydrated AS is_deep_hydrated,
           ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
-          CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN COALESCE(ump.save_count, 0) ELSE NULL END AS baseline_day_saves,
+          CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
           CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ksp.crawled_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id

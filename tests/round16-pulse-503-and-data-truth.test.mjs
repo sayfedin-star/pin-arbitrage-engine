@@ -373,8 +373,8 @@ export function createRound16MockSql(dataset, overrides = {}) {
       : (typeof strings === 'string' ? strings : String(strings));
     callLog.push({ query: rawQuery, values });
 
-    // 1. Active SERP Query (with kw_folders CTE and keyword_serp_positions / keyword_serp_current)
-    if (rawQuery.includes('kw_folders') && (rawQuery.includes('keyword_serp_positions') || rawQuery.includes('keyword_serp_current'))) {
+    // 1. Active SERP Query (with kw_folders CTE and keyword_serp_positions)
+    if (rawQuery.includes('kw_folders') && rawQuery.includes('keyword_serp_positions')) {
       return overrides.activeSerpRows || dataset.activeSerpRows;
     }
 
@@ -384,7 +384,7 @@ export function createRound16MockSql(dataset, overrides = {}) {
     }
 
     // 2B. Displaced Top Vault Surge Pins
-    if ((rawQuery.includes('top_vault') || rawQuery.includes('keyword_displaced_index')) && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('daily_save_velocity > 0') || rawQuery.includes('is_displaced = TRUE'))) {
+    if (rawQuery.includes('top_vault') && (rawQuery.includes('ORDER BY GREATEST(') || rawQuery.includes('daily_save_velocity > 0') || rawQuery.includes('is_displaced = TRUE'))) {
       return overrides.vaultPins || dataset.vaultPins;
     }
 
@@ -393,8 +393,8 @@ export function createRound16MockSql(dataset, overrides = {}) {
       return overrides.creatorRows || dataset.creatorRows;
     }
 
-    // 2C. Surging Creator Pins query (competitor_board_pins / competitor_pins)
-    if ((rawQuery.includes('FROM competitor_board_pins') || rawQuery.includes('FROM competitor_pins')) && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators')) {
+    // 2C. Surging Creator Pins query (competitor_board_pins)
+    if (rawQuery.includes('FROM competitor_board_pins') && !rawQuery.includes('active_creators') && !rawQuery.includes('top_creators')) {
       return overrides.viralCreatorPins || dataset.viralCreatorPins;
     }
 
@@ -403,12 +403,7 @@ export function createRound16MockSql(dataset, overrides = {}) {
       return overrides.capsuleRows || dataset.capsuleRows;
     }
 
-    // 5A. PinArchive Winners
-    if (rawQuery.includes('FROM pa_pins pa')) {
-      return overrides.paWinners || dataset.paWinners;
-    }
-
-    // 5B. Domain Rollups
+    // 5. Domain Rollups
     if (rawQuery.includes('FROM domain_intelligence_rollup dir') || rawQuery.includes('FROM mv_pulse_24h_summary')) {
       return overrides.domainRollups || dataset.domainRollups;
     }
@@ -599,7 +594,7 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
 
     const callLog = mockSql.getCallLog();
     const viralPinsQuery = callLog.find(c =>
-      (c.query.includes('FROM competitor_board_pins') || c.query.includes('FROM competitor_pins')) &&
+      c.query.includes('FROM competitor_board_pins') &&
       !c.query.includes('top_creators') &&
       !c.query.includes('active_creators')
     );

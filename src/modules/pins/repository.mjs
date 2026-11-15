@@ -107,6 +107,16 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
     const domainRaw = String(p.domain || p.link_domain || '').trim();
     const destUrl = String(p.destination_url || p.link || '').trim();
     const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
+    const rawSaves = p.save_count ?? p.saves;
+    const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
+    const saveCount = isUnhydratedSaves ? null : Math.max(0, Number(rawSaves || 0));
+
+    const rawRepins = p.repin_count ?? p.repins;
+    const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined) || (p.has_explicit_repins === false && Number(rawRepins || 0) === 0);
+    const repinCount = isUnhydratedRepins ? null : Math.max(0, Number(rawRepins || 0));
+
+    const isHydrated = Boolean(p.is_hydrated || (!isUnhydratedSaves && saveCount !== null));
+
     dedupMap.set(pid, {
       pin_id: pid,
       domain: cleanDomain || domainRaw || null,
@@ -116,11 +126,12 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       is_displaced: Boolean(p.is_displaced),
       last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
       catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
-      save_count: Math.max(0, Number(p.save_count ?? p.saves ?? 0)),
-      repin_count: Math.max(0, Number(p.repin_count ?? p.repins ?? 0)),
-      comment_count: Math.max(0, Number(p.comment_count ?? p.comments ?? 0)),
-      share_count: Math.max(0, Number(p.share_count ?? p.shares ?? 0)),
-      reaction_count: Math.max(0, Number(p.reaction_count ?? 0)),
+      save_count: saveCount,
+      repin_count: repinCount,
+      comment_count: p.comment_count != null ? Math.max(0, Number(p.comment_count)) : (p.comments != null ? Math.max(0, Number(p.comments)) : null),
+      share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
+      reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
+      is_hydrated: isHydrated,
       daily_save_velocity: p.daily_save_velocity != null ? Number(p.daily_save_velocity) : (p.velocity != null ? Number(p.velocity) : null),
       delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
       gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
@@ -148,6 +159,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         comment_count int,
         share_count int,
         reaction_count int,
+        is_hydrated boolean,
         daily_save_velocity double precision,
         daily_repin_velocity double precision,
         delta_repins_24h int,
@@ -253,7 +265,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         comment_count = COALESCE(cb.comment_count, ump.comment_count),
         share_count = COALESCE(cb.share_count, ump.share_count),
         reaction_count = COALESCE(cb.reaction_count, ump.reaction_count),
-        is_hydrated = (ump.is_hydrated OR cb.save_count IS NOT NULL),
+        is_hydrated = (ump.is_hydrated OR cb.is_hydrated OR cb.save_count IS NOT NULL),
         daily_save_velocity = COALESCE(cb.effective_velocity, ump.daily_save_velocity),
         daily_repin_velocity = COALESCE(cb.effective_repin_velocity, ump.daily_repin_velocity),
         delta_saves_24h = COALESCE(cb.true_delta_saves_24h, ump.delta_saves_24h),
