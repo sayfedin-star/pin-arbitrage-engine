@@ -12,7 +12,7 @@
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { hydrateDisplacedPinsMetadata } from '../keywords/service.mjs';
-import { normalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
+import { normalizeCleanDomain as canonicalNormalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
@@ -100,9 +100,29 @@ export const BLOCKED_TLD_SUFFIXES = [
 ];
 
 /**
- * Canonical domain normalizer SSOT (re-exported from src/domain/pin-intelligence.mjs)
+ * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * For Domain Intelligence Studio: enforces strict FQDN and filters internal / blocked domains.
  */
-export { normalizeCleanDomain };
+export function normalizeCleanDomain(rawInput, options = {}) {
+  const cleaned = canonicalNormalizeCleanDomain(rawInput, { strictFqdn: true, ...options });
+  if (!cleaned || IGNORED_INTERNAL_DOMAINS.includes(cleaned) || IGNORED_INTERNAL_DOMAINS.some(d => cleaned.endsWith('.' + d))) {
+    return '';
+  }
+  if (BLOCKED_TLD_SUFFIXES.some(suffix => cleaned === suffix.slice(1) || cleaned.endsWith(suffix))) {
+    return '';
+  }
+  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]\.[a-z]{2,}$/.test(cleaned)) {
+    return '';
+  }
+  const parts = cleaned.split('.');
+  if (parts.some(p => !p || p.startsWith('-') || p.endsWith('-'))) {
+    return '';
+  }
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(cleaned)) {
+    return '';
+  }
+  return cleaned;
+}
 
 /**
  * Computes Publisher Network Sybil Index & PBN detection metrics.
