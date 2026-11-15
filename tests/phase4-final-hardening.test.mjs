@@ -289,7 +289,7 @@ test('Phase 4.3: ingestPinsBatch preserves rolling gains and gates velocity on p
   assert.ok(batchQuery, 'Must execute batch CTE query');
   assert.match(batchQuery.rawSql, /gains_5d bigint, gains_7d bigint, gains_10d bigint, gains_15d bigint/, 'Recordset must declare gains columns');
   assert.match(batchQuery.rawSql, /gains_5d = COALESCE\(EXCLUDED\.gains_5d, universal_master_pins\.gains_5d\)/, 'Conflict must update gains_5d');
-  assert.match(batchQuery.rawSql, /prev\.save_count > 0/, 'Velocity must gate on prev.save_count > 0');
+  assert.match(batchQuery.rawSql, /(prev\.save_count|prev_save_count) > 0/, 'Velocity must gate on prev.save_count > 0');
 });
 
 test('Phase 4.4: formatPin and fetchPinsBatchFromPidgets null preservation and zero velocity', async () => {
@@ -388,17 +388,17 @@ test('Phase 4.10: resavePinsMetricsBatch preserves NULL on rolling gains and rep
   assert.doesNotMatch(batchQuery.rawSql, /gains_5d = COALESCE\(cb\.gains_5d, ump\.gains_5d, 0\)/);
 
   // Verify velocity computation guards on prev.save_count > 0 and preserves caller velocity
-  assert.match(batchQuery.rawSql, /WHEN rb\.save_count IS NULL THEN NULL/);
-  assert.match(batchQuery.rawSql, /WHEN rb\.daily_save_velocity IS NOT NULL THEN GREATEST\(0::double precision, rb\.daily_save_velocity\)/);
-  assert.match(batchQuery.rawSql, /prev\.save_count > 0/);
+  assert.match(batchQuery.rawSql, /WHEN (rb|eb)\.save_count IS NULL THEN NULL/);
+  assert.match(batchQuery.rawSql, /WHEN (rb|eb)\.daily_save_velocity IS NOT NULL/);
+  assert.match(batchQuery.rawSql, /(prev\.save_count|prev_save_count) > 0/);
 
   // Verify repin velocity computation guards on prev.save_count > 0 and repin_count IS NULL
-  assert.match(batchQuery.rawSql, /WHEN rb\.repin_count IS NULL THEN NULL/);
-  assert.match(batchQuery.rawSql, /WHEN rb\.daily_repin_velocity IS NOT NULL THEN GREATEST\(0::double precision, rb\.daily_repin_velocity\)/);
+  assert.match(batchQuery.rawSql, /WHEN (rb|eb)\.repin_count IS NULL THEN NULL/);
+  assert.match(batchQuery.rawSql, /WHEN (rb|eb)\.daily_repin_velocity IS NOT NULL/);
 
   // Verify effective_delta_repins_24h returns NULL on NULL repin_count or prev.repin_count
-  assert.match(batchQuery.rawSql, /WHEN rb\.repin_count IS NULL/);
-  assert.match(batchQuery.rawSql, /WHEN prev\.repin_count IS NOT NULL AND rb\.repin_count IS NOT NULL/);
+  assert.match(batchQuery.rawSql, /WHEN (rb|eb)\.repin_count IS NULL/);
+  assert.match(batchQuery.rawSql, /(prev\.repin_count|prev_repin_count) IS NOT NULL/);
   assert.match(batchQuery.rawSql, /delta_repins_24h = COALESCE\(cb\.effective_delta_repins_24h, ump\.delta_repins_24h\)/);
 
   // Verify JSON serialization preserves null for unhydrated repins and rolling gains

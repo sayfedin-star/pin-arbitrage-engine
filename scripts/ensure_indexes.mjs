@@ -91,6 +91,7 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_hydrated ON universal_master_pins(is_hydrated);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_pdm_pin_recorded_desc;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_pdm_pin_snapshot_desc;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_recorded_date ON pins_daily_metrics(recorded_date);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cbp_pin;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_pin_id ON competitor_board_pins(pin_id);`.catch(() => {});
