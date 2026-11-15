@@ -154,92 +154,28 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         created_at_pinterest text
       )
     ),
-    computed_batch AS (
+    evaluated_batch AS (
       SELECT
         rb.*,
+        prev.save_count AS prev_save_count,
+        prev.repin_count AS prev_repin_count,
+        prev.recorded_date AS prev_recorded_date,
         CASE
-          WHEN rb.save_count IS NULL THEN NULL
-          WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
-          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
-            CASE
-              WHEN prev.save_count > 0
-               AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-               AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
-               AND NOT (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
-               AND NOT (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
-               AND NOT (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
-              THEN
-                ROUND(
-                  GREATEST(0, rb.save_count - prev.save_count)::numeric
-                  / GREATEST(1, (rb.recorded_date - prev.recorded_date)),
-                  2
-                )::double precision
-              ELSE 0::double precision
-            END
-          ELSE NULL
-        END AS effective_velocity,
+          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND (
+            prev.save_count <= 0
+            OR (prev.save_count < 100 AND rb.save_count >= 500)
+            OR (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
+            OR (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
+            OR (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
+          ) THEN true ELSE false
+        END AS is_save_jump,
         CASE
-          WHEN rb.repin_count IS NULL THEN NULL
-          WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
-          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
-            CASE
-              WHEN prev.repin_count > 0
-               AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-               AND NOT (prev.repin_count < 100 AND rb.repin_count >= 500)
-               AND NOT (prev.repin_count <= 0 AND rb.repin_count >= 10)
-               AND NOT (rb.repin_count >= prev.repin_count * 4 AND (rb.repin_count - prev.repin_count) >= 200)
-              THEN
-                ROUND(
-                  GREATEST(0, rb.repin_count - prev.repin_count)::numeric
-                  / GREATEST(1, (rb.recorded_date - prev.recorded_date)),
-                  2
-                )::double precision
-              ELSE 0::double precision
-            END
-          ELSE NULL
-        END AS effective_repin_velocity,
-        CASE
-          WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
-          WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
-            CASE
-              WHEN prev.save_count > 0
-               AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-               AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
-               AND NOT (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
-               AND NOT (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
-               AND NOT (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
-              THEN
-                ROUND(
-                  GREATEST(0, rb.save_count - prev.save_count)::numeric
-                  / GREATEST(1, (rb.recorded_date - prev.recorded_date))
-                )::bigint
-              ELSE 0::bigint
-            END
-          ELSE NULL
-        END AS true_delta_saves_24h,
-        CASE
-          WHEN rb.repin_count IS NULL THEN NULL
-          WHEN rb.delta_repins_24h IS NOT NULL THEN GREATEST(0, rb.delta_repins_24h)::int
-          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
-            CASE
-              WHEN prev.repin_count > 0
-               AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-               AND rb.repin_count > prev.repin_count
-               AND NOT (prev.repin_count < 100 AND rb.repin_count >= 500)
-               AND NOT (
-                 rb.repin_count >= prev.repin_count * 4
-                 AND (rb.repin_count - prev.repin_count) >= 200
-                 AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (rb.repin_count - prev.repin_count) * 0.15
-               )
-              THEN
-                ROUND(
-                  GREATEST(0, rb.repin_count - prev.repin_count)::numeric
-                  / GREATEST(1, (rb.recorded_date - prev.recorded_date))
-                )::int
-              ELSE 0::int
-            END
-          ELSE NULL
-        END AS effective_delta_repins_24h
+          WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND (
+            prev.repin_count <= 0 AND rb.repin_count >= 10
+            OR (prev.repin_count < 100 AND rb.repin_count >= 500)
+            OR (rb.repin_count >= prev.repin_count * 4 AND (rb.repin_count - prev.repin_count) >= 200)
+          ) THEN true ELSE false
+        END AS is_repin_jump
       FROM (
         SELECT rb_sub.*, (NOW() AT TIME ZONE 'UTC')::date AS recorded_date
         FROM raw_batch rb_sub
@@ -252,6 +188,93 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
         ORDER BY pm.recorded_date DESC
         LIMIT 1
       ) prev ON TRUE
+    ),
+    computed_batch AS (
+      SELECT
+        eb.*,
+        CASE
+          WHEN eb.save_count IS NULL THEN NULL
+          WHEN eb.is_save_jump THEN 0::double precision
+          WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
+          WHEN eb.prev_save_count IS NOT NULL AND eb.save_count IS NOT NULL THEN
+            CASE
+              WHEN eb.prev_save_count > 0
+               AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+              THEN
+                LEAST(
+                  25000::double precision,
+                  ROUND(
+                    GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                    / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                    2
+                  )::double precision
+                )
+              ELSE 0::double precision
+            END
+          ELSE 0::double precision
+        END AS effective_velocity,
+        CASE
+          WHEN eb.repin_count IS NULL THEN NULL
+          WHEN eb.is_repin_jump THEN 0::double precision
+          WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
+          WHEN eb.prev_repin_count IS NOT NULL AND eb.repin_count IS NOT NULL THEN
+            CASE
+              WHEN eb.prev_repin_count > 0
+               AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+              THEN
+                LEAST(
+                  25000::double precision,
+                  ROUND(
+                    GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                    / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                    2
+                  )::double precision
+                )
+              ELSE 0::double precision
+            END
+          ELSE 0::double precision
+        END AS effective_repin_velocity,
+        CASE
+          WHEN eb.is_save_jump THEN 0::bigint
+          WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint)
+          WHEN eb.prev_save_count IS NOT NULL AND eb.save_count IS NOT NULL THEN
+            CASE
+              WHEN eb.prev_save_count > 0
+               AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+              THEN
+                LEAST(
+                  25000::bigint,
+                  ROUND(
+                    GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                    / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                  )::bigint
+                )
+              ELSE 0::bigint
+            END
+          ELSE 0::bigint
+        END AS true_delta_saves_24h,
+        CASE
+          WHEN eb.repin_count IS NULL THEN NULL
+          WHEN eb.is_repin_jump THEN 0::int
+          WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000, GREATEST(0, eb.delta_repins_24h)::int)
+          WHEN eb.prev_repin_count IS NOT NULL AND eb.repin_count IS NOT NULL THEN
+            CASE
+              WHEN eb.prev_repin_count > 0
+               AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+               AND eb.repin_count > eb.prev_repin_count
+              THEN
+                LEAST(
+                  25000,
+                  ROUND(
+                    GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                    / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                  )::int
+                )
+              ELSE 0::int
+            END
+          ELSE 0::int
+        END AS effective_delta_repins_24h
+      FROM evaluated_batch eb
     ),
     upd_master AS (
       UPDATE universal_master_pins ump
@@ -455,22 +478,30 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
     }
 
     if (kwId && kwId > 0) {
-      const serpKey = `${kwId}_${pid}`;
-      if (!serpPositionDedupMap.has(serpKey)) {
+      const serpKey = `${kwId}:${pid}`;
+      const existingSerp = serpPositionDedupMap.get(serpKey);
+      const incomingRank = p.rank_position != null ? Number(p.rank_position) : null;
+      if (!existingSerp) {
         serpPositionDedupMap.set(serpKey, {
           pin_id: pid,
           keyword_id: kwId,
-          rank_position: p.rank_position != null ? Number(p.rank_position) : null,
+          rank_position: incomingRank,
           is_displaced: Boolean(p.is_displaced),
           last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
-          catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
+          catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : incomingRank,
           vacuum_opportunity_score: p.vacuum_opportunity_score != null ? Number(p.vacuum_opportunity_score) : null
         });
+      } else if (incomingRank != null && (existingSerp.rank_position == null || incomingRank < existingSerp.rank_position)) {
+        existingSerp.rank_position = incomingRank;
+        if (p.catalog_rank != null) existingSerp.catalog_rank = Number(p.catalog_rank);
+        if (p.is_displaced != null) existingSerp.is_displaced = Boolean(p.is_displaced);
+        if (p.last_known_rank != null) existingSerp.last_known_rank = Number(p.last_known_rank);
+        if (p.vacuum_opportunity_score != null) existingSerp.vacuum_opportunity_score = Number(p.vacuum_opportunity_score);
       }
     }
 
     if (competitorId && competitorId > 0) {
-      const cKey = `${competitorId}_${boardId || ''}_${pid}`;
+      const cKey = `${competitorId}:${boardId || ''}:${pid}`;
       if (!competitorBoardDedupMap.has(cKey)) {
         competitorBoardDedupMap.set(cKey, {
           pin_id: pid,
@@ -511,90 +542,28 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           was_live_scraped boolean, metadata jsonb
         )
       ),
-      computed_batch AS (
+      evaluated_batch AS (
         SELECT
           rb.*,
+          prev.save_count AS prev_save_count,
+          prev.repin_count AS prev_repin_count,
+          prev.recorded_date AS prev_recorded_date,
           CASE
-            WHEN rb.save_count IS NULL THEN NULL
-            WHEN rb.daily_save_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_save_velocity)
-            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
-              CASE
-                WHEN prev.save_count > 0
-                 AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-                 AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
-                 AND NOT (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
-                 AND NOT (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
-                 AND NOT (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
-                THEN
-                  ROUND(
-                    GREATEST(0, rb.save_count - prev.save_count)::numeric
-                    / GREATEST(1, (rb.recorded_date - prev.recorded_date)),
-                    2
-                  )::double precision
-                ELSE 0::double precision
-              END
-            ELSE NULL
-          END AS effective_save_velocity,
+            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL AND (
+              prev.save_count <= 0
+              OR (prev.save_count < 100 AND rb.save_count >= 500)
+              OR (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
+              OR (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
+              OR (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
+            ) THEN true ELSE false
+          END AS is_save_jump,
           CASE
-            WHEN rb.repin_count IS NULL THEN NULL
-            WHEN rb.daily_repin_velocity IS NOT NULL THEN GREATEST(0::double precision, rb.daily_repin_velocity)
-            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
-              CASE
-                WHEN prev.repin_count > 0
-                 AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-                 AND NOT (prev.repin_count < 100 AND rb.repin_count >= 500)
-                 AND NOT (prev.repin_count <= 0 AND rb.repin_count >= 10)
-                 AND NOT (rb.repin_count >= prev.repin_count * 4 AND (rb.repin_count - prev.repin_count) >= 200)
-                THEN
-                  ROUND(
-                    GREATEST(0, rb.repin_count - prev.repin_count)::numeric
-                    / GREATEST(1, (rb.recorded_date - prev.recorded_date)),
-                    2
-                  )::double precision
-                ELSE 0::double precision
-              END
-            ELSE NULL
-          END AS effective_repin_velocity,
-          CASE
-            WHEN rb.daily_save_velocity IS NOT NULL THEN ROUND(GREATEST(0::numeric, rb.daily_save_velocity))::bigint
-            WHEN prev.save_count IS NOT NULL AND rb.save_count IS NOT NULL THEN
-              CASE
-                WHEN prev.save_count > 0
-                 AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-                 AND NOT (prev.save_count < 100 AND rb.save_count >= 500)
-                 AND NOT (prev.repin_count > 0 AND prev.save_count <= prev.repin_count AND rb.save_count > COALESCE(rb.repin_count, prev.repin_count) * 1.35)
-                 AND NOT (rb.save_count >= prev.save_count * 4 AND (rb.save_count - prev.save_count) >= 2500)
-                 AND NOT (prev.save_count < 500 AND (rb.save_count - prev.save_count) >= 2000)
-                THEN
-                  ROUND(
-                    GREATEST(0, rb.save_count - prev.save_count)::numeric
-                    / GREATEST(1, (rb.recorded_date - prev.recorded_date))
-                  )::bigint
-                ELSE 0::bigint
-              END
-            ELSE NULL
-          END AS true_delta_saves_24h,
-          CASE
-            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL THEN
-              CASE
-                WHEN prev.repin_count > 0
-                 AND (rb.recorded_date - prev.recorded_date) BETWEEN 1 AND 7
-                 AND rb.repin_count > prev.repin_count
-                 AND NOT (prev.repin_count < 100 AND rb.repin_count >= 500)
-                 AND NOT (
-                   rb.repin_count >= prev.repin_count * 4
-                   AND (rb.repin_count - prev.repin_count) >= 200
-                   AND GREATEST(0, COALESCE(rb.save_count, 0) - COALESCE(prev.save_count, 0)) < (rb.repin_count - prev.repin_count) * 0.15
-                 )
-                THEN
-                  ROUND(
-                    GREATEST(0, rb.repin_count - prev.repin_count)::numeric
-                    / GREATEST(1, (rb.recorded_date - prev.recorded_date))
-                  )::bigint
-                ELSE 0::bigint
-              END
-            ELSE NULL
-          END AS true_delta_repins_24h
+            WHEN prev.repin_count IS NOT NULL AND rb.repin_count IS NOT NULL AND (
+              prev.repin_count <= 0 AND rb.repin_count >= 10
+              OR (prev.repin_count < 100 AND rb.repin_count >= 500)
+              OR (rb.repin_count >= prev.repin_count * 4 AND (rb.repin_count - prev.repin_count) >= 200)
+            ) THEN true ELSE false
+          END AS is_repin_jump
         FROM (
           SELECT rb_sub.*, (NOW() AT TIME ZONE 'UTC')::date AS recorded_date
           FROM raw_batch rb_sub
@@ -607,6 +576,93 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           ORDER BY pm.recorded_date DESC
           LIMIT 1
         ) prev ON TRUE
+      ),
+      computed_batch AS (
+        SELECT
+          eb.*,
+          CASE
+            WHEN eb.save_count IS NULL THEN NULL
+            WHEN eb.is_save_jump THEN 0::double precision
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
+            WHEN eb.prev_save_count IS NOT NULL AND eb.save_count IS NOT NULL THEN
+              CASE
+                WHEN eb.prev_save_count > 0
+                 AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+                THEN
+                  LEAST(
+                    25000::double precision,
+                    ROUND(
+                      GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                      / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                      2
+                    )::double precision
+                  )
+                ELSE 0::double precision
+              END
+            ELSE 0::double precision
+          END AS effective_save_velocity,
+          CASE
+            WHEN eb.repin_count IS NULL THEN NULL
+            WHEN eb.is_repin_jump THEN 0::double precision
+            WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
+            WHEN eb.prev_repin_count IS NOT NULL AND eb.repin_count IS NOT NULL THEN
+              CASE
+                WHEN eb.prev_repin_count > 0
+                 AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+                THEN
+                  LEAST(
+                    25000::double precision,
+                    ROUND(
+                      GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                      / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date)),
+                      2
+                    )::double precision
+                  )
+                ELSE 0::double precision
+              END
+            ELSE 0::double precision
+          END AS effective_repin_velocity,
+          CASE
+            WHEN eb.is_save_jump THEN 0::bigint
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint)
+            WHEN eb.prev_save_count IS NOT NULL AND eb.save_count IS NOT NULL THEN
+              CASE
+                WHEN eb.prev_save_count > 0
+                 AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+                THEN
+                  LEAST(
+                    25000::bigint,
+                    ROUND(
+                      GREATEST(0, eb.save_count - eb.prev_save_count)::numeric
+                      / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                    )::bigint
+                  )
+                ELSE 0::bigint
+              END
+            ELSE 0::bigint
+          END AS true_delta_saves_24h,
+          CASE
+            WHEN eb.repin_count IS NULL THEN NULL
+            WHEN eb.is_repin_jump THEN 0::bigint
+            WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_repins_24h::bigint))
+            WHEN eb.prev_repin_count IS NOT NULL AND eb.repin_count IS NOT NULL THEN
+              CASE
+                WHEN eb.prev_repin_count > 0
+                 AND (eb.recorded_date - eb.prev_recorded_date) BETWEEN 1 AND 7
+                 AND eb.repin_count > eb.prev_repin_count
+                THEN
+                  LEAST(
+                    25000::bigint,
+                    ROUND(
+                      GREATEST(0, eb.repin_count - eb.prev_repin_count)::numeric
+                      / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
+                    )::bigint
+                  )
+                ELSE 0::bigint
+              END
+            ELSE 0::bigint
+          END AS true_delta_repins_24h
+        FROM evaluated_batch eb
       ),
       upsert_pins AS (
         INSERT INTO universal_master_pins (

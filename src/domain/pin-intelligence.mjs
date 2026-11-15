@@ -11,23 +11,49 @@
 /**
  * Canonical domain normalizer SSOT.
  * Normalizes any domain or URL into a clean lowercase root host without 'www.'
- * Preserves 'uploaded by user' indicator for organic uploads without outbound links.
+ * Supports options:
+ * - strictFqdn (boolean): when true, requires a valid domain with TLD and dot
+ * - preserveOrganic (boolean): when true, preserves 'uploaded by user' indicator
  *
- * @param {string} rawDomainOrUrl
+ * @param {string} rawInput
+ * @param {object} [options={}]
+ * @param {boolean} [options.strictFqdn=false]
+ * @param {boolean} [options.preserveOrganic=false]
  * @returns {string} Clean domain or empty string
  */
-export function normalizeCleanDomain(rawDomainOrUrl) {
-  if (!rawDomainOrUrl || typeof rawDomainOrUrl !== 'string') return '';
-  const trimmed = rawDomainOrUrl.trim().toLowerCase();
+export function normalizeCleanDomain(rawInput, { strictFqdn = false, preserveOrganic = false } = {}) {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  const trimmed = rawInput.trim().toLowerCase();
   if (!trimmed) return '';
-  if (trimmed === 'uploaded by user' || trimmed === 'uploaded-by-user' || trimmed === 'organic') {
-    return 'uploaded by user';
+
+  const isOrganic = trimmed === 'uploaded by user' || trimmed === 'uploaded-by-user' || trimmed === 'organic';
+  if (isOrganic) {
+    return (preserveOrganic || !strictFqdn) ? 'uploaded by user' : '';
   }
-  return trimmed
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/[/?#].*$/, '')
-    .trim();
+
+  let cleaned = trimmed;
+  try {
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      cleaned = new URL(cleaned).hostname.toLowerCase();
+    } else {
+      cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
+    }
+  } catch (_) {
+    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
+  }
+
+  cleaned = cleaned.replace(/^www\./, '').trim();
+
+  if (strictFqdn) {
+    if (!cleaned || !cleaned.includes('.') || cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
+      return '';
+    }
+    if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]\.[a-z]{2,}$/.test(cleaned)) {
+      return '';
+    }
+  }
+
+  return cleaned;
 }
 
 export const ANNOTATION_STOPWORDS = new Set([

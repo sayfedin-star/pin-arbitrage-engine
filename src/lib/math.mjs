@@ -208,21 +208,112 @@ export function calculateDailyVelocity(params) {
 
 /**
  * Multi-stage hydration jump detector for trajectory snapshots.
- * Consolidates to the canonical 6-rule hydration jump evaluator.
- * Flags transitions where unhydrated stub records receive historical lifetime metric backfills.
- *
- * @param {object|number} prev
- * @param {object|number} curr
- * @returns {boolean}
+ * Canonical alias mapped directly to detectHydrationJump SSOT.
  */
-export function isMultiStageHydrationJump(prev, curr) {
-  if (!prev || !curr) return false;
-  const pSaves = typeof prev === 'number' ? prev : Number(prev.save_count ?? prev.saves ?? prev.baselineSaves ?? prev.prev_saves ?? 0);
-  const cSaves = typeof curr === 'number' ? curr : Number(curr.save_count ?? curr.saves ?? curr.currentSaves ?? curr.cur_saves ?? 0);
-  const pRepins = typeof prev === 'object' ? Number(prev.repin_count ?? prev.repins ?? prev.baselineRepins ?? prev.prev_repins ?? 0) : 0;
-  const cRepins = typeof curr === 'object' ? Number(curr.repin_count ?? curr.repins ?? curr.currentRepins ?? curr.cur_repins ?? 0) : 0;
+export const isMultiStageHydrationJump = detectHydrationJump;
 
-  return evaluateCanonicalHydrationRules(cSaves, pSaves, cRepins, pRepins);
+/**
+ * Computes the Anscombe Inflection Score for a pin.
+ * Applies the Anscombe variance-stabilizing transformation A(x) = 2 * sqrt(x + 3/8)
+ * to stabilize Poisson variance across low-count and high-count pin metric distributions,
+ * measuring the statistical significance of velocity inflection.
+ *
+ * @param {object|number} pin - Pin record or current velocity number
+ * @param {object} [options={}] - Optional tuning parameters
+ * @returns {number} Anscombe inflection score
+ */
+export function computeAnscombeInflectionScore(pin, options = {}) {
+  if (pin == null) return 0;
+  return calculateVelocityAcceleration(pin, null, options);
+}
+
+/**
+ * Computes the Cross-Pillar Conviction Score and Pillar Convergence Count.
+ * Evaluates the multi-dimensional alignment across:
+ * - Pillar 1: P2P Seed Cluster Graph (Pixie multihit, coupling rho, seed overlap)
+ * - Pillar 2: Organic SERP Dominance (rank position, keyword coverage, vacuum opportunity)
+ * - Pillar 3: Creator Footprint (board synergy, competitor velocity)
+ * - Pillar 4: Domain Intelligence (domain velocity, youth/breakout factor)
+ *
+ * @param {object} params
+ * @returns {{ conviction_score: number, pillar_convergence_count: number, convergence_tier: string }}
+ */
+export function computeCrossPillarConvictionScore(params = {}) {
+  if (!params || typeof params !== 'object') {
+    return { conviction_score: 0, pillar_convergence_count: 0, convergence_tier: 'UNCONVERGED' };
+  }
+
+  const seedOverlap = Math.max(0, Number(params.seed_overlap_count ?? params.seedOverlap ?? params.overlap ?? 0));
+  const multihit = Math.max(0, Number(params.pixie_multihit_score ?? params.multihitScore ?? params.multihit ?? 0));
+  const couplingRho = Math.max(0, Number(params.coupling_rho ?? params.couplingRho ?? 0));
+  const velocity = Math.max(0, Number(params.daily_save_velocity ?? params.daily_velocity ?? params.velocity ?? 0));
+  const saves = Math.max(0, Number(params.save_count ?? params.total_saves ?? params.saves ?? 0));
+  const serpRank = params.rank_position ?? params.serpRank ?? params.rank ?? null;
+  const serpKeywords = Math.max(0, Number(params.serp_keywords_count ?? params.serpCount ?? params.keywords_count ?? 0));
+  const isCompetitor = Boolean(params.is_competitor ?? params.isCompetitor ?? params.competitor_id);
+  const domain = String(params.domain ?? params.clean_domain ?? '').trim();
+  const domainAgeDays = params.domain_age_days != null ? Number(params.domain_age_days) : null;
+  const isProduct = Boolean(params.is_product ?? params.isProduct);
+
+  let pillars = 0;
+
+  // Pillar 1: P2P Graph Convergence
+  const hasP2P = seedOverlap >= 1 || multihit > 0;
+  if (hasP2P) pillars++;
+
+  // Pillar 2: Organic SERP Convergence
+  const hasSerp = (serpRank != null && Number(serpRank) > 0 && Number(serpRank) <= 50) || serpKeywords > 0;
+  if (hasSerp) pillars++;
+
+  // Pillar 3: Creator Network Convergence
+  const hasCreator = isCompetitor || Boolean(params.creator_username || params.account_username);
+  if (hasCreator) pillars++;
+
+  // Pillar 4: Domain Intelligence Convergence
+  const hasDomain = Boolean(domain && domain !== 'uploaded by user' && domain.includes('.'));
+  if (hasDomain) pillars++;
+
+  // Component 1: P2P Graph strength (0..35)
+  const p2pScore = Math.min(35, (seedOverlap * 7) + (couplingRho * 15) + (Math.sqrt(multihit) * 0.5));
+
+  // Component 2: SERP Rank strength (0..25)
+  let serpScore = 0;
+  if (serpRank != null && Number(serpRank) > 0) {
+    const rankNum = Number(serpRank);
+    serpScore = Math.max(0, 25 - (rankNum * 0.5));
+  } else if (serpKeywords > 0) {
+    serpScore = Math.min(25, serpKeywords * 5);
+  }
+
+  // Component 3: Velocity & Momentum strength (0..25)
+  const velScore = Math.min(25, Math.sqrt(velocity) * 2.5 + (saves > 1000 ? Math.log10(saves) * 2 : 0));
+
+  // Component 4: Multi-Pillar Synergy Multiplier (1.0 to 1.6x)
+  const pillarMultiplier = 1.0 + (Math.max(0, pillars - 1) * 0.2);
+
+  // Product penalty (-30% if commercial product card rather than organic arbitrage)
+  const productMultiplier = isProduct ? 0.7 : 1.0;
+
+  // Domain youth bonus (+15% if young domain < 730 days)
+  const youthMultiplier = (domainAgeDays != null && domainAgeDays > 0 && domainAgeDays < 730) ? 1.15 : 1.0;
+
+  const rawConviction = (p2pScore + serpScore + velScore) * pillarMultiplier * productMultiplier * youthMultiplier;
+  const convictionScore = Math.min(100, Math.round(rawConviction * 10) / 10);
+
+  let tier = 'UNCONVERGED';
+  if (pillars >= 3 && convictionScore >= 70) {
+    tier = 'HIGH_CONVICTION_QUAD_PILLAR';
+  } else if (pillars >= 2 && convictionScore >= 45) {
+    tier = 'CONVERGENT_DUAL_PILLAR';
+  } else if (pillars >= 1 && convictionScore >= 20) {
+    tier = 'EMERGING_SINGLE_PILLAR';
+  }
+
+  return {
+    conviction_score: convictionScore,
+    pillar_convergence_count: pillars,
+    convergence_tier: tier
+  };
 }
 
 /**
