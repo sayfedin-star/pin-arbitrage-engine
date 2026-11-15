@@ -103,6 +103,10 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
   assert.match(umpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR true\)/i, 'Must set is_hydrated with explicit saves');
   assert.match(umpUpdate.rawSql, /daily_repin_velocity =/, 'Must update daily_repin_velocity');
 
+  // Verify positive repin scrape updates repin_count in both pins_daily_metrics and universal_master_pins
+  assert.match(pdmInsert.rawSql, /repin_count = CASE WHEN EXCLUDED\.repin_count IS NOT NULL AND \(true OR EXCLUDED\.repin_count > 0\) THEN EXCLUDED\.repin_count ELSE pins_daily_metrics\.repin_count END/);
+  assert.match(umpUpdate.rawSql, /repin_count = CASE WHEN true AND \(true OR true\) THEN 55::int ELSE universal_master_pins\.repin_count END/);
+
   // Verify unhydrated pin sync preserves NULL and does not force is_hydrated = TRUE
   const unhydratedQueries = [];
   const mockUnhydratedSql = (strings, ...values) => {
@@ -227,6 +231,39 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
   const repinNullUmpUpdate = repinNullQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
   assert.ok(repinNullUmpUpdate);
   assert.match(repinNullUmpUpdate.rawSql, /repin_count = CASE WHEN false AND \(false OR false\) THEN null::int ELSE universal_master_pins\.repin_count END/, 'universal_master_pins update must preserve existing repin_count when newRepins is null');
+
+  // Verify explicit 0 repins with has_explicit_repins: true updates repin_count to 0
+  const explicitZeroRepinsQueries = [];
+  const mockExplicitZeroRepinsSql = (strings, ...values) => {
+    const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
+    explicitZeroRepinsQueries.push({ rawSql, values });
+    if (rawSql.includes('FROM keyword_serp_positions') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    if (rawSql.includes('FROM pins_daily_metrics') && rawSql.includes('SELECT')) return Promise.resolve([]);
+    return Promise.resolve([]);
+  };
+
+  await syncPinAcrossAllFourPillars({
+    sql: mockExplicitZeroRepinsSql,
+    pinId: '123456789017',
+    scrapedPin: {
+      pin_id: '123456789017',
+      title: 'Explicit Zero Repins Pin',
+      saves: 150,
+      repins: 0,
+      has_explicit_repins: true
+    },
+    fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789017' })
+  });
+
+  const zeroRepinPdmInsert = explicitZeroRepinsQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(zeroRepinPdmInsert);
+  assert.strictEqual(zeroRepinPdmInsert.values[1], 150);
+  assert.strictEqual(zeroRepinPdmInsert.values[2], 0, 'Must insert 0 repins when has_explicit_repins = true');
+  assert.match(zeroRepinPdmInsert.rawSql, /repin_count = CASE WHEN EXCLUDED\.repin_count IS NOT NULL AND \(true OR EXCLUDED\.repin_count > 0\) THEN EXCLUDED\.repin_count ELSE pins_daily_metrics\.repin_count END/);
+
+  const zeroRepinUmpUpdate = explicitZeroRepinsQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
+  assert.ok(zeroRepinUmpUpdate);
+  assert.match(zeroRepinUmpUpdate.rawSql, /repin_count = CASE WHEN true AND \(true OR false\) THEN 0::int ELSE universal_master_pins\.repin_count END/, 'Must update repin_count to 0 when has_explicit_repins = true');
 });
 
 test('Phase 4.3: ingestPinsBatch preserves rolling gains and gates velocity on positive prior saves', async () => {
@@ -363,4 +400,40 @@ test('Phase 4.10: resavePinsMetricsBatch preserves NULL on rolling gains and rep
   assert.match(batchQuery.rawSql, /WHEN rb\.repin_count IS NULL/);
   assert.match(batchQuery.rawSql, /WHEN prev\.repin_count IS NULL THEN NULL/);
   assert.match(batchQuery.rawSql, /delta_repins_24h = COALESCE\(cb\.effective_delta_repins_24h, ump\.delta_repins_24h\)/);
+
+  // Verify JSON serialization preserves null for unhydrated repins and rolling gains
+  const payloadPins = JSON.parse(batchQuery.values[0]);
+  assert.strictEqual(payloadPins[0].repin_count, null);
+  assert.strictEqual(payloadPins[0].gains_5d, null);
+  assert.strictEqual(payloadPins[0].gains_7d, null);
+  assert.strictEqual(payloadPins[0].gains_10d, null);
+  assert.strictEqual(payloadPins[0].gains_15d, null);
+
+  // Verify caller-supplied velocities and deltas are preserved in batch payload
+  const populatedQueries = [];
+  const mockPopulatedSql = (strings, ...values) => {
+    const rawSql = strings.reduce((acc, str, i) => acc + str + (values[i] !== undefined ? values[i] : ''), '');
+    populatedQueries.push({ rawSql, values });
+    return Promise.resolve([]);
+  };
+
+  await resavePinsMetricsBatch(mockPopulatedSql, [{
+    pin_id: '111222333445',
+    domain: 'example.com',
+    save_count: 500,
+    repin_count: 50,
+    daily_save_velocity: 15.5,
+    daily_repin_velocity: 3.5,
+    delta_repins_24h: 4,
+    gains_5d: 20
+  }]);
+
+  const populatedBatchQuery = populatedQueries.find(q => q.rawSql.includes('WITH raw_batch AS'));
+  assert.ok(populatedBatchQuery);
+  const populatedPayload = JSON.parse(populatedBatchQuery.values[0]);
+  assert.strictEqual(populatedPayload[0].daily_save_velocity, 15.5);
+  assert.strictEqual(populatedPayload[0].daily_repin_velocity, 3.5);
+  assert.strictEqual(populatedPayload[0].delta_repins_24h, 4);
+  assert.strictEqual(populatedPayload[0].gains_5d, 20);
+  assert.strictEqual(populatedPayload[0].repin_count, 50);
 });
