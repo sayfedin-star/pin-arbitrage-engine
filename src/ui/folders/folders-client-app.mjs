@@ -1994,6 +1994,19 @@ export function getFoldersClientAppScript() {
 
         formatNumber(n) {
           return Number(n || 0).toLocaleString();
+        },
+
+        safeUrl(url) {
+          if (!url) return '#';
+          const s = String(url).trim();
+          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          return '#';
+        },
+
+        safeColor(color, fallback = '#6366f1') {
+          if (!color) return fallback;
+          const s = String(color).trim();
+          return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;
         }
       };
     }

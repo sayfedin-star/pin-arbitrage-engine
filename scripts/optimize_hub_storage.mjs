@@ -102,15 +102,19 @@ async function main() {
   }
 
   const sql = createSqlClient(process.env.DATABASE_URL);
-  console.log('[*] Running automated maintenance...');
-  const res = await optimizeHubStorage(sql);
+  try {
+    console.log('[*] Running automated maintenance...');
+    const res = await optimizeHubStorage(sql);
 
-  console.log(`  ✓ Cleaned SERP metadata:          ${res.cleanedSerpMetadata} rows`);
-  console.log(`  ✓ Cleaned Keyword TOAST metadata: ${res.cleanedKwMetadata} rows`);
-  console.log(`  ✓ Vacuumed & analyzed tables:     ${res.vacuumedTables.join(', ')}`);
-  console.log('\n================================================================');
-  console.log('✓ ROUTINE STORAGE OPTIMIZATION COMPLETE');
-  console.log('================================================================');
+    console.log(`  ✓ Cleaned SERP metadata:          ${res.cleanedSerpMetadata} rows`);
+    console.log(`  ✓ Cleaned Keyword TOAST metadata: ${res.cleanedKwMetadata} rows`);
+    console.log(`  ✓ Vacuumed & analyzed tables:     ${res.vacuumedTables.join(', ')}`);
+    console.log('\n================================================================');
+    console.log('✓ ROUTINE STORAGE OPTIMIZATION COMPLETE');
+    console.log('================================================================');
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

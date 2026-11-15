@@ -37,8 +37,8 @@ export function renderAppTopbar({
         class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shrink-0"
         :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
         aria-label="Toggle Sidebar">
-        <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
-        <i x-show="isSidebarCollapsed" data-lucide="chevrons-right" class="w-4 h-4"></i>
+        <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
+        <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
       </button>
 
       <!-- ⌘K / ⌘F Global Search Command Bar Trigger -->
@@ -66,8 +66,8 @@ export function renderAppTopbar({
         class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-600 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] hover:bg-slate-100 dark:hover:bg-[#27272A] transition active:scale-95 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
         :title="${darkExpr} ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
         aria-label="Toggle color theme">
-        <i x-show="!${darkExpr}" data-lucide="moon" class="w-4 h-4"></i>
-        <i x-show="${darkExpr}" data-lucide="sun" class="w-4 h-4"></i>
+        <span x-show="!${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="moon" class="w-4 h-4"></i></span>
+        <span x-show="${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="sun" class="w-4 h-4"></i></span>
       </button>
 
       <!-- Refresh Button -->
@@ -132,22 +132,21 @@ export function renderAppSidebar({
             cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
           ]"
           :title="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'">
-          <span class="flex items-center truncate font-mono tabular-nums" ${isMobile ? 'class="space-x-2"' : ':class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+          <span class="${isMobile ? 'flex items-center truncate font-mono tabular-nums space-x-2' : 'flex items-center truncate font-mono tabular-nums'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
             <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
             <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? '${isMobile ? 'Session: Authenticated' : 'Pinterest: Authenticated'}' : 'Guest Mode (No Cookie)'"></span>
           </span>
-          <i ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}data-lucide="key" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+          <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="inline-flex items-center justify-center shrink-0 opacity-70"><i data-lucide="key" class="w-3.5 h-3.5"></i></span>
         </button>
   ` : `
         <div
-          class="flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums"
-          ${isMobile ? 'class="w-full justify-between px-3 py-2 text-xs font-semibold"' : ':class="isSidebarCollapsed ? \'w-10 h-10 p-0 justify-center mx-auto\' : \'w-full justify-between px-3 py-2 text-xs font-semibold\'"'}
+          class="${isMobile ? 'flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums w-full justify-between px-3 py-2 text-xs font-semibold' : 'flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'w-10 h-10 p-0 justify-center mx-auto\' : \'w-full justify-between px-3 py-2 text-xs font-semibold\'"'}
           title="PAE Distributed System: Active">
-          <span class="flex items-center truncate" ${isMobile ? 'class="space-x-2"' : ':class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+          <span class="${isMobile ? 'flex items-center truncate space-x-2' : 'flex items-center truncate'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
             <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 motion-safe:animate-pulse"></span>
             <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]">System: Operational</span>
           </span>
-          <i ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}data-lucide="shield-check" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+          <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="inline-flex items-center justify-center shrink-0 opacity-70"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i></span>
         </div>
   `;
 
@@ -384,8 +383,8 @@ export function renderAppSidebar({
           :class="isSidebarCollapsed ? 'w-8 h-8 flex items-center justify-center' : ''"
           :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
           aria-label="Toggle Sidebar">
-          <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
-          <i x-show="isSidebarCollapsed" data-lucide="chevrons-right" class="w-4 h-4"></i>
+          <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
+          <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
         </button>
       </div>
 
@@ -590,8 +589,8 @@ export function renderAppSidebar({
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
           title="Switch Theme"
           aria-label="Toggle theme">
-          <i x-show="!${darkExpr}" data-lucide="moon" class="w-3.5 h-3.5"></i>
-          <i x-show="${darkExpr}" data-lucide="sun" class="w-3.5 h-3.5"></i>
+          <span x-show="!${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="moon" class="w-3.5 h-3.5"></i></span>
+          <span x-show="${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="sun" class="w-3.5 h-3.5"></i></span>
           <span x-show="!isSidebarCollapsed" x-text="${darkExpr} ? 'Light' : 'Dark'"></span>
         </button>
 

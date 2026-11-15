@@ -50,6 +50,7 @@ async function writeOutput(key, value) {
 }
 
 async function main() {
+  try {
   console.log('================================================================');
   console.log('   🚀 KEYWORD INTELLIGENCE & VELOCITY FLEET DISPATCHER (20-RUNNER)');
   console.log('================================================================');
@@ -450,6 +451,9 @@ async function main() {
 
   process.exitCode = 0;
   return;
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
 }
 
 main().catch(err => {

@@ -173,7 +173,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         :title="isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
       >
         <svg x-show="isDark" class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
-        <svg x-show="!isDark" class="w-4 h-4 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        <svg x-show="!isDark" class="w-4 h-4 text-slate-600 dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
       </button>
 
       <!-- Refresh Button -->
@@ -407,6 +407,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <a 
             :href="'/api/keywords/visual-search?pin_id=' + encodeURIComponent(pinId)" 
             target="_blank" 
+            rel="noopener noreferrer"
             class="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
           >
             <span>Launch Related Radar</span>
@@ -502,8 +503,8 @@ export function getPinDetailsBodyHtml(safePinId) {
         <template x-if="dossier?.creative?.alt_text">
           <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#18181B]/80 flex items-start justify-between gap-3 text-xs">
             <div class="space-y-1 min-w-0">
-              <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                <i data-lucide="sparkles" class="w-3 h-3 text-rose-400"></i>
+              <div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <i data-lucide="sparkles" class="w-3 h-3 text-rose-500 dark:text-rose-400"></i>
                 <span>Image Alt-Text (Accessibility & Image SEO)</span>
               </div>
               <p class="text-slate-700 dark:text-slate-200 font-sans leading-relaxed text-xs select-all" x-text="dossier.creative.alt_text"></p>
@@ -538,15 +539,15 @@ export function getPinDetailsBodyHtml(safePinId) {
       <div class="grid grid-cols-2 sm:grid-cols-6 xl:grid-cols-5 gap-3">
         <!-- Cell 1: Total Saves -->
         <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
-          <div class="flex items-center justify-between text-slate-400">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Saves</span>
-            <div class="p-1.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <div class="p-1.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
             </div>
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-100 transition-colors" x-text="formatNumber(dossier?.creative?.save_count || 0)"></div>
-            <div class="text-[11px] text-emerald-400 font-mono tabular-nums font-semibold mt-0.5">
+            <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono tabular-nums font-semibold mt-0.5">
               <span x-text="format24hSaveDelta()"></span>
             </div>
           </div>
@@ -554,60 +555,60 @@ export function getPinDetailsBodyHtml(safePinId) {
 
         <!-- Cell 2: Save Velocity Engine (24h Live Delta vs Lifetime Amortized) [L-02 Resolved] -->
         <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-emerald-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
-          <div class="flex items-center justify-between text-slate-400">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Daily Velocity</span>
-            <div class="p-1.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <div class="p-1.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             </div>
           </div>
           <div class="mt-2">
             <div class="flex items-baseline gap-1">
-              <span class="text-2xl font-black font-mono tabular-nums text-emerald-400" x-text="formatLive24hVelocity()"></span>
-              <span class="text-[10px] text-slate-400 uppercase font-mono">live 24h</span>
+              <span class="text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatLive24hVelocity()"></span>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-mono">live 24h</span>
             </div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="formatLifetimeVelocityCaption()"></div>
+            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="formatLifetimeVelocityCaption()"></div>
           </div>
         </div>
 
         <!-- Cell 3: Total Repins & Engagement -->
         <div class="col-span-1 sm:col-span-2 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-indigo-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
-          <div class="flex items-center justify-between text-slate-400">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Repins</span>
-            <div class="p-1.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div class="p-1.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
             </div>
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-100 transition-colors" x-text="formatNumber(dossier?.creative?.repin_count || 0)"></div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5" x-text="formatViralityRatio()"></div>
+            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5" x-text="formatViralityRatio()"></div>
           </div>
         </div>
 
         <!-- Cell 4: SERP Footprint & Best Rank -->
         <div class="col-span-1 sm:col-span-3 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-amber-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
-          <div class="flex items-center justify-between text-slate-400">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Best SERP Rank</span>
-            <div class="p-1.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <div class="p-1.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
             </div>
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-100 transition-colors" x-text="getBestRankDisplay()"></div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="getSerpFootprintSummary()"></div>
+            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="getSerpFootprintSummary()"></div>
           </div>
         </div>
 
         <!-- Cell 5: Total Engagement Score -->
         <div class="col-span-2 sm:col-span-3 xl:col-span-1 p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-sky-300 dark:hover:border-zinc-700/80 transition-all flex flex-col justify-between shadow-xs group">
-          <div class="flex items-center justify-between text-slate-400">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span class="text-[10.5px] font-bold uppercase tracking-wider">Total Engagement</span>
-            <div class="p-1.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <div class="p-1.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             </div>
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-sky-600 dark:group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
-            <div class="text-[10.5px] text-slate-400 font-mono tabular-nums mt-0.5 truncate">
+            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate">
               <span x-text="formatNumber(totalReactions())"></span> reactions, 
               <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
               <span x-text="totalShares()"></span> shares<template x-if="totalReactions() > 0"><span>, <span x-text="totalReactions()"></span> reactions</span></template>
@@ -679,12 +680,12 @@ export function getPinDetailsBodyHtml(safePinId) {
           </template>
 
           <template x-if="computeChartPoints().length < 2">
-            <div class="text-xs text-slate-500 font-mono text-center space-y-1.5 py-6">
-              <div class="flex items-center justify-center gap-1.5 font-bold text-slate-400">
-                <svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <div class="text-xs text-slate-500 dark:text-slate-400 font-mono text-center space-y-1.5 py-6">
+              <div class="flex items-center justify-center gap-1.5 font-bold text-slate-600 dark:text-slate-300">
+                <svg class="w-4 h-4 text-slate-500 dark:text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
                 <span>Single Snapshot Registered</span>
               </div>
-              <div class="text-[11px] text-slate-600">Trajectory curve activates as subsequent daily crawls record progression.</div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400">Trajectory curve activates as subsequent daily crawls record progression.</div>
             </div>
           </template>
 
@@ -694,9 +695,9 @@ export function getPinDetailsBodyHtml(safePinId) {
               class="absolute z-20 pointer-events-none px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-md shadow-xl text-xs font-mono space-y-0.5"
               :style="'left: ' + Math.min(650, Math.max(10, (hoveredChartPoint.x / 800) * 100)) + '%; top: 12px;'"
             >
-              <div class="text-slate-400 font-bold" x-text="hoveredChartPoint.snapshot?.snapshot_date"></div>
-              <div class="text-rose-400 font-bold" x-text="formatNumber(hoveredChartPoint.snapshot?.save_count) + ' saves'"></div>
-              <div class="text-emerald-400 text-[10px]" x-text="'Velocity: ' + (hoveredChartPoint.snapshot?.daily_save_velocity || 0) + '/d'"></div>
+              <div class="text-slate-500 dark:text-slate-400 font-bold" x-text="hoveredChartPoint.snapshot?.snapshot_date"></div>
+              <div class="text-rose-600 dark:text-rose-400 font-bold" x-text="formatNumber(hoveredChartPoint.snapshot?.save_count) + ' saves'"></div>
+              <div class="text-emerald-600 dark:text-emerald-400 text-[10px]" x-text="'Velocity: ' + (hoveredChartPoint.snapshot?.daily_save_velocity || 0) + '/d'"></div>
             </div>
           </template>
         </div>

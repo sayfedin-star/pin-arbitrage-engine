@@ -125,16 +125,20 @@ export function printAuditTable(title, { dbSizeRow, tables, indexes }) {
 }
 
 async function run() {
-  console.log('[*] Connecting to live PostgreSQL database for Forensic Storage Audit & Compaction...');
-  const current = await getStorageBreakdown();
-  printAuditTable('CURRENT LIVE STORAGE STATUS', current);
+  try {
+    console.log('[*] Connecting to live PostgreSQL database for Forensic Storage Audit & Compaction...');
+    const current = await getStorageBreakdown();
+    printAuditTable('CURRENT LIVE STORAGE STATUS', current);
 
-  const rawBytes = Number(current.dbSizeRow.raw_bytes);
-  const targetBytes = 200 * 1024 * 1024;
-  if (rawBytes <= targetBytes) {
-    console.log(`\n🎉 COMPACTION VERIFIED: Database size (${current.dbSizeRow.pretty_size}) is below the 200 MB mandate!`);
-  } else {
-    console.warn(`\n⚠️ Database size (${current.dbSizeRow.pretty_size}) exceeds 200 MB.`);
+    const rawBytes = Number(current.dbSizeRow.raw_bytes);
+    const targetBytes = 200 * 1024 * 1024;
+    if (rawBytes <= targetBytes) {
+      console.log(`\n🎉 COMPACTION VERIFIED: Database size (${current.dbSizeRow.pretty_size}) is below the 200 MB mandate!`);
+    } else {
+      console.warn(`\n⚠️ Database size (${current.dbSizeRow.pretty_size}) exceeds 200 MB.`);
+    }
+  } finally {
+    if (sql) await sql.end({ timeout: 2 }).catch(() => {});
   }
 }
 

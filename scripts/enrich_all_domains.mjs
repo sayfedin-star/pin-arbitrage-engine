@@ -57,6 +57,7 @@ function renderProgressBar(current, total, width = 30) {
 }
 
 async function main() {
+  try {
   console.log('==============================================================');
   console.log('🚀 Universal Domain Intelligence Global Age Verification Engine');
   console.log('==============================================================');
@@ -74,7 +75,7 @@ async function main() {
 
   if (startStats.unchecked_domains === 0) {
     console.log('[✓] All domains in the database are already verified!');
-    process.exit(0);
+    return;
   }
 
   let isInterrupted = false;
@@ -127,6 +128,9 @@ async function main() {
   console.log(`    Global Complete:    ${finalStats.checked_domains} / ${finalStats.total_domains} (${finalStats.percent_complete}%)`);
   console.log(`    Unchecked Left:     ${finalStats.unchecked_domains}`);
   console.log('==============================================================');
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
 }
 
 main().catch(err => {

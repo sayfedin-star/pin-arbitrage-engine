@@ -13,17 +13,48 @@
  * [INVARIANT: DESIGN-TOKEN-PARITY]
  */
 
+const escapeHtml = (str) => String(str ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const escapeAttrJs = (str) => String(str ?? '')
+  .replace(/\\/g, '\\\\')
+  .replace(/'/g, "\\'")
+  .replace(/"/g, '\\x22')
+  .replace(/</g, '\\x3c')
+  .replace(/>/g, '\\x3e')
+  .replace(/&/g, '\\x26')
+  .replace(/\n/g, '\\n')
+  .replace(/\r/g, '\\r');
+
+const sanitizeHex6 = (c, fallback = '#E11D48') => {
+  const s = String(c ?? '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s : fallback;
+};
+
 export function renderCampaignWorkspaceHeader({
   activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'settings' | 'pulse' | '24h'
   folderId = '',
   folder = null
 } = {}) {
-  const cleanFolderId = String(folderId || '').trim();
-  const folderName = folder?.name || 'Campaign Workspace';
-  const folderDesc = folder?.description || 'Campaign cluster for Pinterest arbitrage';
-  const folderIcon = folder?.icon || '📁';
-  const folderColor = folder?.color || '#E11D48';
-  const folderDate = folder?.created_at ? new Date(folder.created_at).toLocaleDateString() : '';
+  const cleanFolderIdRaw = String(folderId || '').trim();
+  const cleanFolderId = escapeHtml(cleanFolderIdRaw);
+  const jsCleanFolderId = escapeAttrJs(cleanFolderIdRaw);
+  const folderNameRaw = folder?.name || 'Campaign Workspace';
+  const folderDescRaw = folder?.description || 'Campaign cluster for Pinterest arbitrage';
+  const folderIconRaw = folder?.icon || '📁';
+  const folderName = escapeHtml(folderNameRaw);
+  const jsFolderName = escapeAttrJs(folderNameRaw);
+  const folderDesc = escapeHtml(folderDescRaw);
+  const jsFolderDesc = escapeAttrJs(folderDescRaw);
+  const folderIcon = (!folderIconRaw || folderIconRaw === 'folder' || folderIconRaw.length > 4) ? '' : escapeHtml(folderIconRaw);
+  const folderColor = sanitizeHex6(folder?.color, '#E11D48');
+  const folderDateRaw = folder?.created_at ? new Date(folder.created_at).toLocaleDateString() : '';
+  const folderDate = escapeHtml(folderDateRaw);
+  const jsFolderDate = escapeAttrJs(folderDateRaw);
 
   // Room active tab indicator classes - Light-Mode Bento Tokens
   const tabBase = 'flex items-center gap-2 px-4 py-2.5 text-xs font-medium transition-all border-b-2 pointer-events-auto relative z-10 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500';
@@ -63,8 +94,8 @@ export function renderCampaignWorkspaceHeader({
 
         <!-- Folder Avatar & Metadata -->
         <div class="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200/80 dark:border-[#27272A] shrink-0 overflow-hidden"
-             :style="'background-color: ' + ((typeof activeFolder !== 'undefined' && activeFolder?.color) ? activeFolder.color + '20' : '${folderColor}20')">
-          <span x-show="(typeof activeFolder !== 'undefined' && activeFolder?.icon) && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.icon) ? activeFolder.icon : ''">${(!folderIcon || folderIcon === 'folder' || folderIcon.length > 4) ? '' : folderIcon}</span>
+             :style="'background-color: ' + ((typeof activeFolder !== 'undefined' && activeFolder?.color && /^#[0-9a-fA-F]{6}$/.test(String(activeFolder.color).trim())) ? String(activeFolder.color).trim() + '20' : '${folderColor}20')">
+          <span x-show="(typeof activeFolder !== 'undefined' && activeFolder?.icon) && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.icon) ? activeFolder.icon : ''">${folderIcon}</span>
           <span x-show="typeof activeFolder === 'undefined' || !activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon.length > 4">
             <i data-lucide="folder-kanban" class="w-5 h-5 text-rose-500"></i>
           </span>
@@ -74,11 +105,11 @@ export function renderCampaignWorkspaceHeader({
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-rose-600 dark:text-rose-400 font-bold">Campaign Workspace</span>
             <span class="text-slate-300 dark:text-[#27272A]">•</span>
-            <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-[#71717A]" x-text="'ID: #' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}'))">ID: #${cleanFolderId}</span>
-            <template x-if="(typeof activeFolder !== 'undefined' && activeFolder?.created_at) || '${folderDate}'">
+            <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-[#71717A]" x-text="'ID: #' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'))">ID: #${cleanFolderId}</span>
+            <template x-if="(typeof activeFolder !== 'undefined' && activeFolder?.created_at) || '${jsFolderDate}'">
               <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-[#71717A] flex items-center gap-1">
                 <span>•</span>
-                <span x-text="(typeof activeFolder !== 'undefined' && activeFolder?.created_at) ? new Date(activeFolder.created_at).toLocaleDateString() : '${folderDate}'">${folderDate}</span>
+                <span x-text="(typeof activeFolder !== 'undefined' && activeFolder?.created_at) ? new Date(activeFolder.created_at).toLocaleDateString() : '${jsFolderDate}'">${folderDate}</span>
               </span>
             </template>
 
@@ -100,7 +131,7 @@ export function renderCampaignWorkspaceHeader({
                 <template x-for="f in (typeof foldersList !== 'undefined' && foldersList && foldersList.length ? foldersList : ((typeof folders !== 'undefined' && folders && folders.length) ? folders : ((typeof allFolders !== 'undefined' && allFolders) ? allFolders : [])))" :key="f.id">
                   <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isPulse ? "'/pulse'" : (isSettings ? "'/settings'" : "''"))))})"
                      class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors cursor-pointer"
-                     :class="(f.id == '${cleanFolderId}') ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
+                     :class="(f.id == '${jsCleanFolderId}') ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
                     <div class="flex items-center gap-2 truncate">
                       <span x-text="f.icon && f.icon !== 'folder' && f.icon.length <= 4 ? f.icon : '📁'"></span>
                       <span class="truncate" x-text="f.name"></span>
@@ -111,8 +142,8 @@ export function renderCampaignWorkspaceHeader({
               </div>
             </div>
           </div>
-          <h1 class="text-lg font-bold text-slate-900 dark:text-[#FAFAFA] tracking-tight truncate" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.name) ? activeFolder.name : '${folderName}'">${folderName}</h1>
-          <p class="text-xs text-slate-500 dark:text-[#A1A1AA] truncate max-w-xl" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.description) ? activeFolder.description : '${folderDesc}'">${folderDesc}</p>
+          <h1 class="text-lg font-bold text-slate-900 dark:text-[#FAFAFA] tracking-tight truncate" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.name) ? activeFolder.name : '${jsFolderName}'">${folderName}</h1>
+          <p class="text-xs text-slate-500 dark:text-[#A1A1AA] truncate max-w-xl" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.description) ? activeFolder.description : '${jsFolderDesc}'">${folderDesc}</p>
         </div>
       </div>
 
@@ -127,7 +158,7 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Settings Action -->
-        <button @click="if (typeof currentRoom !== 'undefined') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${cleanFolderId}') + '/settings'); } catch (_) {} if (typeof syncFolderSettingsFromActive === 'function') syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}') + '/settings'; }"
+        <button @click="if (typeof currentRoom !== 'undefined') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') + '/settings'); } catch (_) {} if (typeof syncFolderSettingsFromActive === 'function') syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}') + '/settings'; }"
                 class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Folder Settings & Rules">
           <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400 dark:text-[#71717A]"></i>
@@ -135,7 +166,7 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Delete Action -->
-        <button @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${cleanFolderId}') : (confirm('Are you sure you want to delete this folder?') && (typeof executeDeleteFolder === 'function' ? executeDeleteFolder('${cleanFolderId}') : fetch('/api/folders/${cleanFolderId}', { method: 'DELETE' }).then(() => window.location.href = '/folders')))"
+        <button @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : (confirm('Are you sure you want to delete this folder?') && (typeof executeDeleteFolder === 'function' ? executeDeleteFolder('${jsCleanFolderId}') : fetch('/api/folders/' + encodeURIComponent('${jsCleanFolderId}'), { method: 'DELETE' }).then(() => window.location.href = '/folders')))"
                 class="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-xs font-semibold text-rose-600 dark:text-rose-400 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Delete Folder">
           <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i>
@@ -148,7 +179,7 @@ export function renderCampaignWorkspaceHeader({
     <div class="flex items-center justify-between px-3 bg-slate-50/60 dark:bg-[#09090B]/60 rounded-b-2xl border-t border-slate-100 dark:border-[#27272A] overflow-x-auto">
       <nav class="flex items-center space-x-1 shrink-0">
         <!-- Room 1: Unified Crossover & 24h Pulse Studio -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}'))"
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'))"
            href="/folders/${cleanFolderId}" class="${crossoverClass}">
           <i data-lucide="zap" class="w-4 h-4 ${isCrossover ? iconActive : iconInactive}"></i>
           <span>Crossover &amp; 24h Pulse Studio</span>
@@ -157,7 +188,7 @@ export function renderCampaignWorkspaceHeader({
         </a>
 
         <!-- Room 2: Keywords Fleet -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/keywords'"
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}')) + '/keywords'"
            href="/folders/${cleanFolderId}/keywords" class="${keywordsClass}">
           <i data-lucide="search" class="w-4 h-4 ${isKeywords ? iconActive : iconInactive}"></i>
           <span>Keywords Fleet</span>
@@ -166,7 +197,7 @@ export function renderCampaignWorkspaceHeader({
         </a>
 
         <!-- Room 3: Creator Hub -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/creators'"
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}')) + '/creators'"
            href="/folders/${cleanFolderId}/creators" class="${creatorsClass}">
           <i data-lucide="users" class="w-4 h-4 ${isCreators ? iconActive : iconInactive}"></i>
           <span>Creator Hub</span>
@@ -175,7 +206,7 @@ export function renderCampaignWorkspaceHeader({
         </a>
 
         <!-- Room 4: Domain Studio -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/domains'"
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}')) + '/domains'"
            href="/folders/${cleanFolderId}/domains"
            @click="if (typeof closeDossier === 'function' && typeof isDossierOpen !== 'undefined' && isDossierOpen) { $event.preventDefault(); closeDossier(); }"
            class="${domainsClass}">
@@ -186,7 +217,7 @@ export function renderCampaignWorkspaceHeader({
         </a>
 
         <!-- Room 5: Settings & Pruning -->
-        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/settings'"
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}')) + '/settings'"
            href="/folders/${cleanFolderId}/settings" class="${settingsClass}">
           <i data-lucide="sliders" class="w-4 h-4 ${isSettings ? iconActive : iconInactive}"></i>
           <span>Settings &amp; Pruning</span>

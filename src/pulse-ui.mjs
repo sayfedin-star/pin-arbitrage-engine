@@ -22,6 +22,7 @@
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 import { renderPinRowTemplate } from './ui/pin-row.mjs';
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 
 export function getPulsePageHtml(folderId = '') {
   const rawFolderId = String(folderId || '').trim();
@@ -98,6 +99,7 @@ export function getPulsePageHtml(folderId = '') {
       };
     })();
   <\/script>
+  ${getEdgeShieldClientScript()}
   <script>
     (function() {
       if (typeof window === 'undefined') return;
@@ -648,7 +650,7 @@ export function getPulsePageHtml(folderId = '') {
                   <!-- Color Swatch Presentation [Bug 4 Fix: col.pin_count || col.count] -->
                   <template x-if="matrixSubFilter === 'colors'">
                     <div class="flex items-center space-x-2">
-                      <span class="w-4 h-4 rounded-full border border-black/20 shrink-0" :style="'background-color: ' + (item.color || item.dominant_color)"></span>
+                      <span class="w-4 h-4 rounded-full border border-black/20 shrink-0" :style="'background-color: ' + safeColor(item.color || item.dominant_color, '#cbd5e1')"></span>
                       <span class="font-bold font-mono text-slate-900 dark:text-white" x-text="item.color || item.dominant_color"></span>
                       <!-- [INVARIANT: COLOR-SWATCH-COUNT-BINDING] binds col.pin_count || col.count for palette compatibility -->
                       <span class="text-[10px] text-slate-400 font-mono" x-text="'(' + formatNumber(item.pin_count || item.count || (typeof col !== 'undefined' ? (col.pin_count || col.count) : 0)) + ')'"></span>
@@ -659,7 +661,7 @@ export function getPulsePageHtml(folderId = '') {
                   <template x-if="matrixSubFilter === 'capsules'">
                     <div class="min-w-0">
                       <div class="flex items-center space-x-2 min-w-0">
-                        <span class="w-3 h-3 rounded-full shrink-0" :style="'background-color: ' + (item.dominant_color || '#3b82f6')"></span>
+                        <span class="w-3 h-3 rounded-full shrink-0" :style="'background-color: ' + safeColor(item.dominant_color, '#3b82f6')"></span>
                         <span class="font-bold text-slate-900 dark:text-white truncate" x-text="item.display_label || item.term"></span>
                       </div>
                       <div class="text-[10px] text-slate-400 font-mono pl-5" x-text="((item.distinct_keywords || item.keyword_count) ? (item.distinct_keywords || item.keyword_count) + ' keywords' : '')"></div>
@@ -1772,10 +1774,6 @@ export function getPulsePageHtml(folderId = '') {
             });
           }
 
-          if (!this.selectedMatrixItem && list.length > 0) {
-            this.selectedMatrixItem = list[0];
-          }
-
           return list;
         },
 
@@ -1786,13 +1784,13 @@ export function getPulsePageHtml(folderId = '') {
         },
 
         getSelectedMatrixPins: function() {
-          if (!this.selectedMatrixItem) {
+          var item = this.selectedMatrixItem;
+          if (!item) {
             var entities = this.getMatrixEntities();
             if (entities && entities.length > 0) {
-              this.selectedMatrixItem = entities[0];
+              item = entities[0];
             }
           }
-          var item = this.selectedMatrixItem;
           if (!item) return [];
 
           // Priority 1: Use backend matching_pins if populated
@@ -2207,6 +2205,20 @@ export function getPulsePageHtml(folderId = '') {
             return (num / 365.25).toFixed(1) + 'y';
           }
           return Math.round(num) + 'd';
+        },
+
+        safeUrl: function(url) {
+          if (!url) return '#';
+          var s = String(url).trim();
+          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          return '#';
+        },
+
+        safeColor: function(color, fallback) {
+          fallback = fallback || '#cbd5e1';
+          if (!color) return fallback;
+          var s = String(color).trim();
+          return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;
         }
       };
     }

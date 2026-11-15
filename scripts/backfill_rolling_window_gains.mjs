@@ -371,11 +371,11 @@ async function main() {
         const pinChunk = allPinIds.slice(i, i + PIN_CHUNK_SIZE);
         const snapshots = await executeWithRetry(async () => {
           return await hubSql`
-            SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+            SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity
             FROM pins_daily_metrics
             WHERE pin_id = ANY(${pinChunk}::text[])
-              AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-            ORDER BY snapshot_date DESC;
+              AND recorded_date >= CURRENT_DATE - INTERVAL '16 days'
+            ORDER BY recorded_date DESC;
           `;
         }, 3, 3000);
 

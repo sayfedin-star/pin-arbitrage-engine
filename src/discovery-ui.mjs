@@ -334,50 +334,50 @@ export function getDiscoveryPageHtml() {
           </thead>
 
           <!-- Skeleton Loading State (CLS = 0) -->
-          <tbody x-show="loading && results.length === 0" class="divide-y divide-slate-800/60" x-cloak>
+          <tbody x-show="loading && results.length === 0" class="divide-y divide-slate-200 dark:divide-slate-800/60" x-cloak>
             <template x-for="i in [1, 2, 3, 4, 5, 6]" :key="i">
               <tr class="animate-pulse">
-                <td class="p-3.5 text-center"><div class="w-4 h-4 bg-slate-800 rounded mx-auto"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-48"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-24"></div></td>
-                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
-                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
-                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-48"></div></td>
-                <td class="p-3.5 text-right"><div class="h-6 bg-slate-800 rounded w-36 ml-auto"></div></td>
+                <td class="p-3.5 text-center"><div class="w-4 h-4 bg-slate-200 dark:bg-slate-800 rounded mx-auto"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-48"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-200 dark:bg-slate-800 rounded w-48"></div></td>
+                <td class="p-3.5 text-right"><div class="h-6 bg-slate-200 dark:bg-slate-800 rounded w-36 ml-auto"></div></td>
               </tr>
             </template>
           </tbody>
 
           <!-- Results Body -->
-          <tbody x-show="!loading || results.length > 0" class="divide-y divide-slate-800/60 text-slate-300 font-sans">
+          <tbody x-show="!loading || results.length > 0" class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 font-sans">
             <template x-for="(item, idx) in results" :key="item.term">
-              <tr :class="item.isSeed ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500 hover:bg-cyan-950/30' : 'hover:bg-slate-800/40'" class="transition-colors group">
+              <tr :class="item.isSeed ? 'bg-cyan-50/70 dark:bg-cyan-950/20 border-l-2 border-l-cyan-500 hover:bg-cyan-100/60 dark:hover:bg-cyan-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'" class="transition-colors group">
                 <td class="p-3.5 text-center">
                   <input 
                     type="checkbox" 
                     :value="item.term" 
                     x-model="selectedKeywords" 
-                    class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                    class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
                   >
                 </td>
                 <!-- Keywords + Authentic 52-Week Sparkline -->
-                <td class="p-3.5 font-medium text-white">
+                <td class="p-3.5 font-medium text-slate-900 dark:text-white">
                   <div class="flex items-center gap-3">
                     <div class="flex flex-col">
                       <div class="flex items-center gap-2">
-                        <span class="font-semibold text-slate-100 font-mono tabular-nums" x-html="highlightTerm(item.term)"></span>
-                        <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono tabular-nums border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
+                        <span class="font-semibold text-slate-900 dark:text-slate-100 font-mono tabular-nums" x-html="highlightTerm(item.term)"></span>
+                        <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-mono tabular-nums border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
                           <span>🌱</span>
                           <span>Seed</span>
                         </span>
-                        <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono tabular-nums border border-emerald-500/20">Top Hit</span>
+                        <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums border border-emerald-500/20">Top Hit</span>
                         <span x-show="item.hasPrediction" class="text-xs" title="Official Pinterest Trends Prediction Active">🔮</span>
                       </div>
                     </div>
                     <!-- 52-Week Official Sparkline Curve -->
                     <div x-show="item.counts && item.counts.length >= 5" class="ml-auto pr-2 flex items-center" title="52-Week Pinterest Trends momentum curve">
-                      <svg class="w-12 h-5 text-emerald-400 overflow-visible" viewBox="0 0 48 18">
+                      <svg class="w-12 h-5 text-emerald-600 dark:text-emerald-400 overflow-visible" viewBox="0 0 48 18">
                         <polyline
                           fill="none"
                           stroke="currentColor"
@@ -397,7 +397,7 @@ export function getDiscoveryPageHtml() {
                     <div class="flex items-center gap-1.5">
                       <span 
                         x-show="item.searchVolume" 
-                        class="font-bold text-slate-100 text-xs" 
+                        class="font-bold text-slate-900 dark:text-slate-100 text-xs" 
                         x-text="item.searchVolume ? item.searchVolume.toLocaleString() : ''"
                       ></span>
                       <span 
@@ -406,8 +406,8 @@ export function getDiscoveryPageHtml() {
                       >—</span>
                     </div>
                     <!-- Official Trends Relative Volume Bar -->
-                    <div x-show="item.searchVolume" class="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div class="h-full bg-slate-300 rounded-full transition-all duration-300" :style="'width: ' + (item.volumeBarPct || 10) + '%'"></div>
+                    <div x-show="item.searchVolume" class="w-20 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full bg-slate-700 dark:bg-slate-300 rounded-full transition-all duration-300" :style="'width: ' + (item.volumeBarPct || 10) + '%'"></div>
                     </div>
                     <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono tabular-nums" x-text="'ID: ' + item.annotationId"></span>
                   </div>
@@ -417,17 +417,17 @@ export function getDiscoveryPageHtml() {
                 <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.weeklyChange !== null && item.weeklyChange > 0" 
-                    class="text-emerald-400 font-semibold"
+                    class="text-emerald-600 dark:text-emerald-400 font-semibold"
                     x-text="'+' + item.weeklyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.weeklyChange !== null && item.weeklyChange < 0" 
-                    class="text-rose-400 font-semibold"
+                    class="text-rose-600 dark:text-rose-400 font-semibold"
                     x-text="item.weeklyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.weeklyChange !== null && item.weeklyChange === 0" 
-                    class="text-slate-300"
+                    class="text-slate-600 dark:text-slate-300"
                   >0%</span>
                   <span 
                     x-show="item.weeklyChange === null" 
@@ -439,17 +439,17 @@ export function getDiscoveryPageHtml() {
                 <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.monthlyChange !== null && item.monthlyChange > 0" 
-                    class="text-emerald-400 font-semibold"
+                    class="text-emerald-600 dark:text-emerald-400 font-semibold"
                     x-text="'+' + item.monthlyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.monthlyChange !== null && item.monthlyChange < 0" 
-                    class="text-rose-400 font-semibold"
+                    class="text-rose-600 dark:text-rose-400 font-semibold"
                     x-text="item.monthlyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.monthlyChange !== null && item.monthlyChange === 0" 
-                    class="text-slate-300"
+                    class="text-slate-600 dark:text-slate-300"
                   >0%</span>
                   <span 
                     x-show="item.monthlyChange === null" 
@@ -461,17 +461,17 @@ export function getDiscoveryPageHtml() {
                 <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.yearlyChange !== null && item.yearlyChange > 0" 
-                    class="text-emerald-400 font-semibold"
+                    class="text-emerald-600 dark:text-emerald-400 font-semibold"
                     x-text="'+' + item.yearlyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.yearlyChange !== null && item.yearlyChange < 0" 
-                    class="text-rose-400 font-semibold"
+                    class="text-rose-600 dark:text-rose-400 font-semibold"
                     x-text="item.yearlyChange + '%'"
                   ></span>
                   <span 
                     x-show="item.yearlyChange !== null && item.yearlyChange === 0" 
-                    class="text-slate-300"
+                    class="text-slate-600 dark:text-slate-300"
                   >0%</span>
                   <span 
                     x-show="item.yearlyChange === null" 
@@ -484,21 +484,21 @@ export function getDiscoveryPageHtml() {
                   <div class="flex flex-col gap-1 items-start min-w-[200px] max-w-md">
                     <!-- Formatted Breadcrumbs with Individual Segments -->
                     <div x-show="item.categoryTree && item.categoryTree.length > 0" class="flex items-center gap-1 flex-wrap text-[11px] font-sans leading-normal">
-                      <span class="text-emerald-400 text-xs flex-shrink-0 mr-0.5">🌿</span>
+                      <span class="text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0 mr-0.5">🌿</span>
                       <template x-for="(crumb, cIdx) in item.categoryTree" :key="cIdx">
                         <span class="inline-flex items-center gap-1">
                           <span 
-                            :class="cIdx === item.categoryTree.length - 1 ? 'text-emerald-300 font-medium bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40' : 'text-slate-300'"
+                            :class="cIdx === item.categoryTree.length - 1 ? 'text-emerald-700 dark:text-emerald-300 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/40' : 'text-slate-600 dark:text-slate-300'"
                             x-text="crumb"
                           ></span>
-                          <span x-show="cIdx < item.categoryTree.length - 1" class="text-slate-600 text-[10px] select-none">›</span>
+                          <span x-show="cIdx < item.categoryTree.length - 1" class="text-slate-400 dark:text-slate-600 text-[10px] select-none">›</span>
                         </span>
                       </template>
                     </div>
 
                     <!-- Direct Category Path Fallback -->
-                    <div x-show="(!item.categoryTree || item.categoryTree.length === 0) && item.categoryPath" class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px]">
-                      <span class="text-emerald-400 text-xs flex-shrink-0">🌿</span>
+                    <div x-show="(!item.categoryTree || item.categoryTree.length === 0) && item.categoryPath" class="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-medium text-[11px]">
+                      <span class="text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0">🌿</span>
                       <span class="font-sans break-words" x-text="item.categoryPath"></span>
                     </div>
 
@@ -515,29 +515,30 @@ export function getDiscoveryPageHtml() {
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">
                     <button 
                       @click="openRelatedExplorer(item.term)" 
-                      class="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white font-mono tabular-nums text-[11px] border border-rose-700/40 transition-colors flex items-center gap-1"
+                      class="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-rose-200 dark:border-rose-700/40 transition-colors flex items-center gap-1"
                       title="Explore official Pinterest related interests & additions"
                     >
                       <span>🔗 Related</span>
                     </button>
                     <button 
                       @click="trackSingleKeyword(item.term)" 
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors"
                       title="Track directly in Radar"
                     >
                       ⚡ Track
                     </button>
                     <button
                       @click="openAddToFolderModalForSingle(item.term)"
-                      class="px-2 py-1 rounded bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-mono tabular-nums text-[11px] border border-indigo-700/40 transition-colors"
+                      class="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-indigo-200 dark:border-indigo-700/40 transition-colors"
                       title="Add to Campaign Folder"
                     >
                       📁 Folder
                     </button>
                     <a 
-                      :href="'/keywords/' + encodeURIComponent(item.term)" 
+                      :href="safeUrl('/keywords/' + encodeURIComponent(item.term))" 
                       target="_blank"
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono tabular-nums text-[11px] border border-slate-700 transition-colors flex items-center gap-1"
+                      rel="noopener noreferrer"
+                      class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-slate-200 dark:border-slate-700 transition-colors flex items-center gap-1"
                     >
                       <span>Pins</span>
                       <span>→</span>
@@ -724,14 +725,14 @@ export function getDiscoveryPageHtml() {
           <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-950 p-1 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
             <button 
               @click="relatedTab = 'all'" 
-              :class="relatedTab === 'all' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              :class="relatedTab === 'all' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold shadow-2xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
               class="px-2.5 py-1 rounded transition-colors"
             >
               All (<span x-text="relatedData?.all?.length || 0"></span>)
             </button>
             <button 
               @click="relatedTab = 'related'" 
-              :class="relatedTab === 'related' ? 'bg-rose-900/60 text-rose-200 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              :class="relatedTab === 'related' ? 'bg-rose-600 text-white dark:bg-rose-900/60 dark:text-rose-200 font-semibold shadow-2xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
               class="px-2.5 py-1 rounded transition-colors flex items-center gap-1"
             >
               <span>Get Related</span>
@@ -739,14 +740,14 @@ export function getDiscoveryPageHtml() {
             </button>
             <button 
               @click="relatedTab = 'additions'" 
-              :class="relatedTab === 'additions' ? 'bg-indigo-900/60 text-indigo-200 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              :class="relatedTab === 'additions' ? 'bg-indigo-600 text-white dark:bg-indigo-900/60 dark:text-indigo-200 font-semibold shadow-2xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
               class="px-2.5 py-1 rounded transition-colors flex items-center gap-1"
             >
               <span>Get Additions</span>
               <span>(<span x-text="relatedData?.additions?.length || 0"></span>)</span>
             </button>
           </div>
-          <button @click="openRelatedModal = false" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="Close Modal">
+          <button @click="openRelatedModal = false" class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Close Modal">
             ✕
           </button>
         </div>
@@ -754,21 +755,21 @@ export function getDiscoveryPageHtml() {
 
       <!-- Main Seed Annotation Hero Banner -->
       <template x-if="relatedData && relatedData.main">
-        <div class="p-4 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
+        <div class="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-4 flex-wrap">
             <div>
               <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Target Annotation</span>
-              <span class="font-bold text-white text-sm font-mono tabular-nums" x-text="relatedData.main.annotation"></span>
+              <span class="font-bold text-slate-900 dark:text-white text-sm font-mono tabular-nums" x-text="relatedData.main.annotation"></span>
             </div>
             <div>
               <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Official Search Volume</span>
-              <span class="font-bold text-emerald-400 text-sm font-mono tabular-nums" x-text="relatedData.main.formatted_volume"></span>
+              <span class="font-bold text-emerald-600 dark:text-emerald-400 text-sm font-mono tabular-nums" x-text="relatedData.main.formatted_volume"></span>
             </div>
             <div>
               <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Annotation ID</span>
               <span 
                 @click="copyAnnotationId(relatedData.main.annotation_id)" 
-                class="font-mono tabular-nums text-slate-300 text-xs cursor-pointer hover:text-white hover:underline flex items-center gap-1"
+                class="font-mono tabular-nums text-slate-700 dark:text-slate-300 text-xs cursor-pointer hover:text-slate-900 dark:hover:text-white hover:underline flex items-center gap-1"
                 title="Click to copy ID"
               >
                 <span x-text="relatedData.main.annotation_id"></span>
@@ -777,14 +778,15 @@ export function getDiscoveryPageHtml() {
             </div>
             <div>
               <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Category Tree</span>
-              <span class="text-xs text-slate-300 font-sans" x-text="relatedData.main.category_tree"></span>
+              <span class="text-xs text-slate-700 dark:text-slate-300 font-sans" x-text="relatedData.main.category_tree"></span>
             </div>
           </div>
           <div>
             <a 
               :href="safeUrl(relatedData.main.link)" 
               target="_blank" 
-              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-mono tabular-nums border border-slate-700 transition-colors flex items-center gap-1.5"
+              rel="noopener noreferrer"
+              class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white text-xs font-mono tabular-nums border border-slate-200 dark:border-slate-700 transition-colors flex items-center gap-1.5"
             >
               <span>View On Pinterest</span>
               <span>↗</span>
@@ -798,28 +800,28 @@ export function getDiscoveryPageHtml() {
         <!-- Loading State -->
         <div x-show="relatedLoading" class="py-16 flex flex-col items-center justify-center gap-3 text-center" x-cloak>
           <div class="w-10 h-10 border-2 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
-          <p class="text-sm font-semibold text-white">Traversing Pinterest Interest Graph...</p>
-          <p class="text-xs text-slate-400 font-mono tabular-nums">Resolving official internal_search_count, taxonomy breadcrumbs & pivots</p>
+          <p class="text-sm font-semibold text-slate-900 dark:text-white">Traversing Pinterest Interest Graph...</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">Resolving official internal_search_count, taxonomy breadcrumbs & pivots</p>
         </div>
 
         <!-- Error State -->
         <div x-show="!relatedLoading && (!relatedData || !relatedData.success)" class="py-16 text-center" x-cloak>
-          <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-xl text-slate-400 mx-auto mb-3">🔍</div>
-          <h4 class="text-sm font-bold text-white mb-1">No Pinterest Annotation Graph Found</h4>
-          <p class="text-xs text-slate-400 max-w-md mx-auto" x-text="relatedData?.error || 'This keyword does not map to an indexed Pinterest Interest node yet.'"></p>
+          <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xl text-slate-400 mx-auto mb-3">🔍</div>
+          <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-1">No Pinterest Annotation Graph Found</h4>
+          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto" x-text="relatedData?.error || 'This keyword does not map to an indexed Pinterest Interest node yet.'"></p>
         </div>
 
         <!-- Table View (Exact Columns Parity with Screenshot) -->
-        <div x-show="!relatedLoading && relatedData && relatedData.success" class="overflow-x-auto border border-slate-800 rounded-xl" x-cloak>
+        <div x-show="!relatedLoading && relatedData && relatedData.success" class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl" x-cloak>
           <table class="w-full text-left text-xs font-sans">
-            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-mono tabular-nums uppercase text-[10px]">
+            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-mono tabular-nums uppercase text-[10px]">
               <tr>
                 <th class="p-3 w-10 text-center">
                   <input 
                     type="checkbox" 
                     :checked="filteredRelatedList.length > 0 && selectedRelatedAnnotations.length === filteredRelatedList.length" 
                     @change="toggleSelectAllRelated()" 
-                    class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                    class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
                   >
                 </th>
                 <th class="p-3 font-semibold">Annotation</th>
@@ -831,52 +833,53 @@ export function getDiscoveryPageHtml() {
                 <th class="p-3 text-right font-semibold">Action</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-800/60 text-slate-300">
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
               <template x-for="item in filteredRelatedList" :key="item.annotation + '_' + (item.annotation_id || '')">
                 <tr 
-                  class="transition-colors group hover:bg-slate-800/40"
-                  :class="selectedRelatedAnnotations.includes(item.annotation) ? 'bg-rose-950/20' : ''"
+                  class="transition-colors group hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  :class="selectedRelatedAnnotations.includes(item.annotation) ? 'bg-rose-50 dark:bg-rose-950/20' : ''"
                 >
                   <td class="p-3 text-center">
                     <input 
                       type="checkbox" 
                       :value="item.annotation" 
                       x-model="selectedRelatedAnnotations" 
-                      class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                      class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
                     >
                   </td>
                   <td class="p-3">
                     <div class="flex items-center gap-2">
-                      <span class="font-semibold text-white font-mono tabular-nums" x-text="item.annotation"></span>
+                      <span class="font-semibold text-slate-900 dark:text-white font-mono tabular-nums" x-text="item.annotation"></span>
                       <span 
                         class="text-[9px] px-1.5 py-0.5 rounded font-mono tabular-nums border"
-                        :class="item.type === 'main' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.type === 'related' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30')"
+                        :class="item.type === 'main' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : (item.type === 'related' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30')"
                         x-text="item.type === 'main' ? 'Seed' : (item.type === 'related' ? 'Related' : 'Addition')"
                       ></span>
                     </div>
                   </td>
-                  <td class="p-3 font-mono tabular-nums font-bold text-slate-100">
+                  <td class="p-3 font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
                     <span 
-                      :class="(item.search_volume || 0) >= 500000 ? 'text-purple-400' : ((item.search_volume || 0) >= 50000 ? 'text-emerald-400' : ((item.search_volume || 0) >= 10000 ? 'text-amber-400' : 'text-slate-400'))"
+                      :class="(item.search_volume || 0) >= 500000 ? 'text-purple-600 dark:text-purple-400' : ((item.search_volume || 0) >= 50000 ? 'text-emerald-600 dark:text-emerald-400' : ((item.search_volume || 0) >= 10000 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'))"
                       x-text="item.formatted_volume || '0'"
                     ></span>
                   </td>
-                  <td class="p-3 font-mono tabular-nums text-[11px] text-slate-400" x-text="item.last_updated || 'Recent'"></td>
+                  <td class="p-3 font-mono tabular-nums text-[11px] text-slate-500 dark:text-slate-400" x-text="item.last_updated || 'Recent'"></td>
                   <td class="p-3 font-mono tabular-nums text-[11px]">
                     <span 
                       @click="copyAnnotationId(item.annotation_id)" 
-                      class="cursor-pointer text-slate-300 hover:text-white hover:underline flex items-center gap-1"
+                      class="cursor-pointer text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:underline flex items-center gap-1"
                       title="Click to copy ID"
                     >
                       <span x-text="item.annotation_id || '—'"></span>
                     </span>
                   </td>
-                  <td class="p-3 text-[11px] text-slate-300 max-w-xs truncate" :title="item.category_tree" x-text="item.category_tree || '—'"></td>
+                  <td class="p-3 text-[11px] text-slate-700 dark:text-slate-300 max-w-xs truncate" :title="item.category_tree" x-text="item.category_tree || '—'"></td>
                   <td class="p-3 font-mono tabular-nums text-[11px]">
                     <a 
                       :href="safeUrl(item.link)" 
                       target="_blank" 
-                      class="text-indigo-400 hover:text-indigo-300 underline flex items-center gap-1"
+                      rel="noopener noreferrer"
+                      class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 underline flex items-center gap-1"
                     >
                       <span>pinterest</span>
                       <span>↗</span>
@@ -885,7 +888,7 @@ export function getDiscoveryPageHtml() {
                   <td class="p-3 text-right">
                     <button 
                       @click="trackRelatedSingle(item.annotation)" 
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors"
                       title="Track directly in Radar"
                     >
                       ⚡ Track
@@ -899,8 +902,8 @@ export function getDiscoveryPageHtml() {
       </div>
 
       <!-- Modal Footer (Bulk Actions) -->
-      <div class="p-4 border-t border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-950/70">
-        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
+      <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-50 dark:bg-slate-950/70">
+        <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
           <span x-text="selectedRelatedAnnotations.length"></span>
           <span>of</span>
           <span x-text="filteredRelatedList.length"></span>
@@ -925,7 +928,7 @@ export function getDiscoveryPageHtml() {
             <span>⚡ Track Selected in Radar</span>
             <span x-show="selectedRelatedAnnotations.length > 0" x-text="'(' + selectedRelatedAnnotations.length + ')'"></span>
           </button>
-          <button @click="openRelatedModal = false" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">
+          <button @click="openRelatedModal = false" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium border border-slate-200 dark:border-transparent">
             Close
           </button>
         </div>
@@ -938,11 +941,9 @@ export function getDiscoveryPageHtml() {
     function safeUrl(rawUrl, fallback = '#') {
       if (!rawUrl || typeof rawUrl !== 'string') return fallback;
       const trimmed = rawUrl.trim();
-      if (/^(javascript|data|vbscript):/i.test(trimmed)) {
-        console.warn('[Security] Dangerous URI scheme blocked:', trimmed);
-        return fallback;
-      }
-      return trimmed;
+      if (/^https?:\\/\\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
+      console.warn('[Security] Non-HTTP/relative URI scheme blocked:', trimmed);
+      return fallback;
     }
 
     function discoveryApp() {
@@ -1040,9 +1041,11 @@ export function getDiscoveryPageHtml() {
             document.documentElement.classList.remove('dark');
           }
 
-          if (window.lucide) {
-            window.lucide.createIcons();
-          }
+          this.$nextTick(() => {
+            if (window.lucide) {
+              window.lucide.createIcons();
+            }
+          });
           setTimeout(() => {
             if (window.lucide) window.lucide.createIcons();
           }, 300);

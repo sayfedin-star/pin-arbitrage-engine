@@ -157,14 +157,15 @@ test('Phase 0 [LND-SQL-02]: optimizeHubStorage skips VIEW keyword_pins_snapshots
 
   try {
     const res = await optimizeHubStorage(mockSql);
-    assert.equal(res.prunedSnapshots, 0);
+    assert.equal(res.cleanedSerpMetadata, 0);
+    assert.equal(res.cleanedKwMetadata, 0);
 
     const viewDeletes = executedQueries.filter(q => /DELETE\s+FROM\s+keyword_pins_snapshots/i.test(q));
     const viewVacuums = executedQueries.filter(q => /VACUUM\s*\(ANALYZE\)\s*keyword_pins_snapshots/i.test(q));
     assert.equal(viewDeletes.length, 0, 'Must never DELETE from keyword_pins_snapshots VIEW');
     assert.equal(viewVacuums.length, 0, 'Must never VACUUM keyword_pins_snapshots VIEW');
 
-    assert.equal(res.vacuumedTables.includes('pin_serp_positions'), true);
+    assert.equal(res.vacuumedTables.includes('keyword_serp_positions'), true);
     assert.equal(res.vacuumedTables.includes('pins_daily_metrics'), true);
     assert.equal(res.vacuumedTables.includes('keyword_pins_snapshots'), false);
   } finally {
@@ -292,9 +293,9 @@ test('Phase 1 [LND-PERF-03]: getDomainDeepDossier issues SARGable clean_domain q
   await getDomainDeepDossier(mockSql, 'example.com');
 
   const dossierWhereQueries = queries.filter(q =>
-    /FROM\s+(keyword_serp_current|pa_pins|competitor_pins|keyword_displaced_index|universal_master_pins)/i.test(q)
+    /FROM\s+(keyword_serp_positions|universal_master_pins)/i.test(q)
   );
-  assert.equal(dossierWhereQueries.length >= 5, true, 'Expected 5 core domain dossier table queries');
+  assert.equal(dossierWhereQueries.length >= 2, true, 'Expected 2 core domain dossier table queries');
 
   for (const q of dossierWhereQueries) {
     assert.equal(/\bclean_domain\s*=/i.test(q), true, `Expected SARGable clean_domain equality in query: ${q}`);

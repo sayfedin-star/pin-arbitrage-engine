@@ -393,7 +393,6 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         _cachedFilteredCompetitors: null,
         _loadingFolderCreatorsKey: null,
         _loadingFolderCreatorsPromise: null,
-        creatorDiscoveryFilter: 'all',
 
         // Visual Feed & Board Sections Modals
         isVisualFeedModalOpen: false,
@@ -4366,6 +4365,14 @@ ${getDashboardSeedActionMethods()}
           const s = String(url).trim();
           if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) return s;
           return '#';
+        },
+
+        safeColor(color, fallback = '#cbd5e1') {
+          if (!color) return fallback;
+          const s = String(color).trim();
+          if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
+          if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
+          return fallback;
         },
 
         sanitizeCsvCell(val) {

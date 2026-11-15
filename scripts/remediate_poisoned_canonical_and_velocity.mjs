@@ -118,7 +118,7 @@ async function main() {
                 repin_count = GREATEST(repin_count, ${trueRepins}::int),
                 updated_at = NOW()
               WHERE pin_id = ${row.pin_id}
-                AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
+                AND recorded_date = (NOW() AT TIME ZONE 'UTC')::date;
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 
             await withDbRetry(() => sql`
@@ -159,11 +159,11 @@ async function main() {
     for (let i = 0; i < pinIds.length; i += CHUNK_SIZE) {
       const chunkIds = pinIds.slice(i, i + CHUNK_SIZE);
       const snaps = await withDbRetry(() => sql`
-        SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+        SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity
         FROM pins_daily_metrics
         WHERE pin_id = ANY(${chunkIds}::text[])
-          AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-        ORDER BY snapshot_date DESC;
+          AND recorded_date >= CURRENT_DATE - INTERVAL '16 days'
+        ORDER BY recorded_date DESC;
       `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
 
       const snapMap = new Map();
@@ -231,7 +231,7 @@ async function main() {
           daily_save_velocity numeric
         )
         WHERE pm.pin_id = u.pin_id
-          AND pm.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
+          AND pm.recorded_date = (NOW() AT TIME ZONE 'UTC')::date
           AND pm.daily_save_velocity IS DISTINCT FROM COALESCE(u.daily_save_velocity, 0);
       `, { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 5000 });
     }

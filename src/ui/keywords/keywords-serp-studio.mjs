@@ -143,7 +143,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
             <i data-lucide="copy" class="w-4 h-4"></i>
           </button>
 
-          <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank"
+          <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank" rel="noopener noreferrer"
              class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-300 transition"
              title="Open on Pinterest">
             <i data-lucide="external-link" class="w-4 h-4"></i>
@@ -823,8 +823,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                                 title="Visual Lens Similarity Search">
                           <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                         </button>
-                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                           class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
+                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer"
+                           class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition"
                            title="Open Pin on Pinterest">
                           <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                         </a>
@@ -920,13 +920,13 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                       <a :href="getPinDossierUrl(pin)" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
-                      <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-200" title="Dossier">
+                      <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" title="Dossier">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                       </button>
-                      <button @click="openVisualLens(pin)" class="p-1 rounded hover:bg-purple-500/20 text-slate-400 hover:text-purple-400" title="Visual Lens">
+                      <button @click="openVisualLens(pin)" class="p-1 rounded hover:bg-purple-500/20 text-slate-500 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-400 cursor-pointer" title="Visual Lens">
                         <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                       </button>
-                      <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-white" title="Pinterest">
+                      <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white" title="Pinterest">
                         <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                       </a>
                     </div>
@@ -1241,11 +1241,11 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
               <div class="space-y-3">
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                   <template x-for="(imgUrl, idx) in (trendsData?.collage_images || []).filter(Boolean)" :key="idx">
-                    <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
-                         @click="window.open((imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/'), '_blank')">
+                    <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between">
                       
                       <!-- Full Pin Image Container with fixed 2:3 aspect ratio -->
-                      <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2">
+                      <a :href="safeUrl((imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/'))" target="_blank" rel="noopener noreferrer"
+                         class="relative block w-full aspect-[2/3] bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2 cursor-pointer">
                         <img :src="(imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              :alt="'Pin #' + (idx + 1)"
                              class="w-full h-full object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
@@ -1270,16 +1270,16 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                             <span>Open 736x Full Image</span>
                           </span>
                         </div>
-                      </div>
+                      </a>
 
                       <!-- Card Details Bottom Strip -->
-                      <div class="p-3 border-t border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between text-xs" @click.stop>
+                      <div class="p-3 border-t border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between text-xs">
                         <div class="flex items-center space-x-2 min-w-0 pr-2">
                           <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
                           <span class="font-bold text-slate-800 dark:text-slate-200 truncate capitalize"
                                 x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || 'Popular') + ' Pin ' + (idx + 1)"></span>
                         </div>
-                        <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank"
+                        <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank" rel="noopener noreferrer"
                            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-[11px] transition flex items-center space-x-1 shrink-0">
                           <i data-lucide="external-link" class="w-3 h-3 text-red-500"></i>
                           <span>Pinterest</span>
@@ -1313,8 +1313,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
             <template x-if="trendsData?.collage_images && trendsData.collage_images.length >= 5">
               <div class="space-y-2">
                 <!-- The 5-Column Collage Card -->
-                <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || ''), '_blank')"
-                     class="group relative h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
+                <a :href="safeUrl('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || ''))" target="_blank" rel="noopener noreferrer"
+                   class="group relative block h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
                   
                   <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
                     <!-- Column 1: Full Height Image A[0] -->
@@ -1406,7 +1406,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                       <span>Browse Related Pins on Pinterest</span>
                     </span>
                   </div>
-                </div>
+                </a>
 
                 <!-- Bottom Indicator Dot Pill -->
                 <div class="flex items-center space-x-2 pt-1 px-1">
@@ -1457,7 +1457,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         x-text="p.title || 'Popular Pin'"></h5>
                     <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono tabular-nums">
                       <span class="truncate max-w-[80px]" x-text="p.pinner?.full_name || p.domain || 'Pinterest'"></span>
-                      <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" @click.stop class="text-blue-500 hover:underline">
+                      <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" rel="noopener noreferrer" @click.stop class="text-blue-500 hover:underline">
                         <i data-lucide="external-link" class="w-3 h-3"></i>
                       </a>
                     </div>
@@ -2250,8 +2250,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                                 title="Visual Lens Similarity Search">
                           <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                         </button>
-                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                           class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
+                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer"
+                           class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition"
                            title="Open Pin on Pinterest">
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                         </a>
@@ -2320,13 +2320,13 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
                     <span class="truncate max-w-[120px] font-mono tabular-nums text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
-                      <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-200" title="Dossier">
+                      <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" title="Dossier">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                       </button>
-                      <button @click="openVisualLens(pin)" class="p-1 rounded hover:bg-purple-500/20 text-slate-400 hover:text-purple-400" title="Visual Lens">
+                      <button @click="openVisualLens(pin)" class="p-1 rounded hover:bg-purple-500/20 text-slate-500 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-400 cursor-pointer" title="Visual Lens">
                         <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                       </button>
-                      <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-white" title="Pinterest">
+                      <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white" title="Pinterest">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
                     </div>

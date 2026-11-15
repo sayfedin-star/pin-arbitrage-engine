@@ -686,7 +686,16 @@ export function getPinDetailsClientAppScripts() {
             a.click();
             document.body.removeChild(a);
           } catch (_) {
-            window.open(hdUrl, '_blank');
+            const safeHd = this.safeUrl(hdUrl);
+            if (safeHd && safeHd !== '#') {
+              const fallbackLink = document.createElement('a');
+              fallbackLink.href = safeHd;
+              fallbackLink.target = '_blank';
+              fallbackLink.rel = 'noopener noreferrer';
+              document.body.appendChild(fallbackLink);
+              fallbackLink.click();
+              document.body.removeChild(fallbackLink);
+            }
           }
         },
 

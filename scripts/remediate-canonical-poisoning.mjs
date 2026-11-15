@@ -8,7 +8,7 @@
  * and heals universal_master_pins and pins_daily_metrics.
  */
 
-import postgres from 'postgres';
+import { createSqlClient } from '../src/db/client.mjs';
 import { fetchPinHybrid, sleep } from './lib/pinterest.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
 
@@ -17,9 +17,10 @@ if (!DATABASE_URL) {
   console.error('[-] FATAL: process.env.DATABASE_URL is required (hardcoded fallback credentials removed).');
   process.exit(1);
 }
-const sql = postgres(DATABASE_URL, { max: 20 });
+const sql = createSqlClient(DATABASE_URL, { max: 20 });
 
 async function remediate() {
+  try {
   console.log('=== [FORENSIC REMEDIATION] Starting Canonical De-Poisoning & Velocity Healing ===\n');
 
   // 1. Identify all candidate pins across universal_master_pins:
@@ -76,11 +77,11 @@ async function remediate() {
 
         // Find authentic prior baseline snapshot from physical table pins_daily_metrics
         const [priorSnap] = await sql`
-          SELECT save_count, repin_count, snapshot_date, daily_save_velocity
+          SELECT save_count, repin_count, recorded_date AS snapshot_date, daily_save_velocity
           FROM pins_daily_metrics
           WHERE pin_id = ${pinId}
-            AND snapshot_date < ${todayStr}::date
-          ORDER BY snapshot_date DESC
+            AND recorded_date < ${todayStr}::date
+          ORDER BY recorded_date DESC
           LIMIT 1;
         `;
 
@@ -180,8 +181,9 @@ async function remediate() {
   console.log(`  Healed: ${healedCount} pins`);
   console.log(`  Skipped: ${skippedCount} pins`);
   console.log(`  Failed: ${failedCount} pins`);
-
-  await sql.end();
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
 }
 
 remediate().catch(err => {

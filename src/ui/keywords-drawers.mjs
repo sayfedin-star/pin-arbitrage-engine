@@ -74,13 +74,6 @@ export function getKeywordDrawersAndModalsHtml() {
               <span>Desc</span>
             </button>
 
-            <a :href="getPinDossierUrl(activeInspectorPin)" target="_blank"
-               class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 transition flex items-center space-x-1 cursor-pointer"
-               title="Open Universal Pin Dossier (Level 3)">
-              <i data-lucide="sparkles" class="w-3 h-3"></i>
-              <span>Full Dossier</span>
-            </a>
-
             <div class="flex items-center space-x-1 border-l border-slate-200 dark:border-[#27272A] pl-1.5 ml-1">
               <button @click="prevInspectorPin()" :disabled="activeInspectorPinIndex <= 0"
                       class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 transition cursor-pointer"
@@ -92,7 +85,7 @@ export function getKeywordDrawersAndModalsHtml() {
                       title="Next Pin">
                 <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
               </button>
-              <a :href="'https://www.pinterest.com/pin/' + activeInspectorPin?.pin_id + '/'" target="_blank"
+              <a :href="'https://www.pinterest.com/pin/' + activeInspectorPin?.pin_id + '/'" target="_blank" rel="noopener noreferrer"
                  class="p-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white transition flex items-center"
                  title="Open Pin on Pinterest">
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -761,7 +754,7 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
           </div>
 
-          <a :href="'https://www.pinterest.com/pin/' + visualLensPin.pin_id + '/'" target="_blank"
+          <a :href="'https://www.pinterest.com/pin/' + visualLensPin.pin_id + '/'" target="_blank" rel="noopener noreferrer"
              class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             <span>View Seed Pin</span>
             <i data-lucide="external-link" class="w-3 h-3"></i>
@@ -822,7 +815,7 @@ export function getKeywordDrawersAndModalsHtml() {
                       <span class="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(match.save_count) + ' saves'"></span>
                     </div>
 
-                    <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank"
+                    <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank" rel="noopener noreferrer"
                        class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block"
                        x-text="match.title || 'Untitled Pin'"></a>
 
@@ -830,7 +823,7 @@ export function getKeywordDrawersAndModalsHtml() {
                       <template x-if="match.domain">
                         <span class="text-[10px] font-mono text-slate-500 truncate max-w-[130px]" x-text="match.domain"></span>
                       </template>
-                      <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank"
+                      <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank" rel="noopener noreferrer"
                          class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white ml-auto">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
@@ -1011,7 +1004,7 @@ export function getKeywordDrawersAndModalsHtml() {
                       class="w-6 h-6 rounded-full transition transform hover:scale-110 flex items-center justify-center cursor-pointer border"
                       :class="newFolder.color === c ? 'ring-2 ring-offset-2 ring-pink-500 dark:ring-offset-[#0c1322] border-white' : 'border-transparent'"
                       :style="'background-color: ' + c">
-                <i x-show="newFolder.color === c" data-lucide="check" class="w-3 h-3 text-white"></i>
+                <span x-show="newFolder.color === c" class="inline-flex items-center justify-center"><i data-lucide="check" class="w-3 h-3 text-white"></i></span>
               </button>
             </template>
           </div>

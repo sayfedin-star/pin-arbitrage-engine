@@ -117,8 +117,8 @@ runTest('Phase 2.3: creator-velocity-crawler.mjs implements 8-worker concurrent 
 });
 
 runTest('Phase 2.4: creator-velocity-crawler.mjs implements monotonic saves fallback and atomic shard writes', () => {
-  assert.ok(crawlerCode.includes('const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;'), 'Must preserve saves monotonically');
-  assert.ok(crawlerCode.includes('const freshRepins = rawFreshRepins > 0 ? rawFreshRepins : prevRepins;'), 'Must preserve repins monotonically');
+  assert.ok(crawlerCode.includes('const freshSaves = (rawFreshSaves !== null && (rawFreshSaves > 0 || (hasExplicitFreshSaves && (prevSaves === null || prevSaves === 0))))'), 'Must preserve saves monotonically while allowing explicit zero initialization');
+  assert.ok(crawlerCode.includes('const freshRepins = (rawFreshRepins !== null && (rawFreshRepins > 0 || (hasExplicitFreshRepins && (prevRepins === null || prevRepins === 0))))'), 'Must preserve repins monotonically while allowing explicit zero initialization');
   assert.ok(crawlerCode.includes('commitSnapshotsToUnifiedDb(sql, metricSnapshots'), 'Must commit snapshots to Unified PostgreSQL');
   assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC'), 'Must sort by pin_id ASC to prevent deadlocks');
 });

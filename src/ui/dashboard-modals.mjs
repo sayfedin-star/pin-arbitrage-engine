@@ -118,8 +118,8 @@ export function getDashboardModalsHtml() {
         <div class="flex items-start justify-between gap-3">
           <div class="flex items-start space-x-3.5">
             <template x-if="selectedCandidate?.image_url">
-              <a :href="'https://www.pinterest.com/pin/' + selectedCandidate?.candidate_pin_id + '/'" target="_blank" class="block relative flex-shrink-0 group/modal">
-                <img :src="selectedCandidate.image_url" alt="Pin thumbnail" class="w-14 h-20 rounded-xl object-cover border shadow-md group-hover/modal:scale-110 transition-transform duration-200" :style="'border-color: ' + (selectedCandidate?.winning_color || selectedCandidate?.dominant_color || '#cbd5e1')">
+              <a :href="'https://www.pinterest.com/pin/' + selectedCandidate?.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="block relative flex-shrink-0 group/modal">
+                <img :src="selectedCandidate.image_url" alt="Pin thumbnail" class="w-14 h-20 rounded-xl object-cover border shadow-md group-hover/modal:scale-110 transition-transform duration-200" :style="'border-color: ' + safeColor(selectedCandidate?.winning_color || selectedCandidate?.dominant_color, '#cbd5e1')">
               </a>
             </template>
             <div class="space-y-1">
@@ -137,7 +137,7 @@ export function getDashboardModalsHtml() {
             </div>
           </div>
           <div class="flex items-center space-x-2 p-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950 flex-shrink-0">
-            <span class="w-6 h-6 rounded-md border" :style="'background-color: ' + (selectedCandidate?.winning_color || selectedCandidate?.dominant_color || '#888888')"></span>
+            <span class="w-6 h-6 rounded-md border" :style="'background-color: ' + safeColor(selectedCandidate?.winning_color || selectedCandidate?.dominant_color, '#888888')"></span>
             <div class="text-[10px] font-mono">
               <div class="font-bold" x-text="selectedCandidate?.winning_color || selectedCandidate?.dominant_color"></div>
               <div class="text-slate-400 text-[9px]" x-text="selectedCandidate?.culinary_color_name"></div>
@@ -308,7 +308,7 @@ export function getDashboardModalsHtml() {
           <!-- 1. Media Preview & Key Identifiers -->
           <div class="p-4 rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-slate-900/60 flex flex-col sm:flex-row gap-4 items-start">
             <!-- Pin Image (2:3 Aspect) -->
-            <div class="w-32 sm:w-36 aspect-[2/3] rounded-xl overflow-hidden flex-shrink-0 border-2 shadow-md relative group" :style="'border-color: ' + (selectedHub.winning_color || '#cbd5e1')">
+            <div class="w-32 sm:w-36 aspect-[2/3] rounded-xl overflow-hidden flex-shrink-0 border-2 shadow-md relative group" :style="'border-color: ' + safeColor(selectedHub.winning_color, '#cbd5e1')">
               <template x-if="selectedHub.image_url">
                 <img :src="selectedHub.image_url" alt="Pin preview" class="w-full h-full object-cover">
               </template>
@@ -317,7 +317,7 @@ export function getDashboardModalsHtml() {
                   <i data-lucide="image" class="w-6 h-6"></i>
                 </div>
               </template>
-              <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">
+              <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">
                 <i data-lucide="external-link" class="w-4 h-4 mr-1"></i> View Live
               </a>
             </div>
@@ -407,7 +407,7 @@ export function getDashboardModalsHtml() {
                   </div>
                   <div class="flex items-center space-x-2 flex-shrink-0">
                     <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase" :class="s.is_competitor ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'" x-text="s.is_competitor ? 'Competitor' : 'Target'"></span>
-                    <a :href="'https://www.pinterest.com/pin/' + s.pin_id + '/'" target="_blank" class="p-1 text-slate-400 hover:text-amber-500" title="Open Seed Pin">
+                    <a :href="'https://www.pinterest.com/pin/' + s.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 text-slate-400 hover:text-amber-500" title="Open Seed Pin">
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
                   </div>
@@ -449,7 +449,7 @@ export function getDashboardModalsHtml() {
             </div>
 
             <!-- Action 3: Open in Pinterest Direct Link -->
-            <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-mono text-xs font-bold transition active:scale-95 flex items-center justify-center space-x-2 shadow-sm">
+            <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-mono text-xs font-bold transition active:scale-95 flex items-center justify-center space-x-2 shadow-sm">
               <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               <span>Inspect Live Pin on Pinterest (Pin ID: <span x-text="selectedHub.candidate_pin_id"></span>)</span>
             </a>
@@ -528,7 +528,7 @@ export function getDashboardModalsHtml() {
           <i data-lucide="copy" class="w-3.5 h-3.5"></i>
           <span>Copy Midjourney Prompt</span>
         </button>
-        <a :href="currentLightboxCapsule?.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(currentLightboxCapsule?.query_term || ''))" target="_blank" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] text-xs font-mono tabular-nums transition flex items-center space-x-1.5 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Open Pinterest Search">
+        <a :href="safeUrl(currentLightboxCapsule?.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(currentLightboxCapsule?.query_term || '')))" target="_blank" rel="noopener noreferrer" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] text-xs font-mono tabular-nums transition flex items-center space-x-1.5 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Open Pinterest Search">
           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           <span>Pinterest Search</span>
         </a>
@@ -732,8 +732,7 @@ export function getDashboardModalsHtml() {
             
             <!-- Selected Pins Option -->
             <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
-                   :class="crawlTargetScope === 'selected' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-[#27272A] hover:bg-slate-50 dark:hover:bg-slate-900/50'"
-                   :class="{'opacity-50 cursor-not-allowed': selectedSeedIds.length === 0}">
+                   :class="[crawlTargetScope === 'selected' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-[#27272A] hover:bg-slate-50 dark:hover:bg-slate-900/50', selectedSeedIds.length === 0 ? 'opacity-50 cursor-not-allowed' : '']">
               <input type="radio" value="selected" x-model="crawlTargetScope" :disabled="selectedSeedIds.length === 0" class="mt-0.5 text-amber-600 focus:ring-amber-500">
               <div>
                 <span class="font-bold text-slate-800 dark:text-slate-200">Selected Pins</span>
@@ -1354,7 +1353,7 @@ export function getDashboardModalsHtml() {
                 </div>
               </div>
             </div>
-            <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition flex items-center space-x-1 flex-shrink-0">
+            <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition flex items-center space-x-1 flex-shrink-0">
               <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               <span>Pin</span>
             </a>
@@ -1545,12 +1544,12 @@ export function getDashboardModalsHtml() {
               </div>
 
               <div class="p-2 space-y-1">
-                <a :href="'https://www.pinterest.com/pin/' + (p.id || p.pin_id) + '/'" target="_blank"
+                <a :href="'https://www.pinterest.com/pin/' + (p.id || p.pin_id) + '/'" target="_blank" rel="noopener noreferrer"
                    class="text-[11px] font-bold text-slate-800 dark:text-slate-200 hover:text-rose-500 line-clamp-1 block leading-snug"
                    x-text="p.title || 'Untitled Pin'"></a>
                 <div class="flex items-center justify-between text-[9px] font-mono tabular-nums text-slate-400">
                   <span x-text="'ID: ' + (p.id || p.pin_id)"></span>
-                  <a :href="'/pin/' + (p.id || p.pin_id)" target="_blank" class="text-sky-500 hover:underline">Dossier ↗</a>
+                  <a :href="'/pin/' + (p.id || p.pin_id)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline">Dossier ↗</a>
                 </div>
               </div>
             </div>
@@ -1620,7 +1619,7 @@ export function getDashboardModalsHtml() {
               </div>
               <div class="flex items-center space-x-3 font-mono tabular-nums text-xs">
                 <span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(sec.pin_count || 0) + ' pins'"></span>
-                <a :href="safeUrl(sec.url || ('https://www.pinterest.com' + (sec.slug ? '/' + sec.slug : '')))" target="_blank" class="text-slate-400 hover:text-white">
+                <a :href="safeUrl(sec.url || ('https://www.pinterest.com' + (sec.slug ? '/' + sec.slug : '')))" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-slate-900 dark:hover:text-white">
                   <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                 </a>
               </div>

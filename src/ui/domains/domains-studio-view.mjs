@@ -470,6 +470,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                             <template x-if="p.creator_username">
                               <a :href="safeUrl('/accounts?creator=' + encodeURIComponent(p.creator_username.replace(/^@+/, '')))"
                                  target="_blank"
+                                 rel="noopener noreferrer"
                                  class="text-purple-600 dark:text-purple-400 hover:underline truncate max-w-[140px] block"
                                  :title="'Inspect creator @' + p.creator_username"
                                  x-text="'@' + p.creator_username"></a>
@@ -497,6 +498,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <td class="py-3 px-3 text-right">
                             <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (activeFolderId ? '&folder_id=' + encodeURIComponent(activeFolderId) : '') + '&return_url=' + encodeURIComponent(activeFolderId ? ('/folders/' + activeFolderId + '/domains') : ('/domains/' + dossierDomain)))"
                                target="_blank"
+                               rel="noopener noreferrer"
                                class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums inline-block">
                               Inspect ↗
                             </a>
@@ -680,7 +682,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                 <div class="text-[8px] text-slate-300 truncate leading-tight" x-text="p.primary_keyword"></div>
                               </template>
                               <div class="flex items-center justify-between">
-                                <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (scopedFolderId ? '&folder_id=' + encodeURIComponent(scopedFolderId) : '') + '&return_url=' + encodeURIComponent(scopedFolderId ? ('/folders/' + scopedFolderId + '/domains/' + dossierDomain) : ('/domains/' + dossierDomain)))" target="_blank" class="hover:underline flex items-center gap-0.5">
+                                <a :href="safeUrl('/pin/' + p.pin_id + '?domain=' + encodeURIComponent(dossierDomain) + (scopedFolderId ? '&folder_id=' + encodeURIComponent(scopedFolderId) : '') + '&return_url=' + encodeURIComponent(scopedFolderId ? ('/folders/' + scopedFolderId + '/domains/' + dossierDomain) : ('/domains/' + dossierDomain)))" target="_blank" rel="noopener noreferrer" class="hover:underline flex items-center gap-0.5">
                                   <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? ('Vault' + (p.last_known_rank ? ' #' + p.last_known_rank : '')) : 'Pin')"></span>
                                   <span class="text-[8px]">↗</span>
                                 </a>
@@ -742,6 +744,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <span class="text-sm font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
                           <a :href="safeUrl('/keywords/' + encodeURIComponent(kw.keyword_name))"
                              target="_blank"
+                             rel="noopener noreferrer"
                              class="text-[11px] text-sky-600 hover:underline font-mono tabular-nums">
                             SERP Radar ↗
                           </a>
@@ -848,6 +851,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                         </div>
                         <a :href="safeUrl('/accounts?action=track&creator=' + encodeURIComponent(acc.username))"
                            target="_blank"
+                           rel="noopener noreferrer"
                            class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition font-mono tabular-nums">
                           + Track
                         </a>
@@ -913,7 +917,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono tabular-nums text-xs">
                       <template x-for="col in (dossierData?.visual_dna?.dominant_colors_palette || [])" :key="col.color">
                         <div class="p-2.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]/60 flex items-center gap-3">
-                          <span class="w-7 h-7 rounded-lg border border-slate-300 dark:border-slate-600 shrink-0 shadow-sm" :style="'background-color: ' + col.color"></span>
+                          <span class="w-7 h-7 rounded-lg border border-slate-300 dark:border-slate-600 shrink-0 shadow-sm" :style="'background-color: ' + safeColor(col.color, '#888888')"></span>
                           <div class="flex flex-col min-w-0">
                             <span class="font-bold text-slate-800 dark:text-slate-200 uppercase truncate" x-text="col.color"></span>
                             <span class="text-[10px] text-slate-400" x-text="col.count + ' pins (' + col.percentage + '%)'"></span>

@@ -108,6 +108,9 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC NULLS LAST);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_dir_total_saves ON public.domain_intelligence_rollup(total_saves DESC NULLS LAST);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_competitor_history_date;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_kip_keyword_pin;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_fpd_folder_id;`.catch(() => {});
+  await sql`ALTER TABLE public.domain_intelligence_rollup SET (fillfactor = 80);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_competitor_boards_comp_id;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_seed;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_saves;`.catch(() => {});
@@ -174,6 +177,7 @@ async function optimizeIndexes() {
         NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NEW.keyword, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
         'kw'
       );
+      PERFORM pg_advisory_xact_lock(hashtext('kw_canon:' || LEFT(base_slug, 255)));
       IF EXISTS (
         SELECT 1 FROM public.tracked_keywords
         WHERE canonical_keyword = LEFT(base_slug, 255)
@@ -197,7 +201,15 @@ async function optimizeIndexes() {
   console.log('[+] All indexes and columns verified and active in Unified PostgreSQL SSOT!');
 }
 
-optimizeIndexes()
+async function run() {
+  try {
+    await optimizeIndexes();
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
+}
+
+run()
   .then(() => process.exit(0))
   .catch((err) => {
     console.error('[-] Index optimization error:', err);

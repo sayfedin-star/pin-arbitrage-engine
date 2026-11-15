@@ -26,7 +26,7 @@ export function getDashboardBoardViewHtml() {
         </div>
 
         <div class="flex items-center gap-2 self-start sm:self-auto">
-          <a :href="activeBoard ? (activeBoard.url || ('https://www.pinterest.com/' + (activeBoardCreator ? activeBoardCreator.username : (activeCreator ? activeCreator.username : '')).replace(/^@+/, '') + '/' + encodeURIComponent((activeBoardName || '').toLowerCase().replace(/\s+/g, '-')))) : '#'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold transition shadow-2xs">
+          <a :href="activeBoard ? safeUrl(activeBoard.url || ('https://www.pinterest.com/' + (activeBoardCreator ? activeBoardCreator.username : (activeCreator ? activeCreator.username : '')).replace(/^@+/, '') + '/' + encodeURIComponent((activeBoardName || '').toLowerCase().replace(/\s+/g, '-')))) : '#'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold transition shadow-2xs">
             <span>View Board on Pinterest</span>
             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
           </a>
@@ -107,7 +107,7 @@ export function getDashboardBoardViewHtml() {
                   <span x-text="v.text || v"></span>
                 </button>
                 <template x-if="v.link">
-                  <a :href="v.link.startsWith('http') ? v.link : ('https://www.pinterest.com' + v.link)" target="_blank" rel="noopener noreferrer" class="px-1.5 py-1 text-purple-400 hover:text-purple-600 dark:hover:text-white transition" title="Open Topic on Pinterest">
+                  <a :href="safeUrl(v.link.startsWith('http') ? v.link : ('https://www.pinterest.com' + (v.link.startsWith('/') ? v.link : '/' + v.link)))" target="_blank" rel="noopener noreferrer" class="px-1.5 py-1 text-purple-400 hover:text-purple-600 dark:hover:text-white transition" title="Open Topic on Pinterest">
                     <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
                   </a>
                 </template>

@@ -279,7 +279,7 @@ export function getFoldersModalsHtml() {
                      loading="lazy" />
                 <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition duration-200 flex flex-col justify-between p-2">
                   <div class="flex justify-end">
-                    <a :href="p.link || ('https://www.pinterest.com/pin/' + (p.id || p.pin_id) + '/')" target="_blank" class="p-1 rounded bg-black/60 text-white hover:bg-black/90 transition">
+                    <a :href="safeUrl(p.link || ('https://www.pinterest.com/pin/' + encodeURIComponent(p.id || p.pin_id) + '/'))" target="_blank" rel="noopener noreferrer" class="p-1 rounded bg-black/60 text-white hover:bg-black/90 transition">
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
                   </div>

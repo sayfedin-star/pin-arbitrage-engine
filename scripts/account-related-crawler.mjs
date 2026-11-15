@@ -447,7 +447,11 @@ async function main() {
   console.log('================================================================\n');
 }
 
-main().catch((err) => {
-  console.error('[-] Fatal error in crawler:', err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error('[-] Fatal error in crawler:', err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  });

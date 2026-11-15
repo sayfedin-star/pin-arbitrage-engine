@@ -154,7 +154,7 @@ await runAsyncTest('fetchPinTrajectory executes against pins_daily_metrics in Un
   assert.strictEqual(res.trajectory.length, 3);
   assert.strictEqual(res.snapshots.length, 3);
   assert(capturedQuery.includes('FROM pins_daily_metrics'), 'Query must target pins_daily_metrics');
-  assert(capturedQuery.includes('ORDER BY snapshot_date ASC'), 'Query must order chronologically');
+  assert(capturedQuery.includes('ORDER BY recorded_date ASC'), 'Query must order chronologically by SARGable recorded_date');
   assert(!capturedQuery.includes('pa_pin_metrics'), 'ZERO-HUB-SNAPSHOTS: Must not query Hub tables');
 });
 

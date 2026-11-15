@@ -750,11 +750,11 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
       for (let i = 0; i < pinIds.length; i += 500) {
         const idChunk = pinIds.slice(i, i + 500);
         const chunkSnaps = await activeSql`
-          SELECT pin_id, snapshot_date, save_count, repin_count, daily_save_velocity
+          SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity
           FROM pins_daily_metrics
           WHERE pin_id = ANY(${idChunk}::text[])
-            AND snapshot_date >= CURRENT_DATE - INTERVAL '16 days'
-          ORDER BY snapshot_date DESC;
+            AND recorded_date >= CURRENT_DATE - INTERVAL '16 days'
+          ORDER BY recorded_date DESC;
         `;
         if (Array.isArray(chunkSnaps) && chunkSnaps.length > 0) {
           snapshots.push(...chunkSnaps);
@@ -1531,6 +1531,9 @@ async function run() {
           : allFleetKeywordIds.filter((_, idx) => idx % workerTotal === workerIndex));
 
     // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
+    if (workerTotal > 1 && !process.env.CRAWL_RUN_ID && !process.env.GITHUB_RUN_ID) {
+      console.warn('[Phase 1A] Multi-worker mode without CRAWL_RUN_ID or GITHUB_RUN_ID; falling back to 10-minute bucket token.');
+    }
     const fleetRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||

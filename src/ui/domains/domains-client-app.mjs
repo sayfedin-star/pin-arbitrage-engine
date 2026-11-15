@@ -249,6 +249,12 @@ export function getDomainsClientAppScript() {
           this.toasts = this.toasts.filter(t => t.id !== id);
         },
 
+        safeColor(color, fallback = '#888888') {
+          if (!color) return fallback;
+          const s = String(color).trim();
+          return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;
+        },
+
         safeUrl(url) {
           if (!url) return '#';
           const s = String(url).trim();

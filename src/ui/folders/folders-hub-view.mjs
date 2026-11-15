@@ -46,7 +46,7 @@ export function getFoldersHubViewHtml() {
             <!-- Card Header -->
             <div class="flex items-center justify-between">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200 dark:border-white/10"
-                   :style="'background-color: ' + (f.color ? f.color + '20' : '#6366f120')">
+                   :style="'background-color: ' + (safeColor(f.color, '#6366f1').length === 7 ? safeColor(f.color, '#6366f1') + '20' : safeColor(f.color, '#6366f1'))">
                 <span x-text="f.icon || '📁'">📁</span>
               </div>
               <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-[#27272A] font-semibold" 

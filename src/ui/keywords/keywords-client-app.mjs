@@ -2310,7 +2310,16 @@ export function getKeywordsClientAppScript() {
             a.click();
             document.body.removeChild(a);
           } catch (_) {
-            window.open(hdUrl, '_blank');
+            const safeHd = this.safeUrl(hdUrl);
+            if (safeHd && safeHd !== '#') {
+              const fallbackLink = document.createElement('a');
+              fallbackLink.href = safeHd;
+              fallbackLink.target = '_blank';
+              fallbackLink.rel = 'noopener noreferrer';
+              document.body.appendChild(fallbackLink);
+              fallbackLink.click();
+              document.body.removeChild(fallbackLink);
+            }
           }
         },
 
@@ -3005,6 +3014,14 @@ export function getKeywordsClientAppScript() {
           const s = String(url).trim();
           if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
           return '#';
+        },
+
+        safeColor(color, fallback = '#ec4899') {
+          if (!color) return fallback;
+          const s = String(color).trim();
+          if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
+          if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
+          return fallback;
         },
 
         sanitizeCsvCell(val) {

@@ -207,6 +207,21 @@ export function safeUrl(url) {
 }
 
 /**
+ * Safe CSS color sanitizer (prevents CSS/attribute injection via color strings)
+ * @param {string|null|undefined} color
+ * @param {string} [fallback='#cbd5e1']
+ * @returns {string}
+ */
+export function safeColor(color, fallback = '#cbd5e1') {
+  if (!color || typeof color !== 'string') return fallback;
+  const s = color.trim();
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
+  if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
+  if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(s)) return s;
+  return fallback;
+}
+
+/**
  * Get client-side inline script initializing window.PAEFormatters
  * Safe for injection into SSR HTML templates.
  * @returns {string}
@@ -314,6 +329,16 @@ export function getInlineFormattersScript() {
         return t;
       };
 
+      var safeColor = function(color, fallback) {
+        fallback = fallback || '#cbd5e1';
+        if (!color || typeof color !== 'string') return fallback;
+        var s = color.trim();
+        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
+        if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
+        if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(s)) return s;
+        return fallback;
+      };
+
       window.PAEFormatters = {
         formatNumber: formatNumber,
         formatUniversalAge: formatUniversalAge,
@@ -323,7 +348,8 @@ export function getInlineFormattersScript() {
         formatPinMethod: formatPinMethod,
         getPinMethodBadgeClass: getPinMethodBadgeClass,
         formatTimeframe: formatTimeframe,
-        safeUrl: safeUrl
+        safeUrl: safeUrl,
+        safeColor: safeColor
       };
 
       // Expose to window for backwards compatibility with inline templates
@@ -336,6 +362,7 @@ export function getInlineFormattersScript() {
       if (!window.getPinMethodBadgeClass) window.getPinMethodBadgeClass = getPinMethodBadgeClass;
       if (!window.formatTimeframe) window.formatTimeframe = formatTimeframe;
       if (!window.safeUrl) window.safeUrl = safeUrl;
+      if (!window.safeColor) window.safeColor = safeColor;
     })();
   <\\/script>
   `;

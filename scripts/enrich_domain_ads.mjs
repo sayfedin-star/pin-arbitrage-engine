@@ -62,6 +62,7 @@ function renderProgressBar(current, total, width = 30) {
 }
 
 async function run() {
+  try {
   console.log('='.repeat(80));
   console.log('💰 GLOBAL AD NETWORK & MONETIZATION INTELLIGENCE RUNNER');
   console.log('   Target: Neon Serverless Postgres Central Hub');
@@ -208,6 +209,9 @@ async function run() {
   console.log('-'.repeat(80));
   console.log(`Database Total Checked: ${finalStats.total_checked} domains`);
   console.log('='.repeat(80));
+  } finally {
+    await sql.end({ timeout: 2 }).catch(() => {});
+  }
 }
 
 run().catch((err) => {

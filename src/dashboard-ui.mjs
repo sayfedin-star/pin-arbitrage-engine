@@ -188,9 +188,9 @@ export function getDashboardHtml(folderId = '') {
        aria-live="polite"
        :class="toastType === 'error' ? 'bg-rose-950 text-rose-100 border border-rose-500/40 dark:bg-rose-900 dark:text-white' : (toastType === 'warning' || toastType === 'info' ? 'bg-amber-950 text-amber-100 border border-amber-500/40 dark:bg-amber-900 dark:text-white' : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border border-slate-700/60 dark:border-slate-200')"
        class="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl shadow-2xl font-mono tabular-nums text-xs flex items-center space-x-2 max-w-md animate-in fade-in slide-in-from-bottom-5">
-    <i x-show="toastType === 'error'" data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
-    <i x-show="toastType === 'warning' || toastType === 'info'" data-lucide="info" class="w-4 h-4 text-amber-400 shrink-0"></i>
-    <i x-show="toastType !== 'error' && toastType !== 'warning' && toastType !== 'info'" data-lucide="check-circle" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+    <span x-show="toastType === 'error'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="alert-circle" class="w-4 h-4 text-rose-400"></i></span>
+    <span x-show="toastType === 'warning' || toastType === 'info'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="info" class="w-4 h-4 text-amber-400"></i></span>
+    <span x-show="toastType !== 'error' && toastType !== 'warning' && toastType !== 'info'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i></span>
     <span x-text="toastMessage" class="leading-snug"></span>
   </div>
 

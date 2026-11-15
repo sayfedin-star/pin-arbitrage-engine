@@ -956,7 +956,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
     sql`
       SELECT
         pin_id,
-        snapshot_date::text AS snapshot_date,
+        recorded_date::text AS snapshot_date,
         save_count,
         repin_count,
         comment_count,
@@ -967,7 +967,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
         updated_at
       FROM pins_daily_metrics
       WHERE pin_id = ${cleanPinId}
-      ORDER BY snapshot_date DESC
+      ORDER BY recorded_date DESC
       LIMIT ${effectiveSnapLimit};
     `,
     sql`
@@ -2736,7 +2736,7 @@ export async function fetchPinTrajectory({ sql = null, hubSql = null, pinId, tim
   try {
     const snapshots = await dbSql`
       SELECT 
-        snapshot_date::text AS snapshot_date,
+        recorded_date::text AS snapshot_date,
         save_count,
         daily_save_velocity,
         daily_repin_velocity,
@@ -2748,7 +2748,7 @@ export async function fetchPinTrajectory({ sql = null, hubSql = null, pinId, tim
         updated_at AS crawled_at
       FROM pins_daily_metrics
       WHERE pin_id = ${cleanId}
-      ORDER BY snapshot_date ASC;
+      ORDER BY recorded_date ASC;
     `;
 
     const processedSnapshots = (snapshots || []).map(s => ({ ...s }));

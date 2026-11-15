@@ -109,8 +109,8 @@ assert(creatorCrawler.includes('mergedSaves'),
   assert.strictEqual(merged.saves, null, 'Multi-board unhydrated duplicate must retain null saves');
   assert.strictEqual(merged.repins, null, 'Multi-board unhydrated duplicate must retain null repins');
 }
-assert(creatorCrawler.includes('const hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null;'),
-  'creator-velocity-crawler.mjs must check hasExplicitFreshSaves before coercing fresh saves'
+assert(creatorCrawler.includes('const hasExplicitFreshSaves = fresh.has_explicit_saves === true || (fresh.saves != null && Number.isFinite(Number(fresh.saves))) || (fresh.save_count != null && Number.isFinite(Number(fresh.save_count)));'),
+  'creator-velocity-crawler.mjs must check hasExplicitFreshSaves with Number.isFinite before coercing fresh saves'
 );
 assert(creatorCrawler.includes('is_hydrated: false'),
   'creator-velocity-crawler.mjs must pass is_hydrated: false when unhydrated'

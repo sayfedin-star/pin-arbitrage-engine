@@ -163,7 +163,8 @@ sync_postgres_container() {
       pg_pass=$(grep -E '^DATABASE_URL=' "${APP_DIR}/.env" | head -n1 | sed -E 's|^DATABASE_URL=["'\'' ]?||; s|["'\'' ]*$||' | sed -nE 's|^postgres(ql)?://[^:]+:([^@]+)@.*|\2|p' || true)
     fi
     if [ -z "${pg_pass}" ]; then
-      pg_pass="pae_secure_default"
+      pg_pass=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+      echo "[instabox-boot-sync] Generated ephemeral random PostgreSQL password fallback (no POSTGRES_PASSWORD/.env found)."
     fi
 
     docker run -d \

@@ -192,38 +192,38 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
           </div>
 
           <!-- Bulk Action Toolbar -->
-          <div x-show="selectedCompetitorIds.length > 0" x-transition class="mb-3 p-3 rounded-2xl bg-gradient-to-r from-purple-900/30 via-indigo-900/30 to-slate-900/50 border border-purple-500/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div x-show="selectedCompetitorIds.length > 0" x-transition class="mb-3 p-3 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-slate-50 dark:from-purple-900/30 dark:via-indigo-900/30 dark:to-slate-900/50 border border-purple-200 dark:border-purple-500/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shadow-lg">
             <div class="flex items-center gap-2 pl-1">
-              <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400 font-bold text-xs">✓</span>
-              <span class="text-xs font-bold text-white font-mono tabular-nums" x-text="selectedCompetitorIds.length + ' Profile(s) Selected'"></span>
-              <button @click="clearSelectedCompetitors()" class="text-[11px] text-slate-400 hover:text-white underline ml-2 cursor-pointer">Deselect All</button>
+              <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold text-xs">✓</span>
+              <span class="text-xs font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="selectedCompetitorIds.length + ' Profile(s) Selected'"></span>
+              <button @click="clearSelectedCompetitors()" class="text-[11px] text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white underline ml-2 cursor-pointer">Deselect All</button>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <!-- ⚡ Pulse Selected -->
-              <button @click="bulkPulseSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Instant Edge Pulse for selected creators (syncs Impressions & Total Audience)">
-                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
+              <button @click="bulkPulseSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 dark:text-amber-300 border border-amber-500/30 dark:border-amber-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Instant Edge Pulse for selected creators (syncs Impressions & Total Audience)">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400"></i>
                 <span>⚡ Pulse Selected</span>
               </button>
               <!-- 🏆 Refresh Winners Selected -->
-              <button @click="bulkRefreshWinnersSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Dispatch winning pins refresh for selected creators on GitHub Actions">
-                <i data-lucide="award" class="w-3.5 h-3.5 text-purple-400"></i>
+              <button @click="bulkRefreshWinnersSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:bg-purple-500/20 dark:hover:bg-purple-500/30 dark:text-purple-300 border border-purple-500/30 dark:border-purple-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Dispatch winning pins refresh for selected creators on GitHub Actions">
+                <i data-lucide="award" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i>
                 <span>🏆 Refresh Winners Selected</span>
               </button>
               <!-- 🚀 Fleet Crawl Selected -->
-              <button @click="bulkOpenFleetCrawlModal()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Launch distributed fleet crawl for selected creators on GitHub Actions">
-                <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-400"></i>
+              <button @click="bulkOpenFleetCrawlModal()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-700 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 dark:text-indigo-300 border border-indigo-500/30 dark:border-indigo-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Launch distributed fleet crawl for selected creators on GitHub Actions">
+                <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400"></i>
                 <span>🚀 Fleet Crawl Selected</span>
               </button>
               <!-- Pause -->
-              <button @click="bulkToggleSelectedStatus(false)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer" title="Pause ingestion for selected creators">
+              <button @click="bulkToggleSelectedStatus(false)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700 transition cursor-pointer" title="Pause ingestion for selected creators">
                 <span>⏸ Pause</span>
               </button>
               <!-- Resume -->
-              <button @click="bulkToggleSelectedStatus(true)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer" title="Resume ingestion for selected creators">
+              <button @click="bulkToggleSelectedStatus(true)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700 transition cursor-pointer" title="Resume ingestion for selected creators">
                 <span>▶ Resume</span>
               </button>
               <!-- Delete -->
-              <button @click="bulkDeleteSelectedCompetitors()" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition cursor-pointer" title="Delete selected competitors">
+              <button @click="bulkDeleteSelectedCompetitors()" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 border border-rose-500/30 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:text-rose-300 transition cursor-pointer" title="Delete selected competitors">
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
               </button>
             </div>
@@ -1201,7 +1201,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                               <i data-lucide="zap" class="w-3 h-3"></i>
                               <span>Crawl</span>
                             </button>
-                            <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
+                            <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent((b.name || '').toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
                               <span>Board</span>
                               <i data-lucide="external-link" class="w-3 h-3"></i>
                             </a>
@@ -2264,7 +2264,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                         <i data-lucide="bookmark" class="w-2.5 h-2.5 text-purple-400"></i>
                         <span>Board</span>
                       </span>
-                      <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-full bg-slate-900/70 backdrop-blur-md text-white/80 hover:text-white hover:bg-slate-900 transition border border-white/10 shadow-xs" title="Open on Pinterest">
+                      <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent((b.name || '').toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-full bg-slate-900/70 backdrop-blur-md text-white/80 hover:text-white hover:bg-slate-900 transition border border-white/10 shadow-xs" title="Open on Pinterest">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
                     </div>

@@ -838,12 +838,12 @@ export function getDashboardRelatedPinsHtml() {
                       <td class="py-3 px-3 whitespace-nowrap">
                         <div class="flex items-center space-x-2.5">
                           <template x-if="item.image_url">
-                            <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
-                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
+                            <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="group/thumb block relative flex-shrink-0">
+                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="window.handlePinImgError(this)">
                             </a>
                           </template>
                           <template x-if="!item.image_url">
-                            <div class="w-8 h-12 rounded-lg flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                            <div class="w-8 h-12 rounded-lg flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1') + '; background-color: ' + safeColor(item.winning_color, '#cbd5e1') + '15;'">
                               <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
                             </div>
                           </template>
@@ -876,7 +876,7 @@ export function getDashboardRelatedPinsHtml() {
                       <!-- 2. Title & Vision OCR -->
                       <td class="py-3 px-3">
                         <div class="space-y-1">
-                          <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
+                          <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
                           <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono tabular-nums flex-wrap gap-y-1">
                             <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                             <span>•</span>
@@ -939,7 +939,7 @@ export function getDashboardRelatedPinsHtml() {
                       <!-- 5. Dominant Color -->
                       <td class="py-3 px-3 whitespace-nowrap">
                         <div class="flex items-center space-x-2">
-                          <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                          <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + safeColor(item.winning_color || item.dominant_color, '#888888')"></span>
                           <div class="space-y-0.5 min-w-0">
                             <div class="font-mono tabular-nums text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
                             <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
@@ -1049,7 +1049,7 @@ export function getDashboardRelatedPinsHtml() {
                           <i data-lucide="copy" class="w-3 h-3"></i>
                           <span>Copy Prompt</span>
                         </button>
-                        <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono tabular-nums transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
+                        <a :href="safeUrl(cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term)))" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono tabular-nums transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
                           <i data-lucide="external-link" class="w-3 h-3"></i>
                         </a>
                       </div>
@@ -1341,7 +1341,7 @@ export function getDashboardRelatedPinsHtml() {
                             class="font-bold text-xs text-left text-slate-900 dark:text-slate-100 hover:text-amber-500 transition line-clamp-2"
                             :title="item.title"
                             x-text="item.title || ('Pin ' + item.candidate_pin_id)"></button>
-                    <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="text-slate-400 hover:text-amber-500 flex-shrink-0 mt-0.5" title="Open on Pinterest">
+                    <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-amber-500 flex-shrink-0 mt-0.5" title="Open on Pinterest">
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
                   </div>
@@ -1387,7 +1387,7 @@ export function getDashboardRelatedPinsHtml() {
                       <div class="text-slate-400 text-[10px]">Stagnant</div>
                     </template>
                     <div class="flex items-center space-x-1 mt-0.5">
-                      <span class="w-2.5 h-2.5 rounded-full border border-black/20" :style="'background-color: ' + (item.winning_color || '#888')"></span>
+                      <span class="w-2.5 h-2.5 rounded-full border border-black/20" :style="'background-color: ' + safeColor(item.winning_color, '#888')"></span>
                       <span class="text-[9px] text-slate-400 truncate max-w-[70px]" x-text="item.culinary_color_name || item.winning_color"></span>
                     </div>
                   </div>
@@ -1457,10 +1457,10 @@ export function getDashboardRelatedPinsHtml() {
                     <div class="flex items-center space-x-2.5">
                       <div @click="openHubDrawer(item)" class="group/thumb block relative flex-shrink-0 cursor-pointer">
                         <template x-if="item.image_url">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="window.handlePinImgError(this)">
                         </template>
                         <template x-if="!item.image_url">
-                          <div class="w-10 h-14 rounded-xl flex-shrink-0 flex items-center justify-center border-2 shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                          <div class="w-10 h-14 rounded-xl flex-shrink-0 flex items-center justify-center border-2 shadow-sm" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1') + '; background-color: ' + safeColor(item.winning_color, '#cbd5e1') + '15;'">
                             <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
                           </div>
                         </template>
@@ -1500,6 +1500,7 @@ export function getDashboardRelatedPinsHtml() {
                                 x-text="item.title || ('Pin ' + item.candidate_pin_id)"></button>
                         <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" 
                            target="_blank" 
+                           rel="noopener noreferrer"
                            class="text-slate-400 hover:text-amber-500 transition flex-shrink-0" title="Open on Pinterest">
                           <i data-lucide="external-link" class="w-3 h-3"></i>
                         </a>
@@ -1856,12 +1857,12 @@ export function getDashboardRelatedPinsHtml() {
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-2.5">
                       <template x-if="item.image_url">
-                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')" onerror="window.handlePinImgError(this)">
+                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="group/thumb block relative flex-shrink-0">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="window.handlePinImgError(this)">
                         </a>
                       </template>
                       <template x-if="!item.image_url">
-                        <div class="w-8 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                        <div class="w-8 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1') + '; background-color: ' + safeColor(item.winning_color, '#cbd5e1') + '15;'">
                           <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
                         </div>
                       </template>
@@ -1894,7 +1895,7 @@ export function getDashboardRelatedPinsHtml() {
                   <!-- 2. Title & OCR -->
                   <td class="py-3.5 px-4">
                     <div class="space-y-1">
-                      <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
+                      <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
                       <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono tabular-nums flex-wrap gap-y-1">
                         <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                         <span>•</span>
