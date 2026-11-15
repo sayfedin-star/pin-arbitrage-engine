@@ -420,8 +420,11 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
   let scraped = null;
   try {
     const sRes = await fetchBoardDetailUnauth(cleanUsername, rawBoard);
-    if (sRes?.ok && (sRes.board || sRes.board_id)) {
-      scraped = sRes.board || sRes;
+    if (sRes?.ok) {
+      const candidate = sRes.board || sRes;
+      if (candidate && (candidate.board_id || candidate.name)) {
+        scraped = candidate;
+      }
     }
   } catch (err) {
     console.warn(`[getOrSyncBoardDetail] Anonymous board scrape failed for ${cleanUsername}/${rawBoard}:`, err.message);

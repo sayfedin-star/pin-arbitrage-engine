@@ -565,6 +565,63 @@ export async function getGuidedSearchService(targetSql, { seedPinId }) {
 }
 
 /**
+ * Computes Cross-Pillar Conviction Score and Pillar Convergence Count.
+ * Integrates P2P candidate graph overlap, daily velocity growth, organic SERP presence, and domain arbitrage.
+ */
+export function computeCrossPillarConvictionScore({
+  seedOverlapCount = 1,
+  dailyVelocity = 0,
+  saves = 0,
+  pixieScore = 0,
+  serpRank = null,
+  serpKeywordsCount = 0,
+  isSerpRanked = false,
+  isProduct = false,
+  domainAgeDays = null,
+  arbitrageScore = 0
+} = {}) {
+  const overlap = Math.max(1, Number(seedOverlapCount) || 1);
+  const p2pFactor = Math.min(35, Math.log2(overlap + 1) * 15 + (Number(pixieScore) > 100 ? 5 : 0));
+  const vel = Math.max(0, Number(dailyVelocity) || 0);
+  const velFactor = Math.min(25, Math.log1p(vel) * 6);
+
+  let serpFactor = 0;
+  if (isSerpRanked || (serpRank != null && serpRank <= 50)) {
+    const rank = serpRank != null ? Number(serpRank) : 50;
+    const rankBonus = rank <= 3 ? 15 : (rank <= 10 ? 10 : 5);
+    const kwBonus = Math.min(10, (Number(serpKeywordsCount) || 1) * 2);
+    serpFactor = rankBonus + kwBonus;
+  }
+
+  let ageFactor = 0;
+  if (domainAgeDays != null && domainAgeDays > 0) {
+    if (domainAgeDays <= 365) ageFactor = 15;
+    else if (domainAgeDays <= 730) ageFactor = 10;
+    else if (domainAgeDays <= 1095) ageFactor = 5;
+  } else if (Number(arbitrageScore) > 0) {
+    ageFactor = Math.min(15, Number(arbitrageScore) * 0.15);
+  }
+
+  const productMultiplier = isProduct ? 0.5 : 1.0;
+  const rawScore = (p2pFactor + velFactor + serpFactor + ageFactor) * productMultiplier;
+  const conviction_score = Number(Math.min(100, Math.max(0, rawScore)).toFixed(1));
+
+  let pillar_convergence_count = 1;
+  if (vel >= 2.0 || saves >= 1000) pillar_convergence_count++;
+  if (isSerpRanked || (serpRank != null && serpRank <= 50)) pillar_convergence_count++;
+  if (ageFactor > 0 || (domainAgeDays != null && domainAgeDays <= 1095)) pillar_convergence_count++;
+
+  return {
+    conviction_score,
+    pillar_convergence_count,
+    p2p_factor: Number(p2pFactor.toFixed(1)),
+    velocity_factor: Number(velFactor.toFixed(1)),
+    serp_factor: Number(serpFactor.toFixed(1)),
+    age_factor: Number(ageFactor.toFixed(1))
+  };
+}
+
+/**
  * 12. Pixie Multi-Hit Intersections Ranking
  */
 export async function getIntersectionsService(targetSql, { minOverlap = 2, limit = 1000 }) {
@@ -632,6 +689,14 @@ export async function getIntersectionsService(targetSql, { minOverlap = 2, limit
       };
     });
 
+    const conviction = computeCrossPillarConvictionScore({
+      seedOverlapCount: r.seed_overlap_count,
+      dailyVelocity: r.daily_velocity,
+      saves: r.total_saves,
+      pixieScore: r.pixie_multihit_score,
+      isProduct: r.is_product
+    });
+
     return {
       ...r,
       engine_source: engine,
@@ -643,7 +708,10 @@ export async function getIntersectionsService(targetSql, { minOverlap = 2, limit
       originating_seed_details: seedDetails,
       image_url: r.image_url || '',
       is_video: Boolean(r.is_video),
-      ingestion_method: r.ingestion_method || 'uploaded'
+      ingestion_method: r.ingestion_method || 'uploaded',
+      conviction_score: conviction.conviction_score,
+      pillar_convergence_count: conviction.pillar_convergence_count,
+      conviction_details: conviction
     };
   });
 }
@@ -1121,4 +1189,40 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
       items: []
     };
   }
+}
+
+/**
+ * 15. Cross-Pillar Conviction Leaders Service
+ * Ranks convergence leaders across P2P candidate graph, SERP monopoly, and domain arbitrage.
+ */
+export async function getCrossPillarConvictionLeadersService(targetSql, options = {}) {
+  const result = await getCrossPillarArbitrageTargets(targetSql, options);
+  if (!result || !result.success) return result;
+  const enriched = (result.items || []).map(item => {
+    const conviction = computeCrossPillarConvictionScore({
+      seedOverlapCount: item.seed_clusters_count,
+      dailyVelocity: item.velocity,
+      saves: item.save_count,
+      pixieScore: item.p2p_transition_score,
+      serpRank: item.best_serp_rank,
+      serpKeywordsCount: item.organic_keywords_count,
+      isSerpRanked: item.organic_keywords_count > 0,
+      isProduct: false,
+      domainAgeDays: item.domain_age_days,
+      arbitrageScore: item.domain_arbitrage_score
+    });
+    return {
+      ...item,
+      conviction_score: conviction.conviction_score,
+      pillar_convergence_count: conviction.pillar_convergence_count,
+      conviction_details: conviction
+    };
+  }).sort((a, b) => b.conviction_score - a.conviction_score);
+
+  return {
+    ...result,
+    items: enriched,
+    targets: enriched,
+    leaders: enriched
+  };
 }

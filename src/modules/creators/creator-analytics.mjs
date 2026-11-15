@@ -949,7 +949,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(fp.clean_domain ILIKE '%etsy%' OR fp.clean_domain ILIKE '%shopify%' OR fp.clean_domain ILIKE '%amazon%' OR fp.destination_url ILIKE '%/listing/%' OR fp.destination_url ILIKE '%/product/%' OR fp.destination_url ILIKE '%/item/%' OR fp.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (COALESCE(fp.save_count, 0) >= 100 OR COALESCE(fp.daily_save_velocity, 0) >= 3.5) AS is_qualified,
-      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -1130,7 +1130,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       FROM competitor_board_pins cbp
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
       LEFT JOIN (
-        SELECT DISTINCT pin_id FROM keyword_serp_positions WHERE rank_position IS NOT NULL OR last_known_rank IS NOT NULL
+        SELECT DISTINCT pin_id FROM keyword_serp_positions WHERE (rank_position IS NOT NULL OR last_known_rank IS NOT NULL) AND is_displaced = FALSE
       ) ksp ON ksp.pin_id = cbp.pin_id
       WHERE cbp.competitor_id = ${numericId}
     )
@@ -2033,18 +2033,27 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
         LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.visual_annotations) = 'array' THEN p.visual_annotations ELSE '[]'::jsonb END) AS ann ON TRUE
         WHERE (${cleanAccount}::text IS NULL OR p.creator_username = ${cleanAccount})
       ),
-      aggregated AS (
-        SELECT
-          e.raw_topic AS t_name,
-          count(DISTINCT e.pin_id)::BIGINT AS p_count,
-          coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
-          CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
-          round(avg(e.velocity)::numeric, 2) AS a_velocity
+      deduped AS (
+        SELECT DISTINCT ON (e.pin_id, LOWER(TRIM(e.raw_topic)))
+          e.pin_id,
+          e.raw_topic,
+          e.saves,
+          e.velocity
         FROM extracted e
         WHERE e.raw_topic IS NOT NULL AND TRIM(e.raw_topic) <> ''
           AND (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
-        GROUP BY e.raw_topic
-        HAVING count(DISTINCT e.pin_id) >= ${minNum}
+        ORDER BY e.pin_id, LOWER(TRIM(e.raw_topic))
+      ),
+      aggregated AS (
+        SELECT
+          d.raw_topic AS t_name,
+          count(DISTINCT d.pin_id)::BIGINT AS p_count,
+          coalesce(sum(d.saves), 0)::NUMERIC AS s_saves,
+          CASE WHEN count(DISTINCT d.pin_id) > 0 THEN (coalesce(sum(d.saves), 0) / count(DISTINCT d.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+          round(avg(d.velocity)::numeric, 2) AS a_velocity
+        FROM deduped d
+        GROUP BY d.raw_topic
+        HAVING count(DISTINCT d.pin_id) >= ${minNum}
       )
       SELECT
         a.t_name AS topic_name,

@@ -12,6 +12,7 @@
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { hydrateDisplacedPinsMetadata } from '../keywords/service.mjs';
+import { normalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
 import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
@@ -99,39 +100,97 @@ export const BLOCKED_TLD_SUFFIXES = [
 ];
 
 /**
- * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * Canonical domain normalizer SSOT (re-exported from src/domain/pin-intelligence.mjs)
  */
-export function normalizeCleanDomain(rawInput) {
-  if (!rawInput || typeof rawInput !== 'string') return '';
-  let cleaned = rawInput.trim().toLowerCase();
-  if (!cleaned) return '';
-  try {
-    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
-      cleaned = new URL(cleaned).hostname.toLowerCase();
-    } else {
-      cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
+export { normalizeCleanDomain };
+
+/**
+ * Computes Publisher Network Sybil Index & PBN detection metrics.
+ * Combines Herfindahl-Hirschman Index (HHI), Effective Creator Count, Bipartite Slug Overlap,
+ * Creative Multiplication Ratio, Sybil Risk Score, and Classification Tier.
+ * 
+ * @param {Object} params
+ * @param {Array} params.allPins
+ * @param {Map|Array} params.accountsMap
+ * @param {Map|Array} params.urlGroupsMap
+ * @param {Map|Array} params.crossMap
+ * @param {string} params.cleanDomain
+ * @returns {Object} Sybil PBN metrics
+ */
+export function computeSybilPbnMetrics({ allPins = [], accountsMap = new Map(), urlGroupsMap = new Map(), crossMap = new Map(), cleanDomain = '' } = {}) {
+  const accounts = accountsMap instanceof Map ? Array.from(accountsMap.values()) : (Array.isArray(accountsMap) ? accountsMap : []);
+  const urlGroups = urlGroupsMap instanceof Map ? Array.from(urlGroupsMap.values()) : (Array.isArray(urlGroupsMap) ? urlGroupsMap : []);
+  const totalDomainPins = Math.max(1, allPins.length);
+  const totalMoneySlugs = Math.max(1, urlGroups.length);
+
+  // 1. Herfindahl-Hirschman Index (HHI)
+  let sumSquaredShare = 0;
+  for (const acc of accounts) {
+    const share = (acc.pins_count || 0) / totalDomainPins;
+    sumSquaredShare += (share * share);
+  }
+  const hhi_creator_concentration = accounts.length > 0 ? Number(Math.min(1, Math.max(0, sumSquaredShare)).toFixed(4)) : 1;
+  
+  // 2. Effective Creator Count (1 / HHI)
+  const effective_creator_count = hhi_creator_concentration > 0 ? Number((1 / hhi_creator_concentration).toFixed(2)) : 1.0;
+
+  // 3. Bipartite Slug Overlap: proportion of money slugs pinned by >= 2 distinct creators
+  let multiCreatorSlugsCount = 0;
+  for (const u of urlGroups) {
+    const pins = u.pins || [];
+    const creatorsOnSlug = new Set(pins.map(p => p.creator_username).filter(Boolean));
+    if (creatorsOnSlug.size > 1) multiCreatorSlugsCount++;
+  }
+  const bipartite_slug_overlap = Number((multiCreatorSlugsCount / totalMoneySlugs).toFixed(4));
+
+  // 4. Creative Multiplication Ratio: unique visual images / distinct money slugs
+  const uniqueCreatives = new Set(allPins.map(p => p.image_signature || p.image_url || p.pin_id).filter(Boolean)).size;
+  const creative_multiplication_ratio = Number((uniqueCreatives / totalMoneySlugs).toFixed(2));
+
+  // 5. Cross-domain footprints / sister domains count
+  let sisterDomainsCount = 0;
+  if (crossMap instanceof Map) {
+    const allSister = new Set();
+    for (const list of crossMap.values()) {
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item?.domain) allSister.add(item.domain);
+        }
+      }
     }
-  } catch (_) {
-    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
+    sisterDomainsCount = allSister.size;
   }
-  cleaned = cleaned.replace(/^www\./, '').trim();
-  if (!cleaned || !cleaned.includes('.') || IGNORED_INTERNAL_DOMAINS.includes(cleaned)) {
-    return '';
+
+  // 6. Sybil Risk Score (0..100)
+  let sybil_risk_score = 0;
+  if (accounts.length > 1) {
+    const decentralizationScore = 1 - hhi_creator_concentration;
+    const hhiComponent = decentralizationScore * 35;
+    const overlapComponent = bipartite_slug_overlap * 35;
+    const sisterComponent = Math.min(20, sisterDomainsCount * 5);
+    const creativeComponent = Math.min(10, Math.max(0, (creative_multiplication_ratio - 1) * 2));
+    sybil_risk_score = Math.min(100, Math.max(0, Math.round(hhiComponent + overlapComponent + sisterComponent + creativeComponent)));
   }
-  if (cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
-    return '';
+
+  // 7. Sybil Tier: ORGANIC_BRAND / AMPLIFIED_CURATION / COORDINATED_SYBIL_RING
+  let sybil_tier = 'ORGANIC_BRAND';
+  if (sybil_risk_score >= 65) {
+    sybil_tier = 'COORDINATED_SYBIL_RING';
+  } else if (sybil_risk_score >= 30) {
+    sybil_tier = 'AMPLIFIED_CURATION';
   }
-  if (BLOCKED_TLD_SUFFIXES.some(suffix => cleaned === suffix.slice(1) || cleaned.endsWith(suffix))) {
-    return '';
-  }
-  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]\.[a-z]{2,}$/.test(cleaned)) {
-    return '';
-  }
-  const parts = cleaned.split('.');
-  if (parts.some(p => !p || p.startsWith('-') || p.endsWith('-'))) {
-    return '';
-  }
-  return cleaned;
+
+  return {
+    hhi_creator_concentration,
+    effective_creator_count,
+    bipartite_slug_overlap,
+    creative_multiplication_ratio,
+    sybil_risk_score,
+    sybil_tier,
+    multi_creator_slugs_count: multiCreatorSlugsCount,
+    total_money_slugs: totalMoneySlugs,
+    sister_domains_count: sisterDomainsCount
+  };
 }
 
 /**
@@ -825,7 +884,7 @@ export async function listDomainsIntelligence(sql, {
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
+        COALESCE(NULLIF(TRIM(ump.creator_username), ''), '') AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         (ksp.pin_id IS NOT NULL) AS is_serp_ranked
       FROM universal_master_pins ump
@@ -848,7 +907,7 @@ export async function listDomainsIntelligence(sql, {
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
         ump.daily_save_velocity::numeric AS velocity,
-        LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', '')) AS username,
+        COALESCE(NULLIF(TRIM(ump.creator_username), ''), '') AS username,
         COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
         TRUE AS is_serp_ranked
       FROM keyword_serp_positions ksp
@@ -1257,7 +1316,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
           ump.save_count::bigint AS saves,
           ump.repin_count::bigint AS repins,
           ump.daily_save_velocity::numeric AS velocity,
-          COALESCE(NULLIF(TRIM(ump.creator_username), ''), LOWER(REPLACE(COALESCE(ump.account_username, ''), '@', ''))) AS username,
+          COALESCE(NULLIF(TRIM(ump.creator_username), ''), '') AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           (ksp.pin_id IS NOT NULL) AS is_serp_ranked,
           COALESCE(NULLIF(TRIM(ump.image_signature), ''), ump.pin_id) AS creative_signature
@@ -1994,7 +2053,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.title,
         ump.destination_url,
         ump.image_url,
-        COALESCE(ump.creator_username, ump.account_username, '') AS creator_username,
+        COALESCE(ump.creator_username, '') AS creator_username,
         ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
@@ -2018,7 +2077,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         ump.title,
         ump.destination_url,
         ump.image_url,
-        COALESCE(ump.creator_username, ump.account_username, '') AS creator_username,
+        COALESCE(ump.creator_username, '') AS creator_username,
         ump.board_name,
         ump.save_count::bigint AS saves,
         ump.repin_count::bigint AS repins,
@@ -2525,6 +2584,15 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     crossMap.get(u).push({ domain: r.cross_domain, pins_count: r.pins_count });
   }
 
+  // Compute full Publisher Network Sybil Index & PBN detection metrics
+  const sybilMetrics = computeSybilPbnMetrics({
+    allPins,
+    accountsMap,
+    urlGroupsMap,
+    crossMap,
+    cleanDomain
+  });
+
   const accountsList = Array.from(accountsMap.values()).map(acc => {
     const isBrand = acc.username === brandRoot ||
                     acc.username.includes(brandRoot) ||
@@ -2537,7 +2605,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       role_label: isBrand ? 'Primary Brand Account' : 'Satellite / Ghost Creator',
       sister_domains: sisterDomains,
       is_sybil_ring: sisterDomains.length > 0,
-      c_sybil: cSybil
+      c_sybil: cSybil,
+      sybil_risk_score: sybilMetrics.sybil_risk_score,
+      sybil_tier: sybilMetrics.sybil_tier
     };
   }).sort((a, b) => (b.role === 'PRIMARY_BRAND' ? 1 : 0) - (a.role === 'PRIMARY_BRAND' ? 1 : 0) || b.total_saves - a.total_saves);
 
@@ -2665,6 +2735,11 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
       sybil_index: cSybil,
       c_sybil: cSybil,
+      sybil_risk_score: sybilMetrics.sybil_risk_score,
+      sybil_tier: sybilMetrics.sybil_tier,
+      effective_creator_count: sybilMetrics.effective_creator_count,
+      creative_multiplication_ratio: sybilMetrics.creative_multiplication_ratio,
+      bipartite_slug_overlap: sybilMetrics.bipartite_slug_overlap,
       creator_hhi: Number(hhiCreator.toFixed(3)),
       creator_decentralization: Number(decentralizationScore.toFixed(3)),
       slug_overlap_ratio: Number(slugOverlapRatio.toFixed(3)),
@@ -2672,6 +2747,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size,
       is_organic_vault: isOrganicVault
     },
+    sybil_pbn_metrics: sybilMetrics,
     ranked_pins: visualPins,
     catalog_pins: catalogOnlyVisualPins,
     money_urls: moneyUrls,
