@@ -46,15 +46,15 @@ check_and_reset_uptime_epoch() {
             -H "Idempotency-Key: ${suspend_key}" \
             -d '{}' >/dev/null 2>&1 || true
 
-          # Poll machine status before firing /resume
-          local poll_retries=15
+          # Poll machine status before firing /resume (poll operation wait=25s)
+          local poll_retries=25
           while [ "${poll_retries}" -gt 0 ]; do
             local status
-            status=$(curl -s -H "Authorization: Bearer ${INSTABOX_API_KEY}" "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}" 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "")
+            status=$(curl -s -H "Authorization: Bearer ${INSTABOX_API_KEY}" "https://api.instabox.sh/v1/machines/${INSTABOX_MACHINE_ID}?wait=25s" 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "")
             if [ "${status}" = "suspended" ]; then
               break
             fi
-            sleep 2
+            sleep 1
             poll_retries=$((poll_retries - 1))
           done
 
@@ -104,6 +104,9 @@ fi
 # PostgreSQL Container Provisioning & Safe Parallel Query (/dev/shm >= 1G)
 # ------------------------------------------------------------------------------
 sync_postgres_container() {
+  if [ "${PAE_POSTGRES_SYNCED:-0}" = "1" ] && [ "${1:-}" != "--force" ]; then
+    return 0
+  fi
   if ! command -v docker >/dev/null 2>&1 || [ ! -d "/data/postgres" ]; then
     return 0
   fi
@@ -137,6 +140,22 @@ sync_postgres_container() {
   if [ "${needs_recreate}" -eq 1 ]; then
     echo "[instabox-boot-sync] Launching pae-postgres with --shm-size=1g and TMPDIR=/data/tmp..."
     local pg_pass="${POSTGRES_PASSWORD:-}"
+    if [ -z "${pg_pass}" ] && command -v node >/dev/null 2>&1; then
+      local env_file=""
+      if [ -f /data/app/.env ]; then env_file="/data/app/.env"; elif [ -f "${APP_DIR}/.env" ]; then env_file="${APP_DIR}/.env"; fi
+      if [ -n "${env_file}" ]; then
+        pg_pass=$(node -e '
+          const fs = require("fs");
+          try {
+            const m = fs.readFileSync(process.argv[1], "utf8").match(/^DATABASE_URL=["'"'"']?([^"'"'"'\r\n]+)/m);
+            if (m) {
+              const u = new URL(m[1].trim());
+              process.stdout.write(decodeURIComponent(u.password || ""));
+            }
+          } catch (_) {}
+        ' "${env_file}" 2>/dev/null || true)
+      fi
+    fi
     if [ -z "${pg_pass}" ] && [ -f /data/app/.env ]; then
       pg_pass=$(grep -E '^DATABASE_URL=' /data/app/.env | head -n1 | sed -E 's|^DATABASE_URL=["'\'' ]?||; s|["'\'' ]*$||' | sed -nE 's|^postgres(ql)?://[^:]+:([^@]+)@.*|\2|p' || true)
     fi
@@ -180,6 +199,7 @@ sync_postgres_container() {
       -c "SELECT pg_reload_conf();" >/dev/null 2>&1 || true
     echo "[instabox-boot-sync] ✅ pae-postgres verified with 1G /dev/shm and max_parallel_workers_per_gather=2."
   fi
+  export PAE_POSTGRES_SYNCED=1
 }
 
 
@@ -193,11 +213,12 @@ fi
 
 # Ensure PostgreSQL container and /dev/shm are synchronized while still root
 sync_postgres_container
+export PAE_POSTGRES_SYNCED=1
 
 # Preserve repository owner if systemd runs ExecStartPre as root while repo is owned by dev
 APP_OWNER=$(stat -c '%U' "${APP_DIR}" 2>/dev/null || echo "")
 if [ "$(id -u 2>/dev/null || echo 1)" = "0" ] && [ -n "${APP_OWNER}" ] && [ "${APP_OWNER}" != "root" ]; then
-  exec su -s /bin/bash "${APP_OWNER}" -c "INSTABOX_APP_DIR='${APP_DIR}' bash '${APP_DIR}/scripts/instabox-boot-sync.sh' '${MODE}'"
+  exec su -s /bin/bash "${APP_OWNER}" -c "PAE_POSTGRES_SYNCED=1 INSTABOX_APP_DIR='${APP_DIR}' bash '${APP_DIR}/scripts/instabox-boot-sync.sh' '${MODE}'"
 fi
 
 cd "${APP_DIR}" || exit 0

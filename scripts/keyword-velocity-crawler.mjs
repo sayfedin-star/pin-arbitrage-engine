@@ -626,7 +626,7 @@ async function inspectPin(pin, kw) {
  * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
  * Supports single-keyword, folder cluster, and global fleet cross-keyword fan-out in 2 atomic SQL queries.
  */
-async function flushBatchToHub(pinsChunk, kw) {
+async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
   if (!pinsChunk || pinsChunk.length === 0) return;
   const isFolder = Boolean(kw?.folder_id);
   const isGlobalFleet = Boolean(kw?.is_global_fleet && Array.isArray(kw?.all_keyword_ids) && kw.all_keyword_ids.length > 0);
@@ -634,13 +634,15 @@ async function flushBatchToHub(pinsChunk, kw) {
   const payloadJson = JSON.stringify(pinsChunk.map(p => ({
     pin_id: String(p.pin_id),
     from_hydration_cache: Boolean(p.from_hydration_cache),
-    scrape_failed: Boolean(p.scrape_failed)
+    scrape_failed: Boolean(p.scrape_failed),
+    was_live_scraped: p.was_live_scraped === true || (!p.from_hydration_cache && !p.scrape_failed)
   })));
 
   const kwIds = (isGlobalFleet || isFolder) ? (kw.all_keyword_ids || [kw.id]) : [kw.id];
+  const dbSql = targetSql || sql?.noRetry || sql;
 
   // Update keyword_serp_positions (vacuum opportunity score & crawled_at)
-  await sql`
+  await dbSql`
     UPDATE keyword_serp_positions ksp
     SET
       vacuum_opportunity_score = CASE 
@@ -650,12 +652,13 @@ async function flushBatchToHub(pinsChunk, kw) {
         WHEN ksp.is_displaced = TRUE THEN 45
         ELSE ksp.vacuum_opportunity_score
       END,
-      crawled_at = CASE WHEN NOT u.from_hydration_cache AND NOT u.scrape_failed THEN NOW() ELSE ksp.crawled_at END,
+      crawled_at = CASE WHEN u.was_live_scraped = TRUE THEN NOW() ELSE ksp.crawled_at END,
       updated_at = NOW()
     FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
       pin_id text,
       from_hydration_cache boolean,
-      scrape_failed boolean
+      scrape_failed boolean,
+      was_live_scraped boolean
     )
     WHERE ksp.pin_id = u.pin_id
       AND ksp.keyword_id = ANY(${kwIds}::int[]);
@@ -880,7 +883,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
           uniqueHubPinsMap.set(String(sp.pin_id), sp);
         }
       }
-      await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw);
+      await flushBatchToHub(Array.from(uniqueHubPinsMap.values()), kw, activeSql);
     }
   }, { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 4000 });
 
@@ -917,8 +920,15 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
     const pid = String(cp.pin_id);
     const enriched = enrichedMap.get(pid);
     const baseMethod = cp.creation_method || cp.method || cp.metadata?.creation_method || cp.metadata?.method || 'pinterest_platform';
-    const basePin = enriched ? { ...enriched, was_live_scraped: Boolean(!enriched.from_hydration_cache) } : {
+    const isCached = enriched ? Boolean(enriched.from_hydration_cache) : true;
+    const wasLiveScraped = enriched ? Boolean(!enriched.from_hydration_cache && !enriched.scrape_failed) : false;
+    const basePin = enriched ? {
+      ...enriched,
+      from_hydration_cache: isCached,
+      was_live_scraped: wasLiveScraped
+    } : {
       pin_id: pid,
+      from_hydration_cache: true,
       was_live_scraped: false,
       creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
       board_name: cp.board_name || cp.metadata?.board_name || '',
@@ -1041,8 +1051,7 @@ async function run() {
     const folderRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
-      globalThis.__PAE_LOCAL_RUN_ID ||
-      (globalThis.__PAE_LOCAL_RUN_ID = `run_folder_${fid}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
+      `bucket_${Math.floor(Date.now() / 600000)}`
     );
 
     let phase1aTotalFailureC = false;
@@ -1086,8 +1095,8 @@ async function run() {
               UPDATE tracked_keywords
               SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
                   updated_at = NOW(),
-                  crawl_lease_token = NULL,
-                  crawl_lease_until = NULL
+                  crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_token END,
+                  crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_until END
               WHERE id = ${kid};
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
           } catch (barrierErr) {
@@ -1294,8 +1303,7 @@ async function run() {
     const runToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
-      globalThis.__PAE_LOCAL_RUN_ID ||
-      (globalThis.__PAE_LOCAL_RUN_ID = `run_kw_${kwRow.id}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
+      `bucket_${Math.floor(Date.now() / 600000)}`
     );
 
     if (enableSerpHarvest) {
@@ -1334,8 +1342,8 @@ async function run() {
               SET 
                 metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
                 updated_at = NOW(),
-                crawl_lease_token = NULL,
-                crawl_lease_until = NULL
+                crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_token END,
+                crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_until END
               WHERE id = ${kwRow.id};
             `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             barrierUpdated = true;
@@ -1517,8 +1525,7 @@ async function run() {
     const fleetRunToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
-      globalThis.__PAE_LOCAL_RUN_ID ||
-      (globalThis.__PAE_LOCAL_RUN_ID = `run_fleet_${crawlScope}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
+      `bucket_${Math.floor(Date.now() / 600000)}`
     );
 
     // -------------------------------------------------------------------------
@@ -1569,8 +1576,8 @@ async function run() {
                 UPDATE tracked_keywords
                 SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
                     updated_at = NOW(),
-                    crawl_lease_token = NULL,
-                    crawl_lease_until = NULL
+                    crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_token END,
+                    crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken} THEN NULL ELSE crawl_lease_until END
                 WHERE id = ${kid};
               `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
             } catch (barrierErr) {

@@ -15,7 +15,9 @@ import {
   parseCleanMetric,
   formatPin as coreFormatPin,
   extractPinFromHtml,
-  fetchPinFromPinResource as coreFetchPinFromPinResource
+  fetchPinFromPinResource as coreFetchPinFromPinResource,
+  extractRelayCompletedPayloads,
+  findPinInTree
 } from '../pinterest-parser.mjs';
 
 import {
@@ -73,7 +75,7 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
         if (res.body) await res.body.cancel().catch(() => {});
         for (const id of slice) {
           if (!resultsMap.has(id)) {
-            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null, status: res.status });
+            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false, status: res.status });
           }
         }
         continue;
@@ -155,7 +157,7 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
           has_explicit_saves: hasExplicitSaves || saves > 0,
           repins,
           repin_count: repins,
-          has_explicit_repins: Boolean(hasExplicitRepins || (repins !== null && repins > 0)),
+          has_explicit_repins: repins !== null,
           title,
           description: pin.description || '',
           domain,
@@ -174,13 +176,13 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
 
       for (const id of slice) {
         if (!returnedIds.has(id) && !resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null });
+          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
         }
       }
     } catch (_) {
       for (const id of slice) {
         if (!resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, repins: null });
+          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
         }
       }
     }
@@ -212,146 +214,108 @@ export function extractPinData(rawHtml, pinId) {
   if (!rawHtml || typeof rawHtml !== 'string') return null;
   const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
 
-  // 1. Relay Completed Request Calls using balanced-brace parsing
-  const relayPrefix = '__PWS_RELAY_REGISTER_COMPLETED_REQUEST__';
+  // 1. Relay Completed Request Calls using extractRelayCompletedPayloads
+  const payloads = extractRelayCompletedPayloads(html);
   let mergedRelayPin = null;
-  let searchPos = 0;
 
-  while ((searchPos = html.indexOf(relayPrefix, searchPos)) !== -1) {
-    const startParen = html.indexOf('(', searchPos + relayPrefix.length);
-    if (startParen === -1) {
-      searchPos += relayPrefix.length;
-      continue;
+  for (const payload of payloads) {
+    let v3 = payload?.data?.v3GetPinQueryv2?.data;
+    if (!v3) {
+      v3 = findPinInTree(payload, pinId);
     }
-    const firstComma = html.indexOf(',', startParen);
-    if (firstComma === -1) {
-      searchPos = startParen + 1;
-      continue;
-    }
-    const braceStart = html.indexOf('{', firstComma);
-    if (braceStart === -1 || braceStart - firstComma > 250) {
-      searchPos = firstComma + 1;
-      continue;
-    }
+    if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
+      if (!mergedRelayPin) mergedRelayPin = {};
+      const prevTitle = mergedRelayPin.title || null;
+      const prevDesc = mergedRelayPin.description || null;
 
-    let depth = 0;
-    let inString = false;
-    let isEscaped = false;
-    let foundEnd = -1;
+      Object.assign(mergedRelayPin, v3);
 
-    for (let i = braceStart; i < html.length; i++) {
-      const ch = html[i];
-      if (inString) {
-        if (isEscaped) {
-          isEscaped = false;
-        } else if (ch === '\\') {
-          isEscaped = true;
-        } else if (ch === '"') {
-          inString = false;
-        }
+      if (prevTitle && !v3.title) mergedRelayPin.title = prevTitle;
+      if (prevDesc && !v3.description) mergedRelayPin.description = prevDesc;
+
+      const realId = v3.entityId || (typeof v3.id === 'string' && /^\d+$/.test(v3.id) ? v3.id : null);
+      if (realId) mergedRelayPin.id = realId;
+
+      // Map v3.imageSpec_* into images if absent
+      if (!mergedRelayPin.images && (v3.imageSpec_736x || v3.imageSpec_564x || v3.imageSpec_236x || v3.imageSpec_orig)) {
+        mergedRelayPin.images = {};
+        if (v3.imageSpec_736x) mergedRelayPin.images['736x'] = v3.imageSpec_736x;
+        if (v3.imageSpec_564x) mergedRelayPin.images['564x'] = v3.imageSpec_564x;
+        if (v3.imageSpec_236x) mergedRelayPin.images['236x'] = v3.imageSpec_236x;
+        if (v3.imageSpec_orig) mergedRelayPin.images['orig'] = v3.imageSpec_orig;
+      }
+
+      if (v3.seoAltText) mergedRelayPin.seoAltText = v3.seoAltText;
+      if (v3.altText) mergedRelayPin.altText = v3.altText;
+      if (v3.title) mergedRelayPin.title = v3.title;
+      if (v3.gridTitle && !mergedRelayPin.title) mergedRelayPin.title = v3.gridTitle;
+
+      if (v3.closeupUnifiedDescription) mergedRelayPin.closeupUnifiedDescription = v3.closeupUnifiedDescription;
+      if (v3.unauthOnPageDescription) mergedRelayPin.unauthOnPageDescription = v3.unauthOnPageDescription;
+      if (v3.description && (!mergedRelayPin.description || v3.description.length > mergedRelayPin.description.length)) {
+        mergedRelayPin.description = v3.description;
+      }
+      if (v3.gridDescription && !mergedRelayPin.description) {
+        mergedRelayPin.description = v3.gridDescription;
+      }
+
+      if (v3.seoTitle) mergedRelayPin.seoTitle = v3.seoTitle;
+      if (v3.seoDescription) mergedRelayPin.seoDescription = v3.seoDescription;
+      if (v3.link) mergedRelayPin.link = v3.link;
+      if (v3.domain) mergedRelayPin.domain = v3.domain;
+      if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
+      if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
+      if (v3.created_at) mergedRelayPin.created_at = v3.created_at;
+
+      const isCarouselPin = Boolean(
+        v3.isCarousel ||
+        v3.is_carousel ||
+        v3.carouselData ||
+        v3.carousel_data ||
+        v3.carousel_slots ||
+        v3.method === 'carousel' ||
+        v3.creation_method === 'carousel' ||
+        v3.creationMethod === 'carousel'
+      );
+      if (isCarouselPin) {
+        mergedRelayPin.is_carousel = true;
+        mergedRelayPin.isCarousel = true;
+        mergedRelayPin.method = 'carousel';
+        mergedRelayPin.creation_method = 'carousel';
       } else {
-        if (ch === '"') {
-          inString = true;
-        } else if (ch === '{') {
-          depth++;
-        } else if (ch === '}') {
-          depth--;
-          if (depth === 0) {
-            foundEnd = i + 1;
-            break;
-          }
+        const detectedMethod = v3.method || v3.creationMethod || v3.creation_method || v3.originType || v3.origin_type || v3.pinJoin?.originType || v3.attribution?.provider_name;
+        if (detectedMethod) {
+          mergedRelayPin.method = detectedMethod;
+          mergedRelayPin.creation_method = detectedMethod;
         }
       }
-    }
+      if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 
-    if (foundEnd === -1) {
-      searchPos = braceStart + 1;
-      continue;
-    }
-
-    searchPos = foundEnd;
-
-    try {
-      const payload = JSON.parse(html.slice(braceStart, foundEnd));
-      const v3 = payload?.data?.v3GetPinQueryv2?.data;
-      if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
-        if (!mergedRelayPin) mergedRelayPin = {};
-        Object.assign(mergedRelayPin, v3);
-        const realId = v3.entityId || (typeof v3.id === 'string' && /^\d+$/.test(v3.id) ? v3.id : null);
-        if (realId) mergedRelayPin.id = realId;
-
-        if (v3.seoAltText) mergedRelayPin.seoAltText = v3.seoAltText;
-        if (v3.altText) mergedRelayPin.altText = v3.altText;
-        if (v3.title) mergedRelayPin.title = v3.title;
-        if (v3.gridTitle && !mergedRelayPin.title) mergedRelayPin.title = v3.gridTitle;
-
-        if (v3.closeupUnifiedDescription) mergedRelayPin.closeupUnifiedDescription = v3.closeupUnifiedDescription;
-        if (v3.unauthOnPageDescription) mergedRelayPin.unauthOnPageDescription = v3.unauthOnPageDescription;
-        if (v3.description && (!mergedRelayPin.description || v3.description.length > mergedRelayPin.description.length)) {
-          mergedRelayPin.description = v3.description;
+      if (v3.aggregatedPinData) {
+        if (v3.aggregatedPinData.entityId) {
+          mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
         }
-        if (v3.gridDescription && !mergedRelayPin.description) {
-          mergedRelayPin.description = v3.gridDescription;
+        if (v3.aggregatedPinData.aggregatedStats) {
+          mergedRelayPin.aggregated_pin_data = {
+            aggregated_stats: {
+              saves: v3.aggregatedPinData.aggregatedStats.saves,
+              save_count: v3.aggregatedPinData.aggregatedStats.saveCount ?? v3.aggregatedPinData.aggregatedStats.saves,
+              done_count: v3.aggregatedPinData.aggregatedStats.doneCount
+            }
+          };
         }
-
-        if (v3.seoTitle) mergedRelayPin.seoTitle = v3.seoTitle;
-        if (v3.seoDescription) mergedRelayPin.seoDescription = v3.seoDescription;
-        if (v3.link) mergedRelayPin.link = v3.link;
-        if (v3.domain) mergedRelayPin.domain = v3.domain;
-        if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
-        if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
-        if (v3.created_at) mergedRelayPin.created_at = v3.created_at;
-
-        const isCarouselPin = Boolean(
-          v3.isCarousel ||
-          v3.is_carousel ||
-          v3.carouselData ||
-          v3.carousel_data ||
-          v3.carousel_slots ||
-          v3.method === 'carousel' ||
-          v3.creation_method === 'carousel' ||
-          v3.creationMethod === 'carousel'
-        );
-        if (isCarouselPin) {
-          mergedRelayPin.is_carousel = true;
-          mergedRelayPin.isCarousel = true;
-          mergedRelayPin.method = 'carousel';
-          mergedRelayPin.creation_method = 'carousel';
-        } else {
-          const detectedMethod = v3.method || v3.creationMethod || v3.creation_method || v3.originType || v3.origin_type || v3.pinJoin?.originType || v3.attribution?.provider_name;
-          if (detectedMethod) {
-            mergedRelayPin.method = detectedMethod;
-            mergedRelayPin.creation_method = detectedMethod;
-          }
-        }
-        if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
-
-        if (v3.aggregatedPinData) {
-          if (v3.aggregatedPinData.entityId) {
-            mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
-          }
-          if (v3.aggregatedPinData.aggregatedStats) {
-            mergedRelayPin.aggregated_pin_data = {
-              aggregated_stats: {
-                saves: v3.aggregatedPinData.aggregatedStats.saves,
-                save_count: v3.aggregatedPinData.aggregatedStats.saveCount ?? v3.aggregatedPinData.aggregatedStats.saves,
-                done_count: v3.aggregatedPinData.aggregatedStats.doneCount
-              }
-            };
-          }
-        }
-
-        if (v3.closeupUnifiedAttribution) {
-          mergedRelayPin.closeupUnifiedAttribution = v3.closeupUnifiedAttribution;
-          if (v3.closeupUnifiedAttribution.followerCount !== undefined) {
-            if (!mergedRelayPin.pinner) mergedRelayPin.pinner = {};
-            mergedRelayPin.pinner.follower_count = v3.closeupUnifiedAttribution.followerCount;
-            mergedRelayPin.pinner.username = v3.closeupUnifiedAttribution.username || v3.closeupUnifiedAttribution.name;
-          }
-        }
-        break;
       }
-    } catch (_) {}
+
+      if (v3.closeupUnifiedAttribution) {
+        mergedRelayPin.closeupUnifiedAttribution = v3.closeupUnifiedAttribution;
+        if (v3.closeupUnifiedAttribution.followerCount !== undefined) {
+          if (!mergedRelayPin.pinner) mergedRelayPin.pinner = {};
+          mergedRelayPin.pinner.follower_count = v3.closeupUnifiedAttribution.followerCount;
+          mergedRelayPin.pinner.username = v3.closeupUnifiedAttribution.username || v3.closeupUnifiedAttribution.name;
+        }
+      }
+      break;
+    }
   }
 
   // 2. OpenGraph Meta Tags Fallback
@@ -361,8 +325,8 @@ export function extractPinData(rawHtml, pinId) {
   const pinSavesMeta = html.match(/<meta[^>]*name=["']pinterest:saves["'][^>]*content=["'](.*?)["']/i)?.[1];
   const pinRepinsMeta = html.match(/<meta[^>]*name=["']pinterest:repins["'][^>]*content=["'](.*?)["']/i)?.[1];
 
-  let ogSaves = pinSavesMeta !== undefined ? parseCleanMetric(pinSavesMeta, 0) : null;
-  let ogRepins = pinRepinsMeta !== undefined ? parseCleanMetric(pinRepinsMeta, 0) : null;
+  let ogSaves = pinSavesMeta !== undefined ? parseCleanMetric(pinSavesMeta, null) : null;
+  let ogRepins = pinRepinsMeta !== undefined ? parseCleanMetric(pinRepinsMeta, null) : null;
 
   // 3. JSON-LD Schema Fallback
   const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
@@ -446,8 +410,18 @@ export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = 
 
       const ssrRes = await fetchPinFromPinterest(pinId, cookie, { dispatcher: actualDispatcher });
       if (ssrRes && ssrRes.ok && ssrRes.pin) {
-        ssrRes.pin.saves = Math.max(Number(ssrRes.pin.saves || 0), Number(p.saves || 0));
-        ssrRes.pin.repins = Math.max(Number(ssrRes.pin.repins || 0), Number(p.repins || 0));
+        if (p.saves !== null && p.saves !== undefined) {
+          ssrRes.pin.saves = (ssrRes.pin.saves !== null && ssrRes.pin.saves !== undefined)
+            ? Math.max(Number(ssrRes.pin.saves), Number(p.saves))
+            : Number(p.saves);
+          ssrRes.pin.save_count = ssrRes.pin.saves;
+        }
+        if (p.repins !== null && p.repins !== undefined) {
+          ssrRes.pin.repins = (ssrRes.pin.repins !== null && ssrRes.pin.repins !== undefined)
+            ? Math.max(Number(ssrRes.pin.repins), Number(p.repins))
+            : Number(p.repins);
+          ssrRes.pin.repin_count = ssrRes.pin.repins;
+        }
         return ssrRes;
       }
       return fastRes;
@@ -561,16 +535,27 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
           const authenticMethod = (fallbackPin?.method && fallbackPin.method !== 'pinterest_platform')
             ? fallbackPin.method
             : (parsed.method || fallbackPin?.method || 'pinterest_platform');
+
+          const mergedSaves = (parsed.saves !== null && parsed.saves !== undefined)
+            ? ((fallbackPin.saves !== null && fallbackPin.saves !== undefined) ? Math.max(Number(parsed.saves), Number(fallbackPin.saves)) : Number(parsed.saves))
+            : ((fallbackPin.saves !== null && fallbackPin.saves !== undefined) ? Number(fallbackPin.saves) : null);
+
+          const mergedRepins = (parsed.repins !== null && parsed.repins !== undefined)
+            ? ((fallbackPin.repins !== null && fallbackPin.repins !== undefined) ? Math.max(Number(parsed.repins), Number(fallbackPin.repins)) : Number(parsed.repins))
+            : ((fallbackPin.repins !== null && fallbackPin.repins !== undefined) ? Number(fallbackPin.repins) : null);
+
           parsed = {
             ...fallbackPin,
             ...parsed,
             method: authenticMethod,
             creation_method: authenticMethod,
             canonical_pin_id: parsed.canonical_pin_id || fallbackPin.canonical_pin_id || null,
-            saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
-            repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
-            comments: Math.max(parsed.comments || 0, fallbackPin.comments || 0),
-            has_explicit_saves: Boolean(parsed.has_explicit_saves || fallbackPin.has_explicit_saves || fallbackPin.saves > 0),
+            saves: mergedSaves,
+            save_count: mergedSaves,
+            repins: mergedRepins,
+            repin_count: mergedRepins,
+            comments: Math.max(Number(parsed.comments || 0), Number(fallbackPin.comments || 0)),
+            has_explicit_saves: Boolean(parsed.has_explicit_saves || fallbackPin.has_explicit_saves || (fallbackPin.saves !== null && fallbackPin.saves > 0)),
             has_explicit_repins: Boolean(parsed.has_explicit_repins || fallbackPin.has_explicit_repins || (fallbackPin.repins !== null && fallbackPin.repins > 0))
           };
         }

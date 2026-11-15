@@ -370,11 +370,11 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, 
   const safePrevVelocity = Number.isFinite(prevVelocity) ? prevVelocity : 0;
 
   // Intraday same-day crawl handling
-  if (isSameDay && deltaSaves === 0) {
-    return { velocity: safePrevVelocity, deltaSaves };
-  }
-  if (isSameDay && deltaSaves > 0 && prevSaves > 0) {
-    const isJump = detectHydrationJump(freshSaves, prevSaves, freshRepins, prevRepins);
+  if (isSameDay) {
+    if (deltaSaves === 0) {
+      return { velocity: safePrevVelocity, deltaSaves: 0 };
+    }
+    const isJump = (prevSaves <= 0) || detectHydrationJump(freshSaves, prevSaves, freshRepins, prevRepins);
     const safeDelta = isJump ? 0 : deltaSaves;
     return {
       velocity: Math.min(25000, Math.max(safePrevVelocity, safeDelta)),
@@ -469,8 +469,7 @@ async function run() {
     const runToken = String(
       process.env.CRAWL_RUN_ID ||
       (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
-      globalThis.__PAE_LOCAL_RUN_ID ||
-      (globalThis.__PAE_LOCAL_RUN_ID = `run_creator_${targetId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`)
+      `bucket_${Math.floor(Date.now() / 600000)}`
     );
 
     // -------------------------------------------------------------------------
@@ -485,42 +484,39 @@ async function run() {
       `.catch(() => {});
 
       try {
-        await syncCompetitorProfile(sql, targetAccount, cookie, { pulseOnly: isPulseOnly });
-      } catch (err) {
-        console.warn(`[Phase 1] Profile sync warning:`, err.message);
-      }
-
-      if (!isPulseOnly) {
         try {
-          await syncCompetitorBoards(sql, targetId, targetAccount, cookie);
+          await syncCompetitorProfile(sql, targetAccount, cookie, { pulseOnly: isPulseOnly });
         } catch (err) {
-          console.warn(`[Phase 1] Boards sync warning:`, err.message);
+          console.warn(`[Phase 1] Profile sync warning:`, err.message);
         }
 
-        try {
-          await syncCompetitorPins(sql, targetId, targetAccount, {
-            mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
-            maxPages: targetPages,
-            cookie: cookie
-          });
-        } catch (err) {
-          console.warn(`[Phase 1] Pins discovery warning:`, err.message);
-        }
+        if (!isPulseOnly) {
+          try {
+            await syncCompetitorBoards(sql, targetId, targetAccount, cookie);
+          } catch (err) {
+            console.warn(`[Phase 1] Boards sync warning:`, err.message);
+          }
 
-        // Signal boards_ready so all workers can partition and crawl boards in parallel
+          try {
+            await syncCompetitorPins(sql, targetId, targetAccount, {
+              mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
+              maxPages: targetPages,
+              cookie: cookie
+            });
+          } catch (err) {
+            console.warn(`[Phase 1] Pins discovery warning:`, err.message);
+          }
+        } else {
+          console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
+        }
+      } finally {
+        // Failure-Immune Barrier Signal: Always announce boards_ready so Workers 1..19 never stall
         await sql`
           UPDATE competitor_profiles
           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_run_id', ${runToken}::text, 'phase1_time', NOW()::text)
           WHERE id = ${targetId};
         `.catch(() => {});
-        console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for parallel board swarm.`);
-      } else {
-        console.log(`[*] [Phase 1: Worker 0] Account @${targetAccount} is pulse_only. Skipping board and pin catalog discovery.`);
-        await sql`
-          UPDATE competitor_profiles
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('phase1_status', 'boards_ready', 'phase1_run_id', ${runToken}::text, 'phase1_time', NOW()::text)
-          WHERE id = ${targetId};
-        `.catch(() => {});
+        console.log(`[*] [Phase 1: Worker 0] Announced boards_ready for parallel board swarm (token: ${runToken}).`);
       }
     } else {
       // Workers 1..19 wait for Worker 0 to announce boards_ready
@@ -537,7 +533,7 @@ async function run() {
           WHERE id = ${targetId};
         `.catch(() => [null]);
 
-        if (prof && prof.run_id === runToken && (prof.status === 'boards_ready' || prof.status === 'crawling_boards' || prof.status === 'phase1_done')) {
+        if (prof && prof.run_id === runToken && (prof.status === 'boards_ready' || prof.status === 'phase1_done')) {
           console.log(`[Phase 1] Boards ready signal received from Worker 0 in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
           break;
         }

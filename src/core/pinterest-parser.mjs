@@ -648,6 +648,86 @@ export function formatPin(pin) {
 }
 
 /**
+ * Extracts all JSON payloads from __PWS_RELAY_REGISTER_COMPLETED_REQUEST__(requestId, payload)
+ * calls using quote/escape-aware balanced brace parsing.
+ *
+ * @param {string} rawHtml
+ * @returns {Array<object>} Array of parsed JSON payloads
+ */
+export function extractRelayCompletedPayloads(rawHtml) {
+  if (!rawHtml || typeof rawHtml !== 'string') return [];
+  const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
+  const relayPrefix = '__PWS_RELAY_REGISTER_COMPLETED_REQUEST__';
+  const results = [];
+  let searchPos = 0;
+
+  while ((searchPos = html.indexOf(relayPrefix, searchPos)) !== -1) {
+    const startParen = html.indexOf('(', searchPos + relayPrefix.length);
+    if (startParen === -1) {
+      searchPos += relayPrefix.length;
+      continue;
+    }
+    const firstComma = html.indexOf(',', startParen);
+    if (firstComma === -1) {
+      searchPos = startParen + 1;
+      continue;
+    }
+    const braceStart = html.indexOf('{', firstComma);
+    if (braceStart === -1 || braceStart - firstComma > 250) {
+      searchPos = firstComma + 1;
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let isEscaped = false;
+    let foundEnd = -1;
+
+    for (let i = braceStart; i < html.length; i++) {
+      const ch = html[i];
+      if (inString) {
+        if (isEscaped) {
+          isEscaped = false;
+        } else if (ch === '\\') {
+          isEscaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else {
+        if (ch === '"') {
+          inString = true;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            foundEnd = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (foundEnd === -1) {
+      searchPos = braceStart + 1;
+      continue;
+    }
+
+    searchPos = foundEnd;
+
+    try {
+      const jsonStr = html.slice(braceStart, foundEnd);
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed === 'object') {
+        results.push(parsed);
+      }
+    } catch (_) {}
+  }
+
+  return results;
+}
+
+/**
  * Extract pin data from raw HTML using the multi-stage fallback hierarchy:
  * 1. __PWS_DATA__ SSR JSON script tag
  * 2. Relay Completed Requests (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
@@ -675,11 +755,9 @@ export function extractPinFromHtml(rawHtml, pinId) {
   }
 
   // Stage 2: Relay Completed Requests
-  const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
-  let rMatch;
-  while ((rMatch = relayRegex.exec(html)) !== null) {
+  const relayPayloads = extractRelayCompletedPayloads(html);
+  for (const payload of relayPayloads) {
     try {
-      const payload = JSON.parse(rMatch[2]);
       const v3 = payload?.data?.v3GetPinQueryv2?.data;
       if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
         if (!mergedPin) mergedPin = {};
