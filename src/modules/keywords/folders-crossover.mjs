@@ -388,7 +388,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
   // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
   // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
   const pulseAnalyticsPromise = getFolderPulseCrossoverAnalytics(sql, fid, { env, ctx, refresh: Boolean(refresh) }).catch(() => null);
-  let [pinRows, displacedRows, capsuleRows] = await Promise.all([
+  let [pinRows, displacedRows, capsuleRows, repinWindowRows] = await Promise.all([
     sql`
       WITH ranked_active AS (
         SELECT
@@ -399,7 +399,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
           COALESCE(ump.clean_domain, '') AS domain,
           ump.destination_url,
           ump.image_url,
-          ump.account_username AS creator_username,
+          ump.creator_username,
           ump.board_name,
           ump.dominant_color,
           COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
@@ -558,12 +558,61 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
       JOIN tracked_keywords tk ON tk.id = c.keyword_id
       WHERE c.keyword_id = ANY(${keywordIds})
       ORDER BY c.score DESC, c.display_order ASC;
-    `
+    `,
+    sql`
+      WITH folder_pins AS (
+        SELECT DISTINCT c.pin_id
+        FROM keyword_folder_items i
+        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+      ),
+      pin_metrics AS (
+        SELECT
+          pdm.pin_id,
+          pdm.recorded_date,
+          pdm.repin_count,
+          FIRST_VALUE(pdm.repin_count) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) as latest_repins,
+          FIRST_VALUE(pdm.recorded_date) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) as latest_date
+        FROM pins_daily_metrics pdm
+        JOIN folder_pins fp ON fp.pin_id = pdm.pin_id
+        WHERE pdm.recorded_date >= CURRENT_DATE - INTERVAL '16 days'
+          AND pdm.repin_count IS NOT NULL
+      ),
+      repin_deltas AS (
+        SELECT
+          pm.pin_id,
+          GREATEST(0, MAX(CASE WHEN pm.recorded_date <= pm.latest_date - INTERVAL '5 days' 
+            AND NOT (pm.repin_count = 0 AND pm.latest_repins >= 100)
+            AND NOT (pm.latest_repins >= pm.repin_count * 4 AND (pm.latest_repins - pm.repin_count) >= 2000)
+            THEN pm.latest_repins - pm.repin_count ELSE 0 END)) AS repins_5d,
+          GREATEST(0, MAX(CASE WHEN pm.recorded_date <= pm.latest_date - INTERVAL '7 days'
+            AND NOT (pm.repin_count = 0 AND pm.latest_repins >= 100)
+            AND NOT (pm.latest_repins >= pm.repin_count * 4 AND (pm.latest_repins - pm.repin_count) >= 2000)
+            THEN pm.latest_repins - pm.repin_count ELSE 0 END)) AS repins_7d,
+          GREATEST(0, MAX(CASE WHEN pm.recorded_date <= pm.latest_date - INTERVAL '10 days'
+            AND NOT (pm.repin_count = 0 AND pm.latest_repins >= 100)
+            AND NOT (pm.latest_repins >= pm.repin_count * 4 AND (pm.latest_repins - pm.repin_count) >= 2000)
+            THEN pm.latest_repins - pm.repin_count ELSE 0 END)) AS repins_10d,
+          GREATEST(0, MAX(CASE WHEN pm.recorded_date <= pm.latest_date - INTERVAL '15 days'
+            AND NOT (pm.repin_count = 0 AND pm.latest_repins >= 100)
+            AND NOT (pm.latest_repins >= pm.repin_count * 4 AND (pm.latest_repins - pm.repin_count) >= 2000)
+            THEN pm.latest_repins - pm.repin_count ELSE 0 END)) AS repins_15d
+        FROM pin_metrics pm
+        GROUP BY pm.pin_id, pm.latest_repins, pm.latest_date
+      )
+      SELECT
+        COALESCE(SUM(repins_5d), 0)::bigint AS repins_5d,
+        COALESCE(SUM(repins_7d), 0)::bigint AS repins_7d,
+        COALESCE(SUM(repins_10d), 0)::bigint AS repins_10d,
+        COALESCE(SUM(repins_15d), 0)::bigint AS repins_15d
+      FROM repin_deltas;
+    `.catch(() => [{ repins_5d: 0, repins_7d: 0, repins_10d: 0, repins_15d: 0 }])
   ]);
 
   if (!pinRows) pinRows = [];
   if (!displacedRows) displacedRows = [];
   if (!capsuleRows) capsuleRows = [];
+  if (!repinWindowRows) repinWindowRows = [];
 
   const combinedCatalogRows = [...pinRows, ...displacedRows];
 
@@ -1904,6 +1953,16 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
     delete p._canonical_tags;
   }
 
+  const sqlRepin5d = Number(repinWindowRows?.[0]?.repins_5d || 0);
+  const sqlRepin7d = Number(repinWindowRows?.[0]?.repins_7d || 0);
+  const sqlRepin10d = Number(repinWindowRows?.[0]?.repins_10d || 0);
+  const sqlRepin15d = Number(repinWindowRows?.[0]?.repins_15d || 0);
+
+  const memRepin5d = allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 5), 0);
+  const memRepin7d = allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 7), 0);
+  const memRepin10d = allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 10), 0);
+  const memRepin15d = allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 15), 0);
+
   return {
     _crossover_schema_v: 6,
     folder,
@@ -1924,10 +1983,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
       monopoly_creator_count: creatorMonopoly.length,
       multi_window_gains: {
         '24h': { saves: allPins.reduce((sum, p) => sum + (p.delta_saves_24h || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.delta_repins_24h || 0), 0) },
-        '5d': { saves: allPins.reduce((sum, p) => sum + (p.gains_5d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 5), 0) },
-        '7d': { saves: allPins.reduce((sum, p) => sum + (p.gains_7d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 7), 0) },
-        '10d': { saves: allPins.reduce((sum, p) => sum + (p.gains_10d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 10), 0) },
-        '15d': { saves: allPins.reduce((sum, p) => sum + (p.gains_15d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((Number(p.daily_repin_velocity ?? 0) > 0 ? Number(p.daily_repin_velocity) : Math.max(0, Number(p.delta_repins_24h || 0))) * 15), 0) },
+        '5d': { saves: allPins.reduce((sum, p) => sum + (p.gains_5d || 0), 0), repins: sqlRepin5d > 0 ? sqlRepin5d : memRepin5d },
+        '7d': { saves: allPins.reduce((sum, p) => sum + (p.gains_7d || 0), 0), repins: sqlRepin7d > 0 ? sqlRepin7d : memRepin7d },
+        '10d': { saves: allPins.reduce((sum, p) => sum + (p.gains_10d || 0), 0), repins: sqlRepin10d > 0 ? sqlRepin10d : memRepin10d },
+        '15d': { saves: allPins.reduce((sum, p) => sum + (p.gains_15d || 0), 0), repins: sqlRepin15d > 0 ? sqlRepin15d : memRepin15d },
         'all': { saves: allPins.reduce((sum, p) => sum + (p.save_count || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.repin_count || 0), 0) }
       }
     },

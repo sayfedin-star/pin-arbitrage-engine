@@ -23,7 +23,10 @@ import {
   extractCanonicalAnnotations,
   isSyntheticGarbageTitle
 } from '../../domain/pin-intelligence.mjs';
-import { calculateVelocityAcceleration } from '../../lib/math.mjs';
+import {
+  calculateVelocityAcceleration,
+  computeAnscombeInflectionScore
+} from '../../lib/math.mjs';
 
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)
 export const pulseMemoryCache = new Map();
@@ -743,15 +746,18 @@ export async function queryKPIs(sql, folderIdNum = null) {
       const folderRows = await sql`
         SELECT
           COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-          COUNT(DISTINCT ump.clean_domain)::bigint AS active_domains_24h,
-          COUNT(DISTINCT ump.creator_username)::bigint AS active_creators_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
+            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
+          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
           COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
           COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
-          COALESCE(SUM(ump.delta_saves_24h), 0)::bigint AS total_delta_saves_24h
+          COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE kfi.folder_id = ${folderIdNum}::int
+          AND ump.is_hydrated = TRUE
           AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
       `;
       if (folderRows && folderRows.length > 0) {
@@ -814,14 +820,16 @@ export async function queryKPIs(sql, folderIdNum = null) {
       const fallbackRows = await sql`
         SELECT
           COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-          COUNT(DISTINCT ump.clean_domain)::bigint AS active_domains_24h,
-          COUNT(DISTINCT ump.creator_username)::bigint AS active_creators_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
+            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
+          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
           COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
           COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
-          COALESCE(SUM(ump.delta_saves_24h), 0)::bigint AS total_delta_saves_24h
+          COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
         FROM universal_master_pins ump
-        WHERE ump.last_scraped_at >= NOW() - INTERVAL '24 hours'
-           OR ump.updated_at >= NOW() - INTERVAL '24 hours';
+        WHERE ump.is_hydrated = TRUE
+          AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
       `;
       if (fallbackRows && fallbackRows.length > 0) {
         const r = fallbackRows[0];
@@ -1277,6 +1285,13 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       const accelerationRatio = calculateVelocityAcceleration(p);
       const isAccelerating = accelerationRatio >= 1.5;
 
+      // Anscombe Inflection & Breakout Telemetry via SSOT math
+      const anscombeScores = (typeof computeAnscombeInflectionScore === 'function')
+        ? computeAnscombeInflectionScore(p)
+        : null;
+      p.anscombe_z_gain = anscombeScores?.anscombe_z_gain ?? Number((2 * Math.sqrt(Math.max(0, p.daily_save_velocity || 0) + 0.375) - 2 * Math.sqrt(Math.max(0, (p.gains_7d ? p.gains_7d / 7 : 0) * 6 + 5) / 7 + 0.375)).toFixed(2));
+      p.repin_lead_score = anscombeScores?.repin_lead_score ?? Number(Math.min(2.0, ((p.delta_repins_24h || 0) * 1.5 + (p.comment_count || 0) * 2.0) / Math.max(1, (p.daily_save_velocity || 0) + 1)).toFixed(2));
+
       // Cross-Pillar Breakout Conviction Score (B_cross)
       // 1. Normalized 24h velocity (logarithmic scaling: 0-100)
       const velForScore = Math.max(0, p.effective_24h_gain > 0 ? p.effective_24h_gain : (p.daily_save_velocity || 0));
@@ -1306,6 +1321,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
       // Unified B_cross conviction score: 40% velocity, 30% SERP rank, 15% competitor board, 15% P2P graph
       const bCross = Math.min(100, Math.round((sVel * 0.40) + (sSerp * 0.30) + (sComp * 0.15) + (sP2p * 0.15)));
+      p.b_cross = bCross;
+      p.breakout_conviction_score = bCross;
+      p.breakout_score = anscombeScores?.breakout_score ?? bCross;
 
       const urlLeverageRatio = (p.url_global_saves > 0 && p.save_count > 0)
         ? Math.round((p.url_global_saves / p.save_count) * 100) / 100
@@ -1776,6 +1794,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         is_displaced: isDisplaced,
 
         // Backward-compatibility keys
+        anscombe_z_gain: p.anscombe_z_gain ?? 0,
+        repin_lead_score: p.repin_lead_score ?? 0,
+        breakout_score: p.breakout_score ?? p.breakout_conviction_score ?? p.b_cross ?? 0,
         breakout_conviction_score: p.breakout_conviction_score ?? p.b_cross ?? 0,
         b_cross: p.b_cross ?? 0,
         p2p_graph_presence: Boolean(p.p2p_graph_presence),

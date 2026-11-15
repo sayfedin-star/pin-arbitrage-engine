@@ -987,13 +987,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const destinationUrl = item.link || '';
       const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
       
-      const hasExplicitItemSaves = Boolean(
-        item.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
-        item.save_count !== undefined
-      );
       const rawSaves = Math.max(
         Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
         Number(item.save_count || 0)
+      );
+      const hasExplicitItemSaves = Boolean(
+        rawSaves > 0 && (
+          item.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
+          item.save_count !== undefined
+        )
       );
       
       let reactions = 0;
@@ -1047,9 +1049,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const priorKnownSavesCandidates = [immSaves, baseSavesForPin, globSaves].filter(v => v !== null && v >= 0);
       const priorKnownSaves = priorKnownSavesCandidates.length > 0 ? Math.max(...priorKnownSavesCandidates) : null;
 
-      const confirmedSaves = (saves > 0 || hasExplicitItemSaves)
+      const confirmedSaves = (saves > 0)
         ? saves
-        : priorKnownSaves;
+        : (priorKnownSaves != null ? priorKnownSaves : (hasExplicitItemSaves ? 0 : null));
 
       const hasExplicitItemRepins = item.repin_count !== undefined && item.repin_count !== null;
       const itemRepins = hasExplicitItemRepins ? Number(item.repin_count) : null;
@@ -1278,6 +1280,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (pidgetSaves !== null && (pidgetSaves > 0 || pData.has_explicit_saves)) {
                 p.save_count = pidgetSaves;
                 p.has_explicit_saves = true;
+                p.was_live_scraped = true;
               }
               if (pidgetRepins !== null) {
                 p.repin_count = pidgetRepins;
@@ -1344,6 +1347,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           const scraped = detail?.pin || detail;
           if (scraped && (scraped.pin_id || scraped.id || scraped.title || scraped.saves !== undefined)) {
             p.crawled_at = new Date().toISOString();
+            p.was_live_scraped = true;
             const enrichedSaves = Number(scraped.saves ?? scraped.save_count ?? p.save_count ?? 0);
             const enrichedRepins = Number(scraped.repins ?? scraped.repin_count ?? p.repin_count ?? 0);
             const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count ?? 0);
@@ -1905,8 +1909,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   const { env = null, forceRefresh = false } = opts;
 
 
-  // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
-  const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
+  // Parallel fetch: keyword metadata (if not already known), active catalog pins, dropped pins, guided capsules, and true displaced count
+  const [keywordRows, activeCatalogPins, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
     actualKeyword ? Promise.resolve([actualKeyword]) : sql`
       SELECT id, keyword, category, is_active, last_crawled_at, updated_at, target_pin_count, crawl_pages_limit, avg_daily_velocity, metadata
       FROM tracked_keywords 
@@ -1917,7 +1921,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
         ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
         ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
         ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
-        ump.account_username AS creator_username,
+        ump.creator_username,
         ump.board_name,
         ump.dominant_color,
         COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
@@ -1935,8 +1939,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
         )
       ORDER BY ksp.rank_position ASC;
     `.catch(() => []),
-    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
-    Promise.resolve([]),
     getKeywordDisplacedPins(sql, kid, { limit: 500, env }).catch(() => null),
     getKeywordGuides(sql, kid).catch(() => []),
     sql`
@@ -1954,10 +1956,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   const keyword = keywordRows[0];
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 
-  let droppedOutPins = displacedResultRaw?.pins || [];
-  if (droppedOutPins.length === 0 && Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
-    droppedOutPins = keyword.metadata.last_dropped_pins;
-  }
+  const droppedOutPins = displacedResultRaw?.pins || [];
 
   const countFromDb = Number(displacedCountRow?.[0]?.total || 0);
   const countFromResult = Number(displacedResultRaw?.total || 0);
@@ -2063,7 +2062,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     status: 'active',
     keyword,
     snapshot_date: latestDate,
-    has_history: dates.length > 1 || droppedOutPins.length > 0,
+    has_history: droppedOutPins.length > 0 || (currentPins.length > 0 && Boolean(keyword.last_crawled_at)),
     current_pins: currentPins,
     dropped_out_pins: droppedOutPins,
     total_displaced_count: totalDisplacedCount,
@@ -2127,6 +2126,18 @@ export async function getKeywordIntelligence(sql, keywordId) {
  * DISPLACED PINS VAULT & UNIFIED TIMELINE INTELLIGENCE (Phase 3)
  * ============================================================================
  */
+
+/**
+ * Calculates continuous Decay- & Competition-Adjusted SERP Vacuum Opportunity Score (0..100)
+ */
+export function computeVacuumOpportunityScore({ lastKnownRank = 30, domainlessTop10Count = 0, saveCount = 0, medianTop10Saves = 100 } = {}) {
+  const rank = Math.max(1, Number(lastKnownRank || 30));
+  const rankScore = 55.0 * Math.exp(-0.045 * (rank - 1));
+  const domainlessGapScore = Math.min(25, Number(domainlessTop10Count || 0) * 8);
+  const savesRatio = Number(saveCount || 0) / Math.max(100, Number(medianTop10Saves || 100));
+  const compScore = Math.min(20, Math.round(15.0 * savesRatio));
+  return Math.min(100, Math.max(10, Math.round(rankScore + domainlessGapScore + compScore)));
+}
 
 /**
  * Retrieve persistent displaced pins for a keyword from keyword_serp_positions (is_displaced = TRUE)
@@ -2233,16 +2244,12 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     pin.created_at_pinterest = pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || null;
 
     if (!pin.vacuum_opportunity_score || pin.vacuum_opportunity_score === 0) {
-      const rank = Math.max(1, Number(pin.last_known_rank || 30));
-      // 1. Continuous rank decay: up to 55 points via exponential decay from last known rank
-      const rankScore = 55.0 * Math.exp(-0.045 * (rank - 1));
-      // 2. Domainless Top-10 gap boost: up to 25 points (8 pts per domainless pin in active top 10)
-      const domainlessGapScore = Math.min(25, domainlessTop10Count * 8);
-      // 3. Stagnation / save competition ratio: up to 20 points
-      const savesRatio = (pin.save_count || 0) / medianTop10Saves;
-      const compScore = Math.min(20, Math.round(15.0 * savesRatio));
-
-      pin.vacuum_opportunity_score = Math.min(100, Math.max(10, Math.round(rankScore + domainlessGapScore + compScore)));
+      pin.vacuum_opportunity_score = computeVacuumOpportunityScore({
+        lastKnownRank: pin.last_known_rank,
+        domainlessTop10Count,
+        saveCount: pin.save_count,
+        medianTop10Saves
+      });
     }
   }
 
