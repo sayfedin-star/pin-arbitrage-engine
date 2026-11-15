@@ -13,10 +13,11 @@ import { sanitizeForJsonb } from '../src/utils.mjs';
 
 let undiciAgent = null;
 try {
-  const { Agent } = await import('undici');
+  const { Agent, setGlobalDispatcher } = await import('undici');
   const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  if (String(process.versions?.undici || '').startsWith('8.')) {
-    undiciAgent = candidateAgent;
+  undiciAgent = candidateAgent;
+  if (typeof setGlobalDispatcher === 'function') {
+    setGlobalDispatcher(candidateAgent);
   }
 } catch (_) {}
 
@@ -166,8 +167,10 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       if (candId === String(seedPinId)) continue; // ignore self-reference
 
       const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
-      const saves = Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0);
-      const repins = Number(item.repin_count || 0);
+      const rawSaves = item.aggregated_pin_data?.aggregated_stats?.saves ?? item.save_count;
+      const saves = rawSaves != null ? Math.max(0, Number(rawSaves)) : null;
+      const rawRepins = item.repin_count;
+      const repins = rawRepins != null ? Math.max(0, Number(rawRepins)) : null;
       const creator = item.pinner?.username || item.origin_pinner?.username || '';
       const creatorName = item.pinner?.full_name || '';
       const domain = item.domain || item.link_domain || '';
@@ -232,8 +235,8 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
         )
         ORDER BY x.candidate_pin_id ASC
         ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
-          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE competitor_related_nodes.saves END,
-          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE competitor_related_nodes.repins END,
+          saves = COALESCE(EXCLUDED.saves, competitor_related_nodes.saves),
+          repins = COALESCE(EXCLUDED.repins, competitor_related_nodes.repins),
           title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
           image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
           domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,
