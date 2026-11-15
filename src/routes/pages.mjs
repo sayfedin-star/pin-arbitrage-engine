@@ -49,7 +49,12 @@ export async function handlePagesRoutes(routeCtx) {
       }
       return effectiveReply.send(method === 'HEAD' ? '' : (body || ''));
     }
-    return new Response(method === 'HEAD' ? null : body, { status, headers });
+    return {
+      status,
+      headers,
+      body: method === 'HEAD' ? null : body,
+      text: async () => (method === 'HEAD' ? '' : (body || ''))
+    };
   };
 
   // 1. Fast Edge Favicon Interception [INVARIANT: FAST-EDGE-FAVICON]

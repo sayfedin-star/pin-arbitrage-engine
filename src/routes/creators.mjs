@@ -5,8 +5,7 @@ import {
   getQualificationRules,
   updateQualificationRules,
   reEvaluateArchivedPins,
-  getPinDetailWithMetrics,
-  deletePinMetricSnapshot
+  getPinDetailWithMetrics
 } from '../modules/creators/service.mjs';
 
 /**
@@ -978,14 +977,21 @@ export async function handleCreatorsRoutes(routeCtx) {
   }
 
   // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot & /api/competitors/pin-snapshot)
+  // Redirects to canonical pins_daily_metrics deletion pattern
   if (method === 'DELETE' && (pathname === '/api/competitors/pin-snapshot' || originalPathname === '/api/creators/pin-snapshot')) {
     invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
     const pinId = searchParams.get('pin_id') || body.pin_id;
     if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
-    const result = await deletePinMetricSnapshot(sql, snapshotId, pinId);
-    return jsonResponse(result);
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(snapshotId)) ? String(snapshotId) : (searchParams.get('date') || body.date || null);
+    if (sql && targetDate) {
+      await sql`
+        DELETE FROM pins_daily_metrics
+        WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
+      `.catch((err) => { console.error(`[CreatorsRoute.DELETE snapshots] delete failed for pin ${pinId}:`, err?.message || err); });
+    }
+    return jsonResponse({ success: true, deleted_snapshot: snapshotId, pin_id: pinId });
   }
 
   return null;

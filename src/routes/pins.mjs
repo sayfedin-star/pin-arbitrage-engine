@@ -210,7 +210,7 @@ export async function handlePinsRoutes({
     }
     const rawSnapshotParam = decodeURIComponent(String(parts[2] || '').trim());
     const isDateParam = /^\d{4}-\d{2}-\d{2}$/.test(rawSnapshotParam);
-    const isIntradayParam = rawSnapshotParam.startsWith('intra_');
+    const isIntradayParam = rawSnapshotParam.startsWith('intra_') || rawSnapshotParam.startsWith('intraday_');
     // [INVARIANT: 60-BIT-SNOWFLAKE-SAFE] Never cast 60-bit view IDs via Number() (exceeds 53-bit MAX_SAFE_INTEGER)
     const isNumericSnapshotId = /^[1-9]\d{0,19}$/.test(rawSnapshotParam);
     if (!isDateParam && !isNumericSnapshotId && !isIntradayParam) {
@@ -252,9 +252,18 @@ export async function handlePinsRoutes({
       return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
     }
 
-    let targetDate = isDateParam ? rawSnapshotParam : null;
+    const queryDate = searchParams?.get('date');
+    const targetDate = isDateParam ? rawSnapshotParam : (queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate) ? queryDate : null);
 
-    if (targetDate && sql) {
+    if (!targetDate) {
+      return jsonResponse({
+        success: false,
+        error: 'BAD_REQUEST',
+        message: 'Could not resolve snapshot date. When snapshot_id is numeric, pass ?date=YYYY-MM-DD or provide snapshot_id as YYYY-MM-DD.'
+      }, 400);
+    }
+
+    if (sql) {
       await sql`
         DELETE FROM pins_daily_metrics
         WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;

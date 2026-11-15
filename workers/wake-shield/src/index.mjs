@@ -33,6 +33,37 @@ async function computeExpectedToken(secret) {
   return hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Constant-time byte-by-byte comparison to defend against timing side-channel attacks.
+ */
+function constantTimeByteEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const aLen = a.length;
+  const bLen = b.length;
+  let mismatch = aLen === bLen ? 0 : 1;
+  const maxLen = Math.max(aLen, bLen);
+  for (let i = 0; i < maxLen; i++) {
+    const charA = i < aLen ? a.charCodeAt(i) : 0;
+    const charB = i < bLen ? b.charCodeAt(i) : 0;
+    mismatch |= (charA ^ charB);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * Constant-time membership check across an array of valid secrets/tokens.
+ */
+function constantTimeIncludes(validList, candidate) {
+  if (!Array.isArray(validList) || typeof candidate !== 'string' || !candidate) return false;
+  let matchFound = false;
+  for (const item of validList) {
+    if (constantTimeByteEqual(String(item), candidate)) {
+      matchFound = true;
+    }
+  }
+  return matchFound;
+}
+
 function parseCookie(request, name) {
   const cookieHeader = request.headers.get('Cookie') || '';
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
@@ -215,7 +246,7 @@ export default {
 
     // 1. Check Cookie
     const clientToken = parseCookie(request, AUTH_COOKIE_NAME);
-    if (clientToken && expectedTokens.includes(clientToken)) {
+    if (clientToken && constantTimeIncludes(expectedTokens, clientToken)) {
       isAuthorized = true;
     }
 
@@ -225,8 +256,8 @@ export default {
     const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
 
     if (
-      (headerApiKey && validPins.includes(headerApiKey)) ||
-      (bearerToken && validPins.includes(bearerToken))
+      (headerApiKey && constantTimeIncludes(validPins, headerApiKey)) ||
+      (bearerToken && constantTimeIncludes(validPins, bearerToken))
     ) {
       isAuthorized = true;
     }
@@ -236,7 +267,7 @@ export default {
       try {
         const body = await request.json();
         const pinAttempt = (body?.pin || '').trim();
-        if (pinAttempt && validPins.includes(pinAttempt)) {
+        if (pinAttempt && constantTimeIncludes(validPins, pinAttempt)) {
           const token = await computeExpectedToken(pinAttempt);
           // Proactively wake the InstaBox VM immediately upon valid PIN authentication!
           if (apiKey) {

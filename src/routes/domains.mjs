@@ -52,7 +52,6 @@ export async function handleDomainsRoutes(routeCtx) {
     }
     const auth = verifyApiAuthentication(request, env);
     if (!auth.authorized) {
-      if (auth.response) return auth.response;
       return jsonResponse({ success: false, error: 'UNAUTHORIZED', message: auth.reason || 'Authentication required' }, auth.status || 401);
     }
     try {

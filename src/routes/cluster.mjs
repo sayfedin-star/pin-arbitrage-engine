@@ -40,6 +40,7 @@ import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pul
 export function isClusterRoute(pathname) {
   return pathname === '/api/pulse/24h' ||
     pathname === '/api/pulse/blueprint' ||
+    pathname === '/api/cluster/arbitrage-convergence' ||
     pathname === '/api/overview' ||
     pathname === '/api/seeds' ||
     pathname.startsWith('/api/seeds/') ||
@@ -134,6 +135,32 @@ export async function handleClusterRoutes({
         success: false,
         error: 'PULSE_SERVICE_ERROR',
         message: redactSecrets ? redactSecrets(err.message) : err.message
+      }, 500);
+    }
+  }
+
+  // 0C. /api/cluster/arbitrage-convergence (Cross-Pillar P2P-to-SERP Convergence Engine)
+  if (pathname === '/api/cluster/arbitrage-convergence') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const limit = clampLimit(searchParams.get('limit'), 50, 250);
+    const minScore = Number(searchParams.get('min_score') || searchParams.get('minScore') || 0);
+    const options = { limit, minScore, searchParams };
+    try {
+      const clusterService = await import('../modules/cluster/service.mjs');
+      const getCrossPillarTargets = clusterService.getCrossPillarArbitrageTargets;
+      if (typeof getCrossPillarTargets === 'function') {
+        const targets = await getCrossPillarTargets(sql, options);
+        return jsonResponse({ success: true, targets: targets || [] }, 200, 30);
+      }
+      return jsonResponse({ success: true, targets: [] }, 200, 30);
+    } catch (err) {
+      console.error('[Cluster Arbitrage Convergence Route Error]', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'ARBITRAGE_CONVERGENCE_ERROR',
+        message: redactSecrets ? redactSecrets(err?.message || String(err)) : String(err)
       }, 500);
     }
   }

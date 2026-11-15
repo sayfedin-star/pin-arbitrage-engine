@@ -17,7 +17,6 @@ import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   requestContextStorage,
   redactSecrets,
-  normalizePath,
   safeWaitUntil,
   checkPinterestCircuitBreaker,
   tripPinterestCircuitBreaker,
@@ -106,7 +105,7 @@ export async function apiRoutesPlugin(app, options = {}) {
       async () => {
         try {
           const url = new URL(fullUrl);
-          const pathname = normalizePath(url.pathname);
+          const pathname = url.pathname;
           const { searchParams } = url;
 
           // 0. Decommissioned Endpoints Gate (RFC 404 compliance before auth gate)
@@ -175,20 +174,19 @@ export async function apiRoutesPlugin(app, options = {}) {
           if (isCrawlerEndpoint && (isMutatingMethod || pathname.startsWith('/api/crawl/dispatch') || isLiveScrapeGet)) {
             const cb = await checkPinterestCircuitBreaker(env);
             if (cb?.active) {
-              return new Response(JSON.stringify({
+              reply.code(429);
+              reply.header('Content-Type', 'application/json; charset=utf-8');
+              reply.header('Retry-After', String(cb.remaining_seconds));
+              reply.header('X-Circuit-Breaker', 'OPEN');
+              for (const [k, v] of Object.entries(dynamicCors)) {
+                reply.header(k, v);
+              }
+              return reply.send({
                 success: false,
                 error: 'PINTEREST_RATE_LIMITED',
                 message: `Pinterest rate-limit circuit breaker is active. Operations cooling down for ${cb.remaining_seconds}s.`,
                 retry_after: cb.remaining_seconds,
                 reason: cb.reason
-              }), {
-                status: 429,
-                headers: {
-                  'Content-Type': 'application/json; charset=utf-8',
-                  'Retry-After': String(cb.remaining_seconds),
-                  'X-Circuit-Breaker': 'OPEN',
-                  ...dynamicCors
-                }
               });
             }
           }
@@ -382,15 +380,6 @@ export async function apiRoutesPlugin(app, options = {}) {
               : 'INTERNAL_SERVER_ERROR',
             message: redactSecrets(err?.message || 'An unexpected internal error occurred')
           }, status);
-        } finally {
-          const store = requestContextStorage.getStore();
-          if (store?.bgPromises?.length) {
-            // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
-            const closePromise = Promise.allSettled(store.bgPromises).catch(() => {});
-            if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
-              effectiveCtx.waitUntil(closePromise);
-            }
-          }
         }
       }
     );
@@ -398,19 +387,19 @@ export async function apiRoutesPlugin(app, options = {}) {
     if (reply.sent) {
       return reply;
     }
-    if (routeResult instanceof Response || (routeResult && typeof routeResult === 'object' && 'status' in routeResult && routeResult.headers)) {
-      reply.code(routeResult.status);
-      routeResult.headers.forEach((val, key) => {
-        reply.header(key, val);
-      });
-      if (routeResult.status === 204 || (!routeResult._payload && !routeResult.body)) {
-        return reply.send();
+    if (routeResult && typeof routeResult === 'object') {
+      if (typeof routeResult.status === 'number') {
+        reply.code(routeResult.status);
+      }
+      if (routeResult.headers && typeof routeResult.headers === 'object') {
+        for (const [key, val] of Object.entries(routeResult.headers)) {
+          reply.header(key, val);
+        }
       }
       if (routeResult._payload !== undefined) {
         return reply.send(routeResult._payload);
       }
-      const text = await routeResult.text();
-      return reply.send(text);
+      return reply.send(routeResult);
     }
     if (routeResult !== undefined) {
       return reply.code(200).header('Content-Type', 'application/json; charset=utf-8').send(routeResult);
@@ -435,6 +424,7 @@ export async function apiRoutesPlugin(app, options = {}) {
   app.all('/api/domains', dispatchApiRequest);
   app.all('/api/domains/*', dispatchApiRequest);
   app.all('/api/pulse/*', dispatchApiRequest);
+  app.all('/api/cluster/*', dispatchApiRequest);
   app.all('/api/*', dispatchApiRequest);
 }
 

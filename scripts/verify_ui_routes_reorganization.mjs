@@ -5,7 +5,7 @@ const worker = { fetch: handleAppRequest };
 async function testRoutes() {
   console.log('Testing Reorganized UI Routes...');
   const mockEnv = {
-    DATABASE_URL: 'postgres://dummy:dummy@ep-test-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require'
+    DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:5432/pin_arbitrage'
   };
 
   // 1. Root / -> Serves Dashboard with Executive Command Center
@@ -211,7 +211,7 @@ async function testRoutes() {
     console.log('  ✓ [PASS] All 6 UI templates include inline SVG favicon in <head> (0ms network request)');
   }
 
-  // 15. Non-Blocking Hyperdrive Socket Cleanup [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
+  // 15. Native Fastify Background Queue & Request Lifecycle [INVARIANT: NON-BLOCKING-QUEUE-EXECUTION]
   {
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -219,20 +219,15 @@ async function testRoutes() {
     const apiRoutesContent = fs.readFileSync(path.resolve('src/plugins/api-routes.mjs'), 'utf8');
 
     assert(
-      serverContent.includes('// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]') &&
-      apiRoutesContent.includes('// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'),
-      'server.mjs and api-routes.mjs must contain invariant tag [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]'
-    );
-    assert(
-      /(?:effectiveCtx|ctx)\.waitUntil\(closePromise\)/.test(serverContent) &&
-      /(?:effectiveCtx|ctx)\.waitUntil\(closePromise\)/.test(apiRoutesContent),
-      'server.mjs and api-routes.mjs must offload socket teardown to waitUntil(closePromise)'
+      serverContent.includes('serverBackgroundTaskQueue') &&
+      serverContent.includes('createFastifyApp'),
+      'server.mjs must use native Fastify createFastifyApp and serverBackgroundTaskQueue'
     );
     assert(
       !serverContent.includes('await closePromise;') && !apiRoutesContent.includes('await closePromise;'),
       'server.mjs and api-routes.mjs must NOT contain blocking await closePromise;'
     );
-    console.log('  ✓ [PASS] Fastify request cleanup is non-blocking (await closePromise strictly eradicated)');
+    console.log('  ✓ [PASS] Fastify native request lifecycle verified (blocking socket loops eradicated)');
   }
 
   // 16. Eliminate Render-Blocking Head Scripts & Ensure Lucide/Alpine Deferral Ordering
