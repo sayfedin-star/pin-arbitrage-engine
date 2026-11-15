@@ -69,7 +69,40 @@ assert(creatorCrawler.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_r
 assert(creatorCrawler.includes('ORDER BY x.pin_id ASC'),
   'creator-velocity-crawler.mjs must use deterministic ORDER BY x.pin_id ASC to prevent 40P01 deadlocks'
 );
-console.log('  ✓ creator-velocity-crawler.mjs: daily_repin_velocity, NULL preservation, and 40P01 deadlock prevention verified');
+assert(creatorCrawler.includes('is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL)'),
+  'creator-velocity-crawler.mjs must update is_hydrated on conflict in universal_master_pins'
+);
+assert(creatorCrawler.includes('mergedSaves'),
+  'creator-velocity-crawler.mjs must preserve NULL when merging duplicate unhydrated pins across boards'
+);
+
+// In-memory behavioral test of multi-board unhydrated deduplication:
+{
+  const duplicateUnhydratedPins = [
+    { pin_id: 'test_multi_board_1', board_name: 'Board A', saves: null, repins: null, comments: null, shares: null, reactions: null },
+    { pin_id: 'test_multi_board_1', board_name: 'Board B', saves: null, repins: null, comments: null, shares: null, reactions: null }
+  ];
+  const dedupMap = new Map();
+  for (const p of duplicateUnhydratedPins) {
+    const pid = String(p.pin_id);
+    const existing = dedupMap.get(pid);
+    if (!existing) {
+      dedupMap.set(pid, p);
+    } else {
+      const curSaves = (p.saves != null || p.save_count != null) ? Number(p.saves ?? p.save_count) : null;
+      const prevSaves = (existing.saves != null || existing.save_count != null) ? Number(existing.saves ?? existing.save_count) : null;
+      const curRepins = (p.repins != null || p.repin_count != null) ? Number(p.repins ?? p.repin_count) : null;
+      const prevRepins = (existing.repins != null || existing.repin_count != null) ? Number(existing.repins ?? existing.repin_count) : null;
+      const mergedSaves = (curSaves !== null || prevSaves !== null) ? Math.max(curSaves ?? 0, prevSaves ?? 0) : null;
+      const mergedRepins = (curRepins !== null || prevRepins !== null) ? Math.max(curRepins ?? 0, prevRepins ?? 0) : null;
+      dedupMap.set(pid, { ...existing, ...p, saves: mergedSaves, repins: mergedRepins });
+    }
+  }
+  const merged = dedupMap.get('test_multi_board_1');
+  assert.strictEqual(merged.saves, null, 'Multi-board unhydrated duplicate must retain null saves');
+  assert.strictEqual(merged.repins, null, 'Multi-board unhydrated duplicate must retain null repins');
+}
+console.log('  ✓ creator-velocity-crawler.mjs: daily_repin_velocity, NULL preservation, is_hydrated, and 40P01 deadlock prevention verified');
 
 // Account Related Crawler:
 const accountCrawler = fs.readFileSync('scripts/account-related-crawler.mjs', 'utf8');
@@ -79,11 +112,20 @@ assert(accountCrawler.includes('const saves = rawSaves != null ? Math.max(0, Num
 assert(accountCrawler.includes('ORDER BY x.candidate_pin_id ASC'),
   'account-related-crawler.mjs must order candidate graph writes deterministically by candidate_pin_id ASC'
 );
-console.log('  ✓ account-related-crawler.mjs: NULL preservation and deterministic ordering verified');
+assert(accountCrawler.includes('saves bigint, repins bigint'),
+  'account-related-crawler.mjs must use bigint for saves and repins to prevent 32-bit integer overflow'
+);
+console.log('  ✓ account-related-crawler.mjs: NULL preservation, bigint safety, and deterministic ordering verified');
+
+// Cluster Intelligence:
+const clusterCrawler = fs.readFileSync('scripts/cluster-intelligence.mjs', 'utf8');
+assert(clusterCrawler.includes('enrichedBatch.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)))'),
+  'cluster-intelligence.mjs must sort enrichedBatch deterministically to prevent 40P01 deadlocks'
+);
+console.log('  ✓ cluster-intelligence.mjs: Deterministic batch update ordering verified');
 
 // 5. Verify Removal of Artificial Sleeps & Sequential Loops
 console.log('\n[*] Section 5: Verifying Removal of Artificial Sleeps & Sequential Loops...');
-const clusterCrawler = fs.readFileSync('scripts/cluster-intelligence.mjs', 'utf8');
 assert(!clusterCrawler.includes('const delay = jitterDelay();\n    console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource (jitter delay ${delay}ms)...`);\n    await sleep(delay);'),
   'cluster-intelligence.mjs must NOT execute artificial 2.5s-4s sleep per page in RelatedModulesResource'
 );

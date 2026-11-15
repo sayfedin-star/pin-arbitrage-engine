@@ -229,7 +229,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
           x.provenance_engine, NOW()
         FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(candidateRows))}::jsonb) AS x(
           competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
-          dominant_color varchar, saves int, repins int, domain text, destination_url text,
+          dominant_color varchar, saves bigint, repins bigint, domain text, destination_url text,
           is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
           provenance_engine varchar
         )

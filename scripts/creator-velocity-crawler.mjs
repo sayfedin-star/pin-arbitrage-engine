@@ -225,10 +225,28 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     if (!existing) {
       pinDedupMap.set(pid, p);
     } else {
-      const curSaves = Number(p.saves ?? p.save_count ?? 0);
-      const prevSaves = Number(existing.saves ?? existing.save_count ?? 0);
-      const curRepins = Number(p.repins ?? p.repin_count ?? 0);
-      const prevRepins = Number(existing.repins ?? existing.repin_count ?? 0);
+      const curSaves = (p.saves != null || p.save_count != null) ? Number(p.saves ?? p.save_count) : null;
+      const prevSaves = (existing.saves != null || existing.save_count != null) ? Number(existing.saves ?? existing.save_count) : null;
+      const curRepins = (p.repins != null || p.repin_count != null) ? Number(p.repins ?? p.repin_count) : null;
+      const prevRepins = (existing.repins != null || existing.repin_count != null) ? Number(existing.repins ?? existing.repin_count) : null;
+      const curComments = (p.comments != null || p.comment_count != null) ? Number(p.comments ?? p.comment_count) : null;
+      const prevComments = (existing.comments != null || existing.comment_count != null) ? Number(existing.comments ?? existing.comment_count) : null;
+      const curShares = (p.shares != null || p.share_count != null) ? Number(p.shares ?? p.share_count) : null;
+      const prevShares = (existing.shares != null || existing.share_count != null) ? Number(existing.shares ?? existing.share_count) : null;
+
+      const mergedSaves = (curSaves !== null || prevSaves !== null)
+        ? Math.max(curSaves ?? 0, prevSaves ?? 0)
+        : null;
+      const mergedRepins = (curRepins !== null || prevRepins !== null)
+        ? Math.max(curRepins ?? 0, prevRepins ?? 0)
+        : null;
+      const mergedComments = (curComments !== null || prevComments !== null)
+        ? Math.max(curComments ?? 0, prevComments ?? 0)
+        : null;
+      const mergedShares = (curShares !== null || prevShares !== null)
+        ? Math.max(curShares ?? 0, prevShares ?? 0)
+        : null;
+
       pinDedupMap.set(pid, {
         ...existing,
         ...p,
@@ -239,20 +257,28 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         description: p.description || existing.description,
         alt_text: p.alt_text || existing.alt_text,
         board_name: p.board_name || existing.board_name,
-        saves: Math.max(curSaves, prevSaves),
-        repins: Math.max(curRepins, prevRepins),
-        comments: Math.max(Number(p.comments ?? p.comment_count ?? 0), Number(existing.comments ?? existing.comment_count ?? 0)),
-        shares: Math.max(Number(p.shares ?? p.share_count ?? 0), Number(existing.shares ?? existing.share_count ?? 0))
+        saves: mergedSaves,
+        repins: mergedRepins,
+        comments: mergedComments,
+        shares: mergedShares
       });
     }
   }
 
   const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   const cleanPins = sortedPins.map(p => {
-    const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
-      ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-      : (Number(p.reactions) || 0);
+    let reactionCount = null;
+    if (p.reaction_count != null) {
+      reactionCount = Math.max(0, Number(p.reaction_count));
+    } else if (p.reactions && typeof p.reactions === 'object' && Object.keys(p.reactions).length > 0) {
+      reactionCount = Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0);
+    } else if (p.reactions != null && !isNaN(Number(p.reactions))) {
+      reactionCount = Math.max(0, Number(p.reactions));
+    }
     const richMeta = buildRichPinMetadataPayload(p);
+    const hasSaves = p.saves != null || p.save_count != null;
+    const saveCount = hasSaves ? Math.max(0, Number(p.saves ?? p.save_count)) : null;
+    const isHydrated = Boolean(p.is_hydrated || (hasSaves && saveCount !== null));
 
     return {
       pin_id: String(p.pin_id).trim(),
@@ -268,11 +294,12 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
       visual_annotations: p.annotations || p.visual_annotations || [],
       created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
       metadata: richMeta,
-      save_count: (p.saves != null || p.save_count != null) ? Math.max(0, Number(p.saves ?? p.save_count)) : null,
+      save_count: saveCount,
       repin_count: (p.repins != null || p.repin_count != null) ? Math.max(0, Number(p.repins ?? p.repin_count)) : null,
       comment_count: (p.comments != null || p.comment_count != null) ? Math.max(0, Number(p.comments ?? p.comment_count)) : null,
       share_count: (p.shares != null || p.share_count != null) ? Math.max(0, Number(p.shares ?? p.share_count)) : null,
-      reaction_count: (p.reaction_count != null || reactionCount != null) ? Math.max(0, Number(p.reaction_count ?? reactionCount)) : null,
+      reaction_count: reactionCount,
+      is_hydrated: isHydrated,
       daily_save_velocity: (p.velocity != null || p.daily_save_velocity != null) ? Number(p.velocity ?? p.daily_save_velocity) : null,
       daily_repin_velocity: (p.repin_velocity != null || p.daily_repin_velocity != null || p.delta_repins_24h != null || p.delta_repins != null) ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins) : null,
       delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null) ? Math.max(0, Number(p.delta_repins_24h ?? p.delta_repins)) : null,
@@ -293,20 +320,20 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     await withDbRetry(() => dbSql`
       INSERT INTO universal_master_pins (
         pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, delta_repins_24h,
+        save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated, daily_save_velocity, daily_repin_velocity, delta_repins_24h,
         is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
         first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
       )
       SELECT DISTINCT ON (x.pin_id)
         x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
         x.save_count::bigint, x.repin_count::bigint, x.comment_count::int,
-        x.share_count::int, x.reaction_count::int, x.daily_save_velocity::numeric, x.daily_repin_velocity::numeric, x.delta_repins_24h::int,
+        x.share_count::int, x.reaction_count::int, COALESCE(x.is_hydrated, (x.save_count IS NOT NULL)), x.daily_save_velocity::numeric, x.daily_repin_velocity::numeric, x.delta_repins_24h::int,
         COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
         x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
         'creator_hub', NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${payload}::jsonb) AS x(
         pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
-        save_count BIGINT, repin_count BIGINT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC, daily_repin_velocity NUMERIC, delta_repins_24h INT,
+        save_count BIGINT, repin_count BIGINT, comment_count INT, share_count INT, reaction_count INT, is_hydrated BOOLEAN, daily_save_velocity NUMERIC, daily_repin_velocity NUMERIC, delta_repins_24h INT,
         is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
       )
       ORDER BY x.pin_id ASC
@@ -328,6 +355,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         comment_count = COALESCE(EXCLUDED.comment_count, universal_master_pins.comment_count),
         share_count = COALESCE(EXCLUDED.share_count, universal_master_pins.share_count),
         reaction_count = COALESCE(EXCLUDED.reaction_count, universal_master_pins.reaction_count),
+        is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL),
         daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, universal_master_pins.daily_save_velocity),
         daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity),
         delta_repins_24h = COALESCE(EXCLUDED.delta_repins_24h, universal_master_pins.delta_repins_24h),

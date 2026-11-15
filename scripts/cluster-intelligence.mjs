@@ -934,6 +934,9 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
     }
 
     if (enrichedBatch.length > 0) {
+      // Strictly sort by candidate_pin_id ASC to guarantee deterministic order and prevent 40P01 deadlocks
+      enrichedBatch.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
+
       // Single bulk batch commit via jsonb_to_recordset replacing individual UPDATE round-trips
       await sql`
         UPDATE candidate_graph_nodes cgn
