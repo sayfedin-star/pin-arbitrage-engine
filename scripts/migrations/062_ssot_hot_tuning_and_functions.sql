@@ -1,0 +1,161 @@
+-- Migration 062: SSOT HOT Tuning, Functions, and 20-Worker Partition Indexes
+-- 1. Recreates mv_pulse_24h_summary with strict 24h hydration filtering and NULLIF deduplication.
+-- 2. Consolidates pa_topic_clusters_page into a single canonical function with DISTINCT ON deduplication.
+-- 3. Drops HOT-blocking indexes (idx_ump_last_scraped_at_desc, idx_ump_updated_at_desc, idx_ksp_displaced_updated_desc, idx_pdm_pin_recorded_desc).
+-- 4. Creates missing SSOT, GIN, and 20-worker modulo partition indexes.
+-- 5. Backfills and enforces canonical_keyword on tracked_keywords via trigger and unique index.
+
+-- 1. Recreate Materialized View for 24h Pulse Executive Telemetry
+DROP MATERIALIZED VIEW IF EXISTS public.mv_pulse_24h_summary CASCADE;
+
+CREATE MATERIALIZED VIEW public.mv_pulse_24h_summary AS
+SELECT
+  1 AS summary_id,
+  COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+  COUNT(DISTINCT NULLIF(ump.clean_domain, ''))::bigint AS active_domains_24h,
+  COUNT(DISTINCT NULLIF(ump.creator_username, ''))::bigint AS active_creators_24h,
+  COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+  COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+  COALESCE(SUM(ump.delta_saves_24h), 0)::bigint AS total_delta_saves_24h,
+  NOW() AS refreshed_at
+FROM public.universal_master_pins ump
+WHERE ump.is_hydrated = TRUE
+  AND GREATEST(COALESCE(ump.last_scraped_at, ump.updated_at), ump.updated_at) >= NOW() - INTERVAL '24 hours';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_pulse_24h_summary_id
+  ON public.mv_pulse_24h_summary (summary_id);
+
+-- 2. Consolidate pa_topic_clusters_page into single canonical function
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, INT, TEXT, INT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(INT, TEXT, INT, INT, TEXT);
+DROP FUNCTION IF EXISTS public.pa_topic_clusters_page(integer, text, integer, integer, text);
+
+CREATE OR REPLACE FUNCTION public.pa_topic_clusters_page(
+  p_min_pins integer DEFAULT 1,
+  p_search text DEFAULT NULL,
+  p_limit integer DEFAULT 50,
+  p_offset integer DEFAULT 0,
+  p_account text DEFAULT NULL
+)
+RETURNS TABLE (
+  topic_name TEXT,
+  pins_count BIGINT,
+  total_saves NUMERIC,
+  avg_saves BIGINT,
+  avg_velocity NUMERIC
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  WITH extracted AS (
+    SELECT
+      CASE
+        WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+        WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+        ELSE NULL
+      END AS raw_topic,
+      ump.pin_id,
+      COALESCE(ump.save_count, 0) AS saves,
+      COALESCE(ump.daily_save_velocity, 0) AS velocity
+    FROM public.universal_master_pins ump,
+    LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(ump.visual_annotations) = 'array' THEN ump.visual_annotations ELSE '[]'::jsonb END) AS ann
+    WHERE (
+        (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+        OR
+        (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+      )
+      AND (p_account IS NULL OR p_account = '' OR ump.creator_username = p_account)
+  ),
+  deduped AS (
+    SELECT DISTINCT ON (e.pin_id, e.raw_topic)
+      e.raw_topic,
+      e.pin_id,
+      e.saves,
+      e.velocity
+    FROM extracted e
+    ORDER BY e.pin_id, e.raw_topic
+  ),
+  aggregated AS (
+    SELECT
+      d.raw_topic AS t_name,
+      COUNT(d.pin_id)::BIGINT AS p_count,
+      COALESCE(SUM(d.saves), 0)::NUMERIC AS s_saves,
+      CASE WHEN COUNT(d.pin_id) > 0 THEN (COALESCE(SUM(d.saves), 0) / COUNT(d.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+      ROUND(AVG(d.velocity)::numeric, 2) AS a_velocity
+    FROM deduped d
+    WHERE (p_search IS NULL OR p_search = '' OR d.raw_topic ILIKE '%' || p_search || '%')
+    GROUP BY d.raw_topic
+    HAVING COUNT(d.pin_id) >= COALESCE(p_min_pins, 1)
+  )
+  SELECT
+    a.t_name AS topic_name,
+    a.p_count AS pins_count,
+    a.s_saves AS total_saves,
+    a.a_saves AS avg_saves,
+    a.a_velocity AS avg_velocity
+  FROM aggregated a
+  ORDER BY a.s_saves DESC
+  LIMIT COALESCE(p_limit, 50)
+  OFFSET COALESCE(p_offset, 0);
+END;
+$$;
+
+-- 3. Drop HOT-blocking and redundant indexes
+DROP INDEX IF EXISTS public.idx_ump_last_scraped_at_desc;
+DROP INDEX IF EXISTS public.idx_ump_updated_at_desc;
+DROP INDEX IF EXISTS public.idx_ksp_displaced_updated_desc;
+DROP INDEX IF EXISTS public.idx_pdm_pin_recorded_desc;
+
+-- 4. Create missing SSOT & 20-worker partition indexes
+CREATE INDEX IF NOT EXISTS idx_ump_visual_annotations_gin ON public.universal_master_pins USING gin (visual_annotations);
+CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON public.universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));
+CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON public.keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20));
+CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));
+CREATE INDEX IF NOT EXISTS idx_ump_is_product ON public.universal_master_pins (is_product);
+CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON public.competitor_board_pins (competitor_id, pin_id);
+CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON public.tracked_keywords (LOWER(TRIM(keyword)));
+CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON public.competitor_profiles (LOWER(TRIM(REPLACE(username, '@', ''))));
+
+-- 5. Backfill and enforce canonical_keyword on public.tracked_keywords
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tracked_keywords' AND column_name = 'canonical_keyword'
+  ) THEN
+    ALTER TABLE public.tracked_keywords ADD COLUMN canonical_keyword VARCHAR(255);
+  END IF;
+END $$;
+
+UPDATE public.tracked_keywords
+SET canonical_keyword = LOWER(TRIM(keyword))
+WHERE canonical_keyword IS NULL OR canonical_keyword = '';
+
+CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.canonical_keyword IS NULL OR TRIM(NEW.canonical_keyword) = '' THEN
+    NEW.canonical_keyword := LOWER(TRIM(NEW.keyword));
+  ELSE
+    NEW.canonical_keyword := LOWER(TRIM(NEW.canonical_keyword));
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_tk_sync_canonical_keyword ON public.tracked_keywords;
+
+CREATE TRIGGER trg_tk_sync_canonical_keyword
+  BEFORE INSERT OR UPDATE OF keyword, canonical_keyword ON public.tracked_keywords
+  FOR EACH ROW EXECUTE FUNCTION public.pae_sync_canonical_keyword();
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords
+  ON public.tracked_keywords (canonical_keyword);
+
+-- 6. Record migration in schema_migrations
+INSERT INTO public.schema_migrations (version, name, checksum, applied_at)
+VALUES ('062', 'ssot_hot_tuning_and_functions', 'phase4_ssot_hot_tuning_062', NOW())
+ON CONFLICT (version) DO UPDATE SET applied_at = NOW();

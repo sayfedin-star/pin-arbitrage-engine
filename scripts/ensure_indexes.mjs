@@ -90,16 +90,15 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_hydrated ON universal_master_pins(is_hydrated);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_recorded_desc ON pins_daily_metrics(pin_id, recorded_date DESC);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_pdm_pin_recorded_desc;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_pdm_recorded_date ON pins_daily_metrics(recorded_date);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON competitor_board_pins(competitor_id, position ASC NULLS LAST);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cbp_pin;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_pin_id ON competitor_board_pins(pin_id);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_last_scraped_at_desc ON universal_master_pins(last_scraped_at DESC);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_updated_at_desc ON universal_master_pins(updated_at DESC);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_last_scraped_at_desc;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_updated_at_desc;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_destination_url ON universal_master_pins(destination_url);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_date ON keyword_serp_positions(displaced_date) WHERE is_displaced = TRUE;`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_updated_desc ON keyword_serp_positions(updated_at DESC) WHERE is_displaced = TRUE;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ksp_displaced_updated_desc;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksp_pin_displaced_rank ON keyword_serp_positions(pin_id, is_displaced ASC, rank_position ASC NULLS LAST);`.catch(() => {});
 
   console.log('[*] 12. Ensuring clean_domain B-Tree indexes and pae_sync_clean_domain triggers...');
@@ -142,6 +141,39 @@ async function optimizeIndexes() {
     CREATE TRIGGER trg_ump_sync_clean_domain
       BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain ON universal_master_pins
       FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+
+  console.log('[*] 13. Ensuring 062 SSOT and 20-worker modulo partition indexes...');
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_visual_annotations_gin ON universal_master_pins USING gin (visual_annotations);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_product ON universal_master_pins (is_product);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON competitor_board_pins (competitor_id, pin_id);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON tracked_keywords (LOWER(TRIM(keyword)));`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles (LOWER(TRIM(REPLACE(username, '@', ''))));`.catch(() => {});
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords ON tracked_keywords (canonical_keyword);`.catch(() => {});
+
+  await sql`
+    CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.canonical_keyword IS NULL OR TRIM(NEW.canonical_keyword) = '' THEN
+        NEW.canonical_keyword := LOWER(TRIM(NEW.keyword));
+      ELSE
+        NEW.canonical_keyword := LOWER(TRIM(NEW.canonical_keyword));
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+  `.catch(err => console.warn('[Trigger Notice]', err.message));
+  await sql`DROP TRIGGER IF EXISTS trg_tk_sync_canonical_keyword ON tracked_keywords;`.catch(() => {});
+  await sql`
+    CREATE TRIGGER trg_tk_sync_canonical_keyword
+      BEFORE INSERT OR UPDATE OF keyword, canonical_keyword ON tracked_keywords
+      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_canonical_keyword();
   `.catch(err => console.warn('[Trigger Notice]', err.message));
 
   console.log('[+] All indexes and columns verified and active in Unified PostgreSQL SSOT!');

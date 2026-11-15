@@ -29,6 +29,56 @@ export function isTransientPgConnectionError(err) {
 }
 
 /**
+ * Returns true if a SQL query is read-only (SELECT, EXPLAIN, SHOW, TABLE, read-only CTE),
+ * ensuring non-idempotent mutations (INSERT, UPDATE, DELETE) are not blindly re-executed on socket drops.
+ *
+ * @param {string|Array<string>|object} queryInput
+ * @returns {boolean}
+ */
+export function isReadOnlyQuery(queryInput) {
+  let text = '';
+  if (typeof queryInput === 'string') {
+    text = queryInput;
+  } else if (Array.isArray(queryInput)) {
+    text = queryInput.join(' ');
+  } else if (queryInput && typeof queryInput === 'object') {
+    if (Array.isArray(queryInput.strings)) {
+      text = queryInput.strings.join(' ');
+    } else if (Array.isArray(queryInput.raw)) {
+      text = queryInput.raw.join(' ');
+    }
+  }
+
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+
+  // Strip multi-line and single-line SQL comments
+  const cleaned = text
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--.*$/gm, ' ')
+    .trim();
+
+  if (!cleaned) return false;
+
+  const firstWordMatch = cleaned.match(/^([a-zA-Z]+)/);
+  if (!firstWordMatch) return false;
+  const firstWord = firstWordMatch[1].toUpperCase();
+
+  if (['SELECT', 'EXPLAIN', 'SHOW', 'TABLE', 'VALUES'].includes(firstWord)) {
+    return true;
+  }
+
+  if (firstWord === 'WITH') {
+    // Read-only CTE: ensure no mutating statements inside WITH or main query
+    const hasMutation = /\b(INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|DROP\s+|ALTER\s+|TRUNCATE\s+|CREATE\s+)\b/i.test(cleaned);
+    return !hasMutation;
+  }
+
+  return false;
+}
+
+/**
  * Returns true if error is a PostgreSQL statement timeout cancellation (SQLSTATE 57014).
  * Intentionally separated from automatic global retries so non-idempotent writes and fast Web APIs fail fast,
  * while explicit idempotent read callers can opt in via `withDbRetry(..., { retryOnStatementTimeout: true })`.
@@ -156,7 +206,8 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
     pgClient.unsafe = (...args) => {
       const invoke = () => origUnsafe(...args);
       const pending = invoke();
-      return wrapPendingQueryRetry(pending, invoke, retryOptions);
+      const isReadOnly = isReadOnlyQuery(args[0]);
+      return wrapPendingQueryRetry(pending, invoke, { ...retryOptions, isReadOnly });
     };
   }
 
@@ -179,7 +230,8 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
       const result = invoke();
       const isTemplateCall = Array.isArray(args[0]) && Object.hasOwn(args[0], 'raw');
       if (isTemplateCall && result && typeof result.then === 'function') {
-        return wrapPendingQueryRetry(result, invoke, retryOptions);
+        const isReadOnly = isReadOnlyQuery(args[0]);
+        return wrapPendingQueryRetry(result, invoke, { ...retryOptions, isReadOnly });
       }
       return result;
     }
@@ -190,6 +242,7 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
   if (!pending || typeof pending.then !== 'function' || pending.__paeRetryWrapped) {
     return pending;
   }
+  const isReadOnly = retryOptions.isReadOnly !== false;
   const origThen = pending.then.bind(pending);
   const modifiers = [];
   for (const modName of ['values', 'raw', 'simple']) {
@@ -220,7 +273,7 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
     if (!settledPromise) {
       settledPromise = (async () => {
         try {
-          activeQueryCount++;
+          activeQueryCount = Math.max(0, activeQueryCount + 1);
           totalQueryCount++;
           try {
             return await new Promise((resolve, reject) => {
@@ -230,8 +283,8 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
             activeQueryCount = Math.max(0, activeQueryCount - 1);
           }
         } catch (err) {
-          const maxRetries = Math.max(0, Number(retryOptions.maxRetries ?? 4));
-          if (!isTransientPgConnectionError(err) || maxRetries === 0) {
+          const maxRetries = (isReadOnly || retryOptions.forceRetry) ? Math.max(0, Number(retryOptions.maxRetries ?? 4)) : 0;
+          if (maxRetries === 0 || !isTransientPgConnectionError(err)) {
             throw err;
           }
           const baseDelayMs = Math.max(10, Number(retryOptions.baseDelayMs ?? 120));
@@ -246,16 +299,22 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
           await sleepFn(firstDelay + firstJitter);
 
           return await withDbRetry(async () => {
-            let nextQuery = invokeFn();
-            for (const [modName, modArgs] of modifiers) {
-              if (nextQuery && typeof nextQuery[modName] === 'function') {
-                nextQuery = nextQuery[modName](...modArgs);
+            activeQueryCount = Math.max(0, activeQueryCount + 1);
+            totalQueryCount++;
+            try {
+              let nextQuery = invokeFn();
+              for (const [modName, modArgs] of modifiers) {
+                if (nextQuery && typeof nextQuery[modName] === 'function') {
+                  nextQuery = nextQuery[modName](...modArgs);
+                }
               }
+              if (nextQuery && typeof nextQuery.then === 'function') {
+                return await nextQuery;
+              }
+              return nextQuery;
+            } finally {
+              activeQueryCount = Math.max(0, activeQueryCount - 1);
             }
-            if (nextQuery && typeof nextQuery.then === 'function') {
-              return await nextQuery;
-            }
-            return nextQuery;
           }, {
             ...retryOptions,
             maxRetries: Math.max(0, maxRetries - 1),
@@ -359,8 +418,17 @@ export function getSqlClient(env = null) {
     ''
   ).trim();
 
-  if (sharedClient && sharedDsn === dsn) {
-    return sharedClient;
+  if (sharedClient) {
+    if (sharedDsn === dsn) {
+      return sharedClient;
+    }
+    try {
+      if (typeof sharedClient.end === 'function') {
+        sharedClient.end({ timeout: 5 }).catch(() => {});
+      }
+    } catch (_) {}
+    sharedClient = null;
+    sharedDsn = null;
   }
 
   sharedClient = createSqlClient(dsn);
@@ -380,7 +448,7 @@ export function getPoolStats(client = null) {
     return { active: 0, idle: 0, max: 0, total_executed: totalQueryCount };
   }
   const max = targetClient.options?.max ?? Number(process.env.PG_POOL_MAX || 15);
-  const active = activeQueryCount;
+  const active = Math.max(0, activeQueryCount);
   const idle = Math.max(0, max - active);
   return {
     active,

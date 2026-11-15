@@ -8,6 +8,28 @@
  * 4. Cross-Pillar Shared Pin Freshness Gate (18-Hour Deduplication Shield for VPS Crawlers)
  */
 
+/**
+ * Canonical domain normalizer SSOT.
+ * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * Preserves 'uploaded by user' indicator for organic uploads without outbound links.
+ *
+ * @param {string} rawDomainOrUrl
+ * @returns {string} Clean domain or empty string
+ */
+export function normalizeCleanDomain(rawDomainOrUrl) {
+  if (!rawDomainOrUrl || typeof rawDomainOrUrl !== 'string') return '';
+  const trimmed = rawDomainOrUrl.trim().toLowerCase();
+  if (!trimmed) return '';
+  if (trimmed === 'uploaded by user' || trimmed === 'uploaded-by-user' || trimmed === 'organic') {
+    return 'uploaded by user';
+  }
+  return trimmed
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/[/?#].*$/, '')
+    .trim();
+}
+
 export const ANNOTATION_STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'you', 'are', 'was',
   'were', 'have', 'has', 'had', 'not', 'but', 'what', 'all', 'can', 'her', 'his',

@@ -292,6 +292,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '061',
     name: 'ssot_functions_views_and_indexes',
     aliases: ['061', '061_ssot_functions_views_and_indexes', 'ssot_functions_views_and_indexes']
+  },
+  '062_ssot_hot_tuning_and_functions.sql': {
+    version: '062',
+    name: 'ssot_hot_tuning_and_functions',
+    aliases: ['062', '062_ssot_hot_tuning_and_functions', 'ssot_hot_tuning_and_functions']
   }
 };
 
