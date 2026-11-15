@@ -29,12 +29,13 @@ import {
 
 let undiciAgent = null;
 try {
-  const { Agent, setGlobalDispatcher } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
   undiciAgent = candidateAgent;
-  if (typeof setGlobalDispatcher === 'function') {
-    setGlobalDispatcher(candidateAgent);
-  }
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 

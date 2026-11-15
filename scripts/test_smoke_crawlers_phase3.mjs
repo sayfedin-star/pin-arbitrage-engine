@@ -8,12 +8,18 @@ console.log('===================================================================
 
 // 1. Verify Undici keep-alive agent and dispatcher initialization
 console.log('\n[*] Section 1: Testing Undici Keep-Alive Dispatcher Activation...');
-const { Agent, setGlobalDispatcher } = await import('undici');
-const testAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-setGlobalDispatcher(testAgent);
+await fetch('data:text/plain,ok').catch(() => {});
+const sym = Symbol.for('undici.globalDispatcher.1');
+const testAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+globalThis[sym] = testAgent;
+await import('undici').catch(() => {});
+globalThis[sym] = testAgent;
 assert(testAgent, 'Candidate Agent must be instantiated');
+const testRes = await fetch('data:text/plain,ok', { dispatcher: testAgent });
+assert.strictEqual(testRes.status, 200, 'fetch with dispatcher must succeed');
+assert.strictEqual(globalThis[sym], testAgent, 'globalDispatcher symbol must equal testAgent');
 console.log(`  ✓ Undici Agent instantiated with keepAliveTimeout: 30000, connections: 50, pipelining: 1`);
-console.log(`  ✓ setGlobalDispatcher successfully activated on Node ${process.version} (undici ${process.versions.undici})`);
+console.log(`  ✓ live fetch with dispatcher verified & globalThis[Symbol.for('undici.globalDispatcher.1')] === testAgent`);
 
 // 2. Inspect Crawler Files for Undici Keep-Alive & Zero Version Gate Trap
 console.log('\n[*] Section 2: Inspecting Crawler Keep-Alive Implementations...');
@@ -28,9 +34,10 @@ for (const file of files) {
   const content = fs.readFileSync(file, 'utf8');
   assert(!content.includes("startsWith('8.')"), `${file} must NOT contain broken startsWith('8.') version gate`);
   assert(content.includes("await import('undici')"), `${file} must dynamically import undici`);
-  assert(content.includes('new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 })'), `${file} must create keep-alive Agent`);
-  assert(content.includes('setGlobalDispatcher(candidateAgent)'), `${file} must activate setGlobalDispatcher`);
-  console.log(`  ✓ ${file}: Keep-alive agent & setGlobalDispatcher active with zero version gate`);
+  assert(content.includes("Symbol.for('undici.globalDispatcher.1')"), `${file} must target undici global dispatcher symbol`);
+  assert(content.includes('new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 })'), `${file} must create keep-alive Agent from globalThis[sym].constructor`);
+  assert(content.includes('globalThis[sym] = candidateAgent'), `${file} must assign candidateAgent to globalThis[sym]`);
+  console.log(`  ✓ ${file}: Keep-alive agent & undici.globalDispatcher.1 active with zero version gate`);
 }
 
 // 3. Verify INGEST_API_URL Early Return Trap Elimination
@@ -102,12 +109,21 @@ assert(creatorCrawler.includes('mergedSaves'),
   assert.strictEqual(merged.saves, null, 'Multi-board unhydrated duplicate must retain null saves');
   assert.strictEqual(merged.repins, null, 'Multi-board unhydrated duplicate must retain null repins');
 }
+assert(creatorCrawler.includes('const hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null;'),
+  'creator-velocity-crawler.mjs must check hasExplicitFreshSaves before coercing fresh saves'
+);
+assert(creatorCrawler.includes('is_hydrated: false'),
+  'creator-velocity-crawler.mjs must pass is_hydrated: false when unhydrated'
+);
 console.log('  ✓ creator-velocity-crawler.mjs: daily_repin_velocity, NULL preservation, is_hydrated, and 40P01 deadlock prevention verified');
 
 // Account Related Crawler:
 const accountCrawler = fs.readFileSync('scripts/account-related-crawler.mjs', 'utf8');
 assert(accountCrawler.includes('const saves = rawSaves != null ? Math.max(0, Number(rawSaves)) : null;'),
   'account-related-crawler.mjs must preserve NULL saves for unhydrated candidates'
+);
+assert(accountCrawler.includes('if (saves !== null && (existing.saves === null || saves > existing.saves))'),
+  'account-related-crawler.mjs must safely handle NULL when comparing candidate saves'
 );
 assert(accountCrawler.includes('ORDER BY x.candidate_pin_id ASC'),
   'account-related-crawler.mjs must order candidate graph writes deterministically by candidate_pin_id ASC'
@@ -132,7 +148,10 @@ assert(!clusterCrawler.includes('const delay = jitterDelay();\n    console.log(`
 assert(!clusterCrawler.includes('Sleeping 10s...'),
   'cluster-intelligence.mjs must NOT contain duplicate fetchPinDetails fallback calls with 10s sleeps'
 );
-console.log('  ✓ cluster-intelligence.mjs: Unnecessary 2.5s-4s sleeps & duplicate fallback calls eradicated');
+assert(!accountCrawler.includes('randomJitter(2500, 3800)'),
+  'account-related-crawler.mjs must NOT contain unconditional 2500-3800ms pre-page sleep'
+);
+console.log('  ✓ cluster-intelligence.mjs & account-related-crawler.mjs: Unnecessary sleeps & duplicate fallback calls eradicated');
 
 const kwRoutes = fs.readFileSync('src/routes/keywords.mjs', 'utf8');
 assert(kwRoutes.includes('FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)'),

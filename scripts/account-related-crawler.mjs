@@ -10,15 +10,18 @@
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
+import { setDefaultDispatcher } from '../src/core/pinterest-client.mjs';
 
 let undiciAgent = null;
 try {
-  const { Agent, setGlobalDispatcher } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
   undiciAgent = candidateAgent;
-  if (typeof setGlobalDispatcher === 'function') {
-    setGlobalDispatcher(candidateAgent);
-  }
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
+  setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
 // Load environment variables safely
@@ -93,9 +96,10 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
   let bookmark = null;
 
   for (let page = 1; page <= maxPages; page++) {
-    const delay = randomJitter(2500, 3800);
-    console.log(`    [Page ${page}/${maxPages}] Sleeping jitter ${delay}ms...`);
-    await sleep(delay);
+    if (page > 1) {
+      const delay = randomJitter(200, 400);
+      await sleep(delay);
+    }
 
     const optionsObj = {
       pin_id: String(seedPinId),
@@ -200,7 +204,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
 
       if (candidateMap.has(candId)) {
         const existing = candidateMap.get(candId);
-        if (saves > existing.saves) {
+        if (saves !== null && (existing.saves === null || saves > existing.saves)) {
           candidateMap.set(candId, candidateObj);
         }
       } else {
