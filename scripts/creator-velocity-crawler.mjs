@@ -61,11 +61,13 @@ import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mj
 // Setup optional Undici keep-alive agent
 let undiciAgent = null;
 try {
-  const { Agent } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  if (String(process.versions?.undici || '').startsWith('8.')) {
-    undiciAgent = candidateAgent;
-  }
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
+  undiciAgent = candidateAgent;
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
@@ -182,9 +184,9 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
         (NOW() AT TIME ZONE 'UTC')::date, 
         x.saves::bigint, 
         x.repins::bigint, 
-        COALESCE(x.comments, 0)::int,
-        COALESCE(x.share_count, 0)::int,
-        COALESCE(x.reaction_count, 0)::int,
+        x.comments::int,
+        x.share_count::int,
+        x.reaction_count::int,
         x.velocity::numeric,
         x.repin_velocity::numeric,
         NOW()
@@ -193,13 +195,13 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
       )
       ORDER BY x.pin_id ASC
       ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
-        save_count = EXCLUDED.save_count,
-        repin_count = EXCLUDED.repin_count,
-        comment_count = EXCLUDED.comment_count,
-        share_count = EXCLUDED.share_count,
-        reaction_count = EXCLUDED.reaction_count,
-        daily_save_velocity = EXCLUDED.daily_save_velocity,
-        daily_repin_velocity = EXCLUDED.daily_repin_velocity,
+        save_count = COALESCE(EXCLUDED.save_count, pins_daily_metrics.save_count),
+        repin_count = COALESCE(EXCLUDED.repin_count, pins_daily_metrics.repin_count),
+        comment_count = COALESCE(EXCLUDED.comment_count, pins_daily_metrics.comment_count),
+        share_count = COALESCE(EXCLUDED.share_count, pins_daily_metrics.share_count),
+        reaction_count = COALESCE(EXCLUDED.reaction_count, pins_daily_metrics.reaction_count),
+        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity),
+        daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity),
         updated_at = NOW();
     `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
     totalCommitted += chunk.length;
@@ -224,10 +226,28 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     if (!existing) {
       pinDedupMap.set(pid, p);
     } else {
-      const curSaves = Number(p.saves ?? p.save_count ?? 0);
-      const prevSaves = Number(existing.saves ?? existing.save_count ?? 0);
-      const curRepins = Number(p.repins ?? p.repin_count ?? 0);
-      const prevRepins = Number(existing.repins ?? existing.repin_count ?? 0);
+      const curSaves = (p.saves != null || p.save_count != null) ? Number(p.saves ?? p.save_count) : null;
+      const prevSaves = (existing.saves != null || existing.save_count != null) ? Number(existing.saves ?? existing.save_count) : null;
+      const curRepins = (p.repins != null || p.repin_count != null) ? Number(p.repins ?? p.repin_count) : null;
+      const prevRepins = (existing.repins != null || existing.repin_count != null) ? Number(existing.repins ?? existing.repin_count) : null;
+      const curComments = (p.comments != null || p.comment_count != null) ? Number(p.comments ?? p.comment_count) : null;
+      const prevComments = (existing.comments != null || existing.comment_count != null) ? Number(existing.comments ?? existing.comment_count) : null;
+      const curShares = (p.shares != null || p.share_count != null) ? Number(p.shares ?? p.share_count) : null;
+      const prevShares = (existing.shares != null || existing.share_count != null) ? Number(existing.shares ?? existing.share_count) : null;
+
+      const mergedSaves = (curSaves !== null || prevSaves !== null)
+        ? Math.max(curSaves ?? 0, prevSaves ?? 0)
+        : null;
+      const mergedRepins = (curRepins !== null || prevRepins !== null)
+        ? Math.max(curRepins ?? 0, prevRepins ?? 0)
+        : null;
+      const mergedComments = (curComments !== null || prevComments !== null)
+        ? Math.max(curComments ?? 0, prevComments ?? 0)
+        : null;
+      const mergedShares = (curShares !== null || prevShares !== null)
+        ? Math.max(curShares ?? 0, prevShares ?? 0)
+        : null;
+
       pinDedupMap.set(pid, {
         ...existing,
         ...p,
@@ -238,20 +258,28 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         description: p.description || existing.description,
         alt_text: p.alt_text || existing.alt_text,
         board_name: p.board_name || existing.board_name,
-        saves: Math.max(curSaves, prevSaves),
-        repins: Math.max(curRepins, prevRepins),
-        comments: Math.max(Number(p.comments ?? p.comment_count ?? 0), Number(existing.comments ?? existing.comment_count ?? 0)),
-        shares: Math.max(Number(p.shares ?? p.share_count ?? 0), Number(existing.shares ?? existing.share_count ?? 0))
+        saves: mergedSaves,
+        repins: mergedRepins,
+        comments: mergedComments,
+        shares: mergedShares
       });
     }
   }
 
   const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   const cleanPins = sortedPins.map(p => {
-    const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
-      ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-      : (Number(p.reactions) || 0);
+    let reactionCount = null;
+    if (p.reaction_count != null) {
+      reactionCount = Math.max(0, Number(p.reaction_count));
+    } else if (p.reactions && typeof p.reactions === 'object' && Object.keys(p.reactions).length > 0) {
+      reactionCount = Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0);
+    } else if (p.reactions != null && !isNaN(Number(p.reactions))) {
+      reactionCount = Math.max(0, Number(p.reactions));
+    }
     const richMeta = buildRichPinMetadataPayload(p);
+    const hasSaves = p.saves != null || p.save_count != null;
+    const saveCount = hasSaves ? Math.max(0, Number(p.saves ?? p.save_count)) : null;
+    const isHydrated = Boolean(p.is_hydrated || (hasSaves && saveCount !== null));
 
     return {
       pin_id: String(p.pin_id).trim(),
@@ -267,13 +295,15 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
       visual_annotations: p.annotations || p.visual_annotations || [],
       created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
       metadata: richMeta,
-      save_count: Math.max(0, Number(p.saves ?? p.save_count ?? 0)),
-      repin_count: Math.max(0, Number(p.repins ?? p.repin_count ?? 0)),
-      comment_count: Math.max(0, Number(p.comments ?? p.comment_count ?? 0)),
-      share_count: Math.max(0, Number(p.shares ?? p.share_count ?? 0)),
-      reaction_count: Math.max(0, Number(reactionCount || 0)),
-      daily_save_velocity: Number(p.velocity ?? p.daily_save_velocity ?? 0),
-      delta_repins_24h: p.delta_repins_24h != null ? Math.max(0, Number(p.delta_repins_24h)) : (p.delta_repins != null ? Math.max(0, Number(p.delta_repins)) : 0),
+      save_count: saveCount,
+      repin_count: (p.repins != null || p.repin_count != null) ? Math.max(0, Number(p.repins ?? p.repin_count)) : null,
+      comment_count: (p.comments != null || p.comment_count != null) ? Math.max(0, Number(p.comments ?? p.comment_count)) : null,
+      share_count: (p.shares != null || p.share_count != null) ? Math.max(0, Number(p.shares ?? p.share_count)) : null,
+      reaction_count: reactionCount,
+      is_hydrated: isHydrated,
+      daily_save_velocity: (p.velocity != null || p.daily_save_velocity != null) ? Number(p.velocity ?? p.daily_save_velocity) : null,
+      daily_repin_velocity: (p.repin_velocity != null || p.daily_repin_velocity != null || p.delta_repins_24h != null || p.delta_repins != null) ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins) : null,
+      delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null) ? Math.max(0, Number(p.delta_repins_24h ?? p.delta_repins)) : null,
       is_product: Boolean(richMeta.is_product),
       is_video: Boolean(richMeta.is_video),
       creation_method: richMeta.creation_method || null,
@@ -291,20 +321,20 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     await withDbRetry(() => dbSql`
       INSERT INTO universal_master_pins (
         pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-        save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, delta_repins_24h,
+        save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated, daily_save_velocity, daily_repin_velocity, delta_repins_24h,
         is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
         first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
       )
       SELECT DISTINCT ON (x.pin_id)
         x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
-        COALESCE(x.save_count, 0)::bigint, COALESCE(x.repin_count, 0)::int, COALESCE(x.comment_count, 0)::int,
-        COALESCE(x.share_count, 0)::int, COALESCE(x.reaction_count, 0)::int, COALESCE(x.daily_save_velocity, 0)::numeric, COALESCE(x.delta_repins_24h, 0)::int,
+        x.save_count::bigint, x.repin_count::bigint, x.comment_count::int,
+        x.share_count::int, x.reaction_count::int, COALESCE(x.is_hydrated, (x.save_count IS NOT NULL)), x.daily_save_velocity::numeric, x.daily_repin_velocity::numeric, x.delta_repins_24h::int,
         COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
         x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
         'creator_hub', NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${payload}::jsonb) AS x(
         pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
-        save_count BIGINT, repin_count INT, comment_count INT, share_count INT, reaction_count INT, daily_save_velocity NUMERIC, delta_repins_24h INT,
+        save_count BIGINT, repin_count BIGINT, comment_count INT, share_count INT, reaction_count INT, is_hydrated BOOLEAN, daily_save_velocity NUMERIC, daily_repin_velocity NUMERIC, delta_repins_24h INT,
         is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
       )
       ORDER BY x.pin_id ASC
@@ -321,13 +351,15 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
         visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
         created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
         metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-        save_count = CASE WHEN EXCLUDED.save_count > 0 THEN EXCLUDED.save_count ELSE COALESCE(universal_master_pins.save_count, 0) END,
-        repin_count = CASE WHEN EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count ELSE COALESCE(universal_master_pins.repin_count, 0) END,
-        comment_count = GREATEST(COALESCE(universal_master_pins.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
-        share_count = GREATEST(COALESCE(universal_master_pins.share_count, 0), COALESCE(EXCLUDED.share_count, 0)),
-        reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
-        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, 0),
-        delta_repins_24h = EXCLUDED.delta_repins_24h,
+        save_count = COALESCE(EXCLUDED.save_count, universal_master_pins.save_count),
+        repin_count = COALESCE(EXCLUDED.repin_count, universal_master_pins.repin_count),
+        comment_count = COALESCE(EXCLUDED.comment_count, universal_master_pins.comment_count),
+        share_count = COALESCE(EXCLUDED.share_count, universal_master_pins.share_count),
+        reaction_count = COALESCE(EXCLUDED.reaction_count, universal_master_pins.reaction_count),
+        is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL),
+        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, universal_master_pins.daily_save_velocity),
+        daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity),
+        delta_repins_24h = COALESCE(EXCLUDED.delta_repins_24h, universal_master_pins.delta_repins_24h),
         is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
         is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
         creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
@@ -565,7 +597,9 @@ async function run() {
         const myBoards = candidateBoards.filter((_, boardIdx) => boardIdx % workerTotal === workerIndex);
         console.log(`[*] [Phase 1B: Worker ${workerIndex + 1}/${workerTotal}] Assigned ${myBoards.length}/${candidateBoards.length} board(s) for parallel board swarm.`);
 
-        for (const b of myBoards) {
+        const BOARD_CONCURRENCY = 4;
+        const boardSem = new Semaphore(BOARD_CONCURRENCY);
+        await Promise.allSettled(myBoards.map(b => boardSem.run(async () => {
           try {
             await syncCompetitorBoardPins(sql, targetId, targetAccount, b, {
               mode: 'discovery',
@@ -575,7 +609,7 @@ async function run() {
           } catch (bErr) {
             console.warn(`[Phase 1B] Board "${b.name}" crawl warning:`, bErr.message);
           }
-        }
+        })));
       } catch (bQueryErr) {
         console.warn(`[Phase 1B] Boards query warning:`, bQueryErr.message);
       }
@@ -623,10 +657,12 @@ async function run() {
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myCatalogSlice.map(p => sem.run(async () => {
-        const prevSaves = Math.max(0, Number(p.ump_saves ?? p.save_count ?? 0));
-        const prevRepins = Math.max(0, Number(p.ump_repins ?? p.repin_count ?? 0));
+        const rawPrevSaves = p.ump_saves ?? p.save_count;
+        const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
+        const rawPrevRepins = p.ump_repins ?? p.repin_count;
+        const prevRepins = rawPrevRepins != null ? Math.max(0, Number(rawPrevRepins)) : null;
         const prevComments = Math.max(0, Number(p.ump_comments ?? p.comment_count ?? 0));
-        const prevVelocity = Number(p.prev_velocity ?? p.ump_velocity ?? 0);
+        const prevVelocity = (p.prev_velocity != null || p.ump_velocity != null) ? Number(p.prev_velocity ?? p.ump_velocity) : null;
 
         // 18-Hour Shared Pin Freshness Gate: Skip duplicate HTTP call if pin was already scraped within 18h in universal_master_pins
         const masterSnapshot = {
@@ -637,15 +673,15 @@ async function run() {
           creation_method: p.creation_method,
           metadata: p.ump_metadata
         };
-        if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
+        if (prevSaves != null && shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
           refreshedPins.push({
             pin_id: String(p.pin_id),
             saves: prevSaves,
             repins: prevRepins,
             comments: prevComments,
             share_count: Number(p.ump_shares || 0),
-            velocity: prevVelocity,
-            delta_saves: prevVelocity,
+            velocity: prevVelocity != null ? prevVelocity : 0,
+            delta_saves: prevVelocity != null ? prevVelocity : 0,
             delta_repins: 0
           });
           refreshedCount++;
@@ -656,7 +692,7 @@ async function run() {
         const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
         const rawRepins = fresh ? Math.max(0, Number(fresh.repins || fresh.repin_count || 0)) : 0;
 
-        if (!fresh || (rawSaves === 0 && prevSaves > 0) || (rawSaves < prevSaves * 0.8)) {
+        if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
           const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
           if (fetchRes?.ok && fetchRes?.pin) {
             fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
@@ -664,8 +700,9 @@ async function run() {
         }
 
         if (fresh) {
-          const rawFreshSaves = Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0));
-          const rawFreshRepins = Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0));
+          const hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null;
+          const rawFreshSaves = hasExplicitFreshSaves ? Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0)) : null;
+          const rawFreshRepins = (fresh.repins != null || fresh.repin_count != null) ? Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0)) : null;
           const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
           const freshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? 0));
 
@@ -674,59 +711,103 @@ async function run() {
           const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;
           const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
-          const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
-          const isRepinJump = isRepinHydrationJump(
-            { save_count: prevSaves, repin_count: prevRepins },
-            { save_count: freshSaves, repin_count: freshRepins }
-          );
-          const deltaRepins = isRepinJump ? 0 : Math.max(0, freshRepins - prevRepins);
-
           const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
             ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
             : Number(fresh.reactions || 0);
 
-          refreshedPins.push({
-            pin_id: String(p.pin_id),
-            saves: freshSaves,
-            repins: freshRepins,
-            comments: freshComments,
-            share_count: freshShares,
-            velocity: velocity,
-            delta_saves: deltaSaves,
-            delta_repins: deltaRepins
-          });
+          if (freshSaves === null) {
+            refreshedPins.push({
+              pin_id: String(p.pin_id),
+              saves: null,
+              repins: freshRepins,
+              comments: freshComments,
+              share_count: freshShares,
+              velocity: null,
+              delta_saves: null,
+              delta_repins: null
+            });
 
-          metricSnapshots.push({
-            pin_id: String(p.pin_id),
-            saves: freshSaves,
-            repins: freshRepins,
-            comments: freshComments,
-            share_count: freshShares,
-            reaction_count: totalReactions,
-            velocity: velocity
-          });
+            masterPinsToSync.push({
+              pin_id: String(p.pin_id),
+              creator_username: targetAccount,
+              board_name: p.board_name || '',
+              title: fresh.title || p.title || '',
+              domain: fresh.domain || fresh.link_domain || '',
+              destination_url: fresh.link || fresh.destination_url || p.destination_url || '',
+              image_url: fresh.image_url || p.image_url || '',
+              description: fresh.description || p.description || '',
+              alt_text: fresh.alt_text || '',
+              dominant_color: fresh.dominant_color || '#888888',
+              visual_annotations: fresh.visual_annotations || fresh.annotations || [],
+              created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
+              saves: null,
+              repins: freshRepins,
+              comments: freshComments,
+              share_count: freshShares,
+              reactions: fresh.reactions || {},
+              velocity: null,
+              daily_repin_velocity: null,
+              delta_repins_24h: null,
+              is_hydrated: false
+            });
+          } else {
+            const safePrevSaves = prevSaves ?? 0;
+            const safePrevRepins = prevRepins ?? 0;
+            const safeFreshRepins = freshRepins ?? 0;
 
-          masterPinsToSync.push({
-            pin_id: String(p.pin_id),
-            creator_username: targetAccount,
-            board_name: p.board_name || '',
-            title: fresh.title || p.title || '',
-            domain: fresh.domain || fresh.link_domain || '',
-            destination_url: fresh.link || fresh.destination_url || p.destination_url || '',
-            image_url: fresh.image_url || p.image_url || '',
-            description: fresh.description || p.description || '',
-            alt_text: fresh.alt_text || '',
-            dominant_color: fresh.dominant_color || '#888888',
-            visual_annotations: fresh.visual_annotations || fresh.annotations || [],
-            created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-            saves: freshSaves,
-            repins: freshRepins,
-            comments: freshComments,
-            share_count: freshShares,
-            reactions: fresh.reactions || {},
-            velocity: velocity,
-            delta_repins_24h: deltaRepins
-          });
+            const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
+            const isRepinJump = isRepinHydrationJump(
+              { save_count: safePrevSaves, repin_count: safePrevRepins },
+              { save_count: freshSaves, repin_count: safeFreshRepins }
+            );
+            const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
+
+            refreshedPins.push({
+              pin_id: String(p.pin_id),
+              saves: freshSaves,
+              repins: safeFreshRepins,
+              comments: freshComments,
+              share_count: freshShares,
+              velocity: velocity,
+              delta_saves: deltaSaves,
+              delta_repins: deltaRepins
+            });
+
+            metricSnapshots.push({
+              pin_id: String(p.pin_id),
+              saves: freshSaves,
+              repins: safeFreshRepins,
+              comments: freshComments,
+              share_count: freshShares,
+              reaction_count: totalReactions,
+              velocity: velocity,
+              repin_velocity: deltaRepins
+            });
+
+            masterPinsToSync.push({
+              pin_id: String(p.pin_id),
+              creator_username: targetAccount,
+              board_name: p.board_name || '',
+              title: fresh.title || p.title || '',
+              domain: fresh.domain || fresh.link_domain || '',
+              destination_url: fresh.link || fresh.destination_url || p.destination_url || '',
+              image_url: fresh.image_url || p.image_url || '',
+              description: fresh.description || p.description || '',
+              alt_text: fresh.alt_text || '',
+              dominant_color: fresh.dominant_color || '#888888',
+              visual_annotations: fresh.visual_annotations || fresh.annotations || [],
+              created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
+              saves: freshSaves,
+              repins: safeFreshRepins,
+              comments: freshComments,
+              share_count: freshShares,
+              reactions: fresh.reactions || {},
+              velocity: velocity,
+              daily_repin_velocity: deltaRepins,
+              delta_repins_24h: deltaRepins,
+              is_hydrated: true
+            });
+          }
 
           refreshedCount++;
         }
@@ -1212,8 +1293,8 @@ async function run() {
     // -------------------------------------------------------------------------
     // PHASE 1B: Full Catalog / Auto-Promoted Accounts Discovery
     // -------------------------------------------------------------------------
-    for (let i = 0; i < fullAccounts.length; i++) {
-      const acc = fullAccounts[i];
+    const fullSem = new Semaphore(Math.min(3, Math.max(1, fullAccounts.length)));
+    await Promise.allSettled(fullAccounts.map((acc, i) => fullSem.run(async () => {
       const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
       const wasAutoPromotedInThisRun = Boolean(acc._wasAutoPromotedInThisRun);
       console.log(`\n----------------------------------------------------------------`);
@@ -1263,7 +1344,7 @@ async function run() {
       `.catch(() => {});
 
       accountsProcessed++;
-    }
+    })));
 
     // -------------------------------------------------------------------------
     // PHASE 2: Global Master Pins Slice Refresh (ABS(hashtext(pin_id)) % workerTotal === workerIndex)
@@ -1294,18 +1375,20 @@ async function run() {
 
       await Promise.allSettled(myWinningSlice.map(p => sem.run(async () => {
         try {
-          const prevSaves = Math.max(0, Number(p.saves || 0));
-          const prevRepins = Math.max(0, Number(p.repins || 0));
-          const prevComments = Math.max(0, Number(p.comments || 0));
-          const prevShares = Math.max(0, Number(p.share_count || 0));
-          const prevVelocity = Number(p.velocity || 0);
+          const rawPrevSaves = p.saves ?? p.save_count;
+          const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
+          const rawPrevRepins = p.repins ?? p.repin_count;
+          const prevRepins = rawPrevRepins != null ? Math.max(0, Number(rawPrevRepins)) : null;
+          const prevComments = Math.max(0, Number(p.comments ?? p.comment_count ?? 0));
+          const prevShares = Math.max(0, Number(p.share_count ?? p.shares ?? 0));
+          const prevVelocity = (p.velocity != null) ? Number(p.velocity) : null;
 
           let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
           const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
           const rawRepins = fresh ? Math.max(0, Number(fresh.repins || fresh.repin_count || 0)) : 0;
 
           // Fallback to full scrape if suspicious drop or PinResource missing
-          if (!fresh || (rawSaves === 0 && prevSaves > 0) || (rawSaves < prevSaves * 0.8)) {
+          if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
             const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
             if (fetchRes?.ok && fetchRes?.pin) {
               fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
@@ -1313,8 +1396,9 @@ async function run() {
           }
 
           if (fresh) {
-            const rawFreshSaves = Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0));
-            const rawFreshRepins = Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0));
+            const hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null;
+            const rawFreshSaves = hasExplicitFreshSaves ? Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0)) : null;
+            const rawFreshRepins = (fresh.repins != null || fresh.repin_count != null) ? Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0)) : null;
             const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
             const freshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? prevShares));
 
@@ -1323,59 +1407,105 @@ async function run() {
             const freshSaves = rawFreshSaves > 0 ? rawFreshSaves : prevSaves;
             const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
 
-            const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, prevSaves, prevVelocity, freshRepins, prevRepins);
-            const isRepinJump = isRepinHydrationJump(
-              { save_count: prevSaves, repin_count: prevRepins },
-              { save_count: freshSaves, repin_count: freshRepins }
-            );
-            const deltaRepins = isRepinJump ? 0 : Math.max(0, freshRepins - prevRepins);
-
             const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
               ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
               : Number(fresh.reactions || 0);
 
-            refreshedPins.push({
-              pin_id: String(p.pin_id),
-              saves: freshSaves,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              velocity: velocity,
-              delta_saves: deltaSaves,
-              delta_repins: deltaRepins
-            });
+            if (freshSaves === null) {
+              // Still unhydrated: pass saves: null, velocity: null, daily_repin_velocity: null, delta_repins_24h: null, is_hydrated: false
+              refreshedPins.push({
+                pin_id: String(p.pin_id),
+                saves: null,
+                repins: freshRepins,
+                comments: freshComments,
+                share_count: freshShares,
+                velocity: null,
+                delta_saves: null,
+                delta_repins: null
+              });
 
-            metricSnapshots.push({
-              pin_id: String(p.pin_id),
-              saves: freshSaves,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              reaction_count: totalReactions,
-              velocity: velocity
-            });
+              masterPinsToSync.push({
+                pin_id: String(p.pin_id),
+                creator_username: p.account_username || '',
+                board_name: p.board_name || '',
+                title: fresh.title || p.title || '',
+                domain: fresh.domain || fresh.link_domain || p.domain || '',
+                destination_url: fresh.link || fresh.destination_url || p.link || '',
+                image_url: fresh.image_url || p.image_url || '',
+                description: fresh.description || '',
+                alt_text: fresh.alt_text || p.alt_text || '',
+                dominant_color: fresh.dominant_color || p.dominant_color || '#888888',
+                visual_annotations: fresh.visual_annotations || fresh.annotations || p.annotations || [],
+                created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
+                saves: null,
+                repins: freshRepins,
+                comments: freshComments,
+                share_count: freshShares,
+                reactions: fresh.reactions || {},
+                velocity: null,
+                daily_repin_velocity: null,
+                delta_repins_24h: null,
+                is_hydrated: false
+              });
+            } else {
+              // Hydrated pin
+              const safePrevSaves = prevSaves ?? 0;
+              const safePrevRepins = prevRepins ?? 0;
+              const safeFreshRepins = freshRepins ?? 0;
 
-            masterPinsToSync.push({
-              pin_id: String(p.pin_id),
-              creator_username: p.account_username || '',
-              board_name: p.board_name || '',
-              title: fresh.title || p.title || '',
-              domain: fresh.domain || fresh.link_domain || p.domain || '',
-              destination_url: fresh.link || fresh.destination_url || p.link || '',
-              image_url: fresh.image_url || p.image_url || '',
-              description: fresh.description || '',
-              alt_text: fresh.alt_text || p.alt_text || '',
-              dominant_color: fresh.dominant_color || p.dominant_color || '#888888',
-              visual_annotations: fresh.visual_annotations || fresh.annotations || p.annotations || [],
-              created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-              saves: freshSaves,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              reactions: fresh.reactions || {},
-              velocity: velocity,
-              delta_repins_24h: deltaRepins
-            });
+              const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
+              const isRepinJump = isRepinHydrationJump(
+                { save_count: safePrevSaves, repin_count: safePrevRepins },
+                { save_count: freshSaves, repin_count: safeFreshRepins }
+              );
+              const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
+
+              refreshedPins.push({
+                pin_id: String(p.pin_id),
+                saves: freshSaves,
+                repins: safeFreshRepins,
+                comments: freshComments,
+                share_count: freshShares,
+                velocity: velocity,
+                delta_saves: deltaSaves,
+                delta_repins: deltaRepins
+              });
+
+              metricSnapshots.push({
+                pin_id: String(p.pin_id),
+                saves: freshSaves,
+                repins: safeFreshRepins,
+                comments: freshComments,
+                share_count: freshShares,
+                reaction_count: totalReactions,
+                velocity: velocity,
+                repin_velocity: deltaRepins
+              });
+
+              masterPinsToSync.push({
+                pin_id: String(p.pin_id),
+                creator_username: p.account_username || '',
+                board_name: p.board_name || '',
+                title: fresh.title || p.title || '',
+                domain: fresh.domain || fresh.link_domain || p.domain || '',
+                destination_url: fresh.link || fresh.destination_url || p.link || '',
+                image_url: fresh.image_url || p.image_url || '',
+                description: fresh.description || '',
+                alt_text: fresh.alt_text || p.alt_text || '',
+                dominant_color: fresh.dominant_color || p.dominant_color || '#888888',
+                visual_annotations: fresh.visual_annotations || fresh.annotations || p.annotations || [],
+                created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
+                saves: freshSaves,
+                repins: safeFreshRepins,
+                comments: freshComments,
+                share_count: freshShares,
+                reactions: fresh.reactions || {},
+                velocity: velocity,
+                daily_repin_velocity: deltaRepins,
+                delta_repins_24h: deltaRepins,
+                is_hydrated: true
+              });
+            }
 
             refreshedWinningCount++;
           }

@@ -721,4 +721,24 @@ trigger: always_on
   - `npm run check` (0 errors, 0 warnings across 129 files).
   - `npm test` (All 21 test suites pass 100%, exit code 0).
 
+---
+
+## Round 35: Phase 3 Crawler Consolidation Review Fixes — Undici Dispatcher Protocol Parity, Caller-Side NULL Coercion Fix & Account Related Crawler Performance
+- **Round / Feature**: Phase 3 Crawler Consolidation Review Fixes (Undici Dispatcher Protocol Parity, Caller-Side NULL Coercion Fix in Creator Velocity Crawler, and Account Related Crawler NULL Comparison & Pre-page Sleep Eradication).
+- **Trap / Failure Mode**:
+  1. *Undici Dispatcher Protocol Mismatch (`UND_ERR_INVALID_ARG` on Node 22/24 built-in `fetch`)*: Passing an external `undici@8` `Agent` to Node's built-in `fetch` (which uses `Symbol.for('undici.globalDispatcher.1')` / `onConnect`) threw `UND_ERR_INVALID_ARG` ("Argument dispatcher must implement dispatch").
+  2. *Caller-Side `NULL -> 0` Coercion in `creator-velocity-crawler.mjs` Phase 2*: In both Single-Account Swarm and Global Master Slice Phase 2 loops, unhydrated candidate pins with NULL saves in DB had `prevSaves` coerced to `0`, and fresh scrape objects without explicit saves had `rawFreshSaves` coerced to `0`, writing unhydrated rows to `pins_daily_metrics` and resetting unhydrated pins to `saves = 0` with false hydration jumps.
+  3. *Account Related Crawler NULL Comparison & Artificial Pre-Page Sleep*: `if (saves > existing.saves)` failed to promote fresh save counts when `existing.saves` was NULL, and an unconditional 2500-3800ms sleep on page 1 delayed related pin scraping.
+- **Root Cause & Technical Mechanism**:
+  - Node 22/24's internal `globalThis.fetch` utilizes `Symbol.for('undici.globalDispatcher.1')`. If primed once via `fetch('data:text/plain,ok')`, `globalThis[sym].constructor` provides the native Agent constructor. In `creator-velocity-crawler.mjs`, `Math.max(0, Number(p.ump_saves ?? 0))` defaulted NULL to 0 before checking if fresh payload had explicit saves.
+- **Verified Solution & Invariant Codification**:
+  1. Instantiated keep-alive agent via `new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 })` and assigned to `globalThis[sym]`, passing `undiciAgent` to `setDefaultDispatcher` across `keyword-velocity-crawler.mjs`, `creator-velocity-crawler.mjs`, `cluster-intelligence.mjs`, and `account-related-crawler.mjs`.
+  2. Preserved `null` for `prevSaves` and `prevRepins` when DB row is `null`. Checked `hasExplicitFreshSaves = fresh.has_explicit_saves === true || fresh.saves != null || fresh.save_count != null` before coercing `freshSaves`. When `freshSaves === null`, passed `saves: null, velocity: null, daily_repin_velocity: null, delta_repins_24h: null, is_hydrated: false` into `masterPinsToSync` and bypassed `metricSnapshots`.
+  3. In `account-related-crawler.mjs`, updated comparison to `if (saves !== null && (existing.saves === null || saves > existing.saves))` and removed pre-request sleep on page 1 (small jitter only when `page > 1`).
+  4. Updated `test_smoke_crawlers_phase3.mjs` Section 1 to run live `await fetch('data:text/plain,ok', { dispatcher: testAgent })` asserting `globalThis[Symbol.for('undici.globalDispatcher.1')] === testAgent`.
+- **Verification Command**:
+  - `npm run check` (0 errors, 0 warnings across 143 files).
+  - `npm test` (All 21 test suites pass 100%, exit code 0).
+
+
 

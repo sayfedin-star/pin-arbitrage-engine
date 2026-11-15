@@ -10,14 +10,18 @@
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
+import { setDefaultDispatcher } from '../src/core/pinterest-client.mjs';
 
 let undiciAgent = null;
 try {
-  const { Agent } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  if (String(process.versions?.undici || '').startsWith('8.')) {
-    undiciAgent = candidateAgent;
-  }
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
+  undiciAgent = candidateAgent;
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
+  setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
 // Load environment variables safely
@@ -92,9 +96,10 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
   let bookmark = null;
 
   for (let page = 1; page <= maxPages; page++) {
-    const delay = randomJitter(2500, 3800);
-    console.log(`    [Page ${page}/${maxPages}] Sleeping jitter ${delay}ms...`);
-    await sleep(delay);
+    if (page > 1) {
+      const delay = randomJitter(200, 400);
+      await sleep(delay);
+    }
 
     const optionsObj = {
       pin_id: String(seedPinId),
@@ -166,8 +171,10 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       if (candId === String(seedPinId)) continue; // ignore self-reference
 
       const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
-      const saves = Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0);
-      const repins = Number(item.repin_count || 0);
+      const rawSaves = item.aggregated_pin_data?.aggregated_stats?.saves ?? item.save_count;
+      const saves = rawSaves != null ? Math.max(0, Number(rawSaves)) : null;
+      const rawRepins = item.repin_count;
+      const repins = rawRepins != null ? Math.max(0, Number(rawRepins)) : null;
       const creator = item.pinner?.username || item.origin_pinner?.username || '';
       const creatorName = item.pinner?.full_name || '';
       const domain = item.domain || item.link_domain || '';
@@ -197,7 +204,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
 
       if (candidateMap.has(candId)) {
         const existing = candidateMap.get(candId);
-        if (saves > existing.saves) {
+        if (saves !== null && (existing.saves === null || saves > existing.saves)) {
           candidateMap.set(candId, candidateObj);
         }
       } else {
@@ -226,14 +233,14 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
           x.provenance_engine, NOW()
         FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(candidateRows))}::jsonb) AS x(
           competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
-          dominant_color varchar, saves int, repins int, domain text, destination_url text,
+          dominant_color varchar, saves bigint, repins bigint, domain text, destination_url text,
           is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
           provenance_engine varchar
         )
         ORDER BY x.candidate_pin_id ASC
         ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
-          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE competitor_related_nodes.saves END,
-          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE competitor_related_nodes.repins END,
+          saves = COALESCE(EXCLUDED.saves, competitor_related_nodes.saves),
+          repins = COALESCE(EXCLUDED.repins, competitor_related_nodes.repins),
           title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
           image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
           domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,

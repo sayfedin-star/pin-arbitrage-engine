@@ -29,11 +29,14 @@ import {
 
 let undiciAgent = null;
 try {
-  const { Agent } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  if (String(process.versions?.undici || '').startsWith('8.')) {
-    undiciAgent = candidateAgent;
-  }
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
+  undiciAgent = candidateAgent;
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
+  setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
 // Load .env automatically if available in runtime environment
@@ -859,51 +862,7 @@ export async function fetchPinDetails(pinId, baseHeaders) {
       };
     }
   } catch (err) {}
-
-  const optionsObj = { id: String(pinId), field_set_key: 'detailed' };
-  const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
-
-  const headers = {
-    ...baseHeaders,
-    'x-pinterest-pws-handler': 'www/pin/[id].js',
-    'x-requested-with': 'XMLHttpRequest',
-    'accept': 'application/json, text/javascript, */*, q=0.01'
-  };
-
-  try {
-    const response = await fetch(targetUrl, {
-      headers,
-      signal: AbortSignal.timeout(8000),
-      ...(undiciAgent ? { dispatcher: undiciAgent } : {})
-    });
-
-    if (response.status === 429) {
-      if (response?.body) await response.body.cancel().catch(() => {});
-      console.warn(`[!] HTTP 429 Rate limited during deep pin enrichment on Pin ${pinId}. Sleeping 10s...`);
-      await sleep(10000);
-      return null;
-    }
-
-    if (!response.ok) {
-      if (response?.body) await response.body.cancel().catch(() => {});
-      return null;
-    }
-    const data = await response.json();
-    const pin = data?.resource_response?.data;
-    if (!pin) return null;
-
-    const repins = Number(pin.repin_count ?? 0);
-    const saves = Number(pin.aggregated_pin_data?.aggregated_stats?.saves ?? (pin.repin_count || 0));
-
-    return {
-      id: String(pin.id),
-      repins,
-      saves,
-      reactions: pin.reaction_counts || {}
-    };
-  } catch (err) {
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -976,6 +935,9 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
     }
 
     if (enrichedBatch.length > 0) {
+      // Strictly sort by candidate_pin_id ASC to guarantee deterministic order and prevent 40P01 deadlocks
+      enrichedBatch.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
+
       // Single bulk batch commit via jsonb_to_recordset replacing individual UPDATE round-trips
       await sql`
         UPDATE candidate_graph_nodes cgn
@@ -1041,9 +1003,7 @@ async function crawlSeed(seed) {
   }
 
   for (let page = 1; page <= maxPages; page++) {
-    const delay = jitterDelay();
-    console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource (jitter delay ${delay}ms)...`);
-    await sleep(delay);
+    console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource...`);
 
     const optionsObj = {
       pin_id: pinId,

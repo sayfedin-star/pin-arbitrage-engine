@@ -60,12 +60,13 @@ function registerTargetShards(_pins) {
 
 let undiciAgent = null;
 try {
-  const { Agent } = await import('undici');
-  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  // Node 22 built-in fetch uses Undici v6; Undici v8 Agent throws InvalidArgumentError (fetch failed)
-  if (String(process.versions?.undici || '').startsWith('8.')) {
-    undiciAgent = candidateAgent;
-  }
+  await fetch('data:text/plain,ok').catch(() => {});
+  const sym = Symbol.for('undici.globalDispatcher.1');
+  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  globalThis[sym] = candidateAgent;
+  undiciAgent = candidateAgent;
+  await import('undici').catch(() => {});
+  globalThis[sym] = candidateAgent;
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
@@ -735,7 +736,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
   // [INVARIANT: STATELESS-SCRAPER-INGEST-HTTP]
   // In stateless runner mode, push crawled pins to internal ingestion route instead of opening direct DB connections.
   const ingestUrl = process.env.INGEST_API_URL || process.env.PAE_INGEST_ENDPOINT;
-  if (ingestUrl) {
+  if (ingestUrl && !sql) {
     try {
       console.log(`[Stateless Ingest] Pushing ${enrichedPins.length} pins to ${ingestUrl}...`);
       await pushBatchToIngestApi({
@@ -844,6 +845,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
           sp.daily_save_velocity = 0;
         }
         sp.delta_repins_24h = gains.delta_repins_24h;
+        sp.daily_repin_velocity = gains.delta_repins_24h != null ? Number(gains.delta_repins_24h) : 0;
         sp.gains_5d = gains.gains_5d;
         sp.gains_7d = gains.gains_7d;
         sp.gains_10d = gains.gains_10d;
@@ -1080,7 +1082,8 @@ async function run() {
       let fatalSerpDbErr = null;
       let serpSuccessCount = 0;
       let serpErrorCount = 0;
-      for (const kid of keywordIdsInput) {
+      const kwSem = new Semaphore(Math.min(4, Math.max(1, keywordIdsInput.length)));
+      await Promise.allSettled(keywordIdsInput.map(kid => kwSem.run(async () => {
         const effectiveToken = crypto.randomUUID();
         try {
           console.log(`  [*] [Phase 1A] Harvesting SERP for Keyword ID ${kid}...`);
@@ -1118,7 +1121,7 @@ async function run() {
             console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
           }
         }
-      }
+      })));
       if (fatalSerpDbErr) {
         throw new Error(`[Phase 1A Fatal DB Error] ${fatalSerpDbErr.message}`);
       }

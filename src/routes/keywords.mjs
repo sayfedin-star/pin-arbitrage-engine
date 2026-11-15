@@ -265,9 +265,13 @@ export async function handleKeywordsRoutes({
 
     const writeBackEntries = [];
     if (uncached.length > 0) {
-      const fetchResults = await Promise.allSettled(
-        uncached.map(u => fetchUrlGlobalSaves(u))
-      );
+      const URL_FETCH_CONCURRENCY = 8;
+      const fetchResults = [];
+      for (let i = 0; i < uncached.length; i += URL_FETCH_CONCURRENCY) {
+        const chunk = uncached.slice(i, i + URL_FETCH_CONCURRENCY);
+        const chunkRes = await Promise.allSettled(chunk.map(u => fetchUrlGlobalSaves(u)));
+        fetchResults.push(...chunkRes);
+      }
 
       for (let i = 0; i < uncached.length; i++) {
         const targetUrl = uncached[i];
@@ -285,17 +289,18 @@ export async function handleKeywordsRoutes({
     // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
     if (sql && writeBackEntries.length > 0) {
       safeWaitUntil(ctx, (async () => {
-        for (const entry of writeBackEntries) {
-          if (entry.count > 0 && entry.url) {
-            await sql`
-              UPDATE universal_master_pins
-              SET url_global_saves = ${entry.count}
-              WHERE destination_url = ${entry.url}
-                 OR destination_url = ${entry.url + '/'}
-                 OR destination_url LIKE ${entry.url + '?%'};
-            `.catch(() => {});
-          }
-        }
+        const validEntries = writeBackEntries.filter(e => e.count > 0 && e.url);
+        if (validEntries.length === 0) return;
+        validEntries.sort((a, b) => a.url.localeCompare(b.url));
+        const payloadJson = JSON.stringify(validEntries);
+        await sql`
+          UPDATE universal_master_pins ump
+          SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), x.count::bigint)
+          FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)
+          WHERE ump.destination_url = x.url
+             OR ump.destination_url = (x.url || '/')
+             OR ump.destination_url LIKE (x.url || '?%');
+        `.catch(() => {});
       })(), 'write_back_batch_global_saves');
     }
 
