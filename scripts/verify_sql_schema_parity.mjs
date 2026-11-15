@@ -367,9 +367,12 @@ export const MIGRATION_062_EXPECTED_INDEXES = new Set([
 
 export const MIGRATION_062_DROPPED_INDEXES = new Set([
   'idx_ump_last_scraped_at_desc',
+  'idx_ump_last_scraped_at',
   'idx_ump_updated_at_desc',
+  'idx_ump_updated',
   'idx_ksp_displaced_updated_desc',
-  'idx_pdm_pin_recorded_desc'
+  'idx_pdm_pin_recorded_desc',
+  'idx_pdm_pin_snapshot_desc'
 ]);
 
 export const CANONICAL_FUNCTION_SIGNATURES = {
