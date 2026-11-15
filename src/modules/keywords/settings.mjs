@@ -209,6 +209,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
   const [row] = await sql`
     INSERT INTO tracked_keywords (
       keyword,
+      canonical_keyword,
       category,
       target_pin_count,
       crawl_pages_limit,
@@ -217,6 +218,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       created_at,
       updated_at
     ) VALUES (
+      ${cleanKeyword},
       ${cleanKeyword},
       ${category},
       ${target_pin_count},
@@ -227,6 +229,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       NOW()
     )
     ON CONFLICT (keyword) DO UPDATE SET
+      canonical_keyword = EXCLUDED.canonical_keyword,
       is_active = TRUE,
       target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
       crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
