@@ -18,7 +18,11 @@ import vm from 'node:vm';
 import { getPulsePageHtml } from '../src/pulse-ui.mjs';
 
 const html = getPulsePageHtml();
-const pulseUiSrc = fs.readFileSync(path.resolve('./src/pulse-ui.mjs'), 'utf8');
+const pulseUiSrc = [
+  fs.readFileSync(path.resolve('./src/pulse-ui.mjs'), 'utf8'),
+  fs.readFileSync(path.resolve('./src/ui/pulse/pulse-views.mjs'), 'utf8'),
+  fs.readFileSync(path.resolve('./src/ui/pulse/pulse-client-app.mjs'), 'utf8')
+].join('\n');
 
 console.log('=== ADVERSARIAL STRESS TEST SUITE: PULSE STUDIO UI ===');
 

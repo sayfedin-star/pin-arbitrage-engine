@@ -91,3 +91,26 @@ export function renderProgressBar(current, total, width = 30) {
   const pct = (ratio * 100).toFixed(1);
   return `[${bar}] ${pct}% (${current}/${total})`;
 }
+
+/**
+ * Dynamically initializes and registers an Undici keep-alive Agent on
+ * globalThis[Symbol.for('undici.globalDispatcher.1')] without static undici imports
+ * or fragile version gates.
+ */
+export async function bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcherFn = null) {
+  let undiciAgent = null;
+  try {
+    await fetch('data:text/plain,ok').catch(() => {});
+    const sym = Symbol.for('undici.globalDispatcher.1');
+    const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+    globalThis[sym] = candidateAgent;
+    undiciAgent = candidateAgent;
+    await import('undici').catch(() => {});
+    globalThis[sym] = candidateAgent;
+    if (typeof setDefaultDispatcherFn === 'function') {
+      setDefaultDispatcherFn(undiciAgent);
+    }
+  } catch (_) {}
+  return undiciAgent;
+}
+

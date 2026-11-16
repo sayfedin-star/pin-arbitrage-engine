@@ -616,8 +616,11 @@ describe('Gate 2: SQL Type-Safety & Malformed Metadata Resilience Gate', () => {
 // ============================================================================
 describe('Gate 3: Live /api/pins/:id Dossier Hydration Contract Gate', () => {
   it('3.1 openBlueprintModal in src/pulse-ui.mjs unpacks canonical fetchUniversalPinDossier schema (data.creative || data.pin || data)', () => {
-    const pulseUiPath = path.join(ROOT_DIR, 'src', 'pulse-ui.mjs');
-    const pulseUiCode = fs.readFileSync(pulseUiPath, 'utf8');
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
 
     // In Round 15, pulse-ui had: if (data && data.pin ... var p = data.pin)
     // In Round 16, fetchUniversalPinDossier returns { creative: { ... }, pillar_1_creator_context: { ... } }
@@ -780,10 +783,13 @@ describe('Gate 4: Keyword Slug Deep-Link & Root Pin Properties Gate', () => {
   });
 
   it('4.3 getKeywordUrl helper formats URLs as /keywords/:slug with clean hyphenation and fallback', () => {
-    const pulseUiPath = path.join(ROOT_DIR, 'src', 'pulse-ui.mjs');
-    const pulseUiCode = fs.readFileSync(pulseUiPath, 'utf8');
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
 
-    // Assert getKeywordUrl helper is declared in src/pulse-ui.mjs
+    // Assert getKeywordUrl helper is declared in Pulse UI module
     assert.match(
       pulseUiCode,
       /getKeywordUrl\s*:\s*function/i,

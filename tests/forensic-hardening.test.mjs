@@ -177,7 +177,9 @@ test('cluster, analytics, pulse, and consolidator SQL hardening contracts hold',
   const matches = analyticsSrc.match(/LOWER\(COALESCE\(creator_username,\s*''\)\) LIKE \$\{accountPattern\}/g) || [];
   assert.equal(matches.length, 2, 'Both data and count queries in listArchivedPins must lowercase creator_username');
 
-  const pulseSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/service.mjs'), 'utf8');
+  const pulseSrc =
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/service.mjs'), 'utf8') + '\n' +
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/pulse-queries.mjs'), 'utf8');
   assert.match(pulseSrc, /LOWER\(TRIM\(REPLACE\(COALESCE\(ump\.creator_username,\s*''\),\s*'@',\s*''\)\)\)/);
 
   const consolidatorSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/keyword-fleet-consolidator.mjs'), 'utf8');

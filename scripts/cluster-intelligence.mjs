@@ -22,26 +22,10 @@ import {
   fetchPinFromPinResource
 } from '../src/core/pinterest/index.mjs';
 
-let undiciAgent = null;
-try {
-  await fetch('data:text/plain,ok').catch(() => {});
-  const sym = Symbol.for('undici.globalDispatcher.1');
-  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  globalThis[sym] = candidateAgent;
-  undiciAgent = candidateAgent;
-  await import('undici').catch(() => {});
-  globalThis[sym] = candidateAgent;
-  setDefaultDispatcher(undiciAgent);
-} catch (_) {}
+import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
 
-// Load .env automatically if available in runtime environment
-if (typeof process.loadEnvFile === 'function') {
-  try {
-    process.loadEnvFile();
-  } catch (err) {
-    // Ignore if .env is not present (e.g. CI/CD environment where env vars are passed directly)
-  }
-}
+const undiciAgent = await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
+loadDotEnvIfPresent();
 
 let _sql = null;
 function getSql() {

@@ -117,10 +117,12 @@ runTest('Phase 2.3: creator-velocity-crawler.mjs implements 8-worker concurrent 
 });
 
 runTest('Phase 2.4: creator-velocity-crawler.mjs implements monotonic saves fallback and atomic shard writes', () => {
+  const pinRepoCode = fs.readFileSync(path.resolve('src/modules/pins/repository.mjs'), 'utf8');
   assert.ok(crawlerCode.includes('const freshSaves = (rawFreshSaves !== null && (rawFreshSaves > 0 || (hasExplicitFreshSaves && (prevSaves === null || prevSaves === 0))))'), 'Must preserve saves monotonically while allowing explicit zero initialization');
   assert.ok(crawlerCode.includes('const freshRepins = (rawFreshRepins !== null && (rawFreshRepins > 0 || (hasExplicitFreshRepins && (prevRepins === null || prevRepins === 0))))'), 'Must preserve repins monotonically while allowing explicit zero initialization');
-  assert.ok(crawlerCode.includes('commitSnapshotsToUnifiedDb(sql, metricSnapshots'), 'Must commit snapshots to Unified PostgreSQL');
-  assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC'), 'Must sort by pin_id ASC to prevent deadlocks');
+  assert.ok(crawlerCode.includes('syncPinsToMasterCatalog(sql, masterPinsToSync)') && crawlerCode.includes('ingestPinsBatch(dbSql, chunk'), 'Must commit master pins & daily snapshots via unified ingestPinsBatch SSOT');
+  assert.ok(!crawlerCode.includes('INSERT INTO pins_daily_metrics'), 'Must eliminate redundant double-write INSERT INTO pins_daily_metrics in crawler');
+  assert.ok(crawlerCode.includes('String(a.pin_id).localeCompare(String(b.pin_id))') && pinRepoCode.includes('ORDER BY cb.pin_id ASC'), 'Must sort by pin_id ASC to prevent deadlocks');
 });
 
 runTest('Phase 2.5: creator-velocity-crawler.mjs normalizes daily refresh velocity via computeNormalized24hVelocity', () => {

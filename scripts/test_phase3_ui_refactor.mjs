@@ -20,7 +20,7 @@ const readText = (relPath) => fs.readFileSync(path.resolve(relPath), 'utf8');
 
 test('Step 3.1: renderPinRowTemplate is imported and invoked across all 6 target screens', () => {
   const screenFiles = [
-    'src/pulse-ui.mjs',
+    'src/ui/pulse/pulse-views.mjs',
     'src/ui/keywords/keywords-serp-studio.mjs',
     'src/ui/folders/folders-studio-view.mjs',
     'src/ui/domains/domains-studio-view.mjs',

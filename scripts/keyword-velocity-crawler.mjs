@@ -49,21 +49,10 @@ import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_ga
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { Semaphore } from '../src/utils.mjs';
 
-let undiciAgent = null;
-try {
-  await fetch('data:text/plain,ok').catch(() => {});
-  const sym = Symbol.for('undici.globalDispatcher.1');
-  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  globalThis[sym] = candidateAgent;
-  undiciAgent = candidateAgent;
-  await import('undici').catch(() => {});
-  globalThis[sym] = candidateAgent;
-  setDefaultDispatcher(undiciAgent);
-} catch (_) {}
+import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
 
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
+loadDotEnvIfPresent();
 
 const isMainModule = Boolean(process.argv[1] && (
   process.argv[1].endsWith('keyword-velocity-crawler.mjs') ||

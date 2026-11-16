@@ -21,8 +21,15 @@ assert.strictEqual(globalThis[sym], testAgent, 'globalDispatcher symbol must equ
 console.log(`  ✓ Undici Agent instantiated with keepAliveTimeout: 30000, connections: 50, pipelining: 1`);
 console.log(`  ✓ live fetch with dispatcher verified & globalThis[Symbol.for('undici.globalDispatcher.1')] === testAgent`);
 
-// 2. Inspect Crawler Files for Undici Keep-Alive & Zero Version Gate Trap
+// 2. Inspect Crawler Files & Shared CLI Utility for Undici Keep-Alive & Zero Version Gate Trap
 console.log('\n[*] Section 2: Inspecting Crawler Keep-Alive Implementations...');
+const cliUtilsContent = fs.readFileSync('scripts/lib/cli-utils.mjs', 'utf8');
+assert(!cliUtilsContent.includes("startsWith('8.')"), "scripts/lib/cli-utils.mjs must NOT contain broken startsWith('8.') version gate");
+assert(cliUtilsContent.includes("await import('undici')"), 'scripts/lib/cli-utils.mjs must dynamically import undici');
+assert(cliUtilsContent.includes("Symbol.for('undici.globalDispatcher.1')"), 'scripts/lib/cli-utils.mjs must target undici global dispatcher symbol');
+assert(cliUtilsContent.includes('new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 })'), 'scripts/lib/cli-utils.mjs must create keep-alive Agent from globalThis[sym].constructor');
+assert(cliUtilsContent.includes('globalThis[sym] = candidateAgent'), 'scripts/lib/cli-utils.mjs must assign candidateAgent to globalThis[sym]');
+
 const files = [
   'scripts/keyword-velocity-crawler.mjs',
   'scripts/creator-velocity-crawler.mjs',
@@ -33,11 +40,9 @@ const files = [
 for (const file of files) {
   const content = fs.readFileSync(file, 'utf8');
   assert(!content.includes("startsWith('8.')"), `${file} must NOT contain broken startsWith('8.') version gate`);
-  assert(content.includes("await import('undici')"), `${file} must dynamically import undici`);
-  assert(content.includes("Symbol.for('undici.globalDispatcher.1')"), `${file} must target undici global dispatcher symbol`);
-  assert(content.includes('new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 })'), `${file} must create keep-alive Agent from globalThis[sym].constructor`);
-  assert(content.includes('globalThis[sym] = candidateAgent'), `${file} must assign candidateAgent to globalThis[sym]`);
-  console.log(`  ✓ ${file}: Keep-alive agent & undici.globalDispatcher.1 active with zero version gate`);
+  assert(content.includes('bootstrapUndiciKeepAliveDispatcher'), `${file} must import and invoke shared bootstrapUndiciKeepAliveDispatcher`);
+  assert(content.includes('await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)'), `${file} must bootstrap Undici keep-alive dispatcher with setDefaultDispatcher`);
+  console.log(`  ✓ ${file}: Shared bootstrapUndiciKeepAliveDispatcher active with zero version gate`);
 }
 
 // 3. Verify INGEST_API_URL Early Return Trap Elimination
@@ -68,8 +73,8 @@ const pinRepoContent = fs.readFileSync('src/modules/pins/repository.mjs', 'utf8'
 assert(creatorCrawler.includes('repin_velocity: deltaRepins'),
   'creator-velocity-crawler.mjs must pass repin_velocity into metricSnapshots'
 );
-assert(creatorCrawler.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity)'),
-  'creator-velocity-crawler.mjs must upsert daily_repin_velocity into pins_daily_metrics'
+assert(!creatorCrawler.includes('INSERT INTO pins_daily_metrics') && pinRepoContent.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity)'),
+  'PinRepository.ingestPinsBatch must be the single SSOT upserting daily_repin_velocity into pins_daily_metrics without crawler double-write'
 );
 assert(creatorCrawler.includes('ingestPinsBatch(dbSql, chunk'),
   'creator-velocity-crawler.mjs must delegate syncPinsToMasterCatalog to canonical PinRepository.ingestPinsBatch'
@@ -77,8 +82,8 @@ assert(creatorCrawler.includes('ingestPinsBatch(dbSql, chunk'),
 assert(pinRepoContent.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity)'),
   'PinRepository.ingestPinsBatch must upsert daily_repin_velocity into universal_master_pins'
 );
-assert(creatorCrawler.includes('ORDER BY x.pin_id ASC') && pinRepoContent.includes('ORDER BY cb.pin_id ASC'),
-  'creator-velocity-crawler.mjs and PinRepository must use deterministic ORDER BY pin_id ASC to prevent 40P01 deadlocks'
+assert(creatorCrawler.includes('String(a.pin_id).localeCompare(String(b.pin_id))') && pinRepoContent.includes('ORDER BY cb.pin_id ASC'),
+  'creator-velocity-crawler.mjs and PinRepository must use deterministic pin_id ASC ordering to prevent 40P01 deadlocks'
 );
 assert(pinRepoContent.includes('is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL)'),
   'PinRepository.ingestPinsBatch must update is_hydrated on conflict in universal_master_pins'

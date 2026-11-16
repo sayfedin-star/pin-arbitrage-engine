@@ -23,7 +23,11 @@ console.log('   CHALLENGER 2: PULSE STUDIO V2 ADVERSARIAL STRESS SUITE');
 console.log('======================================================================\n');
 
 const html = getPulsePageHtml();
-const pulseUiSrc = fs.readFileSync(path.resolve('./src/pulse-ui.mjs'), 'utf8');
+const pulseUiSrc = [
+  fs.readFileSync(path.resolve('./src/pulse-ui.mjs'), 'utf8'),
+  fs.readFileSync(path.resolve('./src/ui/pulse/pulse-views.mjs'), 'utf8'),
+  fs.readFileSync(path.resolve('./src/ui/pulse/pulse-client-app.mjs'), 'utf8')
+].join('\n');
 
 // Extract pulseStudioApp script content
 const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];

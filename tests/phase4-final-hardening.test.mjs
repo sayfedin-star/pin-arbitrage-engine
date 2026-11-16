@@ -327,7 +327,9 @@ test('Phase 4.5: folders-crossover preserves authentic NULL gains without fake e
 });
 
 test('Phase 4.6: pulse service uses indexed queries instead of ORDER BY GREATEST', () => {
-  const pulseServiceCode = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/service.mjs'), 'utf8');
+  const pulseServiceCode =
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/service.mjs'), 'utf8') + '\n' +
+    fs.readFileSync(path.resolve(process.cwd(), 'src/modules/pulse/pulse-queries.mjs'), 'utf8');
   assert.doesNotMatch(pulseServiceCode, /ORDER BY GREATEST\([^)]*daily_save_velocity/i, 'Must not use ORDER BY GREATEST');
   assert.match(pulseServiceCode, /ORDER BY ump\.daily_save_velocity DESC NULLS LAST, ump\.save_count DESC NULLS LAST/, 'Must use indexed SARGable sort');
 });

@@ -479,7 +479,11 @@ describe('Gate 1: Zero Property Mismatch & Real Annotations Test', () => {
   });
 
   it('1.3 Blueprint modal template in src/pulse-ui.mjs binds to annotations and visual_annotations defensively', () => {
-    const pulseUiCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8');
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
 
     // Asserts that the template handles both annotations and visual_annotations defensively
     const hasDefensiveAnnotationsBinding = (
@@ -707,7 +711,11 @@ describe('Gate 3: Annotation Crossover Support Floor (pin_count >= 2) & Matching
   });
 
   it('3.3 UI template in src/pulse-ui.mjs provides interactive drill-down for annotation crossovers', () => {
-    const pulseUiCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8');
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
 
     // Asserts that Room 2 (Annotation Matrix) includes matching pins interaction or rendering
     const hasMatchingPinsRendering = (
@@ -773,7 +781,11 @@ describe('Gate 4: Capsule Deduplication & Color Palette Count Test', () => {
   });
 
   it('4.3 src/pulse-ui.mjs renders col.pin_count || col.count so color swatches never display (0)', () => {
-    const pulseUiCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8');
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
 
     // UI must bind to col.pin_count or col.count (or item.pin_count in Bento Matrix)
     const hasCorrectCountBinding = (
@@ -869,8 +881,12 @@ describe('Gate 5: Creator Breakouts Positive-Only & True Domainless Filter Test'
       'Pin without external URL must be marked as domainless viral'
     );
 
-    // Check src/pulse-ui.mjs: verify that 'No external URL' is not hardcoded unconditionally
-    const pulseUiCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8');
+    // Check src/pulse-ui.mjs and sub-modules: verify that 'No external URL' is not hardcoded unconditionally
+    const pulseUiCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ].join('\n');
     const hasUnconditionalNoUrl = /formatNumber\(gem\.save_count \|\| 0\)\s*\+\s*'\s*saves\s*·\s*No external URL'/.test(pulseUiCode);
     assert.strictEqual(
       hasUnconditionalNoUrl,
@@ -893,7 +909,10 @@ describe('Gate 6: Repository Regression Locks & Zero Landmines', () => {
   });
 
   it('6.2 Hub skeletal compaction: pulse service does not query legacy keyword_serp_current', () => {
-    const serviceCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'service.mjs'), 'utf8');
+    const serviceCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'service.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'pulse-queries.mjs'), 'utf8')
+    ].join('\n');
 
     // Central Hub Skeletal Compaction Invariant
     assert.ok(!/\bksc\.description\b/i.test(serviceCode), 'Must NOT query ksc.description on Central Hub');
@@ -903,32 +922,43 @@ describe('Gate 6: Repository Regression Locks & Zero Landmines', () => {
   });
 
   it('6.3 Headless Node.js execution shield: browser globals are guarded', () => {
-    const pulseUiCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8');
+    const pulseUiFiles = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'pulse-ui.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-views.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'ui', 'pulse', 'pulse-client-app.mjs'), 'utf8')
+    ];
+    const combinedPulseUiCode = pulseUiFiles.join('\n');
 
-    // Asserts that localStorage is guarded by typeof !== 'undefined'
-    if (pulseUiCode.includes('localStorage')) {
-      const matches = pulseUiCode.match(/localStorage\.[a-zA-Z]+/g) || [];
-      for (const m of matches) {
-        assert.ok(
-          pulseUiCode.includes("typeof localStorage !== 'undefined'") ||
-          pulseUiCode.includes("typeof localStorage != 'undefined'"),
-          'localStorage calls must be guarded for Headless Node environments'
-        );
+    for (const pulseUiCode of pulseUiFiles) {
+      // Asserts that localStorage is guarded by typeof !== 'undefined' in every module that accesses it
+      if (pulseUiCode.includes('localStorage')) {
+        const matches = pulseUiCode.match(/localStorage\.[a-zA-Z]+/g) || [];
+        for (const _m of matches) {
+          assert.ok(
+            pulseUiCode.includes("typeof localStorage !== 'undefined'") ||
+            pulseUiCode.includes("typeof localStorage != 'undefined'"),
+            'localStorage calls must be guarded for Headless Node environments'
+          );
+        }
       }
     }
 
-    // Asserts that window is guarded by typeof !== 'undefined'
-    if (pulseUiCode.includes('window.handlePinImgError')) {
+    // Asserts that window is guarded by typeof !== 'undefined' or early return
+    if (combinedPulseUiCode.includes('window.handlePinImgError')) {
       assert.ok(
-        pulseUiCode.includes("typeof window !== 'undefined'") ||
-        pulseUiCode.includes('<script>'),
-        'window attachments must be inside script tag or guarded'
+        (combinedPulseUiCode.includes("typeof window !== 'undefined'") ||
+          combinedPulseUiCode.includes("typeof window === 'undefined'")) &&
+        combinedPulseUiCode.includes('<script>'),
+        'window attachments must be inside script tag and guarded'
       );
     }
   });
 
   it('6.4 No unescaped regex or $ tokens in string replacement operations', () => {
-    const serviceCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'service.mjs'), 'utf8');
+    const serviceCode = [
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'service.mjs'), 'utf8'),
+      fs.readFileSync(path.join(ROOT_DIR, 'src', 'modules', 'pulse', 'pulse-queries.mjs'), 'utf8')
+    ].join('\n');
 
     // Check for raw string replace patterns that could trigger $1..$9 or $' duplication
     const replaceMatches = serviceCode.match(/\.replace\([^)]+\)/g) || [];

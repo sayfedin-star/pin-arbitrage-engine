@@ -51,21 +51,13 @@ import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } fro
 import { shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
-// Setup optional Undici keep-alive agent
-let undiciAgent = null;
-try {
-  await fetch('data:text/plain,ok').catch(() => {});
-  const sym = Symbol.for('undici.globalDispatcher.1');
-  const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-  globalThis[sym] = candidateAgent;
-  undiciAgent = candidateAgent;
-  await import('undici').catch(() => {});
-  globalThis[sym] = candidateAgent;
-  setDefaultDispatcher(undiciAgent);
-} catch (_) {}
+import {
+  closeCrawlerDb as closeDbClient,
+  loadDotEnvIfPresent,
+  bootstrapUndiciKeepAliveDispatcher
+} from './lib/cli-utils.mjs';
 
-import { closeCrawlerDb as closeDbClient, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
-
+await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
 loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -105,69 +97,14 @@ const AUTO_PROMOTE_PULSE_DELTA_24H = Number(process.env.AUTO_PROMOTE_PULSE_DELTA
 const AUTO_PROMOTE_PULSE_DELTA_7D = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_7D || 100000);
 
 /**
- * Commit daily metric snapshots directly to pins_daily_metrics in Unified PostgreSQL.
- * [INVARIANT: UNIFIED-POSTGRES-SNAPSHOTS]
- */
-async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
-  if (!Array.isArray(metricSnapshots) || metricSnapshots.length === 0) return 0;
-
-  const uniqueMetricsMap = new Map();
-  for (const m of metricSnapshots) {
-    if (m && m.pin_id) {
-      uniqueMetricsMap.set(String(m.pin_id), m);
-    }
-  }
-  const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-  if (sortedMetrics.length === 0) return 0;
-
-  let totalCommitted = 0;
-  const cleanMetrics = sanitizeForJsonb(sortedMetrics);
-  const dbSql = hubSql?.noRetry || hubSql;
-  for (let i = 0; i < cleanMetrics.length; i += 500) {
-    const chunk = cleanMetrics.slice(i, i + 500);
-    const jsonPayload = JSON.stringify(chunk);
-    await withDbRetry(() => dbSql`
-      INSERT INTO pins_daily_metrics (
-        pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
-      )
-      SELECT 
-        x.pin_id, 
-        (NOW() AT TIME ZONE 'UTC')::date, 
-        x.saves::bigint, 
-        x.repins::bigint, 
-        x.comments::int,
-        x.share_count::int,
-        x.reaction_count::int,
-        x.velocity::numeric,
-        x.repin_velocity::numeric,
-        NOW()
-      FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
-        pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC, repin_velocity NUMERIC
-      )
-      ORDER BY x.pin_id ASC
-      ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
-        save_count = COALESCE(EXCLUDED.save_count, pins_daily_metrics.save_count),
-        repin_count = COALESCE(EXCLUDED.repin_count, pins_daily_metrics.repin_count),
-        comment_count = COALESCE(EXCLUDED.comment_count, pins_daily_metrics.comment_count),
-        share_count = COALESCE(EXCLUDED.share_count, pins_daily_metrics.share_count),
-        reaction_count = COALESCE(EXCLUDED.reaction_count, pins_daily_metrics.reaction_count),
-        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity),
-        daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity),
-        updated_at = NOW();
-    `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
-    totalCommitted += chunk.length;
-  }
-  return totalCommitted;
-}
-
-/**
- * Route enriched pins to universal_master_pins via canonical PinRepository SSOT.
+ * Route enriched pins to universal_master_pins and pins_daily_metrics via canonical PinRepository.ingestPinsBatch SSOT.
  * [INVARIANT: UNIFIED-MASTER-CATALOG]
+ * [INVARIANT: UNIFIED-POSTGRES-SNAPSHOTS]
  */
 async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
   const dbSql = hubSql?.noRetry || hubSql;
-  const normalized = [];
+  const normalizedMap = new Map();
 
   for (const p of enrichedPins) {
     const pid = String(p?.pin_id || '').trim();
@@ -190,7 +127,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
       ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins)
       : null;
 
-    normalized.push({
+    normalizedMap.set(pid, {
       ...p,
       pin_id: pid,
       creator_username: String(p.account_username || p.creator_username || ''),
@@ -211,6 +148,7 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     });
   }
 
+  const normalized = Array.from(normalizedMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   let totalSynced = 0;
   for (let i = 0; i < normalized.length; i += 500) {
     const chunk = normalized.slice(i, i + 500);
@@ -703,16 +641,9 @@ async function run() {
       })));
     }
 
-    if (refreshedPins.length > 0) {
-      // 1. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
-      if (metricSnapshots.length > 0) {
-        await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
-      }
-
-      // 2. Sync master pins to universal_master_pins in Unified PostgreSQL
-      if (masterPinsToSync.length > 0) {
-        await syncPinsToMasterCatalog(sql, masterPinsToSync);
-      }
+    if (refreshedPins.length > 0 && masterPinsToSync.length > 0) {
+      // Sync master pins & daily metric snapshots via canonical PinRepository.ingestPinsBatch SSOT
+      await syncPinsToMasterCatalog(sql, masterPinsToSync);
     }
 
     console.log(`\n✅ Worker #${workerIndex + 1}/${workerTotal} Complete: Refreshed ${refreshedCount}/${myCatalogSlice.length} pins.`);
@@ -1277,16 +1208,9 @@ async function run() {
       })));
     }
 
-    if (refreshedPins.length > 0) {
-      // 1. Commit daily snapshots to pins_daily_metrics in Unified PostgreSQL
-      if (metricSnapshots.length > 0) {
-        await commitSnapshotsToUnifiedDb(sql, metricSnapshots);
-      }
-
-      // 2. Sync master pins to universal_master_pins in Unified PostgreSQL
-      if (masterPinsToSync.length > 0) {
-        await syncPinsToMasterCatalog(sql, masterPinsToSync);
-      }
+    if (refreshedPins.length > 0 && masterPinsToSync.length > 0) {
+      // Sync master pins & daily metric snapshots via canonical PinRepository.ingestPinsBatch SSOT
+      await syncPinsToMasterCatalog(sql, masterPinsToSync);
     }
 
     console.log(`\n✅ Swarm Worker #${workerIndex + 1}/${workerTotal} Complete: Processed ${accountsProcessed} accounts | Refreshed ${refreshedWinningCount}/${myWinningSlice.length} winning pins.`);

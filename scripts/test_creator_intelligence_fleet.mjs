@@ -150,9 +150,11 @@ runTest('Consolidator normalizes TARGET_ACCOUNT="all" to sweep all creators', ()
   assert(content.includes("rawTargetAccount.toLowerCase() === 'all'"), 'Consolidator must handle "all" as sweep all');
 });
 
-runTest('Crawler enforces Four-Pillar live catalog sync in Mode A', () => {
+runTest('Crawler enforces Four-Pillar live catalog sync in Mode A via unified ingestPinsBatch SSOT', () => {
   const content = fs.readFileSync(path.resolve(process.cwd(), 'scripts/creator-velocity-crawler.mjs'), 'utf8');
   assert(content.includes('syncPinsToMasterCatalog(sql, masterPinsToSync)'), 'Crawler Mode A must sync winning pins to universal catalog');
+  assert(content.includes('ingestPinsBatch(dbSql, chunk'), 'syncPinsToMasterCatalog must delegate writes to PinRepository.ingestPinsBatch');
+  assert(!content.includes('commitSnapshotsToUnifiedDb'), 'Crawler must not perform duplicate commitSnapshotsToUnifiedDb write to pins_daily_metrics');
   assert(content.includes('creation_method'), 'syncPinsToMasterCatalog must protect authentic creation_method');
 });
 

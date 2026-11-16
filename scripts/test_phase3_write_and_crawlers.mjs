@@ -256,25 +256,26 @@ assert.strictEqual(getDefaultDispatcher(), mockDispatcher, 'setDefaultDispatcher
 setDefaultDispatcher(null);
 assert.strictEqual(getDefaultDispatcher(), null, 'setDefaultDispatcher must allow resetting to null');
 
-// Verify crawlers dynamically instantiate and inject undici
+// Verify crawlers dynamically instantiate and inject undici via shared cli-utils helper
+const cliUtilsContent = fs.readFileSync('scripts/lib/cli-utils.mjs', 'utf8');
 const kwCrawlerContent = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
 const creatorCrawlerContent = fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
 const clusterContent = fs.readFileSync('scripts/cluster-intelligence.mjs', 'utf8');
 const relatedContent = fs.readFileSync('scripts/account-related-crawler.mjs', 'utf8');
 
-assert(kwCrawlerContent.includes("await import('undici')"), 'keyword-velocity-crawler.mjs must dynamically load undici');
-assert(kwCrawlerContent.includes('setDefaultDispatcher(undiciAgent)'), 'keyword-velocity-crawler.mjs must register dispatcher');
+assert(cliUtilsContent.includes("await import('undici')"), 'scripts/lib/cli-utils.mjs must dynamically load undici');
+assert(cliUtilsContent.includes("Symbol.for('undici.globalDispatcher.1')"), 'scripts/lib/cli-utils.mjs must configure undici.globalDispatcher.1');
 
-assert(creatorCrawlerContent.includes("await import('undici')"), 'creator-velocity-crawler.mjs must dynamically load undici');
-assert(creatorCrawlerContent.includes('setDefaultDispatcher(undiciAgent)'), 'creator-velocity-crawler.mjs must register dispatcher');
+assert(kwCrawlerContent.includes('bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)'), 'keyword-velocity-crawler.mjs must invoke bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)');
+assert(creatorCrawlerContent.includes('bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)'), 'creator-velocity-crawler.mjs must invoke bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)');
 
-assert(clusterContent.includes("await import('undici')"), 'cluster-intelligence.mjs must dynamically load undici');
+assert(clusterContent.includes('bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)'), 'cluster-intelligence.mjs must invoke bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)');
 assert(clusterContent.includes('dispatcher: undiciAgent'), 'cluster-intelligence.mjs must pass dispatcher to fetch');
 
-assert(relatedContent.includes("await import('undici')"), 'account-related-crawler.mjs must dynamically load undici');
+assert(relatedContent.includes('bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)'), 'account-related-crawler.mjs must invoke bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)');
 assert(relatedContent.includes('dispatcher: undiciAgent'), 'account-related-crawler.mjs must pass dispatcher to fetch');
 
-console.log('  ✓ Zero static import invariant preserved; dynamic undici injection verified across all 4 crawlers');
+console.log('  ✓ Zero static import invariant preserved; shared dynamic undici bootstrap verified across all 4 crawlers');
 
 // -------------------------------------------------------------
 // Test 6: PinRepository SSOT Ingestion & Monotonic Batch Ordering
@@ -292,8 +293,9 @@ assert(
 
 // Verify monotonic ORDER BY in creator velocity crawler and account related crawler
 assert(
-  creatorCrawlerContent.includes('ORDER BY x.pin_id ASC'),
-  'creator-velocity-crawler.mjs must order pin batch writes by x.pin_id ASC'
+  creatorCrawlerContent.includes('String(a.pin_id).localeCompare(String(b.pin_id))') &&
+  creatorCrawlerContent.includes('ingestPinsBatch(dbSql, chunk'),
+  'creator-velocity-crawler.mjs must sort pin batches by pin_id ASC and route writes through PinRepository.ingestPinsBatch'
 );
 assert(
   relatedContent.includes('ORDER BY x.candidate_pin_id ASC'),
