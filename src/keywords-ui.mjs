@@ -15,6 +15,7 @@ import { getKeywordsDashboardViewHtml } from './ui/keywords/keywords-dashboard-v
 import { getKeywordsSerpStudioViewHtml } from './ui/keywords/keywords-serp-studio.mjs';
 import { getKeywordsModalsHtml } from './ui/keywords/keywords-modals.mjs';
 import { getKeywordsClientAppScript } from './ui/keywords/keywords-client-app.mjs';
+import { renderSharedDocumentHead } from './ui/shared-head.mjs';
 
 export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folderId = '') {
   const safeSlug = String(initialSlug || '').trim().toLowerCase();
@@ -24,16 +25,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="same-origin">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📌</text></svg>">
-  <title>Keyword Intelligence & Velocity | Pinterest SERP Radar Studio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
+${renderSharedDocumentHead({
+  title: 'Keyword Intelligence & Velocity | Pinterest SERP Radar Studio',
+  referrerPolicy: 'same-origin',
+  includeThemeScript: false,
+  tailwindScriptHtml: `  <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
@@ -55,9 +51,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         }
       }
     };
-  </script>
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
-  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  </script>`
+})}
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }

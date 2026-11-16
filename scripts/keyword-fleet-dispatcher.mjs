@@ -21,11 +21,9 @@
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import { getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
+import { writeOutput, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
-// Auto-load .env in local environments
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -36,18 +34,7 @@ if (!DATABASE_URL) {
 const sql = createSqlClient(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
 const rawFolderId = (process.env.FOLDER_ID || '').trim();
-const githubOutputPath = process.env.GITHUB_OUTPUT || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
-
-async function writeOutput(key, value) {
-  if (githubOutputPath) {
-    try {
-      fs.appendFileSync(githubOutputPath, `${key}=${value}\n`, 'utf8');
-    } catch (err) {
-      console.warn(`[!] Failed writing to GITHUB_OUTPUT: ${err.message}`);
-    }
-  }
-}
 
 async function main() {
   try {

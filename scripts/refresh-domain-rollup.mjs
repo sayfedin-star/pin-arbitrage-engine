@@ -5,16 +5,12 @@
  * against Central Hub Postgres with zero catalog pin pollution.
  */
 
-import fs from 'fs';
 import { createSqlClient } from '../src/db/client.mjs';
 import { refreshDomainIntelligenceRollup } from '../src/modules/domains/service.mjs';
+import { startInstaBoxActivityLease, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
+loadDotEnvIfPresent();
 let dbUrl = process.env.DATABASE_URL;
-if (!dbUrl && fs.existsSync('.env')) {
-  const envContent = fs.readFileSync('.env', 'utf8');
-  const match = envContent.match(/DATABASE_URL="?([^"\r\n]+)"?/);
-  if (match) dbUrl = match[1];
-}
 
 if (!dbUrl) {
   console.error('[-] FATAL: DATABASE_URL is not set.');
@@ -26,22 +22,6 @@ const sql = createSqlClient(dbUrl, {
     statement_timeout: 120000
   }
 });
-
-function startInstaBoxActivityLease(intervalMs = 300000) {
-  const machineId = process.env.INSTABOX_MACHINE_ID;
-  const apiKey = process.env.INSTABOX_API_KEY;
-  if (!machineId || !apiKey) return { stop: () => {} };
-  const timer = setInterval(async () => {
-    try {
-      await fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(5000)
-      }).catch(() => {});
-    } catch (_) {}
-  }, intervalMs);
-  timer.unref?.();
-  return { stop: () => clearInterval(timer) };
-}
 
 console.log('[DomainRollup] Starting domain intelligence rollup refresh...');
 const activityLease = startInstaBoxActivityLease();

@@ -14,6 +14,7 @@
 
 import dns from 'node:dns/promises';
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { chunkArray } from '../../utils.mjs';
 import {
   normalizeCleanDomain,
   IGNORED_INTERNAL_DOMAINS,
@@ -995,8 +996,9 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
   }
 
   const results = [];
-  for (let i = 0; i < domainList.length; i += conc) {
-    const slice = domainList.slice(i, i + conc);
+  const chunks = chunkArray(domainList, conc);
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const slice = chunks[idx];
     const chunkPromises = slice.map(async (dom) => {
       try {
         return await fetchAndCacheDomainAdNetwork(sql, dom, { forceRefresh });
@@ -1006,7 +1008,7 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
     });
     const batchOutputs = await Promise.all(chunkPromises);
     results.push(...batchOutputs.filter(Boolean));
-    if (i + conc < domainList.length) {
+    if (idx + 1 < chunks.length) {
       await sleep(randomJitterMs(250, 500));
     }
   }

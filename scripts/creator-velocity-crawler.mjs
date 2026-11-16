@@ -64,10 +64,9 @@ try {
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
-// Auto-load .env in local environments
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+import { closeCrawlerDb as closeDbClient, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
+
+loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -76,14 +75,7 @@ if (!DATABASE_URL) {
 }
 
 const sql = createSqlClient(DATABASE_URL);
-async function closeCrawlerDb(exitCode = 0) {
-  try {
-    if (sql && typeof sql.end === 'function') {
-      await sql.end({ timeout: 2 });
-    }
-  } catch (_) {}
-  process.exit(exitCode);
-}
+const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;

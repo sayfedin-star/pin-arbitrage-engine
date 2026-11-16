@@ -21,10 +21,9 @@ import {
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch
 } from '../src/modules/domains/service.mjs';
+import { renderProgressBar, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -44,16 +43,6 @@ for (const arg of args) {
   if (arg.startsWith('--batch=')) batchSize = Math.max(5, Math.min(50, parseInt(arg.split('=')[1], 10) || 25));
   if (arg.startsWith('--concurrency=')) concurrency = Math.max(1, Math.min(5, parseInt(arg.split('=')[1], 10) || 4));
   if (arg.startsWith('--max=')) maxTotal = Math.max(1, parseInt(arg.split('=')[1], 10) || Infinity);
-}
-
-function renderProgressBar(current, total, width = 30) {
-  const safeTotal = Math.max(1, total);
-  const ratio = Math.min(1, Math.max(0, current / safeTotal));
-  const filled = Math.round(width * ratio);
-  const empty = width - filled;
-  const bar = '█'.repeat(filled) + '░'.repeat(empty);
-  const pct = (ratio * 100).toFixed(1);
-  return `[${bar}] ${pct}% (${current}/${total})`;
 }
 
 async function main() {

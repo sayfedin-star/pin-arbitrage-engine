@@ -16,6 +16,7 @@ import { getDomainsLeaderboardViewHtml } from './ui/domains/domains-leaderboard-
 import { getDomainsStudioViewHtml } from './ui/domains/domains-studio-view.mjs';
 import { getDomainsModalsHtml } from './ui/domains/domains-modals.mjs';
 import { getDomainsClientAppScript } from './ui/domains/domains-client-app.mjs';
+import { renderSharedDocumentHead } from './ui/shared-head.mjs';
 
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
@@ -27,16 +28,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="same-origin">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📌</text></svg>">
-  <title>Domain Intelligence & SERP Monopoly Studio | Pinterest Arbitrage</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
+${renderSharedDocumentHead({
+  title: 'Domain Intelligence & SERP Monopoly Studio | Pinterest Arbitrage',
+  referrerPolicy: 'same-origin',
+  tailwindScriptHtml: `  <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
@@ -48,18 +43,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         }
       }
     };
-    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
-    try {
-      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
-      if (savedTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } catch (_) {}
-  </script>
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
-  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  </script>`
+})}
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }

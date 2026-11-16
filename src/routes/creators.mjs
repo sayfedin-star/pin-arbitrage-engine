@@ -45,9 +45,12 @@ import {
   deepHarvestCreator,
   harvestSinglePinRelatedLive,
   getCreatorHubSettings,
-  updateCreatorHubSettings
+  updateCreatorHubSettings,
+  deleteCompetitor
 } from '../modules/creators/service.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
+import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
+import { recordDeletedSnapshotTombstone, reconcilePinMetricsAfterSnapshotDelete } from './pins.mjs';
 
 /**
  * Fast URI discriminator for Creators & Competitors routes
@@ -554,16 +557,13 @@ export async function handleCreatorsRoutes(routeCtx) {
     const usernames = rawUsernames.map(u => String(u || '').replace(/^@+/, '').trim()).filter(Boolean);
     if (!usernames.length) return jsonResponse({ error: 'username or target_account is required' }, 400);
 
-    const ghToken = env?.GITHUB_TOKEN || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GH_TOKEN) : null);
+    const { token: ghToken } = resolveGitHubAuth(env);
     if (!ghToken) {
       return jsonResponse({
         success: false,
         error: 'GITHUB_TOKEN secret is not configured in server environment. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
       }, 400);
     }
-    const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
-    const repo = 'sayfedin-star/pin-arbitrage-engine';
 
     const dispatchMode = body.crawl_mode || 'discovery';
     const maxPages = String(body.max_pages || (dispatchMode === 'refresh' ? '10' : dispatchMode === 'discovery' ? '3' : '500'));
@@ -571,36 +571,21 @@ export async function handleCreatorsRoutes(routeCtx) {
 
     const results = [];
     for (const targetUser of usernames) {
-      try {
-        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
-          method: 'POST',
-          headers: {
-            'User-Agent': 'PAE-Fastify-Engine',
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            ref: 'main',
-            inputs: {
-              target_account: targetUser,
-              target_boards: String(body.target_boards || body.boards || '').trim(),
-              crawl_mode: dispatchMode,
-              max_pages: maxPages,
-              personal_boards_only: personalOnly
-            }
-          }),
-          signal: AbortSignal.timeout(10000)
-        });
-        if (res.ok || res.status === 204) {
-          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
-          results.push({ username: targetUser, ok: true });
-        } else {
-          const errText = await res.text().catch(() => '');
-          results.push({ username: targetUser, ok: false, error: `GitHub API error (${res.status}): ${errText}` });
+      const dRes = await dispatchGitHubWorkflow({
+        env,
+        workflowFile: 'crawler-pipeline.yml',
+        inputs: {
+          target_account: targetUser,
+          target_boards: String(body.target_boards || body.boards || '').trim(),
+          crawl_mode: dispatchMode,
+          max_pages: maxPages,
+          personal_boards_only: personalOnly
         }
-      } catch (dErr) {
-        results.push({ username: targetUser, ok: false, error: dErr.message });
+      });
+      if (dRes.ok) {
+        results.push({ username: targetUser, ok: true });
+      } else {
+        results.push({ username: targetUser, ok: false, error: dRes.error });
       }
     }
 
@@ -708,46 +693,24 @@ export async function handleCreatorsRoutes(routeCtx) {
     const body = await request.json().catch(() => ({}));
     const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
-    const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
-    if (!ghToken) {
-      return jsonResponse({
-        success: false,
-        error: 'GITHUB_TOKEN secret is not configured in server environment. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
-      }, 400);
-    }
-    const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
-    const repo = 'sayfedin-star/pin-arbitrage-engine';
-    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`, {
-      method: 'POST',
-      signal: AbortSignal.timeout(10000),
-      headers: {
-        'User-Agent': 'PAE-Fastify-Engine',
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': authHeader,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        ref: 'main',
-        inputs: {
-          target_account: username,
-          pin_ids: String(body.pin_ids || body.pins || '').trim(),
-          max_pages_per_seed: String(body.max_pages_per_seed || '2')
-        }
-      })
+    const dRes = await dispatchGitHubWorkflow({
+      env,
+      workflowFile: 'account-related-pins.yml',
+      inputs: {
+        target_account: username,
+        pin_ids: String(body.pin_ids || body.pins || '').trim(),
+        max_pages_per_seed: String(body.max_pages_per_seed || '2')
+      }
     });
 
-    if (res.ok || res.status === 204) {
-      if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+    if (dRes.ok) {
       return jsonResponse({
         success: true,
         target_account: username,
         message: `Account Related Pins Harvester workflow dispatched successfully on GitHub Actions for @${username}!`
       });
-    } else {
-      const errText = await res.text();
-      return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
     }
+    return jsonResponse({ success: false, error: dRes.error }, dRes.status);
   }
 
   // DELETE /api/competitors/snapshot or snapshots
@@ -849,12 +812,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       }
       if (username) {
         const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
-        await sql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
-        await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
+        await deleteCompetitor(sql, cleanUser);
         return jsonResponse({ success: true, deleted_username: cleanUser });
       } else if (id && !isNaN(Number(id))) {
-        await sql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
-        await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
+        await deleteCompetitor(sql, Number(id));
         return jsonResponse({ success: true, deleted_id: Number(id) });
       }
       return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
@@ -1010,29 +971,8 @@ export async function handleCreatorsRoutes(routeCtx) {
           DELETE FROM pins_daily_metrics
           WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
         `;
-        await sql`
-          UPDATE universal_master_pins
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{deleted_snapshot_dates}',
-            COALESCE(
-              (
-                SELECT jsonb_agg(DISTINCT d)
-                FROM jsonb_array_elements_text(
-                  CASE
-                    WHEN jsonb_typeof(metadata->'deleted_snapshot_dates') = 'array'
-                      THEN (metadata->'deleted_snapshot_dates') || jsonb_build_array(${targetDate}::text)
-                    ELSE jsonb_build_array(${targetDate}::text)
-                  END
-                ) AS d
-              ),
-              jsonb_build_array(${targetDate}::text)
-            ),
-            true
-          ),
-          updated_at = NOW()
-          WHERE pin_id = ${pinId};
-        `;
+        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
+        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
       } catch (err) {
         console.error(`[CreatorsRoute.DELETE snapshots] delete failed for pin ${pinId}:`, err?.message || err);
         return jsonResponse({
@@ -1041,6 +981,13 @@ export async function handleCreatorsRoutes(routeCtx) {
           message: err?.message || String(err)
         }, 500);
       }
+    }
+    if (typeof invalidateEdgeCache === 'function') {
+      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+      if (typeof buildCanonicalCacheKey === 'function') {
+        await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      }
+      await invalidateEdgeCache('keywords:pin-dossier');
     }
     return jsonResponse({ success: true, deleted_snapshot: snapshotId, deleted_date: targetDate, pin_id: pinId });
   }

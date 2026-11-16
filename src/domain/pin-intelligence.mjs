@@ -56,7 +56,7 @@ export function normalizeCleanDomain(rawInput, { strictFqdn = false, preserveOrg
   return cleaned;
 }
 
-export const ANNOTATION_STOPWORDS = new Set([
+const ANNOTATION_STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'that', 'this', 'your', 'you', 'are', 'was',
   'were', 'have', 'has', 'had', 'not', 'but', 'what', 'all', 'can', 'her', 'his',
   'one', 'our', 'out', 'day', 'get', 'make', 'made', 'how', 'who', 'why', 'when',

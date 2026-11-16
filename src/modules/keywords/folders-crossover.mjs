@@ -7,6 +7,7 @@ import { fetchPinterestTrends } from './trends-service.mjs';
 import {
   extractCanonicalAnnotations,
   normalizeAnnotationTag,
+  formatTagTitleCase,
   isSyntheticGarbageTitle,
   resolveCanonicalPinTitle,
   normalizeCleanDomain
@@ -209,20 +210,12 @@ export function extractTitleKeywords(title = '') {
   return [...new Set(tokens)];
 }
 
-function toTitleCase(str) {
-  return String(str || '')
-    .trim()
-    .split(/\s+/)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
-}
-
 /**
  * High-Converting Pinterest Spoke Angle Synthesizer
  * Formulates natural, click-worthy titles from modifier pivots and target keywords.
  */
 function synthesizeSpokeTitle(modifier, targetKw) {
-  const kw = toTitleCase(targetKw);
+  const kw = formatTagTitleCase(targetKw);
   const modLower = String(modifier || '').toLowerCase().trim();
 
   if (modLower.includes('oven')) {
@@ -263,7 +256,7 @@ function synthesizeSpokeTitle(modifier, targetKw) {
     return `Instant Pot ${kw}: Fall-Apart Tender in Minutes`;
   }
 
-  const cleanMod = toTitleCase(modifier);
+  const cleanMod = formatTagTitleCase(modifier);
   return `${cleanMod} ${kw}: Quick & Easy Step-by-Step`;
 }
 
@@ -1269,7 +1262,7 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
       if (!tagMap.has(t)) {
         tagMap.set(t, {
           tag: t,
-          display_name: toTitleCase(t),
+          display_name: formatTagTitleCase(t),
           keywords_set: new Set(),
           pin_count: 0,
           total_saves: 0,
@@ -1424,8 +1417,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
 
     if (!pivotMap.has(rawKey)) {
       const displayLabel = label
-        ? toTitleCase(label)
-        : toTitleCase(c.term || rawKey);
+        ? formatTagTitleCase(label)
+        : formatTagTitleCase(c.term || rawKey);
 
       pivotMap.set(rawKey, {
         term: rawKey,
@@ -1912,12 +1905,12 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
 
   if (hasCooccurringPin) {
     // Natural co-occurrence confirmed by actual Pinterest SERP overlap
-    pillarTitle = `The Ultimate ${toTitleCase(primaryKw)} & ${toTitleCase(secondaryKw)} Master Guide`;
+    pillarTitle = `The Ultimate ${formatTagTitleCase(primaryKw)} & ${formatTagTitleCase(secondaryKw)} Master Guide`;
   } else if (cleanFolderName && cleanFolderName.toLowerCase() !== 'all' && cleanFolderName.length > 3) {
     // Co-occurrence not verified: anchor to overarching Umbrella Folder Concept
-    pillarTitle = `The Complete ${toTitleCase(cleanFolderName)} Master Guide`;
+    pillarTitle = `The Complete ${formatTagTitleCase(cleanFolderName)} Master Guide`;
   } else {
-    pillarTitle = `The Ultimate ${toTitleCase(primaryKw)} Master Blueprint`;
+    pillarTitle = `The Ultimate ${formatTagTitleCase(primaryKw)} Master Blueprint`;
   }
 
   // Synthesize 5 actionable spoke pins

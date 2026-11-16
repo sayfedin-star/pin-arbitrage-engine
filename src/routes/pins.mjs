@@ -16,9 +16,10 @@ import {
 } from '../modules/pins/repository.mjs';
 
 import { fetchPinFromPinterest, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
+import { ignoreAndRemoveSerpPin } from '../modules/keywords/service.mjs';
 
 // Record deleted date in universal_master_pins
-async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
+export async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
   if (!sql || !targetDate) return;
   await sql`
     INSERT INTO universal_master_pins (pin_id, metadata, updated_at)
@@ -40,7 +41,7 @@ async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
  * Reconciles a pin's bridged daily_save_velocity, daily_repin_velocity, save_count, and repin_count across
  * pins_daily_metrics and universal_master_pins after any snapshot deletion.
  */
-async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
+export async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
   if (!sql || !pinId) return;
   try {
     const remainingRows = await sql`
@@ -306,15 +307,18 @@ export async function handlePinsRoutes({
       }, 400);
     }
 
-    // Delete from keyword_serp_positions table
-    await sql`
-      DELETE FROM keyword_serp_positions
-      WHERE pin_id = ${pinId} AND keyword_id = ${kwId};
-    `.catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, err?.message || err); });
+    // Tombstone in keyword_ignored_pins and delete from keyword_serp_positions
+    await ignoreAndRemoveSerpPin(sql, {
+      keywordId: kwId,
+      pinId,
+      reason: 'manual_user_deletion'
+    }).catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, err?.message || err); });
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('folders');
 
     return jsonResponse({
       success: true,
@@ -499,6 +503,11 @@ export async function handlePinsRoutes({
       await sql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pins_daily_metrics delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM keyword_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_serp_positions delete failed for ${pinId}:`, err?.message || err); });
       await sql`DELETE FROM competitor_board_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] competitor_board_pins delete failed for ${pinId}:`, err?.message || err); });
+      await sql`DELETE FROM keyword_ignored_pins WHERE pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM competitor_related_nodes WHERE pin_id = ${pinId} OR seed_pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM competitor_seed_pins WHERE pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`.catch(() => {});
 
       // Invalidate Edge Caches synchronously
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);

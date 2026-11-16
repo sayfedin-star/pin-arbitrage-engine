@@ -100,7 +100,7 @@ function cleanString(val) {
   return '';
 }
 
-import { formatPinterestCookie } from '../src/utils.mjs';
+import { formatPinterestCookie, normalizeCleanDomain, chunkArray } from '../src/utils.mjs';
 export { formatPinterestCookie };
 
 /**
@@ -418,14 +418,17 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     }
   }
 
-  const domain = cleanString(pin.domain) || cleanString(pin.link_domain?.id) || 'Uploaded by user';
+  const rawDomain = cleanString(pin.domain) || cleanString(pin.link_domain?.id) || cleanString(pin.link);
+  const cleanDomain = normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
+  const domain = cleanDomain || rawDomain || 'Uploaded by user';
 
   // Pre-classification check: reject non-culinary candidates only if cluster is culinary
   if ((seedClusterType === 'BAKERY_DESSERT' || seedClusterType === 'CULINARY') && !isCulinaryCandidate(title, domain, pin.description || '')) {
     return null;
   }
 
-  const dominantColor = cleanString(pin.dominant_color) || '#888888';
+  const rawColor = cleanString(pin.dominant_color);
+  const dominantColor = (rawColor && rawColor.toLowerCase() !== '#888888') ? rawColor : null;
 
   let aspectRatio = 0.560;
   if (pin.story_pin_data?.metadata?.canvas_aspect_ratio) {
@@ -638,6 +641,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     repins,
     save_rate: saveRate,
     domain,
+    clean_domain: cleanDomain,
     is_product: isProduct,
     ocr_text: ocrText,
     pin_created_at: pinCreatedAt,
@@ -718,13 +722,13 @@ function extractPinsFromEntity(item) {
  * Quantize Hex color to 40-step RGB buckets for perceptual cluster centroids
  */
 function quantizeHex(hex) {
-  if (!hex || typeof hex !== 'string') return '#888888';
+  if (!hex || typeof hex !== 'string') return null;
   const clean = hex.replace('#', '').toLowerCase();
-  if (clean.length < 6) return '#888888';
+  if (clean.length < 6 || clean === '888888') return null;
   const r = parseInt(clean.substring(0, 2), 16);
   const g = parseInt(clean.substring(2, 4), 16);
   const b = parseInt(clean.substring(4, 6), 16);
-  if (isNaN(r) || isNaN(g) || isNaN(b)) return '#888888';
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
   const step = 40;
   const qr = Math.min(255, Math.round(r / step) * step).toString(16).padStart(2, '0');
   const qg = Math.min(255, Math.round(g / step) * step).toString(16).padStart(2, '0');
@@ -738,20 +742,26 @@ function quantizeHex(hex) {
 function computeColorCentroids(candidates) {
   if (candidates.length === 0) return [];
   const clusters = new Map();
+  let validCount = 0;
   for (const c of candidates) {
-    const raw = (c.dominant_color || '#888888').toLowerCase();
+    if (!c.dominant_color || typeof c.dominant_color !== 'string') continue;
+    const raw = c.dominant_color.trim().toLowerCase();
+    if (!raw || raw === '#888888') continue;
     const bucket = quantizeHex(raw);
+    if (!bucket) continue;
+    validCount++;
     if (!clusters.has(bucket)) {
       clusters.set(bucket, { hex: raw, count: 0 });
     }
     clusters.get(bucket).count++;
   }
 
+  const denom = validCount > 0 ? validCount : candidates.length;
   return Array.from(clusters.values())
     .map(c => ({
       color: c.hex,
       count: c.count,
-      percentage: Number(((c.count / candidates.length) * 100).toFixed(1))
+      percentage: Number(((c.count / denom) * 100).toFixed(1))
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
@@ -1237,33 +1247,36 @@ async function crawlSeed(seed) {
 
     // Batch upsert in chunks of 50 to respect query payload sizes
     const chunkSize = 50;
-    for (let i = 0; i < allCandidates.length; i += chunkSize) {
-      const chunk = allCandidates.slice(i, i + chunkSize);
-      const chunkPayload = JSON.stringify(chunk.map((node) => ({
-        seed_pin_id: String(node.seed_pin_id || pinId),
-        candidate_pin_id: String(node.candidate_pin_id),
-        title: node.title || '',
-        dominant_color: node.dominant_color || '#888888',
-        aspect_ratio: Number(node.aspect_ratio) || 0.56,
-        saves: Number(node.saves) || 0,
-        repins: Number(node.repins) || 0,
-        save_rate: Number(node.save_rate) || 0,
-        domain: node.domain || '',
-        is_product: Boolean(node.is_product),
-        ocr_text: node.ocr_text || '',
-        pin_created_at: node.pin_created_at || null,
-        age_days: Number(node.age_days) || 180,
-        daily_velocity: Number(node.daily_velocity) || 0,
-        provenance_engine: node.provenance_engine || 'P2P_TWO_TOWER',
-        individual_prod_score: Number(node.individual_prod_score) || 0,
-        recgpt_transition_score: Number(node.recgpt_transition_score) || 0,
-        sequence_role: node.sequence_role || 'DIRECT_MATCH',
-        is_recgpt_candidate: Boolean(node.is_recgpt_candidate),
-        visual_entropy_score: Number(node.visual_entropy_score) || 0,
-        image_url: node.image_url || '',
-        is_video: Boolean(node.is_video),
-        ingestion_method: node.ingestion_method || 'uploaded'
-      })));
+    for (const chunk of chunkArray(allCandidates, chunkSize)) {
+      const chunkPayload = JSON.stringify(chunk.map((node) => {
+        const cleanDom = node.clean_domain || normalizeCleanDomain(node.domain, { strictFqdn: true }) || null;
+        return {
+          seed_pin_id: String(node.seed_pin_id || pinId),
+          candidate_pin_id: String(node.candidate_pin_id),
+          title: node.title || '',
+          dominant_color: (node.dominant_color && String(node.dominant_color).toLowerCase() !== '#888888') ? node.dominant_color : null,
+          aspect_ratio: Number(node.aspect_ratio) || 0.56,
+          saves: Number(node.saves) || 0,
+          repins: Number(node.repins) || 0,
+          save_rate: Number(node.save_rate) || 0,
+          domain: cleanDom || node.domain || '',
+          clean_domain: cleanDom,
+          is_product: Boolean(node.is_product),
+          ocr_text: node.ocr_text || '',
+          pin_created_at: node.pin_created_at || null,
+          age_days: Number(node.age_days) || 180,
+          daily_velocity: Number(node.daily_velocity) || 0,
+          provenance_engine: node.provenance_engine || 'P2P_TWO_TOWER',
+          individual_prod_score: Number(node.individual_prod_score) || 0,
+          recgpt_transition_score: Number(node.recgpt_transition_score) || 0,
+          sequence_role: node.sequence_role || 'DIRECT_MATCH',
+          is_recgpt_candidate: Boolean(node.is_recgpt_candidate),
+          visual_entropy_score: Number(node.visual_entropy_score) || 0,
+          image_url: node.image_url || '',
+          is_video: Boolean(node.is_video),
+          ingestion_method: node.ingestion_method || 'uploaded'
+        };
+      }));
 
       await sqlWithRetry(() => sql`
         INSERT INTO candidate_graph_nodes (
@@ -1312,7 +1325,7 @@ async function crawlSeed(seed) {
         ) x
         ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
           title = EXCLUDED.title,
-          dominant_color = EXCLUDED.dominant_color,
+          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), candidate_graph_nodes.dominant_color),
           aspect_ratio = EXCLUDED.aspect_ratio,
           saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END,
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,

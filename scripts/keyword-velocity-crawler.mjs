@@ -95,14 +95,8 @@ async function stampPhase1ABarrierToken(kid, token, leaseToken) {
     WHERE id = ${kid};
   `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 }
-async function closeCrawlerDb(exitCode = 0) {
-  try {
-    if (sql && typeof sql.end === 'function') {
-      await sql.end({ timeout: 2 });
-    }
-  } catch (_) {}
-  process.exit(exitCode);
-}
+import { closeCrawlerDb as closeDbClient } from './lib/cli-utils.mjs';
+const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;

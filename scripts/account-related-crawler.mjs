@@ -8,8 +8,7 @@
  */
 
 import { createSqlClient } from '../src/db/client.mjs';
-import fs from 'fs';
-import { sanitizeForJsonb } from '../src/utils.mjs';
+import { sanitizeForJsonb, normalizeCleanDomain } from '../src/utils.mjs';
 import {
   CANONICAL_FINGERPRINT,
   randomJitterMs,
@@ -29,17 +28,9 @@ try {
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
-// Load environment variables safely
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
-
+import { loadDotEnvIfPresent } from './lib/cli-utils.mjs';
+loadDotEnvIfPresent();
 let dbUrl = process.env.DATABASE_URL;
-if (!dbUrl && fs.existsSync('.env')) {
-  const envContent = fs.readFileSync('.env', 'utf-8');
-  const match = envContent.match(/DATABASE_URL=([^\r\n]+)/);
-  if (match) dbUrl = match[1].trim();
-}
 
 if (!dbUrl) {
   console.error('[-] FATAL: DATABASE_URL is not set.');
@@ -174,10 +165,13 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       const repins = rawRepins != null ? Math.max(0, Number(rawRepins)) : null;
       const creator = item.pinner?.username || item.origin_pinner?.username || '';
       const creatorName = item.pinner?.full_name || '';
-      const domain = item.domain || item.link_domain || '';
+      const rawDomain = item.domain || item.link_domain?.id || item.link_domain || '';
       const link = item.link || '';
+      const cleanDomain = normalizeCleanDomain(rawDomain || link, { strictFqdn: true }) || null;
+      const domain = cleanDomain || (typeof rawDomain === 'string' ? rawDomain : '');
       const img = item.images?.['236x']?.url || item.images?.['736x']?.url || item.images?.orig?.url || '';
-      const dominantColor = item.dominant_color || '#a88d56';
+      const rawColor = typeof item.dominant_color === 'string' ? item.dominant_color.trim() : '';
+      const dominantColor = (rawColor && rawColor.toLowerCase() !== '#888888') ? rawColor : null;
       const isProduct = Boolean(item.is_product || item.commerce_product);
       const isSameAccount = creator.toLowerCase() === targetUsername.toLowerCase();
 
@@ -191,6 +185,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
         saves,
         repins,
         domain: domain.slice(0, 255),
+        clean_domain: cleanDomain,
         destination_url: link,
         is_product: isProduct,
         is_same_account: isSameAccount,

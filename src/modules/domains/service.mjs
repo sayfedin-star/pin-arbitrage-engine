@@ -11,6 +11,7 @@
  */
 
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { hydrateDisplacedPinsMetadata } from '../keywords/service.mjs';
 import {
   IGNORED_INTERNAL_DOMAINS,
@@ -138,7 +139,7 @@ export function computeSybilPbnMetrics({ allPins = [], accountsMap = new Map(), 
  */
 export function escapeSqlLike(str) {
   if (!str || typeof str !== 'string') return '';
-  return str.trim().toLowerCase().replace(/[\\%_]/g, '\\$&');
+  return escapeSqlWildcards(str.trim().toLowerCase());
 }
 
 /**
@@ -746,8 +747,9 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
   }
 
   const results = [];
-  for (let i = 0; i < domainList.length; i += conc) {
-    const slice = domainList.slice(i, i + conc);
+  const chunks = chunkArray(domainList, conc);
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const slice = chunks[idx];
     const chunkPromises = slice.map(async (dom) => {
       try {
         return await fetchAndCacheDomainAge(sql, dom, { forceRefresh });
@@ -757,7 +759,7 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
     });
     const batchOutputs = await Promise.all(chunkPromises);
     results.push(...batchOutputs.filter(Boolean));
-    if (i + conc < domainList.length) {
+    if (idx + 1 < chunks.length) {
       await sleep(randomJitterMs(250, 500));
     }
   }

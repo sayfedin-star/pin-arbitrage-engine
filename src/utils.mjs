@@ -2,6 +2,8 @@
  * Shared Utilities for Cloudflare Workers & Node.js Engine
  */
 
+export { normalizeCleanDomain } from './modules/domains/domain-constants.mjs';
+
 export function formatPinterestCookie(rawCookie) {
   if (!rawCookie || typeof rawCookie !== 'string') return '';
   let cookie = rawCookie.trim();
@@ -163,37 +165,25 @@ export function sanitizeForJsonb(input, seen = new WeakSet()) {
 }
 
 /**
+ * Splits an array into chunks of the specified size.
+ */
+export function chunkArray(items, size = 100) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const step = Math.max(1, Math.floor(Number(size) || 100));
+  const chunks = [];
+  for (let i = 0; i < items.length; i += step) {
+    chunks.push(items.slice(i, i + step));
+  }
+  return chunks;
+}
+
+/**
  * Escapes SQL LIKE / ILIKE wildcard characters (%, _, \) to prevent full table scans
  * and ensure literal string matching when constructing dynamic pattern queries.
  */
 export function escapeSqlWildcards(input) {
   if (!input || typeof input !== 'string') return '';
   return input.replace(/[\\%_]/g, '\\$&');
-}
-
-/**
- * Safely masks database credentials in PostgreSQL connection strings
- * using WHATWG URL parser with regex fallback.
- */
-export function maskDatabaseUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return '';
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return '';
-  try {
-    const u = new URL(trimmed);
-    if (u.password || u.username) {
-      u.password = '••••••••';
-      return decodeURIComponent(u.toString());
-    }
-    return u.toString();
-  } catch (_) {
-    const masked = trimmed.replace(/(:\/\/[^:/?#\s]+:)([\s\S]*?)(@[^@/?#\s]+)/, '$1••••••••$3');
-    if (masked.includes('••••••••')) return masked;
-    if (trimmed.includes('@')) {
-      return trimmed.replace(/\/\/[\s\S]*?@/, '//••••••••@');
-    }
-    return '[REDACTED_DATABASE_URL]';
-  }
 }
 
 /**
@@ -256,31 +246,9 @@ export function formatEntityAgeFromDays(days) {
 }
 
 /**
- * Format entity age from an ISO date string
- * >= 365d: display in years only (e.g. '11.2y', '2.1y' - strictly NO parenthetical days, NO 'ago' suffix)
- * < 365d: display in days only (e.g. '145d', '12d')
- * @param {string|Date|null} dateInput - ISO timestamp or Date object
- * @returns {string} Formatted age (e.g. '2.1y' or '85d')
- */
-export function formatEntityAgeFromIso(dateInput) {
-  if (!dateInput) return '—';
-  try {
-    const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return '—';
-    const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
-    if (diffDays >= 365) {
-      const years = (diffDays / 365).toFixed(1);
-      return `${years}y`;
-    }
-    return `${diffDays}d`;
-  } catch (_) {
-    return '—';
-  }
-}
-
-/**
  * Human-readable age formatter (delegates to canonical formatEntityAgeFromDays)
  */
 export function formatAge(days) {
   return formatEntityAgeFromDays(days);
 }
+

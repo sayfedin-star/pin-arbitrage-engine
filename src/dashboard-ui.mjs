@@ -16,6 +16,7 @@ import { getDashboardOverviewHtml } from './ui/dashboard/dashboard-overview.mjs'
 import { getDashboardRelatedPinsHtml } from './ui/dashboard/dashboard-related-pins.mjs';
 import { getDashboardCreatorsHtml } from './ui/dashboard/dashboard-creators.mjs';
 import { getDashboardClientAppScript } from './ui/dashboard/dashboard-client-app.mjs';
+import { renderSharedDocumentHead } from './ui/shared-head.mjs';
 
 export function getDashboardHtml(folderId = '') {
   const safeFolderId = String(folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
@@ -23,31 +24,9 @@ export function getDashboardHtml(folderId = '') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📌</text></svg>">
-  <title>Pin Cluster Analyzer & Predictive Engine | V3</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script>
-    (function() {
-      try {
-        var t = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
-        if (t === 'dark') {
-          if (typeof document !== 'undefined' && document.documentElement) {
-            document.documentElement.classList.add('dark');
-          }
-        } else {
-          if (typeof document !== 'undefined' && document.documentElement) {
-            document.documentElement.classList.remove('dark');
-          }
-        }
-      } catch (_) {}
-    })();
-  </script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
+${renderSharedDocumentHead({
+  title: 'Pin Cluster Analyzer & Predictive Engine | V3',
+  tailwindScriptHtml: `  <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
@@ -69,9 +48,8 @@ export function getDashboardHtml(folderId = '') {
         }
       }
     }
-  </script>
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
-  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  </script>`
+})}
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }

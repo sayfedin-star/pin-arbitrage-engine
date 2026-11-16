@@ -3,7 +3,7 @@
  * Split from src/modules/creators/service.mjs (Layer 3 — depends on competitors-crud & creator-ingest)
  */
 
-import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
+import { formatPinterestCookie, escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { fetchBoardsResource, fetchBoardDetailUnauth, fetchBoardFeedResource, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import crypto from 'node:crypto';
 import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules, qualifyPin } from './competitors-crud.mjs';
@@ -259,9 +259,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
   }
 
   let syncedCount = 0;
-  const chunkSize = 200;
-  for (let i = 0; i < records.length; i += chunkSize) {
-    const chunk = records.slice(i, i + chunkSize);
+  for (const chunk of chunkArray(records, 200)) {
     try {
       const inserted = await sql`
         INSERT INTO competitor_boards (

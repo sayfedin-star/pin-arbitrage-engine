@@ -9,7 +9,7 @@
  * - Discovery typeahead and Pinterest trend acceleration
  */
 
-import { escapeSqlWildcards, getCulinaryColorName, formatAge } from '../../utils.mjs';
+import { escapeSqlWildcards, getCulinaryColorName, formatAge, chunkArray, normalizeCleanDomain } from '../../utils.mjs';
 import { computeCrossPillarConvictionScore } from '../../lib/math.mjs';
 import { fetchKeywordTypeahead } from '../keywords/service.mjs';
 import { fetchPinterestBatchVelocity, fetchPinterestInterestVolume } from '../keywords/trends-service.mjs';
@@ -789,8 +789,11 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
       if (!candidatePinId || candidatePinId === seedPinId || candidatePinId.startsWith('-') || !/^\d+$/.test(candidatePinId)) continue;
 
       const title = (p.title || p.grid_title || p.auto_alt_text || p.description || '').slice(0, 255).trim() || `Pin ${candidatePinId}`;
-      const domain = p.domain || p.link_domain?.id || 'Uploaded by user';
-      const dominantColor = (p.dominant_color && typeof p.dominant_color === 'string') ? p.dominant_color : '#888888';
+      const rawDomain = p.domain || p.link_domain?.id || p.link || '';
+      const cleanDomain = normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
+      const domain = cleanDomain || p.domain || p.link_domain?.id || 'Uploaded by user';
+      const rawColor = (p.dominant_color && typeof p.dominant_color === 'string') ? p.dominant_color.trim() : '';
+      const dominantColor = (rawColor && rawColor.toLowerCase() !== '#888888') ? rawColor : null;
       const saves = Number(p.aggregated_pin_data?.aggregated_stats?.saves ?? p.save_count ?? p.saves ?? 0);
       const repins = Number(p.repin_count || 0);
       const saveRate = saves > 0 ? Number(((repins / saves) * 100).toFixed(2)) : 0;
@@ -815,6 +818,7 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
         repins,
         save_rate: saveRate,
         domain,
+        clean_domain: cleanDomain,
         is_product: isProduct,
         ocr_text: ocrText,
         pin_created_at: pinCreatedAt,
@@ -840,8 +844,7 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
     }
     const uniqueCandidates = Array.from(dedupCandMap.values());
     const candChunkSize = 250;
-    for (let i = 0; i < uniqueCandidates.length; i += candChunkSize) {
-      const chunk = uniqueCandidates.slice(i, i + candChunkSize);
+    for (const chunk of chunkArray(uniqueCandidates, candChunkSize)) {
       await targetSql`
         INSERT INTO candidate_graph_nodes (
           seed_pin_id, candidate_pin_id, title,
@@ -883,7 +886,7 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
         )
         ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
           title = EXCLUDED.title,
-          dominant_color = EXCLUDED.dominant_color,
+          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), candidate_graph_nodes.dominant_color),
           aspect_ratio = EXCLUDED.aspect_ratio,
           saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END,
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,

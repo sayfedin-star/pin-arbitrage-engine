@@ -17,32 +17,12 @@
 
 import { createSqlClient, isTransientPgConnectionError } from '../src/db/client.mjs';
 import { isMultiStageHydrationJump, isRepinHydrationJump } from '../src/lib/math.mjs';
-import fs from 'node:fs';
+import { chunkArray } from '../src/utils.mjs';
+import { startInstaBoxActivityLease, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Auto-load .env in Node runtime
-const envPath = path.resolve(process.cwd(), '.env');
-if (fs.existsSync(envPath)) {
-  try {
-    const content = fs.readFileSync(envPath, 'utf8');
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-        const idx = trimmed.indexOf('=');
-        const k = trimmed.slice(0, idx).trim();
-        let v = trimmed.slice(idx + 1).trim();
-        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-          v = v.slice(1, -1);
-        }
-        if (!process.env[k]) process.env[k] = v;
-      }
-    }
-  } catch (_) {}
-}
+loadDotEnvIfPresent();
 
 const hubSql = process.env.DATABASE_URL ? createSqlClient(process.env.DATABASE_URL) : null;
 
@@ -191,22 +171,6 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = new Date
     gains_10d: getGainsForWindow(10),
     gains_15d: getGainsForWindow(15)
   };
-}
-
-function startInstaBoxActivityLease(intervalMs = 300000) {
-  const machineId = process.env.INSTABOX_MACHINE_ID;
-  const apiKey = process.env.INSTABOX_API_KEY;
-  if (!machineId || !apiKey) return { stop: () => {} };
-  const timer = setInterval(async () => {
-    try {
-      await fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(5000)
-      }).catch(() => {});
-    } catch (_) {}
-  }, intervalMs);
-  timer.unref?.();
-  return { stop: () => clearInterval(timer) };
 }
 
 async function main() {
@@ -367,8 +331,7 @@ async function main() {
     let totalSnapshotsRetrieved = 0;
 
     try {
-      for (let i = 0; i < allPinIds.length; i += PIN_CHUNK_SIZE) {
-        const pinChunk = allPinIds.slice(i, i + PIN_CHUNK_SIZE);
+      for (const pinChunk of chunkArray(allPinIds, PIN_CHUNK_SIZE)) {
         const snapshots = await executeWithRetry(async () => {
           return await hubSql`
             SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity
@@ -410,8 +373,7 @@ async function main() {
   const BATCH_SIZE = 250;
   let updatedCount = 0;
 
-  for (let i = 0; i < deltaList.length; i += BATCH_SIZE) {
-    const chunk = deltaList.slice(i, i + BATCH_SIZE);
+  for (const chunk of chunkArray(deltaList, BATCH_SIZE)) {
     const payloadJson = JSON.stringify(chunk);
 
     // Update universal_master_pins

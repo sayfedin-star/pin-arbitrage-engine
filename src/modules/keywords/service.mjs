@@ -16,7 +16,7 @@
  * - PinArchive-parity metadata enrichment (aspect ratio, format badges, velocity tiers)
  */
 
-import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
+import { formatPinterestCookie, escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import {
   extractPinData,
@@ -1264,8 +1264,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Run fetchPinsBatchFromPidgets across 100% of SERP pins in chunks of 50
     if (typeof fetchPinsBatchFromPidgets === 'function' && preparedPins.length > 0) {
       const allPinIds = preparedPins.map(p => p.pin_id).filter(Boolean);
-      for (let i = 0; i < allPinIds.length; i += 50) {
-        const chunk = allPinIds.slice(i, i + 50);
+      for (const chunk of chunkArray(allPinIds, 50)) {
         try {
           const pidgetsMap = await fetchPinsBatchFromPidgets(chunk);
           if (pidgetsMap) {
@@ -2493,4 +2492,106 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
 
 
   return projectedDossier;
+}
+
+/**
+ * Canonical SERP Tombstone & Position Removal Helper
+ * Atomically records tombstones in keyword_ignored_pins and removes matching (keyword_id, pin_id)
+ * rows from keyword_serp_positions so deleted/pruned pins never resurrect on future crawls.
+ */
+export async function ignoreAndRemoveSerpPin(sql, {
+  pairs = null,
+  keywordId = null,
+  pinId = null,
+  reason = 'manual_user_deletion'
+} = {}) {
+  if (!sql) return { deletedCount: 0, pairs: [] };
+
+  const rawList = Array.isArray(pairs)
+    ? pairs
+    : (keywordId != null && pinId != null ? [{ keyword_id: keywordId, pin_id: pinId }] : []);
+
+  const dedupMap = new Map();
+  for (const item of rawList) {
+    const kid = Number(item?.keyword_id ?? item?.keywordId);
+    const pid = String(item?.pin_id ?? item?.pinId ?? '').trim();
+    const itemReason = String(item?.ignored_reason || item?.reason || reason || 'manual_user_deletion');
+    if (Number.isInteger(kid) && kid > 0 && pid) {
+      dedupMap.set(`${kid}:${pid}`, {
+        keyword_id: kid,
+        pin_id: pid,
+        ignored_reason: itemReason
+      });
+    }
+  }
+
+  const normalizedPairs = Array.from(dedupMap.values()).sort(
+    (a, b) => (a.keyword_id - b.keyword_id) || a.pin_id.localeCompare(b.pin_id)
+  );
+  if (normalizedPairs.length === 0) {
+    return { deletedCount: 0, pairs: [] };
+  }
+
+  if (normalizedPairs.length === 1) {
+    const [{ keyword_id: kid, pin_id: pid, ignored_reason: ignReason }] = normalizedPairs;
+    await sql`
+      INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+      VALUES (${kid}, ${pid}, ${ignReason}, NOW())
+      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+        ignored_reason = EXCLUDED.ignored_reason,
+        ignored_at = NOW();
+    `.catch((err) => {
+      console.warn(`[ignoreAndRemoveSerpPin] Tombstone insert warning for (${kid}, ${pid}):`, err?.message || err);
+    });
+
+    const deletedRows = await sql`
+      DELETE FROM keyword_serp_positions
+      WHERE keyword_id = ${kid} AND pin_id = ${pid}
+      RETURNING keyword_id, pin_id;
+    `.catch((err) => {
+      console.warn(`[ignoreAndRemoveSerpPin] SERP delete warning for (${kid}, ${pid}):`, err?.message || err);
+      return [];
+    });
+
+    return {
+      deletedCount: Array.isArray(deletedRows) ? deletedRows.length : 0,
+      pairs: normalizedPairs
+    };
+  }
+
+  const payloadJson = JSON.stringify(normalizedPairs);
+  await sql`
+    INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+    SELECT x.keyword_id, x.pin_id, x.ignored_reason, NOW()
+    FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(
+      keyword_id int,
+      pin_id text,
+      ignored_reason text
+    )
+    ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+      ignored_reason = EXCLUDED.ignored_reason,
+      ignored_at = NOW();
+  `.catch((err) => {
+    console.warn(`[ignoreAndRemoveSerpPin] Batch tombstone insert warning: ${err?.message || err}`);
+  });
+
+  const deletedRows = await sql`
+    DELETE FROM keyword_serp_positions ksp
+    USING jsonb_to_recordset(${payloadJson}::jsonb) AS x(
+      keyword_id int,
+      pin_id text,
+      ignored_reason text
+    )
+    WHERE ksp.keyword_id = x.keyword_id
+      AND ksp.pin_id = x.pin_id
+    RETURNING ksp.keyword_id, ksp.pin_id;
+  `.catch((err) => {
+    console.warn(`[ignoreAndRemoveSerpPin] Batch SERP delete warning: ${err?.message || err}`);
+    return [];
+  });
+
+  return {
+    deletedCount: Array.isArray(deletedRows) ? deletedRows.length : 0,
+    pairs: normalizedPairs
+  };
 }

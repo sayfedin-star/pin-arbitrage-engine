@@ -34,6 +34,7 @@ import {
 } from '../modules/cluster/service.mjs';
 
 import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pulse/service.mjs';
+import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 
 /**
  * Fast URI discriminator for Cluster & Discovery routes
@@ -403,16 +404,14 @@ export async function handleClusterRoutes({
 
   // 4. GET /api/workflow/runs (Node.js GitHub API integration)
   if (method === 'GET' && pathname === '/api/workflow/runs') {
-    const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
-    const repo = 'sayfedin-star/pin-arbitrage-engine';
+    const { authHeader, repo } = resolveGitHubAuth(env);
     try {
       const headers = {
         'User-Agent': 'PAE-Fastify-Engine',
         'Accept': 'application/vnd.github.v3+json'
       };
-      if (ghToken) {
-        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-        headers['Authorization'] = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
       }
       const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, {
         headers,
@@ -441,15 +440,6 @@ export async function handleClusterRoutes({
 
   // 5. POST /api/workflow/trigger (Node.js GitHub API dispatch)
   if (method === 'POST' && pathname === '/api/workflow/trigger') {
-    const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
-    if (!ghToken) {
-      return jsonResponse({
-        success: false,
-        error: 'GitHub Token secret not configured in server environment. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret.'
-      }, 400);
-    }
-    const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
     const body = await request.json().catch(() => ({}));
     let target = '';
     if (Array.isArray(body.seed_pin_ids) && body.seed_pin_ids.length > 0) {
@@ -465,41 +455,24 @@ export async function handleClusterRoutes({
     }
     const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
 
-    const repo = 'sayfedin-star/pin-arbitrage-engine';
-    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/dispatches`, {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'PAE-Fastify-Engine',
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': authHeader,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        ref: 'main',
-        inputs: {
-          seed_pin_id: target,
-          max_pages: maxPages
-        }
-      }),
-      signal: AbortSignal.timeout(10000)
+    const dRes = await dispatchGitHubWorkflow({
+      env,
+      workflowFile: 'cluster-intelligence.yml',
+      inputs: {
+        seed_pin_id: target,
+        max_pages: maxPages
+      }
     });
 
-    if (res.ok || res.status === 204) {
-      if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+    if (dRes.ok) {
       return jsonResponse({
         success: true,
         seed_pin_id: target || 'all_queued',
         max_pages: maxPages,
         message: 'Workflow dispatched successfully to GitHub Actions.'
       });
-    } else {
-      const errText = await res.text();
-      let errDetail = errText;
-      if (res.status === 401) {
-        errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in server environment has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
-      }
-      return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errDetail}` }, res.status);
     }
+    return jsonResponse({ success: false, error: dRes.error }, dRes.status);
   }
 
   // 6. GET /api/recgpt-playbook

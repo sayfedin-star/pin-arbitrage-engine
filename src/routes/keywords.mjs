@@ -21,7 +21,8 @@ import {
   getPinDeepDossier,
   getAppSettings,
   updateAppSettings,
-  updateKeywordSettings
+  updateKeywordSettings,
+  ignoreAndRemoveSerpPin
 } from '../modules/keywords/service.mjs';
 
 import {
@@ -58,8 +59,9 @@ import {
   toggleFolderCreatorTracking
 } from '../modules/keywords/folders-service.mjs';
 
-import { escapeSqlWildcards } from '../utils.mjs';
+import { escapeSqlWildcards, chunkArray } from '../utils.mjs';
 import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
+import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 
@@ -193,7 +195,7 @@ export async function handleKeywordsRoutes({
           safeWaitUntil(ctx, (async () => {
             await sql`
               UPDATE universal_master_pins
-              SET url_global_saves = ${count}
+              SET url_global_saves = GREATEST(COALESCE(url_global_saves, 0), ${count}::bigint)
               WHERE (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
                  OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
                  OR destination_url LIKE ${cleanUrl + '?%'};
@@ -269,8 +271,7 @@ export async function handleKeywordsRoutes({
     if (uncached.length > 0) {
       const URL_FETCH_CONCURRENCY = 8;
       const fetchResults = [];
-      for (let i = 0; i < uncached.length; i += URL_FETCH_CONCURRENCY) {
-        const chunk = uncached.slice(i, i + URL_FETCH_CONCURRENCY);
+      for (const chunk of chunkArray(uncached, URL_FETCH_CONCURRENCY)) {
         const chunkRes = await Promise.allSettled(chunk.map(u => fetchUrlGlobalSaves(u)));
         fetchResults.push(...chunkRes);
       }
@@ -417,9 +418,8 @@ export async function handleKeywordsRoutes({
     // Table row re-crawls and synchronous SERP queries are strictly edge-only (< 2s).
     // Workflow dispatch to GitHub Actions occurs only when explicitly opted in via dispatch_workflow === true.
     const autoDispatch = body.dispatch_workflow === true;
-    const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
+    const { token } = resolveGitHubAuth(env);
     if (autoDispatch && token && res?.success) {
-      const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
       const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
       const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '50');
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
@@ -428,31 +428,17 @@ export async function handleKeywordsRoutes({
       const enableSerpHarvestInput = body.enable_serp_harvest !== undefined
         ? String(body.enable_serp_harvest)
         : 'false';
-      const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-      const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
-      const dispatchPromise = (async () => {
-        try {
-          const dRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`, {
-            method: 'POST',
-            signal: AbortSignal.timeout(10000),
-            headers: {
-              'Accept': 'application/vnd.github.v3+json',
-              'Authorization': authHeader,
-              'User-Agent': 'Pin-Arbitrage-Engine'
-            },
-            body: JSON.stringify({
-              ref: 'main',
-              inputs: {
-                target_keyword: targetKw,
-                crawl_scope: crawlScopeInput,
-                max_pins: maxPinsInput,
-                enable_serp_harvest: enableSerpHarvestInput
-              }
-            })
-          });
-          if (dRes?.body && !dRes.bodyUsed) await dRes.body.cancel().catch(() => {});
-        } catch (_) {}
-      })();
+      const dispatchPromise = dispatchGitHubWorkflow({
+        env,
+        workflowFile: 'keyword-intelligence-velocity.yml',
+        timeoutMs: 10000,
+        inputs: {
+          target_keyword: targetKw,
+          crawl_scope: crawlScopeInput,
+          max_pins: maxPinsInput,
+          enable_serp_harvest: enableSerpHarvestInput
+        }
+      }).catch(() => {});
       safeWaitUntil(ctx, dispatchPromise, 'github_workflow_dispatch');
     }
 
@@ -604,8 +590,11 @@ export async function handleKeywordsRoutes({
 
     // 3. Clean Central Hub items & execute deletion from tracked_keywords
     await sql`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+    await sql`DELETE FROM keyword_ignored_pins WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+    await sql`DELETE FROM keyword_guides WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
+    invalidateEdgeCache('folders');
 
     return jsonResponse({ success: true, deleted_ids: targetIds });
   }
@@ -628,29 +617,20 @@ export async function handleKeywordsRoutes({
       }
 
       invalidateEdgeCache('keywords');
+      invalidateEdgeCache('folders');
+      invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+      invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      invalidateEdgeCache('keywords:pin-dossier');
 
-      // Phase 2: Tombstone Architecture - Record in keyword_ignored_pins to prevent zombie pin resurrection
-      await sql`
-        INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
-        VALUES (${keywordId}, ${pinId}, 'manual_user_deletion', NOW())
-        ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-          ignored_reason = EXCLUDED.ignored_reason,
-          ignored_at = EXCLUDED.ignored_at;
-      `.catch((err) => {
-        console.warn('[Tombstone] Failed to record ignored pin:', err.message);
+      const { deletedCount } = await ignoreAndRemoveSerpPin(sql, {
+        keywordId,
+        pinId,
+        reason: 'manual_user_deletion'
       });
-
-      // Remove from keyword_serp_positions
-      const delRes = await sql`
-        DELETE FROM keyword_serp_positions
-        WHERE keyword_id = ${keywordId} AND pin_id = ${pinId}
-        RETURNING pin_id;
-      `;
-
 
       return jsonResponse({
         success: true,
-        deleted: delRes.length > 0,
+        deleted: deletedCount > 0,
         keyword_id: keywordId,
         pin_id: pinId,
         message: `Pin ${pinId} manually removed and tombstoned for keyword #${keywordId}.`
@@ -1070,56 +1050,29 @@ export async function handleKeywordsRoutes({
     const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
     const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
 
-    const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
-    const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
-    if (!token) {
-      return jsonResponse({ success: false, error: 'GitHub Token secret not configured. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret in settings.' }, 400);
-    }
-    const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
-    const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
-    let dispatchRes;
-    try {
-      dispatchRes = await fetch(workflowUrl, {
-        method: 'POST',
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': authHeader,
-          'User-Agent': 'Pin-Arbitrage-Engine'
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: {
-            target_keyword: '',
-            folder_id: String(folderId),
-            crawl_scope: crawlScopeInput,
-            max_pins: maxPinsInput,
-            max_serp_pins: maxSerpPinsInput,
-            max_catalog_inspect: maxCatalogInspectInput,
-            enable_serp_harvest: enableSerpHarvestInput
-          }
-        })
-      });
-      if (!dispatchRes.ok) {
-        const errText = await dispatchRes.text();
-        let errDetail = errText;
-        if (dispatchRes.status === 401) {
-          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in the server environment (.env / GitHub Secrets) has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
-        }
-        return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
+    const dRes = await dispatchGitHubWorkflow({
+      env,
+      workflowFile: 'keyword-intelligence-velocity.yml',
+      timeoutMs: 8000,
+      inputs: {
+        target_keyword: '',
+        folder_id: String(folderId),
+        crawl_scope: crawlScopeInput,
+        max_pins: maxPinsInput,
+        max_serp_pins: maxSerpPinsInput,
+        max_catalog_inspect: maxCatalogInspectInput,
+        enable_serp_harvest: enableSerpHarvestInput
       }
-      return jsonResponse({ 
-        success: true, 
-        folder_id: Number(folderId),
-        folder_name: folderRow.name,
-        message: `20-Runner Parallel Fleet Audit dispatched successfully for folder "${folderRow.name}"!` 
-      });
-    } finally {
-      if (dispatchRes?.body && !dispatchRes.bodyUsed) {
-        await dispatchRes.body.cancel().catch(() => {});
-      }
+    });
+    if (!dRes.ok) {
+      return jsonResponse({ success: false, error: dRes.error }, dRes.status);
     }
+    return jsonResponse({
+      success: true,
+      folder_id: Number(folderId),
+      folder_name: folderRow.name,
+      message: `20-Runner Parallel Fleet Audit dispatched successfully for folder "${folderRow.name}"!`
+    });
   }
 
   // 26. Unified Campaign Folders CRUD API (/api/folders and /api/folders/*)
@@ -1501,51 +1454,24 @@ export async function handleKeywordsRoutes({
       ? String(body.enable_serp_harvest)
       : (folderIdInput ? '' : 'true');
     const crawlScopeInput = String(body.crawl_scope || 'all_pins');
-    const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
-    const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
-    if (!token) {
-      return jsonResponse({ success: false, error: 'GitHub Token secret not configured. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret in settings.' }, 400);
-    }
-    const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
-    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
-    const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
-    let dispatchRes;
-    try {
-      dispatchRes = await fetch(workflowUrl, {
-        method: 'POST',
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': authHeader,
-          'User-Agent': 'Pin-Arbitrage-Engine'
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: {
-            target_keyword: targetKw,
-            folder_id: folderIdInput,
-            crawl_scope: crawlScopeInput,
-            max_pins: maxPinsInput,
-            max_serp_pins: maxSerpPinsInput,
-            max_catalog_inspect: maxCatalogInspectInput,
-            enable_serp_harvest: enableSerpHarvestInput
-          }
-        })
-      });
-      if (!dispatchRes.ok) {
-        const errText = await dispatchRes.text();
-        let errDetail = errText;
-        if (dispatchRes.status === 401) {
-          errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in the server environment (.env / GitHub Secrets) has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
-        }
-        return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
+    const dRes = await dispatchGitHubWorkflow({
+      env,
+      workflowFile: 'keyword-intelligence-velocity.yml',
+      timeoutMs: 8000,
+      inputs: {
+        target_keyword: targetKw,
+        folder_id: folderIdInput,
+        crawl_scope: crawlScopeInput,
+        max_pins: maxPinsInput,
+        max_serp_pins: maxSerpPinsInput,
+        max_catalog_inspect: maxCatalogInspectInput,
+        enable_serp_harvest: enableSerpHarvestInput
       }
-      return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
-    } finally {
-      if (dispatchRes?.body && !dispatchRes.bodyUsed) {
-        await dispatchRes.body.cancel().catch(() => {});
-      }
+    });
+    if (!dRes.ok) {
+      return jsonResponse({ success: false, error: dRes.error }, dRes.status);
     }
+    return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
   }
 
   return null;

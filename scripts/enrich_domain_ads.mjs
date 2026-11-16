@@ -25,11 +25,10 @@ import {
   IGNORED_INTERNAL_DOMAINS,
   ECOMMERCE_AND_SOCIAL_DOMAINS
 } from '../src/modules/domains/service.mjs';
-import { sleep, randomJitterMs } from './lib/pinterest.mjs';
+import { sleep, randomJitterMs } from '../src/core/pinterest/index.mjs';
+import { renderProgressBar, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -51,14 +50,6 @@ for (const arg of args) {
   if (arg.startsWith('--concurrency=')) concurrency = Math.max(1, Math.min(5, parseInt(arg.split('=')[1], 10) || 3));
   if (arg.startsWith('--max=')) maxTotal = Math.max(1, parseInt(arg.split('=')[1], 10) || Infinity);
   if (arg === '--force') forceRefresh = true;
-}
-
-function renderProgressBar(current, total, width = 30) {
-  const percent = total > 0 ? Math.min(100, (current / total) * 100) : 0;
-  const filled = Math.round((percent / 100) * width);
-  const empty = width - filled;
-  const bar = '█'.repeat(filled) + '░'.repeat(empty);
-  return `[${bar}] ${percent.toFixed(1)}% (${current}/${total})`;
 }
 
 async function run() {

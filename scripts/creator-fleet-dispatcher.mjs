@@ -20,11 +20,9 @@
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
 import { normalizePinterestUsername } from '../src/modules/creators/service.mjs';
+import { writeOutput, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
-// Auto-load .env in local execution environments
-if (typeof process.loadEnvFile === 'function') {
-  try { process.loadEnvFile(); } catch (_) {}
-}
+loadDotEnvIfPresent();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -38,18 +36,7 @@ const rawCrawlMode = (process.env.CRAWL_MODE || '').trim().toLowerCase();
 const rawMaxPages = (process.env.MAX_PAGES || '').trim();
 const personalBoardsOnly = process.env.PERSONAL_BOARDS_ONLY !== 'false';
 const targetBoards = (process.env.TARGET_BOARDS || '').trim();
-const githubOutputPath = process.env.GITHUB_OUTPUT || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
-
-async function writeOutput(key, value) {
-  if (githubOutputPath) {
-    try {
-      fs.appendFileSync(githubOutputPath, `${key}=${value}\n`, 'utf8');
-    } catch (err) {
-      console.warn(`[!] Failed writing to GITHUB_OUTPUT: ${err.message}`);
-    }
-  }
-}
 
 async function main() {
   console.log('================================================================');

@@ -735,6 +735,63 @@ export async function deleteCompetitorSnapshot(sql, snapshotId) {
 
 
 /**
+ * Delete a competitor profile and cascade cleanup across all child tables
+ * (competitor_board_pins, competitor_boards, competitor_history_snapshots,
+ * competitor_seed_pins, competitor_related_nodes, folder_competitor_items),
+ * plus stray empty-username rows.
+ */
+export async function deleteCompetitor(sql, idOrUsername) {
+  if (!sql) throw new Error('Database client is required');
+  const raw = String(idOrUsername ?? '').trim();
+  const isNumeric = /^\d+$/.test(raw);
+  const numId = isNumeric ? parseInt(raw, 10) : NaN;
+  const cleanUser = !isNumeric ? normalizePinterestUsername(raw) : '';
+
+  let targetProfile = null;
+  if (!isNaN(numId) && numId > 0) {
+    const [row] = await sql`
+      SELECT id, username FROM competitor_profiles WHERE id = ${numId} LIMIT 1;
+    `.catch(() => []);
+    targetProfile = row || { id: numId, username: '' };
+  } else if (cleanUser) {
+    const [row] = await sql`
+      SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;
+    `.catch(() => []);
+    targetProfile = row || { id: null, username: cleanUser };
+  }
+
+  const targetId = targetProfile?.id ? Number(targetProfile.id) : (!isNaN(numId) && numId > 0 ? numId : null);
+  const targetUsername = cleanUser || (targetProfile?.username ? normalizePinterestUsername(targetProfile.username) : '');
+
+  if (targetId) {
+    await Promise.all([
+      sql`DELETE FROM competitor_board_pins WHERE competitor_id = ${targetId};`.catch(() => {}),
+      sql`DELETE FROM competitor_boards WHERE competitor_id = ${targetId};`.catch(() => {}),
+      sql`DELETE FROM competitor_history_snapshots WHERE competitor_id = ${targetId};`.catch(() => {}),
+      sql`DELETE FROM competitor_related_nodes WHERE competitor_id = ${targetId};`.catch(() => {}),
+      sql`DELETE FROM competitor_seed_pins WHERE competitor_id = ${targetId};`.catch(() => {}),
+      sql`DELETE FROM folder_competitor_items WHERE competitor_id = ${targetId};`.catch(() => {})
+    ]);
+  }
+
+  if (targetUsername) {
+    await sql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${targetUsername};`;
+  }
+  if (targetId) {
+    await sql`DELETE FROM competitor_profiles WHERE id = ${targetId};`;
+  }
+
+  // Also purge any stray corrupted rows with empty usernames
+  await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '';`.catch(() => {});
+
+  return {
+    ok: true,
+    deleted: targetUsername || targetId
+  };
+}
+
+
+/**
  * Update competitor active status (pause / resume)
  */
 export async function updateCompetitorStatus(sql, idOrUsername, isActive) {

@@ -5,6 +5,7 @@
 
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
+import { ignoreAndRemoveSerpPin } from './service.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
 
 /**
@@ -1432,35 +1433,13 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
   const uniqueKeywordIds = [...new Set(pruneKeywordIds)];
   const uniquePinIds = [...new Set(prunePinIds)];
 
-  // A. Batched Tombstone in keyword_ignored_pins to prevent zombie resurrection on future crawls
-  if (pruneKeywordIds.length > 0) {
-    await sql`
-      INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
-      SELECT
-        target.kid,
-        target.pid,
-        'folder_smart_pruning',
-        NOW()
-      FROM (
-        SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid
-      ) target
-      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-        ignored_reason = EXCLUDED.ignored_reason,
-        ignored_at = EXCLUDED.ignored_at;
-    `.catch((err) => {
-      console.warn(`[pruneFolderPins] Tombstone batch insert warning: ${err.message}`);
-    });
-  }
-
-  // B. Delete from keyword_serp_positions using atomic paired UNNEST tuple deletion
+  // A & B. Tombstone in keyword_ignored_pins and delete from keyword_serp_positions using atomic paired UNNEST tuple deletion
   // [INVARIANT: ATOMIC-UNNEST-TUPLE-DELETION]
-  // Eliminates Cartesian cross-product (K x P) data-loss bug by strictly matching (keyword_id, pin_id) tuples
   if (pruneKeywordIds.length > 0) {
-    await sql`
-      DELETE FROM keyword_serp_positions ksp
-      USING (SELECT UNNEST(${pruneKeywordIds}::int[]) AS kid, UNNEST(${prunePinIds}::text[]) AS pid) target
-      WHERE ksp.keyword_id = target.kid AND ksp.pin_id = target.pid;
-    `;
+    await ignoreAndRemoveSerpPin(sql, {
+      pairs: uniquePairs,
+      reason: 'folder_smart_pruning'
+    });
   }
 
   // C. Unified PostgreSQL SSOT (no separate secondary cache sync required)
