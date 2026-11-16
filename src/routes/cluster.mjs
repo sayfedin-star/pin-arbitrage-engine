@@ -455,8 +455,7 @@ export async function handleClusterRoutes({
     }
     const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
 
-    const dRes = await dispatchGitHubWorkflow({
-      env,
+    const dRes = await dispatchGitHubWorkflow(env, {
       workflowFile: 'cluster-intelligence.yml',
       inputs: {
         seed_pin_id: target,

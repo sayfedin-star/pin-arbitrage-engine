@@ -20,52 +20,98 @@ export function resolveGitHubAuth(env = null, { allowPat = false, defaultRepo = 
     || procEnv.GITHUB_REPOSITORY
     || defaultRepo;
 
+  const resolvedToken = githubToken ? String(githubToken).trim() : null;
+  const resolvedRepo = String(githubRepo || defaultRepo).trim();
   return {
-    githubToken: githubToken ? String(githubToken).trim() : null,
-    githubRepo: String(githubRepo || defaultRepo).trim()
+    token: resolvedToken,
+    githubToken: resolvedToken,
+    repo: resolvedRepo,
+    githubRepo: resolvedRepo,
+    authHeader: resolvedToken ? `Bearer ${resolvedToken}` : null
   };
 }
 
 /**
  * Dispatches a GitHub Actions workflow_dispatch event.
  */
-export async function dispatchGitHubWorkflow(env, {
-  workflowFile,
-  ref = 'main',
-  inputs = {},
-  timeoutMs = 10000,
-  userAgent = 'PAE-Fastify-Engine',
-  allowPat = false,
-  defaultRepo = DEFAULT_GITHUB_REPOSITORY
-} = {}) {
+export async function dispatchGitHubWorkflow(envOrOptions, maybeOptions = {}) {
+  let env = envOrOptions;
+  let options = maybeOptions;
+  if (
+    envOrOptions &&
+    typeof envOrOptions === 'object' &&
+    ('workflowFile' in envOrOptions || ('env' in envOrOptions && !('GITHUB_TOKEN' in envOrOptions)))
+  ) {
+    env = envOrOptions.env ?? null;
+    options = envOrOptions;
+  }
+
+  const {
+    workflowFile,
+    ref = 'main',
+    inputs = {},
+    timeoutMs = 10000,
+    userAgent = 'PAE-Fastify-Engine',
+    allowPat = false,
+    defaultRepo = DEFAULT_GITHUB_REPOSITORY
+  } = options || {};
+
   const { githubToken, githubRepo } = resolveGitHubAuth(env, { allowPat, defaultRepo });
   if (!githubToken || !githubRepo) {
+    const msg = 'Missing GITHUB_TOKEN or GITHUB_REPOSITORY in environment';
     return {
       ok: false,
       status: 400,
       missingToken: true,
       hasToken: Boolean(githubToken),
       githubRepo,
-      errorText: 'Missing GITHUB_TOKEN or GITHUB_REPOSITORY in environment'
+      error: msg,
+      errorText: msg
+    };
+  }
+  if (!workflowFile) {
+    const msg = 'Missing workflowFile for GitHub dispatch';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: true,
+      githubRepo,
+      error: msg,
+      errorText: msg
     };
   }
 
   const dispatchUrl = `https://api.github.com/repos/${githubRepo}/actions/workflows/${workflowFile}/dispatches`;
-  const ghRes = await fetch(dispatchUrl, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${githubToken}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': userAgent,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      ref,
-      inputs
-    }),
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  let ghRes;
+  try {
+    ghRes = await fetch(dispatchUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${githubToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': userAgent,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ref,
+        inputs
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (err) {
+    const msg = err?.message || 'GitHub workflow dispatch network error';
+    return {
+      ok: false,
+      status: 502,
+      missingToken: false,
+      hasToken: true,
+      githubRepo,
+      error: msg,
+      errorText: msg
+    };
+  }
 
   if (ghRes.ok || ghRes.status === 204) {
     return {
@@ -74,6 +120,7 @@ export async function dispatchGitHubWorkflow(env, {
       missingToken: false,
       hasToken: true,
       githubRepo,
+      error: '',
       errorText: ''
     };
   }
@@ -85,6 +132,7 @@ export async function dispatchGitHubWorkflow(env, {
     missingToken: false,
     hasToken: true,
     githubRepo,
+    error: errorText || `GitHub API returned HTTP ${ghRes.status}`,
     errorText
   };
 }

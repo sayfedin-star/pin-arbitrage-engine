@@ -50,7 +50,7 @@ import {
 } from '../modules/creators/service.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
-import { recordDeletedSnapshotTombstone, reconcilePinMetricsAfterSnapshotDelete } from './pins.mjs';
+import { deletePinSnapshotByTarget } from './pins.mjs';
 
 /**
  * Fast URI discriminator for Creators & Competitors routes
@@ -571,8 +571,7 @@ export async function handleCreatorsRoutes(routeCtx) {
 
     const results = [];
     for (const targetUser of usernames) {
-      const dRes = await dispatchGitHubWorkflow({
-        env,
+      const dRes = await dispatchGitHubWorkflow(env, {
         workflowFile: 'crawler-pipeline.yml',
         inputs: {
           target_account: targetUser,
@@ -693,8 +692,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const body = await request.json().catch(() => ({}));
     const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
-    const dRes = await dispatchGitHubWorkflow({
-      env,
+    const dRes = await dispatchGitHubWorkflow(env, {
       workflowFile: 'account-related-pins.yml',
       inputs: {
         target_account: username,
@@ -954,33 +952,25 @@ export async function handleCreatorsRoutes(routeCtx) {
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
     const pinId = searchParams.get('pin_id') || body.pin_id;
     if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
-    const rawDate = /^\d{4}-\d{2}-\d{2}$/.test(String(snapshotId).trim())
-      ? String(snapshotId).trim()
-      : (searchParams.get('date') || body.date || null);
-    const targetDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate).trim()) ? String(rawDate).trim() : null;
-    if (!targetDate) {
-      return jsonResponse({ error: 'Valid YYYY-MM-DD snapshot date is required' }, 400);
+    let delRes;
+    try {
+      delRes = await deletePinSnapshotByTarget({
+        sql,
+        pinId,
+        rawTarget: snapshotId,
+        fallbackDate: searchParams.get('date') || body.date || null,
+        throwOnError: true
+      });
+    } catch (err) {
+      console.error(`[CreatorsRoute.DELETE snapshots] delete failed for pin ${pinId}:`, err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'SNAPSHOT_DELETE_FAILED',
+        message: err?.message || String(err)
+      }, 500);
     }
-    const parsedDate = new Date(`${targetDate}T00:00:00.000Z`);
-    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== targetDate) {
-      return jsonResponse({ error: 'Valid YYYY-MM-DD snapshot date is required' }, 400);
-    }
-    if (sql) {
-      try {
-        await sql`
-          DELETE FROM pins_daily_metrics
-          WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
-        `;
-        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate });
-        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
-      } catch (err) {
-        console.error(`[CreatorsRoute.DELETE snapshots] delete failed for pin ${pinId}:`, err?.message || err);
-        return jsonResponse({
-          success: false,
-          error: 'SNAPSHOT_DELETE_FAILED',
-          message: err?.message || String(err)
-        }, 500);
-      }
+    if (!delRes.ok) {
+      return jsonResponse({ error: delRes.message || 'Valid YYYY-MM-DD snapshot date or intraday checkpoint ID is required' }, delRes.status || 400);
     }
     if (typeof invalidateEdgeCache === 'function') {
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -989,7 +979,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       }
       await invalidateEdgeCache('keywords:pin-dossier');
     }
-    return jsonResponse({ success: true, deleted_snapshot: snapshotId, deleted_date: targetDate, pin_id: pinId });
+    return jsonResponse({ success: true, deleted_snapshot: snapshotId, deleted_date: delRes.deletedDate, pin_id: pinId });
   }
 
   return null;

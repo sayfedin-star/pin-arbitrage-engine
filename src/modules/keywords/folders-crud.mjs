@@ -1423,13 +1423,13 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
       const key = `${kid}:${pid}`;
       if (!seenPair.has(key)) {
         seenPair.add(key);
-        uniquePairs.push({ kid, pid });
+        uniquePairs.push({ keyword_id: kid, pin_id: pid });
       }
     }
   }
 
-  const pruneKeywordIds = uniquePairs.map(p => p.kid);
-  const prunePinIds = uniquePairs.map(p => p.pid);
+  const pruneKeywordIds = uniquePairs.map(p => p.keyword_id);
+  const prunePinIds = uniquePairs.map(p => p.pin_id);
   const uniqueKeywordIds = [...new Set(pruneKeywordIds)];
   const uniquePinIds = [...new Set(prunePinIds)];
 

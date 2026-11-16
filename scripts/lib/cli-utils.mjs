@@ -102,13 +102,27 @@ export async function bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcherFn 
   try {
     await fetch('data:text/plain,ok').catch(() => {});
     const sym = Symbol.for('undici.globalDispatcher.1');
-    const candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
-    globalThis[sym] = candidateAgent;
-    undiciAgent = candidateAgent;
-    await import('undici').catch(() => {});
-    globalThis[sym] = candidateAgent;
-    if (typeof setDefaultDispatcherFn === 'function') {
-      setDefaultDispatcherFn(undiciAgent);
+    let candidateAgent = null;
+    if (globalThis[sym]?.constructor?.name && globalThis[sym].constructor.name !== 'Dispatcher1Wrapper') {
+      try {
+        candidateAgent = new globalThis[sym].constructor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+      } catch (_) {}
+    }
+    if (!candidateAgent) {
+      const undiciMod = await import('undici').catch(() => null);
+      const AgentCtor = undiciMod?.Agent || undiciMod?.default?.Agent;
+      if (AgentCtor) {
+        candidateAgent = new AgentCtor({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+      }
+    }
+    if (candidateAgent) {
+      globalThis[sym] = candidateAgent;
+      undiciAgent = candidateAgent;
+      await import('undici').catch(() => {});
+      globalThis[sym] = candidateAgent;
+      if (typeof setDefaultDispatcherFn === 'function') {
+        setDefaultDispatcherFn(undiciAgent);
+      }
     }
   } catch (_) {}
   return undiciAgent;

@@ -428,8 +428,7 @@ export async function handleKeywordsRoutes({
       const enableSerpHarvestInput = body.enable_serp_harvest !== undefined
         ? String(body.enable_serp_harvest)
         : 'false';
-      const dispatchPromise = dispatchGitHubWorkflow({
-        env,
+      const dispatchPromise = dispatchGitHubWorkflow(env, {
         workflowFile: 'keyword-intelligence-velocity.yml',
         timeoutMs: 10000,
         inputs: {
@@ -591,7 +590,7 @@ export async function handleKeywordsRoutes({
     // 3. Clean Central Hub items & execute deletion from tracked_keywords
     await sql`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM keyword_ignored_pins WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
-    await sql`DELETE FROM keyword_guides WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+    await sql`DELETE FROM keyword_guided_capsules WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
     await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
     invalidateEdgeCache('folders');
@@ -1050,8 +1049,7 @@ export async function handleKeywordsRoutes({
     const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
     const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
 
-    const dRes = await dispatchGitHubWorkflow({
-      env,
+    const dRes = await dispatchGitHubWorkflow(env, {
       workflowFile: 'keyword-intelligence-velocity.yml',
       timeoutMs: 8000,
       inputs: {
@@ -1454,8 +1452,7 @@ export async function handleKeywordsRoutes({
       ? String(body.enable_serp_harvest)
       : (folderIdInput ? '' : 'true');
     const crawlScopeInput = String(body.crawl_scope || 'all_pins');
-    const dRes = await dispatchGitHubWorkflow({
-      env,
+    const dRes = await dispatchGitHubWorkflow(env, {
       workflowFile: 'keyword-intelligence-velocity.yml',
       timeoutMs: 8000,
       inputs: {

@@ -1606,8 +1606,8 @@ export async function ignoreAndRemoveSerpPin(sql, {
 
   const dedupMap = new Map();
   for (const item of rawList) {
-    const kid = Number(item?.keyword_id ?? item?.keywordId);
-    const pid = String(item?.pin_id ?? item?.pinId ?? '').trim();
+    const kid = Number(item?.keyword_id ?? item?.keywordId ?? item?.kid);
+    const pid = String(item?.pin_id ?? item?.pinId ?? item?.pid ?? '').trim();
     const itemReason = String(item?.ignored_reason || item?.reason || reason || 'manual_user_deletion');
     if (Number.isInteger(kid) && kid > 0 && pid) {
       dedupMap.set(`${kid}:${pid}`, {
