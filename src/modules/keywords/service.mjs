@@ -1625,25 +1625,24 @@ export async function ignoreAndRemoveSerpPin(sql, {
     return { deletedCount: 0, pairs: [] };
   }
 
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+
   if (normalizedPairs.length === 1) {
     const [{ keyword_id: kid, pin_id: pid, ignored_reason: ignReason }] = normalizedPairs;
-    await sql`
-      INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
-      VALUES (${kid}, ${pid}, ${ignReason}, NOW())
-      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-        ignored_reason = EXCLUDED.ignored_reason,
-        ignored_at = NOW();
-    `.catch((err) => {
-      console.warn(`[ignoreAndRemoveSerpPin] Tombstone insert warning for (${kid}, ${pid}):`, err?.message || err);
-    });
+    const deletedRows = await runInTx(async (tx) => {
+      await tx`
+        INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+        VALUES (${kid}, ${pid}, ${ignReason}, NOW())
+        ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+          ignored_reason = EXCLUDED.ignored_reason,
+          ignored_at = NOW();
+      `;
 
-    const deletedRows = await sql`
-      DELETE FROM keyword_serp_positions
-      WHERE keyword_id = ${kid} AND pin_id = ${pid}
-      RETURNING keyword_id, pin_id;
-    `.catch((err) => {
-      console.warn(`[ignoreAndRemoveSerpPin] SERP delete warning for (${kid}, ${pid}):`, err?.message || err);
-      return [];
+      return await tx`
+        DELETE FROM keyword_serp_positions
+        WHERE keyword_id = ${kid} AND pin_id = ${pid}
+        RETURNING keyword_id, pin_id;
+      `;
     });
 
     return {
@@ -1653,34 +1652,31 @@ export async function ignoreAndRemoveSerpPin(sql, {
   }
 
   const payloadJson = JSON.stringify(normalizedPairs);
-  await sql`
-    INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
-    SELECT x.keyword_id, x.pin_id, x.ignored_reason, NOW()
-    FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(
-      keyword_id int,
-      pin_id text,
-      ignored_reason text
-    )
-    ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-      ignored_reason = EXCLUDED.ignored_reason,
-      ignored_at = NOW();
-  `.catch((err) => {
-    console.warn(`[ignoreAndRemoveSerpPin] Batch tombstone insert warning: ${err?.message || err}`);
-  });
+  const deletedRows = await runInTx(async (tx) => {
+    await tx`
+      INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+      SELECT x.keyword_id, x.pin_id, x.ignored_reason, NOW()
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(
+        keyword_id int,
+        pin_id text,
+        ignored_reason text
+      )
+      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+        ignored_reason = EXCLUDED.ignored_reason,
+        ignored_at = NOW();
+    `;
 
-  const deletedRows = await sql`
-    DELETE FROM keyword_serp_positions ksp
-    USING jsonb_to_recordset(${payloadJson}::jsonb) AS x(
-      keyword_id int,
-      pin_id text,
-      ignored_reason text
-    )
-    WHERE ksp.keyword_id = x.keyword_id
-      AND ksp.pin_id = x.pin_id
-    RETURNING ksp.keyword_id, ksp.pin_id;
-  `.catch((err) => {
-    console.warn(`[ignoreAndRemoveSerpPin] Batch SERP delete warning: ${err?.message || err}`);
-    return [];
+    return await tx`
+      DELETE FROM keyword_serp_positions ksp
+      USING jsonb_to_recordset(${payloadJson}::jsonb) AS x(
+        keyword_id int,
+        pin_id text,
+        ignored_reason text
+      )
+      WHERE ksp.keyword_id = x.keyword_id
+        AND ksp.pin_id = x.pin_id
+      RETURNING ksp.keyword_id, ksp.pin_id;
+    `;
   });
 
   return {

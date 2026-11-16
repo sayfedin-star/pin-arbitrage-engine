@@ -70,7 +70,8 @@ export async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
     }
 
     // Chronological order (oldest -> newest) to recalculate bridged velocities
-    const chrono = [...remainingRows].reverse();
+    const toDateKey = (val) => (val instanceof Date ? val.toISOString().slice(0, 10) : String(val || '').slice(0, 10));
+    const chrono = [...remainingRows].sort((a, b) => toDateKey(a.recorded_date).localeCompare(toDateKey(b.recorded_date)));
     const updateBatch = [];
     for (let i = 0; i < chrono.length; i++) {
       const curr = chrono[i];
@@ -166,28 +167,31 @@ export async function deletePinSnapshotByTarget({
     };
   }
 
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
   const isIntradayTarget = target.startsWith('intra_') || target.startsWith('intraday_');
   if (isIntradayTarget) {
     if (sql) {
       try {
-        await sql`
-          UPDATE universal_master_pins
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{intraday_snapshots}',
-            COALESCE((
-              SELECT jsonb_agg(elem)
-              FROM jsonb_array_elements(
-                CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
-              ) AS elem
-              WHERE COALESCE(elem->>'id', '') <> ${target}
-            ), '[]'::jsonb)
-          ),
-          updated_at = NOW()
-          WHERE pin_id = ${pinId};
-        `;
-        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: target });
-        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
+        await runInTx(async (tx) => {
+          await tx`
+            UPDATE universal_master_pins
+            SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{intraday_snapshots}',
+              COALESCE((
+                SELECT jsonb_agg(elem)
+                FROM jsonb_array_elements(
+                  CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
+                ) AS elem
+                WHERE COALESCE(elem->>'id', '') <> ${target}
+              ), '[]'::jsonb)
+            ),
+            updated_at = NOW()
+            WHERE pin_id = ${pinId};
+          `;
+          await recordDeletedSnapshotTombstone({ sql: tx, pinId, targetDate: target });
+          await reconcilePinMetricsAfterSnapshotDelete({ sql: tx, pinId });
+        });
       } catch (err) {
         console.error(`[PinsRoute.deleteSnapshot] Intraday delete failed for pin ${pinId}:`, err?.message || err);
         if (throwOnError) throw err;
@@ -221,56 +225,62 @@ export async function deletePinSnapshotByTarget({
 
   if (sql) {
     try {
-      const [umpRow] = await sql`
-        SELECT metadata FROM universal_master_pins WHERE pin_id = ${pinId} LIMIT 1;
-      `.catch(() => []);
-      const intraArr = Array.isArray(umpRow?.metadata?.intraday_snapshots)
-        ? umpRow.metadata.intraday_snapshots.filter(x => x && String(x.snapshot_date || '').slice(0, 10) === dateCandidate)
-        : [];
+      await runInTx(async (tx) => {
+        const [umpRow] = await tx`
+          SELECT metadata FROM universal_master_pins WHERE pin_id = ${pinId} LIMIT 1;
+        `.catch(() => []);
+        const intraArr = Array.isArray(umpRow?.metadata?.intraday_snapshots)
+          ? umpRow.metadata.intraday_snapshots.filter(x => x && String(x.snapshot_date || '').slice(0, 10) === dateCandidate)
+          : [];
 
-      if (intraArr.length > 0) {
-        intraArr.sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
-        const promoted = intraArr[0];
-        const promotedId = String(promoted.id || '');
-        await sql`
-          UPDATE pins_daily_metrics
-          SET
-            save_count = ${Number(promoted.save_count || 0)},
-            repin_count = ${Number(promoted.repin_count || 0)},
-            comment_count = ${Number(promoted.comment_count || 0)},
-            share_count = ${Number(promoted.share_count || 0)},
-            updated_at = COALESCE(NULLIF(${String(promoted.recorded_at || '')}, '')::timestamptz, NOW())
-          WHERE pin_id = ${pinId} AND recorded_date = ${dateCandidate}::date;
-        `;
-        await sql`
-          UPDATE universal_master_pins
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{intraday_snapshots}',
-            COALESCE((
-              SELECT jsonb_agg(elem)
-              FROM jsonb_array_elements(
-                CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
-              ) AS elem
-              WHERE COALESCE(elem->>'id', '') <> ${promotedId}
-            ), '[]'::jsonb)
-          ),
-          updated_at = NOW()
-          WHERE pin_id = ${pinId};
-        `;
-        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
-      } else {
-        if (typeof deleteDailyMetricsRow === 'function') {
-          await deleteDailyMetricsRow();
-        } else {
-          await sql`
-            DELETE FROM pins_daily_metrics
+        if (intraArr.length > 0) {
+          intraArr.sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
+          const promoted = intraArr[0];
+          const promotedId = String(promoted.id || '');
+          const promoSaves = Number.isFinite(Number(promoted.save_count)) ? Math.max(0, Number(promoted.save_count)) : 0;
+          const promoRepins = Number.isFinite(Number(promoted.repin_count)) ? Math.max(0, Number(promoted.repin_count)) : 0;
+          const promoComments = Number.isFinite(Number(promoted.comment_count)) ? Math.max(0, Number(promoted.comment_count)) : 0;
+          const promoShares = Number.isFinite(Number(promoted.share_count)) ? Math.max(0, Number(promoted.share_count)) : 0;
+          await tx`
+            UPDATE pins_daily_metrics
+            SET
+              save_count = ${promoSaves},
+              repin_count = ${promoRepins},
+              comment_count = ${promoComments},
+              share_count = ${promoShares},
+              updated_at = COALESCE(NULLIF(${String(promoted.recorded_at || '')}, '')::timestamptz, NOW())
             WHERE pin_id = ${pinId} AND recorded_date = ${dateCandidate}::date;
           `;
+          await tx`
+            UPDATE universal_master_pins
+            SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{intraday_snapshots}',
+              COALESCE((
+                SELECT jsonb_agg(elem)
+                FROM jsonb_array_elements(
+                  CASE WHEN jsonb_typeof(metadata->'intraday_snapshots') = 'array' THEN metadata->'intraday_snapshots' ELSE '[]'::jsonb END
+                ) AS elem
+                WHERE COALESCE(elem->>'id', '') <> ${promotedId}
+              ), '[]'::jsonb)
+            ),
+            updated_at = NOW()
+            WHERE pin_id = ${pinId};
+          `;
+          await reconcilePinMetricsAfterSnapshotDelete({ sql: tx, pinId });
+        } else {
+          if (typeof deleteDailyMetricsRow === 'function') {
+            await deleteDailyMetricsRow(tx);
+          } else {
+            await tx`
+              DELETE FROM pins_daily_metrics
+              WHERE pin_id = ${pinId} AND recorded_date = ${dateCandidate}::date;
+            `;
+          }
+          await recordDeletedSnapshotTombstone({ sql: tx, pinId, targetDate: dateCandidate });
+          await reconcilePinMetricsAfterSnapshotDelete({ sql: tx, pinId });
         }
-        await recordDeletedSnapshotTombstone({ sql, pinId, targetDate: dateCandidate });
-        await reconcilePinMetricsAfterSnapshotDelete({ sql, pinId });
-      }
+      });
     } catch (err) {
       console.error(`[PinsRoute.deleteSnapshot] Daily delete failed for pin ${pinId}:`, err?.message || err);
       if (throwOnError) throw err;
@@ -388,8 +398,8 @@ export async function handlePinsRoutes({
       sql,
       pinId,
       rawTarget: targetDate,
-      deleteDailyMetricsRow: async () => {
-        await sql`
+      deleteDailyMetricsRow: async (txSql = sql) => {
+        await txSql`
           DELETE FROM pins_daily_metrics
           WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
         `;
@@ -550,22 +560,38 @@ export async function handlePinsRoutes({
           message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
         }, 400);
       }
-      // Cascade delete across unified PostgreSQL tables
-      await sql`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] universal_master_pins delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] pins_daily_metrics delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM keyword_serp_positions WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] keyword_serp_positions delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM competitor_board_pins WHERE pin_id = ${pinId};`.catch((err) => { console.error(`[PinsRoute.DELETE pin] competitor_board_pins delete failed for ${pinId}:`, err?.message || err); });
-      await sql`DELETE FROM keyword_ignored_pins WHERE pin_id = ${pinId};`.catch(() => {});
-      await sql`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`.catch(() => {});
-      await sql`DELETE FROM competitor_related_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`.catch(() => {});
-      await sql`DELETE FROM competitor_seed_pins WHERE pin_id = ${pinId};`.catch(() => {});
-      await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`.catch(() => {});
+      // Cascade delete across unified PostgreSQL tables atomically
+      const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+      try {
+        await runInTx(async (tx) => {
+          await tx`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM keyword_serp_positions WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM competitor_board_pins WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM keyword_ignored_pins WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`;
+          await tx`DELETE FROM competitor_related_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`;
+          await tx`DELETE FROM competitor_seed_pins WHERE pin_id = ${pinId};`;
+          await tx`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+        });
+      } catch (err) {
+        console.error(`[PinsRoute.DELETE pin] atomic cascade delete failed for ${pinId}:`, err?.message || err);
+        return jsonResponse({
+          success: false,
+          error: 'PIN_DELETE_FAILED',
+          message: redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err))
+        }, 500);
+      }
 
       // Invalidate Edge Caches synchronously
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
       await invalidateEdgeCache('keywords:pin-dossier');
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('folders');
+      await invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('competitors');
 
       return jsonResponse({ success: true, purged: true, pin_id: pinId });
     }

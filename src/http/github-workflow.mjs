@@ -82,7 +82,47 @@ export async function dispatchGitHubWorkflow(envOrOptions, maybeOptions = {}) {
     };
   }
 
-  const dispatchUrl = `https://api.github.com/repos/${githubRepo}/actions/workflows/${workflowFile}/dispatches`;
+  const cleanRepo = String(githubRepo).trim();
+  const cleanWorkflow = String(workflowFile).trim();
+  const cleanRef = String(ref || 'main').trim();
+  if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(cleanRepo) || cleanRepo.includes('..')) {
+    const msg = 'Invalid GITHUB_REPOSITORY format for GitHub dispatch';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: msg,
+      errorText: msg
+    };
+  }
+  if (!/^[a-zA-Z0-9._-]+\.ya?ml$/i.test(cleanWorkflow) || cleanWorkflow.includes('..') || cleanWorkflow.includes('/')) {
+    const msg = 'Invalid workflowFile name for GitHub dispatch';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: msg,
+      errorText: msg
+    };
+  }
+  if (!cleanRef || !/^[^\s?#\\]+$/.test(cleanRef) || cleanRef.includes('..')) {
+    const msg = 'Invalid git ref for GitHub dispatch';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: msg,
+      errorText: msg
+    };
+  }
+
+  const dispatchUrl = `https://api.github.com/repos/${cleanRepo}/actions/workflows/${cleanWorkflow}/dispatches`;
   let ghRes;
   try {
     ghRes = await fetch(dispatchUrl, {

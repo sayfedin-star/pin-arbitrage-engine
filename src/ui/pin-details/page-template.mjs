@@ -88,7 +88,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         <template x-if="!isCreatorContext() && originSource === 'pulse'">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
-            <a :href="originReturnUrl || '/pulse'" class="text-rose-400 hover:underline font-medium truncate">24h Pulse Studio</a>
+            <a :href="sanitizeReturnUrl(originReturnUrl) || '/pulse'" class="text-rose-400 hover:underline font-medium truncate">24h Pulse Studio</a>
             <template x-if="originFolderId">
               <span class="flex items-center gap-1.5 truncate">
                 <span class="text-slate-600">/</span>

@@ -19,6 +19,29 @@ import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './d
 
 export { normalizeCleanDomain, getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory };
 
+function parseStrictNonNegMetric(raw, explicitFlag) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (explicitFlag === false && num === 0) return null;
+  return Math.max(0, Math.trunc(num));
+}
+
+function parseStrictFiniteMetric(raw, { nonNegative = false } = {}) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  return nonNegative ? Math.max(0, num) : num;
+}
+
+function safeParseIsoTimestamp(val) {
+  if (!val) return null;
+  const dt = new Date(val);
+  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
 /**
  * 1. First-Time Save (`insertNewPinsBatch` - الحفظ لأول مرة)
  * Dedicated strictly to newly discovered pins from SERP or competitor crawls.
@@ -92,38 +115,39 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
     const destUrl = String(p.destination_url || p.link || '').trim();
     const cleanDomain = normalizeCleanDomain(domainRaw || destUrl);
     const rawSaves = p.save_count ?? p.saves;
-    const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
-    const saveCount = isUnhydratedSaves ? null : Math.max(0, Number(rawSaves || 0));
+    const saveCount = parseStrictNonNegMetric(rawSaves, p.has_explicit_saves);
 
     const rawRepins = p.repin_count ?? p.repins;
-    const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined) || (p.has_explicit_repins === false && Number(rawRepins || 0) === 0);
-    const repinCount = isUnhydratedRepins ? null : Math.max(0, Number(rawRepins || 0));
+    const repinCount = parseStrictNonNegMetric(rawRepins, p.has_explicit_repins);
 
-    const isHydrated = Boolean(p.is_hydrated || (!isUnhydratedSaves && saveCount !== null));
+    const isHydrated = Boolean(p.is_hydrated === true || (saveCount !== null && Number.isFinite(saveCount)));
+    const velNum = parseStrictFiniteMetric(p.velocity);
 
     dedupMap.set(pid, {
       pin_id: pid,
       domain: cleanDomain || domainRaw || null,
       clean_domain: cleanDomain || null,
-      keyword_id: p.keyword_id != null ? Number(p.keyword_id) : null,
-      rank_position: p.rank_position != null ? Number(p.rank_position) : null,
+      keyword_id: parseStrictFiniteMetric(p.keyword_id),
+      rank_position: parseStrictFiniteMetric(p.rank_position),
       is_displaced: Boolean(p.is_displaced),
-      last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
-      catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : (p.rank_position != null ? Number(p.rank_position) : null),
+      last_known_rank: parseStrictFiniteMetric(p.last_known_rank),
+      catalog_rank: parseStrictFiniteMetric(p.catalog_rank) ?? parseStrictFiniteMetric(p.rank_position),
       save_count: saveCount,
       repin_count: repinCount,
-      comment_count: p.comment_count != null ? Math.max(0, Number(p.comment_count)) : (p.comments != null ? Math.max(0, Number(p.comments)) : null),
-      share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
-      reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
+      comment_count: parseStrictNonNegMetric(p.comment_count ?? p.comments),
+      share_count: parseStrictNonNegMetric(p.share_count ?? p.shares),
+      reaction_count: parseStrictNonNegMetric(p.reaction_count),
       is_hydrated: isHydrated,
-      daily_save_velocity: (saveCount !== null && p.daily_save_velocity != null) ? Number(p.daily_save_velocity) : (saveCount !== null && p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
-      daily_repin_velocity: (repinCount !== null && p.daily_repin_velocity != null) ? Number(p.daily_repin_velocity) : null,
-      delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
-      gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
-      gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
-      gains_10d: p.gains_10d != null ? Number(p.gains_10d) : null,
-      gains_15d: p.gains_15d != null ? Number(p.gains_15d) : null,
-      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null
+      daily_save_velocity: (saveCount !== null && parseStrictFiniteMetric(p.daily_save_velocity) !== null)
+        ? parseStrictFiniteMetric(p.daily_save_velocity)
+        : ((saveCount !== null && velNum !== null && velNum > 0) ? velNum : null),
+      daily_repin_velocity: repinCount !== null ? parseStrictFiniteMetric(p.daily_repin_velocity) : null,
+      delta_repins_24h: parseStrictFiniteMetric(p.delta_repins_24h),
+      gains_5d: parseStrictFiniteMetric(p.gains_5d),
+      gains_7d: parseStrictFiniteMetric(p.gains_7d),
+      gains_10d: parseStrictFiniteMetric(p.gains_10d),
+      gains_15d: parseStrictFiniteMetric(p.gains_15d),
+      created_at_pinterest: safeParseIsoTimestamp(p.created_at_pinterest)
     });
   }
 
@@ -414,14 +438,14 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
       if (!masterPinDedupMap.has(pid)) {
         const richMeta = buildRichPinMetadataPayload(p);
         const rawSaves = p.save_count ?? p.saves;
-        const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
-        const saveCount = isUnhydratedSaves ? null : Math.max(0, Number(rawSaves || 0));
+        const saveCount = parseStrictNonNegMetric(rawSaves, p.has_explicit_saves);
+        const isUnhydratedSaves = saveCount === null;
 
         const rawRepins = p.repin_count ?? p.repins;
-        const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined) || (p.has_explicit_repins === false && Number(rawRepins || 0) === 0);
-        const repinCount = isUnhydratedRepins ? null : Math.max(0, Number(rawRepins || 0));
+        const repinCount = parseStrictNonNegMetric(rawRepins, p.has_explicit_repins);
 
-        const isHydrated = Boolean(p.is_hydrated || (!isUnhydratedSaves && saveCount !== null));
+        const isHydrated = Boolean(p.is_hydrated === true || (saveCount !== null && Number.isFinite(saveCount)));
+        const velNum = parseStrictFiniteMetric(p.velocity);
         const creatorUsername = String(
           p.creator_username || p.account_username || cleanAccount || ''
         ).replace(/^@/, '').trim().toLowerCase() || null;
@@ -449,21 +473,23 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           visual_annotations: Array.isArray(p.visual_annotations)
             ? p.visual_annotations
             : (Array.isArray(p.annotations) ? p.annotations : []),
-          created_at_pinterest: (p.created_at_pinterest || p.created_at) ? new Date(p.created_at_pinterest || p.created_at).toISOString() : null,
+          created_at_pinterest: safeParseIsoTimestamp(p.created_at_pinterest || p.created_at),
           save_count: saveCount,
           repin_count: repinCount,
-          comment_count: p.comment_count != null ? Math.max(0, Number(p.comment_count)) : (p.comments != null ? Math.max(0, Number(p.comments)) : null),
-          share_count: p.share_count != null ? Math.max(0, Number(p.share_count)) : (p.shares != null ? Math.max(0, Number(p.shares)) : null),
-          reaction_count: p.reaction_count != null ? Math.max(0, Number(p.reaction_count)) : null,
+          comment_count: parseStrictNonNegMetric(p.comment_count ?? p.comments),
+          share_count: parseStrictNonNegMetric(p.share_count ?? p.shares),
+          reaction_count: parseStrictNonNegMetric(p.reaction_count),
           is_hydrated: isHydrated,
-          daily_save_velocity: (saveCount !== null && p.daily_save_velocity != null) ? Number(p.daily_save_velocity) : (saveCount !== null && p.velocity != null && Number(p.velocity) > 0 ? Number(p.velocity) : null),
-          daily_repin_velocity: (repinCount !== null && p.daily_repin_velocity != null) ? Number(p.daily_repin_velocity) : null,
-          delta_saves_24h: p.delta_saves_24h != null ? Number(p.delta_saves_24h) : null,
-          delta_repins_24h: p.delta_repins_24h != null ? Number(p.delta_repins_24h) : null,
-          gains_5d: p.gains_5d != null ? Number(p.gains_5d) : null,
-          gains_7d: p.gains_7d != null ? Number(p.gains_7d) : null,
-          gains_10d: p.gains_10d != null ? Number(p.gains_10d) : null,
-          gains_15d: p.gains_15d != null ? Number(p.gains_15d) : null,
+          daily_save_velocity: (saveCount !== null && parseStrictFiniteMetric(p.daily_save_velocity) !== null)
+            ? parseStrictFiniteMetric(p.daily_save_velocity)
+            : ((saveCount !== null && velNum !== null && velNum > 0) ? velNum : null),
+          daily_repin_velocity: repinCount !== null ? parseStrictFiniteMetric(p.daily_repin_velocity) : null,
+          delta_saves_24h: parseStrictFiniteMetric(p.delta_saves_24h),
+          delta_repins_24h: parseStrictFiniteMetric(p.delta_repins_24h),
+          gains_5d: parseStrictFiniteMetric(p.gains_5d),
+          gains_7d: parseStrictFiniteMetric(p.gains_7d),
+          gains_10d: parseStrictFiniteMetric(p.gains_10d),
+          gains_15d: parseStrictFiniteMetric(p.gains_15d),
           is_product: Boolean(p.is_product || richMeta.is_product),
           is_video: Boolean(p.is_video || richMeta.is_video),
           creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
@@ -477,11 +503,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         const existing = masterPinDedupMap.get(pid);
         const richMeta = buildRichPinMetadataPayload(p, existing.metadata || {});
         const rawSaves = p.save_count ?? p.saves;
-        const isUnhydratedSaves = (rawSaves === null || rawSaves === undefined) || (p.has_explicit_saves === false && Number(rawSaves || 0) === 0);
-        const incomingSaves = isUnhydratedSaves ? null : Math.max(0, Number(rawSaves || 0));
+        const incomingSaves = parseStrictNonNegMetric(rawSaves, p.has_explicit_saves);
+        const isUnhydratedSaves = incomingSaves === null;
         const rawRepins = p.repin_count ?? p.repins;
-        const isUnhydratedRepins = (rawRepins === null || rawRepins === undefined) || (p.has_explicit_repins === false && Number(rawRepins || 0) === 0);
-        const incomingRepins = isUnhydratedRepins ? null : Math.max(0, Number(rawRepins || 0));
+        const incomingRepins = parseStrictNonNegMetric(rawRepins, p.has_explicit_repins);
         const incomingWasLive = p.was_live_scraped !== undefined
           ? Boolean(p.was_live_scraped)
           : Boolean(p.from_hydration_cache !== true && p.scrape_failed !== true && !p.fromCache && !isUnhydratedSaves);
@@ -493,25 +518,26 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           existing.repin_count = existing.repin_count !== null ? Math.max(Number(existing.repin_count), incomingRepins) : incomingRepins;
         }
         for (const [k, alt] of [['comment_count', 'comments'], ['share_count', 'shares'], ['reaction_count', 'reactions']]) {
-          const val = p[k] ?? p[alt];
-          if (val != null && Number.isFinite(Number(val))) {
-            existing[k] = existing[k] != null ? Math.max(Number(existing[k]), Number(val)) : Number(val);
+          const parsedVal = parseStrictNonNegMetric(p[k] ?? p[alt]);
+          if (parsedVal !== null) {
+            existing[k] = existing[k] != null ? Math.max(Number(existing[k]), parsedVal) : parsedVal;
           }
         }
-        if (p.daily_save_velocity != null && Number.isFinite(Number(p.daily_save_velocity))) {
-          const v = Number(p.daily_save_velocity);
-          existing.daily_save_velocity = existing.daily_save_velocity != null ? Math.max(Number(existing.daily_save_velocity), v) : v;
-        } else if (existing.save_count !== null && p.velocity != null && Number(p.velocity) > 0 && Number.isFinite(Number(p.velocity))) {
-          const v = Number(p.velocity);
-          existing.daily_save_velocity = existing.daily_save_velocity != null ? Math.max(Number(existing.daily_save_velocity), v) : v;
+        const incSaveVel = parseStrictFiniteMetric(p.daily_save_velocity);
+        const incVel = parseStrictFiniteMetric(p.velocity);
+        if (incSaveVel !== null) {
+          existing.daily_save_velocity = existing.daily_save_velocity != null ? Math.max(Number(existing.daily_save_velocity), incSaveVel) : incSaveVel;
+        } else if (existing.save_count !== null && incVel !== null && incVel > 0) {
+          existing.daily_save_velocity = existing.daily_save_velocity != null ? Math.max(Number(existing.daily_save_velocity), incVel) : incVel;
         }
-        if (p.daily_repin_velocity != null && Number.isFinite(Number(p.daily_repin_velocity))) {
-          const rv = Number(p.daily_repin_velocity);
-          existing.daily_repin_velocity = existing.daily_repin_velocity != null ? Math.max(Number(existing.daily_repin_velocity), rv) : rv;
+        const incRepinVel = parseStrictFiniteMetric(p.daily_repin_velocity);
+        if (incRepinVel !== null) {
+          existing.daily_repin_velocity = existing.daily_repin_velocity != null ? Math.max(Number(existing.daily_repin_velocity), incRepinVel) : incRepinVel;
         }
         for (const dk of ['delta_saves_24h', 'delta_repins_24h', 'gains_5d', 'gains_7d', 'gains_10d', 'gains_15d']) {
-          if (p[dk] != null && Number.isFinite(Number(p[dk]))) {
-            existing[dk] = existing[dk] != null ? Math.max(Number(existing[dk]), Number(p[dk])) : Number(p[dk]);
+          const parsedDk = parseStrictFiniteMetric(p[dk]);
+          if (parsedDk !== null) {
+            existing[dk] = existing[dk] != null ? Math.max(Number(existing[dk]), parsedDk) : parsedDk;
           }
         }
         existing.is_hydrated = Boolean(existing.is_hydrated || !isUnhydratedSaves || p.is_hydrated === true);
@@ -547,7 +573,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           existing.visual_annotations = incAnnotations;
         }
         if (!existing.created_at_pinterest && (p.created_at_pinterest || p.created_at)) {
-          existing.created_at_pinterest = new Date(p.created_at_pinterest || p.created_at).toISOString();
+          existing.created_at_pinterest = safeParseIsoTimestamp(p.created_at_pinterest || p.created_at);
         }
         if (!existing.image_signature && richMeta.image_signature) existing.image_signature = String(richMeta.image_signature);
         if (!existing.canonical_pin_id && richMeta.canonical_pin_id) existing.canonical_pin_id = String(richMeta.canonical_pin_id);

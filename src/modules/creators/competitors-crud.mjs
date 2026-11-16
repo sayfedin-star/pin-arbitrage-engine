@@ -747,42 +747,46 @@ export async function deleteCompetitor(sql, idOrUsername) {
   const numId = isNumeric ? parseInt(raw, 10) : NaN;
   const cleanUser = !isNumeric ? normalizePinterestUsername(raw) : '';
 
-  let targetProfile = null;
-  if (!isNaN(numId) && numId > 0) {
-    const [row] = await sql`
-      SELECT id, username FROM competitor_profiles WHERE id = ${numId} LIMIT 1;
-    `.catch(() => []);
-    targetProfile = row || { id: numId, username: '' };
-  } else if (cleanUser) {
-    const [row] = await sql`
-      SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;
-    `.catch(() => []);
-    targetProfile = row || { id: null, username: cleanUser };
-  }
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+  let targetUsername = cleanUser;
+  let targetId = (!isNaN(numId) && numId > 0) ? numId : null;
 
-  const targetId = targetProfile?.id ? Number(targetProfile.id) : (!isNaN(numId) && numId > 0 ? numId : null);
-  const targetUsername = cleanUser || (targetProfile?.username ? normalizePinterestUsername(targetProfile.username) : '');
+  await runInTx(async (tx) => {
+    let targetProfile = null;
+    if (!isNaN(numId) && numId > 0) {
+      const [row] = await tx`
+        SELECT id, username FROM competitor_profiles WHERE id = ${numId} LIMIT 1;
+      `;
+      targetProfile = row || { id: numId, username: '' };
+    } else if (cleanUser) {
+      const [row] = await tx`
+        SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;
+      `;
+      targetProfile = row || { id: null, username: cleanUser };
+    }
 
-  if (targetId) {
-    await Promise.all([
-      sql`DELETE FROM competitor_board_pins WHERE competitor_id = ${targetId};`.catch(() => {}),
-      sql`DELETE FROM competitor_boards WHERE competitor_id = ${targetId};`.catch(() => {}),
-      sql`DELETE FROM competitor_history_snapshots WHERE competitor_id = ${targetId};`.catch(() => {}),
-      sql`DELETE FROM competitor_related_nodes WHERE competitor_id = ${targetId};`.catch(() => {}),
-      sql`DELETE FROM competitor_seed_pins WHERE competitor_id = ${targetId};`.catch(() => {}),
-      sql`DELETE FROM folder_competitor_items WHERE competitor_id = ${targetId};`.catch(() => {})
-    ]);
-  }
+    targetId = targetProfile?.id ? Number(targetProfile.id) : (!isNaN(numId) && numId > 0 ? numId : null);
+    targetUsername = cleanUser || (targetProfile?.username ? normalizePinterestUsername(targetProfile.username) : '');
 
-  if (targetUsername) {
-    await sql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${targetUsername};`;
-  }
-  if (targetId) {
-    await sql`DELETE FROM competitor_profiles WHERE id = ${targetId};`;
-  }
+    if (targetId) {
+      await tx`DELETE FROM competitor_board_pins WHERE competitor_id = ${targetId};`;
+      await tx`DELETE FROM competitor_boards WHERE competitor_id = ${targetId};`;
+      await tx`DELETE FROM competitor_history_snapshots WHERE competitor_id = ${targetId};`;
+      await tx`DELETE FROM competitor_related_nodes WHERE competitor_id = ${targetId};`;
+      await tx`DELETE FROM competitor_seed_pins WHERE competitor_id = ${targetId};`;
+      await tx`DELETE FROM folder_competitor_items WHERE competitor_id = ${targetId};`;
+    }
 
-  // Also purge any stray corrupted rows with empty usernames
-  await sql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '';`.catch(() => {});
+    if (targetUsername) {
+      await tx`DELETE FROM competitor_profiles WHERE LOWER(username) = ${targetUsername};`;
+    }
+    if (targetId) {
+      await tx`DELETE FROM competitor_profiles WHERE id = ${targetId};`;
+    }
+
+    // Also purge any stray corrupted rows with empty usernames
+    await tx`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '';`;
+  });
 
   return {
     ok: true,

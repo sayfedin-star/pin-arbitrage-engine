@@ -311,8 +311,31 @@ export function getPinDetailsClientAppScripts() {
           return String(name).toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '-').replace(/^-|-$/g, '');
         },
 
+        sanitizeReturnUrl(raw) {
+          if (!raw || typeof raw !== 'string') return '';
+          const trimmed = raw.trim();
+          if (!trimmed) return '';
+          for (let i = 0; i < trimmed.length; i++) {
+            const code = trimmed.charCodeAt(i);
+            if (code <= 0x1f || code === 0x7f || code === 92) return '';
+          }
+          if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+            return trimmed;
+          }
+          if (typeof window !== 'undefined' && window.location && window.location.origin) {
+            try {
+              const parsed = new URL(trimmed, window.location.origin);
+              if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.origin === window.location.origin) {
+                return (parsed.pathname || '/') + (parsed.search || '') + (parsed.hash || '');
+              }
+            } catch (_) {}
+          }
+          return '';
+        },
+
         getBackUrl() {
-          if (this.originReturnUrl) return this.originReturnUrl;
+          const safeReturn = this.sanitizeReturnUrl(this.originReturnUrl);
+          if (safeReturn) return safeReturn;
           if (this.originSource === 'pulse') {
             return this.originFolderId ? ('/folders/' + encodeURIComponent(this.originFolderId) + '/pulse') : '/pulse';
           }
@@ -419,8 +442,9 @@ export function getPinDetailsClientAppScripts() {
               if (!this.originSource) this.originSource = 'domain';
               hasUrlContext = true;
             }
-            if (returnUrlParam) {
-              this.originReturnUrl = returnUrlParam.trim();
+            const safeReturnParam = this.sanitizeReturnUrl(returnUrlParam);
+            if (safeReturnParam) {
+              this.originReturnUrl = safeReturnParam;
               hasUrlContext = true;
             }
 
@@ -458,32 +482,33 @@ export function getPinDetailsClientAppScripts() {
                 const isFresh = saved?.ts && (Date.now() - saved.ts < 3600000);
                 const matchesPin = !saved.pinId || saved.pinId === this.pinId;
                 if (isFresh && matchesPin) {
+                  const safeSavedReturn = this.sanitizeReturnUrl(saved.returnUrl);
                   if (saved.source === 'creator' || saved.creator) {
                     this.originSource = 'creator';
                     this.originCreator = (saved.creator || '').replace(/^@+/, '').trim();
                     this.originBoard = saved.board || '';
-                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '';
                   } else if (saved.source === 'folder' || saved.folderId) {
                     this.originSource = 'folder';
                     this.originFolderId = saved.folderId || null;
                     this.originFolderName = saved.folderName || '';
-                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '';
                   } else if (saved.source === 'domain' || saved.domain) {
                     this.originSource = 'domain';
                     this.originDomain = saved.domain || '';
-                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '';
                   } else if (saved.source === 'pulse') {
                     this.originSource = 'pulse';
                     this.originFolderId = saved.folderId || null;
                     this.originFolderName = saved.folderName || '';
-                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '/pulse';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '/pulse';
                   } else if (saved.source === 'keyword' || saved.keyword) {
                     this.originSource = 'keyword';
                     this.originKeyword = saved.keyword || '';
                     this.originKeywordId = saved.keywordId || null;
                     this.originFolderId = saved.folderId || null;
                     this.originFolderName = saved.folderName || '';
-                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '';
                   }
                 }
               }

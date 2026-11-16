@@ -59,10 +59,7 @@ export async function queryActiveSerp(sql, folderIdNum) {
       COALESCE(ump.gains_10d, 0) AS gains_10d,
       COALESCE(ump.gains_15d, 0) AS gains_15d,
       COALESCE(ump.url_global_saves, 0) AS url_global_saves,
-      COALESCE(
-        CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END,
-        '#888888'
-      ) AS dominant_color,
+      CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END AS dominant_color,
       COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
       ump.created_at_pinterest,
       COALESCE(NULLIF(ump.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
@@ -458,7 +455,7 @@ export async function queryWinnersAndDomains(sql) {
         COALESCE(NULLIF(ump.domain, ''), '') AS domain,
         COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
         COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
-        COALESCE(NULLIF(ump.dominant_color, '#888888'), '#888888') AS dominant_color,
+        CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END AS dominant_color,
         ump.save_count AS saves,
         ump.repin_count AS repins,
         COALESCE(ump.comment_count, 0) AS comments,

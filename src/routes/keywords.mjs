@@ -556,44 +556,60 @@ export async function handleKeywordsRoutes({
       keyword = keyword || body.keyword;
     } catch (_) {}
 
-    const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+    const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
     let targetIds = [];
     if (ids.length > 0) {
-      targetIds = ids;
-    } else if (id && !isNaN(Number(id))) {
+      targetIds = [...new Set(ids)];
+    } else if (id && Number.isInteger(Number(id)) && Number(id) > 0) {
       targetIds = [Number(id)];
     } else if (keyword) {
       const cleanKeyword = keyword.toLowerCase().trim();
       const rows = await sql`SELECT id FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
-      targetIds = rows.map(r => Number(r.id)).filter(Boolean);
+      targetIds = [...new Set(rows.map(r => Number(r.id)).filter(n => Number.isInteger(n) && n > 0))];
     }
 
     if (targetIds.length === 0) {
       return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
     }
 
-    // 1. Fetch keyword metadata for the tombstone audit trail
-    const existingKw = await sql`
-      SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
-    `.catch(() => []);
+    const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+    try {
+      await runInTx(async (tx) => {
+        // 1. Fetch keyword metadata for the tombstone audit trail
+        const existingKw = await tx`
+          SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
+        `;
 
-    // 2. Record tombstones in unified keyword_tombstones audit trail
-    if (existingKw.length > 0) {
-      await sql`
-        INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, purged_at)
-        SELECT u.id, u.keyword, NOW(), NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
-        ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), purged_at = NOW();
-      `.catch(() => {});
+        // 2. Record tombstones in unified keyword_tombstones audit trail
+        if (Array.isArray(existingKw) && existingKw.length > 0) {
+          await tx`
+            INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, purged_at)
+            SELECT u.id, u.keyword, NOW(), NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
+            ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), purged_at = NOW();
+          `;
+        }
+
+        // 3. Clean Central Hub items & execute deletion from tracked_keywords
+        await tx`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`;
+        await tx`DELETE FROM keyword_ignored_pins WHERE keyword_id = ANY(${targetIds});`;
+        await tx`DELETE FROM keyword_guided_capsules WHERE keyword_id = ANY(${targetIds});`;
+        await tx`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`;
+        await tx`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
+      });
+    } catch (err) {
+      console.error('[KeywordsRoute.DELETE] atomic keyword delete failed:', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'KEYWORD_DELETE_FAILED',
+        message: redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err))
+      }, 500);
     }
 
-    // 3. Clean Central Hub items & execute deletion from tracked_keywords
-    await sql`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
-    await sql`DELETE FROM keyword_ignored_pins WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
-    await sql`DELETE FROM keyword_guided_capsules WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
-    await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
-    await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
+    invalidateEdgeCache('keywords');
     invalidateEdgeCache('folders');
+    invalidateEdgeCache('domains:leaderboard');
+    invalidateEdgeCache('keywords:pin-dossier');
 
     return jsonResponse({ success: true, deleted_ids: targetIds });
   }

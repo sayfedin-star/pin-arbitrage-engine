@@ -479,7 +479,7 @@ for (const file of filesToScan) {
   walkAst(ast, (node) => {
     if (node.type === 'TaggedTemplateExpression') {
       const tagName = node.tag.name || (node.tag.property && node.tag.property.name) || '';
-      if (['sql', 'dbSql', 'targetSql', 'client', 'postgres', 'tx'].includes(tagName)) {
+      if (['sql', 'dbSql', 'targetSql', 'client', 'postgres', 'tx', 'txSql', 'hubSql', 'currentSql', 'probeSql', 'barrierSql', 'activeSql', 'barrierPollSql', 'phase1bSql', 'phase1bSqlA', 'phase1bSqlB'].includes(tagName)) {
         const queryText = node.quasi.quasis.map(q => q.value.raw).join(' __PARAM__ ');
         sqlBlocks.push({ query: queryText, line: node.loc?.start?.line || 1 });
       }
