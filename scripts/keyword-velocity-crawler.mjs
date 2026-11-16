@@ -109,9 +109,10 @@ const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
-const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
+const explicitMaxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
   ? Math.max(10, Math.min(2000, parseInt(envSerpPins, 10)))
-  : 50;
+  : null;
+const maxSerpPins = explicitMaxSerpPins;
 
 const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
 const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
@@ -1068,7 +1069,7 @@ async function run() {
           console.log(`  [*] [Phase 1A] Harvesting SERP for Keyword ID ${kid}...`);
           const res = await crawlKeywordSERP(sql, kid, {
             cookie,
-            max_serp_pins: maxSerpPins,
+            ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
             skip_top_enrich: true,
             force: true,
             lease_token: effectiveToken
@@ -1303,7 +1304,7 @@ async function run() {
         try {
           const res = await crawlKeywordSERP(sql, kwRow.id, {
             cookie,
-            max_serp_pins: maxSerpPins,
+            ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
             skip_top_enrich: true,
             force: true,
             lease_token: effectiveToken
@@ -1527,7 +1528,7 @@ async function run() {
           try {
             const res = await crawlKeywordSERP(sql, kid, {
               cookie: effectiveSerpCookie,
-              max_serp_pins: maxSerpPins,
+              ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
               skip_top_enrich: true,
               force: true,
               lease_token: effectiveToken

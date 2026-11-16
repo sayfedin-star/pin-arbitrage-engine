@@ -22,7 +22,9 @@ import {
   getAppSettings,
   updateAppSettings,
   updateKeywordSettings,
-  ignoreAndRemoveSerpPin
+  ignoreAndRemoveSerpPin,
+  resolveEffectiveSerpQuota,
+  computePagesForQuota
 } from '../modules/keywords/service.mjs';
 
 import {
@@ -396,13 +398,14 @@ export async function handleKeywordsRoutes({
     if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
     const force = Boolean(body.force);
     const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-    const crawlPages = body.crawl_pages || body.max_pages;
-    const maxPins = body.max_pins;
+    const hasExplicitPages = body.crawl_pages !== undefined || body.max_pages !== undefined;
+    const crawlPages = hasExplicitPages ? Math.max(1, Math.min(40, Number(body.crawl_pages || body.max_pages) || 2)) : undefined;
+    const maxPins = body.max_pins ?? body.max_serp_pins;
     const res = await crawlKeywordSERP(sql, keywordId, { 
       cookie, 
       force,
-      crawl_pages: Math.min(2, Number(crawlPages) || 2),
-      max_pins: maxPins,
+      ...(crawlPages !== undefined ? { crawl_pages: crawlPages } : {}),
+      ...(maxPins !== undefined && maxPins !== null && maxPins !== '' ? { max_pins: maxPins } : {}),
       skip_top_enrich: true,
       env
     });
@@ -421,7 +424,8 @@ export async function handleKeywordsRoutes({
     const { token } = resolveGitHubAuth(env);
     if (autoDispatch && token && res?.success) {
       const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
-      const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '50');
+      const rawDispatchMax = body.max_serp_pins || body.max_pins || resolvedKw?.target_pin_count || '';
+      const maxPinsInput = rawDispatchMax ? String(rawDispatchMax) : '';
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
       // [INVARIANT: EDGE-ONLY-SERP-DISCOVERY]
       // When auto-dispatched from sync, SERP was already scraped on Edge (< 2s). Default enable_serp_harvest to 'false' unless explicitly overridden.
@@ -475,8 +479,14 @@ export async function handleKeywordsRoutes({
 
   // 6. POST /api/settings
   if (method === 'POST' && pathname === '/api/settings') {
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('settings');
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('keywords:hub'),
+      invalidateEdgeCache('keywords:pins'),
+      invalidateEdgeCache('keywords:serp-compare'),
+      invalidateEdgeCache('settings')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache();
     const body = await request.json().catch(() => ({}));
     const updated = await updateAppSettings(sql, body);
     const hasCookie = Boolean(updated?.has_pinterest_cookie || (updated?.pinterest_cookie && String(updated.pinterest_cookie).trim().length > 10));
@@ -490,7 +500,13 @@ export async function handleKeywordsRoutes({
 
   // 7. POST /api/keywords/settings
   if (method === 'POST' && pathname === '/api/keywords/settings') {
-    invalidateEdgeCache('keywords');
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('keywords:hub'),
+      invalidateEdgeCache('keywords:pins'),
+      invalidateEdgeCache('keywords:serp-compare')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache();
     const body = await request.json().catch(() => ({}));
     const keywordId = Number(body.keyword_id);
     if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
@@ -976,6 +992,15 @@ export async function handleKeywordsRoutes({
     const folderId = body.folder_id ? Number(body.folder_id) : null;
     const category = body.category || 'General';
     const uniqueValidKeywords = [...new Set(validKeywords)];
+    const appSettings = await getAppSettings(sql).catch(() => null);
+    const defaultPins = resolveEffectiveSerpQuota({
+      explicitMaxPins: body.target_pin_count ?? body.max_pins ?? body.max_serp_pins,
+      appSettings
+    });
+    const defaultPages = computePagesForQuota(defaultPins);
+    const defaultMode = body.inspection_mode
+      ? String(body.inspection_mode).trim()
+      : (appSettings?.default_inspection_mode || 'full_catalog');
     const imported = await sql`
       INSERT INTO tracked_keywords (
         keyword, canonical_keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
@@ -983,13 +1008,13 @@ export async function handleKeywordsRoutes({
       SELECT
         u.kw,
         NULL,
-        ${category}, 50, 2, 'full_catalog', TRUE, NOW()
+        ${category}, ${defaultPins}, ${defaultPages}, ${defaultMode}, TRUE, NOW()
       FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
       ON CONFLICT (keyword) DO UPDATE SET
         canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
-        target_pin_count = COALESCE(tracked_keywords.target_pin_count, 50),
-        crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, 2),
-        inspection_mode = 'full_catalog',
+        target_pin_count = COALESCE(tracked_keywords.target_pin_count, ${defaultPins}),
+        crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, ${defaultPages}),
+        inspection_mode = COALESCE(NULLIF(tracked_keywords.inspection_mode, ''), ${defaultMode}),
         updated_at = NOW(),
         is_active = TRUE
       RETURNING id, keyword, category;
@@ -1060,8 +1085,10 @@ export async function handleKeywordsRoutes({
     const body = await request.json().catch(() => ({}));
     const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
     const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
-    const maxPinsInput = String(body.max_pins || folderMeta.max_pins || '50');
-    const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || folderMeta.max_serp_pins || '50');
+    const rawFolderMaxPins = body.max_pins ?? folderMeta.max_pins ?? '';
+    const rawFolderMaxSerpPins = body.max_serp_pins ?? body.max_pins ?? folderMeta.max_serp_pins ?? folderMeta.max_pins ?? '';
+    const maxPinsInput = rawFolderMaxPins !== undefined && rawFolderMaxPins !== null ? String(rawFolderMaxPins).trim() : '';
+    const maxSerpPinsInput = rawFolderMaxSerpPins !== undefined && rawFolderMaxSerpPins !== null ? String(rawFolderMaxSerpPins).trim() : maxPinsInput;
     const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
     const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
 
@@ -1461,8 +1488,10 @@ export async function handleKeywordsRoutes({
     const body = await request.json().catch(() => ({}));
     const targetKw = body.target_keyword || body.keyword || '';
     const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
-    const maxPinsInput = String(body.max_pins || '50');
-    const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
+    const maxPinsInput = (body.max_pins !== undefined && body.max_pins !== null) ? String(body.max_pins).trim() : '';
+    const maxSerpPinsInput = (body.max_serp_pins !== undefined && body.max_serp_pins !== null)
+      ? String(body.max_serp_pins).trim()
+      : maxPinsInput;
     const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
     const enableSerpHarvestInput = body.enable_serp_harvest !== undefined && body.enable_serp_harvest !== null && body.enable_serp_harvest !== ''
       ? String(body.enable_serp_harvest)

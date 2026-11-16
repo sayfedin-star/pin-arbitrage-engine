@@ -956,11 +956,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <label class="text-xs font-semibold text-slate-900 dark:text-white">Max SERP Pins Harvest Quota</label>
                   <span class="text-xs font-mono font-bold text-rose-600 dark:text-rose-400" x-text="folderSettings.max_serp_pins + ' pins'"></span>
                 </div>
-                <input type="range" min="20" max="250" step="10" x-model="folderSettings.max_serp_pins" @input="folderSettings.max_pins = folderSettings.max_serp_pins" class="w-full accent-rose-600">
+                <input type="range" min="10" max="500" step="5" x-model="folderSettings.max_serp_pins" @input="folderSettings.max_pins = folderSettings.max_serp_pins" class="w-full accent-rose-600">
                 <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-                  <span>20 (Fast)</span>
+                  <span>10 (Min)</span>
                   <span>100 (Standard)</span>
-                  <span>250 (Deep)</span>
+                  <span>500 (Deep)</span>
                 </div>
               </div>
 

@@ -20,7 +20,7 @@
 
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
-import { getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
+import { getAppSettings, safeNormalizeMetadata, clampSerpQuota, computePagesForQuota } from '../src/modules/keywords/service.mjs';
 import { writeOutput, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
 loadDotEnvIfPresent();
@@ -86,9 +86,11 @@ async function main() {
     : true;
 
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
-  const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
-    ? Math.max(10, Math.min(2000, parseInt(envSerpPins, 10)))
-    : (appSettings.max_serp_pins || appSettings.default_max_pins || 50);
+  const explicitEnvSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
+    ? clampSerpQuota(envSerpPins)
+    : null;
+  const globalFallbackSerpPins = clampSerpQuota(appSettings.max_serp_pins ?? appSettings.default_max_pins, 50);
+  const maxSerpPins = explicitEnvSerpPins ?? globalFallbackSerpPins;
 
   const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
   const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
@@ -101,7 +103,7 @@ async function main() {
   console.log(`[Config] Target Input:       "${rawTargetKeyword || '<EMPTY: ALL ACTIVE KEYWORDS>'}"`);
   console.log(`[Config] Folder ID:          "${rawFolderId || '<NONE>'}"`);
   console.log(`[Config] Crawl Scope:        "${crawlScope}"`);
-  console.log(`[Config] SERP Harvest Quota: ${maxSerpPins} pins (${enableSerpHarvest ? 'ENABLED' : 'DISABLED: AUDIT ONLY'})`);
+  console.log(`[Config] SERP Harvest Quota: ${explicitEnvSerpPins !== null ? `${explicitEnvSerpPins} pins (explicit override)` : `Per-Keyword DB target (global fallback: ${globalFallbackSerpPins} pins)`} (${enableSerpHarvest ? 'ENABLED' : 'DISABLED: AUDIT ONLY'})`);
   console.log(`[Config] Catalog Inspect:    ${maxCatalogInspect === 0 ? 'UNLIMITED / ALL PINS' : maxCatalogInspect + ' pins'}`);
 
   const isSweepAll = !rawTargetKeyword || rawTargetKeyword.toLowerCase() === 'all' || rawTargetKeyword.toLowerCase() === 'cron' || rawTargetKeyword.toLowerCase() === '*';
@@ -178,9 +180,10 @@ async function main() {
       enableSerpHarvest = Boolean(folderMeta.enable_serp_harvest);
     }
 
-    const resolvedMaxSerpPins = (!envSerpPins && folderMeta.max_serp_pins)
-      ? Math.max(10, Math.min(2000, parseInt(folderMeta.max_serp_pins, 10)))
-      : maxSerpPins;
+    const explicitFolderSerpPins = explicitEnvSerpPins !== null
+      ? explicitEnvSerpPins
+      : ((folderMeta.max_serp_pins || folderMeta.max_pins) ? clampSerpQuota(folderMeta.max_serp_pins ?? folderMeta.max_pins) : null);
+    const resolvedMaxSerpPins = explicitFolderSerpPins !== null ? String(explicitFolderSerpPins) : '';
     const resolvedCrawlScope = (!envCrawlScope && folderMeta.crawl_scope)
       ? String(folderMeta.crawl_scope).toLowerCase().trim()
       : crawlScope;
@@ -189,7 +192,7 @@ async function main() {
       : maxCatalogInspect;
 
     console.log(`  [+] Target Folder: "${folderRow.name}" (ID: ${folderRow.id})`);
-    console.log(`  [+] Resolved Config: Harvest=${enableSerpHarvest ? 'ON' : 'OFF'} | Scope=${resolvedCrawlScope} | MaxPins=${resolvedMaxSerpPins} | InspectCap=${resolvedMaxCatalogInspect}`);
+    console.log(`  [+] Resolved Config: Harvest=${enableSerpHarvest ? 'ON' : 'OFF'} | Scope=${resolvedCrawlScope} | MaxPins=${resolvedMaxSerpPins || `Per-KW DB (fallback ${globalFallbackSerpPins})`} | InspectCap=${resolvedMaxCatalogInspect}`);
 
     const folderKeywords = await sql`
       SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.last_crawled_at
@@ -259,8 +262,8 @@ async function main() {
           }
         } else {
           console.log(`  [+] Auto-registering new keyword: "${kwStr}"`);
-          const defaultTargetPins = maxSerpPins || 50;
-          const defaultPages = Math.min(100, Math.max(1, Math.ceil(defaultTargetPins / 25)));
+          const defaultTargetPins = maxSerpPins || globalFallbackSerpPins;
+          const defaultPages = computePagesForQuota(defaultTargetPins);
           [row] = await sql`
             INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
             VALUES (${kwStr}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
@@ -311,8 +314,8 @@ async function main() {
           worker_index: w,
           worker_slot: w + 1,
           worker_total: WORKER_COUNT,
-          max_pins: maxSerpPins,
-          max_serp_pins: maxSerpPins,
+          max_pins: explicitEnvSerpPins !== null ? String(explicitEnvSerpPins) : '',
+          max_serp_pins: explicitEnvSerpPins !== null ? String(explicitEnvSerpPins) : '',
           max_catalog_inspect: maxCatalogInspect,
           crawl_scope: crawlScope,
           enable_serp_harvest: enableSerpHarvest
@@ -350,8 +353,8 @@ async function main() {
       }
     } else {
       console.log(`  [+] Auto-registering keyword: "${singleKeyword}"...`);
-      const defaultTargetPins = maxSerpPins || 50;
-      const defaultPages = Math.min(100, Math.max(1, Math.ceil(defaultTargetPins / 25)));
+      const defaultTargetPins = maxSerpPins || globalFallbackSerpPins;
+      const defaultPages = computePagesForQuota(defaultTargetPins);
       [kwRow] = await sql`
         INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
         VALUES (${singleKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
@@ -365,7 +368,10 @@ async function main() {
     console.log(`  [+] Keyword Confirmed: "${kwRow.keyword}" (ID: ${kwRow.id})`);
 
     const numWorkers = 20;
-    console.log(`  [*] Partitioning "${kwRow.keyword}" across ${numWorkers} parallel runners (Runner 1 handles Phase 1A SERP ingestion)...`);
+    const singleKeywordTargetPins = explicitEnvSerpPins !== null
+      ? explicitEnvSerpPins
+      : (kwRow.target_pin_count ? clampSerpQuota(kwRow.target_pin_count) : globalFallbackSerpPins);
+    console.log(`  [*] Partitioning "${kwRow.keyword}" across ${numWorkers} parallel runners (Runner 1 handles Phase 1A SERP ingestion, target ${singleKeywordTargetPins} pins)...`);
 
     matrixTasks = Array.from({ length: numWorkers }, (_, idx) => ({
       mode: 'pin_partition',
@@ -376,8 +382,8 @@ async function main() {
       worker_slot: idx + 1,
       worker_total: numWorkers,
       crawl_scope: crawlScope,
-      max_pins: maxSerpPins,
-      max_serp_pins: maxSerpPins,
+      max_pins: String(singleKeywordTargetPins),
+      max_serp_pins: String(singleKeywordTargetPins),
       max_catalog_inspect: maxCatalogInspect,
       enable_serp_harvest: enableSerpHarvest
     }));
@@ -420,7 +426,7 @@ async function main() {
         md += `| Runner # | Assigned SERP Slice | Keywords Count | SERP Quota |\n`;
         md += `| :---: | :--- | :---: | :---: |\n`;
         matrixTasks.forEach(t => {
-          md += `| **Runner ${t.worker_index + 1}/${t.worker_total}** | \`${t.keyword}\` | ${t.keywords_count || 0} | ${t.max_pins} |\n`;
+          md += `| **Runner ${t.worker_index + 1}/${t.worker_total}** | \`${t.keyword}\` | ${t.keywords_count || 0} | ${t.max_pins || `Per-KW (DB ${globalFallbackSerpPins})`} |\n`;
         });
       } else {
         md += `### 🎯 Single-Keyword Distributed Partition\n\n`;

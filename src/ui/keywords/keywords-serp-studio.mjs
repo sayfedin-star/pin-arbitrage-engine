@@ -64,7 +64,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
               </template>
 
               <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                    x-text="(selectedKeyword?.target_pin_count || 50) + ' Pins Target (' + (selectedKeyword?.crawl_pages_limit || 2) + ' Pages)'">
+                    x-text="(selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins Target (' + (selectedKeyword?.crawl_pages_limit || Math.ceil((selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) / 25)) + ' Pages)'">
                 50 Pins Target (2 Pages)
               </span>
               <template x-if="selectedKeyword?.last_crawled_at">
@@ -86,7 +86,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                   :disabled="isDetailsLoading || syncingKeywordId === selectedKeyword?.id"
                   class="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-2 shadow-md shadow-emerald-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(isDetailsLoading || syncingKeywordId === selectedKeyword?.id) ? 'animate-spin' : ''"></i>
-            <span x-text="'Re-Crawl ' + (selectedKeyword?.target_pin_count || 50) + ' Pins'"></span>
+            <span x-text="'Re-Crawl ' + (selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins'"></span>
           </button>
 
           <!-- Settings Button for this specific keyword -->
@@ -531,7 +531,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
 
           <!-- Pin Sort -->
           <select x-model="pinSort" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-            <option value="rank" x-text="'Sort: SERP Rank #1-' + (selectedKeyword?.target_pin_count || 250)">Sort: SERP Rank (Ascending)</option>
+            <option value="rank" x-text="'Sort: SERP Rank #1-' + (selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50)">Sort: SERP Rank (Ascending)</option>
             <option value="velocity">Sort: 24h Velocity (Highest)</option>
             <option value="saves">Sort: Saves / Likes (Highest)</option>
             <option value="age">Sort: Newest First</option>
@@ -572,7 +572,7 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
             <button @click="rescanActiveKeyword(true)"
                     class="px-5 py-2.5 rounded-2xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-md shadow-emerald-950/20 active:scale-95 flex items-center justify-center space-x-2 mx-auto cursor-pointer">
               <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-              <span x-text="'Crawl ' + (selectedKeyword?.target_pin_count || 250) + ' Pins Now'">Crawl Pins Now</span>
+              <span x-text="'Crawl ' + (selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins Now'">Crawl Pins Now</span>
             </button>
           </div>
         </template>
@@ -740,8 +740,8 @@ export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
                         <div class="flex flex-col space-y-1">
                           <div class="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
                             <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-mono tabular-nums font-bold"
-                                  :title="'Catalog Rank #' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (getPinGlobalIndex(idx) + 1)))"
-                                  x-text="'#' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (getPinGlobalIndex(idx) + 1)))"></span>
+                                  :title="'Catalog Rank #' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + (getPinGlobalIndex(idx) + 1)))"
+                                  x-text="'#' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + (getPinGlobalIndex(idx) + 1)))"></span>
                             <span class="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider shrink-0"
                                   x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?')"></span>
                           </div>

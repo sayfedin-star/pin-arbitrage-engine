@@ -114,12 +114,19 @@ export {
   resolveKeywordBySlug,
   getEffectivePinterestCookie,
   savePinterestCookie,
-  DEFAULT_PINTEREST_SESSION_COOKIE
+  DEFAULT_PINTEREST_SESSION_COOKIE,
+  MIN_SERP_QUOTA,
+  MAX_SERP_QUOTA,
+  DEFAULT_SERP_QUOTA,
+  clampSerpQuota,
+  computePagesForQuota,
+  resolveEffectiveSerpQuota
 } from './settings.mjs';
 import {
   getAppSettings,
   getEffectivePinterestCookie,
-  DEFAULT_PINTEREST_SESSION_COOKIE
+  DEFAULT_PINTEREST_SESSION_COOKIE,
+  resolveEffectiveSerpQuota
 } from './settings.mjs';
 
 // Modular Predictive Autocomplete & Typeahead
@@ -247,31 +254,31 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     leaseAcquired = true;
 
     const [keywordRow] = await sql`
-      SELECT id, keyword, crawl_pages_limit, is_active, metadata FROM tracked_keywords WHERE id = ${kid};
+      SELECT id, keyword, target_pin_count, crawl_pages_limit, is_active, metadata, top_pin_id, top_pin_title, top_pin_image, avg_daily_velocity, last_crawled_at FROM tracked_keywords WHERE id = ${kid};
     `;
     if (!keywordRow) throw new Error(`Keyword ID ${kid} not found.`);
 
     const query = encodeURIComponent(keywordRow.keyword);
 
-    // Resolve Dynamic Depth from options -> keywordRow -> defaults
-    const configuredPages = Math.max(1, Math.min(40, Number(
-      options.crawl_pages || 
-      options.max_pages || 
-      keywordRow.crawl_pages_limit || 
-      10
-    )));
-    const configuredTargetPins = Math.max(25, Math.min(1000, Number(
-      options.max_serp_pins || 
-      options.max_pins || 
-      keywordRow.target_pin_count || 
-      (configuredPages * 25)
-    )));
-    const targetCount = configuredTargetPins;
-    // Replenishment Guard: Dynamic maxPages ensures excluded ads/boards/tombstone never starve targetCount
-    const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 12)));
-
     // Resolve Filtration Exceptions & Persistent Cookie from options -> app_settings -> default
     const appSettings = await getAppSettings(sql);
+
+    // Resolve Dynamic Depth via SSOT precedence: explicit override -> keywordRow.target_pin_count -> appSettings -> crawl_pages_limit * 25 -> 50
+    const targetCount = resolveEffectiveSerpQuota({
+      explicitMaxPins: options.max_serp_pins ?? options.max_pins,
+      keywordTargetPins: keywordRow.target_pin_count,
+      keywordPagesLimit: keywordRow.crawl_pages_limit,
+      appSettings
+    });
+    const configuredPages = Math.max(1, Math.min(40, Number(
+      options.crawl_pages ||
+      options.max_pages ||
+      Math.ceil(targetCount / 25) ||
+      keywordRow.crawl_pages_limit ||
+      2
+    )));
+    // Replenishment Guard: Dynamic maxPages ensures excluded ads/boards/tombstone never starve targetCount
+    const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 12)));
     const excludePromoted = options.exclude_promoted ?? appSettings.exclude_promoted ?? true;
     const excludeBoardsAndSuggestions = options.exclude_boards_and_suggestions ?? appSettings.exclude_boards_and_suggestions ?? true;
     const excludeIgnoredPins = options.exclude_ignored_pins ?? appSettings.exclude_ignored_pins ?? true;
@@ -1085,14 +1092,17 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     // PHASE 3: DYNAMIC SERP CIRCUIT BREAKER
-    // Supporting niche keywords with only 20-30 pins: calculate expectedCount dynamically
+    // Supporting small targets (10-30 pins) and large crawls: calculate expectedCount & minRequiredForEviction dynamically
     const priorActiveCount = immediateSnapshots.length;
-    const effectiveTarget = targetCount || Number(keywordRow.target_pin_count) || 50;
+    const effectiveTarget = targetCount || Number(keywordRow.target_pin_count) || Number(appSettings?.max_serp_pins || appSettings?.default_max_pins || 50);
     const expectedCount = priorActiveCount > 0
       ? Math.min(effectiveTarget, priorActiveCount)
       : effectiveTarget;
 
-    const minRequiredForEviction = Math.max(10, Math.floor(expectedCount * 0.70));
+    const minRequiredForEviction = Math.min(
+      Math.max(5, Math.floor(expectedCount * 0.70)),
+      Math.max(5, expectedCount)
+    );
     const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction || paginationAbortedByHttp;
     const droppedOutList = [];
 
@@ -1346,9 +1356,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     txBatch.push((db) => db`
       UPDATE tracked_keywords SET
-        top_pin_id = ${topPin && !isSuspectedIncompleteCrawl ? topPin.pinId : keywordRow.top_pin_id},
-        top_pin_title = ${topPin && !isSuspectedIncompleteCrawl ? topPin.title : keywordRow.top_pin_title},
-        top_pin_image = ${topPin && !isSuspectedIncompleteCrawl ? topPin.imageUrl : keywordRow.top_pin_image},
+        top_pin_id = ${topPin && !isSuspectedIncompleteCrawl ? topPin.pinId : (keywordRow.top_pin_id ?? null)},
+        top_pin_title = ${topPin && !isSuspectedIncompleteCrawl ? topPin.title : (keywordRow.top_pin_title ?? null)},
+        top_pin_image = ${topPin && !isSuspectedIncompleteCrawl ? topPin.imageUrl : (keywordRow.top_pin_image ?? null)},
         avg_daily_velocity = ${finalVelocity},
         last_crawled_at = ${lastCrawledAtVal}::timestamptz,
         crawl_lease_token = CASE WHEN ${skipLeaseRelease} THEN crawl_lease_token ELSE NULL END,

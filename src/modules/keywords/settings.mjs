@@ -14,6 +14,59 @@ import { formatPinterestCookie } from '../../utils.mjs';
 
 export const DEFAULT_PINTEREST_SESSION_COOKIE = '';
 
+export const MIN_SERP_QUOTA = 10;
+export const MAX_SERP_QUOTA = 2000;
+export const DEFAULT_SERP_QUOTA = 50;
+
+/**
+ * Clamps a SERP pin target count into [10, 2000], returning fallback if non-finite/non-positive.
+ */
+export function clampSerpQuota(value, fallback = DEFAULT_SERP_QUOTA) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(MIN_SERP_QUOTA, Math.min(MAX_SERP_QUOTA, Math.round(parsed)));
+}
+
+/**
+ * Computes SERP crawl page count (~25 pins/page) from a pin quota, clamped to [1, 100].
+ */
+export function computePagesForQuota(pins) {
+  const safePins = clampSerpQuota(pins, DEFAULT_SERP_QUOTA);
+  return Math.max(1, Math.min(100, Math.ceil(safePins / 25)));
+}
+
+/**
+ * Single Source of Truth precedence resolver for SERP pin harvest quota:
+ *   explicitMaxPins > keywordTargetPins > folderMaxPins > appSettings > keywordPagesLimit * 25 > 50
+ */
+export function resolveEffectiveSerpQuota({
+  explicitMaxPins = null,
+  keywordTargetPins = null,
+  keywordPagesLimit = null,
+  folderMaxPins = null,
+  appSettings = null
+} = {}) {
+  const candidates = [
+    explicitMaxPins,
+    keywordTargetPins,
+    folderMaxPins,
+    appSettings?.max_serp_pins,
+    appSettings?.default_max_pins,
+    (keywordPagesLimit !== undefined && keywordPagesLimit !== null && keywordPagesLimit !== '' && Number(keywordPagesLimit) > 0)
+      ? Number(keywordPagesLimit) * 25
+      : null
+  ];
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+    const num = Number(candidate);
+    if (Number.isFinite(num) && num > 0) {
+      return clampSerpQuota(num, DEFAULT_SERP_QUOTA);
+    }
+  }
+  return DEFAULT_SERP_QUOTA;
+}
+
 /**
  * Resolves the effective Pinterest session cookie across DB app_settings, process.env, and fallback.
  */
@@ -150,6 +203,7 @@ export async function getAppSettings(sql) {
 
 /**
  * Update Global Keyword & Crawl Intelligence Settings
+ * Optionally propagates updated limits atomically to all tracked_keywords and trims active rank overflow.
  */
 export async function updateAppSettings(sql, newSettings = {}) {
   const current = await getAppSettings(sql);
@@ -160,13 +214,20 @@ export async function updateAppSettings(sql, newSettings = {}) {
   const {
     pinterest_cookie: _curCookie,
     has_pinterest_cookie: _curHasCookie,
+    apply_to_all: _curApplyToAll,
+    apply_global_to_keywords: _curApplyGlobal,
     ...safeCurrent
   } = current;
+  const rawIncoming = (newSettings && typeof newSettings === 'object' ? newSettings : {});
+  const applyToAll = Boolean(rawIncoming.apply_to_all === true || rawIncoming.apply_to_all === 'true' || rawIncoming.apply_global_to_keywords === true);
   const {
     pinterest_cookie: _newCookie,
     has_pinterest_cookie: _newHasCookie,
+    apply_to_all: _newApplyToAll,
+    apply_global_to_keywords: _newApplyGlobal,
     ...safeIncoming
-  } = (newSettings && typeof newSettings === 'object' ? newSettings : {});
+  } = rawIncoming;
+
   const merged = {
     ...safeCurrent,
     ...safeIncoming,
@@ -175,13 +236,61 @@ export async function updateAppSettings(sql, newSettings = {}) {
       ...(safeIncoming.breakout_rules || {})
     }
   };
-  await sql`
-    INSERT INTO app_settings (key, value, updated_at)
-    VALUES ('keyword_crawl_settings', ${JSON.stringify(merged)}::jsonb, NOW())
-    ON CONFLICT (key) DO UPDATE SET
-      value = EXCLUDED.value,
-      updated_at = NOW();
-  `;
+
+  if (safeIncoming.max_serp_pins !== undefined || safeIncoming.default_max_pins !== undefined) {
+    const syncedQuota = clampSerpQuota(safeIncoming.max_serp_pins ?? safeIncoming.default_max_pins, DEFAULT_SERP_QUOTA);
+    merged.max_serp_pins = syncedQuota;
+    merged.default_max_pins = syncedQuota;
+    if (safeIncoming.default_crawl_pages === undefined) {
+      merged.default_crawl_pages = computePagesForQuota(syncedQuota);
+    }
+  } else if (safeIncoming.default_crawl_pages !== undefined) {
+    const pages = Math.max(1, Math.min(100, Number(safeIncoming.default_crawl_pages) || 2));
+    merged.default_crawl_pages = pages;
+  }
+
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+  await runInTx(async (tx) => {
+    await tx`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('keyword_crawl_settings', ${JSON.stringify(merged)}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        updated_at = NOW();
+    `;
+
+    if (applyToAll) {
+      const targetPinCount = resolveEffectiveSerpQuota({
+        explicitMaxPins: merged.max_serp_pins ?? merged.default_max_pins,
+        keywordPagesLimit: merged.default_crawl_pages
+      });
+      const pagesLimit = computePagesForQuota(targetPinCount);
+      const inspMode = merged.default_inspection_mode ? String(merged.default_inspection_mode).trim() : null;
+
+      await tx`
+        UPDATE tracked_keywords
+        SET
+          target_pin_count = ${targetPinCount},
+          crawl_pages_limit = ${pagesLimit},
+          inspection_mode = COALESCE(${inspMode}, inspection_mode),
+          updated_at = NOW();
+      `;
+
+      await tx`
+        UPDATE keyword_serp_positions
+        SET
+          is_displaced = TRUE,
+          last_known_rank = COALESCE(rank_position, last_known_rank),
+          rank_position = NULL,
+          displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
+          updated_at = NOW()
+        WHERE is_displaced = FALSE
+          AND rank_position IS NOT NULL
+          AND rank_position > ${targetPinCount};
+      `;
+    }
+  });
+
   const effectiveCookie = incomingCookie || _curCookie || '';
   return {
     ...merged,
@@ -192,35 +301,85 @@ export async function updateAppSettings(sql, newSettings = {}) {
 
 /**
  * Update individual keyword settings (pages limit, inspection mode, target pin count)
+ * and atomically demote active ranks exceeding the updated target_pin_count to the Displaced Vault.
  */
 export async function updateKeywordSettings(sql, keywordId, settings = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
-  const pages = settings.crawl_pages_limit !== undefined ? Math.max(1, Math.min(100, Number(settings.crawl_pages_limit))) : null;
+  const hasExplicitPins = settings.target_pin_count !== undefined && settings.target_pin_count !== null && settings.target_pin_count !== '';
+  const hasExplicitPages = settings.crawl_pages_limit !== undefined && settings.crawl_pages_limit !== null && settings.crawl_pages_limit !== '';
+  const pinCount = hasExplicitPins
+    ? clampSerpQuota(settings.target_pin_count, DEFAULT_SERP_QUOTA)
+    : (hasExplicitPages ? clampSerpQuota(Number(settings.crawl_pages_limit) * 25, DEFAULT_SERP_QUOTA) : null);
+  const pages = hasExplicitPages
+    ? Math.max(1, Math.min(100, Number(settings.crawl_pages_limit) || 1))
+    : (pinCount !== null ? computePagesForQuota(pinCount) : null);
   const mode = settings.inspection_mode !== undefined ? String(settings.inspection_mode).trim() : null;
-  const pinCount = settings.target_pin_count !== undefined 
-    ? Math.max(10, Math.min(2000, Number(settings.target_pin_count))) 
-    : (pages ? pages * 25 : null);
 
-  const [updated] = await sql`
-    UPDATE tracked_keywords
-    SET 
-      crawl_pages_limit = COALESCE(${pages}, crawl_pages_limit),
-      inspection_mode = COALESCE(${mode}, inspection_mode),
-      target_pin_count = COALESCE(${pinCount}, target_pin_count),
-      updated_at = NOW()
-    WHERE id = ${kid}
-    RETURNING id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode;
-  `;
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+  const updated = await runInTx(async (tx) => {
+    const [row] = await tx`
+      UPDATE tracked_keywords
+      SET
+        crawl_pages_limit = COALESCE(${pages}, crawl_pages_limit),
+        inspection_mode = COALESCE(${mode}, inspection_mode),
+        target_pin_count = COALESCE(${pinCount}, target_pin_count),
+        updated_at = NOW()
+      WHERE id = ${kid}
+      RETURNING id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode;
+    `;
+    const effectiveLimit = row?.target_pin_count != null ? Number(row.target_pin_count) : pinCount;
+    if (effectiveLimit && Number.isFinite(effectiveLimit) && effectiveLimit > 0) {
+      await tx`
+        UPDATE keyword_serp_positions
+        SET
+          is_displaced = TRUE,
+          last_known_rank = COALESCE(rank_position, last_known_rank),
+          rank_position = NULL,
+          displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
+          updated_at = NOW()
+        WHERE keyword_id = ${kid}
+          AND is_displaced = FALSE
+          AND rank_position IS NOT NULL
+          AND rank_position > ${effectiveLimit};
+      `;
+    }
+    return row;
+  });
+
   return updated;
 }
 
 /**
- * Add a new keyword to track with dynamic depth support
+ * Add a new keyword to track with dynamic depth support inheriting global app_settings when omitted.
  */
-export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog' }) {
+export async function addKeyword(sql, { keyword, category = 'General', target_pin_count, crawl_pages_limit, inspection_mode }) {
   const cleanKeyword = keyword.trim().toLowerCase();
   if (!cleanKeyword) throw new Error('Keyword is required.');
+
+  const hasExplicitPins = target_pin_count !== undefined && target_pin_count !== null && target_pin_count !== '';
+  const hasExplicitPages = crawl_pages_limit !== undefined && crawl_pages_limit !== null && crawl_pages_limit !== '';
+  const hasExplicitMode = typeof inspection_mode === 'string' && inspection_mode.trim().length > 0;
+
+  let appSettings = null;
+  if (!hasExplicitPins || !hasExplicitMode) {
+    appSettings = await getAppSettings(sql).catch(() => null);
+  }
+
+  const resolvedPins = resolveEffectiveSerpQuota({
+    explicitMaxPins: hasExplicitPins ? target_pin_count : null,
+    keywordPagesLimit: hasExplicitPages ? crawl_pages_limit : null,
+    appSettings
+  });
+  const resolvedPages = hasExplicitPages
+    ? Math.max(1, Math.min(100, Number(crawl_pages_limit) || computePagesForQuota(resolvedPins)))
+    : computePagesForQuota(resolvedPins);
+  const resolvedMode = hasExplicitMode
+    ? inspection_mode.trim()
+    : (appSettings?.default_inspection_mode || 'full_catalog');
+
+  const explicitPinVal = hasExplicitPins ? resolvedPins : null;
+  const explicitPageVal = hasExplicitPages ? resolvedPages : (hasExplicitPins ? resolvedPages : null);
 
   const [row] = await sql`
     INSERT INTO tracked_keywords (
@@ -237,9 +396,9 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       ${cleanKeyword},
       NULL,
       ${category},
-      ${target_pin_count},
-      ${crawl_pages_limit},
-      ${inspection_mode},
+      ${resolvedPins},
+      ${resolvedPages},
+      ${resolvedMode},
       TRUE,
       NOW(),
       NOW()
@@ -247,9 +406,9 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
     ON CONFLICT (keyword) DO UPDATE SET
       canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
       is_active = TRUE,
-      target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-      crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-      inspection_mode = COALESCE(NULLIF(EXCLUDED.inspection_mode, ''), tracked_keywords.inspection_mode),
+      target_pin_count = COALESCE(${explicitPinVal}::int, tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+      crawl_pages_limit = COALESCE(${explicitPageVal}::int, tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
+      inspection_mode = COALESCE(NULLIF(${hasExplicitMode ? resolvedMode : ''}, ''), tracked_keywords.inspection_mode, EXCLUDED.inspection_mode),
       updated_at = NOW()
     RETURNING *;
   `;
@@ -280,8 +439,13 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
 
   if (existing) return existing;
 
-  // If not found and autoCreate enabled, create new tracked keyword
+  // If not found and autoCreate enabled, create new tracked keyword using global appSettings defaults
   if (autoCreate && normalized.length >= 2) {
+    const appSettings = await getAppSettings(sql).catch(() => null);
+    const defaultPins = resolveEffectiveSerpQuota({ appSettings });
+    const defaultPages = computePagesForQuota(defaultPins);
+    const defaultMode = appSettings?.default_inspection_mode || 'full_catalog';
+
     const [created] = await sql`
       INSERT INTO tracked_keywords (
         keyword,
@@ -297,9 +461,9 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
         ${normalized},
         NULL,
         'Organic Search',
-        50,
-        2,
-        'full_catalog',
+        ${defaultPins},
+        ${defaultPages},
+        ${defaultMode},
         TRUE,
         NOW(),
         NOW()
@@ -307,9 +471,9 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
       ON CONFLICT (keyword) DO UPDATE SET
         canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
         is_active = TRUE,
-        target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-        crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-        inspection_mode = COALESCE(NULLIF(EXCLUDED.inspection_mode, ''), tracked_keywords.inspection_mode),
+        target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+        crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
+        inspection_mode = COALESCE(tracked_keywords.inspection_mode, EXCLUDED.inspection_mode),
         updated_at = NOW()
       RETURNING *;
     `;

@@ -156,6 +156,7 @@ export function getKeywordsModalsHtml() {
           </div>
           <select x-model.number="fleetDispatchMaxPins" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
             <option :value="fleetDispatchMaxPins" x-show="![50, 100, 250, 500, 1000].includes(fleetDispatchMaxPins)" x-text="fleetDispatchMaxPins + ' Pins (Target Quota)'"></option>
+            <option :value="20" :hidden="fleetDispatchMaxPins === 20">20 Pins (1 SERP Page)</option>
             <option :value="50">50 Pins (Fast Discovery)</option>
             <option :value="100">100 Pins (Standard SERP)</option>
             <option :value="250">250 Pins (Deep Audit)</option>

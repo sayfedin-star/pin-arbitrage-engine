@@ -2021,11 +2021,13 @@ export function getKeywordsClientAppScript() {
         async saveSettings() {
           this.settingsLoading = true;
           try {
+            const targetQuota = Math.max(10, Math.min(2000, Number(this.settingsMaxSerpPins || this.settingsMaxPins || 50)));
+            const targetPages = Math.max(1, Math.min(100, Number(this.settingsCrawlPages || Math.ceil(targetQuota / 25))));
             if (this.settingsApplyGlobal || !this.settingsTargetKeyword) {
               const payload = {
-                default_crawl_pages: this.settingsCrawlPages,
-                default_max_pins: this.settingsMaxSerpPins || this.settingsMaxPins,
-                max_serp_pins: this.settingsMaxSerpPins || this.settingsMaxPins,
+                default_crawl_pages: targetPages,
+                default_max_pins: targetQuota,
+                max_serp_pins: targetQuota,
                 max_catalog_inspect: Number(this.settingsMaxCatalogInspect !== undefined ? this.settingsMaxCatalogInspect : 0),
                 enable_serp_harvest: Boolean(this.settingsEnableSerpHarvest),
                 default_crawl_scope: this.settingsCrawlScope || 'all_pins',
@@ -2039,6 +2041,7 @@ export function getKeywordsClientAppScript() {
                   max_pin_age_days: this.settingsMaxPinAgeDays,
                   min_daily_save_velocity: this.settingsMinVelocity
                 },
+                apply_to_all: Boolean(this.settingsApplyGlobal),
                 pinterest_cookie: (this.settingsPinterestCookie || '').trim() || undefined
               };
               const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings'), {
@@ -2050,14 +2053,33 @@ export function getKeywordsClientAppScript() {
                 const errPayload = await res.json().catch(() => ({}));
                 throw new Error(errPayload.message || errPayload.error || 'Failed to save global settings');
               }
-              this.appSettings = { ...this.appSettings, ...payload };
+              const savedJson = await res.json().catch(() => ({}));
+              this.appSettings = { ...this.appSettings, ...(savedJson?.settings || payload) };
+
+              if (this.settingsApplyGlobal) {
+                for (const k of (this.keywords || [])) {
+                  k.target_pin_count = targetQuota;
+                  k.crawl_pages_limit = targetPages;
+                  k.inspection_mode = this.settingsInspectionMode || k.inspection_mode;
+                }
+                if (this.selectedKeyword) {
+                  this.selectedKeyword.target_pin_count = targetQuota;
+                  this.selectedKeyword.crawl_pages_limit = targetPages;
+                  this.selectedKeyword.inspection_mode = this.settingsInspectionMode || this.selectedKeyword.inspection_mode;
+                }
+                if (this.selectedKeywordDetails?.keyword) {
+                  this.selectedKeywordDetails.keyword.target_pin_count = targetQuota;
+                  this.selectedKeywordDetails.keyword.crawl_pages_limit = targetPages;
+                  this.selectedKeywordDetails.keyword.inspection_mode = this.settingsInspectionMode || this.selectedKeywordDetails.keyword.inspection_mode;
+                }
+              }
             }
 
-            if (this.settingsTargetKeyword) {
+            if (this.settingsTargetKeyword && !this.settingsApplyGlobal) {
               const kwPayload = {
                 keyword_id: this.settingsTargetKeyword.id,
-                crawl_pages_limit: this.settingsCrawlPages,
-                target_pin_count: this.settingsMaxSerpPins || this.settingsMaxPins,
+                crawl_pages_limit: targetPages,
+                target_pin_count: targetQuota,
                 inspection_mode: this.settingsInspectionMode
               };
               const resKw = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/settings'), {
@@ -2069,29 +2091,33 @@ export function getKeywordsClientAppScript() {
                 const errPayload = await resKw.json().catch(() => ({}));
                 throw new Error(errPayload.message || errPayload.error || 'Failed to save keyword settings');
               }
-              this.settingsTargetKeyword.crawl_pages_limit = this.settingsCrawlPages;
-              this.settingsTargetKeyword.target_pin_count = this.settingsMaxSerpPins || this.settingsMaxPins;
+              this.settingsTargetKeyword.crawl_pages_limit = targetPages;
+              this.settingsTargetKeyword.target_pin_count = targetQuota;
               this.settingsTargetKeyword.inspection_mode = this.settingsInspectionMode;
               if (this.selectedKeyword && this.selectedKeyword.id === this.settingsTargetKeyword.id) {
-                this.selectedKeyword.crawl_pages_limit = this.settingsCrawlPages;
-                this.selectedKeyword.target_pin_count = this.settingsMaxSerpPins || this.settingsMaxPins;
+                this.selectedKeyword.crawl_pages_limit = targetPages;
+                this.selectedKeyword.target_pin_count = targetQuota;
                 this.selectedKeyword.inspection_mode = this.settingsInspectionMode;
               }
               if (this.selectedKeywordDetails?.keyword && this.selectedKeywordDetails.keyword.id === this.settingsTargetKeyword.id) {
-                this.selectedKeywordDetails.keyword.crawl_pages_limit = this.settingsCrawlPages;
-                this.selectedKeywordDetails.keyword.target_pin_count = this.settingsMaxSerpPins || this.settingsMaxPins;
+                this.selectedKeywordDetails.keyword.crawl_pages_limit = targetPages;
+                this.selectedKeywordDetails.keyword.target_pin_count = targetQuota;
                 this.selectedKeywordDetails.keyword.inspection_mode = this.settingsInspectionMode;
               }
               const inList = (this.keywords || []).find(k => k.id === this.settingsTargetKeyword.id);
               if (inList) {
-                inList.crawl_pages_limit = this.settingsCrawlPages;
-                inList.target_pin_count = this.settingsMaxSerpPins || this.settingsMaxPins;
+                inList.crawl_pages_limit = targetPages;
+                inList.target_pin_count = targetQuota;
                 inList.inspection_mode = this.settingsInspectionMode;
               }
             }
 
             this.showToast('Settings saved successfully!', 'success');
             this.isSettingsModalOpen = false;
+            await this.fetchKeywords(true);
+            if (this.viewModeLevel === 'serp_studio' && this.selectedKeyword?.id) {
+              await this.selectKeyword(this.selectedKeyword, false);
+            }
           } catch (err) {
             this.showToast('Error saving settings: ' + err.message, 'error');
           } finally {
@@ -2367,8 +2393,8 @@ export function getKeywordsClientAppScript() {
         async rescanKeyword(id, force = true) {
           this.syncingKeywordId = id;
           const kwObj = this.keywords.find(k => k.id === id) || (this.selectedKeyword?.id === id ? this.selectedKeyword : null);
-          const crawlPages = kwObj?.crawl_pages_limit || this.appSettings.default_crawl_pages || 10;
-          const maxPins = kwObj?.target_pin_count || this.appSettings.default_max_pins || 250;
+          const maxPins = kwObj?.target_pin_count || this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50;
+          const crawlPages = kwObj?.crawl_pages_limit || Math.ceil(maxPins / 25);
           const inspectionMode = kwObj?.inspection_mode || this.appSettings.default_inspection_mode || 'full_catalog';
 
           this.showToast('Crawling fresh SERP (~' + maxPins + ' pins) from Pinterest...', 'info');
@@ -2452,19 +2478,19 @@ export function getKeywordsClientAppScript() {
           this.fleetDispatchTargetKeyword = kwObj?.keyword || '';
           this.fleetDispatchHarvestSerp = true;
           this.fleetDispatchScope = 'all_pins';
-          this.fleetDispatchMaxPins = kwObj?.target_pin_count || this.appSettings?.default_max_pins || 50;
+          this.fleetDispatchMaxPins = kwObj?.target_pin_count || this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50;
           this.isFleetDispatchModalOpen = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         onFleetTargetKeywordChange() {
           if (!this.fleetDispatchTargetKeyword) {
-            this.fleetDispatchMaxPins = this.appSettings?.default_max_pins || 50;
+            this.fleetDispatchMaxPins = this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50;
             return;
           }
           const kw = this.keywords.find(k => k.keyword?.toLowerCase() === this.fleetDispatchTargetKeyword.toLowerCase());
           if (kw) {
-            this.fleetDispatchMaxPins = kw.target_pin_count || this.appSettings?.default_max_pins || 50;
+            this.fleetDispatchMaxPins = kw.target_pin_count || this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50;
           }
         },
 
@@ -2474,7 +2500,7 @@ export function getKeywordsClientAppScript() {
           this.showToast('Dispatching 20-Runner Swarm via GitHub Actions...', 'info');
           try {
             const targetKw = this.fleetDispatchTargetKeyword || '';
-            const targetPins = String(this.fleetDispatchMaxPins || this.selectedKeyword?.target_pin_count || this.appSettings?.default_max_pins || 50);
+            const targetPins = String(this.fleetDispatchMaxPins || this.selectedKeyword?.target_pin_count || this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50);
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/dispatch-workflow'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2483,6 +2509,7 @@ export function getKeywordsClientAppScript() {
                 keyword: targetKw,
                 crawl_scope: this.fleetDispatchScope || 'all_pins',
                 max_pins: targetPins,
+                max_serp_pins: targetPins,
                 enable_serp_harvest: this.fleetDispatchHarvestSerp ? 'true' : 'false'
               })
             });
@@ -2606,8 +2633,9 @@ export function getKeywordsClientAppScript() {
 
         getQuotaPercentage(kw) {
           if (!kw) return 0;
-          const current = Number(kw.snapshots_count) || Number(kw.target_pin_count) || 250;
-          const target = Number(kw.target_pin_count) || 250;
+          const fallbackQuota = Number(this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50);
+          const current = Number(kw.snapshots_count) || Number(kw.target_pin_count) || fallbackQuota;
+          const target = Number(kw.target_pin_count) || fallbackQuota;
           return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
         },
 

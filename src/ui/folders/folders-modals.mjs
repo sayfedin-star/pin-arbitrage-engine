@@ -109,10 +109,10 @@ export function getFoldersModalsHtml() {
             <span>Pin Quota per Keyword (Harvest Depth)</span>
             <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="(folderSettings.max_pins || 50) + ' pins/KW (~' + Math.ceil((parseInt(folderSettings.max_pins, 10) || 50) / 25) + ' pages)'"></span>
           </label>
-          <div class="grid grid-cols-4 gap-2">
-            <template x-for="q in ['50', '100', '250', '500']" :key="q">
+          <div class="grid grid-cols-5 gap-2">
+            <template x-for="q in ['20', '50', '100', '250', '500']" :key="q">
               <button type="button" @click="folderSettings.max_pins = q; folderSettings.max_serp_pins = q"
-                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono tabular-nums font-medium border text-center transition cursor-pointer"
+                      class="px-2 py-1.5 rounded-xl text-xs font-mono tabular-nums font-medium border text-center transition cursor-pointer"
                       :class="String(folderSettings.max_pins) === q 
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
                         : 'bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:border-slate-300'">

@@ -199,6 +199,7 @@ export function getFoldersClientAppScript() {
           }
         },
 
+        globalDefaultMaxPins: '50',
         folderSettings: {
           name: '',
           description: '',
@@ -1081,13 +1082,14 @@ export function getFoldersClientAppScript() {
           }
           if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
+          const fallbackQuota = String(this.globalDefaultMaxPins || '50');
           this.folderSettings = {
             name: this.activeFolder.name || '',
             description: this.activeFolder.description || '',
             color: this.activeFolder.color || '#6366f1',
             enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
-            max_pins: String(meta.max_pins || '50'),
-            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || '50'),
+            max_pins: String(meta.max_pins || fallbackQuota),
+            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || fallbackQuota),
             crawl_scope: String(meta.crawl_scope || 'all_pins'),
             max_catalog_inspect: String(meta.max_catalog_inspect || '0'),
             pause_competitors: Boolean(meta.pause_competitors),
@@ -1097,11 +1099,25 @@ export function getFoldersClientAppScript() {
           };
         },
 
-        openFolderSettingsModal() {
+        async openFolderSettingsModal() {
           if (!this.activeFolder) return;
+          await this.fetchGlobalDefaultQuota().catch(() => {});
           this.syncFolderSettingsFromActive();
           this.fetchPinterestCookieStatus().catch(() => {});
           this.isSettingsModalOpen = true;
+        },
+
+        async fetchGlobalDefaultQuota() {
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/settings');
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              const q = data?.settings?.max_serp_pins || data?.settings?.default_max_pins;
+              if (q && !isNaN(Number(q))) {
+                this.globalDefaultMaxPins = String(q);
+              }
+            }
+          } catch (_) {}
         },
 
         async fetchPinterestCookieStatus() {
@@ -1159,7 +1175,7 @@ export function getFoldersClientAppScript() {
             }
             if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
-            const maxPinsVal = String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins || '50');
+            const maxPinsVal = String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins || this.globalDefaultMaxPins || '50');
             const payload = {
               name: (this.folderSettings.name || '').trim() || (this.activeFolder?.name || ''),
               description: (this.folderSettings.description || '').trim(),
@@ -1227,8 +1243,13 @@ export function getFoldersClientAppScript() {
             const harvest = this.folderSettings?.enable_serp_harvest !== undefined
               ? Boolean(this.folderSettings.enable_serp_harvest)
               : (meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true);
-            const maxPins = String(this.folderSettings?.max_pins || meta.max_pins || '50');
-            const maxSerpPins = String(this.folderSettings?.max_serp_pins || meta.max_serp_pins || maxPins);
+            const explicitFolderPins = this.isSettingsModalOpen
+              ? String(this.folderSettings?.max_pins || meta.max_pins || '')
+              : String(meta.max_pins || meta.max_serp_pins || '');
+            const maxPins = explicitFolderPins;
+            const maxSerpPins = this.isSettingsModalOpen
+              ? String(this.folderSettings?.max_serp_pins || meta.max_serp_pins || maxPins)
+              : String(meta.max_serp_pins || meta.max_pins || '');
             const crawlScope = String(this.folderSettings?.crawl_scope || meta.crawl_scope || 'all_pins');
             const maxCatalogInspect = String(this.folderSettings?.max_catalog_inspect || meta.max_catalog_inspect || '0');
 

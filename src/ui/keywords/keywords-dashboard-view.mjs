@@ -138,7 +138,7 @@ export function getKeywordsDashboardViewHtml({ safeFolderId = '' } = {}) {
               </div>
               <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                 <span>Quota: </span>
-                <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.default_max_pins || 250) + ' pins / query'"></span>
+                <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' pins / query'"></span>
               </div>
             </div>
           </template>
@@ -901,7 +901,7 @@ export function getKeywordsDashboardViewHtml({ safeFolderId = '' } = {}) {
               </button>
               <button @click="submitQuickKeyword()" class="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center space-x-1.5 shadow-md shadow-emerald-950/20 cursor-pointer">
                 <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                <span x-text="'Track & Index ' + (appSettings.default_max_pins || 250) + ' Pins'">Track & Index 250 Pins</span>
+                <span x-text="'Track & Index ' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins'">Track & Index Pins</span>
               </button>
             </div>
           </div>

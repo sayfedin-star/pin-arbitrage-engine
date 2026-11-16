@@ -505,12 +505,12 @@ export function getKeywordDrawersAndModalsHtml() {
                     x-text="settingsMaxSerpPins + ' Pins (' + Math.ceil(settingsMaxSerpPins / 25) + ' SERP Pages)'"></span>
             </div>
 
-            <!-- 4 Quick Presets -->
-            <div class="grid grid-cols-4 gap-2">
-              <template x-for="q in [50, 100, 250, 500]" :key="q">
+            <!-- 5 Quick Presets -->
+            <div class="grid grid-cols-5 gap-2">
+              <template x-for="q in [20, 50, 100, 250, 500]" :key="q">
                 <button type="button"
                         @click="settingsMaxSerpPins = q; settingsMaxPins = q; settingsCrawlPages = Math.ceil(q / 25)"
-                        class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold border text-center transition cursor-pointer"
+                        class="px-2 py-1.5 rounded-xl text-xs font-mono font-bold border text-center transition cursor-pointer"
                         :class="settingsMaxSerpPins === q
                           ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                           : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] border-slate-200 dark:border-[#27272A] hover:border-slate-300'">
@@ -645,16 +645,22 @@ export function getKeywordDrawersAndModalsHtml() {
               </div>
             </div>
 
-            <!-- Scope Target Selection -->
-            <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] flex items-center justify-between text-xs">
-              <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
-            </div>
           </div>
         </details>
+
+        <!-- Scope Target Selection (Prominent outside Advanced <details>) -->
+        <div class="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-3 text-xs">
+          <div>
+            <div class="text-slate-800 dark:text-slate-200 font-bold"
+                 x-text="settingsTargetKeyword ? 'Also apply as global default to all keywords' : 'Apply as global default to all existing keywords'"></div>
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5"
+                 x-text="settingsApplyGlobal ? 'Updates all tracked keywords immediately & moves excess ranks to Vault' : (settingsTargetKeyword ? 'Applies only to &quot;' + settingsTargetKeyword.keyword + '&quot;' : 'Saves default for future crawls without overwriting existing keywords')"></div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0">
+            <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
 
         <!-- PART 4: Pinterest Session Cookie (Prevent e1_ Obfuscated Pin IDs) -->
         <div class="space-y-3 p-4 rounded-2xl border border-amber-500/25 bg-amber-500/5">
