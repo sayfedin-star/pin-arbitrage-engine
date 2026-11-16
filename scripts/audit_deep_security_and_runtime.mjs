@@ -9,7 +9,7 @@
  * 2. Method Tampering & Allow Header Immunity
  * 3. Dead Endpoint 404 JSON Contract Parity
  * 4. RESERVED_PINTEREST_PATHS & Slug Hijack Prevention
- * 5. Neon Database Schema & Migration 027 Parity
+ * 5. Unified PostgreSQL Schema & Migration 027 Parity
  * 6. Information Disclosure & Secret Redaction
  * 7. Universal Pin Dossier Cross-Pillar Contract Parity
  * 8. UI Script VM Isolation & Syntax Parity
@@ -53,7 +53,7 @@ if (fs.existsSync(envPath)) {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const mockEnv = {
-  DATABASE_URL: DATABASE_URL || 'postgres://mock_user:mock_pass@ep-mock-hub.aws.neon.tech/neondb'
+  DATABASE_URL: DATABASE_URL || 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage'
 };
 
 const auditResults = [];
@@ -232,7 +232,7 @@ async function runSecurityAudit() {
   }
 
   // --------------------------------------------------------------------------
-  // SECTION 6: NEON DATABASE SCHEMA & MIGRATION 027 VERIFICATION
+  // SECTION 6: UNIFIED POSTGRESQL SCHEMA & MIGRATION 027 VERIFICATION
   // --------------------------------------------------------------------------
   console.log('\n[*] Auditing Section 6: Live Unified PostgreSQL Parity...');
 
@@ -240,7 +240,7 @@ async function runSecurityAudit() {
     try {
       const sql = neon(DATABASE_URL);
 
-      // 6.1 Verify Central Hub table drops
+      // 6.1 Verify Central table drops
       const [hubBis] = await sql`
         SELECT COUNT(*)::int as c FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'board_idea_snapshots';
@@ -250,16 +250,16 @@ async function runSecurityAudit() {
         WHERE table_schema = 'public' AND table_name = 'tracked_boards';
       `;
       const hubTablesClean = hubBis.c === 0 && hubTb.c === 0;
-      recordAudit('Database', 'Neon Central Hub: board_idea_snapshots and tracked_boards tables count == 0', hubTablesClean);
+      recordAudit('Database', 'Unified PostgreSQL: board_idea_snapshots and tracked_boards tables count == 0', hubTablesClean);
 
-      // 6.2 Verify Central Hub index drops
+      // 6.2 Verify index drops
       const hubIndexes = await sql`
         SELECT indexname FROM pg_indexes 
         WHERE schemaname = 'public' 
           AND (indexname LIKE '%board_idea%' OR indexname LIKE '%tracked_boards%' OR indexname IN ('idx_tb_trgm_url', 'idx_tb_trgm_name'));
       `;
       const hubIndexesClean = hubIndexes.length === 0;
-      recordAudit('Database', 'Neon Central Hub: All Board Ideas indexes completely dropped', hubIndexesClean, `Found: ${hubIndexes.length}`);
+      recordAudit('Database', 'Unified PostgreSQL: All Board Ideas indexes completely dropped', hubIndexesClean, `Found: ${hubIndexes.length}`);
 
       // 6.3 Verify schema_migrations has version 027
       const [mig027] = await sql`
@@ -270,13 +270,13 @@ async function runSecurityAudit() {
 
     } catch (dbErr) {
       if (dbErr.code === 'ECONNREFUSED' || dbErr.message?.includes('ECONNREFUSED') || dbErr.message?.includes('fetch failed')) {
-        recordAudit('Database', 'Live Neon DB connection audit (Offline/Unreachable)', true, 'Database host offline or tunnel not established');
+        recordAudit('Database', 'Live PostgreSQL DB connection audit (Offline/Unreachable)', true, 'Database host offline or tunnel not established');
       } else {
-        recordAudit('Database', 'Live Neon DB connection audit', false, dbErr.message);
+        recordAudit('Database', 'Live PostgreSQL DB connection audit', false, dbErr.message);
       }
     }
   } else {
-    recordAudit('Database', 'Live Neon DB audit (DATABASE_URL skipped)', true, 'DATABASE_URL not supplied in environment');
+    recordAudit('Database', 'Live PostgreSQL DB audit (DATABASE_URL skipped)', true, 'DATABASE_URL not supplied in environment');
   }
 
   // --------------------------------------------------------------------------

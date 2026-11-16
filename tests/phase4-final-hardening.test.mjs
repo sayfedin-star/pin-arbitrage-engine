@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { formatPin } from '../src/core/pinterest-parser.mjs';
-import { fetchPinsBatchFromPidgets } from '../src/core/pinterest/pins.mjs';
+import { formatPin, fetchPinsBatchFromPidgets } from '../src/core/pinterest/pins.mjs';
 import { calculateRollingGainsFromSnapshots } from '../scripts/backfill_rolling_window_gains.mjs';
 import { syncPinAcrossAllFourPillars, ingestPinsBatch, resavePinsMetricsBatch, fetchUniversalPinDossier } from '../src/modules/pins/repository.mjs';
 

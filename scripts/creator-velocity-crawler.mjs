@@ -41,12 +41,10 @@ import {
   randomJitterMs,
   sleep,
   setDefaultDispatcher,
-  fetchPinFromPinResource
-} from '../src/core/pinterest/index.mjs';
-import {
+  fetchPinFromPinResource,
   fetchUserResource,
   fetchPinFromPinterest
-} from './lib/pinterest.mjs';
+} from '../src/core/pinterest/index.mjs';
 import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
 import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';

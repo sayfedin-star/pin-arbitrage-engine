@@ -23,28 +23,9 @@ if (!DATABASE_URL) {
 }
 
 const sql = neon(DATABASE_URL);
-const mockKv = new Map();
-const mockKvOpts = new Map();
-const mockKvStore = {
-  get: async (key, opts) => {
-    const val = mockKv.get(key);
-    if (!val) return null;
-    return opts?.type === 'json' ? JSON.parse(val) : val;
-  },
-  put: async (key, value, opts) => {
-    mockKv.set(key, typeof value === 'string' ? value : JSON.stringify(value));
-    if (opts) mockKvOpts.set(key, opts);
-  },
-  delete: async (key) => {
-    mockKv.delete(key);
-    mockKvOpts.delete(key);
-  }
-};
-
 const mockEnv = {
   DATABASE_URL,
-  SQL_CLIENT: sql,
-  PIN_ENGINE_KV: mockKvStore
+  SQL_CLIENT: sql
 };
 
 async function runBenchmark() {
@@ -114,8 +95,8 @@ async function runBenchmark() {
   assert.strictEqual(adFast.needs_enrichment, true, 'Fast path must flag needs_enrichment');
   console.log('  ✓ fetchAndCacheDomainAdNetwork returns pending placeholder without blocking');
 
-  // 4. Test Worker route /api/domains/dossier with Workers KV Edge Caching
-  console.log('\n[*] Testing Worker route /api/domains/dossier with KV edge caching...');
+  // 4. Test Fastify route /api/domains/dossier with in-memory L0 caching
+  console.log('\n[*] Testing Fastify route /api/domains/dossier with in-memory L0 caching...');
   const routeUrl = `https://engine.internal/api/domains/dossier?domain=${encodeURIComponent(testDomain)}`;
 
   // Cold request (miss)
@@ -170,7 +151,7 @@ async function runBenchmark() {
   assert.strictEqual(pendingRes.status, 200, 'Pending domain dossier must return HTTP 200');
   const pendingData = await pendingRes.json();
   assert.ok(pendingData.success, 'Pending domain response must have success: true');
-  console.log('  ✓ Pending domain dossier returns 200 successfully in pure Neon architecture');
+  console.log('  ✓ Pending domain dossier returns 200 successfully in Unified PostgreSQL SSOT');
 
   console.log('\n================================================================================');
   console.log('🎉 ALL BENCHMARK & VERIFICATION CHECKS PASSED');

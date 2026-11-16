@@ -7,7 +7,7 @@
  * Applies SQL schema migrations sequentially from scripts/migrations/
  * while tracking idempotent execution status in schema_migrations.
  *
- * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+ * // [INVARIANT: ATOMIC-TRANSACTION-BUILDER]
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]

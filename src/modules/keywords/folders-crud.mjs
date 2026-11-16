@@ -5,6 +5,7 @@
 
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
+import { safeWaitUntil } from '../../http/security-and-response.mjs';
 
 /**
  * Lightweight folder listing for fast header dropdown / switcher (< 5ms)
@@ -1150,13 +1151,17 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
     }
 
     if (backgroundTargets.length > 0 && ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil((async () => {
-        for (const username of backgroundTargets) {
-          try {
-            await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
-          } catch (_) {}
-        }
-      })());
+      safeWaitUntil(
+        ctx,
+        (async () => {
+          for (const username of backgroundTargets) {
+            try {
+              await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
+            } catch (_) {}
+          }
+        })(),
+        'bulk_pulse_track_sync'
+      );
     }
   }
 

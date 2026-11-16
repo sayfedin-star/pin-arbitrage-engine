@@ -308,7 +308,7 @@ console.log('\n[AXIS 2] Unified Fastify Runtime Guardrails (Code Footprint, Modu
   assert.ok(typeof handleAppRequest === 'function', 'handleAppRequest export missing');
   assert.ok(typeof createFastifyApp === 'function', 'createFastifyApp export missing');
   const fastifyApp = await createFastifyApp({
-    DATABASE_URL: 'postgres://mock_user:mock_pass@ep-mock-hub.aws.neon.tech/neondb',
+    DATABASE_URL: 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage',
     SQL_CLIENT: async () => []
   });
   await fastifyApp.ready();
@@ -329,7 +329,7 @@ console.log('\n[AXIS 3] Final Security Audit, CSP & Zero Secret Leakage Defense'
 {
   // 3.1 Security Headers Injection Across All Routes
   const t0 = performance.now();
-  const mockEnv = { DATABASE_URL: 'postgres://mock_user:mock_pass@ep-mock-hub.aws.neon.tech/neondb' };
+  const mockEnv = { DATABASE_URL: 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage' };
 
   const testRoutes = [
     { url: 'https://engine.internal/', expectedType: 'text/html' },

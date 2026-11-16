@@ -35,9 +35,10 @@ import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/fo
 import {
   randomJitterMs,
   sleep,
-  setDefaultDispatcher
+  setDefaultDispatcher,
+  fetchPinFromPinterest,
+  fetchPinHybrid
 } from '../src/core/pinterest/index.mjs';
-import { fetchPinFromPinterest, fetchPinHybrid } from './lib/pinterest.mjs';
 import {
   insertNewPinsBatch,
   resavePinsMetricsBatch,

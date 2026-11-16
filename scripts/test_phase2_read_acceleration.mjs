@@ -1,14 +1,13 @@
 /**
- * Phase 2 Read Acceleration, Hyperdrive Scoping, Parallel Dossier & Edge Caching Verification Suite
+ * Phase 2 Read Acceleration, Unified PostgreSQL Scoping, Parallel Dossier & L0 Caching Verification Suite
  *
  * Verifies:
- * 1. Hyperdrive client configuration (max: 5) and transaction support (arrays + builder functions).
- * 2. L1 Edge Cache (Cache API) Node.js safety guard and SWR hierarchical caching.
- * 3. Cache invalidation purging both L0 memory and L1 Edge cache.
- * 4. Isolate-level shard routing cache (globalShardMap) with anti-thundering herd singleflight warm-up.
- * 5. Parallel scatter-gather and 650ms circuit breaker in fetchUniversalPinDossier.
- * 6. Active catalog direct reads in getKeywordPins with resilient fallback.
- * 7. Candidate graph nodes LATERAL short-circuiting in GET /api/seeds.
+ * 1. Unified PostgreSQL client initialization and transaction support (arrays + builder functions).
+ * 2. Pure Node.js L0 memory cache (edgeCache Map) safety guard and SWR hierarchical caching.
+ * 3. Cache invalidation purging L0 memory cache and deterministic cache keys.
+ * 4. Missing-DSN guard and SQL_CLIENT fail-closed behavior.
+ * 5. Parallel scatter-gather queries in fetchUniversalPinDossier.
+ * 6. Active catalog direct reads in getKeywordPins.
  */
 
 import assert from 'node:assert';

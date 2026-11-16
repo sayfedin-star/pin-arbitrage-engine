@@ -3,7 +3,7 @@
 /**
  * Unified PostgreSQL SSOT Index Optimization Script
  * Creates critical indexes for sub-millisecond query performance:
- * - cluster_arbitrage_metrics (seed_pin_id, analyzed_at DESC)
+ * - cluster_arbitrage_metrics (idx_metrics_seed from 007)
  * - candidate_graph_nodes (candidate_pin_id)
  * - seed_guided_search_capsules (seed_pin_id, discovered_at DESC)
  */
@@ -25,9 +25,10 @@ const sql = createSqlClient(DATABASE_URL);
 async function optimizeIndexes() {
   console.log('[*] Optimizing Unified PostgreSQL SSOT Database Indexes...');
 
-  console.log('[*] 1. Indexing cluster_arbitrage_metrics(seed_pin_id, analyzed_at DESC)...');
+  console.log('[*] 1. Ensuring cluster_arbitrage_metrics(seed_pin_id, analyzed_at DESC) & dropping duplicate...');
+  await sql`DROP INDEX IF EXISTS idx_metrics_seed_pin_analyzed;`.catch(() => {});
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_metrics_seed_pin_analyzed 
+    CREATE INDEX IF NOT EXISTS idx_metrics_seed 
     ON cluster_arbitrage_metrics (seed_pin_id, analyzed_at DESC);
   `.catch(err => console.warn('[Index Notice]', err.message));
 
@@ -87,7 +88,7 @@ async function optimizeIndexes() {
   `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 11. Ensuring Unified PostgreSQL SSOT 4-table indexes...');
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_domain;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_hydrated ON universal_master_pins(is_hydrated);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_pdm_pin_recorded_desc;`.catch(() => {});
@@ -164,10 +165,7 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON public.universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON public.keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20), keyword_id);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20), competitor_id);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_is_product ON public.universal_master_pins (is_product) WHERE is_product = TRUE;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON public.competitor_board_pins (competitor_id, position ASC NULLS LAST);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON public.tracked_keywords (LOWER(keyword));`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON public.competitor_profiles (LOWER(username));`.catch(() => {});
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords ON public.tracked_keywords (canonical_keyword);`.catch(() => {});
   await sql`
     CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()

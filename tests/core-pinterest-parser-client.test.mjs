@@ -8,14 +8,14 @@ import {
   randomJitterMs,
   PinterestCircuitBreaker,
   CircuitBreakerOpenError
-} from '../src/core/pinterest-client.mjs';
+} from '../src/core/pinterest/client.mjs';
 import {
   formatPin,
   extractPinFromHtml,
   parseCleanMetric,
   MAX_METRIC_CAP,
   PINTEREST_CEILING_VALUE
-} from '../src/core/pinterest-parser.mjs';
+} from '../src/core/pinterest/pins.mjs';
 import { pushBatchToIngestApi } from '../scripts/keyword-velocity-crawler.mjs';
 
 test('src/core/pinterest-client.mjs: enforces strict unauthenticated guest cookies (_auth=0)', () => {
