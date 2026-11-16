@@ -19,7 +19,7 @@ on:
         default: '2'
 
 concurrency:
-  group: account-related-${{ inputs.target_account }}
+  group: account-related-${{ github.workflow }}-${{ inputs.target_account || 'all' }}
   cancel-in-progress: false
 
 permissions:

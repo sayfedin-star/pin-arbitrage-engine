@@ -441,7 +441,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           image_url: String(p.image_url || p.imageUrl || '').trim(),
           description: String(p.description || '').trim(),
           alt_text: String(p.alt_text || '').trim(),
-          dominant_color: String(p.dominant_color || p.dominantColor || '#888888').trim(),
+          dominant_color: (() => {
+            const c = String(p.dominant_color || p.dominantColor || '').trim();
+            return (!c || c.toLowerCase() === '#888888') ? null : c;
+          })(),
           visual_annotations: Array.isArray(p.visual_annotations)
             ? p.visual_annotations
             : (Array.isArray(p.annotations) ? p.annotations : []),
@@ -1291,6 +1294,11 @@ export async function syncPinAcrossAllFourPillars({
   })();
 
   // 4. Pillar 1: Upsert universal_master_pins
+  const cleanSyncDominantColor = (() => {
+    const c = String(scrapedPin.dominant_color || scrapedPin.dominantColor || '').trim();
+    return (!c || c.toLowerCase() === '#888888') ? null : c;
+  })();
+
   await dbSql`
     INSERT INTO universal_master_pins (
       pin_id, creator_username, board_name, title, domain, destination_url,
@@ -1307,7 +1315,7 @@ export async function syncPinAcrossAllFourPillars({
       ${scrapedPin.image_url || ''},
       ${scrapedPin.description || ''},
       ${scrapedPin.alt_text || scrapedPin.seo_title || ''},
-      ${scrapedPin.dominant_color || '#888888'},
+      ${cleanSyncDominantColor},
       ${JSON.stringify(scrapedPin.annotations?.map(a => a.name) || scrapedPin.visual_style_tags || [])}::jsonb,
       ${cleanCreatedAtIso}::timestamptz,
       ${JSON.stringify(metaToStore)}::jsonb,
@@ -1331,7 +1339,7 @@ export async function syncPinAcrossAllFourPillars({
       image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
       description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
       alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-      dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+      dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888') THEN EXCLUDED.dominant_color ELSE universal_master_pins.dominant_color END,
       visual_annotations = CASE 
         WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
         THEN EXCLUDED.visual_annotations 
@@ -1561,76 +1569,78 @@ export async function syncPinAcrossAllFourPillars({
       daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity),
       updated_at = NOW();
   `;
-  await dbSql`
-    UPDATE universal_master_pins
-    SET
-      metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
-        || CASE
-             WHEN COALESCE(universal_master_pins.save_count, 0) > 0
-              AND universal_master_pins.last_scraped_at IS NOT NULL
-              AND (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-              AND (
-                universal_master_pins.save_count IS DISTINCT FROM ${newSaves}
-                OR universal_master_pins.repin_count IS DISTINCT FROM ${newRepins}
-              )
-             THEN jsonb_build_object(
-               'intraday_snapshots',
-               (
-                 SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
-                 FROM (
-                   SELECT elem, ord
-                   FROM jsonb_array_elements(
-                     (
-                       CASE
-                         WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
-                         THEN universal_master_pins.metadata->'intraday_snapshots'
-                         ELSE '[]'::jsonb
-                       END
-                     ) || jsonb_build_array(
-                       jsonb_build_object(
-                         'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
-                         'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
-                         'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-                         'save_count', COALESCE(universal_master_pins.save_count, 0),
-                         'repin_count', COALESCE(universal_master_pins.repin_count, 0),
-                         'comment_count', COALESCE(universal_master_pins.comment_count, 0),
-                         'share_count', COALESCE(universal_master_pins.share_count, 0)
+  try {
+    await dbSql`
+      UPDATE universal_master_pins
+      SET
+        metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
+          || CASE
+               WHEN COALESCE(universal_master_pins.save_count, 0) > 0
+                AND universal_master_pins.last_scraped_at IS NOT NULL
+                AND (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+                AND (
+                  universal_master_pins.save_count IS DISTINCT FROM ${newSaves}
+                  OR universal_master_pins.repin_count IS DISTINCT FROM ${newRepins}
+                )
+               THEN jsonb_build_object(
+                 'intraday_snapshots',
+                 (
+                   SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                   FROM (
+                     SELECT elem, ord
+                     FROM jsonb_array_elements(
+                       (
+                         CASE
+                           WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
+                           THEN universal_master_pins.metadata->'intraday_snapshots'
+                           ELSE '[]'::jsonb
+                         END
+                       ) || jsonb_build_array(
+                         jsonb_build_object(
+                           'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
+                           'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
+                           'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                           'save_count', COALESCE(universal_master_pins.save_count, 0),
+                           'repin_count', COALESCE(universal_master_pins.repin_count, 0),
+                           'comment_count', COALESCE(universal_master_pins.comment_count, 0),
+                           'share_count', COALESCE(universal_master_pins.share_count, 0)
+                         )
                        )
-                     )
-                   ) WITH ORDINALITY AS t(elem, ord)
-                   ORDER BY ord DESC
-                   LIMIT 24
-                 ) recent_intra
+                     ) WITH ORDINALITY AS t(elem, ord)
+                     ORDER BY ord DESC
+                     LIMIT 24
+                   ) recent_intra
+                 )
                )
-             )
-             ELSE '{}'::jsonb
-           END,
-      save_count = CASE
-        WHEN ${newSaves !== null && newSaves > 0} THEN ${newSaves}::bigint
-        WHEN COALESCE(universal_master_pins.save_count, 0) > 0 THEN universal_master_pins.save_count
-        WHEN ${hasExplicitScrapedSaves} AND ${newSaves !== null} THEN ${newSaves}::bigint
-        ELSE universal_master_pins.save_count
-      END,
-      repin_count = CASE
-        WHEN ${newRepins !== null && newRepins > 0} THEN ${newRepins}::bigint
-        WHEN COALESCE(universal_master_pins.repin_count, 0) > 0 THEN universal_master_pins.repin_count
-        WHEN ${hasExplicitScrapedRepins} AND ${newRepins !== null} THEN ${newRepins}::bigint
-        ELSE universal_master_pins.repin_count
-      END,
-      comment_count = GREATEST(universal_master_pins.comment_count, ${newComments}::int),
-      share_count = GREATEST(universal_master_pins.share_count, ${newShares}::int),
-      reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
-      is_hydrated = (universal_master_pins.is_hydrated OR ${hasExplicitScrapedSaves}),
-      daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity),
-      daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity),
-      delta_saves_24h = CASE WHEN ${syncVelocity} IS NOT NULL THEN ROUND(${syncVelocity}::numeric)::bigint ELSE delta_saves_24h END,
-      delta_repins_24h = COALESCE(${syncRepinsDelta}::bigint, delta_repins_24h),
-      last_scraped_at = NOW(),
-      updated_at = NOW()
-    WHERE pin_id = ${cleanPinId};
-  `.catch((err) => {
+               ELSE '{}'::jsonb
+             END,
+        save_count = CASE
+          WHEN ${newSaves !== null && newSaves > 0} THEN ${newSaves}::bigint
+          WHEN COALESCE(universal_master_pins.save_count, 0) > 0 THEN universal_master_pins.save_count
+          WHEN ${hasExplicitScrapedSaves} AND ${newSaves !== null} THEN ${newSaves}::bigint
+          ELSE universal_master_pins.save_count
+        END,
+        repin_count = CASE
+          WHEN ${newRepins !== null && newRepins > 0} THEN ${newRepins}::bigint
+          WHEN COALESCE(universal_master_pins.repin_count, 0) > 0 THEN universal_master_pins.repin_count
+          WHEN ${hasExplicitScrapedRepins} AND ${newRepins !== null} THEN ${newRepins}::bigint
+          ELSE universal_master_pins.repin_count
+        END,
+        comment_count = GREATEST(universal_master_pins.comment_count, ${newComments}::int),
+        share_count = GREATEST(universal_master_pins.share_count, ${newShares}::int),
+        reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
+        is_hydrated = (universal_master_pins.is_hydrated OR ${hasExplicitScrapedSaves}),
+        daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity),
+        daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity),
+        delta_saves_24h = CASE WHEN ${syncVelocity} IS NOT NULL THEN ROUND(${syncVelocity}::numeric)::bigint ELSE delta_saves_24h END,
+        delta_repins_24h = COALESCE(${syncRepinsDelta}::bigint, delta_repins_24h),
+        last_scraped_at = NOW(),
+        updated_at = NOW()
+      WHERE pin_id = ${cleanPinId};
+    `;
+  } catch (err) {
     console.error(`[PinRepository.syncPinAcrossAllFourPillars] universal_master_pins metric update failed for pin ${cleanPinId}:`, err?.message || err);
-  });
+  }
 
   // 8. Upsert SERP positions (keyword_serp_positions) for each associated active or displaced keyword
   // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]

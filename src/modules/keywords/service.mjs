@@ -302,7 +302,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     }
   }
 
-  // 1.1 Persistent L2 Edge KV + DB Cache (7-day TTL)
+  // 1.1 Persistent L2 Unified PostgreSQL Cache (7-day TTL)
   const dbCached = await getCachedVisualSearchMatches(sql, cleanPin, env);
   if (dbCached) {
     let seedPin = null;
@@ -492,7 +492,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
 
       visualSearchCache.set(cleanPin, { matches, seed_pin: pinRow, timestamp: Date.now() });
 
-      // Persist to L2 Edge KV & Sharded Database Cache (7-day TTL)
+      // Persist to L2 Unified PostgreSQL Cache (7-day TTL)
       await setCachedVisualSearchMatches(sql, cleanPin, matches, 7, env, pinRow);
 
       return {

@@ -99,10 +99,15 @@ async function optimizeIndexes() {
   await sql`DROP INDEX IF EXISTS idx_ump_last_scraped_at;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ump_updated_at_desc;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ump_updated;`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_destination_url ON universal_master_pins(destination_url);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ump_destination_url;`.catch(() => {});
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ump_destination_url_md5
+    ON public.universal_master_pins ((md5(destination_url)))
+    WHERE destination_url IS NOT NULL AND destination_url <> '';
+  `.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksp_displaced_date ON keyword_serp_positions(displaced_date) WHERE is_displaced = TRUE;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ksp_displaced_updated_desc;`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_ksp_pin_displaced_rank ON keyword_serp_positions(pin_id, is_displaced ASC, rank_position ASC NULLS LAST);`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ksp_pin_displaced_rank;`.catch(() => {});
 
   console.log('[*] 12. Ensuring clean_domain / domain_intelligence_rollup indexes and pae_sync_clean_domain triggers...');
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC NULLS LAST);`.catch(() => {});
@@ -112,6 +117,12 @@ async function optimizeIndexes() {
   await sql`DROP INDEX IF EXISTS idx_fpd_folder_id;`.catch(() => {});
   await sql`ALTER TABLE public.domain_intelligence_rollup SET (fillfactor = 80);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_competitor_boards_comp_id;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_cbp_board;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_kw_folder_items_folder;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_fci_folder_id;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_csp_comp_pin;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_csp_comp_id;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_crn_comp_seed;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_seed;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_saves;`.catch(() => {});
   await sql`
@@ -148,8 +159,8 @@ async function optimizeIndexes() {
       FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
   `.catch(err => console.warn('[Trigger Notice]', err.message));
 
-  console.log('[*] 13. Ensuring 062 SSOT and 20-worker modulo partition indexes...');
-  await sql`CREATE INDEX IF NOT EXISTS idx_ump_visual_annotations_gin ON public.universal_master_pins USING gin (visual_annotations);`.catch(() => {});
+  console.log('[*] 13. Ensuring 062/064 SSOT and 20-worker modulo partition indexes...');
+  await sql`DROP INDEX IF EXISTS idx_ump_visual_annotations_gin;`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_hashtext_mod20 ON public.universal_master_pins ((ABS(hashtext(pin_id::text)::bigint) % 20));`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_ksp_hashtext_mod20 ON public.keyword_serp_positions ((ABS(hashtext(pin_id::text)::bigint) % 20), keyword_id);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20), competitor_id);`.catch(() => {});

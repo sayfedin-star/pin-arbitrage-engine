@@ -6,9 +6,8 @@
  * - Clean String Pin Title Normalization & Extraction
  * - Keyword SERP Intelligence Summary & Opportunity Scoring
  *
- * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+ * // [INVARIANT: UNIFIED-POSTGRES-SSOT]
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
- * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
 
 import {

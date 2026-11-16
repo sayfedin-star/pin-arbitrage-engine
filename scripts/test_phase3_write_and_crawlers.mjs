@@ -415,18 +415,23 @@ console.log('  ✓ Lean Hub payload & non-destructive shard merge verified (100%
 console.log('\n[Test 10] Verifying Consolidator Hub Vacuum & D1 UTC Date Precision...');
 
 const consolidatorContent = fs.readFileSync('scripts/keyword-fleet-consolidator.mjs', 'utf8');
+const hubStorageContent = fs.readFileSync('scripts/optimize_hub_storage.mjs', 'utf8');
 
 assert(
-  consolidatorContent.includes('VACUUM (ANALYZE) keyword_serp_positions;'),
-  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on keyword_serp_positions'
+  consolidatorContent.includes('optimizeHubStorage(sql)'),
+  'keyword-fleet-consolidator.mjs must delegate Hub VACUUM (ANALYZE) to optimizeHubStorage(sql)'
 );
 assert(
-  consolidatorContent.includes('VACUUM (ANALYZE) universal_master_pins;'),
-  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on universal_master_pins'
+  hubStorageContent.includes('VACUUM (ANALYZE) keyword_serp_positions;'),
+  'optimize_hub_storage.mjs must execute VACUUM (ANALYZE) on keyword_serp_positions'
 );
 assert(
-  consolidatorContent.includes('VACUUM (ANALYZE) tracked_keywords;'),
-  'keyword-fleet-consolidator.mjs must execute sequential Hub VACUUM (ANALYZE) on tracked_keywords'
+  hubStorageContent.includes('VACUUM (ANALYZE) universal_master_pins;'),
+  'optimize_hub_storage.mjs must execute VACUUM (ANALYZE) on universal_master_pins'
+);
+assert(
+  hubStorageContent.includes('VACUUM (ANALYZE) tracked_keywords;'),
+  'optimize_hub_storage.mjs must execute VACUUM (ANALYZE) on tracked_keywords'
 );
 
 // Verify obsolete fleet-router.mjs has been permanently deleted

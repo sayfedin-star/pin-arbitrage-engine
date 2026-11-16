@@ -10,7 +10,7 @@
  * 6. Multi-Keyword / Cross-Folder Pixie Bridge Pins and 24h SERP Vacuum opportunities.
  * 7. Hidden Gems telemetry (Winning Boards, Vacuum Hijacks, Creation Methods, Color Palette, Arbitrage Domains).
  * 8. One-Click 5-Source Scientific Pin Blueprint Data Synthesizer.
- * 9. Dual-Tier Caching (Process-local LRU max 25 + Workers KV) with 15s force-refresh cooldown and in-flight stampede guard.
+ * 9. Process-local LRU Caching (max 25, 120s TTL) with 15s force-refresh cooldown and in-flight stampede guard.
  *
  * // [INVARIANT: CENTRAL-HUB-SKELETAL-COMPACTION]
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
@@ -144,7 +144,7 @@ export function extractCleanAnnotations(raw) {
 }
 
 /**
- * Invalidate in-memory and edge KV pulse caches
+ * Invalidate in-memory pulse caches
  */
 export async function invalidateGlobalPulseCache(env = null, ctx = null) {
   pulseMemoryCache.clear();

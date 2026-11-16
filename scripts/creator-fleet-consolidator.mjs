@@ -342,21 +342,25 @@ async function main() {
   }
 
   // 6. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
-  try {
-    console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
-    await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
-    console.log('[✓] mv_pulse_24h_summary refreshed cleanly.');
-  } catch (mvErr) {
-    if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
-      try {
-        await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
-        console.log('[✓] mv_pulse_24h_summary populated via initial non-concurrent refresh.');
-      } catch (fallbackErr) {
-        console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+  if (process.env.SKIP_MV_REFRESH !== 'true') {
+    try {
+      console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
+      await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
+      console.log('[✓] mv_pulse_24h_summary refreshed cleanly.');
+    } catch (mvErr) {
+      if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
+        try {
+          await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+          console.log('[✓] mv_pulse_24h_summary populated via initial non-concurrent refresh.');
+        } catch (fallbackErr) {
+          console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
+        }
+      } else {
+        console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
       }
-    } else {
-      console.warn('[!] mv_pulse_24h_summary refresh warning:', mvErr.message);
     }
+  } else {
+    console.log('[*] Skipping MV refresh (SKIP_MV_REFRESH=true; deferred to refresh-domain-rollup.mjs).');
   }
 
   console.log('\n================================================================');

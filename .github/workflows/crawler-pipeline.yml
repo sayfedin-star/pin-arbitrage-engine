@@ -37,7 +37,7 @@ on:
         default: ''
 
 concurrency:
-  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account != '' && format('account-{0}', inputs.target_account) || 'cron' }}
+  group: crawler-pipeline-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account != '' && format('account-{0}', inputs.target_account) || (github.event_name == 'schedule' && 'cron' || 'dispatch-all') }}
   cancel-in-progress: false
 
 permissions:
@@ -191,6 +191,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
+          SKIP_MV_REFRESH: 'true'
         run: node scripts/creator-fleet-consolidator.mjs
 
       - name: 5. Recompute Domain Intelligence Rollup

@@ -110,13 +110,13 @@ export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays 
 }
 
 /**
- * Coalesced fetch helper: checks Edge KV + DB cache, executes fetcher if miss, and writes back.
+ * Coalesced fetch helper: checks persistent PostgreSQL cache, executes fetcher if miss, and writes back.
  */
 export async function getOrFetchVisualSearchMatches(sql, pinId, fetcherFn, env = null) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) throw new Error('pinId is required');
 
-  // 1. Check Edge KV & persistent database cache
+  // 1. Check persistent PostgreSQL database cache
   const cached = await getCachedVisualSearchMatches(sql, cleanPin, env);
   if (cached) {
     return {

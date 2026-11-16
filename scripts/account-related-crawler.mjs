@@ -10,7 +10,12 @@
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'fs';
 import { sanitizeForJsonb } from '../src/utils.mjs';
-import { setDefaultDispatcher } from '../src/core/pinterest-client.mjs';
+import {
+  CANONICAL_FINGERPRINT,
+  randomJitterMs,
+  sleep,
+  setDefaultDispatcher
+} from '../src/core/pinterest/index.mjs';
 
 let undiciAgent = null;
 try {
@@ -68,22 +73,14 @@ process.on('SIGTERM', () => {
   isShuttingDown = true;
 });
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function randomJitter(minMs = 2500, maxMs = 4000) {
-  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-}
-
 const BASE_HEADERS = {
   'accept': 'application/json, text/javascript, */*, q=0.01',
   'accept-language': 'en-US,en;q=0.9',
   'screen-dpr': '1',
-  'x-app-version': '664ee65',
+  'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
   'x-pinterest-pws-handler': 'www/pin/[id].js',
   'x-requested-with': 'XMLHttpRequest',
-  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
   'origin': 'https://www.pinterest.com',
   'sec-fetch-dest': 'empty',
   'sec-fetch-mode': 'cors',
@@ -97,7 +94,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
 
   for (let page = 1; page <= maxPages; page++) {
     if (page > 1) {
-      const delay = randomJitter(200, 400);
+      const delay = randomJitterMs(200, 400);
       await sleep(delay);
     }
 
@@ -249,7 +246,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       `;
 
       totalDiscoveredForSeed += candidateRows.length;
-      console.log(`    [+] Page ${page}: Upserted ${candidateRows.length} related nodes into Neon Postgres.`);
+      console.log(`    [+] Page ${page}: Upserted ${candidateRows.length} related nodes into Unified PostgreSQL.`);
     }
 
     if (!bookmark) break;

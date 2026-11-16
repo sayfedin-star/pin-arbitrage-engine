@@ -38,24 +38,19 @@ import {
   getCreatorHubSettings
 } from '../src/modules/creators/service.mjs';
 import {
-  pinterestFetch,
-  getStandardPinterestHeaders,
   randomJitterMs,
   sleep,
-  setDefaultDispatcher
-} from '../src/core/pinterest-client.mjs';
-import {
-  formatPin,
-  fetchPinFromPinResource,
-  fetchAndExtractPin
-} from '../src/core/pinterest-parser.mjs';
+  setDefaultDispatcher,
+  fetchPinFromPinResource
+} from '../src/core/pinterest/index.mjs';
 import {
   fetchUserResource,
   fetchPinFromPinterest
 } from './lib/pinterest.mjs';
+import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
 import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
-import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
+import { shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
 // Setup optional Undici keep-alive agent
@@ -176,64 +171,18 @@ async function commitSnapshotsToUnifiedDb(hubSql, metricSnapshots) {
 }
 
 /**
- * Route enriched pins to universal_master_pins in Unified PostgreSQL.
+ * Route enriched pins to universal_master_pins via canonical PinRepository SSOT.
  * [INVARIANT: UNIFIED-MASTER-CATALOG]
  */
 async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
-  let totalSynced = 0;
+  const dbSql = hubSql?.noRetry || hubSql;
+  const normalized = [];
 
-  // [INVARIANT: PG-21000-MAP-DEDUP] Pre-serialization Map deduplication + DISTINCT ON prevents SQLSTATE 21000 when a pin appears across multiple boards
-  const pinDedupMap = new Map();
   for (const p of enrichedPins) {
     const pid = String(p?.pin_id || '').trim();
     if (!pid) continue;
-    const existing = pinDedupMap.get(pid);
-    if (!existing) {
-      pinDedupMap.set(pid, p);
-    } else {
-      const curSaves = (p.saves != null || p.save_count != null) ? Number(p.saves ?? p.save_count) : null;
-      const prevSaves = (existing.saves != null || existing.save_count != null) ? Number(existing.saves ?? existing.save_count) : null;
-      const curRepins = (p.repins != null || p.repin_count != null) ? Number(p.repins ?? p.repin_count) : null;
-      const prevRepins = (existing.repins != null || existing.repin_count != null) ? Number(existing.repins ?? existing.repin_count) : null;
-      const curComments = (p.comments != null || p.comment_count != null) ? Number(p.comments ?? p.comment_count) : null;
-      const prevComments = (existing.comments != null || existing.comment_count != null) ? Number(existing.comments ?? existing.comment_count) : null;
-      const curShares = (p.shares != null || p.share_count != null) ? Number(p.shares ?? p.share_count) : null;
-      const prevShares = (existing.shares != null || existing.share_count != null) ? Number(existing.shares ?? existing.share_count) : null;
 
-      const mergedSaves = (curSaves !== null || prevSaves !== null)
-        ? Math.max(curSaves ?? 0, prevSaves ?? 0)
-        : null;
-      const mergedRepins = (curRepins !== null || prevRepins !== null)
-        ? Math.max(curRepins ?? 0, prevRepins ?? 0)
-        : null;
-      const mergedComments = (curComments !== null || prevComments !== null)
-        ? Math.max(curComments ?? 0, prevComments ?? 0)
-        : null;
-      const mergedShares = (curShares !== null || prevShares !== null)
-        ? Math.max(curShares ?? 0, prevShares ?? 0)
-        : null;
-
-      pinDedupMap.set(pid, {
-        ...existing,
-        ...p,
-        title: p.title || existing.title,
-        domain: p.domain || p.link_domain || existing.domain || existing.link_domain,
-        destination_url: p.link || p.destination_url || existing.link || existing.destination_url,
-        image_url: p.image_url || existing.image_url,
-        description: p.description || existing.description,
-        alt_text: p.alt_text || existing.alt_text,
-        board_name: p.board_name || existing.board_name,
-        saves: mergedSaves,
-        repins: mergedRepins,
-        comments: mergedComments,
-        shares: mergedShares
-      });
-    }
-  }
-
-  const sortedPins = Array.from(pinDedupMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-  const cleanPins = sortedPins.map(p => {
     let reactionCount = null;
     if (p.reaction_count != null) {
       reactionCount = Math.max(0, Number(p.reaction_count));
@@ -242,103 +191,217 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     } else if (p.reactions != null && !isNaN(Number(p.reactions))) {
       reactionCount = Math.max(0, Number(p.reactions));
     }
-    const richMeta = buildRichPinMetadataPayload(p);
+
     const hasSaves = p.saves != null || p.save_count != null;
     const saveCount = hasSaves ? Math.max(0, Number(p.saves ?? p.save_count)) : null;
-    const isHydrated = Boolean(p.is_hydrated || (hasSaves && saveCount !== null));
+    const repinCount = (p.repins != null || p.repin_count != null) ? Math.max(0, Number(p.repins ?? p.repin_count)) : null;
+    const vel = (p.velocity != null || p.daily_save_velocity != null) ? Number(p.velocity ?? p.daily_save_velocity) : null;
+    const repinVel = (p.repin_velocity != null || p.daily_repin_velocity != null || p.delta_repins_24h != null || p.delta_repins != null)
+      ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins)
+      : null;
 
-    return {
-      pin_id: String(p.pin_id).trim(),
+    normalized.push({
+      ...p,
+      pin_id: pid,
       creator_username: String(p.account_username || p.creator_username || ''),
-      board_name: String(p.board_name || ''),
-      title: String(p.title || ''),
-      domain: String(p.domain || p.link_domain || ''),
-      destination_url: String(p.link || p.destination_url || ''),
-      image_url: String(p.image_url || ''),
-      description: String(p.description || ''),
-      alt_text: String(p.alt_text || ''),
-      dominant_color: String(p.dominant_color || '#888888'),
-      visual_annotations: p.annotations || p.visual_annotations || [],
-      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-      metadata: richMeta,
       save_count: saveCount,
-      repin_count: (p.repins != null || p.repin_count != null) ? Math.max(0, Number(p.repins ?? p.repin_count)) : null,
+      has_explicit_saves: saveCount !== null,
+      repin_count: repinCount,
+      has_explicit_repins: repinCount !== null,
       comment_count: (p.comments != null || p.comment_count != null) ? Math.max(0, Number(p.comments ?? p.comment_count)) : null,
       share_count: (p.shares != null || p.share_count != null) ? Math.max(0, Number(p.shares ?? p.share_count)) : null,
       reaction_count: reactionCount,
-      is_hydrated: isHydrated,
-      daily_save_velocity: (p.velocity != null || p.daily_save_velocity != null) ? Number(p.velocity ?? p.daily_save_velocity) : null,
-      daily_repin_velocity: (p.repin_velocity != null || p.daily_repin_velocity != null || p.delta_repins_24h != null || p.delta_repins != null) ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins) : null,
-      delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null) ? Math.max(0, Number(p.delta_repins_24h ?? p.delta_repins)) : null,
-      is_product: Boolean(richMeta.is_product),
-      is_video: Boolean(richMeta.is_video),
-      creation_method: richMeta.creation_method || null,
-      image_signature: richMeta.image_signature || null,
-      seo_noindex_reason: richMeta.seo_noindex_reason || null,
-      is_repin: Boolean(richMeta.is_repin),
-      canonical_pin_id: richMeta.canonical_pin_id ? String(richMeta.canonical_pin_id) : null
-    };
-  });
+      is_hydrated: Boolean(p.is_hydrated || (hasSaves && saveCount !== null)),
+      was_live_scraped: Boolean(p.is_hydrated || (hasSaves && saveCount !== null)),
+      daily_save_velocity: vel,
+      daily_repin_velocity: repinVel,
+      delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null)
+        ? Math.max(0, Number(p.delta_repins_24h ?? p.delta_repins))
+        : null
+    });
+  }
 
-  const dbSql = hubSql?.noRetry || hubSql;
-  for (let i = 0; i < cleanPins.length; i += 500) {
-    const chunk = cleanPins.slice(i, i + 500);
-    const payload = JSON.stringify(chunk);
-    await withDbRetry(() => dbSql`
-      INSERT INTO universal_master_pins (
-        pin_id, creator_username, board_name, title, domain, destination_url, image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
-        save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated, daily_save_velocity, daily_repin_velocity, delta_repins_24h,
-        is_product, is_video, creation_method, image_signature, seo_noindex_reason, is_repin, canonical_pin_id,
-        first_discovered_pillar, first_discovered_at, updated_at, last_scraped_at
-      )
-      SELECT DISTINCT ON (x.pin_id)
-        x.pin_id, x.creator_username, x.board_name, x.title, x.domain, x.destination_url, x.image_url, x.description, x.alt_text, x.dominant_color, x.visual_annotations, x.created_at_pinterest, x.metadata,
-        x.save_count::bigint, x.repin_count::bigint, x.comment_count::int,
-        x.share_count::int, x.reaction_count::int, COALESCE(x.is_hydrated, (x.save_count IS NOT NULL)), x.daily_save_velocity::numeric, x.daily_repin_velocity::numeric, x.delta_repins_24h::int,
-        COALESCE(x.is_product, FALSE), COALESCE(x.is_video, FALSE), x.creation_method, x.image_signature,
-        x.seo_noindex_reason, COALESCE(x.is_repin, FALSE), x.canonical_pin_id,
-        'creator_hub', NOW(), NOW(), NOW()
-      FROM jsonb_to_recordset(${payload}::jsonb) AS x(
-        pin_id VARCHAR(64), creator_username VARCHAR(128), board_name VARCHAR(255), title TEXT, domain VARCHAR(255), destination_url TEXT, image_url TEXT, description TEXT, alt_text TEXT, dominant_color VARCHAR(32), visual_annotations JSONB, created_at_pinterest TIMESTAMPTZ, metadata JSONB,
-        save_count BIGINT, repin_count BIGINT, comment_count INT, share_count INT, reaction_count INT, is_hydrated BOOLEAN, daily_save_velocity NUMERIC, daily_repin_velocity NUMERIC, delta_repins_24h INT,
-        is_product BOOLEAN, is_video BOOLEAN, creation_method TEXT, image_signature TEXT, seo_noindex_reason TEXT, is_repin BOOLEAN, canonical_pin_id TEXT
-      )
-      ORDER BY x.pin_id ASC
-      ON CONFLICT (pin_id) DO UPDATE SET
-        creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-        board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-        title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
-        domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-        destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-        image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-        description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-        dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
-        visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
-        created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-        metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-        save_count = COALESCE(EXCLUDED.save_count, universal_master_pins.save_count),
-        repin_count = COALESCE(EXCLUDED.repin_count, universal_master_pins.repin_count),
-        comment_count = COALESCE(EXCLUDED.comment_count, universal_master_pins.comment_count),
-        share_count = COALESCE(EXCLUDED.share_count, universal_master_pins.share_count),
-        reaction_count = COALESCE(EXCLUDED.reaction_count, universal_master_pins.reaction_count),
-        is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL),
-        daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, universal_master_pins.daily_save_velocity),
-        daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity),
-        delta_repins_24h = COALESCE(EXCLUDED.delta_repins_24h, universal_master_pins.delta_repins_24h),
-        is_product = COALESCE(EXCLUDED.is_product, universal_master_pins.is_product, FALSE),
-        is_video = COALESCE(EXCLUDED.is_video, universal_master_pins.is_video, FALSE),
-        creation_method = COALESCE(NULLIF(EXCLUDED.creation_method, ''), universal_master_pins.creation_method),
-        image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
-        seo_noindex_reason = COALESCE(NULLIF(EXCLUDED.seo_noindex_reason, ''), universal_master_pins.seo_noindex_reason),
-        is_repin = COALESCE(EXCLUDED.is_repin, universal_master_pins.is_repin, FALSE),
-        canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
-        updated_at = NOW(),
-        last_scraped_at = NOW();
-    `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+  let totalSynced = 0;
+  for (let i = 0; i < normalized.length; i += 500) {
+    const chunk = normalized.slice(i, i + 500);
+    await withDbRetry(() => ingestPinsBatch(dbSql, chunk, { pillar: 'creator_hub' }), {
+      maxRetries: 2,
+      baseDelayMs: 500,
+      maxDelayMs: 2000
+    });
     totalSynced += chunk.length;
   }
   return totalSynced;
+}
+
+/**
+ * Shared pin enrichment and metric computation helper for Mode A & Mode B catalog refresh.
+ */
+async function processCreatorCatalogPin(p, options, collectors) {
+  const {
+    fallbackUsername = '',
+    useFreshnessGate = false,
+    useUmpFields = false
+  } = options;
+  const { refreshedPins, metricSnapshots, masterPinsToSync } = collectors;
+
+  const rawPrevSaves = useUmpFields ? (p.ump_saves ?? p.save_count) : (p.saves ?? p.save_count);
+  const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
+  const rawPrevRepins = useUmpFields ? (p.ump_repins ?? p.repin_count) : (p.repins ?? p.repin_count);
+  const prevRepins = rawPrevRepins != null ? Math.max(0, Number(rawPrevRepins)) : null;
+  const prevComments = Math.max(0, Number(useUmpFields ? (p.ump_comments ?? p.comment_count ?? 0) : (p.comments ?? p.comment_count ?? 0)));
+  const prevShares = Math.max(0, Number(p.share_count ?? p.shares ?? 0));
+  const prevVelocity = useUmpFields
+    ? ((p.prev_velocity != null || p.ump_velocity != null) ? Number(p.prev_velocity ?? p.ump_velocity) : null)
+    : (p.velocity != null ? Number(p.velocity) : null);
+
+  if (useFreshnessGate && prevSaves != null) {
+    const masterSnapshot = {
+      last_scraped_at: p.last_scraped_at,
+      save_count: prevSaves,
+      visual_annotations: p.visual_annotations,
+      image_signature: p.image_signature,
+      creation_method: p.creation_method,
+      metadata: p.ump_metadata
+    };
+    if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
+      refreshedPins.push({
+        pin_id: String(p.pin_id),
+        saves: prevSaves,
+        repins: prevRepins,
+        comments: prevComments,
+        share_count: Number(p.ump_shares || 0),
+        velocity: prevVelocity != null ? prevVelocity : 0,
+        delta_saves: prevVelocity != null ? prevVelocity : 0,
+        delta_repins: 0
+      });
+      return true;
+    }
+  }
+
+  let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
+  const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
+
+  if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
+    const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
+    if (fetchRes?.ok && fetchRes?.pin) {
+      fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
+    }
+  }
+
+  if (!fresh) return false;
+
+  const hasExplicitFreshSaves = fresh.has_explicit_saves === true || (fresh.saves != null && Number.isFinite(Number(fresh.saves))) || (fresh.save_count != null && Number.isFinite(Number(fresh.save_count)));
+  const rawFreshSavesNum = hasExplicitFreshSaves ? Number(fresh.saves ?? fresh.save_count ?? 0) : null;
+  const rawFreshSaves = (rawFreshSavesNum !== null && Number.isFinite(rawFreshSavesNum)) ? Math.max(0, rawFreshSavesNum) : null;
+  const hasExplicitFreshRepins = fresh.has_explicit_repins === true;
+  const rawFreshRepinsNum = (fresh.repins != null || fresh.repin_count != null) ? Number(fresh.repins ?? fresh.repin_count ?? 0) : null;
+  const rawFreshRepins = (rawFreshRepinsNum !== null && Number.isFinite(rawFreshRepinsNum)) ? Math.max(0, rawFreshRepinsNum) : null;
+  const rawFreshCommentsNum = Number(fresh.comments ?? fresh.comment_count ?? prevComments);
+  const rawFreshComments = Number.isFinite(rawFreshCommentsNum) ? Math.max(0, rawFreshCommentsNum) : prevComments;
+  const freshSharesNum = Number(fresh.share_count ?? fresh.shares ?? (useUmpFields ? 0 : prevShares));
+  const freshShares = Number.isFinite(freshSharesNum) ? Math.max(0, freshSharesNum) : (useUmpFields ? 0 : prevShares);
+
+  const freshRepins = (rawFreshRepins !== null && (rawFreshRepins > 0 || (hasExplicitFreshRepins && (prevRepins === null || prevRepins === 0))))
+    ? rawFreshRepins
+    : prevRepins;
+  // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
+  const freshSaves = (rawFreshSaves !== null && (rawFreshSaves > 0 || (hasExplicitFreshSaves && (prevSaves === null || prevSaves === 0))))
+    ? rawFreshSaves
+    : prevSaves;
+  const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
+
+  const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
+    ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+    : Number(fresh.reactions || 0);
+
+  const baseMasterRecord = {
+    pin_id: String(p.pin_id),
+    creator_username: useUmpFields ? fallbackUsername : (p.account_username || fallbackUsername || ''),
+    board_name: p.board_name || '',
+    title: fresh.title || p.title || '',
+    domain: fresh.domain || fresh.link_domain || (useUmpFields ? '' : (p.domain || '')),
+    destination_url: fresh.link || fresh.destination_url || p.destination_url || p.link || '',
+    image_url: fresh.image_url || p.image_url || '',
+    description: fresh.description || (useUmpFields ? (p.description || '') : ''),
+    alt_text: fresh.alt_text || (useUmpFields ? '' : (p.alt_text || '')),
+    dominant_color: (() => {
+      const c = String(fresh.dominant_color || (useUmpFields ? '' : (p.dominant_color || ''))).trim();
+      return (!c || c.toLowerCase() === '#888888') ? null : c;
+    })(),
+    visual_annotations: fresh.visual_annotations || fresh.annotations || (useUmpFields ? [] : (p.annotations || [])),
+    created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
+    repins: freshRepins,
+    comments: freshComments,
+    share_count: freshShares,
+    reactions: fresh.reactions || {}
+  };
+
+  if (freshSaves === null) {
+    refreshedPins.push({
+      pin_id: String(p.pin_id),
+      saves: null,
+      repins: freshRepins,
+      comments: freshComments,
+      share_count: freshShares,
+      velocity: null,
+      delta_saves: null,
+      delta_repins: null
+    });
+    masterPinsToSync.push({
+      ...baseMasterRecord,
+      saves: null,
+      velocity: null,
+      daily_repin_velocity: null,
+      delta_repins_24h: null,
+      is_hydrated: false
+    });
+  } else {
+    const safePrevSaves = prevSaves ?? 0;
+    const safePrevRepins = prevRepins ?? 0;
+    const safeFreshRepins = freshRepins ?? 0;
+
+    const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
+    const isRepinJump = isRepinHydrationJump(
+      { save_count: safePrevSaves, repin_count: safePrevRepins },
+      { save_count: freshSaves, repin_count: safeFreshRepins }
+    );
+    const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
+
+    refreshedPins.push({
+      pin_id: String(p.pin_id),
+      saves: freshSaves,
+      repins: safeFreshRepins,
+      comments: freshComments,
+      share_count: freshShares,
+      velocity,
+      delta_saves: deltaSaves,
+      delta_repins: deltaRepins
+    });
+
+    metricSnapshots.push({
+      pin_id: String(p.pin_id),
+      saves: freshSaves,
+      repins: safeFreshRepins,
+      comments: freshComments,
+      share_count: freshShares,
+      reaction_count: totalReactions,
+      velocity,
+      repin_velocity: deltaRepins
+    });
+
+    masterPinsToSync.push({
+      ...baseMasterRecord,
+      saves: freshSaves,
+      repins: safeFreshRepins,
+      velocity,
+      daily_repin_velocity: deltaRepins,
+      delta_repins_24h: deltaRepins,
+      is_hydrated: true
+    });
+  }
+
+  return true;
 }
 
 /**
@@ -640,169 +703,12 @@ async function run() {
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myCatalogSlice.map(p => sem.run(async () => {
-        const rawPrevSaves = p.ump_saves ?? p.save_count;
-        const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
-        const rawPrevRepins = p.ump_repins ?? p.repin_count;
-        const prevRepins = rawPrevRepins != null ? Math.max(0, Number(rawPrevRepins)) : null;
-        const prevComments = Math.max(0, Number(p.ump_comments ?? p.comment_count ?? 0));
-        const prevVelocity = (p.prev_velocity != null || p.ump_velocity != null) ? Number(p.prev_velocity ?? p.ump_velocity) : null;
-
-        // 18-Hour Shared Pin Freshness Gate: Skip duplicate HTTP call if pin was already scraped within 18h in universal_master_pins
-        const masterSnapshot = {
-          last_scraped_at: p.last_scraped_at,
-          save_count: prevSaves,
-          visual_annotations: p.visual_annotations,
-          image_signature: p.image_signature,
-          creation_method: p.creation_method,
-          metadata: p.ump_metadata
-        };
-        if (prevSaves != null && shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
-          refreshedPins.push({
-            pin_id: String(p.pin_id),
-            saves: prevSaves,
-            repins: prevRepins,
-            comments: prevComments,
-            share_count: Number(p.ump_shares || 0),
-            velocity: prevVelocity != null ? prevVelocity : 0,
-            delta_saves: prevVelocity != null ? prevVelocity : 0,
-            delta_repins: 0
-          });
-          refreshedCount++;
-          return;
-        }
-
-        let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
-        const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
-        const rawRepins = fresh ? Math.max(0, Number(fresh.repins || fresh.repin_count || 0)) : 0;
-
-        if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
-          const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
-          if (fetchRes?.ok && fetchRes?.pin) {
-            fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
-          }
-        }
-
-        if (fresh) {
-          const hasExplicitFreshSaves = fresh.has_explicit_saves === true || (fresh.saves != null && Number.isFinite(Number(fresh.saves))) || (fresh.save_count != null && Number.isFinite(Number(fresh.save_count)));
-          const rawFreshSavesNum = hasExplicitFreshSaves ? Number(fresh.saves ?? fresh.save_count ?? 0) : null;
-          const rawFreshSaves = (rawFreshSavesNum !== null && Number.isFinite(rawFreshSavesNum)) ? Math.max(0, rawFreshSavesNum) : null;
-          const hasExplicitFreshRepins = fresh.has_explicit_repins === true;
-          const rawFreshRepinsNum = (fresh.repins != null || fresh.repin_count != null) ? Number(fresh.repins ?? fresh.repin_count ?? 0) : null;
-          const rawFreshRepins = (rawFreshRepinsNum !== null && Number.isFinite(rawFreshRepinsNum)) ? Math.max(0, rawFreshRepinsNum) : null;
-          const rawFreshCommentsNum = Number(fresh.comments ?? fresh.comment_count ?? prevComments);
-          const rawFreshComments = Number.isFinite(rawFreshCommentsNum) ? Math.max(0, rawFreshCommentsNum) : prevComments;
-          const freshSharesNum = Number(fresh.share_count ?? fresh.shares ?? 0);
-          const freshShares = Number.isFinite(freshSharesNum) ? Math.max(0, freshSharesNum) : 0;
-
-          const freshRepins = (rawFreshRepins !== null && (rawFreshRepins > 0 || (hasExplicitFreshRepins && (prevRepins === null || prevRepins === 0))))
-            ? rawFreshRepins
-            : prevRepins;
-          // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
-          const freshSaves = (rawFreshSaves !== null && (rawFreshSaves > 0 || (hasExplicitFreshSaves && (prevSaves === null || prevSaves === 0))))
-            ? rawFreshSaves
-            : prevSaves;
-          const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
-
-          const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
-            ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-            : Number(fresh.reactions || 0);
-
-          if (freshSaves === null) {
-            refreshedPins.push({
-              pin_id: String(p.pin_id),
-              saves: null,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              velocity: null,
-              delta_saves: null,
-              delta_repins: null
-            });
-
-            masterPinsToSync.push({
-              pin_id: String(p.pin_id),
-              creator_username: targetAccount,
-              board_name: p.board_name || '',
-              title: fresh.title || p.title || '',
-              domain: fresh.domain || fresh.link_domain || '',
-              destination_url: fresh.link || fresh.destination_url || p.destination_url || '',
-              image_url: fresh.image_url || p.image_url || '',
-              description: fresh.description || p.description || '',
-              alt_text: fresh.alt_text || '',
-              dominant_color: fresh.dominant_color || '#888888',
-              visual_annotations: fresh.visual_annotations || fresh.annotations || [],
-              created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-              saves: null,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              reactions: fresh.reactions || {},
-              velocity: null,
-              daily_repin_velocity: null,
-              delta_repins_24h: null,
-              is_hydrated: false
-            });
-          } else {
-            const safePrevSaves = prevSaves ?? 0;
-            const safePrevRepins = prevRepins ?? 0;
-            const safeFreshRepins = freshRepins ?? 0;
-
-            const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
-            const isRepinJump = isRepinHydrationJump(
-              { save_count: safePrevSaves, repin_count: safePrevRepins },
-              { save_count: freshSaves, repin_count: safeFreshRepins }
-            );
-            const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
-
-            refreshedPins.push({
-              pin_id: String(p.pin_id),
-              saves: freshSaves,
-              repins: safeFreshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              velocity: velocity,
-              delta_saves: deltaSaves,
-              delta_repins: deltaRepins
-            });
-
-            metricSnapshots.push({
-              pin_id: String(p.pin_id),
-              saves: freshSaves,
-              repins: safeFreshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              reaction_count: totalReactions,
-              velocity: velocity,
-              repin_velocity: deltaRepins
-            });
-
-            masterPinsToSync.push({
-              pin_id: String(p.pin_id),
-              creator_username: targetAccount,
-              board_name: p.board_name || '',
-              title: fresh.title || p.title || '',
-              domain: fresh.domain || fresh.link_domain || '',
-              destination_url: fresh.link || fresh.destination_url || p.destination_url || '',
-              image_url: fresh.image_url || p.image_url || '',
-              description: fresh.description || p.description || '',
-              alt_text: fresh.alt_text || '',
-              dominant_color: fresh.dominant_color || '#888888',
-              visual_annotations: fresh.visual_annotations || fresh.annotations || [],
-              created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-              saves: freshSaves,
-              repins: safeFreshRepins,
-              comments: freshComments,
-              share_count: freshShares,
-              reactions: fresh.reactions || {},
-              velocity: velocity,
-              daily_repin_velocity: deltaRepins,
-              delta_repins_24h: deltaRepins,
-              is_hydrated: true
-            });
-          }
-
-          refreshedCount++;
-        }
+        const refreshed = await processCreatorCatalogPin(
+          p,
+          { fallbackUsername: targetAccount, useFreshnessGate: true, useUmpFields: true },
+          { refreshedPins, metricSnapshots, masterPinsToSync }
+        );
+        if (refreshed) refreshedCount++;
         await sleep(randomJitterMs(150, 300));
       })));
     }
@@ -1370,149 +1276,12 @@ async function run() {
 
       await Promise.allSettled(myWinningSlice.map(p => sem.run(async () => {
         try {
-          const rawPrevSaves = p.saves ?? p.save_count;
-          const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
-          const rawPrevRepins = p.repins ?? p.repin_count;
-          const prevRepins = rawPrevRepins != null ? Math.max(0, Number(rawPrevRepins)) : null;
-          const prevComments = Math.max(0, Number(p.comments ?? p.comment_count ?? 0));
-          const prevShares = Math.max(0, Number(p.share_count ?? p.shares ?? 0));
-          const prevVelocity = (p.velocity != null) ? Number(p.velocity) : null;
-
-          let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
-          const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
-          const rawRepins = fresh ? Math.max(0, Number(fresh.repins || fresh.repin_count || 0)) : 0;
-
-          // Fallback to full scrape if suspicious drop or PinResource missing
-          if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
-            const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
-            if (fetchRes?.ok && fetchRes?.pin) {
-              fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
-            }
-          }
-
-          if (fresh) {
-            const hasExplicitFreshSaves = fresh.has_explicit_saves === true || (fresh.saves != null && Number.isFinite(Number(fresh.saves))) || (fresh.save_count != null && Number.isFinite(Number(fresh.save_count)));
-            const rawFreshSavesNum = hasExplicitFreshSaves ? Number(fresh.saves ?? fresh.save_count ?? 0) : null;
-            const rawFreshSaves = (rawFreshSavesNum !== null && Number.isFinite(rawFreshSavesNum)) ? Math.max(0, rawFreshSavesNum) : null;
-            const hasExplicitFreshRepins = fresh.has_explicit_repins === true;
-            const rawFreshRepinsNum = (fresh.repins != null || fresh.repin_count != null) ? Number(fresh.repins ?? fresh.repin_count ?? 0) : null;
-            const rawFreshRepins = (rawFreshRepinsNum !== null && Number.isFinite(rawFreshRepinsNum)) ? Math.max(0, rawFreshRepinsNum) : null;
-            const rawFreshCommentsNum = Number(fresh.comments ?? fresh.comment_count ?? prevComments);
-            const rawFreshComments = Number.isFinite(rawFreshCommentsNum) ? Math.max(0, rawFreshCommentsNum) : prevComments;
-            const freshSharesNum = Number(fresh.share_count ?? fresh.shares ?? prevShares);
-            const freshShares = Number.isFinite(freshSharesNum) ? Math.max(0, freshSharesNum) : prevShares;
-
-            const freshRepins = (rawFreshRepins !== null && (rawFreshRepins > 0 || (hasExplicitFreshRepins && (prevRepins === null || prevRepins === 0))))
-              ? rawFreshRepins
-              : prevRepins;
-            // [INVARIANT: PINTEREST-SAVES-REPINS-INDEPENDENCE] Never pass freshRepins to freshSaves
-            const freshSaves = (rawFreshSaves !== null && (rawFreshSaves > 0 || (hasExplicitFreshSaves && (prevSaves === null || prevSaves === 0))))
-              ? rawFreshSaves
-              : prevSaves;
-            const freshComments = rawFreshComments > 0 ? rawFreshComments : prevComments;
-
-            const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
-              ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-              : Number(fresh.reactions || 0);
-
-            if (freshSaves === null) {
-              // Still unhydrated: pass saves: null, velocity: null, daily_repin_velocity: null, delta_repins_24h: null, is_hydrated: false
-              refreshedPins.push({
-                pin_id: String(p.pin_id),
-                saves: null,
-                repins: freshRepins,
-                comments: freshComments,
-                share_count: freshShares,
-                velocity: null,
-                delta_saves: null,
-                delta_repins: null
-              });
-
-              masterPinsToSync.push({
-                pin_id: String(p.pin_id),
-                creator_username: p.account_username || '',
-                board_name: p.board_name || '',
-                title: fresh.title || p.title || '',
-                domain: fresh.domain || fresh.link_domain || p.domain || '',
-                destination_url: fresh.link || fresh.destination_url || p.link || '',
-                image_url: fresh.image_url || p.image_url || '',
-                description: fresh.description || '',
-                alt_text: fresh.alt_text || p.alt_text || '',
-                dominant_color: fresh.dominant_color || p.dominant_color || '#888888',
-                visual_annotations: fresh.visual_annotations || fresh.annotations || p.annotations || [],
-                created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-                saves: null,
-                repins: freshRepins,
-                comments: freshComments,
-                share_count: freshShares,
-                reactions: fresh.reactions || {},
-                velocity: null,
-                daily_repin_velocity: null,
-                delta_repins_24h: null,
-                is_hydrated: false
-              });
-            } else {
-              // Hydrated pin
-              const safePrevSaves = prevSaves ?? 0;
-              const safePrevRepins = prevRepins ?? 0;
-              const safeFreshRepins = freshRepins ?? 0;
-
-              const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
-              const isRepinJump = isRepinHydrationJump(
-                { save_count: safePrevSaves, repin_count: safePrevRepins },
-                { save_count: freshSaves, repin_count: safeFreshRepins }
-              );
-              const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
-
-              refreshedPins.push({
-                pin_id: String(p.pin_id),
-                saves: freshSaves,
-                repins: safeFreshRepins,
-                comments: freshComments,
-                share_count: freshShares,
-                velocity: velocity,
-                delta_saves: deltaSaves,
-                delta_repins: deltaRepins
-              });
-
-              metricSnapshots.push({
-                pin_id: String(p.pin_id),
-                saves: freshSaves,
-                repins: safeFreshRepins,
-                comments: freshComments,
-                share_count: freshShares,
-                reaction_count: totalReactions,
-                velocity: velocity,
-                repin_velocity: deltaRepins
-              });
-
-              masterPinsToSync.push({
-                pin_id: String(p.pin_id),
-                creator_username: p.account_username || '',
-                board_name: p.board_name || '',
-                title: fresh.title || p.title || '',
-                domain: fresh.domain || fresh.link_domain || p.domain || '',
-                destination_url: fresh.link || fresh.destination_url || p.link || '',
-                image_url: fresh.image_url || p.image_url || '',
-                description: fresh.description || '',
-                alt_text: fresh.alt_text || p.alt_text || '',
-                dominant_color: fresh.dominant_color || p.dominant_color || '#888888',
-                visual_annotations: fresh.visual_annotations || fresh.annotations || p.annotations || [],
-                created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
-                saves: freshSaves,
-                repins: safeFreshRepins,
-                comments: freshComments,
-                share_count: freshShares,
-                reactions: fresh.reactions || {},
-                velocity: velocity,
-                daily_repin_velocity: deltaRepins,
-                delta_repins_24h: deltaRepins,
-                is_hydrated: true
-              });
-            }
-
-            refreshedWinningCount++;
-          }
+          const refreshed = await processCreatorCatalogPin(
+            p,
+            { useFreshnessGate: false, useUmpFields: false },
+            { refreshedPins, metricSnapshots, masterPinsToSync }
+          );
+          if (refreshed) refreshedWinningCount++;
         } catch (_) {}
         await sleep(randomJitterMs(150, 300));
       })));

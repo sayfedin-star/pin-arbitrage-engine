@@ -23,8 +23,15 @@ import {
 import {
   MIGRATION_062_EXPECTED_INDEXES,
   MIGRATION_062_DROPPED_INDEXES,
+  MIGRATION_064_EXPECTED_INDEXES,
+  MIGRATION_064_DROPPED_INDEXES,
   CANONICAL_FUNCTION_SIGNATURES
 } from '../scripts/verify_sql_schema_parity.mjs';
+
+import {
+  ingestPinsBatch,
+  syncPinAcrossAllFourPillars
+} from '../src/modules/pins/repository.mjs';
 
 test('Phase 5.1: Migration 062 DDL, Canonical Registration & Index Parity', () => {
   const m62Path = path.resolve(process.cwd(), 'scripts/migrations/062_ssot_hot_tuning_and_functions.sql');
@@ -57,6 +64,7 @@ test('Phase 5.1: Migration 062 DDL, Canonical Registration & Index Parity', () =
   // 5. scripts/migrate.mjs registration
   const migrateContent = fs.readFileSync(path.resolve(process.cwd(), 'scripts/migrate.mjs'), 'utf8');
   assert.match(migrateContent, /'062_ssot_hot_tuning_and_functions\.sql':/i);
+  assert.match(migrateContent, /'064_cleanup_and_index_hygiene\.sql':/i);
 
   // 6. scripts/ensure_indexes.mjs synchronization
   const ensureContent = fs.readFileSync(path.resolve(process.cwd(), 'scripts/ensure_indexes.mjs'), 'utf8');
@@ -66,6 +74,8 @@ test('Phase 5.1: Migration 062 DDL, Canonical Registration & Index Parity', () =
   assert.match(ensureContent, /idx_ump_hashtext_mod20/i);
   assert.match(ensureContent, /idx_ksp_hashtext_mod20/i);
   assert.match(ensureContent, /idx_cbp_hashtext_mod20/i);
+  assert.match(ensureContent, /idx_ump_destination_url_md5/i);
+  assert.match(ensureContent, /DROP INDEX IF EXISTS idx_ump_visual_annotations_gin/i);
 });
 
 test('Phase 5.2: Canonical Math SSOT - evaluateCanonicalHydrationRules & calculateVelocityAcceleration', () => {
@@ -162,15 +172,21 @@ test('Phase 5.3: Domain Intelligence SSOT - canonicalization & garbage detection
 
 test('Phase 5.4: Function Signatures & Dropped Index Registry Contract', () => {
   assert.ok(MIGRATION_062_EXPECTED_INDEXES.has('idx_mv_pulse_24h_summary_id'));
-  assert.ok(MIGRATION_062_EXPECTED_INDEXES.has('idx_ump_visual_annotations_gin'));
   assert.ok(MIGRATION_062_EXPECTED_INDEXES.has('idx_ump_hashtext_mod20'));
   assert.ok(MIGRATION_062_EXPECTED_INDEXES.has('idx_ksp_hashtext_mod20'));
   assert.ok(MIGRATION_062_EXPECTED_INDEXES.has('idx_cbp_hashtext_mod20'));
+  assert.ok(MIGRATION_064_EXPECTED_INDEXES.has('idx_ksp_pin_id'));
+  assert.ok(MIGRATION_064_EXPECTED_INDEXES.has('idx_ump_destination_url_md5'));
+  assert.ok(MIGRATION_064_EXPECTED_INDEXES.has('idx_ump_is_hydrated'));
 
   assert.ok(MIGRATION_062_DROPPED_INDEXES.has('idx_ump_last_scraped_at_desc'));
   assert.ok(MIGRATION_062_DROPPED_INDEXES.has('idx_ump_updated_at_desc'));
   assert.ok(MIGRATION_062_DROPPED_INDEXES.has('idx_ksp_displaced_updated_desc'));
   assert.ok(MIGRATION_062_DROPPED_INDEXES.has('idx_pdm_pin_recorded_desc'));
+  assert.ok(MIGRATION_064_DROPPED_INDEXES.has('idx_ump_visual_annotations_gin'));
+  assert.ok(MIGRATION_064_DROPPED_INDEXES.has('idx_ump_destination_url'));
+  assert.ok(MIGRATION_064_DROPPED_INDEXES.has('idx_ksp_pin_displaced_rank'));
+  assert.ok(!MIGRATION_064_DROPPED_INDEXES.has('idx_ksp_pin_id'));
 
   const topicClustersSpec = CANONICAL_FUNCTION_SIGNATURES.pa_topic_clusters_page;
   assert.strictEqual(topicClustersSpec.args.length, 5);
@@ -188,4 +204,60 @@ test('Phase 5.5: ingestPinsBatch delta guards cannot be bypassed and syncPinAcro
   assert.match(repoContent, /delta_saves_24h = CASE WHEN \$\{syncVelocity\} IS NOT NULL THEN ROUND\(\$\{syncVelocity\}::numeric\)::bigint ELSE delta_saves_24h END/);
   assert.match(repoContent, /delta_repins_24h = COALESCE\(\$\{syncRepinsDelta\}::bigint,\s*delta_repins_24h\)/);
 });
+
+test('Phase 5.6: Unhydrated NULL preservation, dominant_color null hygiene, and Migration 064 index parity', async () => {
+  const m64Content = fs.readFileSync(path.resolve(process.cwd(), 'scripts/migrations/064_cleanup_and_index_hygiene.sql'), 'utf8');
+  assert.match(m64Content, /DROP INDEX IF EXISTS public\.idx_ksp_pin_displaced_rank;/i);
+  assert.match(m64Content, /CREATE INDEX IF NOT EXISTS idx_ksp_pin_id\b/i);
+  assert.doesNotMatch(m64Content, /DROP INDEX IF EXISTS public\.idx_ksp_pin_id;/i);
+
+  const captured = [];
+  const mockSql = (strings, ...values) => {
+    const sqlText = strings.join('?').replace(/\s+/g, ' ').trim();
+    const jsonPayloads = values
+      .filter((v) => typeof v === 'string' && v.startsWith('['))
+      .map((v) => JSON.parse(v));
+    captured.push({ sqlText, values, jsonPayloads });
+    if (sqlText.includes('INSERT INTO universal_master_pins')) return Promise.resolve([{ is_inserted: true }]);
+    return Promise.resolve([]);
+  };
+  mockSql.begin = async (cb) => cb(mockSql);
+  mockSql.noRetry = mockSql;
+
+  await ingestPinsBatch(mockSql, [
+    { pin_id: 'unhydrated_1', saves: null, repins: null, is_hydrated: false, dominant_color: '#888888' },
+    { pin_id: 'multi_board_1', competitor_id: 7, board_id: 'b1', board_name: 'Board A', saves: 10 },
+    { pin_id: 'multi_board_1', competitor_id: 7, board_id: 'b2', board_name: 'Board B', saves: 15, dominant_color: '#10b981' }
+  ], { pillar: 'creator_hub' });
+
+  const umpCall = captured.find((c) => c.sqlText.includes('INSERT INTO universal_master_pins'));
+  const rows = umpCall.jsonPayloads[0];
+  const unhydratedRow = rows.find((r) => r.pin_id === 'unhydrated_1');
+  const multiRow = rows.find((r) => r.pin_id === 'multi_board_1');
+
+  assert.strictEqual(unhydratedRow.save_count, null);
+  assert.strictEqual(unhydratedRow.repin_count, null);
+  assert.strictEqual(unhydratedRow.is_hydrated, false);
+  assert.strictEqual(unhydratedRow.daily_save_velocity, null);
+  assert.strictEqual(unhydratedRow.dominant_color, null);
+  assert.strictEqual(unhydratedRow.was_live_scraped, false);
+
+  assert.strictEqual(multiRow.save_count, 15);
+  assert.strictEqual(multiRow.dominant_color, '#10b981');
+
+  const cbpCall = captured.find((c) => c.sqlText.includes('INSERT INTO competitor_board_pins'));
+  assert.strictEqual(cbpCall.jsonPayloads[0].length, 2);
+
+  captured.length = 0;
+  await syncPinAcrossAllFourPillars({
+    sql: mockSql,
+    pinId: '998877665544',
+    scrapedPin: { title: 'No Color Pin', saves: 100, has_explicit_saves: true },
+    fetchUniversalPinDossier: async () => ({ success: true, pin_id: '998877665544' })
+  });
+  const syncInsert = captured.find((c) => c.sqlText.includes('INSERT INTO universal_master_pins'));
+  assert.ok(!syncInsert.values.includes('#888888'), 'syncPinAcrossAllFourPillars must pass NULL, never #888888');
+  assert.ok(syncInsert.sqlText.includes("EXCLUDED.dominant_color NOT IN ('', '#888888')"));
+});
+
 

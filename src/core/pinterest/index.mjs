@@ -2,7 +2,7 @@
  * src/core/pinterest/index.mjs
  *
  * Canonical Unified Barrel for Pinterest Scraping, Parsing & Client Primitives.
- * Eliminates reverse dependency from src/ -> scripts/lib/pinterest.mjs.
+ * Pure DAG export hierarchy with zero circular imports and zero static undici imports.
  */
 
 export {
@@ -16,6 +16,7 @@ export {
   sleep,
   sleepWithJitter,
   exponentialBackoffWithFullJitter,
+  parseRetryAfterSeconds,
   CircuitBreakerOpenError,
   PinterestCircuitBreaker,
   globalPinterestCircuitBreaker,
@@ -23,9 +24,14 @@ export {
   defaultPinterestClient,
   setDefaultDispatcher,
   getDefaultDispatcher,
-  pinterestFetch,
-  parseRetryAfterSeconds
+  pinterestFetch
 } from './client.mjs';
+
+export {
+  canonicalizeArticleUrlForCount,
+  fetchUrlGlobalSaves,
+  resolvePinterestShortlink
+} from './urls.mjs';
 
 export {
   MAX_METRIC_CAP,
@@ -35,21 +41,14 @@ export {
   safeString,
   parseCleanMetric,
   findPinInTree,
-  extractPinFromHtml,
-  fetchAndExtractPin
-} from '../pinterest-parser.mjs';
-
-export {
-  canonicalizeArticleUrlForCount,
-  fetchUrlGlobalSaves,
-  resolvePinterestShortlink
-} from './urls.mjs';
-
-export {
-  fetchPinsBatchFromPidgets,
   formatPin,
+  extractRelayCompletedPayloads,
+  extractPinFromHtml,
   extractPinData,
   fetchPinFromPinResource,
+  fetchPinFromPidgets,
+  fetchPinsBatchFromPidgets,
+  fetchAndExtractPin,
   fetchPinHybrid,
   fetchPinFromPinterest
 } from './pins.mjs';

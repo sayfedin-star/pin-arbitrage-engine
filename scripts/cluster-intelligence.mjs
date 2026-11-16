@@ -12,20 +12,15 @@
  */
 
 import crypto from 'node:crypto';
-import { createSqlClient } from '../src/db/client.mjs';
+import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
 import { crc32 } from '../src/lib/math.mjs';
 import {
-  pinterestFetch,
-  getStandardPinterestHeaders,
+  CANONICAL_FINGERPRINT,
   randomJitterMs,
   sleep,
-  setDefaultDispatcher
-} from '../src/core/pinterest-client.mjs';
-import {
-  formatPin,
-  fetchPinFromPinResource,
-  fetchAndExtractPin
-} from '../src/core/pinterest-parser.mjs';
+  setDefaultDispatcher,
+  fetchPinFromPinResource
+} from '../src/core/pinterest/index.mjs';
 
 let undiciAgent = null;
 try {
@@ -109,31 +104,14 @@ import { formatPinterestCookie } from '../src/utils.mjs';
 export { formatPinterestCookie };
 
 /**
- * Resilient database query wrapper: retries on transient connection or rate-limit errors
+ * Resilient database query wrapper: delegates transient PG connection retries to canonical withDbRetry
  */
 export async function sqlWithRetry(queryFn, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await queryFn();
-    } catch (err) {
-      const msg = err?.message || '';
-      const isTransient = (
-        msg.includes('fetch failed') ||
-        msg.includes('timeout') ||
-        msg.includes('socket hang up') ||
-        msg.includes('Connection reset') ||
-        msg.includes('503') ||
-        msg.includes('502') ||
-        msg.includes('rate limit')
-      );
-      if (isTransient && attempt < maxRetries) {
-        console.warn(`[!] Transient DB error on attempt ${attempt}/${maxRetries}: ${msg}. Retrying in ${attempt * 500}ms...`);
-        await sleep(attempt * 500);
-        continue;
-      }
-      throw err;
-    }
-  }
+  return withDbRetry(queryFn, {
+    maxRetries: Math.max(0, maxRetries - 1),
+    baseDelayMs: 500,
+    maxDelayMs: 2000
+  });
 }
 
 /**
@@ -965,10 +943,10 @@ async function crawlSeed(seed) {
     'accept': 'application/json, text/javascript, */*, q=0.01',
     'accept-language': 'en-US,en;q=0.9',
     'screen-dpr': '1',
-    'x-app-version': '664ee65',
+    'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
     'x-pinterest-pws-handler': `www/pin/[id].js`,
     'x-requested-with': 'XMLHttpRequest',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
     'referer': `https://www.pinterest.com/pin/${pinId}/`,
     'origin': 'https://www.pinterest.com',
     'sec-fetch-dest': 'empty',
@@ -1251,11 +1229,11 @@ async function crawlSeed(seed) {
   }
   console.log(`---------------------------------------------------\n`);
 
-  // Persistence to Neon Serverless Postgres via Parallel Batch Upserts with sqlWithRetry
+  // Persistence to Unified PostgreSQL via Parallel Batch Upserts with sqlWithRetry
   if (allCandidates.length > 0) {
     // Enforce strictly deterministic sort by candidate_pin_id ASC to eliminate row-level lock contention and deadlocks
     allCandidates.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
-    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel resilient batch mode, deterministically sorted)...`);
+    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Unified PostgreSQL (parallel resilient batch mode, deterministically sorted)...`);
 
     // Batch upsert in chunks of 50 to respect query payload sizes
     const chunkSize = 50;
@@ -1363,7 +1341,7 @@ async function crawlSeed(seed) {
           ingestion_method = EXCLUDED.ingestion_method;
       `);
     }
-    console.log(`[+] Successfully stored candidate nodes in Neon.`);
+    console.log(`[+] Successfully stored candidate nodes in Unified PostgreSQL.`);
 
     // Phase 2: Automated Deep Metrics Enrichment via PinResource (Authentic Zero-Hallucination Repins)
     console.log(`[*] Initiating automated deep metrics enrichment for candidate nodes...`);
@@ -1416,11 +1394,11 @@ async function crawlSeed(seed) {
     );
   `);
 
-  // Persist all captured Pinterest Guided Search Capsules into Neon in chunks via bulk jsonb_to_recordset
+  // Persist all captured Pinterest Guided Search Capsules into Unified PostgreSQL in chunks via bulk jsonb_to_recordset
   const allCapsules = Array.from(guidedSearchCapsulesMap.values());
   if (allCapsules.length > 0) {
     allCapsules.sort((a, b) => String(a.normalized_query).localeCompare(String(b.normalized_query)));
-    console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon (bulk jsonb_to_recordset)...`);
+    console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Unified PostgreSQL (bulk jsonb_to_recordset)...`);
     const capChunkSize = 50;
     for (let i = 0; i < allCapsules.length; i += capChunkSize) {
       const chunk = allCapsules.slice(i, i + capChunkSize);
@@ -1455,7 +1433,7 @@ async function crawlSeed(seed) {
         SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
       `);
     }
-    console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Neon.`);
+    console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Unified PostgreSQL.`);
   }
 
   // Update last_crawled_at on cluster_seeds
@@ -1638,8 +1616,8 @@ async function main() {
         const baseHeaders = {
           'accept': 'application/json, text/javascript, */*, q=0.01',
           'accept-language': 'en-US,en;q=0.9',
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          'x-app-version': '664ee65'
+          'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
+          'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION
         };
         if (process.env.PINTEREST_COOKIE) {
           baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);

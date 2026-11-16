@@ -6,9 +6,8 @@
  * - Per-Keyword Dynamic Depth & Inspection Settings
  * - Keyword Creation & Slug Normalization
  *
- * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+ * // [INVARIANT: UNIFIED-POSTGRES-SSOT]
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
- * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';

@@ -18,7 +18,7 @@ import {
   normalizeCleanDomain,
   IGNORED_INTERNAL_DOMAINS,
   ECOMMERCE_AND_SOCIAL_DOMAINS
-} from './service.mjs';
+} from './domain-constants.mjs';
 
 export const KNOWN_AD_NETWORKS = {
   RAPTIVE: 'raptive',

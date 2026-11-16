@@ -64,23 +64,27 @@ console.log('  ✓ keyword-velocity-crawler.mjs: daily_repin_velocity and NULL h
 
 // Creator Velocity Crawler:
 const creatorCrawler = fs.readFileSync('scripts/creator-velocity-crawler.mjs', 'utf8');
+const pinRepoContent = fs.readFileSync('src/modules/pins/repository.mjs', 'utf8');
 assert(creatorCrawler.includes('repin_velocity: deltaRepins'),
   'creator-velocity-crawler.mjs must pass repin_velocity into metricSnapshots'
 );
 assert(creatorCrawler.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity)'),
   'creator-velocity-crawler.mjs must upsert daily_repin_velocity into pins_daily_metrics'
 );
-assert(creatorCrawler.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity)'),
-  'creator-velocity-crawler.mjs must upsert daily_repin_velocity into universal_master_pins'
+assert(creatorCrawler.includes('ingestPinsBatch(dbSql, chunk'),
+  'creator-velocity-crawler.mjs must delegate syncPinsToMasterCatalog to canonical PinRepository.ingestPinsBatch'
 );
-assert(creatorCrawler.includes('ORDER BY x.pin_id ASC'),
-  'creator-velocity-crawler.mjs must use deterministic ORDER BY x.pin_id ASC to prevent 40P01 deadlocks'
+assert(pinRepoContent.includes('daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity)'),
+  'PinRepository.ingestPinsBatch must upsert daily_repin_velocity into universal_master_pins'
 );
-assert(creatorCrawler.includes('is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL)'),
-  'creator-velocity-crawler.mjs must update is_hydrated on conflict in universal_master_pins'
+assert(creatorCrawler.includes('ORDER BY x.pin_id ASC') && pinRepoContent.includes('ORDER BY cb.pin_id ASC'),
+  'creator-velocity-crawler.mjs and PinRepository must use deterministic ORDER BY pin_id ASC to prevent 40P01 deadlocks'
 );
-assert(creatorCrawler.includes('mergedSaves'),
-  'creator-velocity-crawler.mjs must preserve NULL when merging duplicate unhydrated pins across boards'
+assert(pinRepoContent.includes('is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL)'),
+  'PinRepository.ingestPinsBatch must update is_hydrated on conflict in universal_master_pins'
+);
+assert(creatorCrawler.includes('has_explicit_saves: saveCount !== null') && pinRepoContent.includes('isUnhydratedSaves'),
+  'creator-velocity-crawler.mjs and PinRepository must preserve NULL when merging unhydrated pins'
 );
 
 // In-memory behavioral test of multi-board unhydrated deduplication:

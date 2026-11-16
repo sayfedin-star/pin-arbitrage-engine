@@ -2,8 +2,8 @@ name: Cluster Intelligence & Arbitrage Pipeline
 
 on:
   schedule:
-    # Run daily at 04:00 UTC
-    - cron: '0 4 * * *'
+    # Run daily at 03:00 UTC
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       seed_pin_id:
@@ -27,6 +27,7 @@ permissions:
 env:
   DATABASE_TOPOLOGY: unified_postgres
   PG_POOL_MAX: '2'
+  SKIP_MV_REFRESH: 'true'
 
 jobs:
   check-seeds:
@@ -95,6 +96,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4

@@ -353,7 +353,6 @@ export const KNOWN_TABLE_COLUMNS = {
 // 2. Migration 062 SSOT Indexes & Function Parity Definitions
 export const MIGRATION_062_EXPECTED_INDEXES = new Set([
   'idx_mv_pulse_24h_summary_id',
-  'idx_ump_visual_annotations_gin',
   'idx_ump_hashtext_mod20',
   'idx_ksp_hashtext_mod20',
   'idx_cbp_hashtext_mod20',
@@ -372,6 +371,25 @@ export const MIGRATION_062_DROPPED_INDEXES = new Set([
   'idx_ksp_displaced_updated_desc',
   'idx_pdm_pin_recorded_desc',
   'idx_pdm_pin_snapshot_desc'
+]);
+
+export const MIGRATION_064_EXPECTED_INDEXES = new Set([
+  'idx_ksp_pin_id',
+  'idx_ump_destination_url_md5',
+  'idx_ump_is_hydrated'
+]);
+
+export const MIGRATION_064_DROPPED_INDEXES = new Set([
+  'idx_cbp_board',
+  'idx_kw_folder_items_folder',
+  'idx_fci_folder_id',
+  'idx_competitor_boards_comp_id',
+  'idx_csp_comp_pin',
+  'idx_csp_comp_id',
+  'idx_crn_comp_seed',
+  'idx_ksp_pin_displaced_rank',
+  'idx_ump_visual_annotations_gin',
+  'idx_ump_destination_url'
 ]);
 
 export const CANONICAL_FUNCTION_SIGNATURES = {
@@ -638,19 +656,19 @@ if (dbUrl) {
         const indexRows = await sql`SELECT indexname FROM pg_indexes WHERE schemaname = 'public';`;
         const liveIndexes = new Set(indexRows.map(r => r.indexname));
 
-        for (const dropped of MIGRATION_062_DROPPED_INDEXES) {
+        for (const dropped of [...MIGRATION_062_DROPPED_INDEXES, ...MIGRATION_064_DROPPED_INDEXES]) {
           if (liveIndexes.has(dropped)) {
-            console.error(`🚨 [LIVE DB ERROR] HOT-blocking index '${dropped}' still exists in pg_indexes!`);
+            console.error(`🚨 [LIVE DB ERROR] Obsolete/HOT-blocking index '${dropped}' still exists in pg_indexes!`);
             violationCount++;
           }
         }
 
-        for (const expected of MIGRATION_062_EXPECTED_INDEXES) {
+        for (const expected of [...MIGRATION_062_EXPECTED_INDEXES, ...MIGRATION_064_EXPECTED_INDEXES]) {
           if (!liveIndexes.has(expected)) {
-            console.warn(`⚠️ [LIVE DB WARNING] Expected Migration 062 index '${expected}' not found in pg_indexes.`);
+            console.warn(`⚠️ [LIVE DB WARNING] Expected SSOT index '${expected}' not found in pg_indexes.`);
           }
         }
-        console.log('  ✓ [LIVE DB] Migration 062 index parity verified in pg_indexes.');
+        console.log('  ✓ [LIVE DB] Migration 062/064 index parity verified in pg_indexes.');
       } catch (err) {
         console.error(`🚨 [LIVE DB ERROR] Failed to inspect pg_indexes: ${err.message}`);
         violationCount++;

@@ -297,6 +297,16 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '062',
     name: 'ssot_hot_tuning_and_functions',
     aliases: ['062', '062_ssot_hot_tuning_and_functions', 'ssot_hot_tuning_and_functions']
+  },
+  '063_forensic_audit_hardening.sql': {
+    version: '063',
+    name: 'forensic_audit_hardening',
+    aliases: ['063', '063_forensic_audit_hardening', 'forensic_audit_hardening']
+  },
+  '064_cleanup_and_index_hygiene.sql': {
+    version: '064',
+    name: 'cleanup_and_index_hygiene',
+    aliases: ['064', '064_cleanup_and_index_hygiene', 'cleanup_and_index_hygiene']
   }
 };
 

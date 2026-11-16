@@ -21,14 +21,14 @@ async function run() {
   console.log('🧪 Universal Pin Dossier 48-Field Convergence Forensic Audit');
   console.log('=============================================================');
 
-  // 1. Pick a sample pin from keyword_serp_current
+  // 1. Pick a sample pin from keyword_serp_positions
   const [sampleRow] = await sql`
-    SELECT pin_id, keyword_id, title 
-    FROM keyword_serp_current 
-    WHERE pin_id IS NOT NULL 
+    SELECT pin_id, keyword_id
+    FROM keyword_serp_positions
+    WHERE pin_id IS NOT NULL
     LIMIT 1;
   `;
-  assert(sampleRow, 'Must have at least one pin in keyword_serp_current');
+  assert(sampleRow, 'Must have at least one pin in keyword_serp_positions');
   console.log(`\n[1] Testing getPinDeepDossier on Pin ID: ${sampleRow.pin_id} (Keyword ID: ${sampleRow.keyword_id})...`);
 
   const d1 = await getPinDeepDossier(sql, sampleRow.pin_id, sampleRow.keyword_id);

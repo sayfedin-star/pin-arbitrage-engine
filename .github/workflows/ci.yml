@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -38,6 +42,9 @@ jobs:
       - name: 5. Execute automated UI & pipeline security audit
         run: node scripts/audit_ui.mjs
 
+      - name: 5b. Run unit & offline integration test suites
+        run: node --test tests/*.mjs && npm test
+
       - name: 6. Automated Deploy to InstaBox VPS (/data/app)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -46,36 +53,16 @@ jobs:
           API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
         run: |
+          if [ -z "${IB_API_KEY}" ]; then
+            echo "❌ INSTABOX_API_KEY secret is not configured — aborting deployment (fail-closed)."
+            exit 1
+          fi
+
           echo "=== Layer 1: Triggering Cloudflare Wake-Shield Pulse (${APP_PUBLIC_URL}/api/health) ==="
           if [ -n "${API_SECRET_KEY}" ]; then
             curl -s --max-time 8 -H "x-api-key: ${API_SECRET_KEY}" "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
           else
             curl -s --max-time 8 "${APP_PUBLIC_URL}/api/health" >/dev/null 2>&1 || true
-          fi
-
-          if [ -z "${IB_API_KEY}" ]; then
-            echo "⚠️ INSTABOX_API_KEY is not configured; falling back to Layer 2 (Wake-Shield Boot-Sync) & Layer 3 (Self-Update Webhook)..."
-            for i in $(seq 1 12); do
-              if [ -n "${API_SECRET_KEY}" ]; then
-                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 -H "x-api-key: ${API_SECRET_KEY}" "${APP_PUBLIC_URL}/api/health" || echo "000")
-              else
-                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${APP_PUBLIC_URL}/api/health" || echo "000")
-              fi
-              if [ "${HTTP_CODE}" = "200" ]; then
-                echo "✅ InstaBox VM is awake via Wake-Shield (HTTP 200)."
-                break
-              fi
-              echo "Attempt $i/12: Waiting for Wake-Shield to boot InstaBox VM (HTTP ${HTTP_CODE})..."
-              sleep 5
-            done
-            if [ -n "${API_SECRET_KEY}" ]; then
-              echo "Triggering Layer 3 /api/internal/self-update webhook..."
-              curl -s -X POST "${APP_PUBLIC_URL}/api/internal/self-update" \
-                -H "x-api-key: ${API_SECRET_KEY}" \
-                -H "Content-Type: application/json" \
-                -d "{\"commit\":\"${{ github.sha }}\"}" || true
-            fi
-            exit 0
           fi
 
           echo "=== Layer 1 & 2: Initiating InstaBox API Wakeup & Long-Polling for ${IB_MACHINE_ID} ==="
@@ -218,6 +205,13 @@ jobs:
           done
 
           if [ "${VERIFIED}" != "1" ]; then
+            if [ -n "${API_SECRET_KEY}" ]; then
+              echo "Attempting Layer 3 /api/internal/self-update webhook recovery..."
+              curl -s -X POST "${APP_PUBLIC_URL}/api/internal/self-update" \
+                -H "x-api-key: ${API_SECRET_KEY}" \
+                -H "Content-Type: application/json" \
+                -d "{\"commit\":\"${{ github.sha }}\"}" >/dev/null 2>&1 || true
+            fi
             echo "❌ Post-deployment health verification failed!"
             exit 1
           fi

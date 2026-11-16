@@ -537,9 +537,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   }
 
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-  // Time-series snapshots are stored exclusively on Shards (pins_daily_metrics).
-  // Hub pa_pin_metrics fallback is eradicated.
+  // [INVARIANT: UNIFIED-POSTGRES-SNAPSHOTS]
+  // Time-series snapshots are stored exclusively in Unified PostgreSQL (pins_daily_metrics).
 
   // Auto-heal non-zero reach & profile_views if profile record was degraded to 0
   let resolvedMonthlyReach = Number(profile.monthly_reach || 0);

@@ -9,7 +9,7 @@
  * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
-import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest-client.mjs';
+import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest/index.mjs';
 
 // In-Memory True LRU Cache for Pinterest Typeahead (max 500 entries, 15m TTL)
 const typeaheadCache = new Map();

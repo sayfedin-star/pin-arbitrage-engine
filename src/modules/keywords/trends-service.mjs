@@ -4,7 +4,7 @@
  * Extracts 52-week search momentum, seasonal peak estimation, demographics, and related trends.
  */
 
-import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest-client.mjs';
+import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest/index.mjs';
 
 const trendsCache = new Map();
 const inflightTrends = new Map();

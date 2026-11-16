@@ -322,7 +322,7 @@ test('Phase 0 & Phase 1 structural artifacts exist cleanly (Migration 057, zero 
   assert.match(mig057, /idx_pa_pins_clean_domain/i);
   assert.match(mig057, /idx_cp_clean_domain/i);
 
-  const remediateSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/remediate-canonical-poisoning.mjs'), 'utf8');
+  const remediateSrc = fs.readFileSync(path.resolve(process.cwd(), 'scripts/remediate_poisoned_canonical_and_velocity.mjs'), 'utf8');
   assert.equal(/pae_secure_password_2026/.test(remediateSrc), false);
 });
 

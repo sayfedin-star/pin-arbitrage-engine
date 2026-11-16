@@ -4,98 +4,61 @@ trigger: always_on
 
 # Pin Arbitrage Engine (PAE) Canonical Function & Routing Registry
 
-> **Purpose:** Single Source of Truth (SSOT) defining the mandatory canonical functions and routing protocols across PAE.
-> **Enforcement Rule:** AI Agents and developers MUST use these exact functions. Creating duplicate or competing query flows for the operations below is strictly prohibited.
+> **Purpose:** Single Source of Truth (SSOT) defining the live canonical modules, tables, and query flows in `pin-arbitrage-engine`.
+> **Enforcement Rule:** Reuse these canonical modules directly. Do NOT create duplicate SQL upsert pipelines or obsolete Neon/Cloudflare sharding wrappers.
 
 ---
 
-## 1. Universal Shard Resolution & Routing
+## 1. Unified PostgreSQL 16 Database Core (4-Table SSOT, Migrations `060`–`064`)
 
-> **Unified Single-DB Mode (`DATABASE_TOPOLOGY = "unified_postgres"`):** When `isUnifiedPostgres(env)` is true (default in production and local runtime), `resolveShardConnection` deterministically routes all 99 logical shard IDs directly to the unified Central Hub PostgreSQL database (`hubSql`) with zero external shard hops or KV/D1 lookups.
-
-| Entity | Canonical Routing Function | Primary Location | Authority / Schema |
+| Entity | Canonical Table | Primary Key / Natural Key | Primary Service / Location |
 | :--- | :--- | :--- | :--- |
-| **Pin Records (`universal_master_pins`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
-| **Pin Daily Metrics (`pins_daily_metrics`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
-| **Pin SERP History (`pin_serp_positions`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Unified Central Hub (`unified_postgres`) / Logical Shard `(crc32(pin_id) % 99) + 1` |
-| **Active SERP (`keyword_serp_current`)** | `keyword_id` direct index | `src/modules/keywords/service.mjs` | Central Neon Hub |
-| **Displaced Index (`keyword_displaced_index`)** | `(keyword_id, pin_id)` composite index | `src/modules/keywords/service.mjs` | Central Neon Hub (Numeric + Domain + Creator only) |
-| **Tracked Creators (`competitor_profiles`)** | `id` or `username` natural key | `src/modules/creators/service.mjs` | Central Neon Hub |
-| **Creator Qualified Winners (`pa_pins`)** | `pin_id` natural key | `src/modules/creators/service.mjs` | Central Neon Hub (Physical table, Qualified Pins only) |
+| **Database Connection Pool** | `pgClient` (`postgres.js`) | `getSqlClient()` / `createSqlClient()` | `src/db/client.mjs` |
+| **Master Pin Catalog** | `universal_master_pins` | `pin_id` (`VARCHAR(255) PK`) | `src/modules/pins/repository.mjs` |
+| **Daily Time-Series Metrics** | `pins_daily_metrics` | `(pin_id, recorded_date)` (`PK`) | `src/modules/pins/repository.mjs` |
+| **SERP & Displaced Vault** | `keyword_serp_positions` | `(keyword_id, pin_id)` (`PK`, `is_displaced`) | `src/modules/keywords/service.mjs`, `src/modules/pins/repository.mjs` |
+| **Creator/Board Pin Links** | `competitor_board_pins` | `(competitor_id, board_id, pin_id)` (`PK`) | `src/modules/creators/*.mjs` |
+| **Tracked Creators & Boards** | `competitor_profiles`, `competitor_boards` | `id` / `LOWER(username)` | `src/modules/creators/*.mjs` |
+| **Keywords & Folders** | `tracked_keywords`, `keyword_folders`, `keyword_folder_items` | `id` / `canonical_keyword` | `src/modules/keywords/*.mjs` |
+| **Domain Rollups** | `domain_intelligence_rollup` | `domain` / `clean_domain` | `src/modules/domains/service.mjs` |
+| **Cluster Graph** | `candidate_graph_nodes` | `seed_pin_id`, `pin_id` | `src/modules/cluster/service.mjs` |
+| **24h Pulse Summary MV** | `mv_pulse_24h_summary` | `summary_id = 1` (`REFRESH CONCURRENTLY`) | `src/modules/pulse/service.mjs` |
 
 ---
 
-## 2. Canonical Business Logic Functions
+## 2. Canonical Application & Crawler Modules
 
-### A. Pin Synchronization (The 4-Pillar Live Deep Sync)
-* **Canonical Function:** `syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, env, ctx })`
-* **File Location:** `src/modules/sharding/fleet-router.mjs`
-* **Callers:**
-  - `POST /api/pins/:id/sync` (`src/worker.mjs`)
-  - `GET /api/pins/:id` manual deep sync (`src/worker.mjs`)
-  - `getPinDeepDossier` (`src/modules/keywords/service.mjs`)
-  - `scripts/keyword-velocity-crawler.mjs`
-* **Mandatory Execution Steps:**
-  1. Upsert `universal_master_pins` on target shard `getPinShardId(pinId, 99)`.
-  2. Upsert `pins_daily_metrics` on target shard for today's snapshot.
-  3. Update `keyword_serp_current` on Hub (including `daily_save_velocity`).
-  4. Update `competitor_pins` on Hub (if tracked competitor pin).
-  5. Update `pa_pins` on Hub (if qualified winning pin).
-  6. Execute cache evictions in order: Invalidate memory L0 -> Evict KV -> Purge D1 `edge_pins_metadata`.
+### A. Database Client & Atomic Transactions (`src/db/client.mjs`)
+- Use `getSqlClient(env)` or `createSqlClient(dsn)` (never import legacy sharding routers or `@neondatabase/serverless`).
+- All multi-statement atomic transactions use `sql.begin(async (tx) => ...)` or lazy builders passed to `sql.transaction(builders)`.
+- Automatic backoff retries cover transient `SQLSTATE 53300`/socket errors (`withDbRetry`); read-only queries automatically retry on transient drops via proxy without double-retrying writes.
 
-### B. Pin Dossier & Trajectory Retrieval
-* **Universal Pin Dossier:** `fetchUniversalPinDossier({ hubSql, pinId, ctx, env, bypassEdgeCache })`
-  - Location: `src/modules/sharding/fleet-router.mjs`
-  - Protocol: Reads D1/KV first -> falls back to Shard `universal_master_pins` -> decorates with active SERP & competitor status from Hub.
-* **Pin Historical Trajectory:** `fetchPinTrajectoryFromShard({ shardSql, pinId, timeframe })`
-  - Location: `src/modules/sharding/fleet-router.mjs`
-  - Rule: Queries `pins_daily_metrics` and `pin_serp_positions` on the Shard. MUST NEVER query the Hub for snapshots.
+### B. Unified Pin Persistence & Dossier Reads (`src/modules/pins/repository.mjs`)
+- **`ingestPinsBatch(sql, pins, options)`**: Single canonical atomic ingestion pipeline computing velocities, protecting unhydrated `NULL` state, and upserting `universal_master_pins`, `pins_daily_metrics`, and `keyword_serp_positions` with `Map` deduplication and `ORDER BY pin_id ASC`.
+- **`insertNewPinsBatch(sql, pins, pillar)`**: First-time discovery ingestion delegating cleanly to `ingestPinsBatch`.
+- **`resavePinsMetricsBatch(sql, pins)`**: Metric refresh & daily snapshot persistence.
+- **`getPinDossier(sql, pinId, options)`**: Single-roundtrip read-only pin dossier (creative metadata, creator context, keyword rankings, 30-day trajectory from `pins_daily_metrics`) with ZERO read-path DB mutations.
 
-### C. Atomic Multi-Statement Transactions
-* **Hyperdrive & Neon HTTP Pattern:**
-  ```javascript
-  const builders = [
-    (db) => db`INSERT INTO keyword_displaced_index ...`,
-    (db) => db`DELETE FROM keyword_serp_current ...`
-  ];
-  if (typeof sql.begin === 'function') {
-    // Hyperdrive TCP (postgres.js) - sequential single-connection execution
-    await sql.begin(async (tx) => { for (const b of builders) await b(tx); });
-  } else if (typeof sql.transaction === 'function') {
-    // Neon Serverless HTTP - atomic transaction batch
-    await sql.transaction(builders.map(b => b(sql)));
-  }
-  ```
+### C. Pinterest Scraping & Parsing Core (`src/core/pinterest/`)
+- HTTP client (`src/core/pinterest/client.mjs`), HTML/Relay SSR parser (`src/core/pinterest/parser.mjs`), batch Pidgets/PinResource helpers (`src/core/pinterest/pins.mjs`), creator extraction (`src/core/pinterest/creators.mjs`), URL canonicalizer (`src/core/pinterest/urls.mjs`), all re-exported through `src/core/pinterest/index.mjs`.
+- Enforces guest `_auth=0` requests, Chrome 131 fingerprinting, 48 deep SSR fields, and explicit `save_count = null` + `has_explicit_saves = false` when saves are omitted.
 
-### D. Safe Edge Prefetch Handler
-* **Protocol:**
-  ```javascript
-  if (searchParams.get('prefetch') === 'true') {
-    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
-    // 1. Return immediately from Cloudflare D1 or KV edge cache (< 3ms)
-    // 2. NEVER trigger live Pinterest scraping (bgEnrichPromise)
-    // 3. NEVER wake up sleeping Shard databases
-    return await getFastEdgeDossier(pinId, env);
-  }
-  ```
+### D. Fastify v5 HTTP Server & API Routes (`src/server.mjs`, `src/plugins/api-routes.mjs`)
+- Native Fastify v5 server hosting SSR studio HTML pages (`src/routes/pages.mjs` with lazy dynamic imports) and API routes (`src/routes/keywords.mjs`, `creators.mjs`, `domains.mjs`, `cluster.mjs`, `pins.mjs`).
+- Background non-blocking work executes via `serverBackgroundTaskQueue` (`p-limit(4)`), never blocking HTTP responses.
+- Settings & cookie endpoints (`/api/settings*`) strictly redact secret values and emit `Cache-Control: no-store`.
 
-### E. Creator Hub Operations & Synchronization
-* **Quick Pulse (Profile-Level Sync ~3s):** `quickPulseCreator({ sql, competitorId, env, ctx })`
-  - Fetches live creator profile metadata, followers, Impressions, and Total audience without crawling pins.
-* **Deep Harvest (Full Catalog Sweep ~30s):** `deepHarvestCreator({ sql, competitorId, env, ctx, options })`
-  - Uses in-process worker pool (`p-limit(4)`) to crawl feed + profile pins, upserts into `competitor_pins`, evaluates qualification, and executes one-way promotion to `pa_pins`.
-* **One-Way Qualified Pin Promotion:** `reconcileQualifiedCatalogPins({ sql, competitorId, options })`
-  - Single authority evaluating `competitor_pins` against `competitor_profiles.metadata->'qualification_rules'` and upserting into `pa_pins`.
+### E. 20-Worker Crawler Partitioning (`scripts/*`)
+- Partition pins in PostgreSQL using `ABS(hashtext(pin_id::text)::bigint) % 20 = $workerIndex` (backed by `idx_*_hashtext_mod20` from Migration `062`).
+- Crawlers route pin batches through `PinRepository.ingestPinsBatch` (or HTTP `POST /api/internal/ingest` when ingest endpoint is configured).
 
 ---
 
-## 3. Disallowed Anti-Patterns & Prohibitions
+## 3. Prohibited Anti-Patterns
 
-1. ❌ **Direct Snapshot Writes to Hub:** `INSERT INTO keyword_pins_snapshots` or `INSERT INTO pa_pin_metrics` on Hub.
-2. ❌ **Snapshot Reads from Hub:** `SELECT * FROM pa_pin_metrics` or `SELECT * FROM keyword_pins_snapshots`.
-3. ❌ **Unbounded Scatter-Gather:** `Promise.all(shards.map(...))` without concurrency limiter.
-4. ❌ **Raw Promise Array in Hyperdrive Transactions:** `sql.transaction([sql`...`, sql`...`])`.
-5. ❌ **Delete / Update on Views:** `DELETE FROM pins_daily_snapshots` (violates migration 033 View DDL).
-6. ❌ **BigInt Double Truncation:** `Number(snapshotId)` for 60-bit snowflake IDs (exceeds 53-bit `Number.MAX_SAFE_INTEGER`).
-7. ❌ **The View Upsert Ban:** Converting physical tables that receive `INSERT ... ON CONFLICT` (`pa_pins`, `competitor_pins`, `keyword_serp_current`) into PostgreSQL `VIEW`s. PostgreSQL rejects conflict arbitration on views.
-8. ❌ **Bi-Directional Pin Hydration:** Re-hydrating `competitor_pins` from `pa_pins` (`autoHydrateCompetitorPinsFromArchive`). Promotion is strictly one-way (`competitor_pins` ➡️ `pa_pins`).
+1. ❌ Importing or recreating Neon 99-shard routers, `@neondatabase/serverless`, `pae_crc32_shard_id`, or `shard_id` columns.
+2. ❌ Referencing Cloudflare Workers KV (`PIN_ENGINE_KV`), D1 (`PIN_D1_DB`, `edge_pins_metadata`), or `HYPERDRIVE` bindings inside application runtime code.
+3. ❌ Querying dropped pre-060 tables (`keyword_serp_current`, `keyword_displaced_index`, `pa_pins`, `competitor_pins`, `pin_serp_positions`, `pins_daily_snapshots`, `keyword_pins_snapshots`).
+4. ❌ Duplicating raw `INSERT INTO universal_master_pins ... ON CONFLICT` SQL in crawlers instead of calling `PinRepository.ingestPinsBatch`.
+5. ❌ Falling back `save_count` to `repin_count` or turning unhydrated `NULL` saves into `0`.
+6. ❌ Exposing raw or partial `pinterest_cookie` prefixes in any API response or omitting `Cache-Control: no-store` on settings endpoints.

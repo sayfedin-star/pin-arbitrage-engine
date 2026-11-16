@@ -33,17 +33,10 @@ import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
 import {
-  pinterestFetch,
-  getStandardPinterestHeaders,
   randomJitterMs,
   sleep,
   setDefaultDispatcher
-} from '../src/core/pinterest-client.mjs';
-import {
-  formatPin,
-  fetchPinFromPinResource,
-  fetchAndExtractPin
-} from '../src/core/pinterest-parser.mjs';
+} from '../src/core/pinterest/index.mjs';
 import { fetchPinFromPinterest, fetchPinHybrid } from './lib/pinterest.mjs';
 import {
   insertNewPinsBatch,
@@ -83,6 +76,24 @@ if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env
 }
 
 const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
+function classifyFatalSerpSqlError(err) {
+  if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
+    return false;
+  }
+  const sqlState = String(err?.code || '');
+  return /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
+}
+async function stampPhase1ABarrierToken(kid, token, leaseToken) {
+  const barrierSql = sql?.noRetry || sql;
+  await withDbRetry(() => barrierSql`
+    UPDATE tracked_keywords
+    SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${token}::text)),
+        updated_at = NOW(),
+        crawl_lease_token = CASE WHEN crawl_lease_token = ${leaseToken}::uuid THEN NULL ELSE crawl_lease_token END,
+        crawl_lease_until = CASE WHEN crawl_lease_token = ${leaseToken}::uuid THEN NULL ELSE crawl_lease_until END
+    WHERE id = ${kid};
+  `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+}
 async function closeCrawlerDb(exitCode = 0) {
   try {
     if (sql && typeof sql.end === 'function') {
@@ -287,7 +298,7 @@ async function inspectPin(pin, kw) {
       image_url: pin.image_url,
       description: pin.description || '',
       alt_text: pin.alt_text || '',
-      dominant_color: pin.dominant_color || '#888888',
+      dominant_color: (pin.dominant_color && String(pin.dominant_color).toLowerCase() !== '#888888') ? pin.dominant_color : null,
       visual_annotations: pin.visual_annotations || [],
       method: pin.creation_method || pin.method || 'pinterest_platform',
       creation_method: pin.creation_method || pin.method || 'pinterest_platform',
@@ -513,7 +524,8 @@ async function inspectPin(pin, kw) {
 
   const description = detail?.description || pin.description || '';
   const altText = detail?.alt_text || detail?.altText || detail?.seo_alt_text || pin.alt_text || '';
-  const dominantColor = detail?.dominant_color || detail?.dominantColor || pin.dominant_color || '#888888';
+  const rawDominantColor = String(detail?.dominant_color || detail?.dominantColor || pin.dominant_color || '').trim();
+  const dominantColor = (!rawDominantColor || rawDominantColor.toLowerCase() === '#888888') ? null : rawDominantColor;
   const creator = detail?.pinner?.username || detail?.creator_username || pin.creator_username || '';
   const board = detail?.board?.name || pin.board_name || '';
   const method = detail?.method || detail?.creation_method || pin.creation_method || pin.method || pin.metadata?.method || 'pinterest_platform';
@@ -944,7 +956,7 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
       image_url: cp.image_url || '',
       description: cp.description || '',
       alt_text: cp.metadata?.alt_text || '',
-      dominant_color: cp.dominant_color || '#888888',
+      dominant_color: (cp.dominant_color && String(cp.dominant_color).toLowerCase() !== '#888888') ? cp.dominant_color : null,
       visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
       created_at_pinterest: cp.created_at_pinterest || null,
       method: baseMethod,
@@ -1081,13 +1093,7 @@ async function run() {
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
           serpErrorCount++;
-          let isFatalSqlError = false;
-          if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
-            isFatalSqlError = false;
-          } else {
-            const sqlState = String(err?.code || '');
-            isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-          }
+          const isFatalSqlError = classifyFatalSerpSqlError(err);
           console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${err?.code || 'N/A'}):`, err.message);
           if (isFatalSqlError && !fatalSerpDbErr) {
             fatalSerpDbErr = err;
@@ -1095,15 +1101,7 @@ async function run() {
         } finally {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
           try {
-            const barrierSql = sql?.noRetry || sql;
-            await withDbRetry(() => barrierSql`
-              UPDATE tracked_keywords
-              SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${folderRunToken}::text)),
-                  updated_at = NOW(),
-                  crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_token END,
-                  crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_until END
-              WHERE id = ${kid};
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+            await stampPhase1ABarrierToken(kid, folderRunToken, effectiveToken);
           } catch (barrierErr) {
             console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
           }
@@ -1328,13 +1326,7 @@ async function run() {
           });
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
-          let isFatalSqlError = false;
-          if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
-            isFatalSqlError = false;
-          } else {
-            const sqlState = String(err?.code || '');
-            isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-          }
+          const isFatalSqlError = classifyFatalSerpSqlError(err);
           console.warn(`[Phase 1A] Lead Runner SERP error (code=${err?.code || 'N/A'}):`, err.message);
           if (isFatalSqlError) {
             fatalSerpDbErrB = err;
@@ -1343,16 +1335,7 @@ async function run() {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers
           let barrierUpdated = false;
           try {
-            const barrierSql = sql?.noRetry || sql;
-            await withDbRetry(() => barrierSql`
-              UPDATE tracked_keywords
-              SET 
-                metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
-                updated_at = NOW(),
-                crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_token END,
-                crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_until END
-              WHERE id = ${kwRow.id};
-            `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+            await stampPhase1ABarrierToken(kwRow.id, runToken, effectiveToken);
             barrierUpdated = true;
           } catch (barrierErr) {
             console.warn(`[Worker 0] ⚠️ Phase 1A barrier token update failed: ${barrierErr?.message || barrierErr}`);
@@ -1569,13 +1552,7 @@ async function run() {
             console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins)`);
           } catch (err) {
             serpErrorCount++;
-            let isFatalSqlError = false;
-            if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
-              isFatalSqlError = false;
-            } else {
-              const sqlState = String(err?.code || '');
-              isFatalSqlError = /^(22|42|23)/.test(sqlState) || /jsonb_to_recordset|syntax error|column .* does not exist/i.test(String(err?.message || ''));
-            }
+            const isFatalSqlError = classifyFatalSerpSqlError(err);
             console.error(`  [!] [Phase 1A] Keyword ID ${kid} SERP error (code=${err?.code || 'N/A'}): ${err.message}`);
             if (isFatalSqlError && !fatalSerpDbErr) {
               fatalSerpDbErr = err;
@@ -1583,15 +1560,7 @@ async function run() {
           } finally {
             // Failure-Immune Logical Barrier Sync Guard: Always stamp phase1a_completed_token so a failed keyword or clock skew never blocks the 20-worker barrier
             try {
-              const barrierSql = sql?.noRetry || sql;
-              await withDbRetry(() => barrierSql`
-                UPDATE tracked_keywords
-                SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${fleetRunToken}::text)),
-                    updated_at = NOW(),
-                    crawl_lease_token = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_token END,
-                    crawl_lease_until = CASE WHEN crawl_lease_token = ${effectiveToken}::uuid THEN NULL ELSE crawl_lease_until END
-                WHERE id = ${kid};
-              `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
+              await stampPhase1ABarrierToken(kid, fleetRunToken, effectiveToken);
             } catch (barrierErr) {
               console.warn(`  [!] [Phase 1A] Keyword ID ${kid} barrier token update failed: ${barrierErr?.message || barrierErr}`);
             }

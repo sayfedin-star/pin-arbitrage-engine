@@ -482,10 +482,9 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
     WHERE id = ${fid};
   `;
 
-  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+  // [INVARIANT: ATOMIC-TRANSACTION-BUILDER]
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-  // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+  // [INVARIANT: UNIFIED-POSTGRES-SSOT]
   let inserted = [];
   if (typeof sql.transaction === 'function') {
     const res = await sql.transaction([
@@ -1459,7 +1458,7 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
     `;
   }
 
-  // C. Pure Unified Architecture: Edge KV and D1 caches eliminated
+  // C. Unified PostgreSQL SSOT (no separate secondary cache sync required)
 
   // D. Invalidate in-memory crossover cache
   invalidateFolderCache(fid);

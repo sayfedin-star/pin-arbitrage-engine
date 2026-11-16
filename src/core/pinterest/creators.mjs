@@ -4,7 +4,6 @@
  * Creator Profiles, Boards, Sections, RSS/Pidgets Streams, and Board Feed Clients.
  */
 
-import { normalizeDomain, parseCleanMetric } from '../pinterest-parser.mjs';
 import {
   getPinterestXhrHeaders,
   PINTEREST_PAGE_HEADERS,
@@ -14,7 +13,7 @@ import {
   getDefaultDispatcher,
   pinterestFetch
 } from './client.mjs';
-import { formatPin } from './pins.mjs';
+import { normalizeDomain, parseCleanMetric, formatPin } from './pins.mjs';
 
 /**
  * Creator Visual Stream + Parallel RSS pubDate Fusion

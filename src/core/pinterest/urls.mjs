@@ -5,7 +5,7 @@
  * and pin.it Shortlink Redirect Resolver.
  */
 
-import { sanitizeDestinationUrl } from '../pinterest-parser.mjs';
+import { sanitizeDestinationUrl } from './pins.mjs';
 import { PINTEREST_PAGE_HEADERS, getDefaultDispatcher, pinterestFetch } from './client.mjs';
 
 /**

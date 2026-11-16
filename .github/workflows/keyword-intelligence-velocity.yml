@@ -46,7 +46,7 @@ on:
         default: ''
 
 concurrency:
-  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword != '' && format('kw-{0}', inputs.target_keyword) || (inputs.folder_id != '' && format('folder-{0}', inputs.folder_id) || (github.event_name == 'schedule' && 'cron' || 'dispatch-all')) }}
   cancel-in-progress: false
 
 permissions:

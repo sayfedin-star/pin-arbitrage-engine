@@ -9,9 +9,9 @@ description: >-
 This skill provides an exhaustive, step-by-step checklist and automated verification procedure to catch second-order bugs, scope leaks, NaN poisoning, and SQL schema mismatches before code is committed or deployed.
 
 ## When to Activate This Skill
-- Before executing any `git commit` or merging a PR.
-- After making substantial changes to crawlers, database queries, sharding routers, or caching logic.
-- Whenever a bug fix changes data structures (e.g., numbers to objects, arrays to sets).
+- Before completing substantial edits or preparing a PR/commit.
+- After modifying crawlers, `PinRepository` ingestion, PostgreSQL queries/migrations, or Fastify API routes.
+- Whenever a bug fix changes data structures (e.g., primitives to objects, `NULL` vs `0` unhydrated semantics).
 
 ---
 
@@ -20,10 +20,12 @@ Always execute the automated verification suite:
 
 ```bash
 npm run check
+node scripts/audit_ui.mjs
 npm test
+node --test tests/*.mjs
 ```
 
-`npm run check` automatically verifies 100% of `.mjs` syntax dynamically, executes inline UI script validation, audits route re-organization, runs `verify_sql_schema_parity.mjs`, and enforces ESLint scope rules with `--max-warnings=0`.
+`npm run check` validates `.mjs` syntax, inline UI script compilation, route structure, SQL schema parity (`verify_sql_schema_parity.mjs`), ESLint (`--max-warnings=0`), and DOM nesting (`verify_dom_nesting.mjs`).
 
 If any check fails, do NOT proceed. Inspect the failure and resolve root causes.
 
@@ -32,44 +34,35 @@ If any check fails, do NOT proceed. Inspect the failure and resolve root causes.
 ## 2. The 7-Point Forensic Checklist
 
 ### Checklist 1: Scope & Lifecycle Hoisting
-- [ ] Inspect every variable accessed inside a `finally` block. Is it declared before `try`?
-- [ ] Inspect loop-scoped variables. Are timestamps like `todayUtc` or `todayIso` declared at outer Phase scope so downstream logic has access?
+- [ ] Inspect every variable accessed inside a `finally` block. Is it declared with `let` before `try`?
+- [ ] Inspect loop-scoped variables. Are UTC day boundaries (`todayUtcIso`, `todayIso`) declared at outer phase scope so downstream batch writes share a consistent day?
 
 ### Checklist 2: Numeric Type Integrity & Anti-NaN Guard
-- [ ] Trace all occurrences of `baselineMap.get(...)` or any in-memory map. Does it return `{ saves, date }` or a primitive number?
-- [ ] If returning an object, ensure `Number(entry.saves || 0)` is used instead of `Number(entry)`.
-- [ ] Verify that `Math.max()` does not receive `NaN`.
+- [ ] Trace all occurrences of `baselineMap.get(...)` or in-memory lookup maps. Does an entry return `{ saves, date }` or a number?
+- [ ] Unpack numbers explicitly (`Number(entry?.saves ?? 0)` or `null` when unhydrated) and verify `Math.max()` / `Math.round()` cannot receive `NaN`.
 
-### Checklist 3: SQL Schema Parity (Neon Hub & Shard DDL)
-- [ ] Does `keyword_serp_current` have the column? (No `reaction_count` column).
-- [ ] Does `keyword_displaced_index` have the column? (`last_known_rank`, `save_count`, `updated_at`).
-- [ ] Does `pin_serp_positions` have the column? (`(pin_id, snapshot_date, keyword_id)`).
+### Checklist 3: SQL Schema Parity (Unified PostgreSQL 16 4-Table SSOT)
+Verify every query and migration against the live 4-Table SSOT schema (`scripts/migrations/060`–`064`):
+- [ ] `universal_master_pins`: primary SSOT catalog (`pin_id` PK, `creator_username`, `clean_domain`, `save_count`, `repin_count`, `daily_save_velocity`, `is_hydrated`, `visual_annotations`, `fillfactor = 80`).
+- [ ] `pins_daily_metrics`: daily snapshots (`(pin_id, recorded_date)` PK, `snapshot_date` generated alias, `save_count`, `repin_count`, `comment_count`, `share_count`, `reaction_count`, `daily_save_velocity`, `daily_repin_velocity`).
+- [ ] `keyword_serp_positions`: active + displaced SERP rankings (`(keyword_id, pin_id)` PK, `rank_position`, `is_displaced`, `last_known_rank`, `vacuum_opportunity_score`).
+- [ ] `competitor_board_pins`: lightweight account/board-to-pin relation (`(competitor_id, board_id, pin_id)` PK).
+- [ ] Never reference retired pre-060 tables (`keyword_serp_current`, `keyword_displaced_index`, `pa_pins`, `competitor_pins`, `pin_serp_positions`).
 
-### Checklist 4: Catch-Swallow Inspection
-- [ ] Does any `.catch(() => [])` mask a fatal SQL syntax error?
-- [ ] Run raw queries in test scripts without catch blocks to verify PostgreSQL acceptance.
+### Checklist 4: Catch-Swallow & Secret Leak Inspection
+- [ ] Verify no `.catch(() => [])` or `.catch(() => {})` hides SQL syntax or missing-column errors.
+- [ ] Verify credential endpoints (`/api/settings*`, cookie storage) never return cookie prefixes/secrets and always emit `Cache-Control: no-store`.
 
-### Checklist 5: Ratchet Logic & Monotonic Velocity
-- [ ] Is `GREATEST()` trapping values forever? Ensure fresh crawls can update velocity.
-- [ ] In `COALESCE`, is fresh incoming data (`EXCLUDED`) listed first where appropriate?
+### Checklist 5: Ratchet Logic, NULL Unhydrated State & 20-Worker Partitioning
+- [ ] Unhydrated discovery pins MUST keep `save_count = NULL` and `is_hydrated = FALSE` (never substitute `repin_count` for missing `save_count`).
+- [ ] Never lock metrics behind monotonic `GREATEST` ratchets that block downward corrections; allow fresh crawls (`PinRepository.ingestPinsBatch`) to update velocity symmetrically.
+- [ ] Batch `jsonb_to_recordset` upserts MUST deduplicate by conflict key and sort `ORDER BY pin_id ASC` to prevent `SQLSTATE 21000` and `40P01`.
+- [ ] Parallel crawler slicing MUST use `ABS(hashtext(pin_id::text)::bigint) % 20` matching `idx_*_hashtext_mod20`.
 
 ### Checklist 6: Day-2 Execution Path Tracing
-- [ ] Trace crawler behavior on Day 2 when `baselineMap.has(pinId)` is `true`.
-- [ ] Trace shard router when `universal_master_pins` already contains records.
+- [ ] Trace Day-1 unhydrated (`NULL` saves) -> first hydration jump (velocity MUST suppress to `0`) -> Day-2 delta computation.
+- [ ] Trace `PinRepository.ingestPinsBatch` when `universal_master_pins` and `pins_daily_metrics` already hold prior-day rows.
 
-### Checklist 7: Zero vs Falsy Guards
-- [ ] Does `saves >= 0` cause an unintended early return when `saves === 0`?
-- [ ] Use `saves > 0` for early returns, and retain `fallbackFormatted` for deep fallbacks (JSON-LD and Meta tags).
-
----
-
-## 3. Invoking the Adversarial Auditor Subagent
-When performing high-stakes changes, invoke the specialized subagent:
-
-```json
-{
-  "TypeName": "adversarial-auditor",
-  "Role": "Adversarial Code Auditor",
-  "Prompt": "Review the latest git diff and audit for all 7 forensic landmines."
-}
-```
+### Checklist 7: Zero vs Falsy Guards & HOT Update Safety
+- [ ] Distinguish `save_count === null` (unhydrated) from `save_count === 0` (`has_explicit_saves === true`), so explicit 0-save pins do not trigger wasted fallback loops or false hydration jumps.
+- [ ] Ensure secondary indexes do not include volatile counters (`save_count`, `daily_save_velocity`, `last_scraped_at`) that break PostgreSQL HOT updates.

@@ -194,8 +194,8 @@ export async function handleKeywordsRoutes({
             await sql`
               UPDATE universal_master_pins
               SET url_global_saves = ${count}
-              WHERE destination_url = ${cleanUrl}
-                 OR destination_url = ${cleanUrl + '/'}
+              WHERE (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
+                 OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
                  OR destination_url LIKE ${cleanUrl + '?%'};
             `.catch(() => {});
           })(), 'write_back_single_url_global_saves');
@@ -299,8 +299,8 @@ export async function handleKeywordsRoutes({
           UPDATE universal_master_pins ump
           SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), x.count::bigint)
           FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)
-          WHERE ump.destination_url = x.url
-             OR ump.destination_url = (x.url || '/')
+          WHERE (md5(ump.destination_url) = md5(x.url) AND ump.destination_url = x.url)
+             OR (md5(ump.destination_url) = md5(x.url || '/') AND ump.destination_url = (x.url || '/'))
              OR ump.destination_url LIKE (x.url || '?%');
         `.catch(() => {});
       })(), 'write_back_batch_global_saves');
