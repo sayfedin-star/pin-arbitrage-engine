@@ -16,7 +16,7 @@
  * - PinArchive-parity metadata enrichment (aspect ratio, format badges, velocity tiers)
  */
 
-import { formatPinterestCookie } from '../../utils.mjs';
+import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import {
   extractPinData,
@@ -116,7 +116,7 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0,
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   const fId = (folderId !== null && folderId !== undefined && !isNaN(Number(folderId))) ? Number(folderId) : null;
   if (search) {
-    const pattern = `%${search.toLowerCase().trim()}%`;
+    const pattern = `%${escapeSqlWildcards(search.toLowerCase().trim())}%`;
     return await sql`
       WITH paged_keywords AS (
         SELECT 
@@ -126,7 +126,7 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0,
           (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
           created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
         FROM tracked_keywords
-        WHERE LOWER(keyword) LIKE ${pattern}
+        WHERE LOWER(keyword) LIKE ${pattern} ESCAPE '\\'
           AND (${fId}::int IS NULL OR id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         ORDER BY created_at DESC
         LIMIT ${lim} OFFSET ${off}

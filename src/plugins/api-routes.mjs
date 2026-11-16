@@ -208,12 +208,13 @@ export async function apiRoutesPlugin(app, options = {}) {
 
           if (method === 'GET' && pathname === '/api/settings/cookie' && !env?.DATABASE_URL && !env?.SQL_CLIENT && !process.env?.DATABASE_URL) {
             const cookie = env?.PINTEREST_COOKIE || process.env?.PINTEREST_COOKIE || '';
+            const hasCookie = Boolean(cookie && cookie.trim().length > 10);
             return boundJsonResponse({
-              has_cookie: Boolean(cookie && cookie.trim().length > 10),
-              is_configured: Boolean(cookie && cookie.trim().length > 10),
-              preview: cookie ? `${cookie.slice(0, 42)}...` : '',
+              has_cookie: hasCookie,
+              is_configured: hasCookie,
+              preview: hasCookie ? '[CONFIGURED]' : '',
               source: 'node_native_env'
-            });
+            }, 200, -1);
           }
 
           // 3B. Authenticated Cache Invalidation Endpoint (for GitHub Actions & Internal Pipelines)

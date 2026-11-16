@@ -447,18 +447,7 @@ async function main() {
     console.warn('[!] Hub Storage maintenance non-fatal warning:', optErr.message);
   }
 
-  // 6. Hub Sequential Table Vacuum & Statistics Refresh (Consolidator isolated run)
-  try {
-    console.log('[*] Executing Hub Sequential Table Vacuum & Statistics Refresh...');
-    await sql`VACUUM (ANALYZE) keyword_serp_positions;`.catch((e) => console.warn('  [!] VACUUM keyword_serp_positions warning:', e?.message || e));
-    await sql`VACUUM (ANALYZE) universal_master_pins;`.catch((e) => console.warn('  [!] VACUUM universal_master_pins warning:', e?.message || e));
-    await sql`VACUUM (ANALYZE) pins_daily_metrics;`.catch((e) => console.warn('  [!] VACUUM pins_daily_metrics warning:', e?.message || e));
-    await sql`VACUUM (ANALYZE) competitor_board_pins;`.catch((e) => console.warn('  [!] VACUUM competitor_board_pins warning:', e?.message || e));
-    await sql`VACUUM (ANALYZE) tracked_keywords;`.catch((e) => console.warn('  [!] VACUUM tracked_keywords warning:', e?.message || e));
-    console.log('  ✓ Hub Tables Vacuumed and Statistics Refreshed.');
-  } catch (vacErr) {
-    console.warn('[!] Hub Vacuum non-fatal warning:', vacErr.message);
-  }
+  // 5B. Hub tables already vacuumed & analyzed inside optimizeHubStorage(sql) above.
 
   // 7. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
   if (process.env.SKIP_MV_REFRESH !== 'true') {

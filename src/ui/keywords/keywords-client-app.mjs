@@ -2008,7 +2008,8 @@ export function getKeywordsClientAppScript() {
             if (!res.ok || !data.success) {
               throw new Error(data.error || data.message || 'Failed to save Pinterest cookie');
             }
-            this.appSettings.pinterest_cookie = data.cookie || this.settingsPinterestCookie.trim();
+            this.appSettings.has_pinterest_cookie = Boolean(data.has_cookie ?? true);
+            this.appSettings.pinterest_cookie = '';
             this.showToast('Pinterest session cookie saved & activated across all crawlers!', 'success');
           } catch (err) {
             this.showToast('Error saving cookie: ' + err.message, 'error');

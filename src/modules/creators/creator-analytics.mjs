@@ -2185,7 +2185,7 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(creator_username, '') LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern})
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND COALESCE(daily_save_velocity, 0) < 0.5) OR
@@ -2239,7 +2239,7 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(creator_username, '') LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern})
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND COALESCE(daily_save_velocity, 0) < 0.5) OR

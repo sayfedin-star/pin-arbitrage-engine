@@ -479,7 +479,13 @@ export async function handleKeywordsRoutes({
   // 5. GET /api/settings
   if (method === 'GET' && pathname === '/api/settings') {
     const settings = await getAppSettings(sql);
-    return jsonResponse({ success: true, settings }, 200, 60);
+    const hasCookie = Boolean(settings?.has_pinterest_cookie || (settings?.pinterest_cookie && String(settings.pinterest_cookie).trim().length > 10));
+    const safeSettings = {
+      ...settings,
+      pinterest_cookie: '',
+      has_pinterest_cookie: hasCookie
+    };
+    return jsonResponse({ success: true, settings: safeSettings }, 200, -1);
   }
 
   // 6. POST /api/settings
@@ -488,7 +494,13 @@ export async function handleKeywordsRoutes({
     invalidateEdgeCache('settings');
     const body = await request.json().catch(() => ({}));
     const updated = await updateAppSettings(sql, body);
-    return jsonResponse({ success: true, settings: updated });
+    const hasCookie = Boolean(updated?.has_pinterest_cookie || (updated?.pinterest_cookie && String(updated.pinterest_cookie).trim().length > 10));
+    const safeSettings = {
+      ...updated,
+      pinterest_cookie: '',
+      has_pinterest_cookie: hasCookie
+    };
+    return jsonResponse({ success: true, settings: safeSettings }, 200, -1);
   }
 
   // 7. POST /api/keywords/settings

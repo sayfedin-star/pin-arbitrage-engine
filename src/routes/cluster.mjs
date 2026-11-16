@@ -593,9 +593,9 @@ export async function handleClusterRoutes({
     return jsonResponse({
       has_cookie: hasCookie,
       is_configured: hasCookie,
-      preview: hasCookie ? `${effective.slice(0, 42)}...` : '',
+      preview: hasCookie ? '[CONFIGURED]' : '',
       source: sql ? 'database_or_env' : 'node_native_env'
-    });
+    }, 200, -1);
   }
 
   // 13. POST /api/settings/cookie
@@ -605,11 +605,12 @@ export async function handleClusterRoutes({
     const rawCookie = String(body.cookie || '').trim();
     const saved = await savePinterestCookie(sql, rawCookie).catch((err) => {
       console.warn('[Cookie Save Warning]', err.message);
+      const hasCookie = Boolean(rawCookie && rawCookie.length > 10);
       return {
         raw: rawCookie,
         formatted: rawCookie,
-        has_cookie: Boolean(rawCookie && rawCookie.length > 10),
-        preview: rawCookie ? `${rawCookie.slice(0, 42)}...` : ''
+        has_cookie: hasCookie,
+        preview: hasCookie ? '[CONFIGURED]' : ''
       };
     });
     if (env && typeof env === 'object') {
@@ -619,10 +620,10 @@ export async function handleClusterRoutes({
       success: true,
       has_cookie: saved.has_cookie,
       is_configured: saved.has_cookie,
-      preview: saved.preview,
+      preview: saved.has_cookie ? '[CONFIGURED]' : '',
       source: 'database',
       note: 'Cookie persisted to PostgreSQL app_settings and activated for SERP & Competitor crawlers.'
-    });
+    }, 200, -1);
   }
 
   // 14. GET /api/discovery/typeahead

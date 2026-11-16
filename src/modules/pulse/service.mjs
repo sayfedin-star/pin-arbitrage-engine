@@ -566,7 +566,7 @@ async function queryBreakoutCreators(sql, folderIdNum) {
         COALESCE(ump.daily_save_velocity, 0)::numeric AS daily_save_velocity,
         ump.created_at_pinterest
       FROM universal_master_pins ump
-      JOIN top_creators tc ON LOWER(TRIM(REPLACE(tc.username, '@', ''))) = LOWER(TRIM(REPLACE(ump.creator_username, '@', '')))
+      JOIN top_creators tc ON LOWER(TRIM(REPLACE(COALESCE(tc.username, ''), '@', ''))) = LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', '')))
       WHERE COALESCE(NULLIF(ump.image_url, ''), '') <> ''
     ),
     deduped_creator_pins AS (

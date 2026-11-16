@@ -242,7 +242,7 @@ export function createFastifyApp(customEnv = {}) {
   const isTestOrLocal = (
     customEnv.ENVIRONMENT === 'test' ||
     customEnv.NODE_ENV === 'test' ||
-    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark|check(?:$|[_.\\/]))|\.test\.m?js$/i.test(arg)))
+    (typeof process !== 'undefined' && process.argv && process.argv.slice(1).some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark)[^\\/]*$|(?:^|[\\/])check(?:[_.][^\\/]*)?$|\.test\.m?js$/i.test(arg)))
   );
 
   const env = {

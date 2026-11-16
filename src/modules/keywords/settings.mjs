@@ -87,11 +87,12 @@ export async function savePinterestCookie(sql, rawCookie = '') {
         updated_at = NOW();
     `;
   }
+  const hasCookie = Boolean(formatted && formatted.length > 10);
   return {
     raw: cleanRaw,
     formatted,
-    has_cookie: Boolean(formatted && formatted.length > 10),
-    preview: formatted ? `${formatted.slice(0, 38)}...` : ''
+    has_cookie: hasCookie,
+    preview: hasCookie ? '[CONFIGURED]' : ''
   };
 }
 
@@ -153,15 +154,26 @@ export async function getAppSettings(sql) {
  */
 export async function updateAppSettings(sql, newSettings = {}) {
   const current = await getAppSettings(sql);
-  if (newSettings.pinterest_cookie !== undefined && String(newSettings.pinterest_cookie || '').trim()) {
-    await savePinterestCookie(sql, newSettings.pinterest_cookie);
+  const incomingCookie = typeof newSettings.pinterest_cookie === 'string' ? newSettings.pinterest_cookie.trim() : '';
+  if (incomingCookie) {
+    await savePinterestCookie(sql, incomingCookie);
   }
+  const {
+    pinterest_cookie: _curCookie,
+    has_pinterest_cookie: _curHasCookie,
+    ...safeCurrent
+  } = current;
+  const {
+    pinterest_cookie: _newCookie,
+    has_pinterest_cookie: _newHasCookie,
+    ...safeIncoming
+  } = (newSettings && typeof newSettings === 'object' ? newSettings : {});
   const merged = {
-    ...current,
-    ...newSettings,
+    ...safeCurrent,
+    ...safeIncoming,
     breakout_rules: {
-      ...(current.breakout_rules || {}),
-      ...(newSettings.breakout_rules || {})
+      ...(safeCurrent.breakout_rules || {}),
+      ...(safeIncoming.breakout_rules || {})
     }
   };
   await sql`
@@ -171,7 +183,12 @@ export async function updateAppSettings(sql, newSettings = {}) {
       value = EXCLUDED.value,
       updated_at = NOW();
   `;
-  return merged;
+  const effectiveCookie = incomingCookie || _curCookie || '';
+  return {
+    ...merged,
+    pinterest_cookie: effectiveCookie,
+    has_pinterest_cookie: Boolean(effectiveCookie && String(effectiveCookie).trim().length > 10)
+  };
 }
 
 /**

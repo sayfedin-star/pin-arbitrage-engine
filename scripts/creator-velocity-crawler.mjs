@@ -973,7 +973,8 @@ async function run() {
 
       const flushPulseBatch = async (chunk) => {
         if (!chunk || chunk.length === 0) return;
-        const payloadJson = JSON.stringify(sanitizeForJsonb(chunk));
+        const sortedChunk = [...chunk].sort((a, b) => Number(a.competitor_id) - Number(b.competitor_id));
+        const payloadJson = JSON.stringify(sanitizeForJsonb(sortedChunk));
 
         try {
           await sql`

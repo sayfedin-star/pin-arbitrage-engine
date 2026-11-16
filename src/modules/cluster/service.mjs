@@ -856,7 +856,13 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
         )
         SELECT
           u.seed_pin_id, u.candidate_pin_id, u.title,
-          u.dominant_color, u.aspect_ratio, u.saves,
+          u.dominant_color,
+          CASE
+            WHEN TRIM(COALESCE(u.aspect_ratio, '')) ~ '^[+-]?(\d+(\.\d+)?|\.\d+)$'
+            THEN TRIM(u.aspect_ratio)::numeric
+            ELSE NULL::numeric
+          END AS aspect_ratio,
+          u.saves,
           u.repins, u.save_rate, u.domain,
           u.is_product, u.ocr_text, NOW(),
           NULLIF(TRIM(u.pin_created_at), '')::timestamptz, u.age_days, u.daily_velocity,

@@ -3,7 +3,7 @@
  * Split from src/modules/creators/service.mjs (Layer 3 — depends on competitors-crud & creator-ingest)
  */
 
-import { formatPinterestCookie } from '../../utils.mjs';
+import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
 import { fetchBoardsResource, fetchBoardDetailUnauth, fetchBoardFeedResource, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import crypto from 'node:crypto';
 import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules, qualifyPin } from './competitors-crud.mjs';
@@ -383,8 +383,8 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
             REPLACE(LOWER(TRIM(name)), ' ', '-') = REPLACE(${rawBoard.toLowerCase()}, ' ', '-') OR
             REPLACE(LOWER(TRIM(name)), '-', ' ') = REPLACE(${rawBoard.toLowerCase()}, '-', ' ') OR
             LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(name), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(${rawBoard}, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) OR
-            url ILIKE ${'%' + encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} OR
-            url ILIKE ${'%' + rawBoard.toLowerCase().replace(/\s+/g, '-') + '%'}
+            url ILIKE ${'%' + escapeSqlWildcards(encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-'))) + '%'} ESCAPE '\\' OR
+            url ILIKE ${'%' + escapeSqlWildcards(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} ESCAPE '\\'
           )
         ORDER BY 
           (CASE WHEN board_id NOT LIKE 'cb-%' THEN 0 ELSE 1 END) ASC,
