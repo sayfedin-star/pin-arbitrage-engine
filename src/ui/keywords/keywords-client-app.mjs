@@ -1271,6 +1271,13 @@ export function getKeywordsClientAppScript() {
             }, 600);
           } else {
             this.viewModeLevel = 'dashboard';
+            try {
+              const urlParams = new URLSearchParams(window.location.search || '');
+              const searchParam = (urlParams.get('search') || '').trim();
+              if (searchParam) {
+                this.dashboardSearch = searchParam;
+              }
+            } catch (_) {}
             this.fetchKeywords();
             this.fetchFolders();
           }

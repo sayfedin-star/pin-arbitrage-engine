@@ -18,9 +18,17 @@ export function getFoldersHubViewHtml() {
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Organize tracked keywords into niche topic clusters and analyze cross-SERP super-pin crossover.</p>
         </div>
 
-        <button @click="openNewFolderModal = true" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2">
-          <span>+</span> Create New Campaign Folder
-        </button>
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="relative w-64 sm:w-72">
+            <input type="search" x-model="folderHubSearch" placeholder="Filter folders or keywords..." aria-label="Filter campaign folders" class="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 transition-colors" />
+            <span class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+              <i data-lucide="search" class="w-3.5 h-3.5"></i>
+            </span>
+          </div>
+          <button @click="openNewFolderModal = true" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2">
+            <span>+</span> Create New Campaign Folder
+          </button>
+        </div>
       </div>
 
       <!-- Quick KPI Stats for All Folders -->
@@ -41,7 +49,7 @@ export function getFoldersHubViewHtml() {
 
       <!-- Folders Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <template x-for="f in foldersList" :key="f.id">
+        <template x-for="f in filteredFoldersList" :key="f.id">
           <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-indigo-400 dark:hover:border-slate-700 transition-all flex flex-col justify-between gap-4 group">
             <!-- Card Header -->
             <div class="flex items-center justify-between">
@@ -110,7 +118,7 @@ export function getFoldersHubViewHtml() {
         </template>
       </div>
 
-      <!-- Empty State -->
+      <!-- Empty State (No folders exist) -->
       <div x-show="!foldersList.length && !foldersLoading" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4 shadow-sm" x-cloak>
         <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
           📁
@@ -126,5 +134,13 @@ export function getFoldersHubViewHtml() {
         </button>
       </div>
 
-    </div>`;
+      <!-- Filtered Empty State -->
+      <div x-show="foldersList.length > 0 && !filteredFoldersList.length && !foldersLoading" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-10 text-center flex flex-col items-center justify-center gap-3 shadow-sm" x-cloak>
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">No campaign folders match "<span x-text="folderHubSearch"></span>"</h3>
+        <button @click="folderHubSearch = ''" class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors">
+          Clear Filter
+        </button>
+      </div>
+
+    </div>`;
 }

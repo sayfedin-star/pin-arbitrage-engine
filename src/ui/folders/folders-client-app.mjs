@@ -249,6 +249,20 @@ export function getFoldersClientAppScript() {
         currentPage: 1,
         pageSize: 10,
         searchQuery: '',
+        folderHubSearch: '',
+        get filteredFoldersList() {
+          const all = this.foldersList || [];
+          const q = String(this.folderHubSearch || '').trim().toLowerCase();
+          if (!q) return all;
+          return all.filter((f) => {
+            const name = String(f?.name || '').toLowerCase();
+            const desc = String(f?.description || '').toLowerCase();
+            const kwText = Array.isArray(f?.keywords_preview)
+              ? f.keywords_preview.map((k) => String(k?.keyword || '')).join(' ').toLowerCase()
+              : '';
+            return name.includes(q) || desc.includes(q) || kwText.includes(q);
+          });
+        },
         entityFilter: { type: null, value: null },
         activeMatrixFilter: null,
         expandedPinRanks: {},
@@ -881,6 +895,16 @@ export function getFoldersClientAppScript() {
               window.lucide.createIcons();
             }
           });
+
+          if (!this.activeFolderId && typeof window !== 'undefined' && window.location?.search) {
+            try {
+              const urlParams = new URLSearchParams(window.location.search || '');
+              const hubQ = (urlParams.get('search') || urlParams.get('q') || '').trim();
+              if (hubQ) {
+                this.folderHubSearch = hubQ;
+              }
+            } catch (_) {}
+          }
 
           if (this.activeFolderId) {
             await this.loadActiveFolder();

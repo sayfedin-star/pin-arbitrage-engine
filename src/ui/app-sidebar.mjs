@@ -611,34 +611,7 @@ export function renderAppSidebar({
 
   <!-- Global Command Palette Modal (⌘K / ⌘F) [INVARIANT: GLOBAL-SEARCH-PALETTE] -->
   <div
-    x-data="{
-      isCommandOpen: false,
-      cmdQuery: '',
-      openCmd() {
-        this.isCommandOpen = true;
-        this.cmdQuery = '';
-        this.$nextTick(() => {
-          const el = document.getElementById('pae-global-cmd-input');
-          if (el) el.focus();
-        });
-      },
-      closeCmd() {
-        this.isCommandOpen = false;
-        this.cmdQuery = '';
-      },
-      handleCmdSubmit() {
-        const q = String(this.cmdQuery || '').trim();
-        if (!q) return;
-        if (/^\\d{10,30}$/.test(q)) {
-          window.location.href = '/pin/' + q;
-        } else if (q.includes('.') && !q.includes(' ')) {
-          window.location.href = '/domains/' + encodeURIComponent(q);
-        } else {
-          window.location.href = '/keywords?q=' + encodeURIComponent(q);
-        }
-        this.closeCmd();
-      }
-    }"
+    x-data="paeCommandPalette()"
     @pae:open-command-palette.window="openCmd()"
     @keydown.window.cmd.k.prevent="openCmd()"
     @keydown.window.ctrl.k.prevent="openCmd()"
@@ -646,112 +619,155 @@ export function renderAppSidebar({
     @keydown.window.ctrl.f.prevent="openCmd()"
     x-show="isCommandOpen"
     x-cloak
-    class="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 md:p-20 bg-slate-950/60 backdrop-blur-sm flex items-start justify-center"
+    class="fixed inset-0 z-[60] overflow-y-auto p-4 sm:p-6 md:p-16 bg-slate-950/65 backdrop-blur-sm flex items-start justify-center"
     @click="closeCmd()"
-    @keydown.escape.window="closeCmd()">
-    
+    @keydown.escape.window="if (isCommandOpen) closeCmd()">
+
     <div
-      class="w-full max-w-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-2xl overflow-hidden"
+      class="w-full max-w-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-2xl overflow-hidden"
       role="dialog"
       aria-modal="true"
-      aria-label="Global Command Palette and Fast Search"
+      aria-label="Global Command Palette and Multi-Entity Live Search"
       @click.stop>
-      
+
       <!-- Input Header -->
-      <div class="p-3.5 border-b border-slate-200 dark:border-[#27272A] flex items-center gap-3 bg-slate-50/50 dark:bg-[#18181B]/50">
-        <i data-lucide="search" class="w-4 h-4 text-rose-500 shrink-0"></i>
+      <div class="p-3.5 border-b border-slate-200 dark:border-[#27272A] flex items-center gap-3 bg-slate-50/70 dark:bg-[#18181B]/70">
+        <span x-show="!cmdLoading" class="inline-flex items-center justify-center shrink-0">
+          <i data-lucide="search" class="w-4 h-4 text-rose-500"></i>
+        </span>
+        <span x-show="cmdLoading" class="inline-flex items-center justify-center shrink-0">
+          <i data-lucide="loader-2" class="w-4 h-4 text-rose-500 animate-spin"></i>
+        </span>
         <input
           id="pae-global-cmd-input"
           type="text"
+          autocomplete="off"
+          spellcheck="false"
           x-model="cmdQuery"
+          @input="onCmdInput()"
+          @keydown.arrow-down.prevent="moveCmdSelection(1)"
+          @keydown.arrow-up.prevent="moveCmdSelection(-1)"
           @keydown.enter.prevent="handleCmdSubmit()"
-          placeholder="Search pins, keywords, creators, or enter pin ID..."
+          placeholder="Search keywords, @creators, folders, domains, or paste Pin ID..."
           class="flex-1 bg-transparent border-0 text-sm font-medium text-slate-900 dark:text-[#FAFAFA] placeholder:text-slate-400 dark:placeholder:text-[#71717A] focus:outline-none"
         />
         <div class="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            x-show="cmdQuery.length > 0"
+            @click="clearCmdQuery()"
+            class="px-1.5 py-0.5 text-[10px] font-mono rounded bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            aria-label="Clear search query">Clear</button>
           <kbd class="px-1.5 py-0.5 text-[10px] font-mono rounded bg-white dark:bg-[#121215] text-slate-400 border border-slate-200 dark:border-[#27272A] shadow-2xs">ESC</kbd>
         </div>
       </div>
 
-      <!-- Quick Jump Navigation Options -->
-      <div class="max-h-80 overflow-y-auto p-2 space-y-1">
-        <!-- Direct Query Action if typed -->
-        <template x-if="cmdQuery.trim().length > 0">
-          <div class="p-1 mb-1 border-b border-slate-100 dark:border-[#27272A]">
-            <button
-              type="button"
-              @click="handleCmdSubmit()"
-              class="w-full flex items-center justify-between p-2 rounded-xl bg-rose-50/70 hover:bg-rose-100/70 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-rose-700 dark:text-rose-300 text-xs font-semibold transition cursor-pointer">
-              <div class="flex items-center gap-2">
-                <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-rose-500"></i>
-                <span x-text="'Jump to: ' + cmdQuery"></span>
-              </div>
-              <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">↵ Enter</span>
-            </button>
+      <!-- Results & Quick Jump Viewport -->
+      <div class="max-h-[26rem] overflow-y-auto p-2 space-y-1.5" role="listbox" aria-label="Search results">
+
+        <!-- 1-char hint -->
+        <template x-if="cmdTrimmed.length === 1 && !/^[0-9]+$/.test(cmdTrimmed)">
+          <div class="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between bg-slate-50/70 dark:bg-[#18181B]/60 rounded-xl border border-slate-100 dark:border-[#27272A]">
+            <span>Type at least <strong class="text-slate-700 dark:text-slate-200 font-mono">2</strong> characters to search keywords, creators, folders &amp; domains</span>
+            <span class="font-mono text-[10px] text-slate-400">min 2 chars</span>
           </div>
         </template>
 
-        <!-- Category: Executive -->
-        <div class="px-2 pt-1.5 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold">Executive Studios</div>
-        <a href="/" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Overview & Hub</span>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">/</span>
-        </a>
-        <a href="/pulse" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="activity" class="w-4 h-4 text-rose-500"></i>
-            <span class="font-medium">24h Pulse Studio</span>
-          </div>
-          <span class="text-[10px] text-rose-500 font-mono">Live</span>
-        </a>
+        <!-- Error / Degraded Notice -->
+        <template x-if="cmdError">
+          <div class="px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800/60" x-text="cmdError"></div>
+        </template>
 
-        <!-- Category: Intelligence -->
-        <div class="px-2 pt-2.5 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold">Intelligence Fleet</div>
-        <a href="/accounts" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="users" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Creator Hub</span>
+        <!-- Active Query Results (grouped) -->
+        <template x-if="cmdTrimmed.length > 0">
+          <div class="space-y-2">
+            <template x-for="group in groupedCmdSections" :key="group.key">
+              <div class="space-y-0.5">
+                <div class="px-2.5 pt-1 pb-0.5 flex items-center justify-between">
+                  <span class="text-[10px] font-mono uppercase tracking-wider font-bold" :class="group.headerClass" x-text="group.title"></span>
+                  <span x-show="group.badge" class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500" x-text="group.badge"></span>
+                </div>
+
+                <template x-for="item in group.items" :key="item.uid">
+                  <a
+                    :href="cmdSafeUrl(item.url)"
+                    :data-cmd-idx="item.idx"
+                    role="option"
+                    :aria-selected="cmdActiveIndex === item.idx ? 'true' : 'false'"
+                    @mouseenter="cmdActiveIndex = item.idx"
+                    @click.prevent="navigateToCmdUrl(item.url)"
+                    class="flex items-center justify-between gap-3 px-2.5 py-2 rounded-xl text-xs transition border"
+                    :class="cmdActiveIndex === item.idx ? 'bg-rose-50/90 dark:bg-rose-950/30 border-rose-200 dark:border-rose-500/40 text-slate-900 dark:text-white' : 'border-transparent hover:bg-slate-100/80 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA]'">
+
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                      <!-- Avatar for Creator if available -->
+                      <template x-if="item.kind === 'creator' && safeAvatarUrl(item.avatarUrl)">
+                        <img :src="safeAvatarUrl(item.avatarUrl)" alt="" class="w-6 h-6 rounded-full object-cover border border-slate-200 dark:border-[#27272A] shrink-0" referrerpolicy="no-referrer" />
+                      </template>
+                      <!-- Folder Color Swatch -->
+                      <template x-if="item.kind === 'folder'">
+                        <span class="w-6 h-6 rounded-lg flex items-center justify-center border border-slate-200 dark:border-white/10 shrink-0 text-[11px] font-bold"
+                              :style="'background-color:' + safeFolderColor(item.color) + '22; color:' + safeFolderColor(item.color)">📁</span>
+                      </template>
+                      <!-- Badge Icon for Keyword / Domain / Action / Creator fallback -->
+                      <template x-if="item.kind !== 'folder' && !(item.kind === 'creator' && safeAvatarUrl(item.avatarUrl))">
+                        <span class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold shrink-0 border" :class="item.iconClass" x-text="item.iconGlyph"></span>
+                      </template>
+
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span x-show="item.kind === 'keyword'" class="w-1.5 h-1.5 rounded-full shrink-0" :class="item.isActive ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                          <span class="font-semibold truncate" x-text="item.title"></span>
+                        </div>
+                        <div x-show="item.subtitle" class="text-[10px] text-slate-500 dark:text-slate-400 truncate font-mono" x-text="item.subtitle"></div>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 shrink-0">
+                      <span x-show="item.metric" class="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-[#27272A]" x-text="item.metric"></span>
+                      <span x-show="cmdActiveIndex === item.idx" class="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold">↵</span>
+                    </div>
+                  </a>
+                </template>
+              </div>
+            </template>
+
+            <!-- Empty results state (still shows Filter-in-Studio rows above) -->
+            <template x-if="!cmdLoading && cmdTrimmed.length >= 2 && cmdHasQueried && cmdTotalMatches === 0">
+              <div class="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400 text-center">
+                No exact database matches for "<span class="font-mono font-semibold text-slate-700 dark:text-slate-200" x-text="cmdTrimmed"></span>". Use a studio filter option above.
+              </div>
+            </template>
           </div>
-          <span class="text-[10px] text-slate-400 font-mono">/accounts</span>
-        </a>
-        <a href="/keywords" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="search" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Keywords Fleet</span>
+        </template>
+
+        <!-- Static Quick Jump Links (when input is empty) -->
+        <template x-if="cmdTrimmed.length === 0">
+          <div class="space-y-1">
+            <template x-for="group in staticCmdSections" :key="group.key">
+              <div class="space-y-0.5">
+                <div class="px-2.5 pt-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold" x-text="group.title"></div>
+                <template x-for="item in group.items" :key="item.uid">
+                  <a
+                    :href="cmdSafeUrl(item.url)"
+                    :data-cmd-idx="item.idx"
+                    role="option"
+                    :aria-selected="cmdActiveIndex === item.idx ? 'true' : 'false'"
+                    @mouseenter="cmdActiveIndex = item.idx"
+                    @click.prevent="navigateToCmdUrl(item.url)"
+                    class="flex items-center justify-between p-2 rounded-xl text-xs transition border"
+                    :class="cmdActiveIndex === item.idx ? 'bg-rose-50/90 dark:bg-rose-950/30 border-rose-200 dark:border-rose-500/40 text-slate-900 dark:text-white' : 'border-transparent hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA]'">
+                    <div class="flex items-center gap-2.5">
+                      <span class="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-mono font-bold" :class="item.iconClass" x-text="item.iconGlyph"></span>
+                      <span class="font-medium" x-text="item.title"></span>
+                    </div>
+                    <span class="text-[10px] font-mono" :class="item.badgeClass || 'text-slate-400'" x-text="item.metric"></span>
+                  </a>
+                </template>
+              </div>
+            </template>
           </div>
-          <span class="text-[10px] text-slate-400 font-mono">/keywords</span>
-        </a>
-        <a href="/domains" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="globe" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Domain Radar</span>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">/domains</span>
-        </a>
-        <a href="/related-pins" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="git-fork" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Related Pins</span>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">/related-pins</span>
-        </a>
-        <a href="/folders" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="folder-kanban" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Campaign Folders</span>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">/folders</span>
-        </a>
-        <a href="/discovery" class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs transition">
-          <div class="flex items-center gap-2.5">
-            <i data-lucide="compass" class="w-4 h-4 text-slate-400"></i>
-            <span class="font-medium">Keyword Discovery</span>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">/discovery</span>
-        </a>
+        </template>
       </div>
 
       <!-- Footer Quick Keys -->
@@ -765,6 +781,485 @@ export function renderAppSidebar({
       </div>
     </div>
   </div>
+
+  <script>
+    (function() {
+      var STATIC_STUDIO_ITEMS = [
+        { groupKey: 'exec', groupTitle: 'Executive Studios', uid: 'static-overview', kind: 'static', title: 'Overview & Hub', metric: '/', iconGlyph: 'O', iconClass: 'bg-slate-100 dark:bg-[#18181B] text-slate-500 border border-slate-200 dark:border-[#27272A]', url: '/' },
+        { groupKey: 'exec', groupTitle: 'Executive Studios', uid: 'static-pulse', kind: 'static', title: '24h Pulse Studio', metric: 'Live', badgeClass: 'text-rose-500 font-semibold', iconGlyph: 'P', iconClass: 'bg-rose-500/10 text-rose-500 border border-rose-500/20', url: '/pulse' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-accounts', kind: 'static', title: 'Creator Hub', metric: '/accounts', iconGlyph: '@', iconClass: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20', url: '/accounts' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-keywords', kind: 'static', title: 'Keywords Fleet', metric: '/keywords', iconGlyph: 'K', iconClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20', url: '/keywords' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-domains', kind: 'static', title: 'Domain Radar', metric: '/domains', iconGlyph: 'D', iconClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20', url: '/domains' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-related', kind: 'static', title: 'Related Pins', metric: '/related-pins', iconGlyph: 'R', iconClass: 'bg-slate-100 dark:bg-[#18181B] text-slate-500 border border-slate-200 dark:border-[#27272A]', url: '/related-pins' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-folders', kind: 'static', title: 'Campaign Folders', metric: '/folders', iconGlyph: 'F', iconClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20', url: '/folders' },
+        { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-discovery', kind: 'static', title: 'Keyword Discovery', metric: '/discovery', iconGlyph: '?', iconClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20', url: '/discovery' }
+      ];
+
+      function formatCompactNum(val) {
+        var n = Number(val || 0);
+        if (!isFinite(n) || n <= 0) return '0';
+        if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/[.]0$/, '') + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/[.]0$/, '') + 'K';
+        return String(Math.round(n));
+      }
+
+      if (typeof window !== 'undefined' && typeof window.paeCommandPalette !== 'function') {
+        window.paeCommandPalette = function() {
+          return {
+            isCommandOpen: false,
+            cmdQuery: '',
+            cmdLoading: false,
+            cmdHasQueried: false,
+            cmdError: '',
+            cmdActiveIndex: 0,
+            cmdResults: { keywords: [], creators: [], folders: [], domains: [] },
+            _cmdTimer: null,
+            _cmdAbort: null,
+            _cmdSeq: 0,
+            _cmdCache: new Map(),
+
+            get cmdTrimmed() {
+              return String(this.cmdQuery || '').trim();
+            },
+
+            get cmdTotalMatches() {
+              var r = this.cmdResults || {};
+              return (r.keywords ? r.keywords.length : 0) +
+                (r.creators ? r.creators.length : 0) +
+                (r.folders ? r.folders.length : 0) +
+                (r.domains ? r.domains.length : 0);
+            },
+
+            cmdSafeUrl(url) {
+              if (!url || typeof url !== 'string') return '#';
+              var s = url.trim();
+              if (s.startsWith('/') && !s.startsWith('//') && s.charCodeAt(1) !== 92) {
+                return s;
+              }
+              return '#';
+            },
+
+            safeAvatarUrl(url) {
+              if (!url || typeof url !== 'string') return '';
+              var s = url.trim();
+              if (/^https?:[/][/]/i.test(s)) return s;
+              return '';
+            },
+
+            safeFolderColor(color) {
+              if (!color || typeof color !== 'string') return '#6366f1';
+              var s = color.trim();
+              return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : '#6366f1';
+            },
+
+            get staticCmdSections() {
+              var execItems = [];
+              var intelItems = [];
+              for (var i = 0; i < STATIC_STUDIO_ITEMS.length; i++) {
+                var item = Object.assign({}, STATIC_STUDIO_ITEMS[i], { idx: i });
+                if (item.groupKey === 'exec') execItems.push(item);
+                else intelItems.push(item);
+              }
+              return [
+                { key: 'exec', title: 'Executive Studios', items: execItems },
+                { key: 'intel', title: 'Intelligence Fleet', items: intelItems }
+              ];
+            },
+
+            get groupedCmdSections() {
+              var q = this.cmdTrimmed;
+              if (!q) return [];
+              var idx = 0;
+              var sections = [];
+              var res = this.cmdResults || { keywords: [], creators: [], folders: [], domains: [] };
+
+              // 1. Direct Smart Jump (Pin ID or Domain literal)
+              var directItems = [];
+              if (/^[0-9]{10,30}$/.test(q)) {
+                directItems.push({
+                  uid: 'direct-pin-' + q,
+                  idx: idx++,
+                  kind: 'action',
+                  title: 'Inspect Pin #' + q,
+                  subtitle: 'Open Pin Dossier Studio',
+                  metric: 'Pin ID',
+                  iconGlyph: '#',
+                  iconClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30',
+                  url: '/pin/' + encodeURIComponent(q)
+                });
+              } else if (q.indexOf('.') !== -1 && q.indexOf(' ') === -1) {
+                var qLowerDom = q.toLowerCase().replace(/^https?:[/][/]/i, '').replace(/^www[.]/i, '').split('/')[0];
+                var hasExactDom = (res.domains || []).some(function(d) { return String(d.domain || '').toLowerCase() === qLowerDom; });
+                if (!hasExactDom && qLowerDom.indexOf('.') !== -1) {
+                  directItems.push({
+                    uid: 'direct-domain-' + qLowerDom,
+                    idx: idx++,
+                    kind: 'action',
+                    title: 'Open Domain Dossier: ' + qLowerDom,
+                    subtitle: 'Direct domain intelligence lookup',
+                    metric: 'Domain',
+                    iconGlyph: 'D',
+                    iconClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+                    url: '/domains/' + encodeURIComponent(qLowerDom)
+                  });
+                }
+              }
+              if (directItems.length > 0) {
+                sections.push({
+                  key: 'direct',
+                  title: 'Direct Jump',
+                  badge: '',
+                  headerClass: 'text-rose-600 dark:text-rose-400',
+                  items: directItems
+                });
+              }
+
+              // 2. Keywords
+              if (Array.isArray(res.keywords) && res.keywords.length > 0) {
+                var kwItems = res.keywords.map(function(k) {
+                  var vel = Number(k.avg_daily_velocity || 0);
+                  var pins = Number(k.active_pin_count || 0);
+                  return {
+                    uid: 'kw-' + k.id,
+                    idx: idx++,
+                    kind: 'keyword',
+                    isActive: k.is_active !== false,
+                    title: k.keyword,
+                    subtitle: (k.category || 'General') + (vel > 0 ? (' · ' + vel.toFixed(0) + '/d vel') : ''),
+                    metric: pins + ' pins',
+                    iconGlyph: 'K',
+                    iconClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+                    url: k.url
+                  };
+                });
+                sections.push({
+                  key: 'keywords',
+                  title: 'Keywords',
+                  badge: kwItems.length + ' match' + (kwItems.length === 1 ? '' : 'es'),
+                  headerClass: 'text-emerald-600 dark:text-emerald-400',
+                  items: kwItems
+                });
+              }
+
+              // 3. Creators & Accounts
+              if (Array.isArray(res.creators) && res.creators.length > 0) {
+                var crItems = res.creators.map(function(c) {
+                  var reach = Number(c.monthly_reach || 0);
+                  return {
+                    uid: 'cr-' + c.id,
+                    idx: idx++,
+                    kind: 'creator',
+                    avatarUrl: c.avatar_url || '',
+                    title: c.display_name || ('@' + c.username),
+                    subtitle: '@' + c.username + (c.total_pins ? (' · ' + formatCompactNum(c.total_pins) + ' pins') : ''),
+                    metric: reach > 0 ? (formatCompactNum(reach) + ' reach') : 'Creator',
+                    iconGlyph: '@',
+                    iconClass: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
+                    url: c.url
+                  };
+                });
+                sections.push({
+                  key: 'creators',
+                  title: 'Creators & Accounts',
+                  badge: crItems.length + ' match' + (crItems.length === 1 ? '' : 'es'),
+                  headerClass: 'text-purple-600 dark:text-purple-400',
+                  items: crItems
+                });
+              }
+
+              // 4. Campaign Folders
+              if (Array.isArray(res.folders) && res.folders.length > 0) {
+                var flItems = res.folders.map(function(f) {
+                  return {
+                    uid: 'fl-' + f.id,
+                    idx: idx++,
+                    kind: 'folder',
+                    color: f.color || '#6366f1',
+                    title: f.name,
+                    subtitle: f.description || 'Campaign cluster workspace',
+                    metric: (f.keyword_count || 0) + ' kw',
+                    iconGlyph: 'F',
+                    iconClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30',
+                    url: f.url
+                  };
+                });
+                sections.push({
+                  key: 'folders',
+                  title: 'Campaign Folders',
+                  badge: flItems.length + ' match' + (flItems.length === 1 ? '' : 'es'),
+                  headerClass: 'text-indigo-600 dark:text-indigo-400',
+                  items: flItems
+                });
+              }
+
+              // 5. Domains
+              if (Array.isArray(res.domains) && res.domains.length > 0) {
+                var domItems = res.domains.map(function(d) {
+                  var adBadge = d.ad_network && d.ad_network !== 'unchecked' ? d.ad_network : '';
+                  var ageText = d.age_years != null ? (Number(d.age_years).toFixed(1) + 'y') : '';
+                  var subParts = [d.total_pins + ' pins'];
+                  if (adBadge) subParts.push(adBadge);
+                  if (ageText) subParts.push(ageText);
+                  return {
+                    uid: 'dom-' + d.domain,
+                    idx: idx++,
+                    kind: 'domain',
+                    title: d.domain,
+                    subtitle: subParts.join(' · '),
+                    metric: formatCompactNum(d.total_saves) + ' saves',
+                    iconGlyph: 'G',
+                    iconClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+                    url: d.url
+                  };
+                });
+                sections.push({
+                  key: 'domains',
+                  title: 'Domains',
+                  badge: domItems.length + ' match' + (domItems.length === 1 ? '' : 'es'),
+                  headerClass: 'text-sky-600 dark:text-sky-400',
+                  items: domItems
+                });
+              }
+
+              // 6. Search-in-Studio Fallbacks
+              if (q.length >= 2) {
+                var enc = encodeURIComponent(q);
+                var encCreator = encodeURIComponent(q.replace(/^@+/, ''));
+                sections.push({
+                  key: 'fallbacks',
+                  title: 'Filter In Studio',
+                  badge: '',
+                  headerClass: 'text-slate-400 dark:text-[#71717A]',
+                  items: [
+                    {
+                      uid: 'fb-keywords',
+                      idx: idx++,
+                      kind: 'action',
+                      title: 'Filter Keywords Fleet for "' + q + '"',
+                      subtitle: '/keywords?search=' + enc,
+                      metric: 'Keywords',
+                      iconGlyph: 'K',
+                      iconClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+                      url: '/keywords?search=' + enc
+                    },
+                    {
+                      uid: 'fb-creators',
+                      idx: idx++,
+                      kind: 'action',
+                      title: 'Filter Creator Hub for "' + q + '"',
+                      subtitle: '/accounts?search=' + encCreator,
+                      metric: 'Creators',
+                      iconGlyph: '@',
+                      iconClass: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+                      url: '/accounts?search=' + encCreator
+                    },
+                    {
+                      uid: 'fb-domains',
+                      idx: idx++,
+                      kind: 'action',
+                      title: 'Filter Domain Radar for "' + q + '"',
+                      subtitle: '/domains?search=' + enc,
+                      metric: 'Domains',
+                      iconGlyph: 'D',
+                      iconClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20',
+                      url: '/domains?search=' + enc
+                    },
+                    {
+                      uid: 'fb-folders',
+                      idx: idx++,
+                      kind: 'action',
+                      title: 'Filter Campaign Folders for "' + q + '"',
+                      subtitle: '/folders?search=' + enc,
+                      metric: 'Folders',
+                      iconGlyph: 'F',
+                      iconClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+                      url: '/folders?search=' + enc
+                    }
+                  ]
+                });
+              }
+
+              return sections;
+            },
+
+            get flatCmdItems() {
+              var sections = this.cmdTrimmed.length > 0 ? this.groupedCmdSections : this.staticCmdSections;
+              var flat = [];
+              for (var i = 0; i < sections.length; i++) {
+                var items = sections[i].items || [];
+                for (var j = 0; j < items.length; j++) {
+                  flat.push(items[j]);
+                }
+              }
+              return flat;
+            },
+
+            openCmd() {
+              this.isCommandOpen = true;
+              this.cmdQuery = '';
+              this.cmdLoading = false;
+              this.cmdHasQueried = false;
+              this.cmdError = '';
+              this.cmdActiveIndex = 0;
+              this.cmdResults = { keywords: [], creators: [], folders: [], domains: [] };
+              this.$nextTick(function() {
+                var el = document.getElementById('pae-global-cmd-input');
+                if (el) el.focus();
+                if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+                  window.lucide.createIcons();
+                }
+              });
+            },
+
+            closeCmd() {
+              this.isCommandOpen = false;
+              this.cmdQuery = '';
+              this.cmdLoading = false;
+              this.cmdHasQueried = false;
+              this.cmdError = '';
+              this.cmdActiveIndex = 0;
+              this.cmdResults = { keywords: [], creators: [], folders: [], domains: [] };
+              if (this._cmdTimer) {
+                clearTimeout(this._cmdTimer);
+                this._cmdTimer = null;
+              }
+              if (this._cmdAbort) {
+                try { this._cmdAbort.abort(); } catch (_) {}
+                this._cmdAbort = null;
+              }
+            },
+
+            clearCmdQuery() {
+              this.cmdQuery = '';
+              this.onCmdInput();
+              this.$nextTick(function() {
+                var el = document.getElementById('pae-global-cmd-input');
+                if (el) el.focus();
+              });
+            },
+
+            onCmdInput() {
+              var self = this;
+              var q = this.cmdTrimmed;
+              this.cmdError = '';
+              this.cmdActiveIndex = 0;
+              if (this._cmdTimer) {
+                clearTimeout(this._cmdTimer);
+                this._cmdTimer = null;
+              }
+              if (this._cmdAbort) {
+                try { this._cmdAbort.abort(); } catch (_) {}
+                this._cmdAbort = null;
+              }
+
+              var effectiveLen = q.indexOf('@') === 0 ? q.replace(/^@+/, '').trim().length : q.length;
+              if (!q || effectiveLen < 2 || /^[0-9]{10,30}$/.test(q)) {
+                this.cmdLoading = false;
+                this.cmdHasQueried = false;
+                this.cmdResults = { keywords: [], creators: [], folders: [], domains: [] };
+                return;
+              }
+
+              var cacheKey = q.toLowerCase();
+              var cached = this._cmdCache.get(cacheKey);
+              if (cached && (Date.now() - cached.ts) < 30000) {
+                this.cmdLoading = false;
+                this.cmdHasQueried = true;
+                this.cmdResults = cached.entities;
+                this.cmdActiveIndex = 0;
+                return;
+              }
+
+              this.cmdLoading = true;
+              var seq = ++this._cmdSeq;
+              this._cmdTimer = setTimeout(function() {
+                self.fetchCmdSuggestions(q, seq);
+              }, 180);
+            },
+
+            async fetchCmdSuggestions(q, seq) {
+              var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+              this._cmdAbort = controller;
+              try {
+                var fetchOpts = { headers: { 'Accept': 'application/json' } };
+                if (controller) fetchOpts.signal = controller.signal;
+                var res = await fetch('/api/search/autocomplete?q=' + encodeURIComponent(q) + '&limit=5', fetchOpts);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                var data = await res.json();
+                if (seq !== this._cmdSeq || this.cmdTrimmed.toLowerCase() !== q.toLowerCase()) return;
+                var entities = (data && data.entities) ? data.entities : {
+                  keywords: Array.isArray(data?.results) ? data.results.map(function(r) {
+                    return { id: r.id || r.keyword, keyword: r.keyword, url: r.url || ('/keywords/' + encodeURIComponent(String(r.keyword || '').toLowerCase().trim().split(' ').filter(Boolean).join('-'))), active_pin_count: r.active_pin_count || r.pin_count || 0, avg_daily_velocity: r.avg_daily_velocity || 0, is_active: r.is_active !== false };
+                  }) : [],
+                  creators: [],
+                  folders: [],
+                  domains: []
+                };
+                if (this._cmdCache.size >= 50) {
+                  var firstKey = this._cmdCache.keys().next().value;
+                  if (firstKey !== undefined) this._cmdCache.delete(firstKey);
+                }
+                this._cmdCache.set(q.toLowerCase(), { ts: Date.now(), entities: entities });
+                this.cmdResults = entities;
+                this.cmdHasQueried = true;
+                this.cmdActiveIndex = 0;
+              } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                if (seq !== this._cmdSeq) return;
+                this.cmdError = 'Live search unavailable — use studio filter links below.';
+              } finally {
+                if (seq === this._cmdSeq) {
+                  this.cmdLoading = false;
+                }
+              }
+            },
+
+            moveCmdSelection(delta) {
+              var items = this.flatCmdItems;
+              if (!items || items.length === 0) return;
+              var next = (this.cmdActiveIndex + delta + items.length) % items.length;
+              this.cmdActiveIndex = next;
+              this.$nextTick(function() {
+                if (typeof document !== 'undefined') {
+                  var el = document.querySelector('[data-cmd-idx="' + next + '"]');
+                  if (el && typeof el.scrollIntoView === 'function') {
+                    el.scrollIntoView({ block: 'nearest' });
+                  }
+                }
+              });
+            },
+
+            navigateToCmdUrl(url) {
+              var safe = this.cmdSafeUrl(url);
+              if (safe && safe !== '#') {
+                this.closeCmd();
+                if (typeof window !== 'undefined') {
+                  window.location.href = safe;
+                }
+              }
+            },
+
+            handleCmdSubmit() {
+              var items = this.flatCmdItems;
+              if (items && items.length > 0 && items[this.cmdActiveIndex]) {
+                this.navigateToCmdUrl(items[this.cmdActiveIndex].url);
+                return;
+              }
+              var q = this.cmdTrimmed;
+              if (!q) return;
+              if (/^[0-9]{10,30}$/.test(q)) {
+                this.navigateToCmdUrl('/pin/' + encodeURIComponent(q));
+              } else if (q.indexOf('.') !== -1 && q.indexOf(' ') === -1) {
+                this.navigateToCmdUrl('/domains/' + encodeURIComponent(q));
+              } else {
+                this.navigateToCmdUrl('/keywords?search=' + encodeURIComponent(q));
+              }
+            }
+          };
+        };
+      }
+    })();
+  </script>
 
   <script>
     (function() {

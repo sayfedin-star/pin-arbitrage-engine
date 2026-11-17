@@ -307,6 +307,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '064',
     name: 'cleanup_and_index_hygiene',
     aliases: ['064', '064_cleanup_and_index_hygiene', 'cleanup_and_index_hygiene']
+  },
+  '065_instant_search_trgm_indexes.sql': {
+    version: '065',
+    name: 'instant_search_trgm_indexes',
+    aliases: ['065', '065_instant_search_trgm_indexes', 'instant_search_trgm_indexes']
   }
 };
 

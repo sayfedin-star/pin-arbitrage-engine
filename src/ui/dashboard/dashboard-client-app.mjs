@@ -1648,6 +1648,7 @@ ${getDashboardSeedComputedProperties()}
               if (searchStr) {
                 const params = new URLSearchParams(window.location.search || '');
                 const targetCreator = (params.get('creator') || params.get('competitor') || '').replace(/^@+/, '').trim();
+                const searchFilter = (params.get('search') || params.get('q') || '').trim();
                 const action = (params.get('action') || '').trim().toLowerCase();
                 if (action === 'track' || action === 'new') {
                   this.openAddCompetitorModal();
@@ -1656,6 +1657,8 @@ ${getDashboardSeedComputedProperties()}
                   }
                 } else if (targetCreator) {
                   this.openCreatorByHandle(targetCreator, 'overview', false);
+                } else if (searchFilter) {
+                  this.competitorSearch = searchFilter;
                 }
               }
             } else if (cleanFirst === 'related-pins' || cleanFirst === 'related_pins' || cleanFirst === 'seeds' || cleanFirst === 'intersections') {

@@ -66,6 +66,12 @@ import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/i
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
+import {
+  searchMultiEntityAutocomplete,
+  normalizeAutocompleteQuery,
+  AUTOCOMPLETE_DEFAULT_LIMIT,
+  AUTOCOMPLETE_MAX_LIMIT
+} from '../modules/search/autocomplete-service.mjs';
 
 const BATCH_GLOBAL_SAVES_WINDOW_MS = 60_000;
 const BATCH_GLOBAL_SAVES_MAX_REQUESTS = 20;
@@ -693,28 +699,49 @@ export async function handleKeywordsRoutes({
     return jsonResponse(result);
   }
 
-  // 13. Fast Search Autocomplete API
+  // 13. Fast Multi-Entity Search Autocomplete API (Keywords, Creators, Folders, Domains)
   if (method === 'GET' && (pathname === '/api/search/autocomplete' || pathname === '/api/keywords/autocomplete')) {
     const q = String(searchParams.get('q') || searchParams.get('query') || '').trim();
-    if (!q) {
-      return jsonResponse({ success: true, results: [] });
+    const rawLimit = searchParams.get('limit');
+    const lim = typeof clampLimit === 'function'
+      ? clampLimit(rawLimit, AUTOCOMPLETE_DEFAULT_LIMIT, AUTOCOMPLETE_MAX_LIMIT)
+      : Math.max(1, Math.min(Number(rawLimit) || AUTOCOMPLETE_DEFAULT_LIMIT, AUTOCOMPLETE_MAX_LIMIT));
+    const typesParam = searchParams.get('types') || '';
+    const projectId = searchParams.get('project_id') || 'default';
+    const norm = normalizeAutocompleteQuery(q);
+
+    if (norm.tooShort) {
+      const emptyRes = await searchMultiEntityAutocomplete(null, { query: q, limit: lim });
+      return jsonResponse(emptyRes, 200, 15);
     }
 
-
-    // Unified Single-DB PostgreSQL Search Autocomplete
     try {
-      const cleanQ = (q && typeof q === 'string' && q.trim()) ? escapeSqlWildcards(q.toLowerCase().trim()) : '';
-      const likePattern = `${cleanQ}%`;
-      const rows = cleanQ ? await sql`
-        SELECT keyword, COALESCE(target_pin_count, 0) as search_volume, COALESCE(target_pin_count, 0) as pin_count
-        FROM tracked_keywords
-        WHERE LOWER(keyword) LIKE ${likePattern}
-        ORDER BY keyword ASC
-        LIMIT 10;
-      ` : [];
-      return jsonResponse({ success: true, source: 'unified_postgres', results: rows }, 200, 15);
+      const cacheKey = typeof buildCanonicalCacheKey === 'function'
+        ? buildCanonicalCacheKey('search:autocomplete', { q: norm.lower, limit: lim, types: typesParam || 'all', projectId })
+        : `search:autocomplete:${norm.lower}:${lim}:${typesParam || 'all'}:${projectId}`;
+
+      const fetchAutocomplete = () => searchMultiEntityAutocomplete(sql, {
+        query: q,
+        limit: lim,
+        types: typesParam || null,
+        projectId
+      });
+
+      const payload = typeof getCachedOrFetch === 'function'
+        ? await getCachedOrFetch(cacheKey, fetchAutocomplete, 15000, 45000)
+        : await fetchAutocomplete();
+
+      return jsonResponse(payload, 200, 15);
     } catch (_) {
-      return jsonResponse({ success: true, source: 'empty_fallback', results: [], degraded: true }, 200, 0);
+      return jsonResponse({
+        success: true,
+        source: 'empty_fallback',
+        query: norm.raw,
+        counts: { keywords: 0, creators: 0, folders: 0, domains: 0, total: 0 },
+        entities: { keywords: [], creators: [], folders: [], domains: [] },
+        results: [],
+        degraded: true
+      }, 200, 0);
     }
   }
 
