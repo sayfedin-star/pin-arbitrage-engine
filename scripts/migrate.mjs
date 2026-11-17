@@ -312,6 +312,11 @@ export const CANONICAL_SPECIAL_VERSIONS = {
     version: '065',
     name: 'instant_search_trgm_indexes',
     aliases: ['065', '065_instant_search_trgm_indexes', 'instant_search_trgm_indexes']
+  },
+  '066_db_hygiene_and_pulse_indexes.sql': {
+    version: '066',
+    name: 'db_hygiene_and_pulse_indexes',
+    aliases: ['066', '066_db_hygiene_and_pulse_indexes', 'db_hygiene_and_pulse_indexes']
   }
 };
 

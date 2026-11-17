@@ -47,72 +47,6 @@ export function getPulsePageHtml(folderId = '') {
     }
   </script>`;
 
-  const extraHeadHtml = `  <style>
-    [x-cloak] { display: none !important; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
-  </style>
-  <script>
-    (function() {
-      if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
-      window.__paeAuthInterceptorInstalled = true;
-      var origFetch = window.fetch.bind(window);
-      window.fetch = async function(input, init) {
-        var urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-        var isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
-        var savedKey = '';
-        try { savedKey = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pae_admin_api_key') || '') : ''; } catch (_) {}
-        if (isApiCall && savedKey) {
-          init = Object.assign({}, init);
-          var headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
-          if (!headers.has('x-api-key') && !headers.has('Authorization')) {
-            headers.set('x-api-key', savedKey);
-          }
-          init.headers = headers;
-        }
-        var res = await origFetch(input, init);
-        return res;
-      };
-    })();
-  </script>
-  ${getEdgeShieldClientScript()}
-  <script>
-    (function() {
-      if (typeof window === 'undefined') return;
-      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
-
-      window.resolvePinImageUrl = function(url, tier) {
-        tier = tier || '236x';
-        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
-        if (!url.includes('pinimg.com')) return url;
-        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
-      };
-
-      window.handlePinImgError = function(img) {
-        if (!img) return;
-        var currentSrc = img.src || '';
-        img._errStep = (img._errStep || 0) + 1;
-        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-          return;
-        }
-        if (currentSrc.includes('/236x/')) {
-          img.src = currentSrc.replace('/236x/', '/474x/');
-        } else if (currentSrc.includes('/474x/')) {
-          img.src = currentSrc.replace('/474x/', '/736x/');
-        } else if (currentSrc.includes('/736x/')) {
-          img.src = currentSrc.replace('/736x/', '/originals/');
-        } else {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-        }
-      };
-    })();
-  </script>`;
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -122,7 +56,7 @@ ${renderSharedDocumentHead({
   tailwindScriptHtml,
   includeThemeScript: true,
   defaultTheme: 'light',
-  extraHeadHtml
+  extraHeadHtml: getEdgeShieldClientScript()
 })}
 </head>
 <body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="pulseStudioApp('${safeFolderId}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal();">

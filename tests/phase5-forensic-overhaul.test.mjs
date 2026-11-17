@@ -201,8 +201,11 @@ test('Phase 5.5: ingestPinsBatch delta guards cannot be bypassed and syncPinAcro
   assert.doesNotMatch(repoContent, /COALESCE\(cb\.delta_repins_24h,\s*cb\.true_delta_repins_24h\)/);
   assert.match(repoContent, /cb\.true_delta_saves_24h,\s*\n\s*cb\.true_delta_repins_24h,/);
   assert.match(repoContent, /WHEN eb\.delta_saves_24h IS NOT NULL THEN LEAST\(25000::bigint,\s*GREATEST\(0::bigint,\s*eb\.delta_saves_24h\)\)/);
-  assert.match(repoContent, /delta_saves_24h = CASE WHEN \$\{syncVelocity\} IS NOT NULL THEN ROUND\(\$\{syncVelocity\}::numeric\)::bigint ELSE delta_saves_24h END/);
-  assert.match(repoContent, /delta_repins_24h = COALESCE\(\$\{syncRepinsDelta\}::bigint,\s*delta_repins_24h\)/);
+  assert.match(repoContent, /delta_saves_24h bigint,\s*delta_repins_24h bigint,/);
+  assert.match(repoContent, /delta_saves_24h = COALESCE\(EXCLUDED\.delta_saves_24h,\s*universal_master_pins\.delta_saves_24h\)/);
+  assert.match(repoContent, /delta_repins_24h = COALESCE\(EXCLUDED\.delta_repins_24h,\s*universal_master_pins\.delta_repins_24h\)/);
+  assert.match(repoContent, /delta_saves_24h:\s*syncVelocityVal !== null \? Math\.round\(syncVelocityVal\) : null,/);
+  assert.match(repoContent, /delta_repins_24h:\s*syncRepinsDelta,/);
 });
 
 test('Phase 5.6: Unhydrated NULL preservation, dominant_color null hygiene, and Migration 064 index parity', async () => {
@@ -256,7 +259,8 @@ test('Phase 5.6: Unhydrated NULL preservation, dominant_color null hygiene, and 
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '998877665544' })
   });
   const syncInsert = captured.find((c) => c.sqlText.includes('INSERT INTO universal_master_pins'));
-  assert.ok(!syncInsert.values.includes('#888888'), 'syncPinAcrossAllFourPillars must pass NULL, never #888888');
+  assert.ok(syncInsert, 'Expected universal_master_pins upsert from syncPinAcrossAllFourPillars');
+  assert.strictEqual(syncInsert.jsonPayloads[0][0].dominant_color, null, 'syncPinAcrossAllFourPillars must pass NULL, never #888888');
   assert.ok(syncInsert.sqlText.includes("EXCLUDED.dominant_color NOT IN ('', '#888888')"));
 });
 

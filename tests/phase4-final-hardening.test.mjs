@@ -88,7 +88,7 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789012' })
   });
 
-  // Verify pins_daily_metrics insert targets recorded_date
+  // Verify pins_daily_metrics insert targets recorded_date inside unified CTE
   const pdmInsert = queries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
   assert.ok(pdmInsert, 'Must insert into pins_daily_metrics');
   assert.match(pdmInsert.rawSql, /recorded_date/, 'Insert must specify recorded_date');
@@ -96,15 +96,19 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
   assert.match(pdmInsert.rawSql, /ON CONFLICT \(pin_id, recorded_date\)/, 'Conflict clause must target (pin_id, recorded_date)');
   assert.match(pdmInsert.rawSql, /daily_repin_velocity/, 'Insert must include daily_repin_velocity');
 
-  // Verify universal_master_pins update includes gated is_hydrated and daily_repin_velocity
-  const umpUpdate = queries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
-  assert.ok(umpUpdate, 'Must update universal_master_pins with fresh metrics');
-  assert.match(umpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR true\)/i, 'Must set is_hydrated with explicit saves');
-  assert.match(umpUpdate.rawSql, /daily_repin_velocity =/, 'Must update daily_repin_velocity');
+  // Verify universal_master_pins upsert preserves hydration and daily_repin_velocity
+  const umpUpsert = queries.find(q => q.rawSql.includes('INSERT INTO universal_master_pins'));
+  assert.ok(umpUpsert, 'Must upsert universal_master_pins with fresh metrics');
+  const happyRow = JSON.parse(umpUpsert.values[0])[0];
+  assert.strictEqual(happyRow.save_count, 520);
+  assert.strictEqual(happyRow.repin_count, 55);
+  assert.strictEqual(happyRow.is_hydrated, true);
+  assert.match(umpUpsert.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR EXCLUDED\.is_hydrated OR EXCLUDED\.save_count IS NOT NULL\)/i, 'Must set is_hydrated with explicit saves');
+  assert.match(umpUpsert.rawSql, /daily_repin_velocity =/, 'Must update daily_repin_velocity');
 
-  // Verify positive repin scrape updates repin_count in both pins_daily_metrics and universal_master_pins
+  // Verify positive repin scrape preserves/updates repin_count via CASE in both CTE branches
   assert.match(pdmInsert.rawSql, /repin_count = CASE/);
-  assert.match(umpUpdate.rawSql, /repin_count = CASE/);
+  assert.match(umpUpsert.rawSql, /repin_count = CASE/);
 
   // Verify unhydrated pin sync preserves NULL and does not force is_hydrated = TRUE
   const unhydratedQueries = [];
@@ -131,15 +135,14 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789013' })
   });
 
-  const unhydratedPdmInsert = unhydratedQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
-  assert.ok(unhydratedPdmInsert, 'Must insert into pins_daily_metrics');
-  assert.strictEqual(unhydratedPdmInsert.values[1], null, 'Must insert NULL save_count into pins_daily_metrics');
-  assert.strictEqual(unhydratedPdmInsert.values[2], null, 'Must insert NULL repin_count into pins_daily_metrics');
-
-  const unhydratedUmpUpdate = unhydratedQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
-  assert.ok(unhydratedUmpUpdate, 'Must update universal_master_pins');
-  assert.match(unhydratedUmpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR false\)/i, 'Must preserve existing hydration when scrape is unhydrated');
-  assert.match(unhydratedUmpUpdate.rawSql, /ELSE universal_master_pins\.save_count\s+END/, 'Must preserve existing save_count without coercing to 0');
+  const unhydratedBatch = unhydratedQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(unhydratedBatch, 'Must insert into pins_daily_metrics');
+  const unhydratedRow = JSON.parse(unhydratedBatch.values[0])[0];
+  assert.strictEqual(unhydratedRow.save_count, null, 'Must pass NULL save_count into unified batch');
+  assert.strictEqual(unhydratedRow.repin_count, null, 'Must pass NULL repin_count into unified batch');
+  assert.strictEqual(unhydratedRow.is_hydrated, false, 'Must keep is_hydrated false when unhydrated');
+  assert.match(unhydratedBatch.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR EXCLUDED\.is_hydrated OR EXCLUDED\.save_count IS NOT NULL\)/i, 'Must preserve existing hydration when scrape is unhydrated');
+  assert.match(unhydratedBatch.rawSql, /ELSE COALESCE\(EXCLUDED\.save_count, universal_master_pins\.save_count\)\s+END/, 'Must preserve existing save_count without coercing to 0');
 
   // Verify scrape with saves: 0 and has_explicit_saves: false is preserved as unhydrated NULL
   const falseZeroQueries = [];
@@ -164,10 +167,12 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789014' })
   });
 
-  const falseZeroPdmInsert = falseZeroQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
-  assert.ok(falseZeroPdmInsert);
-  assert.strictEqual(falseZeroPdmInsert.values[1], null, 'Must insert NULL save_count for has_explicit_saves = false');
-  assert.strictEqual(falseZeroPdmInsert.values[2], null, 'Must insert NULL repin_count for has_explicit_saves = false');
+  const falseZeroBatch = falseZeroQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(falseZeroBatch);
+  const falseZeroRow = JSON.parse(falseZeroBatch.values[0])[0];
+  assert.strictEqual(falseZeroRow.save_count, null, 'Must pass NULL save_count for has_explicit_saves = false');
+  assert.strictEqual(falseZeroRow.repin_count, null, 'Must pass NULL repin_count for has_explicit_saves = false');
+  assert.strictEqual(falseZeroRow.is_hydrated, false, 'Must keep is_hydrated = false for unhydrated zero');
 
   // Verify scrape with saves: 0 and has_explicit_saves: true is saved as authentic 0
   const trueZeroQueries = [];
@@ -192,12 +197,12 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789015' })
   });
 
-  const trueZeroPdmInsert = trueZeroQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
-  assert.ok(trueZeroPdmInsert);
-  assert.strictEqual(trueZeroPdmInsert.values[1], 0, 'Must insert 0 save_count when has_explicit_saves = true');
-  assert.strictEqual(trueZeroPdmInsert.values[2], 0, 'Must insert 0 repin_count when has_explicit_saves = true');
-  const trueZeroUmpUpdate = trueZeroQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
-  assert.match(trueZeroUmpUpdate.rawSql, /is_hydrated = \(universal_master_pins\.is_hydrated OR true\)/i, 'Must set is_hydrated = TRUE when has_explicit_saves = true');
+  const trueZeroBatch = trueZeroQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(trueZeroBatch);
+  const trueZeroRow = JSON.parse(trueZeroBatch.values[0])[0];
+  assert.strictEqual(trueZeroRow.save_count, 0, 'Must pass 0 save_count when has_explicit_saves = true');
+  assert.strictEqual(trueZeroRow.repin_count, 0, 'Must pass 0 repin_count when has_explicit_saves = true');
+  assert.strictEqual(trueZeroRow.is_hydrated, true, 'Must set is_hydrated = TRUE when has_explicit_saves = true');
 
   // Verify scrape with saves: 150 and repins: null preserves existing repin_count (no NULL overwrite)
   const repinNullQueries = [];
@@ -221,15 +226,13 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789016' })
   });
 
-  const repinNullPdmInsert = repinNullQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
-  assert.ok(repinNullPdmInsert);
-  assert.strictEqual(repinNullPdmInsert.values[1], 150, 'Must insert 150 saves');
-  assert.strictEqual(repinNullPdmInsert.values[2], null, 'Must insert null repins');
-  assert.match(repinNullPdmInsert.rawSql, /repin_count = CASE[\s\S]+?ELSE pins_daily_metrics\.repin_count\s+END/, 'Conflict DO UPDATE must gate repin_count on EXCLUDED.repin_count IS NOT NULL');
-
-  const repinNullUmpUpdate = repinNullQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
-  assert.ok(repinNullUmpUpdate);
-  assert.match(repinNullUmpUpdate.rawSql, /repin_count = CASE[\s\S]+?ELSE universal_master_pins\.repin_count\s+END/, 'universal_master_pins update must preserve existing repin_count when newRepins is null');
+  const repinNullBatch = repinNullQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(repinNullBatch);
+  const repinNullRow = JSON.parse(repinNullBatch.values[0])[0];
+  assert.strictEqual(repinNullRow.save_count, 150, 'Must pass 150 saves');
+  assert.strictEqual(repinNullRow.repin_count, null, 'Must pass null repins');
+  assert.match(repinNullBatch.rawSql, /repin_count = CASE[\s\S]+?ELSE COALESCE\(EXCLUDED\.repin_count, pins_daily_metrics\.repin_count\)\s+END/, 'Conflict DO UPDATE must preserve existing pins_daily_metrics.repin_count when EXCLUDED.repin_count is null');
+  assert.match(repinNullBatch.rawSql, /repin_count = CASE[\s\S]+?ELSE COALESCE\(EXCLUDED\.repin_count, universal_master_pins\.repin_count\)\s+END/, 'universal_master_pins upsert must preserve existing repin_count when newRepins is null');
 
   // Verify explicit 0 repins with has_explicit_repins: true updates repin_count to 0
   const explicitZeroRepinsQueries = [];
@@ -254,15 +257,12 @@ test('Phase 4.2: syncPinAcrossAllFourPillars uses recorded_date and joins univer
     fetchUniversalPinDossier: async () => ({ success: true, pin_id: '123456789017' })
   });
 
-  const zeroRepinPdmInsert = explicitZeroRepinsQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
-  assert.ok(zeroRepinPdmInsert);
-  assert.strictEqual(zeroRepinPdmInsert.values[1], 150);
-  assert.strictEqual(zeroRepinPdmInsert.values[2], 0, 'Must insert 0 repins when has_explicit_repins = true');
-  assert.match(zeroRepinPdmInsert.rawSql, /repin_count = CASE/);
-
-  const zeroRepinUmpUpdate = explicitZeroRepinsQueries.find(q => q.rawSql.includes('UPDATE universal_master_pins') && q.rawSql.includes('WHERE pin_id ='));
-  assert.ok(zeroRepinUmpUpdate);
-  assert.match(zeroRepinUmpUpdate.rawSql, /repin_count = CASE/);
+  const zeroRepinBatch = explicitZeroRepinsQueries.find(q => q.rawSql.includes('INSERT INTO pins_daily_metrics'));
+  assert.ok(zeroRepinBatch);
+  const zeroRepinRow = JSON.parse(zeroRepinBatch.values[0])[0];
+  assert.strictEqual(zeroRepinRow.save_count, 150);
+  assert.strictEqual(zeroRepinRow.repin_count, 0, 'Must pass 0 repins when has_explicit_repins = true');
+  assert.match(zeroRepinBatch.rawSql, /repin_count = CASE/);
 });
 
 test('Phase 4.3: ingestPinsBatch preserves rolling gains and gates velocity on positive prior saves', async () => {

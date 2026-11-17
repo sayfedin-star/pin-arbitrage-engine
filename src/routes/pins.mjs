@@ -11,12 +11,12 @@
 
 import {
   fetchUniversalPinDossier,
-  getPinDossier,
   syncPinAcrossAllFourPillars
 } from '../modules/pins/repository.mjs';
 
 import { fetchPinFromPinterest, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 import { ignoreAndRemoveSerpPin } from '../modules/keywords/service.mjs';
+import { detectHydrationJump, isRepinHydrationJump, calculateDailyVelocity } from '../lib/math.mjs';
 
 // Record deleted date in universal_master_pins
 export async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
@@ -34,7 +34,7 @@ export async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate })
       )
     ),
     updated_at = NOW();
-  `.catch((err) => { console.error(`[PinsRoute.tombstone] Master tombstone write failed for pin ${pinId}:`, err?.message || err); });
+  `;
 }
 
 /**
@@ -43,105 +43,115 @@ export async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate })
  */
 export async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
   if (!sql || !pinId) return;
-  try {
-    const remainingRows = await sql`
-      SELECT recorded_date, save_count, repin_count, comment_count, share_count, daily_save_velocity, daily_repin_velocity
-      FROM pins_daily_metrics
-      WHERE pin_id = ${pinId}
-      ORDER BY recorded_date DESC
-      LIMIT 30;
-    `.catch(() => []);
+  const remainingRows = await sql`
+    SELECT recorded_date, save_count, repin_count, comment_count, share_count, daily_save_velocity, daily_repin_velocity
+    FROM pins_daily_metrics
+    WHERE pin_id = ${pinId}
+    ORDER BY recorded_date DESC
+    LIMIT 30;
+  `;
 
-    if (!Array.isArray(remainingRows) || remainingRows.length === 0) {
-      await sql`
-        UPDATE universal_master_pins
-        SET
-          is_hydrated = FALSE,
-          save_count = NULL,
-          repin_count = NULL,
-          daily_save_velocity = NULL,
-          daily_repin_velocity = NULL,
-          delta_saves_24h = NULL,
-          delta_repins_24h = NULL,
-          updated_at = NOW()
-        WHERE pin_id = ${pinId};
-      `.catch(() => {});
-      return;
-    }
-
-    // Chronological order (oldest -> newest) to recalculate bridged velocities
-    const toDateKey = (val) => (val instanceof Date ? val.toISOString().slice(0, 10) : String(val || '').slice(0, 10));
-    const chrono = [...remainingRows].sort((a, b) => toDateKey(a.recorded_date).localeCompare(toDateKey(b.recorded_date)));
-    const updateBatch = [];
-    for (let i = 0; i < chrono.length; i++) {
-      const curr = chrono[i];
-      const currDateStr = curr.recorded_date instanceof Date
-        ? curr.recorded_date.toISOString().slice(0, 10)
-        : String(curr.recorded_date).slice(0, 10);
-      let newSaveVel = null;
-      let newRepinVel = null;
-      if (i > 0) {
-        const prev = chrono[i - 1];
-        const prevDateStr = prev.recorded_date instanceof Date
-          ? prev.recorded_date.toISOString().slice(0, 10)
-          : String(prev.recorded_date).slice(0, 10);
-        const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
-        if (curr.save_count !== null && prev.save_count !== null) {
-          const savesDiff = Math.max(0, Number(curr.save_count) - Number(prev.save_count));
-          newSaveVel = Math.round((savesDiff / daysDiff) * 10) / 10;
-        }
-        if (curr.repin_count !== null && prev.repin_count !== null) {
-          const repinsDiff = Math.max(0, Number(curr.repin_count) - Number(prev.repin_count));
-          newRepinVel = Math.round((repinsDiff / daysDiff) * 10) / 10;
-        }
-      }
-      curr.recomputed_save_velocity = newSaveVel;
-      curr.recomputed_repin_velocity = newRepinVel;
-      updateBatch.push({
-        recorded_date: currDateStr,
-        daily_save_velocity: newSaveVel,
-        daily_repin_velocity: newRepinVel
-      });
-    }
-
-    if (updateBatch.length > 0) {
-      await sql`
-        UPDATE pins_daily_metrics pdm
-        SET
-          daily_save_velocity = u.daily_save_velocity,
-          daily_repin_velocity = u.daily_repin_velocity
-        FROM jsonb_to_recordset(${JSON.stringify(updateBatch)}::jsonb) AS u(
-          recorded_date date,
-          daily_save_velocity numeric,
-          daily_repin_velocity numeric
-        )
-        WHERE pdm.pin_id = ${pinId} AND pdm.recorded_date = u.recorded_date;
-      `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed batch updating velocities for pin ${pinId}:`, err?.message || err); });
-    }
-
-    const latest = chrono[chrono.length - 1];
-    const latestSaves = latest.save_count !== null ? Number(latest.save_count) : null;
-    const latestRepins = latest.repin_count !== null ? Number(latest.repin_count) : null;
-    const latestSaveVel = latest.recomputed_save_velocity;
-    const latestRepinVel = latest.recomputed_repin_velocity;
-    const latestDeltaSaves = latestSaveVel !== null ? Math.round(latestSaveVel) : null;
-    const latestDeltaRepins = latestRepinVel !== null ? Math.round(latestRepinVel) : null;
-
+  if (!Array.isArray(remainingRows) || remainingRows.length === 0) {
     await sql`
       UPDATE universal_master_pins
       SET
-        save_count = ${latestSaves},
-        repin_count = ${latestRepins},
-        daily_save_velocity = ${latestSaveVel},
-        daily_repin_velocity = ${latestRepinVel},
-        delta_saves_24h = ${latestDeltaSaves},
-        delta_repins_24h = ${latestDeltaRepins},
+        is_hydrated = FALSE,
+        save_count = NULL,
+        repin_count = NULL,
+        daily_save_velocity = NULL,
+        daily_repin_velocity = NULL,
+        delta_saves_24h = NULL,
+        delta_repins_24h = NULL,
         updated_at = NOW()
       WHERE pin_id = ${pinId};
-    `.catch((err) => { console.error(`[PinsRoute.reconcile] Failed updating universal_master_pins for pin ${pinId}:`, err?.message || err); });
-  } catch (err) {
-    console.error(`[PinsRoute.reconcile] Snapshot delete reconciliation failed for pin ${pinId}:`, err?.message || err);
+    `;
+    return;
   }
+
+  // Chronological order (oldest -> newest) to recalculate bridged velocities
+  const toDateKey = (val) => (val instanceof Date ? val.toISOString().slice(0, 10) : String(val || '').slice(0, 10));
+  const chrono = [...remainingRows].sort((a, b) => toDateKey(a.recorded_date).localeCompare(toDateKey(b.recorded_date)));
+  const updateBatch = [];
+  for (let i = 0; i < chrono.length; i++) {
+    const curr = chrono[i];
+    const currDateStr = curr.recorded_date instanceof Date
+      ? curr.recorded_date.toISOString().slice(0, 10)
+      : String(curr.recorded_date).slice(0, 10);
+    let newSaveVel = null;
+    let newRepinVel = null;
+    if (i > 0) {
+      const prev = chrono[i - 1];
+      const prevDateStr = prev.recorded_date instanceof Date
+        ? prev.recorded_date.toISOString().slice(0, 10)
+        : String(prev.recorded_date).slice(0, 10);
+      const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
+      const isSaveJump = curr.save_count !== null && prev.save_count !== null && detectHydrationJump(prev, curr);
+      if (curr.save_count !== null && prev.save_count !== null) {
+        newSaveVel = isSaveJump
+          ? 0
+          : calculateDailyVelocity({
+              currentSaves: Number(curr.save_count),
+              baselineSaves: Number(prev.save_count),
+              currentRepins: Number(curr.repin_count ?? 0),
+              baselineRepins: Number(prev.repin_count ?? 0),
+              currentDate: currDateStr,
+              baselineDate: prevDateStr,
+              maxCap: 25000
+            });
+      }
+      if (curr.repin_count !== null && prev.repin_count !== null) {
+        if (isSaveJump || isRepinHydrationJump(prev, curr)) {
+          newRepinVel = 0;
+        } else {
+          const repinsDiff = Math.max(0, Number(curr.repin_count) - Number(prev.repin_count));
+          newRepinVel = Math.min(25000, Math.round((repinsDiff / daysDiff) * 10) / 10);
+        }
+      }
+    }
+    curr.recomputed_save_velocity = newSaveVel;
+    curr.recomputed_repin_velocity = newRepinVel;
+    updateBatch.push({
+      recorded_date: currDateStr,
+      daily_save_velocity: newSaveVel,
+      daily_repin_velocity: newRepinVel
+    });
+  }
+
+  if (updateBatch.length > 0) {
+    await sql`
+      UPDATE pins_daily_metrics pdm
+      SET
+        daily_save_velocity = u.daily_save_velocity,
+        daily_repin_velocity = u.daily_repin_velocity
+      FROM jsonb_to_recordset(${JSON.stringify(updateBatch)}::jsonb) AS u(
+        recorded_date date,
+        daily_save_velocity numeric,
+        daily_repin_velocity numeric
+      )
+      WHERE pdm.pin_id = ${pinId} AND pdm.recorded_date = u.recorded_date;
+    `;
+  }
+
+  const latest = chrono[chrono.length - 1];
+  const latestSaves = latest.save_count !== null ? Number(latest.save_count) : null;
+  const latestRepins = latest.repin_count !== null ? Number(latest.repin_count) : null;
+  const latestSaveVel = latest.recomputed_save_velocity;
+  const latestRepinVel = latest.recomputed_repin_velocity;
+  const latestDeltaSaves = latestSaveVel !== null ? Math.round(latestSaveVel) : null;
+  const latestDeltaRepins = latestRepinVel !== null ? Math.round(latestRepinVel) : null;
+
+  await sql`
+    UPDATE universal_master_pins
+    SET
+      save_count = ${latestSaves},
+      repin_count = ${latestRepins},
+      daily_save_velocity = ${latestSaveVel},
+      daily_repin_velocity = ${latestRepinVel},
+      delta_saves_24h = ${latestDeltaSaves},
+      delta_repins_24h = ${latestDeltaRepins},
+      updated_at = NOW()
+    WHERE pin_id = ${pinId};
+  `;
 }
 
 /**
@@ -228,7 +238,7 @@ export async function deletePinSnapshotByTarget({
       await runInTx(async (tx) => {
         const [umpRow] = await tx`
           SELECT metadata FROM universal_master_pins WHERE pin_id = ${pinId} LIMIT 1;
-        `.catch(() => []);
+        `;
         const intraArr = Array.isArray(umpRow?.metadata?.intraday_snapshots)
           ? umpRow.metadata.intraday_snapshots.filter(x => x && String(x.snapshot_date || '').slice(0, 10) === dateCandidate)
           : [];
@@ -237,10 +247,15 @@ export async function deletePinSnapshotByTarget({
           intraArr.sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
           const promoted = intraArr[0];
           const promotedId = String(promoted.id || '');
-          const promoSaves = Number.isFinite(Number(promoted.save_count)) ? Math.max(0, Number(promoted.save_count)) : 0;
-          const promoRepins = Number.isFinite(Number(promoted.repin_count)) ? Math.max(0, Number(promoted.repin_count)) : 0;
-          const promoComments = Number.isFinite(Number(promoted.comment_count)) ? Math.max(0, Number(promoted.comment_count)) : 0;
-          const promoShares = Number.isFinite(Number(promoted.share_count)) ? Math.max(0, Number(promoted.share_count)) : 0;
+          const parseNullablePromoMetric = (val) => {
+            if (val === null || val === undefined || val === '') return null;
+            const n = Number(val);
+            return Number.isFinite(n) ? Math.max(0, n) : null;
+          };
+          const promoSaves = parseNullablePromoMetric(promoted.save_count);
+          const promoRepins = parseNullablePromoMetric(promoted.repin_count);
+          const promoComments = parseNullablePromoMetric(promoted.comment_count);
+          const promoShares = parseNullablePromoMetric(promoted.share_count);
           await tx`
             UPDATE pins_daily_metrics
             SET
@@ -618,12 +633,6 @@ export async function handlePinsRoutes({
       if (dossier && !dossier.first_saved_at && dossier.creative) {
         dossier.first_saved_at = dossier.creative.first_saved_at || dossier.creative.first_discovered_at || null;
         dossier.last_resaved_at = dossier.creative.last_resaved_at || dossier.creative.updated_at || null;
-      } else if (!dossier?.creative && searchParams.get('repo_fallback') === 'true') {
-        const repoReadDossier = await getPinDossier(sql, pinId).catch(() => null);
-        if (dossier && repoReadDossier?.creative) {
-          dossier.first_saved_at = repoReadDossier.creative.first_saved_at || null;
-          dossier.last_resaved_at = repoReadDossier.creative.last_resaved_at || null;
-        }
       }
 
       // Cache poisoning guard: If dossier failed, has 0 snapshots, or is degraded, invalidate cache

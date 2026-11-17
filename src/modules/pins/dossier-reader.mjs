@@ -2,14 +2,13 @@
  * src/modules/pins/dossier-reader.mjs
  *
  * Pure Read-Only Pin Dossier & Historical Trajectory Pipeline:
- * - getPinDossier: Single-roundtrip read of pin creative, algorithmic intelligence, creator context,
- *   keywords context, and 30-day trajectory with ZERO read-path database writes.
+ * - getPinDossier: Single-roundtrip 4-query read returning unified dossier (or null if missing).
  * - fetchUniversalPinDossier: Unified 4-Pillar Pin Dossier combining master pin creative,
  *   daily trajectory snapshots, SERP keyword positions, competitor profile context, and intraday checkpoints.
  * - fetchPinTrajectory: Chronological daily snapshot metrics from pins_daily_metrics.
  */
 
-import { calculateDailyVelocity, isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
 
 function repoSafeIsoDate(val, fallback = null) {
   if (!val) return fallback;
@@ -21,30 +20,98 @@ function repoSafeIsoDate(val, fallback = null) {
   }
 }
 
+function formatUtcDate(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    const year = val.getUTCFullYear();
+    const month = String(val.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(val.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  }
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return '';
+}
+
+function normalizeMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      return normalizeMetadata(JSON.parse(raw));
+    } catch (_) {
+      return {};
+    }
+  }
+  if (Array.isArray(raw)) {
+    let merged = {};
+    for (const item of raw) {
+      merged = { ...merged, ...normalizeMetadata(item) };
+    }
+    return merged;
+  }
+  if (typeof raw === 'object') {
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (v !== '' && v !== null && v !== undefined) {
+        clean[k] = v;
+      }
+    }
+    return clean;
+  }
+  return {};
+}
+
+function normalizeVisualAnnotations(raw) {
+  if (!raw) return [];
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      list = Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      list = [];
+    }
+  }
+  return list.map(a => typeof a === 'string' ? a : (a?.name || a?.label || '')).filter(Boolean);
+}
+
 /**
- * 4. Pure Read-Only Pin Dossier (`getPinDossier` - القراءة الصافية السريعة)
- * Single canonical dossier retrieval function returning:
- * - creative
- * - algorithmic_intelligence
- * - pillar_1_creator_context
- * - pillar_2_keywords_context
- * - snapshots (and daily_trajectory)
- *
- * @param {Function} sql - Unified PostgreSQL client
- * @param {string|number} pinId - Target Pin ID
- * @returns {Promise<object|null>}
+ * Shared 4-query pure read loader (eliminates duplicate queries across dossier entrypoints).
  */
-export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
-  const cleanPinId = String(pinId || '').trim();
-  if (!cleanPinId) return null;
+async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
   const effectiveSnapLimit = Math.max(1, Math.min(Number(snapshotLimit) || 30, 365));
+  let dbError = null;
+  const captureDbErr = (err) => {
+    if (!dbError && err) dbError = err;
+  };
 
   const [pinRows, trajectoryRows, serpRows, creatorRows] = await Promise.all([
     sql`
       SELECT
         pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
         image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-        first_discovered_pillar, first_discovered_at AS first_saved_at, last_scraped_at AS last_resaved_at, updated_at,
+        first_discovered_pillar, first_discovered_at, first_discovered_at AS first_saved_at,
+        last_scraped_at, last_scraped_at AS last_resaved_at, updated_at,
         save_count, repin_count, comment_count, share_count, reaction_count,
         daily_save_velocity, daily_repin_velocity, delta_saves_24h, delta_repins_24h,
         gains_5d, gains_7d, gains_10d, gains_15d,
@@ -53,7 +120,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
       FROM universal_master_pins
       WHERE pin_id = ${cleanPinId}
       LIMIT 1;
-    `,
+    `.catch((err) => { captureDbErr(err); return []; }),
     sql`
       SELECT
         pin_id,
@@ -70,7 +137,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
       WHERE pin_id = ${cleanPinId}
       ORDER BY recorded_date DESC
       LIMIT ${effectiveSnapLimit};
-    `,
+    `.catch((err) => { captureDbErr(err); return []; }),
     sql`
       SELECT
         ksp.keyword_id,
@@ -88,7 +155,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
       LEFT JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
       WHERE ksp.pin_id = ${cleanPinId}
       ORDER BY ksp.is_displaced ASC, ksp.rank_position ASC NULLS LAST;
-    `,
+    `.catch((err) => { captureDbErr(err); return []; }),
     sql`
       SELECT cp.id, cp.username, cp.display_name, cp.is_active, cp.metadata
       FROM competitor_profiles cp
@@ -98,274 +165,63 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
     `.catch(() => [])
   ]);
 
-  const pin = pinRows?.[0] || null;
-  if (!pin) return null;
-
-  const creatorProfile = creatorRows?.[0] || null;
-  const meta = typeof pin.metadata === 'object' && pin.metadata !== null ? pin.metadata : {};
-
-  // Compute clean chronological step deltas (pure MAX(0, (curr - prev) / days))
-  const chrono = [...(trajectoryRows || [])].reverse();
-  for (let i = 0; i < chrono.length; i++) {
-    const curr = chrono[i];
-    if (i === 0) {
-      curr.step_save_delta = 0;
-      curr.daily_save_velocity = Number(curr.daily_save_velocity || 0);
-    } else {
-      const prev = chrono[i - 1];
-      const prevSaves = Number(prev.save_count || 0);
-      const currSaves = Number(curr.save_count || 0);
-      const diff = Math.max(0, currSaves - prevSaves);
-      curr.step_save_delta = diff;
-      if (prevSaves <= 0 && currSaves > 0) {
-        // Hydration jump from zero/null baseline: suppress velocity to 0
-        curr.daily_save_velocity = 0;
-      } else {
-        curr.daily_save_velocity = calculateDailyVelocity({
-          currentSaves: curr.save_count,
-          baselineSaves: prev.save_count,
-          currentRepins: curr.repin_count,
-          baselineRepins: prev.repin_count,
-          currentDate: curr.snapshot_date,
-          baselineDate: prev.snapshot_date
-        });
-      }
-    }
-  }
-
-  const descSnapshots = [...chrono].reverse();
-  const canonicalPinId = pin.canonical_pin_id || meta.canonical_pin_id || cleanPinId;
-  const isCanonicalRoot = !pin.canonical_pin_id || String(pin.canonical_pin_id) === String(cleanPinId);
-  const hasDestLink = Boolean(pin.destination_url || meta.tracked_link || meta.utm_link);
-  const isGoLinkless = Boolean(meta.is_go_linkless || !hasDestLink);
-
-  const creative = {
-    ...pin,
-    save_count: Number(pin.save_count || 0),
-    repin_count: Number(pin.repin_count || 0),
-    reaction_count: Math.max(0, Number(pin.reaction_count || 0)),
-    daily_save_velocity: Number(pin.daily_save_velocity || 0),
-    delta_saves_24h: Number(pin.delta_saves_24h || 0),
-    visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations : []
-  };
-
-  const algorithmicIntelligence = {
-    is_repin: Boolean(pin.is_repin),
-    origin_pinner: meta.origin_pinner || null,
-    origin_pinner_followers: meta.origin_pinner_followers ?? meta.origin_pinner?.follower_count ?? null,
-    domain_official_user: meta.domain_official_user || null,
-    creator_is_verified_merchant: Boolean(meta.creator_is_verified_merchant ?? false),
-    image_signature: pin.image_signature || meta.image_signature || '',
-    image_dimensions: meta.image_dimensions || meta.imageDimensions || null,
-    seo_noindex_reason: pin.seo_noindex_reason || meta.seo_noindex_reason || null,
-    is_indexed_google: !(pin.seo_noindex_reason || meta.seo_noindex_reason),
-    is_go_linkless: isGoLinkless,
-    is_arbitrage_active: !isGoLinkless,
-    category_breadcrumbs: Array.isArray(meta.category_breadcrumbs) ? meta.category_breadcrumbs : [],
-    board_metrics: {
-      pin_count: Number(meta.board_pin_count || 0),
-      order_modified_at: meta.board_order_modified_at || null,
-      board_url: meta.board_url || null,
-      cover_url: meta.board_cover_url || null,
-      thumbnail_url: meta.board_thumbnail_url || null
-    },
-    creation_method: pin.creation_method || meta.creation_method || 'pinterest_platform',
-    seo_title: meta.seo_title || pin.title || '',
-    seo_description: meta.seo_description || pin.description || '',
-    seo_canonical_url: meta.seo_canonical_url || '',
-    seo_canonical_domain: meta.seo_canonical_domain || pin.domain || '',
-    canonical_pin_id: canonicalPinId,
-    canonical_pin_url: pin.canonical_pin_id ? `https://www.pinterest.com/pin/${pin.canonical_pin_id}/` : `https://www.pinterest.com/pin/${cleanPinId}/`,
-    is_canonical_root: isCanonicalRoot,
-    seo_related_interests: Array.isArray(meta.seo_related_interests) ? meta.seo_related_interests : [],
-    rich_metadata: meta.rich_metadata || null,
-    visual_objects: Array.isArray(meta.visual_objects) ? meta.visual_objects : [],
-    reactions: meta.reactions || {},
-    utm_link: meta.utm_link || pin.destination_url || '',
-    tracked_link: meta.tracked_link || pin.destination_url || '',
-    is_product: Boolean(pin.is_product || meta.is_product),
-    is_video: Boolean(pin.is_video || meta.is_video),
-    shopping_data: meta.shopping_data || null
-  };
-
-  const pillar1CreatorContext = {
-    creator_username: pin.creator_username || '',
-    creator_url: pin.creator_username ? `https://www.pinterest.com/${pin.creator_username}/` : null,
-    board_name: pin.board_name || '',
-    board_slug: pin.board_slug || (pin.board_name ? pin.board_name.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : ''),
-    board_url: (pin.creator_username && pin.board_slug) ? `https://www.pinterest.com/${pin.creator_username}/${pin.board_slug}/` : null,
-    competitor_tracked: Boolean(creatorProfile),
-    competitor_profile: creatorProfile || null
-  };
-
-  const pillar2KeywordsContext = {
-    ranking_keywords: (serpRows || []).map(k => ({
-      keyword_id: k.keyword_id,
-      keyword: k.keyword_name,
-      rank: k.rank_position,
-      prev_rank: k.prev_rank_position,
-      is_displaced: k.is_displaced,
-      last_known_rank: k.last_known_rank,
-      crawled_at: k.crawled_at,
-      updated_at: k.updated_at
-    })),
-    serp_impressions: (serpRows || []).length,
-    highest_rank: (serpRows || []).reduce((min, k) => Math.min(min, k.rank_position || 999), 999)
-  };
-
   return {
-    pin_id: cleanPinId,
-    creative,
-    algorithmic_intelligence: algorithmicIntelligence,
-    pillar_1_creator_context: pillar1CreatorContext,
-    pillar_2_keywords_context: pillar2KeywordsContext,
-    snapshots: descSnapshots,
-    daily_trajectory: descSnapshots,
-    serp_positions: serpRows || []
+    pin: pinRows?.[0] || null,
+    trajectoryRows: Array.isArray(trajectoryRows) ? trajectoryRows : [],
+    serpRows: Array.isArray(serpRows) ? serpRows : [],
+    creatorProfile: creatorRows?.[0] || null,
+    dbError
   };
 }
 
 /**
- * 6. Unified Universal 4-Pillar Pin Dossier (`fetchUniversalPinDossier`)
- * Single-DB pure read-only dossier retrieval combining master pin creative,
- * daily trajectory snapshots, SERP keyword positions, competitor profile context,
- * and intraday checkpoints.
+ * Shared canonical dossier builder used by both `getPinDossier` and `fetchUniversalPinDossier`.
  */
-export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinId } = {}) {
-  const dbSql = sql || hubSql;
-  const cleanPinId = String(pinId || '').trim();
-  if (!cleanPinId) throw new Error('Pin ID is required');
-  if (!dbSql) {
-    return {
-      success: false,
-      error: 'DB_UNAVAILABLE',
-      reason: 'MISSING_SQL_CLIENT',
-      message: 'Database connection is not configured.'
-    };
-  }
-
-  let dbError = null;
-  const captureDbErr = (err) => {
-    if (!dbError && err) dbError = err;
-  };
-
-  const hubCompetitorPromise = dbSql`
-    SELECT 
-      cbp.pin_id, cbp.competitor_id, cprof.username as competitor_username, cprof.display_name, cprof.is_active as competitor_active,
-      ump.title, ump.description, ump.alt_text, ump.image_url, ump.destination_url, ump.domain, ump.board_name,
-      ump.save_count, ump.repin_count, ump.comment_count, ump.created_at_pinterest, ump.updated_at,
-      ump.metadata
-    FROM competitor_board_pins cbp
-    JOIN competitor_profiles cprof ON cprof.id = cbp.competitor_id
-    JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-    WHERE cbp.pin_id = ${cleanPinId}
-    LIMIT 1;
-  `.catch((err) => { captureDbErr(err); return []; });
-
-  const [
-    repoDossier,
-    hubCompetitorRowsRaw
-  ] = await Promise.all([
-    getPinDossier(dbSql, cleanPinId, { snapshotLimit: 90 }).catch((err) => { captureDbErr(err); return null; }),
-    hubCompetitorPromise
-  ]);
-
-  const row = repoDossier?.creative || null;
+function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, dbError, cleanPinId }) {
   let masterRecord = null;
-  if (row) {
-    const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
+  if (pin) {
+    const meta = normalizeMetadata(pin.metadata);
+    const candidateMethods = [
+      pin.creation_method,
+      meta.creation_method,
+      meta.method
+    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+    const resolvedMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || null;
     masterRecord = {
-      ...row,
-      first_discovered_at: row.first_saved_at || row.first_discovered_at || null,
-      last_scraped_at: row.last_resaved_at || row.last_scraped_at || row.updated_at || null,
-      creation_method: meta.creation_method || meta.method || row.creation_method || null
+      ...pin,
+      visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [],
+      first_discovered_at: pin.first_saved_at || pin.first_discovered_at || null,
+      last_scraped_at: pin.last_scraped_at || pin.last_resaved_at || pin.updated_at || null,
+      creation_method: resolvedMethod,
+      metadata: meta
     };
   }
-  const initialSnapshots = repoDossier?.snapshots || repoDossier?.daily_trajectory || [];
 
-  if (masterRecord) {
-    const mMeta = typeof masterRecord.metadata === 'object' && masterRecord.metadata !== null ? masterRecord.metadata : {};
-    const candidateMethods = [
-      masterRecord.creation_method,
-      mMeta.creation_method,
-      mMeta.method
-    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-    masterRecord.creation_method = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || null;
-  }
-
-  let snapshots = initialSnapshots;
-  const compProfile = repoDossier?.pillar_1_creator_context?.competitor_profile || hubCompetitorRowsRaw?.[0] || null;
-  const hubSerpRows = Array.isArray(repoDossier?.serp_positions)
-    ? repoDossier.serp_positions.map((k) => ({
-        ...k,
-        pin_id: cleanPinId,
-        title: row?.title || '',
-        domain: row?.domain || '',
-        destination_url: row?.destination_url || '',
-        image_url: row?.image_url || '',
-        creator_username: repoDossier?.pillar_1_creator_context?.creator_username || row?.creator_username || '',
-        board_name: repoDossier?.pillar_1_creator_context?.board_name || row?.board_name || '',
-        save_count: row?.save_count ?? null,
-        repin_count: row?.repin_count ?? null,
-        comment_count: row?.comment_count ?? 0,
-        share_count: row?.share_count ?? 0,
-        reaction_count: row?.reaction_count ?? 0,
-        daily_save_velocity: row?.daily_save_velocity ?? null,
-        daily_repin_velocity: row?.daily_repin_velocity ?? null,
-        dominant_color: row?.dominant_color || null,
-        visual_annotations: row?.visual_annotations || [],
-        creation_method: row?.creation_method || null,
-        created_at_pinterest: row?.created_at_pinterest || null,
-        competitor_id: compProfile?.competitor_id ?? compProfile?.id ?? null,
-        competitor_username: compProfile?.competitor_username ?? compProfile?.username ?? null,
-        competitor_display_name: compProfile?.display_name ?? null,
-        competitor_active: compProfile?.competitor_active ?? compProfile?.is_active ?? null
-      }))
-    : [];
-
-  function normalizeMetadata(raw) {
-    if (!raw) return {};
-    if (typeof raw === 'string') {
-      try {
-        return normalizeMetadata(JSON.parse(raw));
-      } catch (_) {
-        return {};
-      }
-    }
-    if (Array.isArray(raw)) {
-      let merged = {};
-      for (const item of raw) {
-        merged = { ...merged, ...normalizeMetadata(item) };
-      }
-      return merged;
-    }
-    if (typeof raw === 'object') {
-      const clean = {};
-      for (const [k, v] of Object.entries(raw)) {
-        if (v !== '' && v !== null && v !== undefined) {
-          clean[k] = v;
-        }
-      }
-      return clean;
-    }
-    return {};
-  }
-
-  function normalizeVisualAnnotations(raw) {
-    if (!raw) return [];
-    let list = [];
-    if (Array.isArray(raw)) {
-      list = raw;
-    } else if (typeof raw === 'string') {
-      try {
-        const parsed = JSON.parse(raw);
-        list = Array.isArray(parsed) ? parsed : [];
-      } catch (_) {
-        list = [];
-      }
-    }
-    return list.map(a => typeof a === 'string' ? a : (a?.name || a?.label || '')).filter(Boolean);
-  }
+  const hubSerpRows = serpRows.map((k) => ({
+    ...k,
+    pin_id: cleanPinId,
+    title: pin?.title || '',
+    domain: pin?.domain || '',
+    destination_url: pin?.destination_url || '',
+    image_url: pin?.image_url || '',
+    creator_username: pin?.creator_username || '',
+    board_name: pin?.board_name || '',
+    save_count: pin?.save_count ?? null,
+    repin_count: pin?.repin_count ?? null,
+    comment_count: pin?.comment_count ?? 0,
+    share_count: pin?.share_count ?? 0,
+    reaction_count: pin?.reaction_count ?? 0,
+    daily_save_velocity: pin?.daily_save_velocity ?? null,
+    daily_repin_velocity: pin?.daily_repin_velocity ?? null,
+    dominant_color: pin?.dominant_color || null,
+    visual_annotations: Array.isArray(pin?.visual_annotations) ? pin.visual_annotations : [],
+    creation_method: pin?.creation_method || null,
+    created_at_pinterest: pin?.created_at_pinterest || null,
+    competitor_id: creatorProfile?.id ?? null,
+    competitor_username: creatorProfile?.username ?? null,
+    competitor_display_name: creatorProfile?.display_name ?? null,
+    competitor_active: creatorProfile?.is_active ?? null
+  }));
 
   const topHubMeta = normalizeMetadata(hubSerpRows[0]?.metadata);
   const masterMetaObj = normalizeMetadata(masterRecord?.metadata);
@@ -415,30 +271,6 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         visual_annotations: Array.from(unionSet),
         metadata: { ...topHubMeta, creation_method: resolvedHubMethod, method: resolvedHubMethod }
       };
-    } else if (hubCompetitorRowsRaw && hubCompetitorRowsRaw.length > 0 && (hubCompetitorRowsRaw[0].title || hubCompetitorRowsRaw[0].image_url)) {
-      const compRow = hubCompetitorRowsRaw[0];
-      const cMeta = normalizeMetadata(compRow.metadata);
-      const cMethod = cMeta.creation_method || cMeta.method || 'pinterest_platform';
-      const cAnnotations = normalizeVisualAnnotations(cMeta.visual_annotations || compRow.visual_annotations);
-      masterRecord = {
-        pin_id: compRow.pin_id,
-        title: compRow.title || cMeta.seo_title || '',
-        domain: compRow.domain || '',
-        destination_url: compRow.destination_url || '',
-        image_url: compRow.image_url || '',
-        creator_username: compRow.competitor_username || '',
-        board_name: compRow.board_name || '',
-        save_count: Number(compRow.save_count || 0),
-        repin_count: Number(compRow.repin_count || 0),
-        daily_save_velocity: Number(cMeta.daily_save_velocity || cMeta.velocity || 0),
-        dominant_color: cMeta.dominant_color || '#888888',
-        alt_text: compRow.alt_text || cMeta.alt_text || '',
-        description: compRow.description || cMeta.description || '',
-        created_at_pinterest: compRow.created_at_pinterest || null,
-        creation_method: cMethod,
-        visual_annotations: cAnnotations.length > 0 ? cAnnotations : Array.from(unionSet),
-        metadata: { ...cMeta, creation_method: cMethod, method: cMethod }
-      };
     }
   }
 
@@ -477,47 +309,14 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
     .slice(0, 15);
 
-  const snapshotList = snapshots || [];
   const snapshotMap = new Map();
-
-  function formatUtcDate(val) {
-    if (!val) return '';
-    if (val instanceof Date) {
-      if (isNaN(val.getTime())) return '';
-      const year = val.getUTCFullYear();
-      const month = String(val.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(val.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    if (typeof val === 'string') {
-      const s = val.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-      const d = new Date(s);
-      if (!isNaN(d.getTime())) {
-        const year = d.getUTCFullYear();
-        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(d.getUTCDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      }
-      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-    }
-    const d = new Date(val);
-    if (!isNaN(d.getTime())) {
-      const year = d.getUTCFullYear();
-      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(d.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    return '';
-  }
-
   const existingSnapshotDates = new Set();
-  for (const s of snapshotList) {
+  for (const s of trajectoryRows) {
     const sDate = formatUtcDate(s.snapshot_date);
     if (!sDate) continue;
     existingSnapshotDates.add(sDate);
     const dedupKey = `${sDate}_${s.keyword_id || 'global'}`;
-    snapshotMap.set(dedupKey, s);
+    snapshotMap.set(dedupKey, { ...s });
   }
 
   const deletedSnapshotDates = new Set([
@@ -613,7 +412,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     if (shouldAppendMasterLive) {
       const targetStr = masterCrawlIso || formatUtcDate(new Date());
       const masterTs = repoSafeIsoDate(masterRecord.last_scraped_at) || repoSafeIsoDate(masterRecord.updated_at) || new Date().toISOString();
-      const livePoint = {
+      snapshotMap.set(`${targetStr}_global`, {
         pin_id: cleanPinId,
         keyword_id: null,
         keyword_name: null,
@@ -631,38 +430,27 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         crawled_at: masterTs,
         updated_at: masterTs,
         metadata: masterRecord.metadata || {}
-      };
-      snapshotMap.set(`${targetStr}_global`, livePoint);
+      });
     }
   }
 
-  snapshots = Array.from(snapshotMap.values()).sort(
+  const snapshots = Array.from(snapshotMap.values()).sort(
     (a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date)
   );
 
-  const rawSnapshots = snapshots || [];
+  // Build keyword lookup directly from joined serpRows (zero extra tracked_keywords query)
   const kwMap = new Map();
-  for (const r of hubSerpRows) {
-    if (r?.keyword_id && r?.keyword_name) kwMap.set(Number(r.keyword_id), r.keyword_name);
-  }
-  const missingKwIds = [...new Set(rawSnapshots.map(s => s.keyword_id).filter(id => id != null && !isNaN(Number(id)) && !kwMap.has(Number(id))))];
-  if (missingKwIds.length > 0) {
-    const kwRows = await dbSql`SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${missingKwIds});`.catch(() => []);
-    for (const r of kwRows) {
-      if (r && r.id != null) kwMap.set(Number(r.id), r.keyword);
-    }
-  }
-
   const serpByKeyword = new Map();
   for (const rowItem of hubSerpRows) {
-    if (rowItem && rowItem.keyword_id) {
-      serpByKeyword.set(Number(rowItem.keyword_id), rowItem);
+    if (rowItem?.keyword_id) {
+      const kid = Number(rowItem.keyword_id);
+      if (rowItem.keyword_name) kwMap.set(kid, rowItem.keyword_name);
+      serpByKeyword.set(kid, rowItem);
     }
   }
 
   const todayUtcStr = formatUtcDate(new Date());
-
-  const enrichedSnapshots = rawSnapshots.map((s) => {
+  const enrichedSnapshots = snapshots.map((s) => {
     const sDate = formatUtcDate(s.snapshot_date);
     const kid = s.keyword_id != null ? Number(s.keyword_id) : null;
     const isToday = Boolean(sDate && sDate === todayUtcStr);
@@ -948,6 +736,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         keyword_id: Number(sc.keyword_id),
         keyword: sc.keyword_name || kwMap.get(Number(sc.keyword_id)),
         rank: effDisplaced ? vaultRank : liveRank,
+        prev_rank: sc.prev_rank_position ?? null,
         rank_position: liveRank,
         last_known_rank: vaultRank,
         is_displaced: effDisplaced,
@@ -955,45 +744,27 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         vault_rank: vaultRank,
         effective_sort_rank: sortRank,
         catalog_rank: sortRank,
-        velocity: Number(sc.daily_save_velocity || 0)
+        velocity: Number(sc.daily_save_velocity || 0),
+        crawled_at: sc.crawled_at || null,
+        updated_at: sc.updated_at || null
       };
     });
 
-  let competitorInfo = null;
-  if (hubCompetitorRowsRaw && hubCompetitorRowsRaw.length > 0 && hubCompetitorRowsRaw[0].competitor_id) {
-    competitorInfo = hubCompetitorRowsRaw[0];
-  } else if (hubSerpRows.length > 0 && hubSerpRows[0].competitor_id) {
-    competitorInfo = {
-      competitor_id: hubSerpRows[0].competitor_id,
-      competitor_username: hubSerpRows[0].competitor_username,
-      display_name: hubSerpRows[0].competitor_display_name,
-      competitor_active: hubSerpRows[0].competitor_active
-    };
-  } else if (masterRecord?.creator_username) {
-    const [compRow] = await dbSql`
-      SELECT id as competitor_id, username as competitor_username, display_name, is_active as competitor_active
-      FROM competitor_profiles
-      WHERE username = ${masterRecord.creator_username}
-      LIMIT 1;
-    `.catch(() => []);
-    competitorInfo = compRow || null;
-  }
-  const hubContext = { ranking_keywords: rankingKeywordsFromMem, competitor_info: competitorInfo };
+  const competitorInfo = creatorProfile
+    ? {
+        id: creatorProfile.id,
+        competitor_id: creatorProfile.id,
+        username: creatorProfile.username,
+        competitor_username: creatorProfile.username,
+        display_name: creatorProfile.display_name || null,
+        is_active: creatorProfile.is_active,
+        competitor_active: creatorProfile.is_active,
+        metadata: creatorProfile.metadata || null
+      }
+    : null;
 
-  if (!masterRecord && snapshots.length === 0 && (!hubContext?.ranking_keywords || hubContext.ranking_keywords.length === 0)) {
-    if (dbError) {
-      return {
-        success: false,
-        error: 'DB_UNAVAILABLE',
-        reason: dbError.code || 'DB_ERROR',
-        message: `Database query failed for pin ${cleanPinId}.`
-      };
-    }
-    return {
-      success: false,
-      error: 'NOT_FOUND',
-      message: `Pin ${cleanPinId} not found in any intelligence pillar.`
-    };
+  if (!masterRecord && snapshots.length === 0 && rankingKeywordsFromMem.length === 0) {
+    return { notFound: true, dbError };
   }
 
   const cleanMeta = (obj) => {
@@ -1018,7 +789,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     ...(hubSerpRows || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean)
   ];
 
-  let canonicalPinId = null;
+  let canonicalPinId = masterRecord?.canonical_pin_id || null;
   let canonicalPinUrl = null;
   let seoCanonicalUrl = '';
   let seoRelatedInterests = [];
@@ -1092,15 +863,15 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
   );
 
   const algorithmicIntelligence = {
-    is_repin: Boolean(snapMeta.is_repin ?? false),
+    is_repin: Boolean(masterRecord?.is_repin ?? snapMeta.is_repin ?? false),
     origin_pinner: snapMeta.origin_pinner || null,
     origin_pinner_followers: snapMeta.origin_pinner_followers ?? snapMeta.origin_pinner?.follower_count ?? null,
     domain_official_user: snapMeta.domain_official_user || null,
     creator_is_verified_merchant: Boolean(snapMeta.creator_is_verified_merchant ?? false),
-    image_signature: snapMeta.image_signature || '',
+    image_signature: masterRecord?.image_signature || snapMeta.image_signature || '',
     image_dimensions: snapMeta.image_dimensions || snapMeta.imageDimensions || null,
-    seo_noindex_reason: snapMeta.seo_noindex_reason || null,
-    is_indexed_google: !snapMeta.seo_noindex_reason,
+    seo_noindex_reason: masterRecord?.seo_noindex_reason || snapMeta.seo_noindex_reason || null,
+    is_indexed_google: !(masterRecord?.seo_noindex_reason || snapMeta.seo_noindex_reason),
     is_go_linkless: isGoLinkless,
     is_arbitrage_active: !isGoLinkless,
     category_breadcrumbs: Array.isArray(snapMeta.category_breadcrumbs) ? snapMeta.category_breadcrumbs : [],
@@ -1115,7 +886,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     seo_title: snapMeta.seo_title || masterRecord?.title || '',
     seo_description: snapMeta.seo_description || masterRecord?.description || '',
     seo_canonical_url: seoCanonicalUrl || snapMeta.seo_canonical_url || '',
-    seo_canonical_domain: snapMeta.seo_canonical_domain || '',
+    seo_canonical_domain: snapMeta.seo_canonical_domain || masterRecord?.domain || '',
     canonical_pin_id: canonicalPinId,
     canonical_pin_url: canonicalPinUrl,
     is_canonical_root: isCanonicalRoot,
@@ -1125,8 +896,8 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     reactions: snapMeta.reactions || {},
     utm_link: snapMeta.utm_link || masterRecord?.destination_url || '',
     tracked_link: snapMeta.tracked_link || masterRecord?.destination_url || '',
-    is_product: Boolean(snapMeta.is_product || snapMeta.isProduct || (Array.isArray(snapMeta.shopping_flags) && snapMeta.shopping_flags.includes('is_product'))),
-    is_video: Boolean(snapMeta.is_video || snapMeta.isVideo || snapMeta.video_url),
+    is_product: Boolean(masterRecord?.is_product || snapMeta.is_product || snapMeta.isProduct || (Array.isArray(snapMeta.shopping_flags) && snapMeta.shopping_flags.includes('is_product'))),
+    is_video: Boolean(masterRecord?.is_video || snapMeta.is_video || snapMeta.isVideo || snapMeta.video_url),
     shopping_data: snapMeta.shopping_data || snapMeta.shoppingData || null
   };
 
@@ -1152,10 +923,15 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     reactionsSum
   );
 
+  const firstSavedAt = masterRecord?.first_saved_at || masterRecord?.first_discovered_at || null;
+  const lastResavedAt = masterRecord?.last_resaved_at || masterRecord?.last_scraped_at || masterRecord?.updated_at || null;
+
   const dossierResult = {
     success: true,
     pin_id: cleanPinId,
     is_degraded: Boolean(dbError),
+    first_saved_at: firstSavedAt,
+    last_resaved_at: lastResavedAt,
     creative: {
       title: masterRecord?.title || `Pin ${cleanPinId}`,
       description: masterRecord?.description || '',
@@ -1169,10 +945,15 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
       visual_annotations_detailed: detailedAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
       creation_method: resolvedCreationMethod,
-      image_signature: snapMeta.image_signature || '',
+      image_signature: algorithmicIntelligence.image_signature,
       canonical_pin_id: canonicalPinId,
       canonical_pin_url: canonicalPinUrl,
       is_canonical_root: isCanonicalRoot,
+      first_discovered_at: masterRecord?.first_discovered_at || null,
+      first_saved_at: firstSavedAt,
+      last_scraped_at: masterRecord?.last_scraped_at || null,
+      last_resaved_at: lastResavedAt,
+      updated_at: masterRecord?.updated_at || null,
       save_count: Math.max(0, Number(masterRecord?.save_count || 0), Number(hubSerpRows[0]?.save_count || 0), Number(dailyTrajectory[0]?.save_count || 0)),
       repin_count: Math.max(0, Number(masterRecord?.repin_count || 0), Number(hubSerpRows[0]?.repin_count || 0), Number(dailyTrajectory[0]?.repin_count || 0)),
       daily_repin_velocity: Number(masterRecord?.daily_repin_velocity || hubSerpRows[0]?.daily_repin_velocity || dailyTrajectory[0]?.daily_repin_velocity || 0),
@@ -1204,7 +985,13 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
         return Boolean(Number.isFinite(latestSnapMs) && Number.isFinite(refNowMs) && ((refNowMs - latestSnapMs) / 86400000) > 2.5 && masterOrHubVel <= 0);
       })(),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
-      is_deleted: Boolean(masterRecord?.is_deleted || masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),
+      delta_saves_24h: Number(masterRecord?.delta_saves_24h || 0),
+      delta_repins_24h: Number(masterRecord?.delta_repins_24h || 0),
+      gains_5d: masterRecord?.gains_5d ?? null,
+      gains_7d: masterRecord?.gains_7d ?? null,
+      gains_10d: masterRecord?.gains_10d ?? null,
+      gains_15d: masterRecord?.gains_15d ?? null,
+      is_deleted: Boolean(masterRecord?.metadata?.is_deleted || (masterRecord?.metadata?.status === 'archived_404')),
       metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
@@ -1214,24 +1001,85 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
       board_name: boardName,
       board_slug: boardSlug,
       board_url: (creatorUsername && boardSlug) ? `https://www.pinterest.com/${creatorUsername}/${boardSlug}/` : null,
-      competitor_tracked: Boolean(hubContext?.competitor_info),
-      competitor_profile: hubContext?.competitor_info || null
+      competitor_tracked: Boolean(competitorInfo),
+      competitor_profile: competitorInfo
     },
     pillar_2_keywords_context: {
-      ranking_keywords: hubContext?.ranking_keywords || [],
-      serp_impressions: (hubContext?.ranking_keywords || []).length,
-      highest_rank: (hubContext?.ranking_keywords || []).reduce((min, k) => Math.min(min, k.rank || 999), 999)
+      ranking_keywords: rankingKeywordsFromMem,
+      serp_impressions: rankingKeywordsFromMem.length,
+      highest_rank: rankingKeywordsFromMem.reduce((min, k) => Math.min(min, k.rank || 999), 999)
     },
     pillar_3_related_pins_context: {
       seed_pin_id: cleanPinId,
       radar_url: `/api/keywords/visual-search?pin_id=${cleanPinId}`
     },
     daily_trajectory: dailyTrajectory,
-    snapshots: enrichedSnapshots
+    snapshots: enrichedSnapshots,
+    serp_positions: hubSerpRows
   };
 
   sanitizeDossierTrajectory(dossierResult);
   return dossierResult;
+}
+
+/**
+ * 4. Pure Read-Only Pin Dossier (`getPinDossier` - القراءة الصافية السريعة)
+ * Backward-compatible entrypoint returning unified dossier (or `null` if pin not found in master).
+ *
+ * @param {Function} sql - Unified PostgreSQL client
+ * @param {string|number} pinId - Target Pin ID
+ * @param {object} [options]
+ * @returns {Promise<object|null>}
+ */
+export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
+  const cleanPinId = String(pinId || '').trim();
+  if (!cleanPinId || !sql) return null;
+
+  const raw = await loadRawPinDossierRows(sql, cleanPinId, snapshotLimit);
+  if (raw.dbError) throw raw.dbError;
+  if (!raw.pin) return null;
+
+  const built = buildUnifiedDossier({ ...raw, cleanPinId });
+  return built?.notFound ? null : built;
+}
+
+/**
+ * 6. Unified Universal 4-Pillar Pin Dossier (`fetchUniversalPinDossier`)
+ * Single-DB pure read-only dossier retrieval returning unified dossier or structured error envelope.
+ */
+export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinId } = {}) {
+  const dbSql = sql || hubSql;
+  const cleanPinId = String(pinId || '').trim();
+  if (!cleanPinId) throw new Error('Pin ID is required');
+  if (!dbSql) {
+    return {
+      success: false,
+      error: 'DB_UNAVAILABLE',
+      reason: 'MISSING_SQL_CLIENT',
+      message: 'Database connection is not configured.'
+    };
+  }
+
+  const raw = await loadRawPinDossierRows(dbSql, cleanPinId, 90);
+  const built = buildUnifiedDossier({ ...raw, cleanPinId });
+
+  if (built?.notFound) {
+    if (built.dbError) {
+      return {
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        reason: built.dbError.code || 'DB_ERROR',
+        message: `Database query failed for pin ${cleanPinId}.`
+      };
+    }
+    return {
+      success: false,
+      error: 'NOT_FOUND',
+      message: `Pin ${cleanPinId} not found in any intelligence pillar.`
+    };
+  }
+
+  return built;
 }
 
 /**

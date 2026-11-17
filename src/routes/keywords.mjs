@@ -204,9 +204,13 @@ export async function handleKeywordsRoutes({
             await sql`
               UPDATE universal_master_pins
               SET url_global_saves = GREATEST(COALESCE(url_global_saves, 0), ${count}::bigint)
-              WHERE (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
-                 OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
-                 OR destination_url LIKE ${cleanUrl + '?%'};
+              WHERE destination_url IS NOT NULL
+                AND destination_url <> ''
+                AND (
+                  (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
+                  OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
+                  OR destination_url LIKE ${cleanUrl + '?%'}
+                );
             `.catch(() => {});
           })(), 'write_back_single_url_global_saves');
         }
@@ -305,12 +309,43 @@ export async function handleKeywordsRoutes({
         validEntries.sort((a, b) => a.url.localeCompare(b.url));
         const payloadJson = JSON.stringify(validEntries);
         await sql`
+          WITH input_urls AS (
+            SELECT url, count
+            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)
+          ),
+          matched_pins AS (
+            SELECT ump.pin_id, iu.count
+            FROM input_urls iu
+            JOIN universal_master_pins ump
+              ON ump.destination_url IS NOT NULL
+             AND ump.destination_url <> ''
+             AND ump.destination_url = iu.url
+            UNION ALL
+            SELECT ump.pin_id, iu.count
+            FROM input_urls iu
+            JOIN universal_master_pins ump
+              ON ump.destination_url IS NOT NULL
+             AND ump.destination_url <> ''
+             AND ump.destination_url = (iu.url || '/')
+            UNION ALL
+            SELECT ump.pin_id, iu.count
+            FROM input_urls iu
+            JOIN universal_master_pins ump
+              ON ump.destination_url IS NOT NULL
+             AND ump.destination_url <> ''
+             AND ump.destination_url ~>=~ (iu.url || '?')
+             AND ump.destination_url ~<~ (iu.url || '@')
+             AND ump.destination_url LIKE (iu.url || '?%')
+          ),
+          dedup_matches AS (
+            SELECT pin_id, MAX(count)::bigint AS max_count
+            FROM matched_pins
+            GROUP BY pin_id
+          )
           UPDATE universal_master_pins ump
-          SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), x.count::bigint)
-          FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)
-          WHERE (md5(ump.destination_url) = md5(x.url) AND ump.destination_url = x.url)
-             OR (md5(ump.destination_url) = md5(x.url || '/') AND ump.destination_url = (x.url || '/'))
-             OR ump.destination_url LIKE (x.url || '?%');
+          SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), dm.max_count)
+          FROM dedup_matches dm
+          WHERE ump.pin_id = dm.pin_id;
         `.catch(() => {});
       })(), 'write_back_batch_global_saves');
     }
@@ -367,7 +402,12 @@ export async function handleKeywordsRoutes({
       }, 200, 8);
     } catch (err) {
       console.error('[Keywords Error]', err.message);
-      return jsonResponse({ success: true, degraded: true, keywords: [] }, 200, 0);
+      return jsonResponse({
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        degraded: true,
+        message: 'Keywords hub temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
     }
   }
 
@@ -1432,31 +1472,23 @@ export async function handleKeywordsRoutes({
         return jsonResponse({ success: true, folder }, 200, 15);
       }
 
-      let folders = [];
-      let foldersDegraded = false;
-      if (isLite) {
-        try {
-          folders = await listFoldersLite(sql, { projectId });
-        } catch (err) {
-          console.warn('[Folders Fallback] listFoldersLite failed:', err.message);
-          folders = [];
-          foldersDegraded = true;
-        }
-      } else {
-        try {
-          folders = await listFolders(sql, { projectId });
-        } catch (err) {
-          console.warn('[Folders Fallback] listFolders failed:', err.message);
-          folders = [];
-          foldersDegraded = true;
-        }
+      try {
+        const folders = isLite
+          ? await listFoldersLite(sql, { projectId })
+          : await listFolders(sql, { projectId });
+        return jsonResponse({
+          success: true,
+          folders: Array.isArray(folders) ? folders : []
+        }, 200, 10);
+      } catch (err) {
+        console.warn('[Folders Fallback] listFolders failed:', err.message);
+        return jsonResponse({
+          success: false,
+          error: 'DB_UNAVAILABLE',
+          degraded: true,
+          message: 'Folders hub temporarily unavailable while database is waking up. Retry in 3 seconds.'
+        }, 503, 0, { 'Retry-After': '3' });
       }
-
-      return jsonResponse({
-        success: true,
-        folders: Array.isArray(folders) ? folders : [],
-        ...(foldersDegraded ? { degraded: true } : {})
-      }, 200, foldersDegraded ? 0 : 10);
     }
 
     if (method === 'POST' && parts.length === 0) {

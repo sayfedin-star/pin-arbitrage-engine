@@ -11,7 +11,7 @@
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { getPinDetailsStyles } from './ui/pin-details/styles.mjs';
 import { getPinDetailsBodyHtml } from './ui/pin-details/page-template.mjs';
-import { getPinDetailsHeadScripts, getPinDetailsClientAppScripts } from './ui/pin-details/client-app.mjs';
+import { getPinDetailsClientAppScripts } from './ui/pin-details/client-app.mjs';
 import { renderSharedDocumentHead } from './ui/shared-head.mjs';
 
 export function getPinDetailPageHtml(pinId = '') {
@@ -31,7 +31,9 @@ export function getPinDetailPageHtml(pinId = '') {
 ${renderSharedDocumentHead({
   title: `Universal Pin Dossier #${escapedPinId} | Pinterest Arbitrage Intelligence`,
   referrerPolicy: 'same-origin',
-  includeThemeScript: false,
+  includeThemeScript: true,
+  defaultTheme: 'dark',
+  syncLightClass: true,
   tailwindScriptHtml: `  <script>
     tailwind.config = {
       darkMode: 'class',
@@ -58,7 +60,6 @@ ${renderSharedDocumentHead({
   </script>`
 })}
 ${getPinDetailsStyles()}
-${getPinDetailsHeadScripts()}
 </head>
 ${getPinDetailsBodyHtml(safePinId)}
 ${getPinDetailsClientAppScripts()}

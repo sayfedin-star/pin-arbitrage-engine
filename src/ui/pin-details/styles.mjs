@@ -7,8 +7,6 @@
 export function getPinDetailsStyles() {
   return `
   <style>
-    /* Cloak & Essential Utility Rules */
-    [x-cloak] { display: none !important; }
 
     /* ======================================================== */
     /* DESIGN SYSTEM TOKENS: BENTO SAAS (LIGHT DEFAULT)         */
@@ -51,13 +49,6 @@ export function getPinDetailsStyles() {
       color-scheme: dark;
     }
 
-    /* Clean Scrollbars */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
-    .dark ::-webkit-scrollbar-thumb { background: #27272A; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
     /* Bento SaaS Container Styles */
     .bento-card {

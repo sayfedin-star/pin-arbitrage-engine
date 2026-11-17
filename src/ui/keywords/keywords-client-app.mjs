@@ -3046,13 +3046,21 @@ export function getKeywordsClientAppScript() {
         },
 
         safeUrl(url) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
           const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
           return '#';
         },
 
         safeColor(color, fallback = '#ec4899') {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(color, fallback);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!color) return fallback;
           const s = String(color).trim();
           if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;

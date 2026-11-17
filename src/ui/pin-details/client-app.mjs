@@ -3,82 +3,6 @@
  * Extracted from src/pin-details-ui.mjs
  */
 
-export function getPinDetailsHeadScripts() {
-  return `
-  <script>
-    (function() {
-      try {
-        var saved = localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme');
-        if (saved === 'light') {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.classList.add('light');
-        } else {
-          document.documentElement.classList.add('dark');
-          document.documentElement.classList.remove('light');
-        }
-      } catch (_) {}
-    })();
-  </script>
-  <script>
-(function() {
-  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
-  window.__paeAuthInterceptorInstalled = true;
-  const origFetch = window.fetch.bind(window);
-  window.fetch = async function(input, init) {
-    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
-    let savedKey = '';
-    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
-    if (isApiCall && savedKey) {
-      init = Object.assign({}, init);
-      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
-      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
-        headers.set('x-api-key', savedKey);
-      }
-      init.headers = headers;
-    }
-    let res = await origFetch(input, init);
-    return res;
-  };
-})();
-  </script>
-  <script>
-    (function() {
-      if (typeof window === 'undefined') return;
-      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
-
-      window.resolvePinImageUrl = function(url, tier) {
-        tier = tier || '236x';
-        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
-        if (!url.includes('pinimg.com')) return url;
-        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
-      };
-
-      window.handlePinImgError = function(img) {
-        if (!img) return;
-        var currentSrc = img.src || '';
-        img._errStep = (img._errStep || 0) + 1;
-        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-          return;
-        }
-        if (currentSrc.includes('/236x/')) {
-          img.src = currentSrc.replace('/236x/', '/474x/');
-        } else if (currentSrc.includes('/474x/')) {
-          img.src = currentSrc.replace('/474x/', '/736x/');
-        } else if (currentSrc.includes('/736x/')) {
-          img.src = currentSrc.replace('/736x/', '/originals/');
-        } else {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-        }
-      };
-    })();
-  </script>
-  `;
-}
-
 export function getPinDetailsClientAppScripts() {
   return `
   <script>
@@ -869,6 +793,10 @@ export function getPinDetailsClientAppScripts() {
         },
 
         safeColor(c) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(c, '#888888');
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!c) return '#888888';
           const s = String(c).trim();
           if (/^#([0-9a-fA-F]{3,8})$/.test(s) || /^[a-zA-Z]{3,20}$/.test(s)) return s;
@@ -877,12 +805,13 @@ export function getPinDetailsClientAppScripts() {
 
         safeUrl(url) {
           if (!url) return '';
-          const s = String(url).trim();
-          const lower = s.toLowerCase();
-          if (lower.startsWith('javascript:') || lower.startsWith('data:text/html') || lower.startsWith('vbscript:')) {
-            return '#';
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(String(url));
           }
-          return s;
+          // @deprecated VM fallback when shared-head formatters are absent
+          const s = String(url).trim();
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
+          return '#';
         },
 
         copyAltText() {
@@ -914,6 +843,10 @@ export function getPinDetailsClientAppScripts() {
         },
 
         formatNumber(n) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatNumber === 'function') {
+            return window.PAEFormatters.formatNumber(n);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           const num = Number(n);
           if (!Number.isFinite(num)) return '0';
           return num.toLocaleString('en-US');

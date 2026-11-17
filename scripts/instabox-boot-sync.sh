@@ -247,7 +247,10 @@ if git -c safe.directory="${APP_DIR}" fetch origin main --quiet 2>/dev/null; the
     sync_postgres_container
 
     echo "[instabox-boot-sync] 🗄️ Running idempotent database migrations..."
-    node scripts/migrate.mjs || true
+    if ! node scripts/migrate.mjs; then
+      echo "[instabox-boot-sync] ❌ Database migration failed; aborting sync." >&2
+      exit 1
+    fi
     echo "[instabox-boot-sync] ✅ Synchronized to ${REMOTE_SHA}."
   else
     # Even if SHA matches, ensure fastify is installed and postgres is provisioned

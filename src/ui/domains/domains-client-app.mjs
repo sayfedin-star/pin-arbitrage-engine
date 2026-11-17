@@ -250,15 +250,23 @@ export function getDomainsClientAppScript() {
         },
 
         safeColor(color, fallback = '#888888') {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(color, fallback);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!color) return fallback;
           const s = String(color).trim();
           return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;
         },
 
         safeUrl(url) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
           const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
           return '#';
         },
 
@@ -272,6 +280,10 @@ export function getDomainsClientAppScript() {
         },
 
         formatNumber(num) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatNumber === 'function') {
+            return window.PAEFormatters.formatNumber(num);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (num === null || num === undefined) return '0';
           const n = Number(num);
           if (isNaN(n)) return '0';

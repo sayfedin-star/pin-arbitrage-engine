@@ -130,7 +130,9 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   // Mock Environment & In-Memory Database Connection
   const mockEnv = {
     DATABASE_URL: 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage',
-    SQL_CLIENT: mockSql
+    SQL_CLIENT: mockSql,
+    ENVIRONMENT: 'test',
+    NODE_ENV: 'test'
   };
 
   // Mock Pinterest Typeahead & Trends HTTP requests to eliminate external network latency

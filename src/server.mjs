@@ -239,10 +239,11 @@ export function createFastifyApp(customEnv = {}) {
 
   const sqlClient = customEnv.SQL_CLIENT || getServerSqlClient(process.env.DATABASE_URL);
 
-  const isTestOrLocal = (
+  const isTestMode = (
     customEnv.ENVIRONMENT === 'test' ||
     customEnv.NODE_ENV === 'test' ||
-    (typeof process !== 'undefined' && process.argv && process.argv.slice(1).some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark)[^\\/]*$|(?:^|[\\/])check(?:[_.][^\\/]*)?$|\.test\.m?js$/i.test(arg)))
+    Boolean(globalThis.__PAE_TEST_MODE__) ||
+    (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
 
   const env = {
@@ -250,12 +251,12 @@ export function createFastifyApp(customEnv = {}) {
     DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
     SQL_CLIENT: sqlClient,
     DATABASE_URL: customEnv.DATABASE_URL || process.env.DATABASE_URL || '',
-    ENVIRONMENT: customEnv.ENVIRONMENT || process.env.ENVIRONMENT || (isTestOrLocal ? 'test' : 'development'),
-    NODE_ENV: customEnv.NODE_ENV || process.env.NODE_ENV || (isTestOrLocal ? 'test' : 'development'),
+    ENVIRONMENT: customEnv.ENVIRONMENT || process.env.ENVIRONMENT || (isTestMode ? 'test' : 'development'),
+    NODE_ENV: customEnv.NODE_ENV || process.env.NODE_ENV || (isTestMode ? 'test' : 'development'),
     ...customEnv
   };
 
-  if (isTestOrLocal && customEnv.API_SECRET_KEY === undefined) {
+  if (isTestMode && customEnv.API_SECRET_KEY === undefined) {
     delete env.API_SECRET_KEY;
     delete env.ADMIN_KEY;
     delete env.PIN_ARBITRAGE_SECRET;
@@ -338,10 +339,13 @@ export function createFastifyApp(customEnv = {}) {
       .send(payload);
   });
 
-  // 2. Native Fastify POST /api/internal/ingest (Zero-copy JSON parsing & Auth)
-  app.post('/api/internal/ingest', async (request, reply) => {
-    const secretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY) : '') || '';
+  function verifyInternalAdminAuth(request, reply, unauthorizedMessage, notConfiguredMessage = 'API_SECRET_KEY is not configured on server.') {
     const isTestOrDev = env.NODE_ENV === 'test' || env.ENVIRONMENT === 'test' || Boolean(globalThis.__PAE_TEST_MODE__);
+    const envSecretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || env.PIN_ARBITRAGE_SECRET || '';
+    const processSecretKey = typeof process !== 'undefined'
+      ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.INTERNAL_INGEST_KEY || process.env.PIN_ARBITRAGE_SECRET || '')
+      : '';
+    const secretKey = envSecretKey || (isTestOrDev ? '' : processSecretKey) || '';
 
     const authHeader = request.headers.authorization || '';
     const headerKey = request.headers['x-api-key'] || '';
@@ -352,22 +356,46 @@ export function createFastifyApp(customEnv = {}) {
     const token = (typeof headerKey === 'string' ? headerKey.trim() : '') || bearerToken;
 
     if (!secretKey && !isTestOrDev) {
-      return reply.code(503).header('Content-Type', 'application/json').send({
-        success: false,
-        error: 'AUTH_NOT_CONFIGURED',
-        message: 'API_SECRET_KEY is not configured on server. Internal ingestion denied.'
-      });
+      reply
+        .code(503)
+        .header('Content-Type', 'application/json')
+        .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+        .send({
+          success: false,
+          error: 'AUTH_NOT_CONFIGURED',
+          message: notConfiguredMessage
+        });
+      return false;
     }
 
     if (secretKey) {
       const isMatch = token && timingSafeEqualStr(token, secretKey);
       if (!isMatch) {
-        return reply.code(401).header('Content-Type', 'application/json').send({
-          success: false,
-          error: 'UNAUTHORIZED',
-          message: 'Unauthorized: Invalid ingestion authentication token.'
-        });
+        reply
+          .code(401)
+          .header('Content-Type', 'application/json')
+          .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+          .send({
+            success: false,
+            error: 'UNAUTHORIZED',
+            message: unauthorizedMessage
+          });
+        return false;
       }
+    }
+
+    return true;
+  }
+
+  // 2. Native Fastify POST /api/internal/ingest (Zero-copy JSON parsing & Auth)
+  app.post('/api/internal/ingest', async (request, reply) => {
+    if (!verifyInternalAdminAuth(
+      request,
+      reply,
+      'Unauthorized: Invalid ingestion authentication token.',
+      'API_SECRET_KEY is not configured on server. Internal ingestion denied.'
+    )) {
+      return;
     }
 
     const payload = request.body || {};
@@ -392,55 +420,49 @@ export function createFastifyApp(customEnv = {}) {
       });
     }
 
-    return reply.code(202).header('Content-Type', 'application/json').send({
-      success: true,
-      queued: true,
-      type: ingestType,
-      received: items.length,
-      creator: creator || null,
-      message: `Successfully accepted and queued ${items.length} items for background ingestion.`
-    });
+    return reply
+      .code(202)
+      .header('Content-Type', 'application/json')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+      .send({
+        success: true,
+        queued: true,
+        type: ingestType,
+        received: items.length,
+        creator: creator || null,
+        message: `Successfully accepted and queued ${items.length} items for background ingestion.`
+      });
   });
 
-  // 3. Native Fastify GET /api/internal/queue
+  // 3. Native Fastify GET /api/internal/queue (Protected by internal admin auth)
   app.get('/api/internal/queue', async (request, reply) => {
-    return reply.code(200).header('Content-Type', 'application/json').send({
-      success: true,
-      pending: serverBackgroundTaskQueue.pending,
-      active: serverBackgroundTaskQueue.active
-    });
+    if (!verifyInternalAdminAuth(
+      request,
+      reply,
+      'Unauthorized: Invalid internal queue authentication token.'
+    )) {
+      return;
+    }
+
+    return reply
+      .code(200)
+      .header('Content-Type', 'application/json')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+      .send({
+        success: true,
+        pending: serverBackgroundTaskQueue.pending,
+        active: serverBackgroundTaskQueue.active
+      });
   });
 
   // 3b. Native Fastify POST /api/internal/self-update (Layer 3 Webhook Self-Sync)
   app.post('/api/internal/self-update', async (request, reply) => {
-    const secretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY) : '') || '';
-    const isTestOrDev = env.NODE_ENV === 'test' || env.ENVIRONMENT === 'test' || Boolean(globalThis.__PAE_TEST_MODE__);
-
-    const authHeader = request.headers.authorization || '';
-    const headerKey = request.headers['x-api-key'] || '';
-    let bearerToken = '';
-    if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
-      bearerToken = authHeader.slice(7).trim();
-    }
-    const token = (typeof headerKey === 'string' ? headerKey.trim() : '') || bearerToken;
-
-    if (!secretKey && !isTestOrDev) {
-      return reply.code(503).header('Content-Type', 'application/json').send({
-        success: false,
-        error: 'AUTH_NOT_CONFIGURED',
-        message: 'API_SECRET_KEY is not configured on server.'
-      });
-    }
-
-    if (secretKey) {
-      const isMatch = token && timingSafeEqualStr(token, secretKey);
-      if (!isMatch) {
-        return reply.code(401).header('Content-Type', 'application/json').send({
-          success: false,
-          error: 'UNAUTHORIZED',
-          message: 'Unauthorized: Invalid self-update authentication token.'
-        });
-      }
+    if (!verifyInternalAdminAuth(
+      request,
+      reply,
+      'Unauthorized: Invalid self-update authentication token.'
+    )) {
+      return;
     }
 
     const currentSha = getGitCommitSha(true);

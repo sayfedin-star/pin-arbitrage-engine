@@ -200,10 +200,10 @@ export function formatTimeframe(tf) {
 export function safeUrl(url) {
   if (!url || typeof url !== 'string') return '#';
   const trimmed = url.trim();
-  if (trimmed.toLowerCase().startsWith('javascript:') || trimmed.toLowerCase().startsWith('data:text/html')) {
-    return '#';
+  if (/^https?:\/\//i.test(trimmed) || (trimmed.startsWith('/') && !trimmed.startsWith('//'))) {
+    return trimmed;
   }
-  return trimmed;
+  return '#';
 }
 
 /**
@@ -325,8 +325,8 @@ export function getInlineFormattersScript() {
       var safeUrl = function(url) {
         if (!url || typeof url !== 'string') return '#';
         var t = url.trim();
-        if (t.toLowerCase().indexOf('javascript:') === 0 || t.toLowerCase().indexOf('data:text/html') === 0) return '#';
-        return t;
+        if (/^https?:\\/\\//i.test(t) || (t.indexOf('/') === 0 && t.indexOf('//') !== 0)) return t;
+        return '#';
       };
 
       var safeColor = function(color, fallback) {
@@ -364,6 +364,6 @@ export function getInlineFormattersScript() {
       if (!window.safeUrl) window.safeUrl = safeUrl;
       if (!window.safeColor) window.safeColor = safeColor;
     })();
-  <\\/script>
+  </script>
   `;
 }

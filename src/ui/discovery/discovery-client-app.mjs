@@ -9,10 +9,14 @@ export function getDiscoveryClientAppScript() {
   return `  <script>
     // [INVARIANT: SAFE-URL PROTOCOL SANITIZATION]
     function safeUrl(rawUrl, fallback = '#') {
+      if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+        const res = window.PAEFormatters.safeUrl(rawUrl);
+        return res === '#' ? fallback : res;
+      }
+      // @deprecated VM fallback when shared-head formatters are absent
       if (!rawUrl || typeof rawUrl !== 'string') return fallback;
       const trimmed = rawUrl.trim();
-      if (/^https?:\\/\\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
-      console.warn('[Security] Non-HTTP/relative URI scheme blocked:', trimmed);
+      if (/^https?:\\/\\//i.test(trimmed) || (trimmed.startsWith('/') && !trimmed.startsWith('//'))) return trimmed;
       return fallback;
     }
 

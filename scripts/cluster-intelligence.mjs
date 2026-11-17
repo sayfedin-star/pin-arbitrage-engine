@@ -13,13 +13,13 @@
 
 import crypto from 'node:crypto';
 import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
-import { crc32 } from '../src/lib/math.mjs';
 import {
   CANONICAL_FINGERPRINT,
   randomJitterMs,
   sleep,
   setDefaultDispatcher,
-  fetchPinFromPinResource
+  fetchPinFromPinResource,
+  fetchPinsBatchFromPidgets
 } from '../src/core/pinterest/index.mjs';
 
 import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
@@ -804,10 +804,18 @@ export async function fetchPinDetails(pinId, baseHeaders) {
   try {
     const formatted = await fetchPinFromPinResource(pinId, { dispatcher: undiciAgent });
     if (formatted) {
+      const rawRepins = formatted.repin_count ?? formatted.repins ?? null;
+      const repinNum = (rawRepins !== null && rawRepins !== undefined && rawRepins !== '') ? Number(rawRepins) : NaN;
+      const repins = Number.isFinite(repinNum) ? Math.max(0, repinNum) : null;
+
+      const rawSaves = formatted.save_count ?? formatted.saves ?? null;
+      const saveNum = (rawSaves !== null && rawSaves !== undefined && rawSaves !== '') ? Number(rawSaves) : NaN;
+      const saves = Number.isFinite(saveNum) ? Math.max(0, saveNum) : null;
+
       return {
         id: String(formatted.pin_id || formatted.id),
-        repins: Number(formatted.repin_count ?? 0),
-        saves: Number(formatted.save_count ?? formatted.repin_count ?? 0),
+        repins,
+        saves,
         reactions: formatted.reaction_counts || {}
       };
     }
@@ -820,11 +828,19 @@ export async function fetchPinDetails(pinId, baseHeaders) {
  * Seamlessly enriches candidates with authentic Pinterest PinResource metrics
  * Includes concurrency throttling (4 concurrent requests) and jitter to prevent HTTP 429
  */
-export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, candidatesOverride = null) {
+export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, candidatesOverride = null, options = {}) {
+  const dbSql = options.sql || sql;
+  const batchPidgetsFn = typeof options.fetchPinsBatchFromPidgets === 'function'
+    ? options.fetchPinsBatchFromPidgets
+    : fetchPinsBatchFromPidgets;
+  const fallbackDetailsFn = typeof options.fetchPinDetails === 'function'
+    ? options.fetchPinDetails
+    : fetchPinDetails;
+
   try {
     let candidatesNeedingEnrichment = Array.isArray(candidatesOverride) ? candidatesOverride : null;
     if (!candidatesNeedingEnrichment) {
-      candidatesNeedingEnrichment = await sql`
+      candidatesNeedingEnrichment = await dbSql`
         (
           SELECT candidate_pin_id, saves, daily_velocity, age_days
           FROM candidate_graph_nodes
@@ -845,35 +861,67 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
 
     if (candidatesNeedingEnrichment.length === 0) {
       console.log(`[+] All candidate nodes for seed ${seedPinId} already have authentic metrics.`);
-      return;
+      return { total: 0, pidgetsHits: 0, fallbackCalls: 0, enriched: 0 };
     }
 
-    console.log(`[*] Auto-enriching ${candidatesNeedingEnrichment.length} candidates with authentic PinResource metrics...`);
+    console.log(`[*] Auto-enriching ${candidatesNeedingEnrichment.length} candidates (Stage 1: 50x Pidgets batch, Stage 2: selective PinResource)...`);
 
-    const concurrency = 4;
     const enrichedBatch = [];
+    const fallbackCandidates = [];
+    let pidgetsHits = 0;
 
-    for (let i = 0; i < candidatesNeedingEnrichment.length; i += concurrency) {
-      const chunk = candidatesNeedingEnrichment.slice(i, i + concurrency);
+    // Stage 1: 50-pin Pidgets batch pre-pass
+    let pidgetsMap = new Map();
+    try {
+      const candidateIds = candidatesNeedingEnrichment.map(c => String(c.candidate_pin_id));
+      const res = await batchPidgetsFn(candidateIds, { dispatcher: undiciAgent });
+      if (res instanceof Map) pidgetsMap = res;
+    } catch (_) {}
+
+    const pushEnriched = (candidate, repinsVal, savesVal) => {
+      const repins = Number(repinsVal || 0);
+      const currentSaves = (savesVal != null && Number(savesVal) > 0)
+        ? Number(savesVal)
+        : Number(candidate.saves || 0);
+      const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
+      const ageDays = Math.max(1, Number(candidate.age_days || 180));
+      const updatedVelocity = Math.min(1000.0, Number((currentSaves / ageDays).toFixed(2)) || Number(candidate.daily_velocity || 0));
+
+      enrichedBatch.push({
+        seed_pin_id: String(seedPinId),
+        candidate_pin_id: String(candidate.candidate_pin_id),
+        repins,
+        saves: currentSaves,
+        save_rate: saveRate,
+        daily_velocity: updatedVelocity
+      });
+    };
+
+    for (const candidate of candidatesNeedingEnrichment) {
+      const cid = String(candidate.candidate_pin_id);
+      const p = pidgetsMap.get(cid);
+      const hasValidRepins = Boolean(p && !p.is_missing && p.repins !== undefined && p.repins !== null);
+      if (hasValidRepins && options.requireDeepFields !== true) {
+        pidgetsHits++;
+        pushEnriched(candidate, p.repins, p.saves);
+      } else {
+        fallbackCandidates.push(candidate);
+      }
+    }
+
+    // Stage 2: Fallback to fetchPinDetails (PinResource) only for missing pins or deep fields
+    const concurrency = 4;
+    let fallbackCalls = 0;
+
+    for (let i = 0; i < fallbackCandidates.length; i += concurrency) {
+      const chunk = fallbackCandidates.slice(i, i + concurrency);
 
       await Promise.all(chunk.map(async (candidate) => {
         try {
-          const pinData = await fetchPinDetails(candidate.candidate_pin_id, baseHeaders);
+          fallbackCalls++;
+          const pinData = await fallbackDetailsFn(candidate.candidate_pin_id, baseHeaders);
           if (pinData && pinData.repins !== undefined && pinData.repins !== null) {
-            const repins = Number(pinData.repins || 0);
-            const currentSaves = Number(pinData.saves) > 0 ? Number(pinData.saves) : Number(candidate.saves || 0);
-            const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
-            const ageDays = Math.max(1, Number(candidate.age_days || 180));
-            const updatedVelocity = Math.min(1000.0, Number((currentSaves / ageDays).toFixed(2)) || Number(candidate.daily_velocity || 0));
-
-            enrichedBatch.push({
-              seed_pin_id: String(seedPinId),
-              candidate_pin_id: String(candidate.candidate_pin_id),
-              repins,
-              saves: currentSaves,
-              save_rate: saveRate,
-              daily_velocity: updatedVelocity
-            });
+            pushEnriched(candidate, pinData.repins, pinData.saves);
           }
         } catch (pinErr) {
           // Individual failure absorbed gracefully
@@ -881,7 +929,9 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
       }));
 
       // Polite inter-chunk jitter delay to respect Pinterest rate limits
-      await sleep(350);
+      if (i + concurrency < fallbackCandidates.length) {
+        await sleep(350);
+      }
     }
 
     if (enrichedBatch.length > 0) {
@@ -889,7 +939,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
       enrichedBatch.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
 
       // Single bulk batch commit via jsonb_to_recordset replacing individual UPDATE round-trips
-      await sql`
+      await dbSql`
         UPDATE candidate_graph_nodes cgn
         SET 
           repins = x.repins,
@@ -905,8 +955,10 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
     }
 
     console.log(`[+] Successfully enriched ${enrichedBatch.length}/${candidatesNeedingEnrichment.length} candidates with authentic Pinterest repin counts.`);
+    return { total: candidatesNeedingEnrichment.length, pidgetsHits, fallbackCalls, enriched: enrichedBatch.length };
   } catch (err) {
     console.warn(`[!] Deep enrichment encountered non-fatal error: ${err.message}`);
+    return { total: 0, pidgetsHits: 0, fallbackCalls: 0, enriched: 0, error: err.message };
   }
 }
 
@@ -1547,43 +1599,29 @@ async function main() {
       last_crawled_at: null
     });
   } else {
+    const effectiveShardTot = (shardTot !== null && !isNaN(shardTot) && shardTot > 0) ? shardTot : 20;
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
     seedsToProcess = await sqlWithRetry(() => sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
       WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
         AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(pin_id::text)::bigint) % 20) = ${shardIdx}::int)
+        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);
 
-    if (shardIdx !== null && (!shardTot || shardTot === 20)) {
+    if (shardIdx !== null) {
       console.log(`\n===============================================================`);
-      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot || 20}`);
-      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (retrieved via SQL shard pushdown)`);
+      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${effectiveShardTot}`);
+      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (retrieved via SQL hashtext shard pushdown)`);
       if (seedsToProcess.length > 0) {
         console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
       }
       console.log(`===============================================================\n`);
 
       if (seedsToProcess.length === 0) {
-        console.log(`[+] Shard ${shardIdx + 1}/${shardTot || 20}: No seeds assigned to this shard index. Exiting cleanly.`);
-        return;
-      }
-    } else if (shardIdx !== null && shardTot !== null && !isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
-      const totalAvailable = seedsToProcess.length;
-      seedsToProcess = seedsToProcess.filter((s) => (crc32(String(s.pin_id)) % shardTot) === shardIdx);
-      console.log(`\n===============================================================`);
-      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot}`);
-      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (out of ${totalAvailable} total cluster seeds)`);
-      if (seedsToProcess.length > 0) {
-        console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
-      }
-      console.log(`===============================================================\n`);
-
-      if (seedsToProcess.length === 0) {
-        console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No seeds assigned to this shard index. Exiting cleanly.`);
+        console.log(`[+] Shard ${shardIdx + 1}/${effectiveShardTot}: No seeds assigned to this shard index. Exiting cleanly.`);
         return;
       }
     }
@@ -1592,24 +1630,23 @@ async function main() {
   if (seedsToProcess.length === 0) {
     console.log(`[+] All cluster seeds have fresh crawl timestamps.`);
     // Automated background enrichment sweep for any seeds with un-enriched candidates
+    const effectiveShardTot = (shardTot !== null && !isNaN(shardTot) && shardTot > 0) ? shardTot : 20;
     try {
       const seedsNeedingEnrichment = await sqlWithRetry(() => sql`
         SELECT seed_pin_id 
         FROM candidate_graph_nodes 
         WHERE (repins = 0 OR repins IS NULL) AND saves > 0
+          AND (${shardIdx}::int IS NULL OR (ABS(hashtext(seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
         GROUP BY seed_pin_id
         ORDER BY COUNT(*) DESC, seed_pin_id ASC;
       `);
       if (seedsNeedingEnrichment.length > 0) {
-        let enrichmentSlice = seedsNeedingEnrichment;
-        if (shardIdx !== null && shardTot > 1) {
-          enrichmentSlice = seedsNeedingEnrichment.filter((s) => (crc32(String(s.seed_pin_id)) % shardTot) === shardIdx);
-        }
+        const enrichmentSlice = seedsNeedingEnrichment;
         if (enrichmentSlice.length === 0) {
-          console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No enrichment seeds assigned. Exiting cleanly.`);
+          console.log(`[+] Shard ${shardIdx + 1}/${effectiveShardTot}: No enrichment seeds assigned. Exiting cleanly.`);
           return;
         }
-        console.log(`[*] Shard ${shardIdx !== null ? (shardIdx + 1) + '/' + shardTot : '1/1'}: Discovered ${enrichmentSlice.length} seed(s) with pending deep metrics. Auto-enriching...`);
+        console.log(`[*] Shard ${shardIdx !== null ? (shardIdx + 1) + '/' + effectiveShardTot : '1/1'}: Discovered ${enrichmentSlice.length} seed(s) with pending deep metrics. Auto-enriching...`);
         const baseHeaders = {
           'accept': 'application/json, text/javascript, */*, q=0.01',
           'accept-language': 'en-US,en;q=0.9',

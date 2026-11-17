@@ -28,7 +28,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 ${renderSharedDocumentHead({
   title: 'Keyword Intelligence & Velocity | Pinterest SERP Radar Studio',
   referrerPolicy: 'same-origin',
-  includeThemeScript: false,
+  includeThemeScript: true,
+  defaultTheme: 'light',
+  extraStyleCss: '.table-sticky-header th { position: sticky; top: 0; z-index: 20; }',
   tailwindScriptHtml: `  <script>
     tailwind.config = {
       darkMode: 'class',
@@ -51,95 +53,12 @@ ${renderSharedDocumentHead({
         }
       }
     };
-  </script>`
-})}
-  <style>
-    [x-cloak] { display: none !important; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.45); }
-    .table-sticky-header th { position: sticky; top: 0; z-index: 20; }
-  </style>
-  <script>
+  </script>`,
+  extraHeadHtml: `  <script>
     window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(String(initialSlug || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
     window.__INITIAL_FOLDER_ID__ = ${JSON.stringify(safeFolderId).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
-  </script>
-  <script>
-(function() {
-  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
-  window.__paeAuthInterceptorInstalled = true;
-  const origFetch = window.fetch.bind(window);
-  window.fetch = async function(input, init) {
-    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
-    let savedKey = '';
-    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
-    if (isApiCall && savedKey) {
-      init = Object.assign({}, init);
-      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
-      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
-        headers.set('x-api-key', savedKey);
-      }
-      init.headers = headers;
-    }
-    let res = await origFetch(input, init);
-    return res;
-  };
-})();
-  </script>
-  <script>
-    (function() {
-      if (typeof window === 'undefined') return;
-      var SVG_PLACEHOLDER = "data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2371717a%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>";
-
-      window.resolvePinImageUrl = function(url, tier) {
-        tier = tier || '236x';
-        if (!url || typeof url !== 'string') return SVG_PLACEHOLDER;
-        if (!url.includes('pinimg.com')) return url;
-        return url.replace(new RegExp('/(236x|474x|564x|736x|1200x|originals)/'), '/' + tier + '/');
-      };
-
-      window.handlePinImgError = function(img) {
-        if (!img) return;
-        var currentSrc = img.src || '';
-        img._errStep = (img._errStep || 0) + 1;
-        if (img._errStep > 4 || !currentSrc.includes('pinimg.com')) {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-          return;
-        }
-        if (currentSrc.includes('/236x/')) {
-          img.src = currentSrc.replace('/236x/', '/474x/');
-        } else if (currentSrc.includes('/474x/')) {
-          img.src = currentSrc.replace('/474x/', '/736x/');
-        } else if (currentSrc.includes('/736x/')) {
-          img.src = currentSrc.replace('/736x/', '/originals/');
-        } else {
-          img.onerror = null;
-          img.src = SVG_PLACEHOLDER;
-        }
-      };
-    })();
-  </script>
-  <script>
-    // Pre-hydrate dark mode immediately to avoid layout flash (default: light)
-    try {
-      const savedTheme = (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) : null;
-      if (savedTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } catch (_) {}
-  </script>
-  <script>
-    setTimeout(function() {
-      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
-        document.body.removeAttribute('x-cloak');
-      }
-    }, 1200);
-  </script>
+  </script>`
+})}
 </head>
 <body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
       x-data="keywordStudio()">

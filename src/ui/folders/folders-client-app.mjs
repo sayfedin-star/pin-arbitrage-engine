@@ -99,6 +99,10 @@ export function getFoldersClientAppScript() {
         },
 
         formatUniversalAge(days) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatUniversalAge === 'function') {
+            return window.PAEFormatters.formatUniversalAge(days);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (days == null || isNaN(days) || days === '') return '—';
           const numDays = Number(days);
           if (numDays >= 365) {
@@ -2038,17 +2042,29 @@ export function getFoldersClientAppScript() {
         },
 
         formatNumber(n) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatNumber === 'function') {
+            return window.PAEFormatters.formatNumber(n);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           return Number(n || 0).toLocaleString();
         },
 
         safeUrl(url) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
           const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
           return '#';
         },
 
         safeColor(color, fallback = '#6366f1') {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(color, fallback);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!color) return fallback;
           const s = String(color).trim();
           return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;

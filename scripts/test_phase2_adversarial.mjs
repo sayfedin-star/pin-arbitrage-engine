@@ -74,7 +74,9 @@ async function runAdversarialPenetrationSuite() {
   // Mock Edge Environment (Simulates Cloudflare Worker with Neon connection)
   const mockEnv = {
     SQL_CLIENT: mockSql,
-    DATABASE_URL: 'postgres://test_user:secret_password@ep-test-shard-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require'
+    DATABASE_URL: 'postgres://test_user:secret_password@ep-test-shard-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require',
+    ENVIRONMENT: 'test',
+    NODE_ENV: 'test'
   };
 
   // ============================================================================

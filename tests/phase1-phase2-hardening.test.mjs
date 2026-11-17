@@ -150,17 +150,19 @@ test('Phase 2.1: syncPinAcrossAllFourPillars keeps creative fields in universal_
 
   const masterInsert = queries.find((q) => q.queryText.includes('INSERT INTO universal_master_pins'));
   assert.ok(masterInsert, 'Expected universal_master_pins insert');
-  const masterMetaJson = masterInsert.values.find((v) => typeof v === 'string' && v.includes('"creation_method"'));
-  assert.ok(masterMetaJson, 'Expected master metadata JSON');
-  const masterMeta = JSON.parse(masterMetaJson);
-  assert.equal(masterMeta.alt_text, 'Detailed alt text for creative SSOT');
-  assert.equal(masterMeta.description, 'Full creative description that should live only in master SSOT');
-  assert.equal(masterMeta.board_name, 'Dinner Ideas');
+  const masterPayloadJson = masterInsert.values.find((v) => typeof v === 'string' && v.startsWith('['));
+  assert.ok(masterPayloadJson, 'Expected ingestPinsBatch JSON batch payload');
+  const batchRow = JSON.parse(masterPayloadJson)[0];
+  assert.ok(batchRow?.metadata, 'Expected master metadata JSON in batch row');
+  assert.equal(batchRow.metadata.alt_text, 'Detailed alt text for creative SSOT');
+  assert.equal(batchRow.metadata.description, 'Full creative description that should live only in master SSOT');
+  assert.equal(batchRow.metadata.board_name, 'Dinner Ideas');
+  assert.equal(batchRow.creation_method, 'carousel');
 
   const metricsInsert = queries.find((q) => q.queryText.includes('INSERT INTO pins_daily_metrics'));
   assert.ok(metricsInsert, 'Expected pins_daily_metrics insert');
 
-  const kspUpsert = queries.find((q) => q.queryText.includes('keyword_serp_positions'));
+  const kspUpsert = queries.find((q) => q.queryText.includes('keyword_serp_positions') && q.queryText.includes('INSERT INTO'));
   assert.ok(kspUpsert, 'Expected keyword_serp_positions upsert');
 });
 

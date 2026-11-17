@@ -35,6 +35,104 @@ export function isTransientPgConnectionError(err) {
  * @param {string|Array<string>|object} queryInput
  * @returns {boolean}
  */
+function stripSqlCommentsAndLiterals(sqlText) {
+  let out = '';
+  const n = sqlText.length;
+  let i = 0;
+
+  while (i < n) {
+    const ch = sqlText[i];
+    const next = i + 1 < n ? sqlText[i + 1] : '';
+
+    // 1. Line comment: -- ... \n
+    if (ch === '-' && next === '-') {
+      i += 2;
+      while (i < n && sqlText[i] !== '\n') i++;
+      out += ' ';
+      continue;
+    }
+
+    // 2. Block comment (supports PostgreSQL nested /* /* */ */)
+    if (ch === '/' && next === '*') {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (sqlText[i] === '/' && sqlText[i + 1] === '*') {
+          depth++;
+          i += 2;
+        } else if (sqlText[i] === '*' && sqlText[i + 1] === '/') {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      out += ' ';
+      continue;
+    }
+
+    // 3. Escape string literal: E'...' / e'...'
+    if ((ch === 'E' || ch === 'e') && next === '\'') {
+      i += 2;
+      while (i < n) {
+        if (sqlText[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (sqlText[i] === '\'') {
+          if (sqlText[i + 1] === '\'') {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += ' __LIT__ ';
+      continue;
+    }
+
+    // 4. Standard single-quoted string literal: '...'
+    if (ch === '\'') {
+      i++;
+      while (i < n) {
+        if (sqlText[i] === '\'') {
+          if (sqlText[i + 1] === '\'') {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      out += ' __LIT__ ';
+      continue;
+    }
+
+    // 5. Dollar-quoted string literal: $tag$...$tag$ or $$...$$
+    if (ch === '$') {
+      const rest = sqlText.slice(i);
+      const tagMatch = rest.match(/^\$([A-Za-z_][A-Za-z0-9_]*)?\$/);
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        const endIdx = sqlText.indexOf(tag, i + tag.length);
+        if (endIdx !== -1) {
+          i = endIdx + tag.length;
+          out += ' __LIT__ ';
+          continue;
+        }
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
 export function isReadOnlyQuery(queryInput) {
   let text = '';
   if (typeof queryInput === 'string') {
@@ -53,30 +151,40 @@ export function isReadOnlyQuery(queryInput) {
     return false;
   }
 
-  // Strip multi-line and single-line SQL comments
-  const cleaned = text
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--.*$/gm, ' ')
-    .trim();
+  const stripped = stripSqlCommentsAndLiterals(text).trim();
+  if (!stripped) return false;
 
-  if (!cleaned) return false;
+  // Allow at most one optional trailing semicolon; reject any multi-statement semicolons
+  const cleaned = stripped.replace(/;\s*$/, '').trim();
+  if (!cleaned || cleaned.includes(';')) return false;
 
   const firstWordMatch = cleaned.match(/^([a-zA-Z]+)/);
   if (!firstWordMatch) return false;
   const firstWord = firstWordMatch[1].toUpperCase();
 
-  if (['SELECT', 'EXPLAIN', 'SHOW', 'TABLE', 'VALUES'].includes(firstWord)) {
-    return true;
+  if (!['SELECT', 'EXPLAIN', 'SHOW', 'TABLE', 'VALUES', 'WITH'].includes(firstWord)) {
+    return false;
   }
 
-  if (firstWord === 'WITH') {
-    // Read-only CTE: ensure no mutating statements inside WITH or main query
-    const hasMutation = /\b(INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|DROP\s+|ALTER\s+|TRUNCATE\s+|CREATE\s+)\b/i.test(cleaned);
-    return !hasMutation;
+  // Reject row-locking clauses (FOR UPDATE / FOR NO KEY UPDATE / FOR SHARE / FOR KEY SHARE)
+  if (/\bFOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE|KEY\s+SHARE)\b/i.test(cleaned)) {
+    return false;
   }
 
-  return false;
+  // Reject side-effecting PostgreSQL sequence, advisory-lock, session, or LO functions
+  if (/"?\b(?:nextval|setval|pg_advisory_(?:xact_)?lock(?:_shared)?|pg_try_advisory_(?:xact_)?lock(?:_shared)?|pg_advisory_unlock(?:_shared|_all)?|pg_terminate_backend|pg_cancel_backend|lo_create|lo_unlink|lo_import|lo_export)\b"?\s*\(/i.test(cleaned)) {
+    return false;
+  }
+
+  // Reject mutating DDL/DML/procedural statements anywhere outside string literals
+  if (/\b(?:INSERT|UPDATE|DELETE|MERGE|COPY|DO|CALL|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|VACUUM|LOCK|REINDEX|CLUSTER|REFRESH)\b/i.test(cleaned)) {
+    return false;
+  }
+
+  return true;
 }
+
+export const isReadOnlySql = isReadOnlyQuery;
 
 /**
  * Returns true if error is a PostgreSQL statement timeout cancellation (SQLSTATE 57014).

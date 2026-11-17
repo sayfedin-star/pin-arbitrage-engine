@@ -20,6 +20,7 @@ import { getPulsePageHtml } from '../src/pulse-ui.mjs';
 const html = getPulsePageHtml();
 const pulseUiSrc = [
   fs.readFileSync(path.resolve('./src/pulse-ui.mjs'), 'utf8'),
+  fs.readFileSync(path.resolve('./src/ui/shared-head.mjs'), 'utf8'),
   fs.readFileSync(path.resolve('./src/ui/pulse/pulse-views.mjs'), 'utf8'),
   fs.readFileSync(path.resolve('./src/ui/pulse/pulse-client-app.mjs'), 'utf8')
 ].join('\n');
@@ -190,7 +191,7 @@ test('5.1 Driver pin image tag includes onerror handler calling window.handlePin
 test('5.2 resolvePinImageUrl handles empty, null, and non-string gracefully without throwing', () => {
   // Test resolvePinImageUrl in isolated VM context
   const context = { SVG_PLACEHOLDER: 'data:image/svg+xml,...', window: {} };
-  const fnMatch = pulseUiSrc.match(/window\.resolvePinImageUrl = function\([\s\S]*?\n\s*\};/);
+  const fnMatch = html.match(/window\.resolvePinImageUrl = function\([\s\S]*?\n\s*\};/);
   assert.ok(fnMatch, 'window.resolvePinImageUrl must be defined');
   
   vm.runInNewContext(fnMatch[0], context);
@@ -205,7 +206,7 @@ test('5.2 resolvePinImageUrl handles empty, null, and non-string gracefully with
 
 test('5.3 handlePinImgError gracefully degrades pinimg URLs through 4 tiers to placeholder', () => {
   const context = { SVG_PLACEHOLDER: 'data:image/svg+xml,...', window: {} };
-  const fnMatch = pulseUiSrc.match(/window\.handlePinImgError = function\([\s\S]*?\n\s*\};/);
+  const fnMatch = html.match(/window\.handlePinImgError = function\([\s\S]*?\n\s*\};/);
   assert.ok(fnMatch, 'window.handlePinImgError must be defined');
 
   vm.runInNewContext(fnMatch[0], context);

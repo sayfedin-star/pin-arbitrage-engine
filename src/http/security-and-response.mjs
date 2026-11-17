@@ -224,8 +224,7 @@ export function verifyApiAuthentication(request, env = {}) {
     env?.ENVIRONMENT === 'test' ||
     env?.NODE_ENV === 'test' ||
     Boolean(globalThis.__PAE_TEST_MODE__) ||
-    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
-    (typeof process !== 'undefined' && process.argv && process.argv.slice(1).some(arg => /(?:^|[\\/])(?:test_|audit_|verify_|benchmark)[^\\/]*$|(?:^|[\\/])check(?:[_.][^\\/]*)?$|\.test\.m?js$/i.test(arg)))
+    (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
   const envSecretKey = env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET);
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
@@ -337,9 +336,14 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
     }
   }
 
-  if (cacheSeconds < 0) {
-    reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-    reply.header('Pragma', 'no-cache');
+  const hasExplicitCacheControl = Boolean(
+    customCors && Object.keys(customCors).some(k => k.toLowerCase() === 'cache-control')
+  );
+  if (cacheSeconds <= 0) {
+    if (!hasExplicitCacheControl) {
+      reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      reply.header('Pragma', 'no-cache');
+    }
   } else if (cacheSeconds > 0) {
     reply.header('Cache-Control', `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`);
   }
@@ -414,9 +418,14 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...(customCors || {})
   };
-  if (cacheSeconds < 0) {
-    headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private';
-    headers['Pragma'] = 'no-cache';
+  const hasExplicitCacheControl = Boolean(
+    customCors && Object.keys(customCors).some(k => k.toLowerCase() === 'cache-control')
+  );
+  if (cacheSeconds <= 0) {
+    if (!hasExplicitCacheControl) {
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private';
+      headers['Pragma'] = 'no-cache';
+    }
   } else if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }

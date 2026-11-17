@@ -470,12 +470,17 @@ export async function handleCreatorsRoutes(routeCtx) {
         const result = await getCompetitorRules(sql, id);
         return jsonResponse({ success: true, ...result });
       }
-      const rules = await getQualificationRules(sql);
+      const rules = await getQualificationRules(sql, { throwOnError: true });
       return jsonResponse({ success: true, rules });
     } catch (err) {
       if (!id) {
         console.error('[Creator Rules Error]', err.message);
-        return jsonResponse({ success: true, degraded: true, rules: {} }, 200, 0);
+        return jsonResponse({
+          success: false,
+          error: 'DB_UNAVAILABLE',
+          degraded: true,
+          message: 'Creator qualification rules temporarily unavailable while database is waking up. Retry in 3 seconds.'
+        }, 503, 0, { 'Retry-After': '3' });
       }
       return jsonResponse({ success: false, error: err.message }, 500);
     }
@@ -767,21 +772,23 @@ export async function handleCreatorsRoutes(routeCtx) {
           limit,
           offset
         });
-        const isDegraded = Boolean(overview?._degraded || competitors?._degraded);
-        return { overview, competitors, ...(isDegraded ? { degraded: true } : {}) };
+        if (overview?._degraded || competitors?._degraded) {
+          const degradedErr = new Error('Competitors overview or list query degraded due to transient DB failure');
+          degradedErr.status = 503;
+          throw degradedErr;
+        }
+        return { overview, competitors };
       }, 8000, 30000, { forceRefresh: searchParams.get('refresh') === 'true' || searchParams.has('_t') });
 
-      return jsonResponse({ success: true, ...data }, 200, 0, {
-        'Cache-Control': 'private, no-cache, must-revalidate'
-      });
+      return jsonResponse({ success: true, ...data }, 200, 0);
     } catch (err) {
       console.error('[Competitors Error]', err.message);
       return jsonResponse({
-        success: true,
+        success: false,
+        error: 'DB_UNAVAILABLE',
         degraded: true,
-        overview: { tracked_profiles: 0, competitor_count: 0, own_count: 0, combined_reach: 0, total_audience: 0, pins_tracked: 0, top_competitor: null },
-        competitors: []
-      }, 200, 0);
+        message: 'Creators hub temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
     }
   }
 
@@ -838,17 +845,11 @@ export async function handleCreatorsRoutes(routeCtx) {
     } catch (err) {
       console.error('[Creator Archive Overview Error]', err.message);
       return jsonResponse({
-        success: true,
+        success: false,
+        error: 'DB_UNAVAILABLE',
         degraded: true,
-        overview: {
-          total_pins: 0,
-          high_velocity_pins: 0,
-          dormant_pins: 0,
-          cooling_pins: 0,
-          mature_pins: 0,
-          growing_pins: 0
-        }
-      }, 200, 0);
+        message: 'Creator archive overview temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
     }
   }
 
@@ -875,7 +876,12 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, topics: Array.isArray(topics) ? topics : [] }, 200, 8);
     } catch (err) {
       console.error('[Topics Error]', err.message);
-      return jsonResponse({ success: true, degraded: true, topics: [] }, 200, 0);
+      return jsonResponse({
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        degraded: true,
+        message: 'Creator topics temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
     }
   }
 

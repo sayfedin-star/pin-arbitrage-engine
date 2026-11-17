@@ -43,7 +43,7 @@ jobs:
         run: node scripts/audit_ui.mjs
 
       - name: 5b. Run unit & offline integration test suites
-        run: node --test tests/*.mjs && npm test
+        run: npm test
 
       - name: 6. Automated Deploy to InstaBox VPS (/data/app)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

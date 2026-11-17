@@ -963,6 +963,10 @@ export function getPulseClientAppScript() {
         },
 
         formatNumber: function(val) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatNumber === 'function') {
+            return window.PAEFormatters.formatNumber(val);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           var num = Number(val || 0);
           if (!isFinite(num)) return '0';
           return num.toLocaleString();
@@ -977,6 +981,10 @@ export function getPulseClientAppScript() {
 
         // Rule 31 Universal Strict Time Formatting Rule
         formatAge: function(days) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatAge === 'function') {
+            return window.PAEFormatters.formatAge(days);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           var num = Number(days || 0);
           if (!isFinite(num) || num < 0) return '0d';
           if (num >= 365) {
@@ -986,14 +994,22 @@ export function getPulseClientAppScript() {
         },
 
         safeUrl: function(url) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
           var s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
           return '#';
         },
 
         safeColor: function(color, fallback) {
           fallback = fallback || '#cbd5e1';
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(color, fallback);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!color) return fallback;
           var s = String(color).trim();
           return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : fallback;

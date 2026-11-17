@@ -17,6 +17,7 @@
  */
 
 import {
+  CANONICAL_FINGERPRINT,
   PINTEREST_PAGE_HEADERS,
   getPinterestXhrHeaders,
   sleep,
@@ -25,6 +26,17 @@ import {
   pinterestFetch,
   parseRetryAfterSeconds
 } from './client.mjs';
+
+export const PINTEREST_JSON_API_HEADERS = {
+  'User-Agent': CANONICAL_FINGERPRINT.USER_AGENT,
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'X-Requested-With': 'XMLHttpRequest',
+  'Referer': 'https://www.pinterest.com/',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'cross-site'
+};
 
 export const MAX_METRIC_CAP = 10000000; // 10 Million
 export const PINTEREST_CEILING_VALUE = 10000001; // 10M+ unauthenticated ceiling indicator
@@ -1140,8 +1152,11 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
     const endpoint = `https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${slice.join(',')}`;
 
     try {
+      const reqHeaders = options.headers
+        ? { ...PINTEREST_JSON_API_HEADERS, ...options.headers }
+        : PINTEREST_JSON_API_HEADERS;
       const res = await pinterestFetch(endpoint, {
-        headers: PINTEREST_PAGE_HEADERS,
+        headers: reqHeaders,
         signal: AbortSignal.timeout(timeoutMs),
         dispatcher
       });

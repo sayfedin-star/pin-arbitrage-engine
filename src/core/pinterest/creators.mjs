@@ -109,17 +109,15 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
     const link = p.link || '';
     const domain = p.domain || (link ? normalizeDomain('', link) : '') || '';
 
-    const hasExplicitSaves = Boolean(
-      p.aggregated_pin_data?.aggregated_stats?.saves !== undefined ||
-      p.aggregated_stats?.saves !== undefined ||
-      p.save_count !== undefined
-    );
-    const saves = Number(
-      p.aggregated_pin_data?.aggregated_stats?.saves ??
-      p.aggregated_stats?.saves ??
-      p.save_count ??
-      0
-    );
+    const rawSaves = p.aggregated_pin_data?.aggregated_stats?.saves ?? p.aggregated_stats?.saves ?? p.save_count ?? null;
+    const saveNum = (rawSaves !== null && rawSaves !== undefined && rawSaves !== '') ? Number(rawSaves) : NaN;
+    const saves = Number.isFinite(saveNum) ? Math.max(0, saveNum) : null;
+    const hasExplicitSaves = saves !== null;
+
+    const rawRepins = p.repin_count ?? p.repins ?? null;
+    const repinNum = (rawRepins !== null && rawRepins !== undefined && rawRepins !== '') ? Number(rawRepins) : NaN;
+    const repins = Number.isFinite(repinNum) ? Math.max(0, repinNum) : null;
+    const hasExplicitRepins = repins !== null;
 
     pins.push({
       pin_id: pinId,
@@ -130,10 +128,10 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
       destination_url: link,
       save_count: saves,
       saves,
-      has_explicit_saves: hasExplicitSaves || saves > 0,
-      repin_count: Number(p.repin_count || 0),
-      repins: Number(p.repin_count || 0),
-      has_explicit_repins: Boolean(p.repin_count != null || Number(p.repin_count || 0) > 0),
+      has_explicit_saves: hasExplicitSaves,
+      repin_count: repins,
+      repins,
+      has_explicit_repins: hasExplicitRepins,
       image_url: standardImg,
       image_hd_url: hdImg,
       created_at: pubDatesMap.get(pinId) || null,
@@ -221,12 +219,22 @@ export async function fetchBoardSectionsResource(boardId, usernameOrSourceUrl = 
     const sections = sectionList.map(s => {
       const previewPins = (s.preview_pins || []).map(p => {
         const standardImg = p.images?.['736x']?.url || p.images?.['236x']?.url || '';
+        const rawSaves = p.aggregated_pin_data?.aggregated_stats?.saves ?? p.aggregated_stats?.saves ?? p.save_count ?? null;
+        const saveNum = (rawSaves !== null && rawSaves !== undefined && rawSaves !== '') ? Number(rawSaves) : NaN;
+        const saveCount = Number.isFinite(saveNum) ? Math.max(0, saveNum) : null;
+
+        const rawRepins = p.repin_count ?? p.repins ?? null;
+        const repinNum = (rawRepins !== null && rawRepins !== undefined && rawRepins !== '') ? Number(rawRepins) : NaN;
+        const repinCount = Number.isFinite(repinNum) ? Math.max(0, repinNum) : null;
+
         return {
           id: String(p.id || ''),
           image_url: standardImg,
           image_hd_url: standardImg ? standardImg.replace(/\/(236x|474x|564x|736x)\//, '/1200x/') : '',
-          save_count: Number(p.aggregated_pin_data?.aggregated_stats?.saves || p.aggregated_stats?.saves || 0),
-          repin_count: Number(p.repin_count || 0)
+          save_count: saveCount,
+          has_explicit_saves: saveCount !== null,
+          repin_count: repinCount,
+          has_explicit_repins: repinCount !== null
         };
       });
 

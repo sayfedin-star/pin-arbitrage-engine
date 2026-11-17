@@ -7,7 +7,7 @@
  */
 
 import { formatPinterestCookie, sanitizeForJsonb } from '../../utils.mjs';
-import { fetchUserActivityPinsResource, fetchPinFromPinResource, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { insertNewPinsBatch, syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
 import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEFAULTS, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, qualifyPin, isPinQualified } from './competitors-crud.mjs';
 
@@ -548,7 +548,13 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
 
   // Get all winning pins currently archived for this account in universal_master_pins
   const pinsToRefresh = await sql`
-    SELECT pin_id, title, save_count AS saves, repin_count AS repins, comment_count AS comments
+    SELECT
+      pin_id,
+      title,
+      save_count AS saves,
+      repin_count AS repins,
+      comment_count AS comments,
+      (visual_annotations IS NOT NULL AND jsonb_array_length(COALESCE(visual_annotations, '[]'::jsonb)) > 0) AS has_annotations
     FROM universal_master_pins
     WHERE creator_username = ${cleanUsername.toLowerCase()}
     ORDER BY save_count DESC NULLS LAST;
@@ -559,29 +565,70 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
   }
 
   let refreshedCount = 0;
+  let pidgetsHits = 0;
+  let pinResourceFallbacks = 0;
   const results = [];
   const maxToRefresh = Math.min(pinsToRefresh.length, Number(options.limit) || 200);
+  const targetPins = pinsToRefresh.slice(0, maxToRefresh);
 
-  for (let i = 0; i < maxToRefresh; i++) {
-    const pin = pinsToRefresh[i];
+  const batchPidgetsFn = typeof options.fetchPinsBatchFromPidgets === 'function'
+    ? options.fetchPinsBatchFromPidgets
+    : fetchPinsBatchFromPidgets;
+  const pinResourceFn = typeof options.fetchPinFromPinResource === 'function'
+    ? options.fetchPinFromPinResource
+    : fetchPinFromPinResource;
+
+  // Stage 1: 50x Pidgets batch pre-pass
+  let pidgetsMap = new Map();
+  try {
+    const batchRes = await batchPidgetsFn(targetPins.map(p => p.pin_id));
+    if (batchRes instanceof Map) pidgetsMap = batchRes;
+  } catch (_) {}
+
+  // Stage 2: Selective fallback to fetchPinFromPinResource only when missing or deep fields (annotations/reactions) are needed
+  for (let i = 0; i < targetPins.length; i++) {
+    const pin = targetPins[i];
+    const pid = String(pin.pin_id);
+    const pidgetsPin = pidgetsMap.get(pid);
+    const hasPidgetsMetrics = Boolean(
+      pidgetsPin &&
+      !pidgetsPin.is_missing &&
+      pidgetsPin.has_explicit_saves &&
+      Number(pidgetsPin.saves) > 0
+    );
+    const needsDeepFields = options.requireDeepFields === true || pin.has_annotations === false;
+
+    let live = null;
+    let usedFallback = false;
     try {
-      const live = await fetchPinFromPinResource(pin.pin_id);
+      if (hasPidgetsMetrics && !needsDeepFields) {
+        live = pidgetsPin;
+        pidgetsHits++;
+      } else {
+        usedFallback = true;
+        pinResourceFallbacks++;
+        live = await pinResourceFn(pid);
+        if ((!live || !(live.saves > 0)) && hasPidgetsMetrics) {
+          live = pidgetsPin;
+        }
+      }
+
       if (live && live.saves > 0) {
         // [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
         await syncPinAcrossAllFourPillars({
           sql,
-          pinId: pin.pin_id,
+          pinId: pid,
           scrapedPin: live,
           env: options?.env || null
         });
 
         refreshedCount++;
-        results.push({ pin_id: pin.pin_id, saves: live.saves, repins: live.repins });
+        results.push({ pin_id: pid, saves: live.saves, repins: live.repins });
       }
     } catch (_) {}
 
-    // Small jitter between pins (150-300ms) to prevent 429 rate limits
-    if (i < maxToRefresh - 1) {
+    // Small jitter only between individual PinResource fallback calls to prevent 429 rate limits
+    if (usedFallback && i < targetPins.length - 1) {
       await sleep(randomJitterMs(150, 300));
     }
   }
@@ -590,6 +637,8 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
     ok: true,
     refreshed_count: refreshedCount,
     total_archived: pinsToRefresh.length,
+    pidgets_hits: pidgetsHits,
+    fallback_count: pinResourceFallbacks,
     pins: results
   };
 }

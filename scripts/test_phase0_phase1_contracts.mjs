@@ -438,7 +438,7 @@ test('Fleet 20-Runner Thundering-Herd, Non-Stacking Retry & Timeout Shields (beh
   assert.match(dbClientSrc, /const defaultStatementTimeoutMs = isCi \? 45000 : 15000;/);
 
   const kwServiceSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/modules/keywords/service.mjs'), 'utf8');
-  assert.match(kwServiceSrc, /insertNewPinsBatch\(sql, newSerpPins/);
+  assert.match(kwServiceSrc, /insertNewPinsBatch\((?:db|tx|sql), newSerpPins/);
   assert.match(kwServiceSrc, /existingSerpPins\.length > 0 && !options\?\.skip_top_enrich/);
   assert.equal(kwServiceSrc.includes('shouldSkipShard'), false);
   assert.equal(kwServiceSrc.includes('isUnifiedPostgres'), false);

@@ -701,11 +701,12 @@ runTest('scripts/lib/pinterest.mjs: extractPinData preserves 48-field telemetry 
   assert.strictEqual(extracted.creator_followers, 34000, 'creator_followers MUST NOT be wiped by JSON-LD fallback');
 });
 
-runTest('src/modules/pins/repository.mjs: universal_master_pins update query uses COALESCE on metadata to prevent NULL poisoning', () => {
+runTest('src/modules/pins/repository.mjs: universal_master_pins update query guards metadata against NULL poisoning', () => {
   assert(
     pinRepositoryCode.includes("metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata") ||
-    pinRepositoryCode.includes("metadata = (COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata"),
-    'Must use COALESCE on metadata in universal_master_pins update to prevent NULL poisoning'
+    pinRepositoryCode.includes("metadata = (COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata") ||
+    (pinRepositoryCode.includes("jsonb_typeof(universal_master_pins.metadata) = 'object'") && pinRepositoryCode.includes("|| COALESCE(EXCLUDED.metadata, '{}'::jsonb)")),
+    'Must guard metadata merge on universal_master_pins update to prevent NULL poisoning'
   );
 });
 

@@ -1220,8 +1220,31 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }));
 
     // ATOMIC MULTI-STATEMENT TRANSACTION VIA sql.transaction
-    // Bundles Hub active SERP cache + slim displaced index updates into 1 ACID commit
+    // Bundles Unified SSOT master pin upserts + Hub active SERP cache + slim displaced index updates into 1 ACID commit
+    const envObj = options?.env || null;
+    const ctxObj = options?.ctx || null;
     const txBatch = [];
+
+    if (!isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+      const newSerpPins = [];
+      const existingSerpPins = [];
+      for (const p of preparedPins) {
+        const pid = String(p.pin_id || '');
+        if (!pid) continue;
+        const enrichedPin = { ...p, keyword_id: kid, is_displaced: false };
+        if (!immediateMap.has(pid) && !globalSavesMap.has(pid)) {
+          newSerpPins.push(enrichedPin);
+        } else {
+          existingSerpPins.push(enrichedPin);
+        }
+      }
+      if (newSerpPins.length > 0) {
+        txBatch.push((db) => insertNewPinsBatch(db, newSerpPins, 'keyword', { inTransaction: true, skipSerpUpsert: true }));
+      }
+      if (existingSerpPins.length > 0 && !options?.skip_top_enrich) {
+        txBatch.push((db) => resavePinsMetricsBatch(db, existingSerpPins, { inTransaction: true, skipSerpUpsert: true }));
+      }
+    }
 
     if (hubSerpPayload.length > 0 && !isSuspectedIncompleteCrawl) {
       // 1. Keep active SERP positions synchronized in keyword_serp_positions
@@ -1399,37 +1422,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     autoDiscoverFolderCreatorsForKeyword(sql, kid).catch(err => {
       console.warn(`[crawlKeywordSERP] Auto-discover folder creators warning for keyword ${kid}:`, err?.message);
     });
-
-    // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the Unified SSOT
-    // Strictly separate First-Time Save (insertNewPinsBatch) from Re-Save / Metric Refresh (resavePinsMetricsBatch)
-    const envObj = options?.env || null;
-    const ctxObj = options?.ctx || null;
-    if (!isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
-      const newSerpPins = [];
-      const existingSerpPins = [];
-      for (const p of preparedPins) {
-        const pid = String(p.pin_id || '');
-        if (!pid) continue;
-        const enrichedPin = { ...p, keyword_id: kid, is_displaced: false };
-        if (!immediateMap.has(pid) && !globalSavesMap.has(pid)) {
-          newSerpPins.push(enrichedPin);
-        } else {
-          existingSerpPins.push(enrichedPin);
-        }
-      }
-      if (newSerpPins.length > 0) {
-        await insertNewPinsBatch(sql, newSerpPins, 'keyword').catch((err) => {
-          console.warn(`[crawlKeywordSERP] insertNewPinsBatch warning for keyword ${kid}:`, err?.message || err);
-        });
-      }
-      if (existingSerpPins.length > 0 && !options?.skip_top_enrich) {
-        await resavePinsMetricsBatch(sql, existingSerpPins).catch((err) => {
-          console.warn(`[crawlKeywordSERP] resavePinsMetricsBatch warning for keyword ${kid}:`, err?.message || err);
-        });
-      }
-    }
-
-
 
     // Invalidate Global 24h Pulse Cache upon crawl completion
     invalidateGlobalPulseCache(envObj, ctxObj).catch(() => {});

@@ -28,6 +28,8 @@
 // [INVARIANT: UNIFIED-POSTGRES-CLIENT]
 import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   syncCompetitorProfile,
   syncCompetitorBoards,
@@ -42,6 +44,7 @@ import {
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinResource,
+  fetchPinsBatchFromPidgets,
   fetchUserResource,
   fetchPinFromPinterest
 } from '../src/core/pinterest/index.mjs';
@@ -57,17 +60,26 @@ import {
   bootstrapUndiciKeepAliveDispatcher
 } from './lib/cli-utils.mjs';
 
-await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
-loadDotEnvIfPresent();
+const isDirectCrawlerRun = Boolean(
+  process.argv[1] && (
+    fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
+    process.argv[1].endsWith('creator-velocity-crawler.mjs')
+  )
+);
+
+if (isDirectCrawlerRun) {
+  await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
+  loadDotEnvIfPresent();
+}
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
+if (isDirectCrawlerRun && !DATABASE_URL) {
   console.error('[-] FATAL: DATABASE_URL environment variable is missing.');
   process.exit(1);
 }
 
-const sql = createSqlClient(DATABASE_URL);
-const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode);
+const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
+const closeCrawlerDb = (exitCode = 0) => (sql ? closeDbClient(sql, exitCode) : Promise.resolve());
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -95,6 +107,10 @@ const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
 const AUTO_PROMOTE_PULSE_DELTA_24H = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_24H || 25000);
 const AUTO_PROMOTE_PULSE_DELTA_7D = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_7D || 100000);
+const rawPhase2MaxPins = parseInt(process.env.PHASE2_MAX_PINS || '250', 10);
+const PHASE2_MAX_PINS = Number.isFinite(rawPhase2MaxPins) && rawPhase2MaxPins > 0 ? Math.min(2000, rawPhase2MaxPins) : 250;
+const rawPhase2FreshHours = parseInt(process.env.PHASE2_FRESHNESS_HOURS || '18', 10);
+const PHASE2_FRESHNESS_HOURS = Number.isFinite(rawPhase2FreshHours) && rawPhase2FreshHours > 0 ? rawPhase2FreshHours : 18;
 
 /**
  * Route enriched pins to universal_master_pins and pins_daily_metrics via canonical PinRepository.ingestPinsBatch SSOT.
@@ -163,15 +179,63 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
 }
 
 /**
+ * Stage-1 50-pin Pidgets pre-pass for Phase 2 catalog slices.
+ * Skips pins already protected by the 18h freshness gate or lacking existing visual_annotations
+ * (which still need PinResource/SSR deep extraction).
+ */
+export async function prehydrateCreatorCatalogWithPidgets(slicePins, options = {}) {
+  const {
+    useFreshnessGate = true,
+    useUmpFields = false,
+    batchPidgetsFn = fetchPinsBatchFromPidgets
+  } = options;
+
+  const pidgetsIds = [];
+  for (const p of (Array.isArray(slicePins) ? slicePins : [])) {
+    if (!p || !p.pin_id) continue;
+    const rawPrevSaves = useUmpFields ? (p.ump_saves ?? p.save_count) : (p.saves ?? p.save_count);
+    const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
+    if (useFreshnessGate && prevSaves != null) {
+      const masterSnapshot = {
+        last_scraped_at: p.last_scraped_at,
+        save_count: prevSaves,
+        visual_annotations: p.visual_annotations,
+        image_signature: p.image_signature,
+        creation_method: p.creation_method,
+        metadata: p.ump_metadata
+      };
+      if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) continue;
+    }
+    const hasExistingAnnotations = Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0;
+    if (hasExistingAnnotations) {
+      pidgetsIds.push(String(p.pin_id));
+    }
+  }
+
+  if (pidgetsIds.length === 0) return new Map();
+  try {
+    const res = await batchPidgetsFn(pidgetsIds);
+    return res instanceof Map ? res : new Map();
+  } catch (_) {
+    return new Map();
+  }
+}
+
+/**
  * Shared pin enrichment and metric computation helper for Mode A & Mode B catalog refresh.
  */
-async function processCreatorCatalogPin(p, options, collectors) {
+export async function processCreatorCatalogPin(p, options, collectors) {
   const {
     fallbackUsername = '',
     useFreshnessGate = false,
-    useUmpFields = false
+    useUmpFields = false,
+    pidgetsMap = null,
+    requireDeepFields = false,
+    fetchPinFromPinResourceFn = null,
+    fetchPinFromPinterestFn = null
   } = options;
   const { refreshedPins, metricSnapshots, masterPinsToSync } = collectors;
+  const effectivePidgetsMap = pidgetsMap instanceof Map ? pidgetsMap : (collectors.pidgetsMap instanceof Map ? collectors.pidgetsMap : null);
 
   const rawPrevSaves = useUmpFields ? (p.ump_saves ?? p.save_count) : (p.saves ?? p.save_count);
   const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
@@ -207,11 +271,28 @@ async function processCreatorCatalogPin(p, options, collectors) {
     }
   }
 
-  let fresh = await fetchPinFromPinResource(p.pin_id).catch(() => null);
+  const pidgetsPin = effectivePidgetsMap ? effectivePidgetsMap.get(String(p.pin_id)) : null;
+  const hasExistingAnnotations = Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0;
+  const pidgetsSaves = (pidgetsPin && !pidgetsPin.is_missing && pidgetsPin.has_explicit_saves && pidgetsPin.saves != null)
+    ? Math.max(0, Number(pidgetsPin.saves))
+    : null;
+  const canUsePidgets = Boolean(
+    !requireDeepFields &&
+    hasExistingAnnotations &&
+    pidgetsPin &&
+    !pidgetsPin.is_missing &&
+    pidgetsSaves !== null &&
+    !(pidgetsSaves === 0 && (prevSaves ?? 0) > 0) &&
+    !(prevSaves != null && prevSaves > 0 && pidgetsSaves < prevSaves * 0.8)
+  );
+
+  let fresh = canUsePidgets
+    ? { ...pidgetsPin, visual_annotations: p.visual_annotations }
+    : await (typeof fetchPinFromPinResourceFn === 'function' ? fetchPinFromPinResourceFn(p.pin_id) : fetchPinFromPinResource(p.pin_id)).catch(() => null);
   const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
 
   if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
-    const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
+    const fetchRes = await (typeof fetchPinFromPinterestFn === 'function' ? fetchPinFromPinterestFn(p.pin_id, cookie) : fetchPinFromPinterest(p.pin_id, cookie)).catch(() => null);
     if (fetchRes?.ok && fetchRes?.pin) {
       fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
     }
@@ -627,17 +708,29 @@ async function run() {
     const masterPinsToSync = [];
 
     if (myCatalogSlice.length > 0) {
+      const pidgetsMap = await prehydrateCreatorCatalogWithPidgets(myCatalogSlice, {
+        useFreshnessGate: true,
+        useUmpFields: true
+      });
       const CONCURRENCY = 8;
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myCatalogSlice.map(p => sem.run(async () => {
+        const usedPidgets = Boolean(
+          pidgetsMap.get(String(p.pin_id)) &&
+          !pidgetsMap.get(String(p.pin_id)).is_missing &&
+          Array.isArray(p.visual_annotations) &&
+          p.visual_annotations.length > 0
+        );
         const refreshed = await processCreatorCatalogPin(
           p,
           { fallbackUsername: targetAccount, useFreshnessGate: true, useUmpFields: true },
-          { refreshedPins, metricSnapshots, masterPinsToSync }
+          { refreshedPins, metricSnapshots, masterPinsToSync, pidgetsMap }
         );
         if (refreshed) refreshedCount++;
-        await sleep(randomJitterMs(150, 300));
+        if (!usedPidgets) {
+          await sleep(randomJitterMs(150, 300));
+        }
       })));
     }
 
@@ -1175,16 +1268,19 @@ async function run() {
       SELECT 
         p.pin_id, p.creator_username AS account_username, p.board_name,
         p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
-        p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest
+        p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest,
+        p.last_scraped_at, p.visual_annotations, p.creation_method, p.metadata AS ump_metadata
       FROM universal_master_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.creator_username
       WHERE ${Number(workerTotal) === 20
         ? sql`(ABS(hashtext(p.pin_id::text)::bigint) % 20) = ${workerIndex}`
         : sql`(ABS(hashtext(p.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
         AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
-      ORDER BY p.save_count DESC NULLS LAST;
+        AND (p.last_scraped_at IS NULL OR p.last_scraped_at < NOW() - MAKE_INTERVAL(hours => ${PHASE2_FRESHNESS_HOURS}))
+      ORDER BY p.last_scraped_at ASC NULLS FIRST, p.save_count DESC NULLS LAST
+      LIMIT ${PHASE2_MAX_PINS};
     `;
-    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global master pins.`);
+    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global master pins (freshness >= ${PHASE2_FRESHNESS_HOURS}h, limit ${PHASE2_MAX_PINS}).`);
 
     let refreshedWinningCount = 0;
     const refreshedPins = [];
@@ -1192,19 +1288,31 @@ async function run() {
     const masterPinsToSync = [];
 
     if (myWinningSlice.length > 0) {
+      const pidgetsMap = await prehydrateCreatorCatalogWithPidgets(myWinningSlice, {
+        useFreshnessGate: true,
+        useUmpFields: false
+      });
       const CONCURRENCY = 8;
       const sem = new Semaphore(CONCURRENCY);
 
       await Promise.allSettled(myWinningSlice.map(p => sem.run(async () => {
+        const usedPidgets = Boolean(
+          pidgetsMap.get(String(p.pin_id)) &&
+          !pidgetsMap.get(String(p.pin_id)).is_missing &&
+          Array.isArray(p.visual_annotations) &&
+          p.visual_annotations.length > 0
+        );
         try {
           const refreshed = await processCreatorCatalogPin(
             p,
-            { useFreshnessGate: false, useUmpFields: false },
-            { refreshedPins, metricSnapshots, masterPinsToSync }
+            { useFreshnessGate: true, useUmpFields: false },
+            { refreshedPins, metricSnapshots, masterPinsToSync, pidgetsMap }
           );
           if (refreshed) refreshedWinningCount++;
         } catch (_) {}
-        await sleep(randomJitterMs(150, 300));
+        if (!usedPidgets) {
+          await sleep(randomJitterMs(150, 300));
+        }
       })));
     }
 
@@ -1231,7 +1339,9 @@ async function run() {
   }
 }
 
-run().catch(async err => {
-  console.error('[-] Fatal Worker Error:', err);
-  await closeCrawlerDb(1);
-});
+if (isDirectCrawlerRun) {
+  run().catch(async err => {
+    console.error('[-] Fatal Worker Error:', err);
+    await closeCrawlerDb(1);
+  });
+}

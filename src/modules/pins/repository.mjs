@@ -53,11 +53,11 @@ function safeParseIsoTimestamp(val) {
  * @param {string} [pillar='keyword'] - Discovery pillar identifier
  * @returns {Promise<{ inserted: number }>}
  */
-export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword') {
+export async function insertNewPinsBatch(sql, pins = [], pillar = 'keyword', extraOptions = {}) {
   if (!Array.isArray(pins) || pins.length === 0) {
     return { inserted: 0 };
   }
-  const result = await ingestPinsBatch(sql, pins, { pillar });
+  const result = await ingestPinsBatch(sql, pins, { ...extraOptions, pillar });
   return { inserted: result.inserted ?? result.ingested ?? 0 };
 }
 
@@ -102,7 +102,7 @@ async function upsertPinSerpPositionsBatch(sql, payloadJson) {
  * @param {Array<object>} pins - Array of refreshed pin metric payloads
  * @returns {Promise<{ updated: number }>}
  */
-export async function resavePinsMetricsBatch(sql, pins = []) {
+export async function resavePinsMetricsBatch(sql, pins = [], options = {}) {
   if (!Array.isArray(pins) || pins.length === 0) {
     return { updated: 0 };
   }
@@ -298,7 +298,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
       UPDATE universal_master_pins ump
       SET
         domain = COALESCE(NULLIF(cb.domain, ''), ump.domain),
-        clean_domain = COALESCE(NULLIF(cb.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, ump.domain, '')), '^www\.', ''))),
+        clean_domain = COALESCE(NULLIF(cb.clean_domain, ''), NULLIF(ump.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, ump.domain, '')), '^www\\.', ''))),
         save_count = CASE
           WHEN COALESCE(cb.save_count, 0) > 0 THEN cb.save_count
           WHEN COALESCE(ump.save_count, 0) > 0 THEN ump.save_count
@@ -367,7 +367,7 @@ export async function resavePinsMetricsBatch(sql, pins = []) {
     SELECT pin_id FROM upd_master;
   `;
 
-  if (sorted.some(r => r.keyword_id && r.keyword_id > 0)) {
+  if (!options?.skipSerpUpsert && sorted.some(r => r.keyword_id && r.keyword_id > 0)) {
     await upsertPinSerpPositionsBatch(sql, payloadJson);
   }
 
@@ -470,9 +470,16 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             const c = String(p.dominant_color || p.dominantColor || '').trim();
             return (!c || c.toLowerCase() === '#888888') ? null : c;
           })(),
-          visual_annotations: Array.isArray(p.visual_annotations)
-            ? p.visual_annotations
-            : (Array.isArray(p.annotations) ? p.annotations : []),
+          visual_annotations: (() => {
+            const rawAnns = Array.isArray(p.visual_annotations)
+              ? p.visual_annotations
+              : (Array.isArray(p.annotations) ? p.annotations : []);
+            const mapped = rawAnns
+              .map(a => (typeof a === 'string' ? a : (a?.name || a?.label || '')))
+              .filter(Boolean);
+            if (mapped.length > 0) return mapped;
+            return Array.isArray(p.visual_style_tags) ? p.visual_style_tags.filter(Boolean) : [];
+          })(),
           created_at_pinterest: safeParseIsoTimestamp(p.created_at_pinterest || p.created_at),
           save_count: saveCount,
           repin_count: repinCount,
@@ -633,6 +640,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
   const payloadJson = JSON.stringify(rows);
   const serpPayloadJson = JSON.stringify(serpRows);
   const compPayloadJson = JSON.stringify(competitorRows);
+  const isLiveSync = Boolean(options.isLiveSync);
 
   const executeAtomicBatch = async (tx) => {
     const res = await tx`
@@ -779,7 +787,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         )
         SELECT
           cb.pin_id, cb.creator_username, cb.board_id, cb.board_name, cb.board_slug, cb.title, cb.domain,
-          COALESCE(NULLIF(cb.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, '')), '^www\.', ''))),
+          COALESCE(NULLIF(cb.clean_domain, ''), LOWER(REGEXP_REPLACE(TRIM(COALESCE(cb.domain, '')), '^www\\.', ''))),
           cb.destination_url,
           cb.image_url, cb.description, cb.alt_text, cb.dominant_color, cb.visual_annotations,
           NULLIF(TRIM(cb.created_at_pinterest), '')::timestamptz,
@@ -801,9 +809,12 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
           board_slug = COALESCE(NULLIF(EXCLUDED.board_slug, ''), universal_master_pins.board_slug),
           title = CASE
-            WHEN EXCLUDED.title IS NOT NULL AND BTRIM(EXCLUDED.title) <> ''
+            WHEN EXCLUDED.title IS NOT NULL
+             AND BTRIM(EXCLUDED.title) <> ''
+             AND EXCLUDED.title !~* '(^|\\s)(Inspiration|Idea)$'
+             AND EXCLUDED.title !~* '^(Untitled(\\s+Pin)?|Pin(\\s*#?\\s*\\w+)?|Pinterest\\s+(Visual\\s+Guide|Pin\\s+Idea))$'
             THEN EXCLUDED.title
-            ELSE universal_master_pins.title
+            ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
           END,
           domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
           clean_domain = COALESCE(NULLIF(EXCLUDED.clean_domain, ''), universal_master_pins.clean_domain),
@@ -813,6 +824,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
           dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888') THEN EXCLUDED.dominant_color ELSE universal_master_pins.dominant_color END,
           visual_annotations = CASE WHEN jsonb_array_length(COALESCE(EXCLUDED.visual_annotations, '[]'::jsonb)) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
+          created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
           save_count = CASE
             WHEN COALESCE(EXCLUDED.save_count, 0) > 0 THEN EXCLUDED.save_count
             WHEN COALESCE(universal_master_pins.save_count, 0) > 0 THEN universal_master_pins.save_count
@@ -823,9 +835,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             WHEN COALESCE(universal_master_pins.repin_count, 0) > 0 THEN universal_master_pins.repin_count
             ELSE COALESCE(EXCLUDED.repin_count, universal_master_pins.repin_count)
           END,
-          comment_count = COALESCE(EXCLUDED.comment_count, universal_master_pins.comment_count),
-          share_count = COALESCE(EXCLUDED.share_count, universal_master_pins.share_count),
-          reaction_count = COALESCE(EXCLUDED.reaction_count, universal_master_pins.reaction_count),
+          comment_count = GREATEST(universal_master_pins.comment_count, EXCLUDED.comment_count),
+          share_count = GREATEST(universal_master_pins.share_count, EXCLUDED.share_count),
+          reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), COALESCE(EXCLUDED.reaction_count, 0)),
           is_hydrated = (universal_master_pins.is_hydrated OR EXCLUDED.is_hydrated OR EXCLUDED.save_count IS NOT NULL),
           daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, universal_master_pins.daily_save_velocity),
           daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, universal_master_pins.daily_repin_velocity),
@@ -835,6 +847,81 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           gains_7d = COALESCE(EXCLUDED.gains_7d, universal_master_pins.gains_7d),
           gains_10d = COALESCE(EXCLUDED.gains_10d, universal_master_pins.gains_10d),
           gains_15d = COALESCE(EXCLUDED.gains_15d, universal_master_pins.gains_15d),
+          is_product = (universal_master_pins.is_product OR COALESCE(EXCLUDED.is_product, FALSE)),
+          is_video = (universal_master_pins.is_video OR COALESCE(EXCLUDED.is_video, FALSE)),
+          creation_method = CASE
+            WHEN NULLIF(TRIM(EXCLUDED.creation_method), '') IS NOT NULL
+             AND LOWER(TRIM(EXCLUDED.creation_method)) <> 'pinterest_platform'
+            THEN EXCLUDED.creation_method
+            ELSE COALESCE(NULLIF(universal_master_pins.creation_method, ''), EXCLUDED.creation_method)
+          END,
+          image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), universal_master_pins.image_signature),
+          canonical_pin_id = COALESCE(NULLIF(EXCLUDED.canonical_pin_id, ''), universal_master_pins.canonical_pin_id),
+          metadata = (
+            (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
+            || COALESCE(EXCLUDED.metadata, '{}'::jsonb)
+            || CASE
+                 WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL
+                  AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
+                  AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL
+                       OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
+                 THEN jsonb_build_object(
+                   'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
+                   'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
+                 )
+                 ELSE '{}'::jsonb
+               END
+            || CASE
+                 WHEN ${isLiveSync} = TRUE
+                  AND COALESCE(universal_master_pins.save_count, 0) > 0
+                  AND universal_master_pins.last_scraped_at IS NOT NULL
+                  AND (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
+                  AND (
+                    universal_master_pins.save_count IS DISTINCT FROM EXCLUDED.save_count
+                    OR universal_master_pins.repin_count IS DISTINCT FROM EXCLUDED.repin_count
+                  )
+                 THEN jsonb_build_object(
+                   'intraday_snapshots',
+                   (
+                     SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                     FROM (
+                       SELECT elem, ord
+                       FROM jsonb_array_elements(
+                         (
+                           CASE
+                             WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
+                             THEN universal_master_pins.metadata->'intraday_snapshots'
+                             ELSE '[]'::jsonb
+                           END
+                         ) || jsonb_build_array(
+                           jsonb_build_object(
+                             'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
+                             'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
+                             'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                             'save_count', COALESCE(universal_master_pins.save_count, 0),
+                             'repin_count', COALESCE(universal_master_pins.repin_count, 0),
+                             'comment_count', COALESCE(universal_master_pins.comment_count, 0),
+                             'share_count', COALESCE(universal_master_pins.share_count, 0)
+                           )
+                         )
+                       ) WITH ORDINALITY AS t(elem, ord)
+                       ORDER BY ord DESC
+                       LIMIT 24
+                     ) recent_intra
+                   )
+                 )
+                 ELSE '{}'::jsonb
+               END
+          ) - CASE WHEN ${isLiveSync} = TRUE THEN 'deleted_snapshot_dates' ELSE '' END
+            || CASE
+                 WHEN ${isLiveSync} = TRUE
+                 THEN jsonb_build_object('deleted_snapshot_dates', (
+                   SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                   FROM jsonb_array_elements_text(COALESCE(universal_master_pins.metadata->'deleted_snapshot_dates', '[]'::jsonb)) AS elem
+                   WHERE elem <> (NOW() AT TIME ZONE 'UTC')::date::text
+                 ))
+                 ELSE '{}'::jsonb
+               END,
           last_resaved_at = NOW(),
           last_scraped_at = COALESCE(EXCLUDED.last_scraped_at, universal_master_pins.last_scraped_at),
           updated_at = NOW()
@@ -880,7 +967,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
     `;
 
     // SERP Positions upsert
-    if (serpRows.length > 0) {
+    if (!options.skipSerpUpsert && serpRows.length > 0) {
       await tx`
         INSERT INTO keyword_serp_positions (
           keyword_id, pin_id, rank_position, is_displaced,
@@ -941,9 +1028,11 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
     return res;
   };
 
-  const res = typeof sql.begin === 'function'
-    ? await sql.begin(executeAtomicBatch)
-    : (typeof sql.transaction === 'function' ? await sql.transaction(executeAtomicBatch) : await executeAtomicBatch(sql));
+  const res = options.inTransaction
+    ? await executeAtomicBatch(sql)
+    : (typeof sql.begin === 'function'
+      ? await sql.begin(executeAtomicBatch)
+      : (typeof sql.transaction === 'function' ? await sql.transaction(executeAtomicBatch) : await executeAtomicBatch(sql)));
 
   const inserted = Array.isArray(res) ? res.filter(r => r.is_insert).length : 0;
   const updated = Array.isArray(res) ? res.filter(r => !r.is_insert).length : 0;
@@ -1008,7 +1097,6 @@ export async function syncPinAcrossAllFourPillars({
   const newRepins = (!isUnhydratedRepins && Number.isFinite(Number(rawRepins)))
     ? Math.max(0, Number(rawRepins))
     : null;
-  const hasExplicitScrapedRepins = Boolean(scrapedPin.has_explicit_repins) || (newRepins !== null && newRepins > 0);
 
   const rawComments = (scrapedPin.comments !== undefined && scrapedPin.comments !== null)
     ? scrapedPin.comments
@@ -1113,97 +1201,35 @@ export async function syncPinAcrossAllFourPillars({
     return isNaN(d.getTime()) ? null : d.toISOString();
   })();
 
-  // 4. Pillar 1: Upsert universal_master_pins
+  // 4. Atomic transaction: read prior baselines -> delegate master + daily metrics to ingestPinsBatch -> upsert SERP positions
   const cleanSyncDominantColor = (() => {
     const c = String(scrapedPin.dominant_color || scrapedPin.dominantColor || '').trim();
     return (!c || c.toLowerCase() === '#888888') ? null : c;
   })();
 
-  await dbSql`
-    INSERT INTO universal_master_pins (
-      pin_id, creator_username, board_name, title, domain, destination_url,
-      image_url, description, alt_text, dominant_color, visual_annotations,
-      created_at_pinterest, metadata,
-      first_discovered_pillar, first_discovered_at, updated_at
-    ) VALUES (
-      ${cleanPinId},
-      ${scrapedPin.creator_username || scrapedPin.pinner_username || ''},
-      ${scrapedPin.board_name || ''},
-      ${scrapedPin.title || ''},
-      ${scrapedPin.domain || ''},
-      ${scrapedPin.link || scrapedPin.destination_url || ''},
-      ${scrapedPin.image_url || ''},
-      ${scrapedPin.description || ''},
-      ${scrapedPin.alt_text || scrapedPin.seo_title || ''},
-      ${cleanSyncDominantColor},
-      ${JSON.stringify(scrapedPin.annotations?.map(a => a.name) || scrapedPin.visual_style_tags || [])}::jsonb,
-      ${cleanCreatedAtIso}::timestamptz,
-      ${JSON.stringify(metaToStore)}::jsonb,
-      'live_sync',
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT (pin_id) DO UPDATE SET
-      creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-      board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-      title = CASE
-        WHEN EXCLUDED.title IS NOT NULL
-         AND BTRIM(EXCLUDED.title) <> ''
-         AND EXCLUDED.title !~* '(^|\\s)(Inspiration|Idea)$'
-         AND EXCLUDED.title !~* '^(Untitled(\\s+Pin)?|Pin(\\s*#?\\s*\\w+)?|Pinterest\\s+(Visual\\s+Guide|Pin\\s+Idea))$'
-        THEN EXCLUDED.title
-        ELSE COALESCE(NULLIF(universal_master_pins.title, ''), EXCLUDED.title)
-      END,
-      domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
-      destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
-      image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-      description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-      alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-      dominant_color = CASE WHEN EXCLUDED.dominant_color NOT IN ('', '#888888') THEN EXCLUDED.dominant_color ELSE universal_master_pins.dominant_color END,
-      visual_annotations = CASE 
-        WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-        THEN EXCLUDED.visual_annotations 
-        ELSE universal_master_pins.visual_annotations 
-      END,
-      metadata = (COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
-        || CASE
-             WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
-              AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
-              AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL 
-                   OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
-             THEN jsonb_build_object(
-               'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
-               'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
-             )
-             ELSE '{}'::jsonb
-           END) - 'deleted_snapshot_dates'
-        || jsonb_build_object('deleted_snapshot_dates', (
-             SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-             FROM jsonb_array_elements_text(COALESCE(universal_master_pins.metadata->'deleted_snapshot_dates', '[]'::jsonb)) AS elem
-             WHERE elem <> (NOW() AT TIME ZONE 'UTC')::date::text
-           )),
-      created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-      updated_at = NOW();
-  `;
+  const mappedAnnotations = Array.isArray(scrapedPin.annotations)
+    ? scrapedPin.annotations.map(a => (typeof a === 'string' ? a : (a?.name || a?.label || ''))).filter(Boolean)
+    : [];
+  const syncAnnotations = mappedAnnotations.length > 0
+    ? mappedAnnotations
+    : (Array.isArray(scrapedPin.visual_style_tags) ? scrapedPin.visual_style_tags.filter(Boolean) : []);
 
-  // 5. Query Active & Displaced SERP State (keyword_serp_positions joined with universal_master_pins)
-  const targetRows = await dbSql`
-    SELECT
-      ksp.keyword_id, ksp.rank_position, ksp.is_displaced,
-      ksp.crawled_at, ksp.last_known_rank, ksp.vacuum_opportunity_score,
-      ump.save_count, ump.repin_count,
-      ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity,
-      ump.last_scraped_at
-    FROM keyword_serp_positions ksp
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-    WHERE ksp.pin_id = ${cleanPinId}
-      AND ksp.is_displaced = FALSE
-      AND ksp.rank_position IS NOT NULL;
-  `;
+  const executeFourPillarSync = async (tx) => {
+    const targetRows = await tx`
+      SELECT
+        ksp.keyword_id, ksp.rank_position, ksp.is_displaced,
+        ksp.crawled_at, ksp.last_known_rank, ksp.vacuum_opportunity_score,
+        ump.save_count, ump.repin_count,
+        ump.daily_save_velocity, ump.delta_repins_24h, ump.daily_repin_velocity,
+        ump.last_scraped_at
+      FROM keyword_serp_positions ksp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.pin_id = ${cleanPinId}
+        AND ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL;
+    `;
 
-  let displacedRows = [];
-  try {
-    displacedRows = await dbSql`
+    const displacedRows = await tx`
       SELECT
         ksp.keyword_id, ksp.last_known_rank, ksp.displaced_date, ksp.vacuum_opportunity_score, ksp.updated_at,
         ump.save_count, ump.repin_count,
@@ -1214,326 +1240,258 @@ export async function syncPinAcrossAllFourPillars({
       WHERE ksp.pin_id = ${cleanPinId}
         AND ksp.is_displaced = TRUE;
     `;
-  } catch (dispErr) {
-    console.warn(`[syncPinAcrossAllFourPillars] keyword_serp_positions displaced lookup note: ${dispErr.message}`);
-  }
 
-  let priorShardMetrics = [];
-  try {
-    priorShardMetrics = await dbSql`
+    const priorShardMetrics = await tx`
       SELECT recorded_date::text AS snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
       FROM pins_daily_metrics
       WHERE pin_id = ${cleanPinId}
       ORDER BY recorded_date DESC
       LIMIT 3;
     `;
-  } catch (metricLookupErr) {
-    console.warn(`[syncPinAcrossAllFourPillars] pins_daily_metrics baseline lookup note: ${metricLookupErr.message}`);
-  }
 
-  // 6. Compute UTC-normalized save velocity with Day-2 Baseline & Intraday Ratchet Protection
-  // [INVARIANT: UTC-MIDNIGHT-NORMALIZED-VELOCITY]
-  const nowDate = new Date();
-  const todayUtcStr = nowDate.toISOString().slice(0, 10);
-  const toIsoDateStr = (val) => {
-    if (!val) return null;
-    if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString().slice(0, 10);
-    const d = new Date(val);
-    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-  };
+    // Compute UTC-normalized save velocity with Day-2 Baseline & Intraday Ratchet Protection
+    // [INVARIANT: UTC-MIDNIGHT-NORMALIZED-VELOCITY]
+    const nowDate = new Date();
+    const todayUtcStr = nowDate.toISOString().slice(0, 10);
+    const toIsoDateStr = (val) => {
+      if (!val) return null;
+      if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString().slice(0, 10);
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    };
 
-  const todayShardRow = priorShardMetrics.find(m => toIsoDateStr(m.snapshot_date) === todayUtcStr) || null;
-  const priorDayShardRow = priorShardMetrics.find(m => {
-    const dStr = toIsoDateStr(m.snapshot_date);
-    return dStr && dStr < todayUtcStr;
-  }) || null;
+    const todayShardRow = priorShardMetrics.find(m => toIsoDateStr(m.snapshot_date) === todayUtcStr) || null;
+    const priorDayShardRow = priorShardMetrics.find(m => {
+      const dStr = toIsoDateStr(m.snapshot_date);
+      return dStr && dStr < todayUtcStr;
+    }) || null;
 
-  let baselineSaves = 0;
-  let baselineDate = null;
+    let baselineSaves = 0;
+    let baselineDate = null;
 
-  if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count)) && Number(priorDayShardRow.save_count) > 0) {
-    baselineSaves = Number(priorDayShardRow.save_count);
-    baselineDate = priorDayShardRow.snapshot_date;
-  } else if (targetRows.length > 0) {
-    const priorCrawlRow = targetRows.find(r => {
-      const cIso = toIsoDateStr(r.crawled_at || r.updated_at || r.last_scraped_at);
-      return cIso && cIso < todayUtcStr && Number.isFinite(Number(r.save_count)) && Number(r.save_count) > 0;
-    });
-    const r0 = priorCrawlRow || targetRows[0];
-    const crawlDateIso = toIsoDateStr(r0.crawled_at || r0.updated_at || r0.last_scraped_at);
+    if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count)) && Number(priorDayShardRow.save_count) > 0) {
+      baselineSaves = Number(priorDayShardRow.save_count);
+      baselineDate = priorDayShardRow.snapshot_date;
+    } else if (targetRows.length > 0) {
+      const priorCrawlRow = targetRows.find(r => {
+        const cIso = toIsoDateStr(r.crawled_at || r.updated_at || r.last_scraped_at);
+        return cIso && cIso < todayUtcStr && Number.isFinite(Number(r.save_count)) && Number(r.save_count) > 0;
+      });
+      const r0 = priorCrawlRow || targetRows[0];
+      const crawlDateIso = toIsoDateStr(r0.crawled_at || r0.updated_at || r0.last_scraped_at);
 
-    if (crawlDateIso && crawlDateIso < todayUtcStr && Number.isFinite(Number(r0.save_count))) {
-      baselineSaves = Number(r0.save_count);
-      baselineDate = r0.crawled_at || r0.updated_at || r0.last_scraped_at;
-    } else {
-      baselineSaves = Number.isFinite(Number(r0.save_count)) ? Number(r0.save_count) : 0;
-      baselineDate = (r0.crawled_at || r0.last_scraped_at || r0.updated_at) ? new Date(r0.crawled_at || r0.last_scraped_at || r0.updated_at) : null;
+      if (crawlDateIso && crawlDateIso < todayUtcStr && Number.isFinite(Number(r0.save_count))) {
+        baselineSaves = Number(r0.save_count);
+        baselineDate = r0.crawled_at || r0.updated_at || r0.last_scraped_at;
+      } else {
+        baselineSaves = Number.isFinite(Number(r0.save_count)) ? Number(r0.save_count) : 0;
+        baselineDate = (r0.crawled_at || r0.last_scraped_at || r0.updated_at) ? new Date(r0.crawled_at || r0.last_scraped_at || r0.updated_at) : null;
+      }
+    } else if (displacedRows.length > 0) {
+      const d0 = displacedRows[0];
+      baselineSaves = Number.isFinite(Number(d0.save_count)) ? Number(d0.save_count) : 0;
+      baselineDate = d0.displaced_date || d0.updated_at || d0.last_scraped_at || null;
+    } else if (todayShardRow && Number.isFinite(Number(todayShardRow.save_count))) {
+      baselineSaves = Number(todayShardRow.save_count);
+      baselineDate = todayShardRow.snapshot_date;
     }
-  } else if (displacedRows.length > 0) {
-    const d0 = displacedRows[0];
-    baselineSaves = Number.isFinite(Number(d0.save_count)) ? Number(d0.save_count) : 0;
-    baselineDate = d0.displaced_date || d0.updated_at || d0.last_scraped_at || null;
-  } else if (todayShardRow && Number.isFinite(Number(todayShardRow.save_count))) {
-    baselineSaves = Number(todayShardRow.save_count);
-    baselineDate = todayShardRow.snapshot_date;
-  }
 
-  const targetBaselineRepins = (priorDayShardRow && priorDayShardRow.repin_count != null && Number(priorDayShardRow.repin_count) > 0)
-    ? Number(priorDayShardRow.repin_count)
-    : ((targetRows.length > 0 && targetRows[0].repin_count != null)
-      ? Number(targetRows[0].repin_count)
-      : ((displacedRows.length > 0 && displacedRows[0].repin_count != null) ? Number(displacedRows[0].repin_count) : Number(todayShardRow?.repin_count || 0)));
+    const targetBaselineRepins = (priorDayShardRow && priorDayShardRow.repin_count != null && Number(priorDayShardRow.repin_count) > 0)
+      ? Number(priorDayShardRow.repin_count)
+      : ((targetRows.length > 0 && targetRows[0].repin_count != null)
+        ? Number(targetRows[0].repin_count)
+        : ((displacedRows.length > 0 && displacedRows[0].repin_count != null) ? Number(displacedRows[0].repin_count) : Number(todayShardRow?.repin_count || 0)));
 
-  const jumpDetected = detectHydrationJump({
-    currentSaves: newSaves,
-    baselineSaves,
-    currentRepins: newRepins,
-    baselineRepins: targetBaselineRepins
-  });
-  let computedVelocity = 0;
-
-  if (jumpDetected) {
-    computedVelocity = 0;
-  } else {
-    computedVelocity = calculateDailyVelocity({
+    const jumpDetected = detectHydrationJump({
       currentSaves: newSaves,
       baselineSaves,
       currentRepins: newRepins,
-      baselineRepins: targetBaselineRepins,
-      currentDate: nowDate,
-      baselineDate
+      baselineRepins: targetBaselineRepins
     });
-  }
-
-  const existingPositiveVelocity = Math.max(
-    0,
-    ...targetRows.map(r => Number(r.daily_save_velocity) || 0),
-    ...displacedRows.map(r => Number(r.daily_save_velocity) || 0),
-    Number(todayShardRow?.daily_save_velocity || 0)
-  );
-  const existingPositiveRepinDelta = Math.max(
-    0,
-    ...targetRows.map(r => Number(r.delta_repins_24h) || 0),
-    ...displacedRows.map(r => Number(r.delta_repins_24h) || 0)
-  );
-
-  const baselineDateIso = toIsoDateStr(baselineDate);
-  const repinJumpDetected = jumpDetected || isRepinHydrationJump(
-    { save_count: baselineSaves, repin_count: targetBaselineRepins },
-    { save_count: newSaves, repin_count: newRepins }
-  );
-  const rawRepinDelta = (repinJumpDetected || newRepins === null) ? 0 : Math.max(0, newRepins - targetBaselineRepins);
-
-  const intradayStepGain = (todayShardRow && newSaves !== null)
-    ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
-    : 0;
-  const isIntradayJump = (todayShardRow && newSaves !== null) && detectHydrationJump({
-    currentSaves: newSaves,
-    baselineSaves: Number(todayShardRow.save_count || 0),
-    currentRepins: newRepins,
-    baselineRepins: Number(todayShardRow.repin_count || 0)
-  });
-  const cappedIntradayStepGain = (isIntradayJump || jumpDetected) ? 0 : Math.min(25000, intradayStepGain);
-
-  const intradayRepinStepGain = (todayShardRow && newRepins !== null && !repinJumpDetected && !isRepinHydrationJump(
-    { save_count: Number(todayShardRow.save_count || 0), repin_count: Number(todayShardRow.repin_count || 0) },
-    { save_count: newSaves, repin_count: newRepins }
-  ))
-    ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
-    : 0;
-  const syncVelocity = (newSaves === null)
-    ? null
-    : (jumpDetected
+    const computedVelocity = jumpDetected
       ? 0
-      : ((hasExplicitScrapedSaves && baselineSaves > 0 && newSaves < baselineSaves)
+      : calculateDailyVelocity({
+          currentSaves: newSaves,
+          baselineSaves,
+          currentRepins: newRepins,
+          baselineRepins: targetBaselineRepins,
+          currentDate: nowDate,
+          baselineDate
+        });
+
+    const existingPositiveVelocity = Math.max(
+      0,
+      ...targetRows.map(r => Number(r.daily_save_velocity) || 0),
+      ...displacedRows.map(r => Number(r.daily_save_velocity) || 0),
+      Number(todayShardRow?.daily_save_velocity || 0)
+    );
+    const existingPositiveRepinDelta = Math.max(
+      0,
+      ...targetRows.map(r => Number(r.delta_repins_24h) || 0),
+      ...displacedRows.map(r => Number(r.delta_repins_24h) || 0)
+    );
+
+    const baselineDateIso = toIsoDateStr(baselineDate);
+    const repinJumpDetected = jumpDetected || isRepinHydrationJump(
+      { save_count: baselineSaves, repin_count: targetBaselineRepins },
+      { save_count: newSaves, repin_count: newRepins }
+    );
+    const rawRepinDelta = (repinJumpDetected || newRepins === null) ? 0 : Math.max(0, newRepins - targetBaselineRepins);
+
+    const intradayStepGain = (todayShardRow && newSaves !== null)
+      ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
+      : 0;
+    const isIntradayJump = (todayShardRow && newSaves !== null) && detectHydrationJump({
+      currentSaves: newSaves,
+      baselineSaves: Number(todayShardRow.save_count || 0),
+      currentRepins: newRepins,
+      baselineRepins: Number(todayShardRow.repin_count || 0)
+    });
+    const cappedIntradayStepGain = (isIntradayJump || jumpDetected) ? 0 : Math.min(25000, intradayStepGain);
+
+    const intradayRepinStepGain = (todayShardRow && newRepins !== null && !repinJumpDetected && !isRepinHydrationJump(
+      { save_count: Number(todayShardRow.save_count || 0), repin_count: Number(todayShardRow.repin_count || 0) },
+      { save_count: newSaves, repin_count: newRepins }
+    ))
+      ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
+      : 0;
+    const syncVelocityVal = (newSaves === null)
+      ? null
+      : (jumpDetected
+        ? 0
+        : ((hasExplicitScrapedSaves && baselineSaves > 0 && newSaves < baselineSaves)
+          ? 0
+          : ((!baselineDateIso || baselineDateIso === todayUtcStr)
+            ? Math.max(existingPositiveVelocity, computedVelocity, cappedIntradayStepGain)
+            : computedVelocity)));
+    const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins !== null && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && (syncVelocityVal ?? 0) < existingPositiveRepinDelta * 0.15)
+      ? 0
+      : existingPositiveRepinDelta;
+    const syncRepinsDelta = (newRepins === null)
+      ? null
+      : (repinJumpDetected
         ? 0
         : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-          ? Math.max(existingPositiveVelocity, computedVelocity, cappedIntradayStepGain)
-          : computedVelocity)));
-  const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins !== null && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && (syncVelocity ?? 0) < existingPositiveRepinDelta * 0.15)
-    ? 0
-    : existingPositiveRepinDelta;
-  const syncRepinsDelta = (newRepins === null)
-    ? null
-    : (repinJumpDetected
-      ? 0
-      : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-        ? Math.max(safeExistingRepinDelta, rawRepinDelta, intradayRepinStepGain)
-        : rawRepinDelta));
+          ? Math.max(safeExistingRepinDelta, rawRepinDelta, intradayRepinStepGain)
+          : rawRepinDelta));
 
-  // 7. Upsert two-tier modern snapshot metrics (pins_daily_metrics)
-  await dbSql`
-    INSERT INTO pins_daily_metrics (
-      pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, daily_repin_velocity, updated_at
-    ) VALUES (
-      ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${newSaves}, ${newRepins},
-      ${newComments}, ${newShares}, ${totalReactions}, ${syncVelocity}, ${syncRepinsDelta}, NOW()
-    )
-    ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
-      save_count = CASE
-        WHEN EXCLUDED.save_count IS NOT NULL AND EXCLUDED.save_count > 0 THEN EXCLUDED.save_count
-        WHEN COALESCE(pins_daily_metrics.save_count, 0) > 0 THEN pins_daily_metrics.save_count
-        WHEN ${hasExplicitScrapedSaves} AND EXCLUDED.save_count IS NOT NULL THEN EXCLUDED.save_count
-        ELSE pins_daily_metrics.save_count
-      END,
-      repin_count = CASE
-        WHEN EXCLUDED.repin_count IS NOT NULL AND EXCLUDED.repin_count > 0 THEN EXCLUDED.repin_count
-        WHEN COALESCE(pins_daily_metrics.repin_count, 0) > 0 THEN pins_daily_metrics.repin_count
-        WHEN ${hasExplicitScrapedRepins} AND EXCLUDED.repin_count IS NOT NULL THEN EXCLUDED.repin_count
-        ELSE pins_daily_metrics.repin_count
-      END,
-      comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
-      share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-      reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-      daily_save_velocity = COALESCE(EXCLUDED.daily_save_velocity, pins_daily_metrics.daily_save_velocity),
-      daily_repin_velocity = COALESCE(EXCLUDED.daily_repin_velocity, pins_daily_metrics.daily_repin_velocity),
-      updated_at = NOW();
-  `;
-  try {
-    await dbSql`
-      UPDATE universal_master_pins
-      SET
-        metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
-          || CASE
-               WHEN COALESCE(universal_master_pins.save_count, 0) > 0
-                AND universal_master_pins.last_scraped_at IS NOT NULL
-                AND (universal_master_pins.last_scraped_at AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'UTC')::date
-                AND (
-                  universal_master_pins.save_count IS DISTINCT FROM ${newSaves}
-                  OR universal_master_pins.repin_count IS DISTINCT FROM ${newRepins}
-                )
-               THEN jsonb_build_object(
-                 'intraday_snapshots',
-                 (
-                   SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
-                   FROM (
-                     SELECT elem, ord
-                     FROM jsonb_array_elements(
-                       (
-                         CASE
-                           WHEN jsonb_typeof(universal_master_pins.metadata->'intraday_snapshots') = 'array'
-                           THEN universal_master_pins.metadata->'intraday_snapshots'
-                           ELSE '[]'::jsonb
-                         END
-                       ) || jsonb_build_array(
-                         jsonb_build_object(
-                           'id', 'intra_' || EXTRACT(EPOCH FROM universal_master_pins.last_scraped_at)::bigint::text,
-                           'snapshot_date', ((NOW() AT TIME ZONE 'UTC')::date)::text,
-                           'recorded_at', to_char(universal_master_pins.last_scraped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-                           'save_count', COALESCE(universal_master_pins.save_count, 0),
-                           'repin_count', COALESCE(universal_master_pins.repin_count, 0),
-                           'comment_count', COALESCE(universal_master_pins.comment_count, 0),
-                           'share_count', COALESCE(universal_master_pins.share_count, 0)
-                         )
-                       )
-                     ) WITH ORDINALITY AS t(elem, ord)
-                     ORDER BY ord DESC
-                     LIMIT 24
-                   ) recent_intra
-                 )
-               )
-               ELSE '{}'::jsonb
-             END,
-        save_count = CASE
-          WHEN ${newSaves !== null && newSaves > 0} THEN ${newSaves}::bigint
-          WHEN COALESCE(universal_master_pins.save_count, 0) > 0 THEN universal_master_pins.save_count
-          WHEN ${hasExplicitScrapedSaves} AND ${newSaves !== null} THEN ${newSaves}::bigint
-          ELSE universal_master_pins.save_count
-        END,
-        repin_count = CASE
-          WHEN ${newRepins !== null && newRepins > 0} THEN ${newRepins}::bigint
-          WHEN COALESCE(universal_master_pins.repin_count, 0) > 0 THEN universal_master_pins.repin_count
-          WHEN ${hasExplicitScrapedRepins} AND ${newRepins !== null} THEN ${newRepins}::bigint
-          ELSE universal_master_pins.repin_count
-        END,
-        comment_count = GREATEST(universal_master_pins.comment_count, ${newComments}::int),
-        share_count = GREATEST(universal_master_pins.share_count, ${newShares}::int),
-        reaction_count = GREATEST(COALESCE(universal_master_pins.reaction_count, 0), ${totalReactions}::int),
-        is_hydrated = (universal_master_pins.is_hydrated OR ${hasExplicitScrapedSaves}),
-        daily_save_velocity = COALESCE(${syncVelocity}::numeric, daily_save_velocity),
-        daily_repin_velocity = COALESCE(${syncRepinsDelta}::numeric, daily_repin_velocity),
-        delta_saves_24h = CASE WHEN ${syncVelocity} IS NOT NULL THEN ROUND(${syncVelocity}::numeric)::bigint ELSE delta_saves_24h END,
-        delta_repins_24h = COALESCE(${syncRepinsDelta}::bigint, delta_repins_24h),
-        last_scraped_at = NOW(),
-        updated_at = NOW()
-      WHERE pin_id = ${cleanPinId};
-    `;
-  } catch (err) {
-    console.error(`[PinRepository.syncPinAcrossAllFourPillars] universal_master_pins metric update failed for pin ${cleanPinId}:`, err?.message || err);
-  }
+    // Delegate master creative, 48 SSR fields, intraday checkpoint, and pins_daily_metrics upsert to ingestPinsBatch
+    await ingestPinsBatch(tx, [{
+      pin_id: cleanPinId,
+      creator_username: scrapedPin.creator_username || scrapedPin.pinner_username || '',
+      board_name: scrapedPin.board_name || '',
+      title: scrapedPin.title || '',
+      domain: scrapedPin.domain || '',
+      destination_url: scrapedPin.link || scrapedPin.destination_url || '',
+      image_url: scrapedPin.image_url || '',
+      description: scrapedPin.description || '',
+      alt_text: scrapedPin.alt_text || scrapedPin.seo_title || '',
+      dominant_color: cleanSyncDominantColor,
+      visual_annotations: syncAnnotations,
+      created_at_pinterest: cleanCreatedAtIso,
+      save_count: newSaves,
+      repin_count: newRepins,
+      has_explicit_saves: newSaves !== null,
+      has_explicit_repins: newRepins !== null,
+      comment_count: newComments,
+      share_count: newShares,
+      reaction_count: totalReactions,
+      is_hydrated: hasExplicitScrapedSaves || newSaves !== null,
+      daily_save_velocity: syncVelocityVal,
+      daily_repin_velocity: syncRepinsDelta,
+      delta_saves_24h: syncVelocityVal !== null ? Math.round(syncVelocityVal) : null,
+      delta_repins_24h: syncRepinsDelta,
+      is_product: Boolean(rawMetaToStore.is_product),
+      is_video: Boolean(rawMetaToStore.is_video),
+      creation_method: rawMetaToStore.creation_method,
+      image_signature: rawMetaToStore.image_signature || null,
+      canonical_pin_id: rawMetaToStore.canonical_pin_id || null,
+      was_live_scraped: true,
+      metadata: metaToStore
+    }], {
+      inTransaction: true,
+      skipSerpUpsert: true,
+      pillar: 'live_sync',
+      isLiveSync: true
+    });
 
-  // 8. Upsert SERP positions (keyword_serp_positions) for each associated active or displaced keyword
-  // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]
-  const combinedKeywordRows = [
-    ...targetRows,
-    ...displacedRows
-      .filter(d => !targetRows.some(t => Number(t.keyword_id) === Number(d.keyword_id)))
-      .map(d => ({
-        keyword_id: d.keyword_id,
-        rank_position: null,
-        is_displaced: true,
-        last_known_rank: d.last_known_rank || 100
-      }))
-  ];
+    // Upsert SERP positions (keyword_serp_positions) for each associated active or displaced keyword
+    // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]
+    const combinedKeywordRows = [
+      ...targetRows,
+      ...displacedRows
+        .filter(d => !targetRows.some(t => Number(t.keyword_id) === Number(d.keyword_id)))
+        .map(d => ({
+          keyword_id: d.keyword_id,
+          rank_position: null,
+          is_displaced: true,
+          last_known_rank: d.last_known_rank || 100
+        }))
+    ];
 
-  const validPositions = [];
-  for (const row of combinedKeywordRows) {
-    const shardKid = Number(row.keyword_id);
-    if (shardKid != null) {
+    const validPositions = [];
+    for (const row of combinedKeywordRows) {
+      const shardKid = Number(row.keyword_id);
       if (shardKid > 0) {
         const isDisp = Boolean(row.is_displaced);
         const effLastRank = row.rank_position || row.last_known_rank || 100;
-        const effCatalogRank = isDisp ? (Number(effLastRank) + 250) : Number(row.rank_position || 1);
         validPositions.push({
           pin_id: cleanPinId,
           keyword_id: shardKid,
           rank_position: isDisp ? null : row.rank_position,
           is_displaced: isDisp,
-          last_known_rank: effLastRank,
-          catalog_rank: effCatalogRank
+          last_known_rank: effLastRank
         });
       }
     }
-  }
 
-  if (validPositions.length > 0) {
-    const dedupMap = new Map();
-    for (const pos of validPositions) {
-      const existing = dedupMap.get(pos.keyword_id);
-      if (!existing || (pos.rank_position != null && (existing.rank_position == null || pos.rank_position < existing.rank_position))) {
-        dedupMap.set(pos.keyword_id, pos);
+    if (validPositions.length > 0) {
+      const dedupMap = new Map();
+      for (const pos of validPositions) {
+        const existing = dedupMap.get(pos.keyword_id);
+        if (!existing || (pos.rank_position != null && (existing.rank_position == null || pos.rank_position < existing.rank_position))) {
+          dedupMap.set(pos.keyword_id, pos);
+        }
       }
+      const cleanPositions = Array.from(dedupMap.values()).sort((a, b) => a.keyword_id - b.keyword_id);
+      const positionsPayload = JSON.stringify(cleanPositions);
+
+      await tx`
+        INSERT INTO keyword_serp_positions (
+          keyword_id, pin_id, rank_position, is_displaced, last_known_rank, updated_at
+        )
+        SELECT
+          x.keyword_id,
+          x.pin_id,
+          x.rank_position,
+          x.is_displaced,
+          x.last_known_rank,
+          NOW()
+        FROM jsonb_to_recordset(${positionsPayload}::jsonb) AS x(
+          keyword_id INT,
+          pin_id VARCHAR(64),
+          rank_position INT,
+          is_displaced BOOLEAN,
+          last_known_rank INT
+        )
+        ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+          rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+          is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
+          last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_serp_positions.last_known_rank),
+          updated_at = NOW();
+      `;
     }
-    const cleanPositions = Array.from(dedupMap.values()).sort((a, b) => a.keyword_id - b.keyword_id);
-    const positionsPayload = JSON.stringify(cleanPositions);
 
-    await dbSql`
-      INSERT INTO keyword_serp_positions (
-        keyword_id, pin_id, rank_position, is_displaced, last_known_rank, updated_at
-      )
-      SELECT 
-        x.keyword_id,
-        x.pin_id,
-        x.rank_position,
-        x.is_displaced,
-        x.last_known_rank,
-        NOW()
-      FROM jsonb_to_recordset(${positionsPayload}::jsonb) AS x(
-        keyword_id INT,
-        pin_id VARCHAR(64),
-        rank_position INT,
-        is_displaced BOOLEAN,
-        last_known_rank INT
-      )
-      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-        rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
-        is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
-        last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_serp_positions.last_known_rank),
-        updated_at = NOW();
-    `;
-  }
+    return syncVelocityVal;
+  };
 
-  // Step C: Fetch fresh universal dossier with edge cache bypassed
+  const syncVelocity = typeof dbSql.begin === 'function'
+    ? await dbSql.begin(executeFourPillarSync)
+    : (typeof dbSql.transaction === 'function'
+      ? await dbSql.transaction(executeFourPillarSync)
+      : await executeFourPillarSync(dbSql));
+
+  // Fetch fresh universal dossier with edge cache bypassed
   const refreshedDossier = await fetchUniversalPinDossierFn({ sql: dbSql, pinId: cleanPinId, ctx, env, bypassEdgeCache: true });
 
   return {

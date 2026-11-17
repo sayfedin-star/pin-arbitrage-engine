@@ -14,21 +14,9 @@ import { getDashboardCreatorsFleetMethods, getDashboardCreatorsDossierMethods } 
 import { getDashboardBoardsAndPinMethods } from './dashboard-client-boards.mjs';
 export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
   return `  <script>
-    // [INVARIANT: SAFE-URL PROTOCOL SANITIZATION]
-    function safeUrl(rawUrl, fallback = '#') {
-      if (!rawUrl || typeof rawUrl !== 'string') return fallback;
-      const trimmed = rawUrl.trim();
-      if (/^(javascript|data|vbscript):/i.test(trimmed)) {
-        console.warn('[Security] Dangerous URI scheme blocked:', trimmed);
-        return fallback;
-      }
-      return trimmed;
-    }
-
     function dashboardApp() {
       return {
         _hasInitialized: false,
-        safeUrl,
         creatorDiscoveryFilter: 'all',
         isDark: (() => {
           try {
@@ -1254,6 +1242,10 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         },
 
         formatNumber(num, abbrev = false) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.formatNumber === 'function') {
+            return window.PAEFormatters.formatNumber(num, { compact: Boolean(abbrev) });
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (num === null || num === undefined) return '0';
           const val = Number(num);
           if (isNaN(val)) return '0';
@@ -2225,13 +2217,21 @@ ${getDashboardSeedActionMethods()}
 
 
         safeUrl(url) {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
           const s = String(url).trim();
-          if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) return s;
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
           return '#';
         },
 
         safeColor(color, fallback = '#cbd5e1') {
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
+            return window.PAEFormatters.safeColor(color, fallback);
+          }
+          // @deprecated VM fallback when shared-head formatters are absent
           if (!color) return fallback;
           const s = String(color).trim();
           if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;

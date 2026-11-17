@@ -36,6 +36,7 @@ export {
 export {
   MAX_METRIC_CAP,
   PINTEREST_CEILING_VALUE,
+  PINTEREST_JSON_API_HEADERS,
   sanitizeDestinationUrl,
   normalizeDomain,
   safeString,

@@ -53,7 +53,9 @@ if (fs.existsSync(envPath)) {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const mockEnv = {
-  DATABASE_URL: DATABASE_URL || 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage'
+  DATABASE_URL: DATABASE_URL || 'postgres://mock_user:mock_pass@127.0.0.1:5432/pin_arbitrage',
+  ENVIRONMENT: 'test',
+  NODE_ENV: 'test'
 };
 
 const auditResults = [];

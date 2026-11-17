@@ -114,18 +114,8 @@ export async function getCompetitorsOverview(sql) {
       } : null
     };
   } catch (err) {
-    console.warn('[getCompetitorsOverview] Query failed, returning fallback summary:', err.message);
-    return {
-      _degraded: true,
-      tracked_profiles: 0,
-      competitor_count: 0,
-      own_count: 0,
-      total_audience: 0,
-      total_impressions: 0,
-      combined_reach: 0,
-      pins_tracked: 0,
-      top_competitor: null
-    };
+    console.warn('[getCompetitorsOverview] Query failed:', err.message);
+    throw err;
   }
 }
 
@@ -245,10 +235,8 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
       };
     });
   } catch (err) {
-    console.warn('[listCompetitors] Query failed, returning fallback empty list:', err.message);
-    const fallback = [];
-    fallback._degraded = true;
-    return fallback;
+    console.warn('[listCompetitors] Query failed:', err.message);
+    throw err;
   }
 }
 
@@ -1106,7 +1094,7 @@ export const DEFAULT_QUALIFICATION_RULES = {
 /**
  * Get active Pin Qualification Rules from competitor_profiles.metadata->'global_qualification_rules'
  */
-export async function getQualificationRules(sql) {
+export async function getQualificationRules(sql, options = {}) {
   try {
     const [row] = await sql`
       SELECT metadata->'global_qualification_rules' AS rules, updated_at
@@ -1134,7 +1122,9 @@ export async function getQualificationRules(sql) {
         updated_at: row.updated_at
       };
     }
-  } catch (_) {}
+  } catch (err) {
+    if (options.throwOnError) throw err;
+  }
   return { ...DEFAULT_QUALIFICATION_RULES, cron_enabled: true };
 }
 

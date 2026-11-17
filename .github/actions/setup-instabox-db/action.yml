@@ -62,6 +62,12 @@ runs:
           fi
         fi
 
+    - name: 1b. Restore cached cloudflared-linux-amd64 binary
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/cloudflared
+        key: ${{ runner.os }}-cloudflared-linux-amd64-v1
+
     - name: 2. Install and launch Cloudflare Access TCP Tunnel + Verify PostgreSQL Handshake
       shell: bash
       env:
@@ -69,11 +75,21 @@ runs:
         IB_MACHINE_ID: ${{ inputs.machine-id }}
         DB_HOSTNAME: ${{ inputs.db-hostname }}
       run: |
+        CLOUDFLARED_CACHE_DIR="${HOME}/.cache/cloudflared"
+        CLOUDFLARED_CACHE_BIN="${CLOUDFLARED_CACHE_DIR}/cloudflared-linux-amd64"
         if ! command -v cloudflared &> /dev/null; then
-          echo "Installing cloudflared client..."
-          curl -sL --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
-          rm -f /tmp/cloudflared.deb
+          if [ -x "${CLOUDFLARED_CACHE_BIN}" ]; then
+            echo "Restoring cached cloudflared-linux-amd64 binary..."
+            sudo install -m 0755 "${CLOUDFLARED_CACHE_BIN}" /usr/local/bin/cloudflared
+          else
+            echo "Installing cloudflared client..."
+            curl -sL --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+            sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
+            rm -f /tmp/cloudflared.deb
+            mkdir -p "${CLOUDFLARED_CACHE_DIR}"
+            cp "$(command -v cloudflared)" "${CLOUDFLARED_CACHE_BIN}"
+            chmod +x "${CLOUDFLARED_CACHE_BIN}"
+          fi
         fi
 
         echo "Starting Cloudflare TCP proxy to ${DB_HOSTNAME} on 127.0.0.1:5432..."

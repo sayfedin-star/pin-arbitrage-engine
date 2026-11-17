@@ -110,7 +110,7 @@ async function optimizeIndexes() {
   await sql`DROP INDEX IF EXISTS idx_ksp_displaced_updated_desc;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_ksp_pin_displaced_rank;`.catch(() => {});
 
-  console.log('[*] 12. Ensuring clean_domain / domain_intelligence_rollup indexes and pae_sync_clean_domain triggers...');
+  console.log('[*] 12. Ensuring clean_domain / domain_intelligence_rollup indexes...');
   await sql`CREATE INDEX IF NOT EXISTS idx_ump_clean_domain_saves ON universal_master_pins(clean_domain, save_count DESC NULLS LAST);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_dir_total_saves ON public.domain_intelligence_rollup(total_saves DESC NULLS LAST);`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_competitor_history_date;`.catch(() => {});
@@ -126,39 +126,6 @@ async function optimizeIndexes() {
   await sql`DROP INDEX IF EXISTS idx_crn_comp_seed;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_seed;`.catch(() => {});
   await sql`DROP INDEX IF EXISTS idx_cgn_saves;`.catch(() => {});
-  await sql`
-    CREATE OR REPLACE FUNCTION public.pae_sync_clean_domain()
-    RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-      raw_dom text;
-      dest_url text;
-    BEGIN
-      raw_dom := COALESCE(
-        NULLIF(BTRIM(COALESCE(NEW.domain, '')), ''),
-        NULLIF(BTRIM(COALESCE(NEW.clean_domain, '')), '')
-      );
-      IF raw_dom IS NULL OR raw_dom = '' THEN
-        dest_url := BTRIM(COALESCE(NEW.destination_url, ''));
-        IF dest_url <> '' THEN
-          raw_dom := SUBSTRING(LOWER(dest_url) FROM '^https?://(?:www\.)?([^/?#:]+)');
-        END IF;
-      END IF;
-      raw_dom := COALESCE(raw_dom, '');
-      raw_dom := REGEXP_REPLACE(LOWER(BTRIM(raw_dom)), '^https?://', '');
-      raw_dom := REGEXP_REPLACE(raw_dom, '/.*$', '');
-      NEW.clean_domain := REGEXP_REPLACE(raw_dom, '^www\.', '');
-      RETURN NEW;
-    END;
-    $$;
-  `.catch(err => console.warn('[Trigger Notice]', err.message));
-  await sql`DROP TRIGGER IF EXISTS trg_ump_sync_clean_domain ON universal_master_pins;`.catch(() => {});
-  await sql`
-    CREATE TRIGGER trg_ump_sync_clean_domain
-      BEFORE INSERT OR UPDATE OF domain, destination_url, clean_domain ON universal_master_pins
-      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_clean_domain();
-  `.catch(err => console.warn('[Trigger Notice]', err.message));
 
   console.log('[*] 13. Ensuring 062/064 SSOT and 20-worker modulo partition indexes...');
   await sql`DROP INDEX IF EXISTS idx_ump_visual_annotations_gin;`.catch(() => {});
@@ -167,45 +134,6 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_hashtext_mod20 ON public.competitor_board_pins ((ABS(hashtext(pin_id::text)::bigint) % 20), competitor_id);`.catch(() => {});
   await sql`CREATE INDEX IF NOT EXISTS idx_cbp_competitor ON public.competitor_board_pins (competitor_id, position ASC NULLS LAST);`.catch(() => {});
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_tracked_keywords ON public.tracked_keywords (canonical_keyword);`.catch(() => {});
-  await sql`
-    CREATE OR REPLACE FUNCTION public.pae_sync_canonical_keyword()
-    RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-      raw_input text;
-      base_slug text;
-    BEGIN
-      IF TG_OP = 'UPDATE' AND NEW.keyword IS DISTINCT FROM OLD.keyword AND NEW.canonical_keyword IS NOT DISTINCT FROM OLD.canonical_keyword THEN
-        raw_input := NEW.keyword;
-      ELSE
-        raw_input := COALESCE(NULLIF(TRIM(NEW.canonical_keyword), ''), NEW.keyword);
-      END IF;
-      base_slug := COALESCE(
-        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(raw_input, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
-        NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(NEW.keyword, '')), '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
-        'kw'
-      );
-      PERFORM pg_advisory_xact_lock(hashtext('kw_canon:' || LEFT(base_slug, 255)));
-      IF EXISTS (
-        SELECT 1 FROM public.tracked_keywords
-        WHERE canonical_keyword = LEFT(base_slug, 255)
-          AND (NEW.id IS NULL OR id <> NEW.id)
-      ) THEN
-        NEW.canonical_keyword := LEFT(base_slug || '-' || COALESCE(NEW.id::text, (FLOOR(RANDOM() * 900000 + 100000))::text), 255);
-      ELSE
-        NEW.canonical_keyword := LEFT(base_slug, 255);
-      END IF;
-      RETURN NEW;
-    END;
-    $$;
-  `.catch(err => console.warn('[Trigger Notice]', err.message));
-  await sql`DROP TRIGGER IF EXISTS trg_tk_sync_canonical_keyword ON public.tracked_keywords;`.catch(() => {});
-  await sql`
-    CREATE TRIGGER trg_tk_sync_canonical_keyword
-      BEFORE INSERT OR UPDATE OF keyword, canonical_keyword ON public.tracked_keywords
-      FOR EACH ROW EXECUTE FUNCTION public.pae_sync_canonical_keyword();
-  `.catch(err => console.warn('[Trigger Notice]', err.message));
 
   console.log('[+] All indexes and columns verified and active in Unified PostgreSQL SSOT!');
 }
