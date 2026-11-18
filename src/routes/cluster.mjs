@@ -585,7 +585,7 @@ export async function handleClusterRoutes({
         preview: hasCookie ? '[CONFIGURED]' : ''
       };
     });
-    if (env && typeof env === 'object') {
+    if (env && typeof env === 'object' && (typeof process === 'undefined' || env !== process.env)) {
       env.PINTEREST_COOKIE = saved.formatted;
     }
     return jsonResponse({

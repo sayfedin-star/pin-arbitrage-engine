@@ -62,8 +62,9 @@ import {
   closeCrawlerDb as closeDbClient,
   loadDotEnvIfPresent,
   bootstrapUndiciKeepAliveDispatcher,
-  startInstaBoxActivityLease
-} from './lib/cli-utils.mjs';
+  startInstaBoxActivityLease,
+  resolveWorkerPartition
+} from './lib/fleet-runner.mjs';
 
 const isDirectCrawlerRun = Boolean(
   process.argv[1] && (
@@ -83,7 +84,7 @@ if (isDirectCrawlerRun && !DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
+const sql = (DATABASE_URL && isDirectCrawlerRun) ? createSqlClient(DATABASE_URL) : null;
 let lease = null;
 const closeCrawlerDb = (exitCode = 0) => (
   sql
@@ -91,10 +92,7 @@ const closeCrawlerDb = (exitCode = 0) => (
     : Promise.resolve().then(() => lease?.stop?.())
 );
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
-const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
-const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
-const rawWorkerTotal = parseInt(process.env.WORKER_TOTAL || '20', 10);
-const workerTotal = Number.isFinite(rawWorkerTotal) && rawWorkerTotal > 0 ? rawWorkerTotal : 20;
+const { workerIndex, workerTotal } = resolveWorkerPartition();
 
 const targetAccountInput = normalizePinterestUsername(process.env.TARGET_ACCOUNT || '');
 const accountIdInput = process.env.ACCOUNT_ID ? parseInt(process.env.ACCOUNT_ID, 10) : null;
@@ -127,7 +125,7 @@ const PHASE2_FRESHNESS_HOURS = Number.isFinite(rawPhase2FreshHours) && rawPhase2
  * [INVARIANT: UNIFIED-MASTER-CATALOG]
  * [INVARIANT: UNIFIED-POSTGRES-SNAPSHOTS]
  */
-async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
+export async function syncPinsToMasterCatalog(hubSql, enrichedPins, extraOptions = {}) {
   if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
   const dbSql = hubSql?.noRetry || hubSql;
   const normalizedMap = new Map();
@@ -152,10 +150,16 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
     const repinVel = (p.repin_velocity != null || p.daily_repin_velocity != null || p.delta_repins_24h != null || p.delta_repins != null)
       ? Number(p.repin_velocity ?? p.daily_repin_velocity ?? p.delta_repins_24h ?? p.delta_repins)
       : null;
+    const resolvedCompId = p.competitor_id != null
+      ? Number(p.competitor_id)
+      : (extraOptions.competitor_id != null ? Number(extraOptions.competitor_id) : null);
+    const resolvedBoardId = String(p.board_id || extraOptions.board_id || '').trim() || null;
 
     normalizedMap.set(pid, {
       ...p,
       pin_id: pid,
+      competitor_id: resolvedCompId,
+      board_id: resolvedBoardId,
       creator_username: String(p.account_username || p.creator_username || ''),
       save_count: saveCount,
       has_explicit_saves: saveCount !== null,
@@ -178,7 +182,11 @@ async function syncPinsToMasterCatalog(hubSql, enrichedPins) {
   let totalSynced = 0;
   for (let i = 0; i < normalized.length; i += 500) {
     const chunk = normalized.slice(i, i + 500);
-    await withDbRetry(() => ingestPinsBatch(dbSql, chunk, { pillar: 'creator_hub' }), {
+    await withDbRetry(() => ingestPinsBatch(dbSql, chunk, {
+      pillar: 'creator_hub',
+      ...(extraOptions.competitor_id != null ? { competitor_id: Number(extraOptions.competitor_id) } : {}),
+      ...(extraOptions.board_id ? { board_id: String(extraOptions.board_id) } : {})
+    }), {
       maxRetries: 2,
       baseDelayMs: 500,
       maxDelayMs: 2000
@@ -209,6 +217,8 @@ export async function prehydrateCreatorCatalogWithPidgets(slicePins, options = {
       const masterSnapshot = {
         last_scraped_at: p.last_scraped_at,
         save_count: prevSaves,
+        created_at_pinterest: p.created_at_pinterest,
+        is_hydrated: p.is_hydrated ?? true,
         visual_annotations: p.visual_annotations,
         image_signature: p.image_signature,
         creation_method: p.creation_method,
@@ -230,6 +240,8 @@ export async function prehydrateCreatorCatalogWithPidgets(slicePins, options = {
     return new Map();
   }
 }
+
+export const prefetchBatchPidgets = prehydrateCreatorCatalogWithPidgets;
 
 /**
  * Shared pin enrichment and metric computation helper for Mode A & Mode B catalog refresh.
@@ -261,6 +273,8 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     const masterSnapshot = {
       last_scraped_at: p.last_scraped_at,
       save_count: prevSaves,
+      created_at_pinterest: p.created_at_pinterest,
+      is_hydrated: p.is_hydrated ?? true,
       visual_annotations: p.visual_annotations,
       image_signature: p.image_signature,
       creation_method: p.creation_method,
@@ -272,10 +286,11 @@ export async function processCreatorCatalogPin(p, options, collectors) {
         saves: prevSaves,
         repins: prevRepins,
         comments: prevComments,
-        share_count: Number(p.ump_shares || 0),
+        share_count: Number(p.ump_shares ?? p.share_count ?? 0),
         velocity: prevVelocity != null ? prevVelocity : 0,
         delta_saves: prevVelocity != null ? prevVelocity : 0,
-        delta_repins: 0
+        delta_repins: 0,
+        from_hydration_cache: true
       });
       return true;
     }
@@ -302,7 +317,7 @@ export async function processCreatorCatalogPin(p, options, collectors) {
   const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
 
   if (!fresh || (rawSaves === 0 && (prevSaves ?? 0) > 0) || (prevSaves != null && prevSaves > 0 && rawSaves < prevSaves * 0.8)) {
-    const fetchRes = await (typeof fetchPinFromPinterestFn === 'function' ? fetchPinFromPinterestFn(p.pin_id, cookie) : fetchPinFromPinterest(p.pin_id, cookie)).catch(() => null);
+    const fetchRes = await (typeof fetchPinFromPinterestFn === 'function' ? fetchPinFromPinterestFn(p.pin_id, '') : fetchPinFromPinterest(p.pin_id, '')).catch(() => null);
     if (fetchRes?.ok && fetchRes?.pin) {
       fresh = fresh ? { ...fresh, ...fetchRes.pin } : fetchRes.pin;
     }
@@ -334,10 +349,20 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
     : Number(fresh.reactions || 0);
 
+  const resolvedBoardId = String(
+    p.board_id ||
+    fresh.board_id ||
+    fresh.board?.entityId ||
+    fresh.board?.id ||
+    ''
+  ).trim() || null;
+
   const baseMasterRecord = {
     pin_id: String(p.pin_id),
+    competitor_id: p.competitor_id != null ? Number(p.competitor_id) : (options.competitorId != null ? Number(options.competitorId) : null),
+    board_id: resolvedBoardId,
     creator_username: useUmpFields ? fallbackUsername : (p.account_username || fallbackUsername || ''),
-    board_name: p.board_name || '',
+    board_name: p.board_name || fresh.board_name || fresh.board?.name || '',
     title: fresh.title || p.title || '',
     domain: fresh.domain || fresh.link_domain || (useUmpFields ? '' : (p.domain || '')),
     destination_url: fresh.link || fresh.destination_url || p.destination_url || p.link || '',
@@ -349,6 +374,8 @@ export async function processCreatorCatalogPin(p, options, collectors) {
       return (!c || c.toLowerCase() === '#888888') ? null : c;
     })(),
     visual_annotations: fresh.visual_annotations || fresh.annotations || (useUmpFields ? [] : (p.annotations || [])),
+    image_signature: fresh.image_signature || p.image_signature || null,
+    creation_method: fresh.creation_method || fresh.method || p.creation_method || null,
     created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,
     repins: freshRepins,
     comments: freshComments,
@@ -694,19 +721,22 @@ async function run() {
     console.log(`\n[*] [Phase 2: Worker ${workerIndex + 1}/${workerTotal}] Fetching catalog slice for @${targetAccount}...`);
 
     const catalogPins = await sql`
-      SELECT cbp.pin_id, cbp.competitor_id, cbp.board_id,
+      SELECT DISTINCT ON (cbp.pin_id)
+             cbp.pin_id, cbp.competitor_id, cbp.board_id,
              ump.board_name, ump.save_count, ump.repin_count, ump.comment_count,
              ump.created_at_pinterest, ump.updated_at AS last_updated_at,
              ump.daily_save_velocity AS prev_velocity,
              ump.last_scraped_at, ump.save_count AS ump_saves, ump.repin_count AS ump_repins, ump.comment_count AS ump_comments,
              ump.share_count AS ump_shares, ump.daily_save_velocity AS ump_velocity,
-             ump.visual_annotations, ump.creation_method, ump.metadata AS ump_metadata
+             ump.visual_annotations, ump.image_signature, ump.is_hydrated, ump.creation_method, ump.metadata AS ump_metadata
       FROM competitor_board_pins cbp
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
       WHERE cbp.competitor_id = ${targetId}
         AND cbp.pin_id IS NOT NULL AND cbp.pin_id <> ''
-        AND (ABS(hashtext(cbp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}
-      ORDER BY cbp.pin_id ASC;
+        AND ${Number(workerTotal) === 20
+          ? sql`(ABS(hashtext(cbp.pin_id::text)::bigint) % 20) = ${workerIndex}`
+          : sql`(ABS(hashtext(cbp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
+      ORDER BY cbp.pin_id ASC, (CASE WHEN cbp.board_id <> '' THEN 0 ELSE 1 END) ASC;
     `;
 
     const myCatalogSlice = catalogPins;
@@ -734,7 +764,7 @@ async function run() {
         );
         const refreshed = await processCreatorCatalogPin(
           p,
-          { fallbackUsername: targetAccount, useFreshnessGate: true, useUmpFields: true },
+          { fallbackUsername: targetAccount, competitorId: targetId, useFreshnessGate: true, useUmpFields: true },
           { refreshedPins, metricSnapshots, masterPinsToSync, pidgetsMap }
         );
         if (refreshed) refreshedCount++;
@@ -746,7 +776,7 @@ async function run() {
 
     if (refreshedPins.length > 0 && masterPinsToSync.length > 0) {
       // Sync master pins & daily metric snapshots via canonical PinRepository.ingestPinsBatch SSOT
-      await syncPinsToMasterCatalog(sql, masterPinsToSync);
+      await syncPinsToMasterCatalog(sql, masterPinsToSync, { competitor_id: targetId });
     }
 
     console.log(`\n✅ Worker #${workerIndex + 1}/${workerTotal} Complete: Refreshed ${refreshedCount}/${myCatalogSlice.length} pins.`);
@@ -1276,10 +1306,11 @@ async function run() {
 
     const myWinningSlice = await sql`
       SELECT 
-        p.pin_id, p.creator_username AS account_username, p.board_name,
+        p.pin_id, p.creator_username AS account_username, p.board_name, p.board_id,
+        cp.id AS competitor_id,
         p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
         p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest,
-        p.last_scraped_at, p.visual_annotations, p.creation_method, p.metadata AS ump_metadata
+        p.last_scraped_at, p.visual_annotations, p.image_signature, p.is_hydrated, p.creation_method, p.metadata AS ump_metadata
       FROM universal_master_pins p
       LEFT JOIN competitor_profiles cp ON cp.username = p.creator_username
       WHERE ${Number(workerTotal) === 20
@@ -1360,7 +1391,7 @@ if (isDirectCrawlerRun) {
     } finally {
       await lease.stop();
       if (sql && typeof sql.end === 'function') {
-        await sql.end({ timeout: 2 }).catch(() => {});
+        await sql.end({ timeout: 3 }).catch(() => {});
       }
     }
     if (process.exitCode) {

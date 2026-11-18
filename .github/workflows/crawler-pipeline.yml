@@ -94,7 +94,7 @@ jobs:
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
-        run: node scripts/creator-fleet-dispatcher.mjs
+        run: node scripts/creator-fleet.mjs --stage=dispatch
 
   # ============================================================================
   # STAGE 1: 20-Runner Concurrent Distributed Fleet Matrix
@@ -197,14 +197,15 @@ jobs:
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
-        run: node scripts/creator-fleet-consolidator.mjs
+          SKIP_MV_REFRESH: 'true'
+        run: node scripts/creator-fleet.mjs --stage=consolidate
 
       - name: 5. Recompute Domain Intelligence Rollup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
-        run: node scripts/refresh-domain-rollup.mjs
+        run: node scripts/domain-enrich.mjs --mode=rollup
 
       - name: 6. Notify VPS Server Cache Refresh
         if: success()

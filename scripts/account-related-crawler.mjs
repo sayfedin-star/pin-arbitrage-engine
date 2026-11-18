@@ -7,7 +7,6 @@
  * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Unified PostgreSQL.
  */
 
-import { createSqlClient } from '../src/db/client.mjs';
 import { sanitizeForJsonb, normalizeCleanDomain } from '../src/utils.mjs';
 import {
   CANONICAL_FINGERPRINT,
@@ -17,21 +16,11 @@ import {
 } from '../src/core/pinterest/index.mjs';
 
 import {
-  loadDotEnvIfPresent,
-  bootstrapUndiciKeepAliveDispatcher,
-  startInstaBoxActivityLease
-} from './lib/cli-utils.mjs';
+  runFleetLifecycle
+} from './lib/fleet-runner.mjs';
 
-const undiciAgent = await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
-loadDotEnvIfPresent();
-let dbUrl = process.env.DATABASE_URL;
-
-if (!dbUrl) {
-  console.error('[-] FATAL: DATABASE_URL is not set.');
-  process.exit(1);
-}
-
-const sql = createSqlClient(dbUrl);
+let sql = null;
+let undiciAgent = null;
 
 function getCliArg(flag) {
   const eq = process.argv.find(a => a.startsWith(`${flag}=`));
@@ -441,17 +430,31 @@ async function main() {
   console.log('================================================================\n');
 }
 
-const lease = startInstaBoxActivityLease('account-related-crawler');
-try {
-  await main();
-} catch (err) {
-  console.error('[-] Fatal error in crawler:', err);
-  process.exitCode = 1;
-} finally {
-  await lease.stop();
-  await sql.end({ timeout: 2 }).catch(() => {});
-}
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-if (process.exitCode) {
-  process.exit(process.exitCode);
+const isDirectRun = Boolean(
+  process.argv[1] && (
+    fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
+    process.argv[1].endsWith('account-related-crawler.mjs')
+  )
+);
+
+if (isDirectRun) {
+  runFleetLifecycle(
+    'account-related-crawler',
+    async ({ sql: lifecycleSql, dispatcher }) => {
+      sql = lifecycleSql;
+      undiciAgent = dispatcher;
+      await main();
+    },
+    { setDefaultDispatcher }
+  ).then(() => {
+    if (process.exitCode) {
+      process.exit(process.exitCode);
+    }
+  }).catch((err) => {
+    console.error('[-] Fatal error in crawler:', err);
+    process.exit(1);
+  });
 }

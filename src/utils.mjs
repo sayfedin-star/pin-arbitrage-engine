@@ -57,19 +57,17 @@ export function sanitizeGuestCookie(rawCookie) {
   }
 
   // [INVARIANT: STRICT-GUEST-SCRAPING]
-  // Never allow _auth=1 (logged-in session). Strip any _auth key and enforce _auth=0.
-  cookie = cookie.replace(/_auth\s*=\s*"?1"?;?\s*/gi, '').trim();
-  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
-  if (!/_auth\s*=\s*"?0"?/i.test(cookie)) {
-    cookie = `_auth=0; ${cookie}`.trim();
+  // Never allow _auth=1 or any logged-in auth flag. Strip all _auth pairs and enforce _auth=0.
+  const strippedParts = cookie
+    .split(';')
+    .map(part => part.trim())
+    .filter(part => part.length > 0 && !/^_auth\s*=/i.test(part))
+    .map(part => part.replace(/^_pinterest_sess=([^;\s"]+)$/, '_pinterest_sess="$1"'));
+
+  if (strippedParts.length === 0) {
+    return '_auth=0';
   }
-  // Clean double semicolons and extra spaces
-  return cookie
-    .replace(/;\s*;/g, ';')
-    .replace(/;\s+/g, '; ')
-    .replace(/^;\s*/, '')
-    .replace(/;\s*$/, '')
-    .trim();
+  return `_auth=0; ${strippedParts.join('; ')}`;
 }
 
 /**

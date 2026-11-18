@@ -588,9 +588,13 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
       break;
     }
 
-    const pins = (res.pins || []).map(p => ({
+    const resolvedBoardId = boardId || generateSyntheticBoardId(numericId, boardName);
+    const pins = (res.pins || []).map((p, idx) => ({
       ...p,
-      board_name: boardName
+      competitor_id: numericId,
+      board_id: p.board_id || resolvedBoardId,
+      board_name: boardName,
+      rank_position: p.rank_position ?? ((page - 1) * 25 + idx + 1)
     }));
     totalFetched += pins.length;
 
@@ -598,6 +602,8 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
     if (pins.length > 0 && numericId) {
       await upsertCompetitorPins(sql, numericId, pins, {
+        competitor_id: numericId,
+        board_id: resolvedBoardId,
         creator_username: cleanUsername,
         account_username: cleanUsername,
         filterQualified: false

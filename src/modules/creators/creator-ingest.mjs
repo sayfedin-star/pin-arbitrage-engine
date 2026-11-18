@@ -6,10 +6,18 @@
  * // [INVARIANT: ONE-WAY-PROMOTION]
  */
 
-import { formatPinterestCookie, sanitizeForJsonb } from '../../utils.mjs';
+import crypto from 'node:crypto';
+import { formatPinterestCookie } from '../../utils.mjs';
 import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
-import { insertNewPinsBatch, syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
-import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEFAULTS, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, qualifyPin, isPinQualified } from './competitors-crud.mjs';
+import { syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
+import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEFAULTS, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, isPinQualified } from './competitors-crud.mjs';
+
+function buildFallbackBoardId(competitorId, boardName) {
+  const norm = String(boardName || '').trim().toLowerCase();
+  if (!norm) return '';
+  const hash = crypto.createHash('md5').update(`${competitorId}:${norm}`).digest('hex').slice(0, 16);
+  return `cb-${hash}`;
+}
 
 /**
  * Bulk upserts raw pins from Pinterest into 4-table SSOT (universal_master_pins & competitor_board_pins)
@@ -18,6 +26,31 @@ export async function upsertCompetitorPins(sql, competitorId, pins, options = {}
   if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
 
   const numericId = Number(competitorId);
+  if (!Number.isFinite(numericId) || numericId <= 0) return 0;
+
+  const boardLookupMap = new Map();
+  const needsBoardResolution = pins.some(
+    p => !(p?.board_id || p?.board?.entityId || p?.board?.id || options.board_id) && p?.board_name
+  );
+  if (needsBoardResolution && typeof sql === 'function') {
+    try {
+      const boardRows = await sql`
+        SELECT board_id, name
+        FROM competitor_boards
+        WHERE competitor_id = ${numericId};
+      `;
+      if (Array.isArray(boardRows)) {
+        for (const br of boardRows) {
+          const normName = String(br?.name || '').trim().toLowerCase();
+          const bid = String(br?.board_id || '').trim();
+          if (normName && bid && (!boardLookupMap.has(normName) || !bid.startsWith('cb-'))) {
+            boardLookupMap.set(normName, bid);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   const cleanedPins = [];
   for (const p of pins) {
     const pinId = String(p.pin_id || p.id || p.pinId || '').trim();
@@ -32,6 +65,12 @@ export async function upsertCompetitorPins(sql, competitorId, pins, options = {}
       ? Boolean(p.has_explicit_repins)
       : (rawRepins !== null && rawRepins > 0);
 
+    const boardName = String(p.board_name || p.board?.name || '').trim();
+    const normBoardName = boardName.toLowerCase();
+    const explicitBoardId = String(p.board_id || p.board?.entityId || p.board?.id || options.board_id || '').trim();
+    const resolvedBoardId = explicitBoardId
+      || (normBoardName ? (boardLookupMap.get(normBoardName) || buildFallbackBoardId(numericId, boardName)) : '');
+
     cleanedPins.push({
       ...p,
       pin_id: pinId,
@@ -42,9 +81,9 @@ export async function upsertCompetitorPins(sql, competitorId, pins, options = {}
       description: p.description || '',
       link_domain: p.domain || p.link_domain || '',
       destination_url: p.destination_url || p.link || '',
-      board_id: p.board_id || options.board_id || null,
-      board_name: p.board_name || '',
-      board_slug: (p.board_name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, ''),
+      board_id: resolvedBoardId,
+      board_name: boardName,
+      board_slug: boardName.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, ''),
       image_url: p.image_url || '',
       dominant_color: p.dominant_color || null,
       image_signature: p.image_signature || null,
@@ -67,6 +106,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins, options = {}
 
   const res = await repoIngestPinsBatch(sql, cleanedPins, {
     competitor_id: numericId,
+    board_id: options.board_id || null,
     pillar: 'creator',
     ...options
   });
@@ -438,7 +478,11 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
 
     // 1. Always store ALL raw fetched pins in 4-table SSOT
     if (pins.length > 0 && numericId) {
-      await upsertCompetitorPins(sql, numericId, pins);
+      await upsertCompetitorPins(sql, numericId, pins, {
+        competitor_id: numericId,
+        creator_username: cleanUsername,
+        account_username: cleanUsername
+      });
     }
 
     // 2. Count qualified winning pins

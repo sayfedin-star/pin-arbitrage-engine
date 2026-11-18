@@ -712,7 +712,11 @@ export function buildRichPinMetadataPayload(pin = {}, existingMeta = {}) {
     base.method
   ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
 
-  const resolvedMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform')
+  const resolvedMethod = candidateMethods.find(m => {
+    const clean = m.trim().toLowerCase();
+    return clean !== 'pinterest_platform' && clean !== 'unhydrated_stub';
+  })
+    || candidateMethods.find(m => m.trim().toLowerCase() !== 'unhydrated_stub')
     || candidateMethods[0]
     || 'Scraped';
 
@@ -814,7 +818,9 @@ export function buildRichPinMetadataPayload(pin = {}, existingMeta = {}) {
  */
 export function shouldSkipFreshPinEnrichment(masterRow, maxAgeHours = 18, nowMs = Date.now()) {
   if (!masterRow || typeof masterRow !== 'object') return false;
-  const tsRaw = masterRow.last_scraped_at || masterRow.updated_at;
+  if (masterRow.is_hydrated === false || masterRow.creation_method === 'unhydrated_stub') return false;
+
+  const tsRaw = masterRow.last_scraped_at || masterRow.crawled_at || masterRow.updated_at;
   if (!tsRaw) return false;
   const tsMs = new Date(tsRaw).getTime();
   if (!Number.isFinite(tsMs) || tsMs <= 0) return false;
@@ -822,9 +828,26 @@ export function shouldSkipFreshPinEnrichment(masterRow, maxAgeHours = 18, nowMs 
   const ageHours = (nowMs - tsMs) / (1000 * 3600);
   if (ageHours < 0 || ageHours > maxAgeHours) return false;
 
-  const saves = Number(masterRow.save_count ?? masterRow.metadata?.save_count ?? 0);
-  const hasCreatedDate = Boolean(masterRow.created_at_pinterest || masterRow.metadata?.created_at_pinterest);
-  const annotations = extractCanonicalAnnotations(masterRow.visual_annotations || masterRow.metadata?.visual_annotations, { limit: 1 });
+  const rawSaves = masterRow.save_count ?? masterRow.saves ?? masterRow.metadata?.save_count ?? null;
+  const hasValidSaves =
+    rawSaves !== null &&
+    rawSaves !== undefined &&
+    String(rawSaves).trim() !== '' &&
+    Number.isFinite(Number(rawSaves)) &&
+    Number(rawSaves) >= 0;
+  if (!hasValidSaves) return false;
 
-  return saves > 0 && hasCreatedDate && annotations.length > 0;
+  if (Number(rawSaves) === 0 && !masterRow.is_hydrated && !masterRow.is_deep_hydrated && !masterRow.has_explicit_saves) {
+    return false;
+  }
+
+  const hasCreatedDate = Boolean(masterRow.created_at_pinterest || masterRow.created_at || masterRow.metadata?.created_at_pinterest);
+  if (!hasCreatedDate) return false;
+
+  const imgSig = String(masterRow.image_signature || masterRow.metadata?.image_signature || '').trim();
+  const annotations = extractCanonicalAnnotations(
+    masterRow.visual_annotations || masterRow.annotations || masterRow.metadata?.visual_annotations,
+    { limit: 1 }
+  );
+  return Boolean(imgSig.length > 0 || annotations.length > 0 || masterRow.has_visual_annotations === true);
 }

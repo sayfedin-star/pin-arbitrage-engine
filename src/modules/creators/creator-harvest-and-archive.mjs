@@ -4,7 +4,7 @@
  */
 
 import { sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
-import { fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { CANONICAL_FINGERPRINT, fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectory, fetchUniversalPinDossier } from '../pins/repository.mjs';
 import { normalizePinterestUsername, syncCompetitorProfile, resolveNumericCompetitorId } from './competitors-crud.mjs';
 import { syncCompetitorPins, reEvaluateCompetitorPins, reconcileQualifiedCatalogPins } from './creator-ingest.mjs';
@@ -385,13 +385,13 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     'accept': 'application/json, text/javascript, */*, q=0.01',
     'accept-language': 'en-US,en;q=0.9',
     'screen-dpr': '1',
-    'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
+    'sec-ch-ua': `"Google Chrome";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Chromium";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Not_A Brand";v="24"`,
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
-    'x-app-version': '664ee65',
+    'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
     'x-pinterest-pws-handler': 'www/pin/[id].js',
     'x-requested-with': 'XMLHttpRequest',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
     'origin': 'https://www.pinterest.com',
     'referer': `https://www.pinterest.com/pin/${cleanPin}/`,
     'sec-fetch-dest': 'empty',
@@ -419,8 +419,14 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     if (candId === cleanPin) continue; // ignore self-reference
 
     const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
-    const saves = Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0);
-    const repins = Number(item.repin_count || 0);
+    const rawSaves = item.aggregated_pin_data?.aggregated_stats?.saves ?? item.aggregated_stats?.saves ?? item.save_count ?? null;
+    const saves = (rawSaves !== null && rawSaves !== undefined && String(rawSaves).trim() !== '' && Number.isFinite(Number(rawSaves)))
+      ? Math.max(0, Math.round(Number(rawSaves)))
+      : null;
+    const rawRepins = item.repin_count ?? item.repins ?? null;
+    const repins = (rawRepins !== null && rawRepins !== undefined && String(rawRepins).trim() !== '' && Number.isFinite(Number(rawRepins)))
+      ? Math.max(0, Math.round(Number(rawRepins)))
+      : null;
     const creator = item.pinner?.username || item.origin_pinner?.username || '';
     const creatorName = item.pinner?.full_name || '';
     const domain = item.domain || item.link_domain || '';
@@ -448,7 +454,7 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
 
     if (candidateMap.has(candId)) {
       const existing = candidateMap.get(candId);
-      if (saves > existing.saves) {
+      if (saves !== null && (existing.saves === null || saves > existing.saves)) {
         candidateMap.set(candId, candidateObj);
       }
     } else {
@@ -478,13 +484,13 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
         x.provenance_engine, NOW()
       FROM jsonb_to_recordset(${JSON.stringify(cleanCandidates)}::jsonb) AS x(
         competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
-        dominant_color varchar, saves int, repins int, domain text, destination_url text,
+        dominant_color varchar, saves bigint, repins int, domain text, destination_url text,
         is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
         provenance_engine varchar
       )
       ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
-        saves = GREATEST(competitor_related_nodes.saves, EXCLUDED.saves),
-        repins = GREATEST(competitor_related_nodes.repins, EXCLUDED.repins),
+        saves = COALESCE(EXCLUDED.saves, competitor_related_nodes.saves),
+        repins = COALESCE(EXCLUDED.repins, competitor_related_nodes.repins),
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
         image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
         domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,
@@ -605,7 +611,7 @@ export async function quickPulseCreator(sql, idOrUsername, cookie = '') {
   }
   if (!cleanUsername) throw new Error('Valid creator username or ID is required.');
 
-  const effectiveCookie = cookie || (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
+  const effectiveCookie = cookie || '';
 
   let activeId = numericId;
   const profilePromise = syncCompetitorProfile(sql, cleanUsername, effectiveCookie);

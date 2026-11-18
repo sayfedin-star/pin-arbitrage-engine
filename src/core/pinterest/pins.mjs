@@ -139,7 +139,9 @@ export function parseCleanMetric(val, fallback = 0, options = {}) {
   const num = Number(s);
   if (isNaN(num) || !isFinite(num)) return fallback;
   const rounded = Math.max(0, Math.round(num));
-  if (preserveCeiling && rounded === PINTEREST_CEILING_VALUE) return PINTEREST_CEILING_VALUE;
+  if (preserveCeiling && (rounded === PINTEREST_CEILING_VALUE || (hasTrailingPlus && rounded === MAX_METRIC_CAP))) {
+    return PINTEREST_CEILING_VALUE;
+  }
   return cap ? Math.min(cap, rounded) : rounded;
 }
 
@@ -317,7 +319,8 @@ export function formatPin(pin) {
     pin.done_count ??
     pin.doneCount ??
     null,
-    null
+    null,
+    { preserveCeiling: true }
   );
 
   const isUnhydratedStub = Boolean(
@@ -372,7 +375,8 @@ export function formatPin(pin) {
     pin.aggregatedPinData?.aggregatedStats?.saves ??
     pin.aggregatedPinData?.saveCount ??
     null,
-    null
+    null,
+    { preserveCeiling: true }
   );
 
   // [INVARIANT: UNHYDRATED-SAVES-NULL]
@@ -442,18 +446,71 @@ export function formatPin(pin) {
     (Array.isArray(pin.carouselData?.slots) && pin.carouselData.slots.length > 0) ||
     (Array.isArray(pin.carousel_slots) && pin.carousel_slots.length > 0)
   );
+  const isVideoPin = Boolean(pin.is_video || pin.isVideo || pin.video_status || pin.videos);
+  const isIdeaPin = Boolean(
+    pin.story_pin_data ||
+    pin.storyPinData ||
+    pin.story_pin_data_id ||
+    pin.is_story_pin ||
+    pin.isStoryPin ||
+    pin.is_idea_pin
+  );
 
-  const method = isCarousel ? 'carousel' : safeString(
+  const explicitMethodCandidate = safeString(
     pin.method ||
     pin.creation_method ||
     pin.creationMethod ||
     pin.originType ||
     pin.origin_type ||
     pin.pinJoin?.originType ||
+    ''
+  );
+  const hasSpecificExplicitMethod = Boolean(
+    explicitMethodCandidate &&
+    !['pinterest_platform', 'unhydrated_stub'].includes(explicitMethodCandidate.toLowerCase())
+  );
+
+  const rawProvider = safeString(
     pin.attribution?.provider_name ||
     pin.provider_name ||
-    'pinterest_platform'
+    pin.via_app?.name ||
+    pin.application?.name ||
+    (pin.attribution?.url ? normalizeDomain('', pin.attribution.url) : '') ||
+    ''
   );
+  const providerSlug = (
+    rawProvider &&
+    !['pinterest', 'pinterest.com', 'uploaded by user'].includes(rawProvider.toLowerCase())
+  )
+    ? rawProvider.toLowerCase().replace(/[^a-z0-9.-]+/g, '_').replace(/^_+|_+$/g, '')
+    : '';
+
+  const hasRelayOrHydratedProof = Boolean(
+    hasExplicitSaves ||
+    pin.entityId ||
+    pin.aggregatedPinData ||
+    pin.closeupUnifiedAttribution ||
+    pin.pinJoin ||
+    pin.imageSignature ||
+    pin.image_signature
+  );
+
+  let method = 'pinterest_platform';
+  if (isCarousel) {
+    method = 'carousel';
+  } else if (hasSpecificExplicitMethod) {
+    method = explicitMethodCandidate;
+  } else if (isVideoPin) {
+    method = 'video';
+  } else if (isIdeaPin) {
+    method = 'idea_pin';
+  } else if (providerSlug) {
+    method = providerSlug;
+  } else if (hasRelayOrHydratedProof) {
+    method = 'organic_pin';
+  } else if (isUnhydratedStub || !hasExplicitSaves) {
+    method = 'unhydrated_stub';
+  }
 
   // Link & Domain
   let rawLink = String(pin.link || pin.destination_url || pin.url || '').trim();
@@ -525,7 +582,9 @@ export function formatPin(pin) {
     pin.closeupUnifiedAttribution?.followerCount ||
     pin.closeupUnifiedAttribution?.follower_count ||
     pin.closeup_attribution?.follower_count ||
-    0
+    0,
+    0,
+    { preserveCeiling: true }
   );
 
   return {
@@ -558,7 +617,7 @@ export function formatPin(pin) {
     seo_description: seoDescription,
     link: safeString(cleanLink || rawLink || pin.link || pin.destination_url || pin.url),
     domain,
-    board_id: pin.board?.id || pin.board_id || null,
+    board_id: String(pin.board?.entityId || pin.board?.id || pin.board_id || '').trim() || null,
     board_name: safeString(pin.board?.name || pin.board_name),
     creator_username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.origin_pinner?.username || pin.closeupUnifiedAttribution?.username || pin.closeup_attribution?.username || ''),
     creator_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.creator_name || pin.closeupUnifiedAttribution?.fullName || pin.closeup_attribution?.full_name || ''),
@@ -598,15 +657,15 @@ export function formatPin(pin) {
     origin_pinner: (pin.originPinner || pin.origin_pinner) ? {
       username: safeString(pin.originPinner?.username || pin.origin_pinner?.username || ''),
       full_name: safeString(pin.originPinner?.fullName || pin.origin_pinner?.full_name || ''),
-      follower_count: parseCleanMetric(pin.originPinner?.followerCount || pin.origin_pinner?.follower_count || 0),
+      follower_count: parseCleanMetric(pin.originPinner?.followerCount || pin.origin_pinner?.follower_count || 0, 0, { preserveCeiling: true }),
       image_url: pin.originPinner?.imageMediumUrl || pin.origin_pinner?.image_medium_url || pin.originPinner?.imageSmallUrl || null,
       is_verified_merchant: Boolean(pin.originPinner?.isVerifiedMerchant || pin.originPinner?.is_verified_merchant)
     } : null,
     domain_official_user: (pin.linkDomain?.officialUser || pin.link_domain?.official_user) ? {
       username: safeString(pin.linkDomain?.officialUser?.username || pin.link_domain?.official_user?.username || ''),
       full_name: safeString(pin.linkDomain?.officialUser?.fullName || pin.link_domain?.official_user?.full_name || ''),
-      follower_count: parseCleanMetric(pin.linkDomain?.officialUser?.followerCount || pin.link_domain?.official_user?.follower_count || 0),
-      is_verified_merchant: Boolean(pin.linkDomain?.officialUser?.isVerifiedMerchant || pin.link_domain?.official_user?.is_verified_merchant)
+      follower_count: parseCleanMetric(pin.linkDomain?.officialUser?.followerCount || pin.link_domain?.official_user?.follower_count || 0, 0, { preserveCeiling: true }),
+      is_verified_merchant: Boolean(pin.linkDomain?.officialUser?.isVerifiedMerchant || pin.link_domain?.official_user?.isVerifiedMerchant)
     } : null,
     creator_is_verified_merchant: Boolean(pin.pinner?.is_verified_merchant || pin.pinner?.isVerifiedMerchant || pin.creator?.is_verified_merchant || false),
     board_pin_count: parseCleanMetric(pin.board?.pin_count || pin.board?.pinCount || 0),
@@ -934,8 +993,9 @@ export function extractPinFromHtml(rawHtml, pinId) {
   // Stage 5: JSON-LD Schema + OpenGraph / pinterest:* Meta Tags
   const pinSavesMeta = html.match(/<meta[^>]*name=["']pinterest:saves["'][^>]*content=["'](.*?)["']/i)?.[1];
   const pinRepinsMeta = html.match(/<meta[^>]*name=["']pinterest:repins["'][^>]*content=["'](.*?)["']/i)?.[1];
-  let ogSaves = pinSavesMeta !== undefined ? parseCleanMetric(pinSavesMeta, null) : null;
-  const ogRepins = pinRepinsMeta !== undefined ? parseCleanMetric(pinRepinsMeta, null) : null;
+  let ogSaves = pinSavesMeta !== undefined ? parseCleanMetric(pinSavesMeta, null, { preserveCeiling: true }) : null;
+  const ogRepins = pinRepinsMeta !== undefined ? parseCleanMetric(pinRepinsMeta, null, { preserveCeiling: true }) : null;
+  let ldReactionCount = null;
 
   const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
   if (jsonLdMatch) {
@@ -961,9 +1021,21 @@ export function extractPinFromHtml(rawHtml, pinId) {
         }
         if (Array.isArray(ldObj.interactionStatistic)) {
           for (const stat of ldObj.interactionStatistic) {
-            const count = Number(stat.userInteractionCount || 0);
-            if (stat.interactionType?.includes('LikeAction') || stat.interactionType?.includes('SaveAction')) {
+            if (!stat || typeof stat !== 'object') continue;
+            const rawCount = stat.userInteractionCount;
+            const hasFiniteCount =
+              rawCount !== undefined &&
+              rawCount !== null &&
+              String(rawCount).trim() !== '' &&
+              Number.isFinite(Number(rawCount));
+            if (!hasFiniteCount) continue;
+            const count = parseCleanMetric(rawCount, null, { preserveCeiling: true });
+            if (count === null) continue;
+            const interactionType = String(stat.interactionType || stat.name || '');
+            if (interactionType.includes('SaveAction') || interactionType.includes('BookmarkAction')) {
               if (ogSaves === null) ogSaves = count;
+            } else if (interactionType.includes('LikeAction')) {
+              if (ldReactionCount === null) ldReactionCount = count;
             }
           }
         }
@@ -994,11 +1066,18 @@ export function extractPinFromHtml(rawHtml, pinId) {
       formatted.saves = ogSaves;
       formatted.save_count = ogSaves;
       formatted.has_explicit_saves = true;
+      if (formatted.creation_method === 'pinterest_platform' || formatted.creation_method === 'unhydrated_stub') {
+        formatted.creation_method = 'organic_pin';
+        formatted.method = 'organic_pin';
+      }
     }
     if (ogRepins !== null) {
       formatted.repins = ogRepins;
       formatted.repin_count = ogRepins;
       formatted.has_explicit_repins = true;
+    }
+    if (ldReactionCount !== null && (!formatted.reaction_count || formatted.reaction_count === 0)) {
+      formatted.reaction_count = ldReactionCount;
     }
   }
   return formatted;

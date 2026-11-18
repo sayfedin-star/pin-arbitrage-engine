@@ -297,8 +297,13 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         }
         if (!existing.image_signature && richMeta.image_signature) existing.image_signature = String(richMeta.image_signature);
         if (!existing.canonical_pin_id && richMeta.canonical_pin_id) existing.canonical_pin_id = String(richMeta.canonical_pin_id);
-        if ((!existing.creation_method || existing.creation_method === 'pinterest_platform') && (p.creation_method || p.method)) {
-          existing.creation_method = String(p.creation_method || p.method);
+        const incomingMethod = p.creation_method || p.method;
+        if (
+          (!existing.creation_method || existing.creation_method === 'pinterest_platform' || existing.creation_method === 'unhydrated_stub') &&
+          incomingMethod &&
+          String(incomingMethod).trim().toLowerCase() !== 'unhydrated_stub'
+        ) {
+          existing.creation_method = String(incomingMethod);
         }
         existing.is_product = Boolean(existing.is_product || p.is_product || richMeta.is_product);
         existing.is_video = Boolean(existing.is_video || p.is_video || richMeta.is_video);
@@ -566,7 +571,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           is_video = (universal_master_pins.is_video OR COALESCE(EXCLUDED.is_video, FALSE)),
           creation_method = CASE
             WHEN NULLIF(TRIM(EXCLUDED.creation_method), '') IS NOT NULL
-             AND LOWER(TRIM(EXCLUDED.creation_method)) <> 'pinterest_platform'
+             AND LOWER(TRIM(EXCLUDED.creation_method)) NOT IN ('pinterest_platform', 'unhydrated_stub')
+            THEN EXCLUDED.creation_method
+            WHEN LOWER(TRIM(COALESCE(universal_master_pins.creation_method, ''))) = 'unhydrated_stub'
+             AND NULLIF(TRIM(EXCLUDED.creation_method), '') IS NOT NULL
             THEN EXCLUDED.creation_method
             ELSE COALESCE(NULLIF(universal_master_pins.creation_method, ''), EXCLUDED.creation_method)
           END,
@@ -577,9 +585,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             || COALESCE(EXCLUDED.metadata, '{}'::jsonb)
             || CASE
                  WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL
-                  AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
+                  AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform', 'unhydrated_stub')
                   AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL
-                       OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
+                       OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) IN ('pinterest_platform', 'unhydrated_stub'))
                  THEN jsonb_build_object(
                    'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
                    'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))

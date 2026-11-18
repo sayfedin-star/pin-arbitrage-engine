@@ -48,15 +48,23 @@ import { calculateDailyVelocity, calculateRollingGainsFromSnapshots } from '../s
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { Semaphore } from '../src/utils.mjs';
 
-import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
-
-await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
-loadDotEnvIfPresent();
+import {
+  loadDotEnvIfPresent,
+  bootstrapUndiciKeepAliveDispatcher,
+  closeCrawlerDb as closeDbClient,
+  startInstaBoxActivityLease,
+  resolveWorkerPartition
+} from './lib/fleet-runner.mjs';
 
 const isMainModule = Boolean(process.argv[1] && (
   process.argv[1].endsWith('keyword-velocity-crawler.mjs') ||
   process.argv[1].endsWith('keyword-velocity-crawler')
 ));
+
+if (isMainModule) {
+  await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
+  loadDotEnvIfPresent();
+}
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env.PAE_INGEST_ENDPOINT) {
@@ -64,7 +72,7 @@ if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env
   process.exit(1);
 }
 
-const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
+const sql = (DATABASE_URL && isMainModule) ? createSqlClient(DATABASE_URL) : null;
 function classifyFatalSerpSqlError(err) {
   if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
     return false;
@@ -83,17 +91,11 @@ async function stampPhase1ABarrierToken(kid, token, leaseToken) {
     WHERE id = ${kid};
   `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 }
-import {
-  closeCrawlerDb as closeDbClient,
-  startInstaBoxActivityLease
-} from './lib/cli-utils.mjs';
+
 let lease = null;
 const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode, lease);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
-const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
-const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
-const rawWorkerTotal = parseInt(process.env.WORKER_TOTAL || '20', 10);
-const workerTotal = Number.isFinite(rawWorkerTotal) && rawWorkerTotal > 0 ? rawWorkerTotal : 20;
+const { workerIndex, workerTotal } = resolveWorkerPartition();
 
 const targetKeyword = (process.env.KEYWORD_IDS || process.env.ALL_KEYWORD_IDS)
   ? ''
@@ -150,19 +152,32 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
 export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
-  const isDeepHydrated = Boolean(
-    pin.is_deep_hydrated === true ||
-    pin.is_deep_hydrated === 'true' ||
-    meta.is_deep_hydrated === true ||
-    meta.is_deep_hydrated === 'true'
+  const currentMethod = String(pin.creation_method || pin.method || meta.creation_method || meta.method || '').trim();
+  if (currentMethod === 'unhydrated_stub' || pin.is_hydrated === false) {
+    return { shouldFetch: true, reason: 'unhydrated_stub', reuseTelemetry: null };
+  }
+
+  const hasAnnotations = Boolean(
+    pin.has_visual_annotations === true ||
+    (Array.isArray(pin.visual_annotations) && pin.visual_annotations.length > 0) ||
+    (Array.isArray(meta.visual_annotations) && meta.visual_annotations.length > 0)
   );
   const imgSig = pin.image_signature || meta.image_signature || '';
   const hasRichTreasures = Boolean(
     meta.has_treasures === true ||
     imgSig ||
-    pin.has_visual_annotations === true ||
+    hasAnnotations ||
     meta.canonical_pin_id ||
     meta.board_pin_count
+  );
+  const isDeepHydrated = Boolean(
+    pin.is_deep_hydrated === true ||
+    pin.is_deep_hydrated === 'true' ||
+    pin.is_hydrated === true ||
+    pin.is_hydrated === 'true' ||
+    meta.is_deep_hydrated === true ||
+    meta.is_deep_hydrated === 'true' ||
+    (pin.save_count != null && hasRichTreasures)
   );
   const isDisplaced = Boolean(pin.is_displaced);
 
@@ -189,19 +204,13 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
     };
   }
 
-  // Do not invalidate cache merely because save_count === 0 if the pin is verified deep-hydrated
+  // Do not invalidate cache merely because save_count === 0 or creation_method === 'pinterest_platform'
+  // if the pin is verified hydrated (save_count != null and has image_signature or visual_annotations)
   if (!crawlTime || isNaN(lastCrawlMs) || !isDeepHydrated || !hasRichTreasures || pin.save_count == null) {
     return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
   }
 
-  // Self-Healing: Invalidate cache if pin creation_method is missing or degraded to generic 'pinterest_platform'
-  const currentMethod = pin.creation_method || pin.method || meta.creation_method || meta.method;
-  const isGenericOrMissingMethod = !currentMethod || currentMethod === 'pinterest_platform';
-  if (isGenericOrMissingMethod) {
-    return { shouldFetch: true, reason: 'missing_or_generic_creation_method', reuseTelemetry: null };
-  }
-
-  // Only after deep hydration, rich treasures, and authentic method are validated, check 18h freshness gate
+  // Check 18h shared freshness gate
   if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
     return {
       shouldFetch: false,
@@ -321,9 +330,10 @@ async function inspectPin(pin, kw) {
   const wasDeepHydrated = Boolean(
     pin.is_deep_hydrated === true ||
     pin.is_deep_hydrated === 'true' ||
+    pin.is_hydrated === true ||
     meta.is_deep_hydrated === true ||
     meta.is_deep_hydrated === 'true' ||
-    (pin.creation_method && pin.creation_method !== 'pinterest_platform')
+    (pin.creation_method && pin.creation_method !== 'unhydrated_stub')
   );
 
   // Use 3KB JSON PinResource fast path only if displaced OR (deep-hydrated AND already has visual annotations)
@@ -337,13 +347,13 @@ async function inspectPin(pin, kw) {
   let fetchRes = null;
 
   try {
-    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly, cookie });
+    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly });
     const isConfirmedDead = fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404');
     const isRateLimited = fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429');
     if (!fetchRes?.ok && !isConfirmedDead && !isRateLimited) {
       const retryJitter = 500 + Math.floor(Math.random() * 600);
       await new Promise(r => setTimeout(r, retryJitter));
-      fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
+      fetchRes = await fetchPinFromPinterest(pin.pin_id, '');
     }
   } catch (err) {
     fetchError = err;
@@ -353,7 +363,7 @@ async function inspectPin(pin, kw) {
       const retryJitter = 500 + Math.floor(Math.random() * 600);
       await new Promise(r => setTimeout(r, retryJitter));
       try {
-        fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
+        fetchRes = await fetchPinFromPinterest(pin.pin_id, '');
         fetchError = null;
       } catch (retryErr) {
         fetchError = retryErr;
@@ -1517,9 +1527,6 @@ async function run() {
     let phase1aTotalFailureA = false;
     if (enableSerpHarvest && mySerpKeywordIds.length > 0) {
       const effectiveSerpCookie = await getEffectivePinterestCookie(sql, cookie);
-      if (effectiveSerpCookie) {
-        process.env.PINTEREST_COOKIE = effectiveSerpCookie;
-      }
       console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords (token: ${fleetRunToken})...`);
       const serpSem = new Semaphore(2);
       let fatalSerpDbErr = null;
@@ -1742,7 +1749,7 @@ if (isMainModule) {
     } finally {
       await lease.stop();
       if (sql && typeof sql.end === 'function') {
-        await sql.end({ timeout: 2 }).catch(() => {});
+        await sql.end({ timeout: 3 }).catch(() => {});
       }
     }
     if (process.exitCode) {

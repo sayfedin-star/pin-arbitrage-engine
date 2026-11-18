@@ -16,7 +16,7 @@ import {
   runMigrations,
   listMigrations
 } from '../scripts/migrate.mjs';
-import { startInstaBoxActivityLease } from '../scripts/lib/cli-utils.mjs';
+import { startInstaBoxActivityLease } from '../scripts/lib/fleet-runner.mjs';
 import { patchPostgresFiles } from '../scripts/patch-postgres.mjs';
 
 test('isReadOnlyQuery distinguishes pure read queries from locking, mutating, and multi-statement SQL', () => {

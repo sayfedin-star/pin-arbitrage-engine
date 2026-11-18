@@ -96,8 +96,8 @@ export async function fetchCreatorLatestPinsPidgets(username, options = {}) {
     about: rawUser.about || '',
     profile_url: rawUser.profile_url || `https://www.pinterest.com/${cleanUsername}/`,
     image_small_url: rawUser.image_small_url || null,
-    pin_count: Number(rawUser.pin_count || 0),
-    follower_count: Number(rawUser.follower_count || 0)
+    pin_count: parseCleanMetric(rawUser.pin_count ?? 0, 0, { preserveCeiling: true, cap: 0 }),
+    follower_count: parseCleanMetric(rawUser.follower_count ?? 0, 0, { preserveCeiling: true, cap: 0 })
   };
 
   const pins = [];
@@ -313,8 +313,8 @@ export async function fetchUserProfileUnauth(username, options = {}) {
                   board_id: String(b.id),
                   name: b.name || 'Untitled Board',
                   url: b.url ? (b.url.startsWith('http') ? b.url : `https://www.pinterest.com${b.url}`) : '',
-                  pin_count: parseCleanMetric(b.pin_count || 0),
-                  follower_count: parseCleanMetric(b.follower_count || 0),
+                  pin_count: parseCleanMetric(b.pin_count || 0, 0, { preserveCeiling: true, cap: 0 }),
+                  follower_count: parseCleanMetric(b.follower_count || 0, 0, { preserveCeiling: true, cap: 0 }),
                   image_cover_url: coverImg,
                   board_vase: boardVase,
                   description: desc,
@@ -559,8 +559,8 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
             board_id: boardId,
             name: item.name || 'Untitled Board',
             url: boardUrl,
-            pin_count: parseCleanMetric(item.pin_count || 0),
-            follower_count: parseCleanMetric(item.follower_count || 0),
+            pin_count: parseCleanMetric(item.pin_count || 0, 0, { preserveCeiling: true, cap: 0 }),
+            follower_count: parseCleanMetric(item.follower_count || 0, 0, { preserveCeiling: true, cap: 0 }),
             last_pinned_at: lastPinned,
             created_at: boardCreatedAt,
             image_cover_url: coverImg,
@@ -847,8 +847,8 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName, options 
       name: targetBoard.name || 'Untitled Board',
       slug: cleanSlug,
       url: targetBoard.url ? (targetBoard.url.startsWith('http') ? targetBoard.url : `https://www.pinterest.com${targetBoard.url}`) : `https://www.pinterest.com/${cleanUser}/${cleanSlug}/`,
-      pin_count: parseCleanMetric(targetBoard.pin_count || 0),
-      follower_count: parseCleanMetric(targetBoard.follower_count || 0),
+      pin_count: parseCleanMetric(targetBoard.pin_count || 0, 0, { preserveCeiling: true, cap: 0 }),
+      follower_count: parseCleanMetric(targetBoard.follower_count || 0, 0, { preserveCeiling: true, cap: 0 }),
       image_cover_url: coverImg,
       board_vase: boardVase,
       description: desc,

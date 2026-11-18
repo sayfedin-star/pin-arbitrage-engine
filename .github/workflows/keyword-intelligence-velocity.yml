@@ -106,7 +106,7 @@ jobs:
           MAX_SERP_PINS: ${{ inputs.max_serp_pins || inputs.max_pins || '' }}
           MAX_CATALOG_INSPECT: ${{ inputs.max_catalog_inspect }}
           ENABLE_SERP_HARVEST: ${{ inputs.enable_serp_harvest }}
-        run: node scripts/keyword-fleet-dispatcher.mjs
+        run: node scripts/keyword-fleet.mjs --stage=dispatch
 
   # ============================================================================
   # STAGE 1: 20-Runner Concurrent Distributed Fleet Matrix
@@ -217,14 +217,15 @@ jobs:
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
           STAGE1_RESULT: ${{ needs.crawl-fleet.result }}
-        run: node scripts/keyword-fleet-consolidator.mjs
+          SKIP_MV_REFRESH: 'true'
+        run: node scripts/keyword-fleet.mjs --stage=consolidate
 
       - name: 6. Recompute Domain Intelligence Rollup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
-        run: node scripts/refresh-domain-rollup.mjs
+        run: node scripts/domain-enrich.mjs --mode=rollup
 
       - name: 7. Notify VPS Server Cache Refresh
         if: success()

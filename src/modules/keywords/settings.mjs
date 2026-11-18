@@ -108,22 +108,15 @@ export async function getEffectivePinterestCookie(sql, runtimeCookie = '') {
     raw = DEFAULT_PINTEREST_SESSION_COOKIE;
   }
 
-  const formatted = formatPinterestCookie(raw);
-  if (formatted && typeof process !== 'undefined' && process.env && !process.env.PINTEREST_COOKIE) {
-    process.env.PINTEREST_COOKIE = formatted;
-  }
-  return formatted;
+  return formatPinterestCookie(raw);
 }
 
 /**
- * Persists a Pinterest session cookie to PostgreSQL app_settings and updates process.env in memory.
+ * Persists a Pinterest session cookie to PostgreSQL app_settings without mutating global process.env.
  */
 export async function savePinterestCookie(sql, rawCookie = '') {
   const cleanRaw = String(rawCookie || '').trim();
   const formatted = formatPinterestCookie(cleanRaw);
-  if (typeof process !== 'undefined' && process.env) {
-    process.env.PINTEREST_COOKIE = formatted;
-  }
   if (sql && typeof sql === 'function') {
     const payload = {
       cookie: cleanRaw,

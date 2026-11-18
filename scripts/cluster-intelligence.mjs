@@ -26,10 +26,13 @@ import {
   loadDotEnvIfPresent,
   bootstrapUndiciKeepAliveDispatcher,
   startInstaBoxActivityLease
-} from './lib/cli-utils.mjs';
+} from './lib/fleet-runner.mjs';
 
-const undiciAgent = await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
-loadDotEnvIfPresent();
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.ENVIRONMENT === 'test';
+const undiciAgent = !isTestEnv ? await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher) : null;
+if (!isTestEnv) {
+  loadDotEnvIfPresent();
+}
 
 let lease = null;
 let _sql = null;
@@ -37,8 +40,7 @@ function getSql() {
   if (!_sql) {
     const url = process.env.DATABASE_URL;
     if (!url) {
-      console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
-      process.exit(1);
+      throw new Error('CRITICAL: DATABASE_URL environment variable is missing.');
     }
     _sql = createSqlClient(url);
   }
@@ -433,7 +435,20 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     }
   }
 
-  const saves = Number(pin.aggregated_pin_data?.aggregated_stats?.saves ?? (pin.repin_count || 0));
+  const rawExplicitSaves =
+    pin.aggregated_pin_data?.aggregated_stats?.saves ??
+    pin.aggregated_stats?.saves ??
+    pin.save_count ??
+    pin.saves ??
+    null;
+  const hasExplicitSaves =
+    rawExplicitSaves !== null &&
+    rawExplicitSaves !== undefined &&
+    String(rawExplicitSaves).trim() !== '' &&
+    Number.isFinite(Number(rawExplicitSaves));
+  const saves = hasExplicitSaves ? Math.max(0, Math.round(Number(rawExplicitSaves))) : null;
+  const effectiveSaves = saves ?? 0;
+  const repins = Number(pin.repin_count || 0);
   const hasMedia = Boolean(
     pin.images?.orig?.url ||
     pin.images?.['236x']?.url ||
@@ -442,11 +457,10 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     pin.image_large_url ||
     pin.image_medium_url
   );
-  if (!hasMedia && saves === 0) {
+  if (!hasMedia && effectiveSaves === 0 && repins === 0) {
     return null;
   }
-  const repins = Number(pin.repin_count || 0);
-  const rawRate = saves > 0 ? ((repins / saves) * 100) : 0;
+  const rawRate = effectiveSaves > 0 ? ((repins / effectiveSaves) * 100) : 0;
   const saveRate = Number(Math.min(9999999.99, Math.max(0, rawRate)).toFixed(2));
 
   const isProduct = Boolean(
@@ -484,7 +498,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   }
 
   // Statistical Clamping: limit daily velocity to 1000 saves/day to eliminate artificial bot surges
-  const rawVelocity = Number((saves / ageDays).toFixed(2));
+  const rawVelocity = effectiveSaves > 0 ? Number((effectiveSaves / ageDays).toFixed(2)) : 0;
   const dailyVelocity = Math.min(rawVelocity, 1000.0);
 
   // Authentic media and origin properties from raw Pinterest entity
@@ -553,7 +567,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   if (baseAffinity > 0) {
     const engagementFactor = saveRate > 0
       ? (0.7 + 0.3 * Math.min(1.0, saveRate / 100))
-      : (0.75 + 0.25 * Math.min(1.0, Math.log10(Math.max(saves, 10)) / 5));
+      : (0.75 + 0.25 * Math.min(1.0, Math.log10(Math.max(effectiveSaves, 10)) / 5));
     recgptTransitionScore = Number(Math.min(99.9, baseAffinity * engagementFactor).toFixed(1));
   }
 
@@ -561,7 +575,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   let provenanceEngine = detectEngineProvenance(
     pin,
     parentEntity,
-    saves,
+    effectiveSaves,
     saveRate,
     dailyVelocity,
     ageDays,
@@ -574,7 +588,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   let individualProdScore = 0;
   const pClick = 1.0;
   const pLongClick = Math.min(1.0, (saveRate / 100) * 1.2);
-  const pRepin = saves > 0 ? Math.min(1.0, repins / saves) : 0;
+  const pRepin = effectiveSaves > 0 ? Math.min(1.0, repins / effectiveSaves) : 0;
   const pShortClick = isProduct ? 0.10 : (isVideo ? 0.08 : (isStory ? 0.06 : 0.05));
 
   if (utilityWeights && typeof utilityWeights === 'object') {
@@ -627,6 +641,8 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     dominant_color: dominantColor,
     aspect_ratio: aspectRatio,
     saves,
+    save_count: saves,
+    has_explicit_saves: hasExplicitSaves,
     repins,
     save_rate: saveRate,
     domain,
@@ -849,7 +865,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
         (
           SELECT candidate_pin_id, saves, daily_velocity, age_days
           FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL OR saves IS NULL)
           ORDER BY daily_velocity DESC NULLS LAST
           LIMIT 150
         )
@@ -857,7 +873,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
         (
           SELECT candidate_pin_id, saves, daily_velocity, age_days
           FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL OR saves IS NULL)
           ORDER BY saves DESC NULLS LAST
           LIMIT 150
         );
@@ -885,12 +901,16 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
 
     const pushEnriched = (candidate, repinsVal, savesVal) => {
       const repins = Number(repinsVal || 0);
-      const currentSaves = (savesVal != null && Number(savesVal) > 0)
+      const currentSaves = (savesVal !== null && savesVal !== undefined && Number.isFinite(Number(savesVal)) && Number(savesVal) >= 0)
         ? Number(savesVal)
-        : Number(candidate.saves || 0);
-      const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
+        : (candidate.saves !== null && candidate.saves !== undefined && Number.isFinite(Number(candidate.saves)) ? Number(candidate.saves) : null);
+      const saveRate = (currentSaves !== null && currentSaves > 0)
+        ? Number(((repins / currentSaves) * 100).toFixed(2))
+        : 0.00;
       const ageDays = Math.max(1, Number(candidate.age_days || 180));
-      const updatedVelocity = Math.min(1000.0, Number((currentSaves / ageDays).toFixed(2)) || Number(candidate.daily_velocity || 0));
+      const updatedVelocity = (currentSaves !== null && currentSaves > 0)
+        ? Math.min(1000.0, Number((currentSaves / ageDays).toFixed(2)) || Number(candidate.daily_velocity || 0))
+        : Number(candidate.daily_velocity || 0);
 
       enrichedBatch.push({
         seed_pin_id: String(seedPinId),
@@ -1004,10 +1024,6 @@ async function crawlSeed(seed) {
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin'
   };
-
-  if (process.env.PINTEREST_COOKIE) {
-    baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);
-  }
 
   for (let page = 1; page <= maxPages; page++) {
     console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource...`);
@@ -1297,7 +1313,7 @@ async function crawlSeed(seed) {
           title: node.title || '',
           dominant_color: (node.dominant_color && String(node.dominant_color).toLowerCase() !== '#888888') ? node.dominant_color : null,
           aspect_ratio: Number(node.aspect_ratio) || 0.56,
-          saves: Number(node.saves) || 0,
+          saves: node.saves != null ? Number(node.saves) : null,
           repins: Number(node.repins) || 0,
           save_rate: Number(node.save_rate) || 0,
           domain: cleanDom || node.domain || '',
@@ -1448,6 +1464,8 @@ async function crawlSeed(seed) {
     );
   `);
 
+  await sqlWithRetry(() => pruneClusterArbitrageMetrics(sql, pinId, 90));
+
   // Persist all captured Pinterest Guided Search Capsules into Unified PostgreSQL in chunks via bulk jsonb_to_recordset
   const allCapsules = Array.from(guidedSearchCapsulesMap.values());
   if (allCapsules.length > 0) {
@@ -1501,6 +1519,27 @@ async function crawlSeed(seed) {
 }
 
 /**
+ * Bounds cluster_arbitrage_metrics to the newest `keepLimit` snapshots per seed_pin_id.
+ */
+export async function pruneClusterArbitrageMetrics(dbSql, seedPinId, keepLimit = 90) {
+  const limit = Math.max(1, Number(keepLimit) || 90);
+  const cleanSeedId = String(seedPinId || '').trim();
+  if (!cleanSeedId) return;
+
+  await dbSql`
+    DELETE FROM cluster_arbitrage_metrics
+    WHERE seed_pin_id = ${cleanSeedId}
+      AND id NOT IN (
+        SELECT id
+        FROM cluster_arbitrage_metrics
+        WHERE seed_pin_id = ${cleanSeedId}
+        ORDER BY analyzed_at DESC NULLS LAST, id DESC
+        LIMIT ${limit}
+      );
+  `;
+}
+
+/**
  * Main Orchestrator
  */
 async function main() {
@@ -1508,7 +1547,8 @@ async function main() {
   console.log(`  Pinterest Algorithmic Arbitrage Engine (P2P Cluster Core)  `);
   console.log(`=============================================================`);
 
-
+  // Validate database handle early inside lifecycle try/finally
+  getSql();
 
   let targetPinArg = null;
   const seedIdx = process.argv.indexOf('--seed');
@@ -1640,7 +1680,7 @@ async function main() {
       const seedsNeedingEnrichment = await sqlWithRetry(() => sql`
         SELECT seed_pin_id 
         FROM candidate_graph_nodes 
-        WHERE (repins = 0 OR repins IS NULL) AND saves > 0
+        WHERE (repins = 0 OR repins IS NULL OR saves IS NULL)
           AND (${shardIdx}::int IS NULL OR (ABS(hashtext(seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
         GROUP BY seed_pin_id
         ORDER BY COUNT(*) DESC, seed_pin_id ASC;
@@ -1658,9 +1698,6 @@ async function main() {
           'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
           'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION
         };
-        if (process.env.PINTEREST_COOKIE) {
-          baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);
-        }
         for (const row of enrichmentSlice) {
           await enrichCandidatesWithPinMetrics(row.seed_pin_id, baseHeaders);
         }
@@ -1676,8 +1713,8 @@ async function main() {
   let currentSeedLeaseContext = null;
   const cleanupAndExit = async (signal) => {
     console.log(`\n[!] Received ${signal}. Terminating cluster intelligence gracefully...`);
-    if (currentSeedLeaseContext?.leaseToken && currentSeedLeaseContext?.pinId) {
-      try {
+    try {
+      if (currentSeedLeaseContext?.leaseToken && currentSeedLeaseContext?.pinId) {
         await sqlWithRetry(() => sql`
           UPDATE cluster_seeds
           SET crawl_lease_token = NULL,
@@ -1685,11 +1722,22 @@ async function main() {
           WHERE pin_id = ${currentSeedLeaseContext.pinId} AND crawl_lease_token = ${currentSeedLeaseContext.leaseToken};
         `).catch(() => {});
         console.log(`[Graceful Shutdown] Released lease for seed pin ID ${currentSeedLeaseContext.pinId}`);
+      }
+    } catch (_) {
+      // Best-effort row lease release
+    } finally {
+      try {
+        if (lease && typeof lease.stop === 'function') {
+          await lease.stop();
+        }
       } catch (_) {}
-    }
-    await lease?.stop?.();
-    if (_sql && typeof _sql.end === 'function') {
-      await _sql.end({ timeout: 2 }).catch(() => {});
+      try {
+        const sqlToClose = _sql;
+        _sql = null;
+        if (sqlToClose && typeof sqlToClose.end === 'function') {
+          await sqlToClose.end({ timeout: 3 });
+        }
+      } catch (_) {}
     }
     process.exit(1);
   };
@@ -1755,6 +1803,33 @@ async function main() {
   console.log(`\n[+] Cluster intelligence run finished.`);
 }
 
+/**
+ * Executes cluster-intelligence inside a guaranteed try/finally block that always stops
+ * the InstaBox activity lease and closes the SQL pool on every exit path.
+ */
+export async function runClusterIntelligenceLifecycle(runFn = main, options = {}) {
+  lease = options.lease || startInstaBoxActivityLease('cluster-intelligence');
+  if (options.sqlClient) {
+    _sql = options.sqlClient;
+  }
+  try {
+    return await runFn();
+  } finally {
+    try {
+      if (lease && typeof lease.stop === 'function') {
+        await lease.stop();
+      }
+    } catch (_) {}
+    try {
+      const sqlToClose = _sql;
+      _sql = null;
+      if (sqlToClose && typeof sqlToClose.end === 'function') {
+        await sqlToClose.end({ timeout: 3 });
+      }
+    } catch (_) {}
+  }
+}
+
 import { fileURLToPath } from 'url';
 const isDirectRun = process.argv[1] && (
   fileURLToPath(import.meta.url) === process.argv[1] ||
@@ -1762,18 +1837,12 @@ const isDirectRun = process.argv[1] && (
 );
 
 if (isDirectRun) {
-  lease = startInstaBoxActivityLease('cluster-intelligence');
   (async () => {
     try {
-      await main();
+      await runClusterIntelligenceLifecycle(main);
     } catch (err) {
       console.error('[-] Fatal orchestrator error:', err);
       process.exitCode = 1;
-    } finally {
-      await lease.stop();
-      if (_sql && typeof _sql.end === 'function') {
-        await _sql.end({ timeout: 2 }).catch(() => {});
-      }
     }
     if (process.exitCode) {
       process.exit(process.exitCode);

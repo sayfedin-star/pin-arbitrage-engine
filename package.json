@@ -13,12 +13,11 @@
     "crawl:creators": "node --use-system-ca scripts/creator-velocity-crawler.mjs",
     "crawl:account-related": "node --use-system-ca scripts/account-related-crawler.mjs",
     "dashboard": "node --use-system-ca src/server.mjs",
-    "enrich:domains": "node --use-system-ca scripts/enrich_all_domains.mjs",
-    "enrich:ads": "node --use-system-ca scripts/enrich_domain_ads.mjs",
+    "enrich:domains": "node --use-system-ca scripts/domain-enrich.mjs --mode=whois",
+    "enrich:ads": "node --use-system-ca scripts/domain-enrich.mjs --mode=ads",
     "lint": "npx eslint src/ scripts/ workers/ tests/ --max-warnings=0",
     "check": "node scripts/check-syntax-and-templates.mjs && npm run lint",
-    "test": "node --import \"data:text/javascript,process.env.NODE_ENV='test'\" --test \"tests/*.test.mjs\"",
-    "test:e2e": "node scripts/verify_real_browser_e2e.mjs"
+    "test": "node --import \"data:text/javascript,process.env.NODE_ENV='test'\" --test \"tests/*.test.mjs\""
   },
   "keywords": [
     "pinterest",

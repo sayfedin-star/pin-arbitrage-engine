@@ -51,12 +51,11 @@ export function getStandardPinterestHeaders(options = {}) {
     headers['Referer'] = options.referer;
   }
 
-  const rawCookie = options.cookie !== undefined
-    ? options.cookie
-    : (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
-  const cleanCookie = sanitizeGuestCookie(rawCookie);
-  if (cleanCookie) {
-    headers['Cookie'] = cleanCookie;
+  if (options.cookie !== undefined && options.cookie !== null && options.cookie !== '') {
+    const cleanCookie = sanitizeGuestCookie(options.cookie);
+    if (cleanCookie) {
+      headers['Cookie'] = cleanCookie;
+    }
   }
 
   const customHeaders = options.extraHeaders || options.extra;
@@ -166,6 +165,7 @@ export class PinterestCircuitBreaker {
     this.failureThreshold = options.failureThreshold || 5;
     this.resetTimeoutMs = options.resetTimeoutMs || 30000; // 30s cooldown
     this.state = 'CLOSED'; // 'CLOSED' | 'OPEN' | 'HALF_OPEN'
+    this.probeInFlight = false;
     this.consecutiveFailures = 0;
     this.lastFailureTime = null;
     this.lastSuccessTime = null;
@@ -178,16 +178,31 @@ export class PinterestCircuitBreaker {
     if (this.state === 'OPEN') {
       if (now - this.openedAt >= this.resetTimeoutMs) {
         this.state = 'HALF_OPEN';
+        this.probeInFlight = true;
         return true;
       }
       return false;
     }
+    if (this.state === 'HALF_OPEN') {
+      if (this.probeInFlight) {
+        return false;
+      }
+      this.probeInFlight = true;
+      return true;
+    }
     return true;
+  }
+
+  releaseProbe() {
+    if (this.state === 'HALF_OPEN') {
+      this.probeInFlight = false;
+    }
   }
 
   recordSuccess() {
     this.consecutiveFailures = 0;
     this.state = 'CLOSED';
+    this.probeInFlight = false;
     this.lastSuccessTime = Date.now();
   }
 
@@ -196,10 +211,22 @@ export class PinterestCircuitBreaker {
     const isRateLimitOrForbidden = status === 429 || status === 403;
     const isNetworkAbort = error?.name === 'TimeoutError' || error?.code === 'UND_ERR_CONNECT_TIMEOUT';
 
+    if (this.state === 'HALF_OPEN') {
+      this.probeInFlight = false;
+      if (isRateLimitOrForbidden || isNetworkAbort || status >= 500 || error) {
+        this.consecutiveFailures += 1;
+        this.state = 'OPEN';
+        this.openedAt = Date.now();
+        this.totalTrips += 1;
+        return;
+      }
+    }
+
     if (isRateLimitOrForbidden || isNetworkAbort) {
       this.consecutiveFailures += 1;
       if (this.consecutiveFailures >= this.failureThreshold || this.state === 'HALF_OPEN') {
         this.state = 'OPEN';
+        this.probeInFlight = false;
         this.openedAt = Date.now();
         this.totalTrips += 1;
       }
@@ -208,6 +235,7 @@ export class PinterestCircuitBreaker {
 
   reset() {
     this.state = 'CLOSED';
+    this.probeInFlight = false;
     this.consecutiveFailures = 0;
     this.openedAt = null;
   }
@@ -215,6 +243,7 @@ export class PinterestCircuitBreaker {
   getState() {
     return {
       state: this.state,
+      probeInFlight: this.probeInFlight,
       consecutiveFailures: this.consecutiveFailures,
       openedAt: this.openedAt,
       lastFailureTime: this.lastFailureTime,
@@ -258,6 +287,10 @@ export async function pinterestFetch(url, init = {}) {
     ...restInit
   } = init;
 
+  if (externalSignal?.aborted) {
+    throw externalSignal.reason || new DOMException('The operation was aborted.', 'AbortError');
+  }
+
   // 1. Inspect Circuit Breaker
   if (!skipCircuitBreaker && circuitBreaker && !circuitBreaker.canExecute()) {
     throw new CircuitBreakerOpenError();
@@ -286,8 +319,13 @@ export async function pinterestFetch(url, init = {}) {
   const incomingHeaders = restInit.headers ? { ...restInit.headers } : {};
   if (incomingHeaders['Cookie'] || incomingHeaders['cookie']) {
     const raw = incomingHeaders['Cookie'] || incomingHeaders['cookie'];
-    incomingHeaders['Cookie'] = sanitizeGuestCookie(raw);
+    const cleanedCookie = sanitizeGuestCookie(raw);
     delete incomingHeaders['cookie'];
+    if (cleanedCookie) {
+      incomingHeaders['Cookie'] = cleanedCookie;
+    } else {
+      delete incomingHeaders['Cookie'];
+    }
   }
 
   const fetchOpts = {
@@ -301,11 +339,17 @@ export async function pinterestFetch(url, init = {}) {
     const response = await fetch(url, fetchOpts);
     if (response.status === 429 || response.status === 403) {
       circuitBreaker?.recordFailure(response.status);
-    } else if (response.ok) {
+    } else if (response.ok || response.status === 404) {
       circuitBreaker?.recordSuccess();
+    } else {
+      circuitBreaker?.releaseProbe?.();
     }
     return response;
   } catch (err) {
+    if (externalSignal?.aborted) {
+      circuitBreaker?.releaseProbe?.();
+      throw err;
+    }
     circuitBreaker?.recordFailure(null, err);
 
     // Restrict fallback strictly to dispatcher mismatch errors between undici versions
