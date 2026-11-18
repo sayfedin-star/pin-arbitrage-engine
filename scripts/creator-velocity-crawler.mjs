@@ -32,13 +32,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   syncCompetitorProfile,
+  normalizePinterestUsername
+} from '../src/modules/creators/competitors-crud.mjs';
+import {
   syncCompetitorBoards,
-  syncCompetitorBoardPins,
+  syncCompetitorBoardPins
+} from '../src/modules/creators/boards-service.mjs';
+import {
   syncCompetitorPins,
-  reconcileQualifiedCatalogPins,
-  normalizePinterestUsername,
-  getCreatorHubSettings
-} from '../src/modules/creators/service.mjs';
+  reconcileQualifiedCatalogPins
+} from '../src/modules/creators/creator-ingest.mjs';
+import { getCreatorHubSettings } from '../src/modules/creators/creator-analytics.mjs';
 import {
   randomJitterMs,
   sleep,

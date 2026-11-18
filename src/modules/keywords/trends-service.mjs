@@ -5,26 +5,23 @@
  */
 
 import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest/index.mjs';
+import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 
-const trendsCache = new Map();
-const inflightTrends = new Map();
 const TRENDS_CACHE_MAX = 300;
 const TRENDS_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
+const trendsCache = new TtlSingleflightCache({ maxEntries: TRENDS_CACHE_MAX, defaultTtlMs: TRENDS_TTL_MS });
 
-const interestCache = new Map();
-const inflightInterest = new Map();
 const INTEREST_CACHE_MAX = 500;
 const INTEREST_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
+const interestCache = new TtlSingleflightCache({ maxEntries: INTEREST_CACHE_MAX, defaultTtlMs: INTEREST_TTL_MS });
 
-const velocityCache = new Map();
-const inflightVelocity = new Map();
 const VELOCITY_CACHE_MAX = 500;
 const VELOCITY_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
+const velocityCache = new TtlSingleflightCache({ maxEntries: VELOCITY_CACHE_MAX, defaultTtlMs: VELOCITY_TTL_MS });
 
-const relatedInterestsCache = new Map();
-const inflightRelatedInterests = new Map();
 const RELATED_INTERESTS_CACHE_MAX = 200;
 const RELATED_INTERESTS_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
+const relatedInterestsCache = new TtlSingleflightCache({ maxEntries: RELATED_INTERESTS_CACHE_MAX, defaultTtlMs: RELATED_INTERESTS_TTL_MS });
 
 /**
  * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
@@ -35,107 +32,72 @@ export async function fetchPinterestInterestVolume(term) {
   if (!cleanTerm) return null;
   const slug = cleanTerm.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
   if (!slug) return null;
-  const now = Date.now();
 
-  // 1. Check in-memory LRU cache
-  const cached = interestCache.get(slug);
-  if (cached) {
-    if (now - cached.timestamp < INTEREST_TTL_MS) {
-      interestCache.delete(slug);
-      interestCache.set(slug, cached);
-      return cached.data;
-    } else {
-      interestCache.delete(slug);
-    }
-  }
+  return await interestCache.getOrFetch(
+    slug,
+    async () => {
+      const headers = getStandardPinterestHeaders({
+        referer: `https://www.pinterest.com/ideas/${slug}/`,
+        extraHeaders: {
+          'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js'
+        }
+      });
 
-  // 2. Coalesce in-flight requests (prevent duplicate requests for same term)
-  if (inflightInterest.has(slug)) {
-    return await inflightInterest.get(slug);
-  }
+      const dataParam = encodeURIComponent(JSON.stringify({
+        options: { interest: slug, field_set_key: 'ideas_hub' },
+        context: {}
+      }));
+      const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
 
-  const promise = (async () => {
-    // Active cache size pruning
-    if (interestCache.size >= INTEREST_CACHE_MAX) {
-      const oldestKey = interestCache.keys().next().value;
-      if (oldestKey) interestCache.delete(oldestKey);
-    }
+      let res;
+      try {
+        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(7000) });
+        if (!res.ok) return null;
+        const json = await res.json();
+        const data = json?.resource_response?.data;
+        if (!data) return null;
 
-    const headers = getStandardPinterestHeaders({
-      referer: `https://www.pinterest.com/ideas/${slug}/`,
-      extraHeaders: {
-        'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js'
+        const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
+        const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
+
+        return {
+          success: true,
+          id: String(data.id || ''),
+          key: data.key || cleanTerm,
+          url_name: data.url_name || slug,
+          internal_search_count: Number(data.internal_search_count || 0),
+          feed_update_time: data.feed_update_time || null,
+          seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
+            ? data.seo_breadcrumbs.map(b => b.name)
+            : [],
+          seo_related_interests: rawRelated.map(r => r.name || r.key),
+          seo_related_objects: rawRelated.map(r => ({
+            name: r.name || r.key,
+            key: r.key || r.name,
+            id: String(r.id || r.origin_interest_id || ''),
+            url: r.url || `/ideas/${(r.key || r.name).replace(/\s+/g, '-')}/${r.id || ''}/`
+          })),
+          ideas_pivots: rawPivots.map(p => {
+            const pivotUrl = p.pivot_url || '';
+            const pivotId = pivotUrl.split('/').filter(Boolean).pop() || '';
+            return {
+              label: p.pivot_display_text,
+              full_name: p.pivot_full_name,
+              url: pivotUrl,
+              id: pivotId
+            };
+          })
+        };
+      } catch (_) {
+        return null;
+      } finally {
+        if (res?.body && !res.bodyUsed) {
+          await res.body.cancel().catch(() => {});
+        }
       }
-    });
-
-    const dataParam = encodeURIComponent(JSON.stringify({
-      options: { interest: slug, field_set_key: 'ideas_hub' },
-      context: {}
-    }));
-    const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
-
-    let res;
-    try {
-      res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(7000) });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const data = json?.resource_response?.data;
-      if (!data) return null;
-
-      const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
-      const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
-
-      const result = {
-        success: true,
-        id: String(data.id || ''),
-        key: data.key || cleanTerm,
-        url_name: data.url_name || slug,
-        internal_search_count: Number(data.internal_search_count || 0),
-        feed_update_time: data.feed_update_time || null,
-        seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
-          ? data.seo_breadcrumbs.map(b => b.name)
-          : [],
-        seo_related_interests: rawRelated.map(r => r.name || r.key),
-        seo_related_objects: rawRelated.map(r => ({
-          name: r.name || r.key,
-          key: r.key || r.name,
-          id: String(r.id || r.origin_interest_id || ''),
-          url: r.url || `/ideas/${(r.key || r.name).replace(/\s+/g, '-')}/${r.id || ''}/`
-        })),
-        ideas_pivots: rawPivots.map(p => {
-          const pivotUrl = p.pivot_url || '';
-          const pivotId = pivotUrl.split('/').filter(Boolean).pop() || '';
-          return {
-            label: p.pivot_display_text,
-            full_name: p.pivot_full_name,
-            url: pivotUrl,
-            id: pivotId
-          };
-        })
-      };
-
-      while (interestCache.size >= INTEREST_CACHE_MAX) {
-        const oldestKey = interestCache.keys().next().value;
-        if (!oldestKey) break;
-        interestCache.delete(oldestKey);
-      }
-      interestCache.set(slug, { data: result, timestamp: Date.now() });
-      return result;
-    } catch (_) {
-      return null;
-    } finally {
-      if (res?.body && !res.bodyUsed) {
-        await res.body.cancel().catch(() => {});
-      }
-    }
-  })();
-
-  inflightInterest.set(slug, promise);
-  try {
-    return await promise;
-  } finally {
-    inflightInterest.delete(slug);
-  }
+    },
+    { shouldCache: (val) => Boolean(val) }
+  );
 }
 
 /**
@@ -151,38 +113,23 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
   }
 
   const cacheKey = `${cleanTerm}_${mode}`;
-  const now = Date.now();
 
-  // 1. Check LRU Cache
-  const cached = relatedInterestsCache.get(cacheKey);
-  if (cached) {
-    if (now - cached.timestamp < RELATED_INTERESTS_TTL_MS) {
-      return cached.data;
-    } else {
-      relatedInterestsCache.delete(cacheKey);
-    }
-  }
-
-  // 2. Coalesce in-flight requests (Stampede protection)
-  if (inflightRelatedInterests.has(cacheKey)) {
-    return await inflightRelatedInterests.get(cacheKey);
-  }
-
-  const requestPromise = (async () => {
-    // Fetch main seed annotation
-    const main = await fetchPinterestInterestVolume(cleanTerm);
-    if (!main || !main.id || main.id === '0') {
-      const emptyResult = {
-        success: false,
-        term: cleanTerm,
-        error: `No official Pinterest Interest Annotation found for "${cleanTerm}". Pinterest has not indexed this term as a taxonomy node yet.`,
-        main: null,
-        related_interests: [],
-        additions: [],
-        all: []
-      };
-      return emptyResult;
-    }
+  return await relatedInterestsCache.getOrFetch(
+    cacheKey,
+    async () => {
+      // Fetch main seed annotation
+      const main = await fetchPinterestInterestVolume(cleanTerm);
+      if (!main || !main.id || main.id === '0') {
+        return {
+          success: false,
+          term: cleanTerm,
+          error: `No official Pinterest Interest Annotation found for "${cleanTerm}". Pinterest has not indexed this term as a taxonomy node yet.`,
+          main: null,
+          related_interests: [],
+          additions: [],
+          all: []
+        };
+      }
 
     const formatUpdateDate = (dateStr) => {
       if (!dateStr || String(dateStr).includes('1970')) return 'Recent';
@@ -281,7 +228,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
 
     const all = [mainRow, ...relatedInterests, ...additions];
 
-    const result = {
+    return {
       success: true,
       term: cleanTerm,
       main: mainRow,
@@ -289,23 +236,9 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
       additions,
       all
     };
-
-    while (relatedInterestsCache.size >= RELATED_INTERESTS_CACHE_MAX) {
-      const oldestKey = relatedInterestsCache.keys().next().value;
-      if (!oldestKey) break;
-      relatedInterestsCache.delete(oldestKey);
-    }
-    relatedInterestsCache.set(cacheKey, { data: result, timestamp: Date.now() });
-
-    return result;
-  })();
-
-  inflightRelatedInterests.set(cacheKey, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    inflightRelatedInterests.delete(cacheKey);
-  }
+    },
+    { shouldCache: (val) => Boolean(val?.success) }
+  );
 }
 
 /**
@@ -323,7 +256,6 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
     .filter(Boolean);
 
   const resultMap = new Map();
-  const now = Date.now();
 
   const parseItemVelocity = (item) => {
     if (!item || !item.term) return null;
@@ -377,8 +309,8 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
   for (const term of normalizedTerms) {
     const cacheKey = `${term}_${country}`;
     const cached = velocityCache.get(cacheKey);
-    if (cached && (now - cached.timestamp < VELOCITY_TTL_MS)) {
-      resultMap.set(term, cached.data);
+    if (cached) {
+      resultMap.set(term, cached);
     } else {
       missingTerms.push(term);
     }
@@ -389,13 +321,9 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
     return resultMap;
   }
 
-  // Stampede protection: coalesce in-flight batch requests
-  const inflightKey = `${cleanSeed}_${country}_${normalizedTerms.slice(0, 10).sort().join('|')}`;
-  if (inflightVelocity.has(inflightKey)) {
-    return await inflightVelocity.get(inflightKey);
-  }
-
-  const requestPromise = (async () => {
+  // Stampede protection: coalesce in-flight batch requests via velocityCache.runSingleflight
+  const inflightKey = `batch:${cleanSeed}_${country}_${normalizedTerms.slice(0, 10).sort().join('|')}`;
+  return await velocityCache.runSingleflight(inflightKey, async () => {
     const headers = getStandardPinterestHeaders({
       referer: 'https://trends.pinterest.com/',
       extraHeaders: {
@@ -416,8 +344,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
               const t = String(item.term || '').trim().toLowerCase();
               const parsed = parseItemVelocity(item);
               if (t && parsed) {
-                const cKey = `${t}_${country}`;
-                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                velocityCache.set(`${t}_${country}`, parsed);
                 if (normalizedTerms.includes(t)) {
                   resultMap.set(t, parsed);
                 }
@@ -433,7 +360,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       }
     }
 
-    // 3. For any terms still missing from prefix_match, fetch in parallel (capped at 12 to respect Cloudflare subrequest limits)
+    // 3. For any terms still missing from prefix_match, fetch in parallel (capped at 12)
     const stillMissing = normalizedTerms.filter(t => !resultMap.has(t) && t.length <= 40 && !t.includes('|')).slice(0, 12);
     if (stillMissing.length > 0) {
       const missingFetches = stillMissing.map(async (mTerm) => {
@@ -447,8 +374,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
               const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
               const parsed = parseItemVelocity(exact);
               if (parsed) {
-                const cKey = `${mTerm}_${country}`;
-                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                velocityCache.set(`${mTerm}_${country}`, parsed);
                 resultMap.set(mTerm, parsed);
               }
             }
@@ -463,30 +389,8 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       await Promise.allSettled(missingFetches);
     }
 
-    // Active LRU memory pruning: evict expired items, then enforce hard ceiling
-    if (velocityCache.size >= VELOCITY_CACHE_MAX) {
-      const curTime = Date.now();
-      for (const [k, v] of velocityCache.entries()) {
-        if (curTime - v.timestamp >= VELOCITY_TTL_MS) {
-          velocityCache.delete(k);
-        }
-      }
-      while (velocityCache.size >= VELOCITY_CACHE_MAX) {
-        const oldestKey = velocityCache.keys().next().value;
-        if (!oldestKey) break;
-        velocityCache.delete(oldestKey);
-      }
-    }
-
     return resultMap;
-  })();
-
-  inflightVelocity.set(inflightKey, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    inflightVelocity.delete(inflightKey);
-  }
+  });
 }
 
 export async function fetchPinterestTrends(term, country = 'US', force = false) {
@@ -496,219 +400,188 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
   }
 
   const cacheKey = `${cleanTerm}_${country}`;
-  const now = Date.now();
-
-  // 1. Check LRU Cache (unless force refresh requested)
-  if (!force) {
-    const cached = trendsCache.get(cacheKey);
-    if (cached) {
-      if (now - cached.timestamp < TRENDS_TTL_MS) {
-        return { success: true, cached: true, ...cached.data };
-      } else {
-        trendsCache.delete(cacheKey);
-      }
-    }
-  }
-
-  // 2. Coalesce in-flight requests
-  if (inflightTrends.has(cacheKey)) {
-    return await inflightTrends.get(cacheKey);
-  }
-
-  const promise = (async () => {
-    try {
-      const headers = getStandardPinterestHeaders({
-        referer: 'https://trends.pinterest.com/',
-        extraHeaders: {
-          'Accept': 'application/json, text/plain, */*'
-        }
-      });
-
-      // 1. Fetch exact prefix match for the term to get primary 52-week curve
-      const prefixUrl = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanTerm)}&country=${country}`;
-      // 2. Fetch related terms for comparison and related sparklines
-      const relatedUrl = `https://trends.pinterest.com/related_terms/?requestTerm=${encodeURIComponent(cleanTerm)}&country=${country}`;
-
-      // Concurrent fetch: Trends curve + Related terms + Official Interest Volume + Live Official Demographics + Official Collage Images
-      const today = new Date().toISOString().slice(0, 10);
-      const demoUrl = `https://trends.pinterest.com/demographics/?terms=${encodeURIComponent(cleanTerm)}&country=${country}&end_date=${today}&days=365`;
-
-      const [prefixRes, relatedRes, interestData, demoRes, collageList] = await Promise.allSettled([
-        pinterestFetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        pinterestFetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        fetchPinterestInterestVolume(cleanTerm),
-        pinterestFetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        fetchPinterestTrendsCollage(cleanTerm, country)
-      ]);
-
-      let primaryCounts = [];
-      let matchedTerm = cleanTerm;
-
-      if (prefixRes.status === 'fulfilled') {
-        if (prefixRes.value.ok) {
-          try {
-            const prefixData = await prefixRes.value.json();
-            if (Array.isArray(prefixData) && prefixData.length > 0) {
-              // Find best match or default to first
-              const exact = prefixData.find(p => p.term?.toLowerCase() === cleanTerm) || prefixData[0];
-              primaryCounts = Array.isArray(exact.counts) ? exact.counts : [];
-              matchedTerm = exact.term || cleanTerm;
-            }
-          } catch (_) {}
-        } else if (prefixRes.value.body) {
-          await prefixRes.value.body.cancel().catch(() => {});
-        }
-      }
-
-      let relatedTrends = [];
-      if (relatedRes.status === 'fulfilled') {
-        if (relatedRes.value.ok) {
-          try {
-            const relatedData = await relatedRes.value.json();
-            if (Array.isArray(relatedData)) {
-              relatedTrends = relatedData.map(r => ({
-                term: r.term,
-                counts: Array.isArray(r.counts) ? r.counts : [],
-                hasPrediction: Boolean(r.hasPrediction)
-              }));
-              // If primary counts not found in prefix_match, check related
-              if (primaryCounts.length === 0) {
-                const exactInRelated = relatedData.find(r => r.term?.toLowerCase() === cleanTerm);
-                if (exactInRelated && Array.isArray(exactInRelated.counts)) {
-                  primaryCounts = exactInRelated.counts;
-                }
-              }
-            }
-          } catch (_) {}
-        } else if (relatedRes.value.body) {
-          await relatedRes.value.body.cancel().catch(() => {});
-        }
-      }
-
-      // Calculate Peak and Momentum metrics strictly from real data
-      let peakIndex = 0;
-      let peakVal = 0;
-      let sum = 0;
-      let avgCount = 0;
-      let latestCount = null;
-      let prevCount = null;
-      let momentumDelta = null;
-
-      if (primaryCounts.length > 0) {
-        primaryCounts.forEach((val, idx) => {
-          const v = Number(val || 0);
-          sum += v;
-          if (v > peakVal) {
-            peakVal = v;
-            peakIndex = idx;
+  const { value, cached } = await trendsCache.getOrFetchWithMeta(
+    cacheKey,
+    async () => {
+      try {
+        const headers = getStandardPinterestHeaders({
+          referer: 'https://trends.pinterest.com/',
+          extraHeaders: {
+            'Accept': 'application/json, text/plain, */*'
           }
         });
-        avgCount = Math.round(sum / (primaryCounts.length || 1));
-        latestCount = primaryCounts[primaryCounts.length - 1] ?? 0;
-        prevCount = primaryCounts.length >= 2 ? primaryCounts[primaryCounts.length - 2] : latestCount;
-        momentumDelta = latestCount - prevCount;
-      }
 
-      // Extract official Pinterest Interest Annotation data if available
-      const interestInfo = interestData.status === 'fulfilled' ? interestData.value : null;
-      const exactSearchCount = interestInfo?.internal_search_count || 0;
+        // 1. Fetch exact prefix match for the term to get primary 52-week curve
+        const prefixUrl = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanTerm)}&country=${country}`;
+        // 2. Fetch related terms for comparison and related sparklines
+        const relatedUrl = `https://trends.pinterest.com/related_terms/?requestTerm=${encodeURIComponent(cleanTerm)}&country=${country}`;
 
-      // Prioritize official Pinterest Internal Search Count (Exact parity with Image 1 & 2: 514,940)
-      const estimatedMonthlyVolume = exactSearchCount > 0
-        ? exactSearchCount
-        : (avgCount > 0 ? Math.round(avgCount * 3650 + (peakVal * 1200)) : null);
+        // Concurrent fetch: Trends curve + Related terms + Official Interest Volume + Live Official Demographics + Official Collage Images
+        const today = new Date().toISOString().slice(0, 10);
+        const demoUrl = `https://trends.pinterest.com/demographics/?terms=${encodeURIComponent(cleanTerm)}&country=${country}&end_date=${today}&days=365`;
 
-      // Extract live official Pinterest Demographics distribution if available
-      let demographics = null;
-      if (demoRes.status === 'fulfilled') {
-        if (demoRes.value.ok) {
-          try {
-            const demoJson = await demoRes.value.json();
-            const termDist = demoJson?.term_distributions?.[cleanTerm] || demoJson?.term_distributions?.[matchedTerm];
-            if (termDist && (termDist.age_distribution || termDist.gender_distribution)) {
-              const ageDist = termDist.age_distribution || {};
-              const genderDist = termDist.gender_distribution || {};
+        const [prefixRes, relatedRes, interestData, demoRes, collageList] = await Promise.allSettled([
+          pinterestFetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
+          pinterestFetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
+          fetchPinterestInterestVolume(cleanTerm),
+          pinterestFetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) }),
+          fetchPinterestTrendsCollage(cleanTerm, country)
+        ]);
 
-              const parsePct = (val) => Math.round(Number(val || 0) * 100);
-              const formatDisplayPct = (pct) => {
-                if (pct < 5 && pct > 0) return '<5%';
-                if (pct === 0) return '0%';
-                return `${pct}%`;
-              };
+        let primaryCounts = [];
+        let matchedTerm = cleanTerm;
 
-              const femalePct = parsePct(genderDist.female);
-              const malePct = parsePct(genderDist.male);
-              const unspecifiedPct = parsePct(genderDist.unspecified);
-
-              const ageGroups = ['18-24', '25-34', '35-44', '45-49', '50-54', '55-64', '65+'];
-              const ageList = ageGroups.map(group => {
-                const pct = parsePct(ageDist[group]);
-                return {
-                  group,
-                  pct,
-                  display_pct: formatDisplayPct(pct)
-                };
-              });
-
-              demographics = {
-                gender: {
-                  female_pct: femalePct,
-                  female_display: formatDisplayPct(femalePct),
-                  male_pct: malePct,
-                  male_display: formatDisplayPct(malePct),
-                  unspecified_pct: unspecifiedPct,
-                  unspecified_display: formatDisplayPct(unspecifiedPct)
-                },
-                age: ageList
-              };
-            }
-          } catch (_) {}
-        } else if (demoRes.value.body) {
-          await demoRes.value.body.cancel().catch(() => {});
+        if (prefixRes.status === 'fulfilled') {
+          if (prefixRes.value.ok) {
+            try {
+              const prefixData = await prefixRes.value.json();
+              if (Array.isArray(prefixData) && prefixData.length > 0) {
+                const exact = prefixData.find(p => p.term?.toLowerCase() === cleanTerm) || prefixData[0];
+                primaryCounts = Array.isArray(exact.counts) ? exact.counts : [];
+                matchedTerm = exact.term || cleanTerm;
+              }
+            } catch (_) {}
+          } else if (prefixRes.value.body) {
+            await prefixRes.value.body.cancel().catch(() => {});
+          }
         }
+
+        let relatedTrends = [];
+        if (relatedRes.status === 'fulfilled') {
+          if (relatedRes.value.ok) {
+            try {
+              const relatedData = await relatedRes.value.json();
+              if (Array.isArray(relatedData)) {
+                relatedTrends = relatedData.map(r => ({
+                  term: r.term,
+                  counts: Array.isArray(r.counts) ? r.counts : [],
+                  hasPrediction: Boolean(r.hasPrediction)
+                }));
+                if (primaryCounts.length === 0) {
+                  const exactInRelated = relatedData.find(r => r.term?.toLowerCase() === cleanTerm);
+                  if (exactInRelated && Array.isArray(exactInRelated.counts)) {
+                    primaryCounts = exactInRelated.counts;
+                  }
+                }
+              }
+            } catch (_) {}
+          } else if (relatedRes.value.body) {
+            await relatedRes.value.body.cancel().catch(() => {});
+          }
+        }
+
+        let peakIndex = 0;
+        let peakVal = 0;
+        let sum = 0;
+        let avgCount = 0;
+        let latestCount = null;
+        let prevCount = null;
+        let momentumDelta = null;
+
+        if (primaryCounts.length > 0) {
+          primaryCounts.forEach((val, idx) => {
+            const v = Number(val || 0);
+            sum += v;
+            if (v > peakVal) {
+              peakVal = v;
+              peakIndex = idx;
+            }
+          });
+          avgCount = Math.round(sum / (primaryCounts.length || 1));
+          latestCount = primaryCounts[primaryCounts.length - 1] ?? 0;
+          prevCount = primaryCounts.length >= 2 ? primaryCounts[primaryCounts.length - 2] : latestCount;
+          momentumDelta = latestCount - prevCount;
+        }
+
+        const interestInfo = interestData.status === 'fulfilled' ? interestData.value : null;
+        const exactSearchCount = interestInfo?.internal_search_count || 0;
+
+        const estimatedMonthlyVolume = exactSearchCount > 0
+          ? exactSearchCount
+          : (avgCount > 0 ? Math.round(avgCount * 3650 + (peakVal * 1200)) : null);
+
+        let demographics = null;
+        if (demoRes.status === 'fulfilled') {
+          if (demoRes.value.ok) {
+            try {
+              const demoJson = await demoRes.value.json();
+              const termDist = demoJson?.term_distributions?.[cleanTerm] || demoJson?.term_distributions?.[matchedTerm];
+              if (termDist && (termDist.age_distribution || termDist.gender_distribution)) {
+                const ageDist = termDist.age_distribution || {};
+                const genderDist = termDist.gender_distribution || {};
+
+                const parsePct = (val) => Math.round(Number(val || 0) * 100);
+                const formatDisplayPct = (pct) => {
+                  if (pct < 5 && pct > 0) return '<5%';
+                  if (pct === 0) return '0%';
+                  return `${pct}%`;
+                };
+
+                const femalePct = parsePct(genderDist.female);
+                const malePct = parsePct(genderDist.male);
+                const unspecifiedPct = parsePct(genderDist.unspecified);
+
+                const ageGroups = ['18-24', '25-34', '35-44', '45-49', '50-54', '55-64', '65+'];
+                const ageList = ageGroups.map(group => {
+                  const pct = parsePct(ageDist[group]);
+                  return {
+                    group,
+                    pct,
+                    display_pct: formatDisplayPct(pct)
+                  };
+                });
+
+                demographics = {
+                  gender: {
+                    female_pct: femalePct,
+                    female_display: formatDisplayPct(femalePct),
+                    male_pct: malePct,
+                    male_display: formatDisplayPct(malePct),
+                    unspecified_pct: unspecifiedPct,
+                    unspecified_display: formatDisplayPct(unspecifiedPct)
+                  },
+                  age: ageList
+                };
+              }
+            } catch (_) {}
+          } else if (demoRes.value.body) {
+            await demoRes.value.body.cancel().catch(() => {});
+          }
+        }
+
+        return {
+          success: true,
+          term: matchedTerm,
+          country,
+          counts_52_weeks: primaryCounts,
+          current_index: latestCount,
+          peak_index: peakIndex,
+          peak_value: peakVal,
+          average_index: avgCount,
+          momentum_delta: momentumDelta,
+          estimated_volume: estimatedMonthlyVolume,
+          exact_volume: exactSearchCount || null,
+          annotation_id: interestInfo?.id || null,
+          category_tree: interestInfo?.seo_breadcrumbs || [],
+          related_interests: interestInfo?.seo_related_interests || [],
+          ideas_pivots: interestInfo?.ideas_pivots || [],
+          feed_update_time: interestInfo?.feed_update_time || null,
+          related_trends: relatedTrends,
+          demographics,
+          collage_images: (collageList.status === 'fulfilled' && Array.isArray(collageList.value)) ? collageList.value : []
+        };
+      } catch (err) {
+        console.warn(`[fetchPinterestTrends] Error for "${cleanTerm}":`, err.message);
+        return { success: false, error: err.message };
       }
+    },
+    { forceRefresh: Boolean(force), shouldCache: (val) => Boolean(val?.success) }
+  );
 
-      const resultData = {
-        term: matchedTerm,
-        country,
-        counts_52_weeks: primaryCounts,
-        current_index: latestCount,
-        peak_index: peakIndex,
-        peak_value: peakVal,
-        average_index: avgCount,
-        momentum_delta: momentumDelta,
-        estimated_volume: estimatedMonthlyVolume,
-        exact_volume: exactSearchCount || null,
-        annotation_id: interestInfo?.id || null,
-        category_tree: interestInfo?.seo_breadcrumbs || [],
-        related_interests: interestInfo?.seo_related_interests || [],
-        ideas_pivots: interestInfo?.ideas_pivots || [],
-        feed_update_time: interestInfo?.feed_update_time || null,
-        related_trends: relatedTrends,
-        demographics,
-        collage_images: (collageList.status === 'fulfilled' && Array.isArray(collageList.value)) ? collageList.value : []
-      };
-
-      // Manage cache size
-      if (trendsCache.size >= TRENDS_CACHE_MAX) {
-        const oldestKey = trendsCache.keys().next().value;
-        if (oldestKey) trendsCache.delete(oldestKey);
-      }
-      trendsCache.set(cacheKey, { data: resultData, timestamp: now });
-
-      return { success: true, cached: false, ...resultData };
-    } catch (err) {
-      console.warn(`[fetchPinterestTrends] Error for "${cleanTerm}":`, err.message);
-      return { success: false, error: err.message };
-    }
-  })();
-
-  inflightTrends.set(cacheKey, promise);
-  try {
-    return await promise;
-  } finally {
-    inflightTrends.delete(cacheKey);
+  if (!value?.success) {
+    return value;
   }
+  return { ...value, cached };
 }
 
 /**

@@ -614,6 +614,7 @@ export async function handlePinsRoutes({
       await invalidateEdgeCache('keywords');
       await invalidateEdgeCache('folders');
       await invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('creators');
       await invalidateEdgeCache('competitors');
 
       return jsonResponse({ success: true, purged: true, pin_id: pinId });

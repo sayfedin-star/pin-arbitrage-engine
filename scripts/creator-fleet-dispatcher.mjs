@@ -19,7 +19,7 @@
 
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
-import { normalizePinterestUsername } from '../src/modules/creators/service.mjs';
+import { normalizePinterestUsername } from '../src/modules/creators/competitors-crud.mjs';
 import { writeOutput, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
 loadDotEnvIfPresent();

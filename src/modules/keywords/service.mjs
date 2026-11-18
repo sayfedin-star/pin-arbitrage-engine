@@ -23,7 +23,8 @@ import {
   fetchPinsBatchFromPidgets,
   pinterestFetch
 } from '../../core/pinterest/index.mjs';
-import { isSyntheticPinTitle, derivePinTitle, autoDiscoverFolderCreatorsForKeyword } from './folders-service.mjs';
+import { isSyntheticPinTitle, derivePinTitle } from './folders-crossover.mjs';
+import { autoDiscoverFolderCreatorsForKeyword } from './folders-crud.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
 import {
@@ -60,7 +61,7 @@ export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
         FROM universal_master_pins ump
         WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
         LIMIT 2000;
-      `.catch(() => []);
+      `;
       for (const hr of (masterRows || [])) {
         if (hr && (hr.title || hr.image_url)) {
           masterMap.set(String(hr.pin_id), hr);
@@ -84,7 +85,8 @@ export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
         created_at_pinterest: row.created_at_pinterest || m.created_at_pinterest || null
       };
     });
-  } catch (_) {
+  } catch (err) {
+    console.warn('[hydrateDisplacedPinsMetadata] Master pins hydration lookup warning:', err?.message || err);
     return indexRows;
   }
 }
@@ -292,7 +294,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       SELECT pin_id
       FROM keyword_ignored_pins
       WHERE keyword_id = ${kid};
-    `.catch(() => []);
+    `;
     const ignoredPinSet = new Set(ignoredPinRows.map(r => String(r.pin_id)));
 
     const headers = getPinterestHeaders({
@@ -444,9 +446,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
 
-    // Pre-query historical records from SSOT:
+    // Pre-query historical records from SSOT (surface transient DB errors instead of wiping baselines!):
     // A) Immediate prior active SERP state (including creative fields)
-    let immediateSnapshots = await sql`
+    const immediateSnapshots = await sql`
       SELECT
         ksp.pin_id, ksp.rank_position, ksp.prev_rank_position,
         ump.save_count,
@@ -463,7 +465,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE ksp.keyword_id = ${kid}
         AND ksp.is_displaced = FALSE;
-    `.catch(() => []);
+    `;
 
     const immediateMap = new Map();
     const baselineMap = new Map();
@@ -506,7 +508,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       SELECT pin_id, last_known_rank
       FROM keyword_serp_positions
       WHERE keyword_id = ${kid} AND is_displaced = TRUE;
-    `.catch(() => []);
+    `;
     const existingDisplacedMap = new Map();
     for (const d of existingDisplacedRows) {
       existingDisplacedMap.set(String(d.pin_id), d);
@@ -529,12 +531,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           WHERE pin_id = ANY(${discoveredPids})
             AND recorded_date < (NOW() AT TIME ZONE 'UTC')::date
           ORDER BY pin_id, recorded_date DESC;
-        `.catch(() => []),
+        `,
         sql`
           SELECT pin_id, save_count, repin_count
           FROM universal_master_pins
           WHERE pin_id = ANY(${discoveredPids});
-        `.catch(() => [])
+        `
       ]);
       for (const r of masterRows) {
         const pid = String(r.pin_id);
@@ -1459,7 +1461,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             crawl_lease_until = NULL
         WHERE id = ${kid}
           AND crawl_lease_token = ${effectiveToken}::uuid;
-      `.catch(() => {});
+      `.catch((releaseErr) => {
+        console.warn(`[crawlKeywordSERP] Lease cleanup warning for keyword ${kid}:`, releaseErr?.message || releaseErr);
+      });
     }
   }
 }
@@ -1474,81 +1478,81 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const { status = 'ALL', limit = 500, offset = 0, env = null, forceRefresh = false } = options;
+  const { limit = 500, offset = 0 } = options;
   // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 
+  // Query keyword_serp_positions joined with universal_master_pins in parallel (surface real DB errors)
+  const [rawRows, cntRows, activeStatsRows] = await Promise.all([
+    sql`
+      SELECT
+        ksp.keyword_id,
+        ksp.pin_id,
+        ump.title,
+        COALESCE(ump.clean_domain, '') AS domain,
+        ump.destination_url,
+        ump.image_url,
+        ump.creator_username,
+        ump.board_name,
+        ksp.last_known_rank,
+        ksp.displaced_date,
+        'displaced_active' AS status,
+        ump.save_count AS current_saves,
+        ump.save_count,
+        ump.repin_count AS current_repins,
+        ump.repin_count,
+        ump.comment_count AS current_comments,
+        ump.comment_count,
+        ump.share_count AS current_shares,
+        ump.share_count,
+        ump.daily_save_velocity,
+        ump.daily_save_velocity AS calculated_velocity,
+        ump.daily_repin_velocity,
+        ksp.vacuum_opportunity_score,
+        COALESCE(ump.alt_text, '') AS seo_alt_text,
+        COALESCE(ump.visual_annotations, '[]'::jsonb) AS annotations,
+        COALESCE(NULLIF(ump.dominant_color, ''), '#888888') AS dominant_color,
+        ump.created_at_pinterest,
+        COALESCE(NULLIF(ump.creation_method, ''), 'pinterest_platform') AS creation_method,
+        COALESCE(ump.metadata, '{}'::jsonb) AS metadata,
+        ksp.updated_at AS created_at
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.keyword_id = ${kid}
+        AND ksp.is_displaced = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
+        )
+      ORDER BY ksp.vacuum_opportunity_score DESC NULLS LAST, ksp.last_known_rank ASC NULLS LAST
+      LIMIT ${lim} OFFSET ${off};
+    `,
+    sql`
+      SELECT COUNT(*)::int AS total
+      FROM keyword_serp_positions ksp
+      WHERE ksp.keyword_id = ${kid}
+        AND ksp.is_displaced = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
+        );
+    `,
+    sql`
+      SELECT
+        COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ump.save_count), 500)::numeric AS median_saves,
+        COUNT(*) FILTER (WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))::int AS domainless_top10
+      FROM keyword_serp_positions ksp
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE ksp.keyword_id = ${kid}
+        AND ksp.is_displaced = FALSE
+        AND ksp.rank_position <= 10;
+    `
+  ]);
 
-  // Query keyword_serp_positions joined with universal_master_pins
-  const rawRows = await sql`
-    SELECT
-      ksp.keyword_id,
-      ksp.pin_id,
-      ump.title,
-      COALESCE(ump.clean_domain, '') AS domain,
-      ump.destination_url,
-      ump.image_url,
-      ump.creator_username,
-      ump.board_name,
-      ksp.last_known_rank,
-      ksp.displaced_date,
-      'displaced_active' AS status,
-      ump.save_count AS current_saves,
-      ump.save_count,
-      ump.repin_count AS current_repins,
-      ump.repin_count,
-      ump.comment_count AS current_comments,
-      ump.comment_count,
-      ump.share_count AS current_shares,
-      ump.share_count,
-      ump.daily_save_velocity,
-      ump.daily_save_velocity AS calculated_velocity,
-      ump.daily_repin_velocity,
-      ksp.vacuum_opportunity_score,
-      COALESCE(ump.alt_text, '') AS seo_alt_text,
-      COALESCE(ump.visual_annotations, '[]'::jsonb) AS annotations,
-      COALESCE(NULLIF(ump.dominant_color, ''), '#888888') AS dominant_color,
-      ump.created_at_pinterest,
-      COALESCE(NULLIF(ump.creation_method, ''), 'pinterest_platform') AS creation_method,
-      COALESCE(ump.metadata, '{}'::jsonb) AS metadata,
-      ksp.updated_at AS created_at
-    FROM keyword_serp_positions ksp
-    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-    WHERE ksp.keyword_id = ${kid}
-      AND ksp.is_displaced = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM keyword_ignored_pins kip
-        WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
-      )
-    ORDER BY ksp.vacuum_opportunity_score DESC NULLS LAST, ksp.last_known_rank ASC NULLS LAST
-    LIMIT ${lim} OFFSET ${off};
-  `.catch(() => []);
-
-  const [cntRow] = await sql`
-    SELECT COUNT(*)::int AS total
-    FROM keyword_serp_positions ksp
-    WHERE ksp.keyword_id = ${kid}
-      AND ksp.is_displaced = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM keyword_ignored_pins kip
-        WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
-      );
-  `.catch(() => [{ total: 0 }]);
-
-  const rows = rawRows;
-
-  // Active Top-10 stats for continuous Decay- & Competition-Adjusted SERP Vacuum Opportunity Score (V_opp)
-  const [activeStatsRow] = await sql`
-    SELECT
-      COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ump.save_count), 500)::numeric AS median_saves,
-      COUNT(*) FILTER (WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))::int AS domainless_top10
-    FROM keyword_serp_positions ksp
-    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-    WHERE ksp.keyword_id = ${kid}
-      AND ksp.is_displaced = FALSE
-      AND ksp.rank_position <= 10;
-  `.catch(() => [{ median_saves: 500, domainless_top10: 0 }]);
+  const rows = Array.isArray(rawRows) ? rawRows : [];
+  const cntRow = cntRows?.[0];
+  const activeStatsRow = activeStatsRows?.[0];
 
   const medianTop10Saves = Math.max(100, Number(activeStatsRow?.median_saves || 500));
   const domainlessTop10Count = Math.max(0, Number(activeStatsRow?.domainless_top10 || 0));

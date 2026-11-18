@@ -9,35 +9,36 @@ import {
   resolveCanonicalPinTitle,
   normalizeCleanDomain
 } from '../../domain/pin-intelligence.mjs';
-import { getFolderPulseCrossoverAnalytics } from '../pulse/service.mjs';
+import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 import { buildFolderCrossoverMatrix, synthesizeSpokeTitle } from './folders-crossover-builders.mjs';
 export { buildFolderCrossoverMatrix, synthesizeSpokeTitle };
 
-export const folderTrendsCache = new Map();
 export const FOLDER_TRENDS_CACHE_MAX = 100;
+export const folderTrendsCache = new TtlSingleflightCache({
+  maxEntries: FOLDER_TRENDS_CACHE_MAX,
+  defaultTtlMs: 60 * 60 * 1000
+});
 
 export function cacheFolderTrends(term, data) {
   if (!term || typeof term !== 'string') return;
   const cleanTerm = term.trim().toLowerCase();
   if (cleanTerm) {
-    if (folderTrendsCache.has(cleanTerm)) {
-      folderTrendsCache.delete(cleanTerm);
-    } else if (folderTrendsCache.size >= FOLDER_TRENDS_CACHE_MAX) {
-      const oldestKey = folderTrendsCache.keys().next().value;
-      if (oldestKey !== undefined) {
-        folderTrendsCache.delete(oldestKey);
-      }
-    }
-    folderTrendsCache.set(cleanTerm, { timestamp: Date.now(), data });
+    folderTrendsCache.set(cleanTerm, data);
   }
 }
 
-const crossoverCache = new Map();
 const CROSSOVER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
 const CROSSOVER_CACHE_MAX = 50;
-const inflightCrossover = new Map();
-export const folderForceRefreshCooldown = new Map();
+const crossoverCache = new TtlSingleflightCache({
+  maxEntries: CROSSOVER_CACHE_MAX,
+  defaultTtlMs: CROSSOVER_TTL_MS
+});
+
 export const FOLDER_FORCE_REFRESH_COOLDOWN_MS = 15 * 1000; // 15-second per-folder cooldown on forced ?refresh=true
+export const folderForceRefreshCooldown = new TtlSingleflightCache({
+  maxEntries: 200,
+  defaultTtlMs: FOLDER_FORCE_REFRESH_COOLDOWN_MS
+});
 
 export function normalizeFolderMetadata(raw) {
   if (!raw) return {};
@@ -63,13 +64,14 @@ export function normalizeFolderMetadata(raw) {
  */
 export function invalidateFolderCache(folderId) {
   if (folderId) {
-    crossoverCache.delete(Number(folderId));
-    folderForceRefreshCooldown.delete(Number(folderId));
+    const key = String(Number(folderId));
+    crossoverCache.delete(key);
+    folderForceRefreshCooldown.delete(key);
   } else {
-    crossoverCache.clear();
-    folderForceRefreshCooldown.clear();
+    crossoverCache.invalidate();
+    folderForceRefreshCooldown.invalidate();
   }
-  folderTrendsCache.clear();
+  folderTrendsCache.invalidate();
 }
 
 /**
@@ -165,32 +167,14 @@ export const STOPWORDS = new Set([
 
 /**
  * Commercial Domain Sanitizer
- * Strips internal, placeholder, and non-external domains (e.g. 'uploaded by user', 'pinterest.com')
- * Delegates to canonical normalizeCleanDomain from src/domain/pin-intelligence.mjs
+ * Thin option-preset alias delegating to canonical `normalizeCleanDomain` SSOT.
  */
-const INVALID_EXTERNAL_DOMAINS = new Set([
-  'uploaded by user',
-  'uploaded by pinner',
-  'uploaded-by-user',
-  'organic',
-  'unknown',
-  'n/a',
-  'none',
-  'null',
-  'undefined',
-  'localhost'
-]);
-
 export function cleanExternalDomain(domainStr) {
-  if (!domainStr || typeof domainStr !== 'string') return '';
-  const raw = domainStr.trim().toLowerCase();
-  if (!raw || INVALID_EXTERNAL_DOMAINS.has(raw)) return '';
-  const cleaned = normalizeCleanDomain(domainStr, { strictFqdn: true, preserveOrganic: false });
-  if (!cleaned || INVALID_EXTERNAL_DOMAINS.has(cleaned)) return '';
-  if (/(?:^|\.)pinterest\.[a-z.]+$/.test(cleaned) || /(?:^|\.)pinimg\.[a-z.]+$/.test(cleaned)) {
-    return '';
-  }
-  return cleaned;
+  return normalizeCleanDomain(domainStr, {
+    strictFqdn: true,
+    preserveOrganic: false,
+    excludeInternal: true
+  });
 }
 
 /**
@@ -238,67 +222,42 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
-  const now = Date.now();
+  const key = String(fid);
   let effectiveRefresh = Boolean(refresh);
 
   // [INVARIANT: FOLDER-FORCE-REFRESH-COOLDOWN]
   // 15-second per-folder in-memory cooldown on forced ?refresh=true requests
-  // Rapid repeated requests within 15 seconds serve the freshly computed cache instead of launching parallel 20-runner DoS storms.
-  if (effectiveRefresh) {
-    const lastRefresh = folderForceRefreshCooldown.get(fid);
-    if (lastRefresh && (now - lastRefresh < FOLDER_FORCE_REFRESH_COOLDOWN_MS)) {
-      effectiveRefresh = false;
-    }
+  if (effectiveRefresh && folderForceRefreshCooldown.has(key)) {
+    effectiveRefresh = false;
   }
 
   if (!effectiveRefresh) {
-    // [INVARIANT: FOLDER-CROSSOVER-SCHEMA-VERSION] :crossover:v5
-    const cached = crossoverCache.get(fid);
-    const ttl = cached?.ttlMs || CROSSOVER_TTL_MS;
-    if (cached && (now - cached.timestamp < ttl) && cached.data?._crossover_schema_v === 6) {
-      return cached.data;
+    const cached = crossoverCache.get(key);
+    if (cached && cached._crossover_schema_v === 6) {
+      return cached;
     }
-
-  }
-
-  const flightKey = `${fid}:${effectiveRefresh ? 'refresh' : 'standard'}`;
-  if (inflightCrossover.has(flightKey)) {
-    return await inflightCrossover.get(flightKey);
   }
 
   if (effectiveRefresh) {
-    if (folderForceRefreshCooldown.size >= 200) {
-      const oldest = folderForceRefreshCooldown.keys().next().value;
-      if (oldest) folderForceRefreshCooldown.delete(oldest);
-    }
-    folderForceRefreshCooldown.set(fid, now);
+    folderForceRefreshCooldown.set(key, Date.now());
   }
 
-  const computePromise = (async () => {
-    try {
-      const result = await _executeFolderCrossover(sql, fid, { env, ctx, refresh: effectiveRefresh });
-      if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
-        const oldest = crossoverCache.keys().next().value;
-        if (oldest) crossoverCache.delete(oldest);
+  try {
+    return await crossoverCache.getOrFetch(
+      key,
+      async () => await _executeFolderCrossover(sql, fid, { env, ctx, refresh: effectiveRefresh }),
+      {
+        ttlMs: CROSSOVER_TTL_MS,
+        forceRefresh: effectiveRefresh,
+        shouldCache: (val) => Boolean(val && val._crossover_schema_v === 6)
       }
-      const hasUnhydrated = Boolean(result?._has_unhydrated_priority_pins);
-      const memTtlMs = hasUnhydrated ? (15 * 1000) : CROSSOVER_TTL_MS;
-
-      crossoverCache.set(fid, { timestamp: Date.now(), data: result, ttlMs: memTtlMs });
-
-      return result;
-    } catch (err) {
-      if (effectiveRefresh) {
-        folderForceRefreshCooldown.delete(fid);
-      }
-      throw err;
-    } finally {
-      inflightCrossover.delete(flightKey);
+    );
+  } catch (err) {
+    if (effectiveRefresh) {
+      folderForceRefreshCooldown.delete(key);
     }
-  })();
-
-  inflightCrossover.set(flightKey, computePromise);
-  return await computePromise;
+    throw err;
+  }
 }
 
 async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refresh = false } = {}) {
@@ -355,11 +314,8 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
     };
   }
 
-  // 2. Query Live Active Catalog from keyword_serp_positions for all folder keywords
+  // 2. Query Live Active Catalog & Vault from keyword_serp_positions in a single parallel pass
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
-  // Select targeted JSONB fields ((c.metadata->>'aspect_ratio'), (c.metadata->>'format')) instead of fetching
-  // the entire raw c.metadata JSONB blob, reducing network transfer by ~15MB-20MB across thousands of pins.
-  const pulseAnalyticsPromise = getFolderPulseCrossoverAnalytics(sql, fid, { env, ctx, refresh: Boolean(refresh) }).catch(() => null);
   let [pinRows, displacedRows, capsuleRows, repinWindowRows] = await Promise.all([
     sql`
       WITH ranked_active AS (
@@ -627,7 +583,10 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
         COALESCE(SUM(repins_10d), 0)::bigint AS repins_10d,
         COALESCE(SUM(repins_15d), 0)::bigint AS repins_15d
       FROM repin_deltas;
-    `.catch(() => [{ repins_5d: 0, repins_7d: 0, repins_10d: 0, repins_15d: 0 }])
+    `.catch((err) => {
+      console.warn(`[calculateFolderCrossover] Rolling repin window query warning for folder ${fid}:`, err?.message || err);
+      return [{ repins_5d: 0, repins_7d: 0, repins_10d: 0, repins_15d: 0 }];
+    })
   ]);
 
   if (!pinRows) pinRows = [];
@@ -643,7 +602,6 @@ async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refre
     pinRows,
     displacedRows,
     capsuleRows,
-    repinWindowRows,
-    pulseAnalyticsPromise
+    repinWindowRows
   });
 }

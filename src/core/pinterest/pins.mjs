@@ -26,6 +26,7 @@ import {
   pinterestFetch,
   parseRetryAfterSeconds
 } from './client.mjs';
+import { normalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
 
 export const PINTEREST_JSON_API_HEADERS = {
   'User-Agent': CANONICAL_FINGERPRINT.USER_AGENT,
@@ -56,21 +57,13 @@ export function sanitizeDestinationUrl(rawUrl) {
 
 /**
  * Normalizes domains into clean root domains without www.
+ * Thin preset alias delegating to canonical `normalizeCleanDomain` SSOT.
  */
 export function normalizeDomain(rawDomain, rawUrl = '') {
-  if (rawDomain && typeof rawDomain === 'string') {
-    const clean = rawDomain.trim().toLowerCase().replace(/^www\./, '');
-    if (clean && clean !== 'uploaded by user' && clean !== 'organic') {
-      return clean;
-    }
-  }
-  if (rawUrl && typeof rawUrl === 'string') {
-    try {
-      const u = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
-      return u.hostname.toLowerCase().replace(/^www\./, '');
-    } catch (_) {}
-  }
-  return 'uploaded by user';
+  return normalizeCleanDomain(rawDomain, {
+    fallbackUrl: rawUrl && typeof rawUrl === 'string' && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl,
+    defaultFallback: 'uploaded by user'
+  });
 }
 
 /**

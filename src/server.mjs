@@ -74,17 +74,35 @@ export async function dbHealthCheck(client) {
 }
 
 /**
- * Concurrency-limited in-memory background task queue (p-limit(4) pattern)
- * Decouples background tasks from HTTP response latency so responses complete immediately.
+ * Concurrency-limited, bounded in-memory background task queue (p-limit(4), maxPending=250)
+ * Decouples background tasks from HTTP response latency with 503 backpressure on overflow.
  */
 export class AsyncTaskQueue {
-  constructor(concurrency = 4) {
-    this.concurrency = concurrency;
+  constructor(concurrency = 4, maxPending = 250) {
+    if (concurrency && typeof concurrency === 'object') {
+      this.concurrency = Math.max(1, Number(concurrency.concurrency) || 4);
+      this.maxPending = Math.max(1, Number(concurrency.maxPending) || 250);
+    } else {
+      this.concurrency = Math.max(1, Number(concurrency) || 4);
+      this.maxPending = Math.max(1, Number(maxPending) || 250);
+    }
     this.running = 0;
     this.queue = [];
   }
 
+  get isSaturated() {
+    return this.queue.length >= this.maxPending;
+  }
+
   add(task) {
+    if (this.queue.length >= this.maxPending) {
+      const err = new Error(`Background task queue saturated (pending=${this.queue.length}, maxPending=${this.maxPending})`);
+      err.code = 'QUEUE_SATURATED';
+      err.statusCode = 503;
+      err.status = 503;
+      return Promise.reject(err);
+    }
+
     return new Promise((resolve, reject) => {
       this.queue.push({
         fn: typeof task === 'function' ? task : () => task,
@@ -132,7 +150,7 @@ export class AsyncTaskQueue {
   }
 }
 
-export const serverBackgroundTaskQueue = new AsyncTaskQueue(4);
+export const serverBackgroundTaskQueue = new AsyncTaskQueue(4, 250);
 registerDefaultBackgroundQueue(serverBackgroundTaskQueue);
 
 /**
@@ -270,9 +288,17 @@ export function createFastifyApp(customEnv = {}) {
     delete env.PIN_ARBITRAGE_SECRET;
   }
 
+  const configuredMaxPending = customEnv.MAX_QUEUE_PENDING ?? customEnv.QUEUE_MAX_PENDING;
+  const taskQueue = customEnv.TASK_QUEUE instanceof AsyncTaskQueue
+    ? customEnv.TASK_QUEUE
+    : (configuredMaxPending !== undefined
+      ? new AsyncTaskQueue(customEnv.QUEUE_CONCURRENCY || 4, configuredMaxPending)
+      : serverBackgroundTaskQueue);
+  app.decorate('taskQueue', taskQueue);
+
   app.addHook('onClose', async () => {
     try {
-      await serverBackgroundTaskQueue.drain(4000);
+      await taskQueue.drain(4000);
     } catch (qErr) {
       console.warn('[server.mjs onClose task queue drain warning]:', qErr?.message || qErr);
     }
@@ -299,7 +325,7 @@ export function createFastifyApp(customEnv = {}) {
         return store.customCtx.waitUntil(p);
       }
       if (p) {
-        serverBackgroundTaskQueue.add(typeof p === 'function' ? p : () => p).catch((err) => {
+        taskQueue.add(typeof p === 'function' ? p : () => p).catch((err) => {
           console.warn('[server.mjs background task note]:', err?.message || err);
         });
       }
@@ -332,8 +358,9 @@ export function createFastifyApp(customEnv = {}) {
       commit: getGitCommitSha(),
       uptime_seconds: Math.floor(process.uptime()),
       background_queue: {
-        pending: serverBackgroundTaskQueue.pending,
-        active: serverBackgroundTaskQueue.active
+        pending: taskQueue.pending,
+        active: taskQueue.active,
+        max_pending: taskQueue.maxPending
       },
       timestamp: new Date().toISOString()
     };
@@ -348,7 +375,14 @@ export function createFastifyApp(customEnv = {}) {
   });
 
   function verifyInternalAdminAuth(request, reply, unauthorizedMessage, notConfiguredMessage = 'API_SECRET_KEY is not configured on server.') {
-    const isTestOrDev = env.NODE_ENV === 'test' || env.ENVIRONMENT === 'test' || Boolean(globalThis.__PAE_TEST_MODE__);
+    const isExplicitProd = env.NODE_ENV === 'production' || env.ENVIRONMENT === 'production';
+    const isTestOrDev = !isExplicitProd && (
+      env.NODE_ENV === 'test' ||
+      env.ENVIRONMENT === 'test' ||
+      env.NODE_ENV === 'development' ||
+      env.ENVIRONMENT === 'development' ||
+      Boolean(globalThis.__PAE_TEST_MODE__)
+    );
     const envSecretKey = env.API_SECRET_KEY || env.ADMIN_KEY || env.INTERNAL_INGEST_KEY || env.PIN_ARBITRAGE_SECRET || '';
     const processSecretKey = typeof process !== 'undefined'
       ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.INTERNAL_INGEST_KEY || process.env.PIN_ARBITRAGE_SECRET || '')
@@ -395,7 +429,21 @@ export function createFastifyApp(customEnv = {}) {
     return true;
   }
 
-  // 2. Native Fastify POST /api/internal/ingest (Zero-copy JSON parsing & Auth)
+  function sendQueueSaturatedReply(reply) {
+    return reply
+      .code(503)
+      .header('Content-Type', 'application/json')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+      .header('Retry-After', '5')
+      .send({
+        success: false,
+        queued: false,
+        error: 'QUEUE_SATURATED',
+        message: `Ingestion queue saturated (pending=${taskQueue.pending}, maxPending=${taskQueue.maxPending}). Please retry shortly.`
+      });
+  }
+
+  // 2. Native Fastify POST /api/internal/ingest (Zero-copy JSON parsing, Auth & Backpressure)
   app.post('/api/internal/ingest', async (request, reply) => {
     if (!verifyInternalAdminAuth(
       request,
@@ -406,6 +454,10 @@ export function createFastifyApp(customEnv = {}) {
       return;
     }
 
+    if (taskQueue.isSaturated) {
+      return sendQueueSaturatedReply(reply);
+    }
+
     const payload = request.body || {};
     const items = Array.isArray(payload.pins) ? payload.pins : (Array.isArray(payload.items) ? payload.items : []);
     const creator = payload.creator || payload.account_username || null;
@@ -413,18 +465,23 @@ export function createFastifyApp(customEnv = {}) {
 
     const currentSql = env.SQL_CLIENT || getServerSqlClient(env.DATABASE_URL);
     if (items.length > 0 && currentSql) {
-      serverBackgroundTaskQueue.add(async () => {
+      if (taskQueue.isSaturated) {
+        return sendQueueSaturatedReply(reply);
+      }
+      taskQueue.add(async () => {
         try {
           if (creator) {
-            const { ingestPinsBatch } = await import('./modules/creators/service.mjs');
+            const { ingestPinsBatch } = await import('./modules/creators/creator-ingest.mjs');
             await ingestPinsBatch(currentSql, items, creator, { filterQualified: Boolean(payload.filterQualified) });
           } else {
             const { ingestPinsBatch } = await import('./modules/pins/repository.mjs');
             await ingestPinsBatch(currentSql, items, { pillar: 'internal_ingest' });
           }
         } catch (ingestErr) {
-          console.error('[POST /api/internal/ingest background note]:', ingestErr?.message || ingestErr);
+          console.error('[POST /api/internal/ingest background note]:', redactSecrets(ingestErr?.message || String(ingestErr)));
         }
+      }).catch((qErr) => {
+        console.warn('[POST /api/internal/ingest queue note]:', qErr?.message || qErr);
       });
     }
 
@@ -458,8 +515,9 @@ export function createFastifyApp(customEnv = {}) {
       .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
       .send({
         success: true,
-        pending: serverBackgroundTaskQueue.pending,
-        active: serverBackgroundTaskQueue.active
+        pending: taskQueue.pending,
+        active: taskQueue.active,
+        max_pending: taskQueue.maxPending
       });
   });
 
@@ -473,8 +531,12 @@ export function createFastifyApp(customEnv = {}) {
       return;
     }
 
+    if (taskQueue.isSaturated) {
+      return sendQueueSaturatedReply(reply);
+    }
+
     const currentSha = getGitCommitSha(true);
-    serverBackgroundTaskQueue.add(async () => {
+    taskQueue.add(async () => {
       const scriptPath = path.resolve(process.cwd(), 'scripts/instabox-boot-sync.sh');
       if (fs.existsSync(scriptPath)) {
         await new Promise((resolve) => {
@@ -489,6 +551,8 @@ export function createFastifyApp(customEnv = {}) {
           });
         });
       }
+    }).catch((qErr) => {
+      console.warn('[POST /api/internal/self-update queue note]:', qErr?.message || qErr);
     });
 
     return reply.code(202).header('Content-Type', 'application/json').send({

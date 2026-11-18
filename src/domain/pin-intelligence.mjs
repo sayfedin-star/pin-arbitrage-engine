@@ -8,30 +8,52 @@
  * 4. Cross-Pillar Shared Pin Freshness Gate (18-Hour Deduplication Shield for VPS Crawlers)
  */
 
-/**
- * Canonical domain normalizer SSOT.
- * Normalizes any domain or URL into a clean lowercase root host without 'www.'
- * Supports options:
- * - strictFqdn (boolean): when true, requires a valid domain with TLD and dot
- * - preserveOrganic (boolean): when true, preserves 'uploaded by user' indicator
- *
- * @param {string} rawInput
- * @param {object} [options={}]
- * @param {boolean} [options.strictFqdn=false]
- * @param {boolean} [options.preserveOrganic=false]
- * @returns {string} Clean domain or empty string
- */
-export function normalizeCleanDomain(rawInput, { strictFqdn = false, preserveOrganic = false } = {}) {
-  if (!rawInput || typeof rawInput !== 'string') return '';
-  const trimmed = rawInput.trim().toLowerCase();
-  if (!trimmed) return '';
+export const IGNORED_INTERNAL_DOMAINS = [
+  'pinterest.com',
+  'www.pinterest.com',
+  'pin.it',
+  'uploaded by user',
+  'localhost'
+];
 
-  const isOrganic = trimmed === 'uploaded by user' || trimmed === 'uploaded-by-user' || trimmed === 'organic';
-  if (isOrganic) {
-    return (preserveOrganic || !strictFqdn) ? 'uploaded by user' : '';
-  }
+export const BLOCKED_TLD_SUFFIXES = [
+  '.local',
+  '.internal',
+  '.lan',
+  '.home',
+  '.corp',
+  '.test',
+  '.example',
+  '.invalid',
+  '.arpa',
+  '.onion',
+  '.localhost'
+];
 
-  let cleaned = trimmed;
+const PLACEHOLDER_DOMAIN_TOKENS = new Set([
+  'uploaded by user',
+  'uploaded by pinner',
+  'uploaded-by-user',
+  'organic',
+  'unknown',
+  'n/a',
+  'none',
+  'null',
+  'undefined',
+  'localhost'
+]);
+
+const ORGANIC_DOMAIN_TOKENS = new Set([
+  'uploaded by user',
+  'uploaded by pinner',
+  'uploaded-by-user',
+  'organic'
+]);
+
+function extractCandidateHostname(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  let cleaned = raw.trim().toLowerCase();
+  if (!cleaned) return '';
   try {
     if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
       cleaned = new URL(cleaned).hostname.toLowerCase();
@@ -39,21 +61,96 @@ export function normalizeCleanDomain(rawInput, { strictFqdn = false, preserveOrg
       cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].split(':')[0];
     }
   } catch (_) {
-    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
+    cleaned = cleaned.replace(/^https?:\/\//, '').split('/')[0].split('?')[0].split('#')[0].split(':')[0];
+  }
+  return cleaned.replace(/^www\./, '').trim();
+}
+
+/**
+ * Canonical domain normalizer SSOT.
+ * Normalizes any domain or URL into a clean lowercase root host without 'www.'
+ * Supports options:
+ * - strictFqdn (boolean): when true, requires a valid FQDN with dot and alphabetic TLD
+ * - preserveOrganic (boolean): when true, preserves 'uploaded by user' indicator
+ * - excludeInternal (boolean): when true, rejects Pinterest/pinimg/internal/blocked-TLD domains
+ * - fallbackUrl (string): optional secondary URL to extract host from when rawInput is empty/organic
+ * - defaultFallback (string): fallback value when neither rawInput nor fallbackUrl yields a domain
+ *
+ * @param {string} rawInput
+ * @param {object} [options={}]
+ * @returns {string} Clean domain or fallback string
+ */
+export function normalizeCleanDomain(
+  rawInput,
+  {
+    strictFqdn = false,
+    preserveOrganic = false,
+    excludeInternal = false,
+    fallbackUrl = '',
+    defaultFallback = ''
+  } = {}
+) {
+  const tryNormalizeSingle = (val) => {
+    if (!val || typeof val !== 'string') return { domain: '', isOrganic: false };
+    const trimmed = val.trim().toLowerCase();
+    if (!trimmed) return { domain: '', isOrganic: false };
+
+    if (ORGANIC_DOMAIN_TOKENS.has(trimmed)) {
+      return { domain: '', isOrganic: true };
+    }
+    if (excludeInternal && PLACEHOLDER_DOMAIN_TOKENS.has(trimmed)) {
+      return { domain: '', isOrganic: false };
+    }
+
+    const cleaned = extractCandidateHostname(trimmed);
+    if (!cleaned) return { domain: '', isOrganic: false };
+    if (ORGANIC_DOMAIN_TOKENS.has(cleaned)) {
+      return { domain: '', isOrganic: true };
+    }
+
+    if (excludeInternal) {
+      if (PLACEHOLDER_DOMAIN_TOKENS.has(cleaned)) return { domain: '', isOrganic: false };
+      if (
+        IGNORED_INTERNAL_DOMAINS.includes(cleaned) ||
+        IGNORED_INTERNAL_DOMAINS.some((d) => cleaned.endsWith('.' + d)) ||
+        /(?:^|\.)pinterest\.[a-z.]+$/.test(cleaned) ||
+        /(?:^|\.)pinimg\.[a-z.]+$/.test(cleaned)
+      ) {
+        return { domain: '', isOrganic: false };
+      }
+      if (BLOCKED_TLD_SUFFIXES.some((suffix) => cleaned === suffix.slice(1) || cleaned.endsWith(suffix))) {
+        return { domain: '', isOrganic: false };
+      }
+    }
+
+    if (strictFqdn) {
+      if (!cleaned.includes('.') || cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
+        return { domain: '', isOrganic: false };
+      }
+      if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(cleaned)) {
+        return { domain: '', isOrganic: false };
+      }
+    }
+
+    return { domain: cleaned, isOrganic: false };
+  };
+
+  const primary = tryNormalizeSingle(rawInput);
+  if (primary.domain) return primary.domain;
+
+  if (fallbackUrl) {
+    const secondary = tryNormalizeSingle(fallbackUrl);
+    if (secondary.domain) return secondary.domain;
+    if (secondary.isOrganic && (preserveOrganic || (!strictFqdn && !excludeInternal))) {
+      return 'uploaded by user';
+    }
   }
 
-  cleaned = cleaned.replace(/^www\./, '').trim();
-
-  if (strictFqdn) {
-    if (!cleaned || !cleaned.includes('.') || cleaned.startsWith('.') || cleaned.endsWith('.') || cleaned.includes('..')) {
-      return '';
-    }
-    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(cleaned)) {
-      return '';
-    }
+  if (primary.isOrganic && (preserveOrganic || (!strictFqdn && !excludeInternal))) {
+    return 'uploaded by user';
   }
 
-  return cleaned;
+  return defaultFallback;
 }
 
 const ANNOTATION_STOPWORDS = new Set([
@@ -579,7 +676,7 @@ export function mineAnnotationNGrams(pins = [], { minPairPins = 2, minTripletPin
 
 /**
  * Preserves all 30+ high-value Pinterest algorithmic and forensic fields extracted by
- * `scripts/lib/pinterest.mjs` (`formatPin` / `enrichPinSavesAndCreatedAt`) so zero scraped
+ * `src/core/pinterest/index.mjs` (`formatPin` / `enrichPinSavesAndCreatedAt`) so zero scraped
  * intelligence is ever discarded during DB upserts.
  *
  * @param {object} pin - Raw or formatted pin object from scraper
@@ -645,7 +742,7 @@ export function buildRichPinMetadataPayload(pin = {}, existingMeta = {}) {
   assignIfDefined('delta_saves_24h', pin.delta_saves_24h);
   assignIfDefined('delta_repins_24h', pin.delta_repins_24h);
 
-  // Preserve the 30+ Pinterest treasure fields extracted in scripts/lib/pinterest.mjs
+  // Preserve the 30+ Pinterest treasure fields extracted in src/core/pinterest/pins.mjs
   const treasureKeys = [
     'is_repin',
     'origin_pinner',

@@ -44,8 +44,6 @@ import {
   batchAddKeywordsToFolder,
   removeKeywordFromFolder,
   getFoldersForKeyword,
-  calculateFolderCrossover,
-  normalizeFolderMetadata,
   listFolderCreators,
   listFolderCreatorsWithDiscovery,
   linkCreatorToFolder,
@@ -55,11 +53,16 @@ import {
   pinDomainToFolder,
   unpinDomainFromFolder,
   pruneFolderPins,
-  cacheFolderTrends,
-  invalidateFolderCache,
   bulkPulseTrackFolderCreators,
   toggleFolderCreatorTracking
-} from '../modules/keywords/folders-service.mjs';
+} from '../modules/keywords/folders-crud.mjs';
+import {
+  calculateFolderCrossover,
+  normalizeFolderMetadata,
+  cacheFolderTrends,
+  invalidateFolderCache
+} from '../modules/keywords/folders-crossover.mjs';
+import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 
 import { escapeSqlWildcards, chunkArray } from '../utils.mjs';
 import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
@@ -895,7 +898,8 @@ export async function handleKeywordsRoutes({
         if (!force && kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
           result.popular_pins = kw.popular_pins;
         } else if (force || !kw?.popular_pins || kw.popular_pins.length === 0) {
-          const popResult = await fetchPinterestTrendsPopularPins(sql, term, country, force);
+          const canMutateTrendsDb = Boolean(verifyApiAuthentication(request, env)?.authorized);
+          const popResult = await fetchPinterestTrendsPopularPins(canMutateTrendsDb ? sql : null, term, country, force);
           if (popResult?.success && popResult?.popular_pins) {
             result.popular_pins = popResult.popular_pins;
           }

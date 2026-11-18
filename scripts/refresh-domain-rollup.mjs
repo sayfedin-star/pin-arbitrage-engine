@@ -6,7 +6,7 @@
  */
 
 import { createSqlClient } from '../src/db/client.mjs';
-import { refreshDomainIntelligenceRollup } from '../src/modules/domains/service.mjs';
+import { refreshDomainIntelligenceRollup } from '../src/modules/domains/rollup-leaderboard-service.mjs';
 import { startInstaBoxActivityLease, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
 loadDotEnvIfPresent();

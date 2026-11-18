@@ -1303,6 +1303,13 @@ export async function listArchivedPins(sql, {
         comment_count AS comments,
         share_count,
         daily_save_velocity AS velocity,
+        delta_saves_24h,
+        delta_repins_24h,
+        daily_repin_velocity,
+        gains_5d,
+        gains_7d,
+        gains_10d,
+        gains_15d,
         visual_annotations AS annotations,
         is_video,
         is_product,
@@ -1403,21 +1410,36 @@ export async function listArchivedPins(sql, {
   ]);
 
   const now = Date.now();
-  const metricsMap = new Map();
 
   let mapped = rows.map(p => {
-    const velocity = Number(p.velocity || 0);
+    const rawVel = Number(p.velocity ?? 0);
+    const velocity = Number.isFinite(rawVel) ? Math.max(0, rawVel) : 0;
     const createdDate = p.created_at_pinterest ? new Date(p.created_at_pinterest) : (p.first_seen_at ? new Date(p.first_seen_at) : new Date());
     const ageDays = Math.max(1, Math.round((now - createdDate.getTime()) / 86400000));
-    
-    // Genuine growth deltas calculation directly from summary object
-    const snap = metricsMap.get(p.pin_id);
-    const curSaves = Number(p.saves || 0);
-    const curRepins = Number(p.repins || 0);
-    const deltaSaves = snap?.saves_24h != null ? Math.max(0, curSaves - Number(snap.saves_24h)) : 0;
-    const deltaRepins = snap?.repins_24h != null ? Math.max(0, curRepins - Number(snap.repins_24h)) : 0;
-    const deltaSaves3d = snap?.saves_3d != null ? Math.max(0, curSaves - Number(snap.saves_3d)) : deltaSaves;
-    const deltaSaves7d = snap?.saves_7d != null ? Math.max(0, curSaves - Number(snap.saves_7d)) : deltaSaves3d;
+
+    // Authentic growth deltas directly from universal_master_pins columns (delta_saves_24h, delta_repins_24h, gains_5d, gains_7d)
+    const curSavesNum = Number(p.saves ?? 0);
+    const curSaves = Number.isFinite(curSavesNum) ? Math.max(0, curSavesNum) : 0;
+    const curRepinsNum = Number(p.repins ?? 0);
+    const curRepins = Number.isFinite(curRepinsNum) ? Math.max(0, curRepinsNum) : 0;
+
+    const deltaSaves = p.delta_saves_24h != null && Number.isFinite(Number(p.delta_saves_24h))
+      ? Math.max(0, Math.round(Number(p.delta_saves_24h)))
+      : Math.max(0, Math.round(velocity));
+    const deltaRepins = p.delta_repins_24h != null && Number.isFinite(Number(p.delta_repins_24h))
+      ? Math.max(0, Math.round(Number(p.delta_repins_24h)))
+      : (p.daily_repin_velocity != null && Number.isFinite(Number(p.daily_repin_velocity))
+        ? Math.max(0, Math.round(Number(p.daily_repin_velocity)))
+        : 0);
+    const gains5d = p.gains_5d != null && Number.isFinite(Number(p.gains_5d))
+      ? Math.max(0, Math.round(Number(p.gains_5d)))
+      : null;
+    const gains7d = p.gains_7d != null && Number.isFinite(Number(p.gains_7d))
+      ? Math.max(0, Math.round(Number(p.gains_7d)))
+      : null;
+
+    const deltaSaves3d = gains5d ?? deltaSaves;
+    const deltaSaves7d = gains7d ?? gains5d ?? deltaSaves;
 
     const pinStage = computePinStage(velocity, deltaSaves, ageDays);
 
@@ -1430,7 +1452,11 @@ export async function listArchivedPins(sql, {
       velocity: Number(velocity.toFixed(1)),
       age_days: ageDays,
       delta_saves: deltaSaves,
+      delta_saves_24h: deltaSaves,
       delta_repins: deltaRepins,
+      delta_repins_24h: deltaRepins,
+      gains_5d: gains5d,
+      gains_7d: gains7d,
       delta_saves_3d: deltaSaves3d,
       delta_saves_7d: deltaSaves7d,
       stage: pinStage,

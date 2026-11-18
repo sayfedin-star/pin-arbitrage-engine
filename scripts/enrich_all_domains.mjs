@@ -20,7 +20,7 @@ import { createSqlClient } from '../src/db/client.mjs';
 import {
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch
-} from '../src/modules/domains/service.mjs';
+} from '../src/modules/domains/whois-age-service.mjs';
 import { renderProgressBar, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 
 loadDotEnvIfPresent();

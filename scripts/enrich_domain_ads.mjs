@@ -24,7 +24,7 @@ import {
   normalizeCleanDomain,
   IGNORED_INTERNAL_DOMAINS,
   ECOMMERCE_AND_SOCIAL_DOMAINS
-} from '../src/modules/domains/service.mjs';
+} from '../src/modules/domains/domain-constants.mjs';
 import { sleep, randomJitterMs } from '../src/core/pinterest/index.mjs';
 import { renderProgressBar, loadDotEnvIfPresent } from './lib/cli-utils.mjs';
 

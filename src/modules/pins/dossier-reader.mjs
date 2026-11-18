@@ -162,7 +162,10 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
       JOIN universal_master_pins ump ON ump.creator_username = cp.username
       WHERE ump.pin_id = ${cleanPinId}
       LIMIT 1;
-    `.catch(() => [])
+    `.catch((err) => {
+      console.warn(`[dossier-reader] Creator profile enrichment query warning for pin ${cleanPinId}:`, err?.message || err);
+      return [];
+    })
   ]);
 
   return {

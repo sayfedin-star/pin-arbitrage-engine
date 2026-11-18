@@ -31,7 +31,7 @@ import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
-import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-service.mjs';
+import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-crud.mjs';
 import {
   randomJitterMs,
   sleep,

@@ -1,19 +1,17 @@
 /**
  * src/modules/domains/domain-constants.mjs
  *
- * Leaf constants and domain normalization helper shared between domains/service.mjs
- * and domains/ad-network-service.mjs without circular ES module imports.
+ * Leaf constants and thin option-preset alias delegating to the canonical
+ * domain normalizer in `src/domain/pin-intelligence.mjs`.
  */
 
-import { normalizeCleanDomain as canonicalNormalizeCleanDomain } from '../../domain/pin-intelligence.mjs';
+import {
+  IGNORED_INTERNAL_DOMAINS,
+  BLOCKED_TLD_SUFFIXES,
+  normalizeCleanDomain as canonicalNormalizeCleanDomain
+} from '../../domain/pin-intelligence.mjs';
 
-export const IGNORED_INTERNAL_DOMAINS = [
-  'pinterest.com',
-  'www.pinterest.com',
-  'pin.it',
-  'uploaded by user',
-  'localhost'
-];
+export { IGNORED_INTERNAL_DOMAINS, BLOCKED_TLD_SUFFIXES };
 
 export const ECOMMERCE_AND_SOCIAL_DOMAINS = [
   // Marketplaces & Ecommerce Giants
@@ -57,38 +55,13 @@ export const ECOMMERCE_AND_SOCIAL_DOMAINS = [
   'blogger.googleusercontent.com'
 ];
 
-export const BLOCKED_TLD_SUFFIXES = [
-  '.local',
-  '.internal',
-  '.lan',
-  '.home',
-  '.corp',
-  '.test',
-  '.example',
-  '.invalid',
-  '.arpa',
-  '.onion',
-  '.localhost'
-];
-
 /**
- * Normalizes any domain or URL into a clean lowercase root host without 'www.'
- * For Domain Intelligence Studio: enforces strict FQDN and filters internal / blocked domains.
+ * Preset alias for Domain Intelligence Studio (`strictFqdn: true, excludeInternal: true`).
  */
 export function normalizeCleanDomain(rawInput, options = {}) {
-  const cleaned = canonicalNormalizeCleanDomain(rawInput, { strictFqdn: true, ...options });
-  if (!cleaned || IGNORED_INTERNAL_DOMAINS.includes(cleaned) || IGNORED_INTERNAL_DOMAINS.some(d => cleaned.endsWith('.' + d))) {
-    return '';
-  }
-  if (BLOCKED_TLD_SUFFIXES.some(suffix => cleaned === suffix.slice(1) || cleaned.endsWith(suffix))) {
-    return '';
-  }
-  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]\.[a-z]{2,}$/.test(cleaned)) {
-    return '';
-  }
-  const parts = cleaned.split('.');
-  if (parts.some(p => !p || p.startsWith('-') || p.endsWith('-'))) {
-    return '';
-  }
-  return cleaned;
+  return canonicalNormalizeCleanDomain(rawInput, {
+    strictFqdn: true,
+    excludeInternal: true,
+    ...options
+  });
 }

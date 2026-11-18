@@ -23,18 +23,25 @@ import {
 import {
   computeAnscombeInflectionScore
 } from '../../lib/math.mjs';
+import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 
-// Bounded Process-Local LRU Cache (max 25 entries, 120s TTL)
-export const pulseMemoryCache = new Map();
+// Bounded Process-Local LRU Cache (max 25 entries, 120s TTL) with Epoch Invalidation
 export const PULSE_MEMORY_CACHE_MAX = 25;
 export const PULSE_MEMORY_TTL_MS = 120_000;
+export const pulseMemoryCache = new TtlSingleflightCache({
+  maxEntries: PULSE_MEMORY_CACHE_MAX,
+  defaultTtlMs: PULSE_MEMORY_TTL_MS
+});
 
 // Per-key force-refresh cooldown (15s cooldown)
-export const pulseForceRefreshCooldown = new Map();
 export const PULSE_FORCE_REFRESH_COOLDOWN_MS = 15_000;
+export const pulseForceRefreshCooldown = new TtlSingleflightCache({
+  maxEntries: 200,
+  defaultTtlMs: PULSE_FORCE_REFRESH_COOLDOWN_MS
+});
 
-// In-flight deduplication map
-export const inflightPulse = new Map();
+// In-flight deduplication map backed by pulseMemoryCache
+export const inflightPulse = pulseMemoryCache.inflight;
 
 const tagNormCache = new Map();
 function getNormalizedTag(label) {
@@ -144,29 +151,12 @@ export function extractCleanAnnotations(raw) {
 }
 
 /**
- * Invalidate in-memory pulse caches
+ * Invalidate in-memory pulse caches with epoch advancement so pre-invalidation
+ * in-flight queries never write stale results back into `pulseMemoryCache`.
  */
-export async function invalidateGlobalPulseCache(env = null, ctx = null) {
-  pulseMemoryCache.clear();
-  pulseForceRefreshCooldown.clear();
-  inflightPulse.clear();
-
-
-}
-
-/**
- * Helper to store item in bounded LRU map
- */
-function setPulseMemoryCache(key, payload) {
-  if (pulseMemoryCache.has(key)) {
-    pulseMemoryCache.delete(key);
-  } else if (pulseMemoryCache.size >= PULSE_MEMORY_CACHE_MAX) {
-    const oldestKey = pulseMemoryCache.keys().next().value;
-    if (oldestKey !== undefined) {
-      pulseMemoryCache.delete(oldestKey);
-    }
-  }
-  pulseMemoryCache.set(key, { timestamp: Date.now(), payload });
+export async function invalidateGlobalPulseCache(_env = null, _ctx = null) {
+  pulseMemoryCache.invalidate();
+  pulseForceRefreshCooldown.invalidate();
 }
 
 /**
@@ -470,36 +460,20 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       : `pulse:${folderId || 'all'}:${windowParam}:${minAudience}`
   );
 
-  const now = Date.now();
   let effectiveRefresh = forceRefresh;
   if (!bypassCache && effectiveRefresh && env && (env.DATABASE_URL || env.ENFORCE_COOLDOWN)) {
-    const lastRefresh = pulseForceRefreshCooldown.get(cacheKey);
-    if (lastRefresh && (now - lastRefresh < PULSE_FORCE_REFRESH_COOLDOWN_MS)) {
+    if (pulseForceRefreshCooldown.has(cacheKey)) {
       effectiveRefresh = false;
     }
   }
 
-  // 1. Process-local Memory Cache Check
-  if (!bypassCache && !effectiveRefresh && pulseMemoryCache.has(cacheKey)) {
-    const cached = pulseMemoryCache.get(cacheKey);
-    if (now - cached.timestamp <= PULSE_MEMORY_TTL_MS) {
-      return cached.payload;
-    }
-  }
-
   if (!bypassCache && effectiveRefresh) {
-    pulseForceRefreshCooldown.set(cacheKey, now);
-    pulseMemoryCache.delete(cacheKey);
+    pulseForceRefreshCooldown.set(cacheKey, Date.now());
   }
 
-  // 3. In-Flight Stampede Guard
-  if (!bypassCache && inflightPulse.has(cacheKey)) {
-    return await inflightPulse.get(cacheKey);
-  }
-
-  let computePromise;
-  computePromise = (async () => {
-    // 4. Concurrent Execution of 8 Hub Queries (including viral creator pins, matview KPIs, and P2P graph nodes)
+  const computePulsePayload = async () => {
+    const startEpoch = pulseMemoryCache.epoch;
+    // 4. Concurrent Execution of Hub Queries (including viral creator pins and matview KPIs)
     const [
       activeSerpRows,
       vaultData,
@@ -1946,26 +1920,22 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
     };
 
-    // Save into L1 memory cache (skip if bypassCache is requested)
-    if (!bypassCache) {
-      setPulseMemoryCache(cacheKey, payload);
+    if (!bypassCache && pulseMemoryCache.isWriteValid(cacheKey, startEpoch)) {
       pulseForceRefreshCooldown.set(cacheKey, Date.now());
     }
 
     return payload;
-  })();
+  };
 
-  if (!bypassCache) {
-    inflightPulse.set(cacheKey, computePromise);
+  if (bypassCache) {
+    return await computePulsePayload();
   }
 
-  try {
-    return await computePromise;
-  } finally {
-    if (!bypassCache) {
-      inflightPulse.delete(cacheKey);
-    }
-  }
+  return await pulseMemoryCache.getOrFetch(cacheKey, computePulsePayload, {
+    ttlMs: PULSE_MEMORY_TTL_MS,
+    forceRefresh: effectiveRefresh,
+    shouldCache: (val) => Boolean(val && val.success !== false)
+  });
 }
 
 /**

@@ -3,7 +3,7 @@
  * Extracted from src/modules/keywords/folders-service.mjs
  */
 
-import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/service.mjs';
+import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/competitors-crud.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
 import { ignoreAndRemoveSerpPin } from './service.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';

@@ -279,7 +279,7 @@ echo "[instabox-boot-sync] Checking origin/main updates (current SHA: ${OLD_SHA}
 
 if git -c safe.directory="${APP_DIR}" fetch origin main --quiet 2>/dev/null; then
   REMOTE_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse origin/main 2>/dev/null || echo "${OLD_SHA}")
-  if [ "${OLD_SHA}" != "${REMOTE_SHA}" ] || [ "${MODE}" = "--force" ]; then
+  if [ "${MODE}" = "--force" ] || ( [ "${OLD_SHA}" != "${REMOTE_SHA}" ] && ! git -c safe.directory="${APP_DIR}" merge-base --is-ancestor "${REMOTE_SHA}" "${OLD_SHA}" 2>/dev/null ); then
     echo "[instabox-boot-sync] 🔄 Updating ${APP_DIR} from ${OLD_SHA} -> ${REMOTE_SHA}..."
     git -c safe.directory="${APP_DIR}" reset --hard origin/main
     chmod +x "${APP_DIR}/scripts/instabox-boot-sync.sh" 2>/dev/null || true

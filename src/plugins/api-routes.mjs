@@ -8,11 +8,11 @@
 
 import { getSqlClient } from '../db/client.mjs';
 import { isClusterRoute, handleClusterRoutes } from '../routes/cluster.mjs';
-import { handleCreatorsRoutes } from '../routes/creators.mjs';
+import { isCreatorsRoute, handleCreatorsRoutes } from '../routes/creators.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from '../routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from '../routes/pins.mjs';
 import { handleDomainsRoutes } from '../routes/domains.mjs';
-import { invalidateFolderCache } from '../modules/keywords/folders-service.mjs';
+import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   requestContextStorage,
@@ -25,15 +25,24 @@ import {
   isValidPinId,
   getCorsHeaders,
   verifyApiAuthentication,
-  jsonResponse,
-  methodNotAllowedResponse,
-  corsOptionsResponse,
   buildCanonicalCacheKey,
   getCachedOrFetch,
   invalidateEdgeCache,
   createBoundJsonResponse,
   createBoundMethodNotAllowed
 } from '../http/security-and-response.mjs';
+
+const CREATOR_CRAWLER_PATHS = new Set([
+  '/api/creators/dispatch-crawl',
+  '/api/creators/sync',
+  '/api/creators/sync-boards',
+  '/api/creators/sync-pins',
+  '/api/creators/fast-refresh',
+  '/api/creators/audit-sweep',
+  '/api/creators/quick-pulse',
+  '/api/creators/deep-harvest',
+  '/api/creators/related-pins/harvest-live'
+]);
 
 /**
  * Registers native Fastify API dispatch across all domain sub-routers.
@@ -42,6 +51,14 @@ import {
 export async function apiRoutesPlugin(app, options = {}) {
   const env = options.env || {};
   const ctx = options.ctx || null;
+
+  // Canonical compatibility rewrite: map /api/competitors & /api/competitors/* -> /api/creators & /api/creators/*
+  app.addHook('onRequest', async (request) => {
+    const raw = request.raw?.url || '';
+    if (/^\/api\/competitors(?=\/|\?|$)/i.test(raw)) {
+      request.raw.url = raw.replace(/^\/api\/competitors/i, '/api/creators');
+    }
+  });
 
   async function dispatchApiRequest(request, reply) {
     const rawUrl = request.raw?.url || request.url || '/api';
@@ -130,17 +147,27 @@ export async function apiRoutesPlugin(app, options = {}) {
             }, 404);
           }
 
-          // 1. Security Authentication Gate for Mutating Methods & Sensitive Endpoints
+          // 1. Security Authentication Gate for Mutating Methods, Sensitive Endpoints & Side-Effecting GETs
           const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
           const isSensitiveEndpoint = pathname === '/api/cache/invalidate' || pathname.startsWith('/api/crawl/dispatch');
-          if (isMutatingMethod || isSensitiveEndpoint) {
+          const isSideEffectingGet = method === 'GET' && (
+            searchParams.get('auto_create') === 'true' ||
+            searchParams.get('refresh') === 'true' ||
+            searchParams.get('force') === 'true' ||
+            searchParams.get('force_refresh') === 'true' ||
+            pathname === '/api/keywords/visual-search' ||
+            pathname === '/api/urls/global-saves' ||
+            pathname === '/api/pins/resolve-shortlink'
+          );
+
+          if (isMutatingMethod || isSensitiveEndpoint || isSideEffectingGet) {
             const auth = verifyApiAuthentication(request, env);
             if (!auth.authorized) {
               return boundJsonResponse(
                 auth.payload || {
                   success: false,
                   error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
-                  message: auth.reason || 'Authentication required for mutating or sensitive operations.'
+                  message: auth.reason || 'Authentication required for mutating or side-effecting operations.'
                 },
                 auth.status || 401
               );
@@ -149,7 +176,6 @@ export async function apiRoutesPlugin(app, options = {}) {
 
           // 2. Pinterest Rate-Limit Circuit Breaker Gate
           const isLiveScrapeGet = method === 'GET' && searchParams.get('refresh') === 'true' && (
-            pathname === '/api/competitors/board-detail' ||
             pathname === '/api/creators/board-detail' ||
             pathname === '/api/creators/pin-detail' ||
             pathname.startsWith('/api/pins/')
@@ -158,24 +184,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             pathname === '/api/crawl' ||
             pathname.startsWith('/api/crawl/') ||
             pathname === '/api/keywords/sync' ||
-            pathname === '/api/competitors/dispatch-crawl' ||
-            pathname === '/api/creators/dispatch-crawl' ||
-            pathname === '/api/competitors/sync' ||
-            pathname === '/api/creators/sync' ||
-            pathname === '/api/competitors/sync-boards' ||
-            pathname === '/api/creators/sync-boards' ||
-            pathname === '/api/competitors/sync-pins' ||
-            pathname === '/api/creators/sync-pins' ||
-            pathname === '/api/competitors/fast-refresh' ||
-            pathname === '/api/creators/fast-refresh' ||
-            pathname === '/api/competitors/audit-sweep' ||
-            pathname === '/api/creators/audit-sweep' ||
-            pathname === '/api/creators/quick-pulse' ||
-            pathname === '/api/competitors/quick-pulse' ||
-            pathname === '/api/creators/deep-harvest' ||
-            pathname === '/api/competitors/deep-harvest' ||
-            pathname === '/api/competitors/related-pins/harvest-live' ||
-            pathname === '/api/creators/related-pins/harvest-live' ||
+            CREATOR_CRAWLER_PATHS.has(pathname) ||
             (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
             isLiveScrapeGet;
 
@@ -282,7 +291,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             if (clusterRes) return clusterRes;
           }
 
-          if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/boards')) {
+          if (isCreatorsRoute(pathname)) {
             const creatorsRes = await handleCreatorsRoutes({
               pathname,
               method,
@@ -430,25 +439,9 @@ export async function apiRoutesPlugin(app, options = {}) {
     return reply.send();
   }
 
-  // Register explicit domain prefixes cleanly inside Fastify's native route tree
+  // Clean route registration: explicit 512 KiB bodyLimit on bulk-import + unified /api & /api/* catch-alls
   app.post('/api/keywords/bulk-import', { bodyLimit: 512 * 1024 }, dispatchApiRequest);
-  app.all('/api/pins/*', dispatchApiRequest);
-  app.all('/api/urls/*', dispatchApiRequest);
-  app.all('/api/folders', dispatchApiRequest);
-  app.all('/api/folders/*', dispatchApiRequest);
-  app.all('/api/keywords', dispatchApiRequest);
-  app.all('/api/keywords/*', dispatchApiRequest);
-  app.all('/api/discovery/*', dispatchApiRequest);
-  app.all('/api/settings/*', dispatchApiRequest);
-  app.all('/api/creators', dispatchApiRequest);
-  app.all('/api/creators/*', dispatchApiRequest);
-  app.all('/api/competitors', dispatchApiRequest);
-  app.all('/api/competitors/*', dispatchApiRequest);
-  app.all('/api/boards/*', dispatchApiRequest);
-  app.all('/api/domains', dispatchApiRequest);
-  app.all('/api/domains/*', dispatchApiRequest);
-  app.all('/api/pulse/*', dispatchApiRequest);
-  app.all('/api/cluster/*', dispatchApiRequest);
+  app.all('/api', dispatchApiRequest);
   app.all('/api/*', dispatchApiRequest);
 }
 

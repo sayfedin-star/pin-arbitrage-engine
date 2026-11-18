@@ -5,8 +5,11 @@
  * and Batch Enrichment Pipeline.
  */
 
+import net from 'node:net';
+import { StringDecoder } from 'node:string_decoder';
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { escapeSqlWildcards, chunkArray } from '../../utils.mjs';
+import { connectSafeTcpSocket, safeExternalFetch } from '../../lib/net-guard.mjs';
 import {
   IGNORED_INTERNAL_DOMAINS,
   ECOMMERCE_AND_SOCIAL_DOMAINS,
@@ -21,42 +24,43 @@ export function escapeSqlLike(str) {
   return escapeSqlWildcards(str.trim().toLowerCase());
 }
 
+const WHOIS_SERVERS = {
+  me: 'whois.nic.me',
+  co: 'whois.nic.co',
+  io: 'whois.nic.io',
+  ai: 'whois.nic.ai',
+  ca: 'whois.cira.ca',
+  uk: 'whois.nic.uk',
+  de: 'whois.denic.de',
+  fr: 'whois.nic.fr',
+  app: 'whois.nic.google',
+  dev: 'whois.nic.google'
+};
+
 /**
  * Direct Socket WHOIS for ccTLDs (.me, .co, .io, .ai, etc.)
+ * Connects via SSRF-guarded `connectSafeTcpSocket` directly to the verified IP on port 43.
  */
-export async function queryWhoisSocket(cleanDomain) {
+export async function queryWhoisSocket(cleanDomain, socketOpts = {}) {
   try {
-    const netPkg = ['node:', 'net'].join('');
-    const net = await import(/* webpackIgnore: true */ netPkg).catch(() => null);
-    if (!net || typeof net.createConnection !== 'function') return null;
-    let StringDecoder = null;
-    try {
-      const sd = await import('node:string_decoder');
-      StringDecoder = sd.StringDecoder;
-    } catch (_) {}
+    if (!cleanDomain || typeof net.createConnection !== 'function') return null;
 
     const tld = cleanDomain.split('.').pop().toLowerCase();
-    const WHOIS_SERVERS = {
-      me: 'whois.nic.me',
-      co: 'whois.nic.co',
-      io: 'whois.nic.io',
-      ai: 'whois.nic.ai',
-      ca: 'whois.cira.ca',
-      uk: 'whois.nic.uk',
-      de: 'whois.denic.de',
-      fr: 'whois.nic.fr',
-      app: 'whois.nic.google',
-      dev: 'whois.nic.google'
-    };
+    if (!/^[a-z]{2,24}$/.test(tld)) return null;
 
     const host = WHOIS_SERVERS[tld] || `whois.nic.${tld}`;
     const MAX_BUFFER_BYTES = 64 * 1024; // 64KB protection ceiling
+    const socket = await connectSafeTcpSocket({
+      host,
+      port: 43,
+      timeoutMs: 3500,
+      ...socketOpts
+    });
 
     return await new Promise((resolve) => {
       let resolved = false;
       let timer = null;
-      let socket = null;
-      const decoder = StringDecoder ? new StringDecoder('utf8') : null;
+      const decoder = new StringDecoder('utf8');
       let buffer = '';
 
       const done = (result) => {
@@ -66,43 +70,38 @@ export async function queryWhoisSocket(cleanDomain) {
           clearTimeout(timer);
           timer = null;
         }
-        if (socket) {
-          try {
-            socket.removeAllListeners();
-            socket.destroy();
-          } catch (_) {}
-          socket = null;
-        }
+        try {
+          socket.removeAllListeners();
+          socket.destroy();
+        } catch (_) {}
         resolve(result);
       };
 
       timer = setTimeout(() => {
         done(buffer || null);
       }, 3500);
-      if (typeof timer.unref === 'function') timer.unref();
+      timer?.unref?.();
+
+      socket.on('data', (chunk) => {
+        if (buffer.length < MAX_BUFFER_BYTES) {
+          buffer += decoder.write(chunk);
+          if (buffer.length >= MAX_BUFFER_BYTES) {
+            done(buffer.slice(0, MAX_BUFFER_BYTES));
+          }
+        }
+      });
+
+      socket.on('end', () => {
+        buffer += decoder.end();
+        done(buffer || null);
+      });
+
+      socket.on('error', () => {
+        done(null);
+      });
 
       try {
-        socket = net.createConnection(43, host, () => {
-          socket.write(`${cleanDomain}\r\n`);
-        });
-
-        socket.on('data', chunk => {
-          if (buffer.length < MAX_BUFFER_BYTES) {
-            buffer += decoder ? decoder.write(chunk) : chunk.toString('utf8');
-            if (buffer.length >= MAX_BUFFER_BYTES) {
-              done(buffer.slice(0, MAX_BUFFER_BYTES));
-            }
-          }
-        });
-
-        socket.on('end', () => {
-          if (decoder) buffer += decoder.end();
-          done(buffer || null);
-        });
-
-        socket.on('error', () => {
-          done(null);
-        });
+        socket.write(`${cleanDomain}\r\n`);
       } catch (_) {
         done(null);
       }
@@ -113,18 +112,18 @@ export async function queryWhoisSocket(cleanDomain) {
 }
 
 /**
- * Edge-compatible HTTPS RDAP Domain Age & Registrar Lookup
- * Uses standard fetch with https://rdap.org/domain/<domain>
- * Fully operational in Cloudflare Workers and Node.js without raw TCP sockets.
+ * HTTPS RDAP Domain Age & Registrar Lookup (`https://rdap.org/domain/<domain>`).
+ * Guarded against DNS rebinding and unsafe cross-origin redirects via `safeExternalFetch`.
  */
 export async function queryWhoisHttpsRdap(cleanDomain) {
   try {
-    const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(cleanDomain)}`, {
+    const res = await safeExternalFetch(`https://rdap.org/domain/${encodeURIComponent(cleanDomain)}`, {
       headers: {
         'Accept': 'application/rdap+json, application/json',
         'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
       },
-      signal: AbortSignal.timeout(6000)
+      timeoutMs: 6000,
+      maxRedirects: 5
     });
     if (!res.ok) {
       if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
@@ -240,12 +239,13 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
 
   if (directRdapUrl) {
     try {
-      const rdapRes = await fetch(directRdapUrl, {
+      const rdapRes = await safeExternalFetch(directRdapUrl, {
         headers: {
           'Accept': 'application/rdap+json, application/json',
           'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
         },
-        signal: AbortSignal.timeout(6000)
+        timeoutMs: 6000,
+        maxRedirects: 5
       });
       if (rdapRes.ok) {
         const rdap = await rdapRes.json();
@@ -302,12 +302,13 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
   if (!created) {
     try {
       const apiUrl = `https://api.domainee.dev/v1/tools/domain-age-checker?domain=${encodeURIComponent(`http://${cleanDomain}/`)}`;
-      const res = await fetch(apiUrl, {
+      const res = await safeExternalFetch(apiUrl, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
         },
-        signal: AbortSignal.timeout(6000)
+        timeoutMs: 6000,
+        maxRedirects: 4
       });
 
       if (res.ok) {
@@ -331,12 +332,13 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
   if (!created) {
     try {
       const crtUrl = `https://crt.sh/?q=${encodeURIComponent(cleanDomain)}&output=json`;
-      const crtRes = await fetch(crtUrl, {
+      const crtRes = await safeExternalFetch(crtUrl, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
         },
-        signal: AbortSignal.timeout(7000)
+        timeoutMs: 7000,
+        maxRedirects: 4
       });
       if (crtRes.ok) {
         const certs = await crtRes.json();

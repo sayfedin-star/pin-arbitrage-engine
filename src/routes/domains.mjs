@@ -1,26 +1,32 @@
 /**
  * Domain Intelligence & SERP Monopoly Sub-Router
- * 
+ *
  * Handles domain leaderboard, deep dossiers, arbitrage blueprints,
  * WHOIS domain age caching, and ads.txt monetization discovery.
  */
 
+import { normalizeCleanDomain } from '../modules/domains/domain-constants.mjs';
 import {
-  listDomainsIntelligenceFast,
-  getDomainDeepDossier,
-  syncSingleDomainRollup,
-  fetchAndCacheDomainAge,
-  enrichMissingDomainsBatch,
-  getDatabaseEnrichmentStats,
-  enrichNextUncheckedBatch,
-  normalizeCleanDomain,
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
   getDatabaseMonetizationStats,
-  enrichNextUncheckedAdsBatch,
-  generateDomainArbitrageBlueprint,
+  enrichNextUncheckedAdsBatch
+} from '../modules/domains/ad-network-service.mjs';
+import {
+  fetchAndCacheDomainAge,
+  enrichMissingDomainsBatch,
+  getDatabaseEnrichmentStats,
+  enrichNextUncheckedBatch
+} from '../modules/domains/whois-age-service.mjs';
+import {
+  listDomainsIntelligenceFast,
+  syncSingleDomainRollup,
   refreshDomainIntelligenceRollup
-} from '../modules/domains/service.mjs';
+} from '../modules/domains/rollup-leaderboard-service.mjs';
+import {
+  getDomainDeepDossier,
+  generateDomainArbitrageBlueprint
+} from '../modules/domains/dossier-blueprint-service.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 
 /**
@@ -66,12 +72,12 @@ export async function handleDomainsRoutes(routeCtx) {
   // 1. Domains Leaderboard Fast Listing
   if (method === 'GET' && pathname === '/api/domains') {
     try {
+      const canMutateInBackground = Boolean(verifyApiAuthentication(request, env)?.authorized);
       const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-      if (isForceRefresh) {
+      if (isForceRefresh && canMutateInBackground) {
         await invalidateEdgeCache('domains:leaderboard');
-        // [INVARIANT: READ-ONLY-GET-SAFE] Ban full-table rollup mutation on unauthenticated GET.
-        // Dedicated rollup execution is strictly isolated to POST /api/domains/refresh-rollup.
       }
+
       const cacheParams = {
         search: searchParams.get('search') || '',
         folderId: searchParams.get('folder_id') || '',
@@ -90,32 +96,33 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
+      const queryParams = { ...cacheParams, allowBackgroundRefresh: canMutateInBackground };
       const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
-      // 6 hours TTL (21,600,000 ms) + 1 hour stale-while-revalidate (3,600,000 ms)
       const SIX_HOURS_MS = 21600000;
       const ONE_HOUR_MS = 3600000;
       const data = isForceRefresh
-        ? await listDomainsIntelligenceFast(sql, cacheParams)
+        ? await listDomainsIntelligenceFast(sql, queryParams)
         : await getCachedOrFetch(cacheKey, async () => {
-            return await listDomainsIntelligenceFast(sql, cacheParams);
+            return await listDomainsIntelligenceFast(sql, queryParams);
           }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh });
 
-      // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page
-      if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
-        safeWaitUntil(
-          ctx,
-          enrichMissingDomainsBatch(sql, data.missing_age_domains, 4).catch(() => {}),
-          'bg_enrich_domain_ages'
-        );
-      }
+      // Gate background external WHOIS/RDAP & ads.txt scraping + DB mutations strictly behind verified API auth
+      if (canMutateInBackground) {
+        if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
+          safeWaitUntil(
+            ctx,
+            enrichMissingDomainsBatch(sql, data.missing_age_domains, 4).catch(() => {}),
+            'bg_enrich_domain_ages'
+          );
+        }
 
-      // Non-blocking background Ad Network enrichment for unchecked domains on current page
-      if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
-        safeWaitUntil(
-          ctx,
-          enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4).catch(() => {}),
-          'bg_enrich_domain_ads'
-        );
+        if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
+          safeWaitUntil(
+            ctx,
+            enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4).catch(() => {}),
+            'bg_enrich_domain_ads'
+          );
+        }
       }
 
       return jsonResponse({ success: true, ...data }, 200, 15);
@@ -129,6 +136,7 @@ export async function handleDomainsRoutes(routeCtx) {
     const domain = searchParams.get('domain');
     if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
     try {
+      const canMutateInBackground = Boolean(verifyApiAuthentication(request, env)?.authorized);
       const rawDomain = domain.trim();
       const isOrganicVault = rawDomain.toLowerCase() === 'uploaded by user' || rawDomain.toLowerCase() === 'uploaded-by-user' || rawDomain.toLowerCase() === 'organic';
       const cleanDomain = isOrganicVault ? 'Uploaded by user' : normalizeCleanDomain(rawDomain);
@@ -141,26 +149,18 @@ export async function handleDomainsRoutes(routeCtx) {
 
       const cacheKey = buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain, folderId, keywordId, displacedLimit });
 
-      if (isForceRefresh) {
-        if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
-          await invalidateEdgeCache('domains:leaderboard');
-        }
-
+      if (isForceRefresh && canMutateInBackground && typeof invalidateEdgeCache === 'function') {
+        await invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
+        await invalidateEdgeCache('domains:leaderboard');
       }
 
       const fetchDossier = async () => {
-
-
         const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true, displacedLimit });
 
-        // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Non-blocking single-domain rollup sync (<5ms)
-        // Guard: NEVER execute syncSingleDomainRollup if folderId is present in the request
-        if (freshDossier?.success && !folderId) {
+        // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Only dispatch DB rollup micro-sync when authenticated & unscoped
+        if (canMutateInBackground && freshDossier?.success && !folderId) {
           safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
         }
-
-
 
         return freshDossier;
       };
@@ -170,8 +170,8 @@ export async function handleDomainsRoutes(routeCtx) {
         timeoutMs: 27000
       });
 
-      // Non-blocking background enrichment for missing WHOIS or ads
-      if (dossier?.needs_age_enrichment || dossier?.needs_ad_enrichment) {
+      // Gate background WHOIS/Age & ads.txt scraping + DB mutations strictly behind verified API auth
+      if (canMutateInBackground && (dossier?.needs_age_enrichment || dossier?.needs_ad_enrichment)) {
         safeWaitUntil(
           ctx,
           (async () => {
@@ -183,7 +183,6 @@ export async function handleDomainsRoutes(routeCtx) {
               tasks.push(fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch(() => {}));
             }
             await Promise.all(tasks);
-
 
             if (typeof invalidateEdgeCache === 'function') {
               invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));

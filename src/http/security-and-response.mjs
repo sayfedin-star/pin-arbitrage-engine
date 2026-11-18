@@ -7,6 +7,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { TtlSingleflightCache } from '../lib/ttl-cache.mjs';
 
 export { getCulinaryColorName, formatAge } from '../utils.mjs';
 
@@ -231,12 +232,18 @@ export function verifyApiAuthentication(request, env = {}) {
     }
   } catch (_) {}
 
-  const isTestOrLocalDev = (
+  const isExplicitProduction = (
+    env?.ENVIRONMENT === 'production' ||
+    env?.NODE_ENV === 'production' ||
+    (!env?.ENVIRONMENT && !env?.NODE_ENV && typeof process !== 'undefined' && (process.env?.NODE_ENV === 'production' || process.env?.ENVIRONMENT === 'production'))
+  );
+  const isTestMode = (
     env?.ENVIRONMENT === 'test' ||
     env?.NODE_ENV === 'test' ||
     Boolean(globalThis.__PAE_TEST_MODE__) ||
-    (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
+    (!isExplicitProduction && typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
+  const isTestOrLocalDev = isTestMode || (!isExplicitProduction && (env?.NODE_ENV === 'development' || env?.ENVIRONMENT === 'development'));
   const envSecretKey = env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET);
   const processSecretKey = typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '';
   const secretKey = envSecretKey || (isTestOrLocalDev ? '' : processSecretKey) || '';
@@ -594,14 +601,15 @@ export const HTML_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.pinterest.com https://cdn.jsdelivr.net https:; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none';"
 };
 
-// In-Memory SWR Cache & Single-Flight Request Coalescing
-export const edgeCache = new Map();
-export const inflightPromises = new Map();
-export const swrInflightPromises = new Map();
+// In-Memory SWR Cache & Single-Flight Request Coalescing (Canonical TtlSingleflightCache)
 const MAX_CACHE_ENTRIES = 512;
-let cacheEpoch = 0;
-let globalClearEpoch = 0;
-const prefixInvalidationEpochs = new Map();
+export const edgeCache = new TtlSingleflightCache({
+  maxEntries: MAX_CACHE_ENTRIES,
+  defaultTtlMs: 15_000,
+  defaultStaleMs: 60_000
+});
+export const inflightPromises = edgeCache.inflight;
+export const swrInflightPromises = edgeCache.swrInflight;
 
 const CASE_INSENSITIVE_CACHE_KEYS = new Set([
   'domain',
@@ -624,28 +632,13 @@ const CASE_INSENSITIVE_CACHE_KEYS = new Set([
   'topic'
 ]);
 
-function isCacheWriteValid(key, startEpoch) {
-  if (globalClearEpoch > startEpoch) return false;
-  for (const [pfx, ep] of prefixInvalidationEpochs.entries()) {
-    if (ep > startEpoch && key.startsWith(pfx)) return false;
-  }
-  return true;
-}
-
-function setBoundedCacheEntry(key, value, ttlMs, staleMs) {
-  if (edgeCache.has(key)) {
-    edgeCache.delete(key);
-  } else if (edgeCache.size >= MAX_CACHE_ENTRIES) {
-    const oldestKey = edgeCache.keys().next().value;
-    if (oldestKey) edgeCache.delete(oldestKey);
-  }
-  const now = Date.now();
-  edgeCache.set(key, {
-    data: value,
-    expiresAt: now + ttlMs,
-    staleUntil: now + ttlMs + staleMs
-  });
-}
+const isEdgePayloadCacheable = (fresh) => Boolean(
+  fresh &&
+  fresh.success !== false &&
+  !fresh.degraded &&
+  !fresh._degraded &&
+  !fresh.is_degraded
+);
 
 export function buildCanonicalCacheKey(prefix, params = {}) {
   const sortedEntries = Object.entries(params)
@@ -662,122 +655,29 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
 }
 
 export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000, { forceRefresh = false, timeoutMs = 18000 } = {}) {
-  const now = Date.now();
-  const cached = edgeCache.get(key);
-
-  // 1. In-Memory Cache Check (bypassed on forceRefresh)
-  if (!forceRefresh && cached) {
-    if (now < cached.expiresAt) {
-      return cached.data;
-    }
-    // Stale-While-Revalidate: return stale data immediately, revalidate in isolated swrInflightPromises
-    if (now < cached.staleUntil) {
-      if (!swrInflightPromises.has(key) && !inflightPromises.has(key)) {
-        const revalEpoch = cacheEpoch;
-        const revalPromise = (async () => {
-          try {
-            let timerId;
-            const fetchTask = Promise.resolve().then(() => fetcher());
-            fetchTask.catch(() => {});
-            const timeoutPromise = new Promise((_, reject) => {
-              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), timeoutMs);
-              timerId?.unref?.();
-            });
-            const fresh = await Promise.race([
-              fetchTask,
-              timeoutPromise
-            ]).finally(() => {
-              if (timerId) clearTimeout(timerId);
-            });
-            const isCacheable = Boolean(
-              fresh &&
-              fresh.success !== false &&
-              !fresh.degraded &&
-              !fresh._degraded &&
-              !fresh.is_degraded
-            );
-            if (isCacheable && isCacheWriteValid(key, revalEpoch)) {
-              setBoundedCacheEntry(key, fresh, ttlMs, staleMs);
-            }
-            return fresh;
-          } catch (swrErr) {
-            console.warn(
-              `[getCachedOrFetch] Background SWR revalidation failed for "${key}":`,
-              redactSecrets(swrErr?.message || String(swrErr))
-            );
-          } finally {
-            swrInflightPromises.delete(key);
-          }
-        })();
-        swrInflightPromises.set(key, revalPromise);
-        const store = requestContextStorage?.getStore?.();
-        const ctx = store?.ctx;
-        if (ctx && typeof ctx.waitUntil === 'function') {
-          safeWaitUntil(ctx, revalPromise, `swr_revalidate_${key}`);
-        }
-      }
-      return cached.data;
-    }
-  }
-
-  // 2. Coalesce concurrent foreground in-flight requests (bypassed on explicit forceRefresh)
-  if (!forceRefresh && inflightPromises.has(key)) {
-    return await inflightPromises.get(key);
-  }
-
-  // 3. Cache Miss or Force Refresh: Fetch fresh data in foreground (never swallows errors to undefined)
-  const fetchEpoch = cacheEpoch;
-  const promise = (async () => {
-    try {
-      let timerId;
-      const fetchTask = Promise.resolve().then(() => fetcher());
-      fetchTask.catch(() => {});
-      const timeoutPromise = new Promise((_, reject) => {
-        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), timeoutMs);
-        timerId?.unref?.();
-      });
-      const fresh = await Promise.race([
-        fetchTask,
-        timeoutPromise
-      ]).finally(() => {
-        if (timerId) clearTimeout(timerId);
-      });
-      const isCacheable = Boolean(
-        fresh &&
-        fresh.success !== false &&
-        !fresh.degraded &&
-        !fresh._degraded &&
-        !fresh.is_degraded
+  return await edgeCache.getOrFetch(key, fetcher, {
+    ttlMs,
+    staleMs,
+    forceRefresh,
+    timeoutMs,
+    shouldCache: isEdgePayloadCacheable,
+    onSwrError: (swrErr, k) => {
+      console.warn(
+        `[getCachedOrFetch] Background SWR revalidation failed for "${k}":`,
+        redactSecrets(swrErr?.message || String(swrErr))
       );
-      if (isCacheable && isCacheWriteValid(key, fetchEpoch)) {
-        setBoundedCacheEntry(key, fresh, ttlMs, staleMs);
-      }
-
-      return fresh;
-    } finally {
-      if (inflightPromises.get(key) === promise) {
-        inflightPromises.delete(key);
+    },
+    onBackgroundPromise: (revalPromise, k) => {
+      const store = requestContextStorage?.getStore?.();
+      const ctx = store?.ctx;
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        safeWaitUntil(ctx, revalPromise, `swr_revalidate_${k}`);
       }
     }
-  })();
-
-  inflightPromises.set(key, promise);
-  return await promise;
+  });
 }
 
 export async function invalidateEdgeCache(prefix = '') {
-  const nextEpoch = ++cacheEpoch;
-  if (!prefix) {
-    globalClearEpoch = nextEpoch;
-    prefixInvalidationEpochs.clear();
-    edgeCache.clear();
-  } else {
-    prefixInvalidationEpochs.set(prefix, nextEpoch);
-    for (const k of edgeCache.keys()) {
-      if (k.startsWith(prefix)) {
-        edgeCache.delete(k);
-      }
-    }
-  }
+  edgeCache.invalidate(prefix);
   return Promise.resolve();
 }

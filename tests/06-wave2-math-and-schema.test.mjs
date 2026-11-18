@@ -18,11 +18,9 @@ import {
   saveCompetitorRules,
   GLOBAL_QUALIFICATION_RULES_KEY
 } from '../src/modules/creators/competitors-crud.mjs';
-import {
-  listDomainsIntelligenceFast,
-  fetchAndCacheDomainAge,
-  fetchAndCacheDomainAdNetwork
-} from '../src/modules/domains/service.mjs';
+import { listDomainsIntelligenceFast } from '../src/modules/domains/rollup-leaderboard-service.mjs';
+import { fetchAndCacheDomainAge } from '../src/modules/domains/whois-age-service.mjs';
+import { fetchAndCacheDomainAdNetwork } from '../src/modules/domains/ad-network-service.mjs';
 import { getCrossPillarArbitrageTargets } from '../src/modules/cluster/service.mjs';
 import {
   getMigrationFiles,

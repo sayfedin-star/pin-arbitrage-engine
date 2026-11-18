@@ -12,8 +12,9 @@ import {
   fetchPinFromPinterest,
   pinterestFetch
 } from '../../core/pinterest/index.mjs';
-import { derivePinTitle } from './folders-service.mjs';
+import { derivePinTitle } from './folders-crossover.mjs';
 import { isMultiStageHydrationJump } from '../../lib/math.mjs';
+import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 import {
   syncPinAcrossAllFourPillars,
   fetchUniversalPinDossier,
@@ -25,11 +26,13 @@ import {
 } from './analytics.mjs';
 import { getKeywordDisplacedPins } from './service.mjs';
 
-// In-Memory True LRU Cache for Visual Similarity Lens (max 500 entries, 15m TTL)
-const visualSearchCache = new Map();
-const inflightVisualSearch = new Map();
+// Bounded True LRU + Singleflight Cache for Visual Similarity Lens (max 500 entries, 15m TTL)
 const VISUAL_CACHE_MAX = 500;
 const VISUAL_TTL_MS = 15 * 60 * 1000;
+const visualSearchCache = new TtlSingleflightCache({
+  maxEntries: VISUAL_CACHE_MAX,
+  defaultTtlMs: VISUAL_TTL_MS
+});
 
 /**
  * List all tracked keywords with velocity summaries
@@ -182,232 +185,221 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) throw new Error('Pin ID is required for Visual Lens');
 
-  const now = Date.now();
-
-  // 1. Check LRU Cache
-  const cached = visualSearchCache.get(cleanPin);
-  if (cached) {
-    if (now - cached.timestamp < VISUAL_TTL_MS) {
-      visualSearchCache.delete(cleanPin);
-      visualSearchCache.set(cleanPin, cached);
-      return { success: true, pin_id: cleanPin, matches: cached.matches, seed_pin: cached.seed_pin || null, cached: true };
-    } else {
-      visualSearchCache.delete(cleanPin);
-    }
+  const l1Hit = visualSearchCache.get(cleanPin);
+  if (l1Hit) {
+    return {
+      success: true,
+      pin_id: cleanPin,
+      matches: l1Hit.matches,
+      seed_pin: l1Hit.seed_pin || null,
+      cached: true
+    };
   }
 
-  // 1.1 Persistent L2 Unified PostgreSQL Cache (7-day TTL)
+  // Persistent L2 Unified PostgreSQL Cache (7-day TTL)
   const dbCached = await getCachedVisualSearchMatches(sql, cleanPin, env);
   if (dbCached) {
     let seedPin = null;
-    try {
-      const [row] = await sql`
-        SELECT pin_id, title, image_url, clean_domain AS domain, save_count
-        FROM universal_master_pins
-        WHERE pin_id = ${cleanPin}
-        LIMIT 1;
-      `;
-      seedPin = row;
-    } catch (_) {}
-    visualSearchCache.set(cleanPin, { matches: dbCached.matches, seed_pin: seedPin, timestamp: Date.now() });
+    if (sql) {
+      try {
+        const [row] = await sql`
+          SELECT pin_id, title, image_url, clean_domain AS domain, save_count
+          FROM universal_master_pins
+          WHERE pin_id = ${cleanPin}
+          LIMIT 1;
+        `;
+        seedPin = row || null;
+      } catch (err) {
+        console.warn(`[fetchVisualSearchLens] Seed pin lookup warning for ${cleanPin}:`, err?.message || err);
+      }
+    }
+    visualSearchCache.set(cleanPin, { matches: dbCached.matches, seed_pin: seedPin });
     return { success: true, pin_id: cleanPin, matches: dbCached.matches, seed_pin: seedPin, cached: true };
   }
 
-  // 2. Coalesce in-flight requests
-  if (inflightVisualSearch.has(cleanPin)) {
-    return await inflightVisualSearch.get(cleanPin);
-  }
-
-  const promise = (async () => {
-    // Look up pin details from canonical pin catalog to construct visual seed query
-    let pinRow = null;
-    try {
-      const [row] = await sql`
-        SELECT pin_id, title, image_url, clean_domain AS domain, save_count
-        FROM universal_master_pins
-        WHERE pin_id = ${cleanPin}
-        LIMIT 1;
-      `;
-      pinRow = row;
-    } catch (err) {
-      console.warn(`[fetchVisualSearchLens] Master pins lookup warning for pin ${cleanPin}:`, err.message);
-    }
-
-    // Fallback if pin not yet crawled in snapshots: fetch public pin HTML
-    if (!pinRow?.title) {
-      let pinRes;
-      try {
-        const pinPageUrl = `https://www.pinterest.com/pin/${cleanPin}/`;
-        pinRes = await pinterestFetch(pinPageUrl, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(6000) });
-        if (pinRes.ok) {
-          const html = await pinRes.text();
-          const ext = extractPinData(html, cleanPin);
-          if (ext) {
-            pinRow = {
-              pin_id: cleanPin,
-              title: ext.title || ext.seo_title || ext.alt_text || '',
-              domain: ext.domain || '',
-              image_url: ext.image_url || null,
-              save_count: Number(ext.saves || 0)
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`[fetchVisualSearchLens] Fallback pin HTML fetch warning for pin ${cleanPin}:`, err.message);
-      } finally {
-        if (pinRes?.body && !pinRes.bodyUsed) {
-          await pinRes.body.cancel().catch(() => {});
+  const { value, cached } = await visualSearchCache.getOrFetchWithMeta(
+    cleanPin,
+    async () => {
+      // Look up pin details from canonical pin catalog to construct visual seed query
+      let pinRow = null;
+      if (sql) {
+        try {
+          const [row] = await sql`
+            SELECT pin_id, title, image_url, clean_domain AS domain, save_count
+            FROM universal_master_pins
+            WHERE pin_id = ${cleanPin}
+            LIMIT 1;
+          `;
+          pinRow = row || null;
+        } catch (err) {
+          console.warn(`[fetchVisualSearchLens] Master pins lookup warning for pin ${cleanPin}:`, err.message);
         }
       }
-    }
 
-    let rawResults = [];
-    let matchProvenance = 'visual_live_lens';
+      // Fallback if pin not yet crawled in snapshots: fetch public pin HTML
+      if (!pinRow?.title) {
+        let pinRes;
+        try {
+          const pinPageUrl = `https://www.pinterest.com/pin/${cleanPin}/`;
+          pinRes = await pinterestFetch(pinPageUrl, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(6000) });
+          if (pinRes.ok) {
+            const html = await pinRes.text();
+            const ext = extractPinData(html, cleanPin);
+            if (ext) {
+              pinRow = {
+                pin_id: cleanPin,
+                title: ext.title || ext.seo_title || ext.alt_text || '',
+                domain: ext.domain || '',
+                image_url: ext.image_url || null,
+                save_count: Number(ext.saves || 0)
+              };
+            }
+          }
+        } catch (err) {
+          console.warn(`[fetchVisualSearchLens] Fallback pin HTML fetch warning for pin ${cleanPin}:`, err.message);
+        } finally {
+          if (pinRes?.body && !pinRes.bodyUsed) {
+            await pinRes.body.cancel().catch(() => {});
+          }
+        }
+      }
 
-    // 1. Attempt Pinterest's native VisualLiveSearchResource first (requires only pin_id, not title)
-    if (cookie && String(cookie).trim()) {
-      let vRes;
-      try {
-        const visualUrl = `https://www.pinterest.com/resource/VisualLiveSearchResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=%7B%22options%22%3A%7B%22pin_id%22%3A%22${cleanPin}%22%7D%2C%22context%22%3A%7B%7D%7D`;
-        const vHeaders = getPinterestHeaders({
+      let rawResults = [];
+      let matchProvenance = 'visual_live_lens';
+
+      // 1. Attempt Pinterest's native VisualLiveSearchResource first
+      if (cookie && String(cookie).trim()) {
+        let vRes;
+        try {
+          const visualUrl = `https://www.pinterest.com/resource/VisualLiveSearchResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=%7B%22options%22%3A%7B%22pin_id%22%3A%22${cleanPin}%22%7D%2C%22context%22%3A%7B%7D%7D`;
+          const vHeaders = getPinterestHeaders({
+            cookie,
+            referer: `https://www.pinterest.com/pin/${cleanPin}/`,
+            extra: {
+              'x-pinterest-pws-handler': 'www/pin/[id].js'
+            }
+          });
+          vRes = await pinterestFetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
+          if (vRes.ok) {
+            const vData = await vRes.json();
+            rawResults = vData?.resource_response?.data?.results || [];
+          }
+        } catch (_) {
+        } finally {
+          if (vRes?.body && !vRes.bodyUsed) await vRes.body.cancel().catch(() => {});
+        }
+      }
+
+      // 2. Fallback to contextual text search ONLY if visual live search returned no results
+      if (!rawResults || rawResults.length === 0) {
+        matchProvenance = 'contextual_text_fallback';
+        let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';
+        if (!searchQueryStr && pinRow?.domain) {
+          searchQueryStr = pinRow.domain;
+        }
+        if (!searchQueryStr) {
+          return { success: true, pin_id: cleanPin, seed_pin: pinRow, matches: [] };
+        }
+
+        const searchQuery = encodeURIComponent(searchQueryStr);
+        const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
+        const headers = getPinterestHeaders({
           cookie,
-          referer: `https://www.pinterest.com/pin/${cleanPin}/`,
+          referer: `https://www.pinterest.com/search/pins/?q=${searchQuery}`,
           extra: {
-            'x-pinterest-pws-handler': 'www/pin/[id].js'
+            'x-pinterest-pws-handler': 'www/search/pins.js'
           }
         });
-        vRes = await pinterestFetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
-        if (vRes.ok) {
-          const vData = await vRes.json();
-          rawResults = vData?.resource_response?.data?.results || [];
+
+        let res;
+        try {
+          res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
+          if (res.ok) {
+            const data = await res.json();
+            rawResults = data?.resource_response?.data?.results || [];
+          }
+        } catch (err) {
+          console.warn(`[fetchVisualSearchLens] Contextual search fallback error:`, err.message);
+        } finally {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
         }
-      } catch (_) {
-      } finally {
-        if (vRes?.body && !vRes.bodyUsed) await vRes.body.cancel().catch(() => {});
-      }
-    }
-
-    // 2. Fallback to contextual text search ONLY if visual live search returned no results
-    if (!rawResults || rawResults.length === 0) {
-      matchProvenance = 'contextual_text_fallback';
-      let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';
-      if (!searchQueryStr && pinRow?.domain) {
-        searchQueryStr = pinRow.domain;
-      }
-      if (!searchQueryStr) {
-        return { success: true, pin_id: cleanPin, seed_pin: pinRow, matches: [] };
       }
 
-      const searchQuery = encodeURIComponent(searchQueryStr);
-      const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
-      const headers = getPinterestHeaders({
-        cookie,
-        referer: `https://www.pinterest.com/search/pins/?q=${searchQuery}`,
-        extra: {
-          'x-pinterest-pws-handler': 'www/search/pins.js'
-        }
-      });
-
-      let res;
       try {
-        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
-        if (res.ok) {
-          const data = await res.json();
-          rawResults = data?.resource_response?.data?.results || [];
+        const matches = [];
+        const seen = new Set([cleanPin]);
+        const seedWords = (pinRow?.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+        for (const item of rawResults) {
+          if (!item || item.type !== 'pin' || item.format === 'Related Interests') continue;
+          const cleanMatchId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
+            .map(v => String(v || '').trim())
+            .find(v => /^(?:\d{10,30}|e1_[A-Za-z0-9_-]{15,90})$/.test(v));
+          if (!cleanMatchId || seen.has(cleanMatchId)) continue;
+          seen.add(cleanMatchId);
+
+          const title = extractPinTitle(item);
+          if (title === 'Explore featured boards') continue;
+          const img = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
+          if (!img) continue;
+          let domain = item.domain || '';
+          if (!domain && item.link) {
+            try { domain = new URL(item.link).hostname; } catch (_) {}
+          }
+
+          const saves = Math.max(
+            Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
+            Number(item.save_count || 0)
+          );
+
+          const isSameDomain = Boolean(domain && pinRow?.domain && domain.toLowerCase() === pinRow.domain.toLowerCase());
+          const itemWords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          const overlap = seedWords.filter(w => itemWords.includes(w)).length;
+          const isTemplateMatch = !isSameDomain && seedWords.length > 0 && (overlap / seedWords.length) >= 0.4;
+
+          let similarityType = 'VISUAL_SEARCH_MATCH';
+          let similarityBadge = 'Similar Match';
+          if (isSameDomain) {
+            similarityType = 'DOMAIN_CLONE';
+            similarityBadge = 'Competitor Clone';
+          } else if (isTemplateMatch) {
+            similarityType = 'TEMPLATE_CLONE';
+            similarityBadge = 'Template Match';
+          }
+
+          matches.push({
+            pin_id: cleanMatchId,
+            title,
+            image_url: img,
+            domain,
+            destination_url: item.link || '',
+            save_count: saves,
+            similarity_type: similarityType,
+            similarity_badge: similarityBadge,
+            provenance: matchProvenance
+          });
         }
+
+        await setCachedVisualSearchMatches(sql, cleanPin, matches, 7, env, pinRow);
+
+        return {
+          success: true,
+          pin_id: cleanPin,
+          seed_pin: pinRow,
+          matches
+        };
       } catch (err) {
-        console.warn(`[fetchVisualSearchLens] Contextual search fallback error:`, err.message);
-      } finally {
-        if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+        console.warn(`[!] fetchVisualSearchLens error for pin ${cleanPin}:`, err.message);
+        return { success: false, pin_id: cleanPin, matches: [], error: err.message };
       }
-    }
+    },
+    { shouldCache: (val) => Boolean(val?.success) }
+  );
 
-    try {
-      const matches = [];
-      const seen = new Set([cleanPin]);
-      const seedWords = (pinRow?.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
-
-      for (const item of rawResults) {
-        if (!item || item.type !== 'pin' || item.format === 'Related Interests') continue;
-        const cleanMatchId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
-          .map(v => String(v || '').trim())
-          .find(v => /^(?:\d{10,30}|e1_[A-Za-z0-9_-]{15,90})$/.test(v));
-        if (!cleanMatchId || seen.has(cleanMatchId)) continue;
-        seen.add(cleanMatchId);
-
-        const title = extractPinTitle(item);
-        if (title === 'Explore featured boards') continue;
-        const img = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
-        if (!img) continue;
-        let domain = item.domain || '';
-        if (!domain && item.link) {
-          try { domain = new URL(item.link).hostname; } catch (_) {}
-        }
-
-        const saves = Math.max(
-          Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
-          Number(item.save_count || 0)
-        );
-
-        // Classify visual relationship
-        const isSameDomain = Boolean(domain && pinRow?.domain && domain.toLowerCase() === pinRow.domain.toLowerCase());
-        const itemWords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-        const overlap = seedWords.filter(w => itemWords.includes(w)).length;
-        const isTemplateMatch = !isSameDomain && seedWords.length > 0 && (overlap / seedWords.length) >= 0.4;
-
-        let similarityType = 'VISUAL_SEARCH_MATCH';
-        let similarityBadge = 'Similar Match';
-        if (isSameDomain) {
-          similarityType = 'DOMAIN_CLONE';
-          similarityBadge = 'Competitor Clone';
-        } else if (isTemplateMatch) {
-          similarityType = 'TEMPLATE_CLONE';
-          similarityBadge = 'Template Match';
-        }
-
-        matches.push({
-          pin_id: cleanMatchId,
-          title,
-          image_url: img,
-          domain,
-          destination_url: item.link || '',
-          save_count: saves,
-          similarity_type: similarityType,
-          similarity_badge: similarityBadge,
-          provenance: matchProvenance
-        });
-      }
-
-      // Evict if cache exceeds max
-      if (visualSearchCache.size >= VISUAL_CACHE_MAX) {
-        const oldestKey = visualSearchCache.keys().next().value;
-        visualSearchCache.delete(oldestKey);
-      }
-
-      visualSearchCache.set(cleanPin, { matches, seed_pin: pinRow, timestamp: Date.now() });
-
-      // Persist to L2 Unified PostgreSQL Cache (7-day TTL)
-      await setCachedVisualSearchMatches(sql, cleanPin, matches, 7, env, pinRow);
-
-      return {
-        success: true,
-        pin_id: cleanPin,
-        seed_pin: pinRow,
-        matches,
-        cached: false
-      };
-    } catch (err) {
-      console.warn(`[!] fetchVisualSearchLens error for pin ${cleanPin}:`, err.message);
-      return { success: false, pin_id: cleanPin, matches: [], error: err.message };
-    }
-  })();
-
-  inflightVisualSearch.set(cleanPin, promise);
-  try {
-    return await promise;
-  } finally {
-    inflightVisualSearch.delete(cleanPin);
+  if (!value?.success) {
+    return value;
   }
+  return { ...value, cached };
 }
 
 /**
@@ -418,7 +410,7 @@ export async function getKeywordPins(sql, keywordId) {
   const kid = Number(keywordId);
   if (!kid) return [];
 
-  // 1. Direct Ultra-Low Latency Read from Active Catalog
+  // Direct Read from Active Catalog (do not swallow DB failures into empty cacheable arrays)
   const activeRows = await sql`
     SELECT 
       ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
@@ -441,7 +433,7 @@ export async function getKeywordPins(sql, keywordId) {
         WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
       )
     ORDER BY ksp.rank_position ASC;
-  `.catch(() => []);
+  `;
 
   return activeRows || [];
 }
@@ -514,9 +506,9 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = ksp.pin_id
         )
       ORDER BY ksp.rank_position ASC;
-    `.catch(() => []),
-    getKeywordDisplacedPins(sql, kid, { limit: 500, env }).catch(() => null),
-    getKeywordGuides(sql, kid).catch(() => []),
+    `,
+    getKeywordDisplacedPins(sql, kid, { limit: 500, env }),
+    getKeywordGuides(sql, kid),
     sql`
       SELECT COUNT(*)::int AS total 
       FROM keyword_serp_positions 
@@ -526,7 +518,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_positions.pin_id
         );
-    `.catch(() => [{ total: 0 }])
+    `
   ]);
 
   const keyword = keywordRows[0];

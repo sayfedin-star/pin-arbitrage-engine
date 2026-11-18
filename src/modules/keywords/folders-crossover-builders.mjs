@@ -79,7 +79,7 @@ export async function buildFolderCrossoverMatrix({
   displacedRows,
   capsuleRows,
   repinWindowRows,
-  pulseAnalyticsPromise
+  pulseAnalyticsPromise = null
 }) {
   const combinedCatalogRows = [...pinRows, ...displacedRows];
 
@@ -271,7 +271,9 @@ export async function buildFolderCrossoverMatrix({
   }
 
   let allPins = Array.from(pinMap.values());
+  const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
   let vacuumPinsCount = 0;
+
   for (const p of allPins) {
     p.has_active_rank = p.rankings.some(r => !r.is_displaced);
     p.has_vault_rank = p.rankings.some(r => r.is_displaced);
@@ -282,84 +284,6 @@ export async function buildFolderCrossoverMatrix({
     p.avg_rank = p.rankings.length > 0 ? Number((p.rankings.reduce((sum, r) => sum + r.rank_position, 0) / p.rankings.length).toFixed(1)) : 1;
     p.rankings.sort((a, b) => a.rank_position - b.rank_position);
 
-    // [INVARIANT: VACUUM-PIN-CALCULATION]
-    const cleanDom = String(p.domain || '').trim();
-    p.is_vacuum_pin = Boolean(p.image_url) && (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
-    if (p.is_vacuum_pin) {
-      vacuumPinsCount++;
-    }
-  }
-
-  // =========================================================================
-  // 4-TIER DISTRIBUTED CREATIVE METADATA HYDRATION
-  // =========================================================================
-  const missingMetaPins = allPins.filter(
-    p => !p.raw_title || isSyntheticPinTitle(p.title) || !p.image_url || !p.created_at_pinterest
-  );
-  let hasUnhydratedPriorityPins = false;
-
-  if (missingMetaPins.length > 0) {
-    const enrichedMap = new Map();
-
-    // Apply hydrated creative metadata back to allPins BEFORE Dimension B (Tag Bridges) & Dimension D
-    for (const p of missingMetaPins) {
-      const meta = enrichedMap.get(String(p.pin_id));
-      if (meta) {
-        if ((!p.raw_title || isSyntheticPinTitle(p.title)) && meta.title && !isSyntheticPinTitle(meta.title)) {
-          p.raw_title = String(meta.title).trim();
-          p.title = p.raw_title;
-        }
-        if (!p.seo_title && meta.seo_title) p.seo_title = meta.seo_title;
-        if (!p.image_url && meta.image_url) p.image_url = meta.image_url;
-        if (!p.destination_url && meta.destination_url) p.destination_url = meta.destination_url;
-        if (!p.domain && meta.domain) p.domain = meta.domain;
-        if (!p.creator_username && meta.creator_username) {
-          p.creator_username = meta.creator_username;
-          if (!p.creator_name) p.creator_name = meta.creator_username;
-        }
-        if (!p.board_name && meta.board_name) p.board_name = meta.board_name;
-        if ((!p.dominant_color || p.dominant_color === '#1e1e24' || p.dominant_color === '#888888' || p.dominant_color === '#000000') && meta.dominant_color && meta.dominant_color !== '#888888') {
-          p.dominant_color = meta.dominant_color;
-        }
-        if ((!p.visual_annotations || p.visual_annotations.length === 0) && Array.isArray(meta.visual_annotations) && meta.visual_annotations.length > 0) {
-          p.visual_annotations = meta.visual_annotations;
-        }
-        if (!p.alt_text && meta.alt_text) p.alt_text = meta.alt_text;
-        if (!p.description && meta.description) p.description = meta.description;
-        if (!p.created_at_pinterest && meta.created_at_pinterest) {
-          p.created_at_pinterest = meta.created_at_pinterest;
-          const pinCreatedMs = new Date(meta.created_at_pinterest).getTime();
-          if (!isNaN(pinCreatedMs)) {
-            p.pin_age_days = Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000));
-          }
-        }
-        if ((!p.aspect_ratio || p.aspect_ratio === '2:3') && meta.aspect_ratio) {
-          p.aspect_ratio = meta.aspect_ratio;
-        }
-        if ((!p.format || p.format === 'ORGANIC PIN') && meta.creation_method) {
-          p.format = String(meta.creation_method).toUpperCase();
-        }
-        if (!p.save_count && meta.save_count) p.save_count = Number(meta.save_count);
-        if (!p.repin_count && meta.repin_count) p.repin_count = Number(meta.repin_count);
-        if (meta.comment_count) p.comment_count = Math.max(p.comment_count || 0, Number(meta.comment_count));
-        if (meta.daily_save_velocity !== undefined && meta.daily_save_velocity !== null) {
-          p.daily_save_velocity = Number(meta.daily_save_velocity);
-          p.delta_saves_24h = Number(meta.daily_save_velocity);
-        }
-        if (meta.delta_repins_24h !== undefined && meta.delta_repins_24h !== null) {
-          p.delta_repins_24h = Number(meta.delta_repins_24h);
-        }
-        p.effective_velocity = p.daily_save_velocity || 0;
-        p.velocity_source = 'saves';
-      }
-    }
-  }
-
-  // Final Pass: Synthesize fallback title via derivePinTitle across ALL pins ONLY if authentic title is STILL missing,
-  // and recompute vacuumPinsCount + pin_age_days cleanly.
-  const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
-  vacuumPinsCount = 0;
-  for (const p of allPins) {
     if (p.pin_age_days == null && p.created_at_pinterest) {
       const pinCreatedMs = new Date(p.created_at_pinterest).getTime();
       if (!isNaN(pinCreatedMs)) {
@@ -380,6 +304,8 @@ export async function buildFolderCrossoverMatrix({
         p.seo_title || ''
       );
     }
+
+    // [INVARIANT: VACUUM-PIN-CALCULATION]
     const cleanDom = String(p.domain || '').trim();
     p.is_vacuum_pin = Boolean(p.image_url) && (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
     if (p.is_vacuum_pin) {
@@ -455,13 +381,6 @@ export async function buildFolderCrossoverMatrix({
     }
   }
   allPins = Array.from(creativePinMap.values());
-
-  // Check if any top-50 priority pin still lacks image_url
-  const top50PriorityCheck = allPins
-    .slice()
-    .sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0) || (b.save_count || 0) - (a.save_count || 0))
-    .slice(0, 50);
-  hasUnhydratedPriorityPins = top50PriorityCheck.some(p => !p.image_url);
 
   // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
   const superPins = allPins
@@ -997,7 +916,10 @@ export async function buildFolderCrossoverMatrix({
           SELECT domain, age_days, age_years, ad_network
           FROM domain_intelligence_rollup
           WHERE domain = ANY(${domainNames})
-        `.catch(() => [])
+        `.catch((err) => {
+          console.warn('[folders-crossover] Optional domain rollup enrichment warning:', err?.message || err);
+          return [];
+        })
       : Promise.resolve([]),
     creatorUsernames.length > 0
       ? sql`
@@ -1015,7 +937,10 @@ export async function buildFolderCrossoverMatrix({
             boards_delta_7d
           FROM competitor_profiles
           WHERE LOWER(username) = ANY(${creatorUsernames})
-        `.catch(() => [])
+        `.catch((err) => {
+          console.warn('[folders-crossover] Optional creator profile enrichment warning:', err?.message || err);
+          return [];
+        })
       : Promise.resolve([])
   ]);
 
@@ -1079,11 +1004,9 @@ export async function buildFolderCrossoverMatrix({
     if (!term) continue;
     let trendData = null;
 
-    if (folderTrendsCache.has(term)) {
-      const entry = folderTrendsCache.get(term);
-      if (entry && (Date.now() - (entry.timestamp || 0) < 60 * 60 * 1000)) {
-        trendData = entry.data || entry;
-      }
+    const cachedEntry = folderTrendsCache.get(term);
+    if (cachedEntry) {
+      trendData = cachedEntry.data || cachedEntry;
     }
 
     if (!trendData && kw.metadata) {
@@ -1343,7 +1266,7 @@ export async function buildFolderCrossoverMatrix({
     creator_monopoly: creatorMonopoly,
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Top Creators Rollup Wiring
     top_creators: creatorMonopoly,
-    pulse_analytics: await pulseAnalyticsPromise,
+    pulse_analytics: pulseAnalyticsPromise ? await pulseAnalyticsPromise : null,
     seasonality: {
       status: hasTrends ? 'available' : 'insufficient_data',
       composite_wave: normalizedWeeklyWave,
@@ -1353,7 +1276,6 @@ export async function buildFolderCrossoverMatrix({
       trends_loaded_count: trendsLoaded
     },
     topic_cluster_blueprint: topicClusterBlueprint,
-    has_unhydrated_priority_pins: hasUnhydratedPriorityPins,
-    _has_unhydrated_priority_pins: hasUnhydratedPriorityPins
+    has_unhydrated_priority_pins: false
   };
 }

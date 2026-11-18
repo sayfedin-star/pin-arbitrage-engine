@@ -1,21 +1,11 @@
-import {
-  getPinArchiveOverview,
-  getTopicClusters,
-  listArchivedPins,
-  getQualificationRules,
-  updateQualificationRules,
-  reEvaluateArchivedPins,
-  getPinDetailWithMetrics
-} from '../modules/creators/service.mjs';
-
 /**
- * Competitor Intelligence Sub-Router
- * 
- * Handles competitor profile tracking, board synchronization, pin harvesting,
- * rules evaluation, destination URL tracking, and related pins graph intersections.
- * 
- * [INVARIANT: LITERAL-MATCHES-FIRST] All subpaths (/api/competitors/sync, /boards, etc.)
- * are evaluated strictly with literal equality before the root resource /api/competitors.
+ * Creator & Competitor Intelligence Sub-Router
+ *
+ * Canonical `/api/creators/*` route table (`apiRoutesPlugin` rewrites `/api/competitors/*` -> `/api/creators/*`
+ * via a Fastify `onRequest` hook, and `handleCreatorsRoutes` also normalizes direct programmatic calls).
+ *
+ * [INVARIANT: LITERAL-MATCHES-FIRST] All subpaths (/api/creators/sync, /boards, etc.)
+ * are evaluated strictly with literal equality before the root resource /api/creators.
  */
 
 import {
@@ -23,37 +13,50 @@ import {
   listCompetitors,
   trackCompetitor,
   syncCompetitorProfile,
-  getCompetitorBoards,
-  syncCompetitorBoards,
-  syncCompetitorPins,
-  getCompetitorDetail,
   deleteCompetitorSnapshot,
   updateCompetitorStatus,
-  listCompetitorAccountPins,
-  getOrSyncBoardDetail,
-  getTopDestinationUrls,
   getCompetitorRules,
   saveCompetitorRules,
-  reEvaluateCompetitorPins,
   getCompetitorSeeds,
   addCompetitorSeeds,
   deleteCompetitorSeed,
+  getQualificationRules,
+  updateQualificationRules,
+  deleteCompetitor
+} from '../modules/creators/competitors-crud.mjs';
+import {
+  syncCompetitorPins,
+  reEvaluateArchivedPins,
+  reEvaluateCompetitorPins,
+  fastRefreshCompetitorArchivedPins
+} from '../modules/creators/creator-ingest.mjs';
+import {
+  getCompetitorBoards,
+  syncCompetitorBoards,
+  getOrSyncBoardDetail
+} from '../modules/creators/boards-service.mjs';
+import {
+  getCompetitorDetail,
+  listCompetitorAccountPins,
+  listArchivedPins,
+  getPinArchiveOverview,
+  getTopicClusters,
+  getPinDetailWithMetrics,
+  getTopDestinationUrls,
   getCompetitorRelatedIntersections,
-  fastRefreshCompetitorArchivedPins,
+  harvestSinglePinRelatedLive,
   auditSweepCompetitor,
   quickPulseCreator,
   deepHarvestCreator,
-  harvestSinglePinRelatedLive,
   getCreatorHubSettings,
-  updateCreatorHubSettings,
-  deleteCompetitor
-} from '../modules/creators/service.mjs';
+  updateCreatorHubSettings
+} from '../modules/creators/creator-analytics.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { deletePinSnapshotByTarget } from './pins.mjs';
 
 /**
- * Fast URI discriminator for Creators & Competitors routes
+ * Fast URI discriminator for Creators & Boards routes
  */
 export function isCreatorsRoute(pathname) {
   return pathname.startsWith('/api/creators') ||
@@ -62,16 +65,14 @@ export function isCreatorsRoute(pathname) {
 }
 
 /**
- * Handles incoming /api/competitors/* requests.
- * Returns Response if handled, or null if unhandled.
+ * Handles incoming `/api/creators/*` (and normalized `/api/competitors/*`) requests.
  */
 export async function handleCreatorsRoutes(routeCtx) {
   let { pathname } = routeCtx;
-  const originalPathname = pathname;
-  // Normalize /api/creators/* to /api/competitors/* for unified handling
-  if (pathname.startsWith('/api/creators')) {
-    pathname = pathname.replace(/^\/api\/creators\b/, '/api/competitors');
+  if (/^\/api\/competitors(?=\/|$)/i.test(pathname)) {
+    pathname = pathname.replace(/^\/api\/competitors/i, '/api/creators');
   }
+
   const {
     method,
     request,
@@ -88,7 +89,6 @@ export async function handleCreatorsRoutes(routeCtx) {
     tripPinterestCircuitBreaker
   } = routeCtx;
 
-  
   const invalidateCreatorsCache = () => {
     if (typeof invalidateEdgeCache === 'function') {
       invalidateEdgeCache('creators');
@@ -99,9 +99,9 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   };
 
-  // 0. GET & POST /api/competitors/settings (or /api/creators/settings)
-  // [INVARIANT: LITERAL-MATCHES-FIRST] Handled strictly before root /api/competitors
-  if (pathname === '/api/competitors/settings' || pathname === '/api/creators/settings' || originalPathname === '/api/creators/settings') {
+  // 0. GET & POST /api/creators/settings
+  // [INVARIANT: LITERAL-MATCHES-FIRST] Handled strictly before root /api/creators
+  if (pathname === '/api/creators/settings') {
     if (method === 'GET') {
       const settings = await getCreatorHubSettings(sql);
       return jsonResponse({ success: true, settings }, 200, 30);
@@ -145,8 +145,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 0B. GET /api/creators/:username/latest-pins (or /api/competitors/:username/latest-pins)
-  const latestPinsMatch = pathname.match(/^\/api\/competitors\/([^/]+)\/latest-pins\/?$/i);
+  // 0B. GET /api/creators/:username/latest-pins
+  const latestPinsMatch = pathname.match(/^\/api\/creators\/([^/]+)\/latest-pins\/?$/i);
   if (latestPinsMatch) {
     if (method !== 'GET') {
       return (routeCtx.methodNotAllowedResponse ? routeCtx.methodNotAllowedResponse('GET, OPTIONS') : jsonResponse({ error: 'Method Not Allowed' }, 405));
@@ -169,8 +169,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 0. Smart Sync Endpoints (Quick Pulse & Deep Harvest)
-  if (method === 'POST' && (pathname === '/api/creators/quick-pulse' || pathname === '/api/competitors/quick-pulse')) {
+  // 0C. Smart Sync Endpoints (Quick Pulse & Deep Harvest)
+  if (method === 'POST' && pathname === '/api/creators/quick-pulse') {
     const body = await request.json().catch(() => ({}));
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
@@ -188,7 +188,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  if (method === 'POST' && (pathname === '/api/creators/deep-harvest' || pathname === '/api/competitors/deep-harvest')) {
+  if (method === 'POST' && pathname === '/api/creators/deep-harvest') {
     const body = await request.json().catch(() => ({}));
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
@@ -208,8 +208,8 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // 1. Literal Sub-Routes (Evaluated in strict order)
 
-  // POST /api/competitors/sync
-  if (method === 'POST' && pathname === '/api/competitors/sync') {
+  // POST /api/creators/sync
+  if (method === 'POST' && pathname === '/api/creators/sync') {
     const body = await request.json().catch(() => ({}));
     const username = body.username;
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
@@ -219,10 +219,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
-        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Rate Limit in /api/competitors/sync', 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Rate Limit in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
         return jsonResponse({ error: 'PINTEREST_RATE_LIMITED', message: err.message }, 429);
       } else if (err.message && (err.message.includes('403') || err.message.includes('access denied'))) {
-        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 403 Forbidden in /api/competitors/sync', 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 403 Forbidden in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
         return jsonResponse({ error: 'PINTEREST_ACCESS_DENIED', message: err.message }, 403);
       }
       throw err;
@@ -231,13 +231,13 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/boards
-  if (method === 'GET' && pathname === '/api/competitors/boards') {
+  // GET /api/creators/boards
+  if (method === 'GET' && pathname === '/api/creators/boards') {
     const username = searchParams.get('username') || searchParams.get('account');
     const competitorId = searchParams.get('competitor_id') || searchParams.get('id');
     const idOrUser = username || competitorId;
     if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
-    const cacheKey = buildCanonicalCacheKey('competitors:boards', { idOrUser, username: username || '' });
+    const cacheKey = buildCanonicalCacheKey('creators:boards', { idOrUser, username: username || '' });
     const boardsData = await getCachedOrFetch(cacheKey, async () => {
       const boards = await getCompetitorBoards(sql, idOrUser, { username });
       return { success: true, boards };
@@ -245,8 +245,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse(boardsData, 200, 30);
   }
 
-  // POST /api/competitors/sync-boards
-  if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
+  // POST /api/creators/sync-boards
+  if (method === 'POST' && pathname === '/api/creators/sync-boards') {
     try {
       const body = await request.json().catch(() => ({}));
       const { competitor_id, username } = body;
@@ -262,8 +262,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/sync-pins
-  if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
+  // POST /api/creators/sync-pins
+  if (method === 'POST' && pathname === '/api/creators/sync-pins') {
     try {
       const body = await request.json().catch(() => ({}));
       const { competitor_id, username, mode, max_pages } = body;
@@ -279,8 +279,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/fast-refresh
-  if (method === 'POST' && pathname === '/api/competitors/fast-refresh') {
+  // POST /api/creators/fast-refresh
+  if (method === 'POST' && pathname === '/api/creators/fast-refresh') {
     const body = await request.json().catch(() => ({}));
     const { competitor_id, username, competitor_ids } = body;
     try {
@@ -314,8 +314,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/audit-sweep
-  if (method === 'POST' && pathname === '/api/competitors/audit-sweep') {
+  // POST /api/creators/audit-sweep
+  if (method === 'POST' && pathname === '/api/creators/audit-sweep') {
     const body = await request.json().catch(() => ({}));
     const { competitor_id, username, competitor_ids } = body;
     try {
@@ -352,14 +352,14 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/detail
-  if (method === 'GET' && pathname === '/api/competitors/detail') {
+  // GET /api/creators/detail
+  if (method === 'GET' && pathname === '/api/creators/detail') {
     const username = searchParams.get('username') || searchParams.get('account');
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     const idOrUser = username || id;
     if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
     try {
-      const cacheKey = buildCanonicalCacheKey('competitors:detail', { idOrUser, username: username || '' });
+      const cacheKey = buildCanonicalCacheKey('creators:detail', { idOrUser, username: username || '' });
       const detailData = await getCachedOrFetch(cacheKey, async () => {
         const detail = await getCompetitorDetail(sql, idOrUser, { username });
         return { success: true, ...detail };
@@ -371,8 +371,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/board-detail/sync (or /api/competitors/board-detail with POST)
-  if (method === 'POST' && (pathname === '/api/competitors/board-detail/sync' || pathname === '/api/competitors/board-detail')) {
+  // POST /api/creators/board-detail/sync (or /api/creators/board-detail with POST)
+  if (method === 'POST' && (pathname === '/api/creators/board-detail/sync' || pathname === '/api/creators/board-detail')) {
     let body = {};
     try { body = await request.json(); } catch (_) {}
     const username = body.username || body.account || body.id || searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
@@ -388,8 +388,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/board-detail (Read-only)
-  if (method === 'GET' && pathname === '/api/competitors/board-detail') {
+  // GET /api/creators/board-detail (Read-only)
+  if (method === 'GET' && pathname === '/api/creators/board-detail') {
     const username = searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
     const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
@@ -401,8 +401,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/all-pins
-  if (method === 'GET' && pathname === '/api/competitors/all-pins') {
+  // GET /api/creators/all-pins
+  if (method === 'GET' && pathname === '/api/creators/all-pins') {
     const username = searchParams.get('username') || searchParams.get('account');
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     const idOrUser = username || id;
@@ -426,7 +426,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         changed_only: searchParams.get('changed_only') === 'true',
         scope: searchParams.get('scope') || 'official'
       };
-      const cacheKey = buildCanonicalCacheKey('competitors:all-pins', cacheParams);
+      const cacheKey = buildCanonicalCacheKey('creators:all-pins', cacheParams);
       const allPinsData = await getCachedOrFetch(cacheKey, async () => {
         const data = await listCompetitorAccountPins(sql, idOrUser, cacheParams);
         return { success: true, ...data };
@@ -437,8 +437,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/top-urls
-  if (method === 'GET' && pathname === '/api/competitors/top-urls') {
+  // GET /api/creators/top-urls
+  if (method === 'GET' && pathname === '/api/creators/top-urls') {
     const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
@@ -451,7 +451,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         filter_type: searchParams.get('filter_type') || 'all',
         scope: searchParams.get('scope') || 'ecosystem'
       };
-      const cacheKey = buildCanonicalCacheKey('competitors:top-urls', cacheParams);
+      const cacheKey = buildCanonicalCacheKey('creators:top-urls', cacheParams);
       const topUrlsData = await getCachedOrFetch(cacheKey, async () => {
         const result = await getTopDestinationUrls(sql, id, cacheParams);
         return { success: true, ...result };
@@ -462,8 +462,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/rules (and /api/creators/rules) -> per-creator when id/username provided, else global qualification rules
-  if (method === 'GET' && pathname === '/api/competitors/rules') {
+  // GET /api/creators/rules -> per-creator when id/username provided, else global qualification rules
+  if (method === 'GET' && pathname === '/api/creators/rules') {
     const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
     try {
       if (id) {
@@ -486,8 +486,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/rules and /api/creators/rules -> per-creator when competitor_id (or creator-scoped id) provided, else global qualification rules
-  if (method === 'POST' && (pathname === '/api/competitors/rules' || pathname === '/api/creators/rules')) {
+  // POST /api/creators/rules -> per-creator when competitor_id provided, else global qualification rules
+  if (method === 'POST' && pathname === '/api/creators/rules') {
     const body = await request.json().catch(() => ({}));
     const isGlobalPayload = body.scope === 'global' || (
       !body.competitor_id && (
@@ -515,8 +515,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/re-evaluate and /api/creators/re-evaluate -> per-creator when competitor_id (or creator-scoped id) provided, else global archive evaluation
-  if (method === 'POST' && (pathname === '/api/competitors/re-evaluate' || pathname === '/api/creators/re-evaluate')) {
+  // POST /api/creators/re-evaluate -> per-creator when competitor_id provided, else global archive evaluation
+  if (method === 'POST' && pathname === '/api/creators/re-evaluate') {
     const body = await request.json().catch(() => ({}));
     const isGlobalPayload = body.scope === 'global' || (
       !body.competitor_id && (
@@ -555,8 +555,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/dispatch-crawl and /api/creators/dispatch-crawl
-  if (method === 'POST' && (pathname === '/api/competitors/dispatch-crawl' || pathname === '/api/creators/dispatch-crawl')) {
+  // POST /api/creators/dispatch-crawl
+  if (method === 'POST' && pathname === '/api/creators/dispatch-crawl') {
     const body = await request.json().catch(() => ({}));
     const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [body.username || body.target_account || ''];
     const usernames = rawUsernames.map(u => String(u || '').replace(/^@+/, '').trim()).filter(Boolean);
@@ -611,8 +611,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }, successCount > 0 ? 200 : 500);
   }
 
-  // GET /api/competitors/related-pins/seeds
-  if (method === 'GET' && pathname === '/api/competitors/related-pins/seeds') {
+  // GET /api/creators/related-pins/seeds
+  if (method === 'GET' && pathname === '/api/creators/related-pins/seeds') {
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
@@ -623,8 +623,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/related-pins/seeds
-  if (method === 'POST' && pathname === '/api/competitors/related-pins/seeds') {
+  // POST /api/creators/related-pins/seeds
+  if (method === 'POST' && pathname === '/api/creators/related-pins/seeds') {
     const body = await request.json().catch(() => ({}));
     const id = body.competitor_id || body.id;
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
@@ -638,8 +638,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // DELETE /api/competitors/related-pins/seeds
-  if (method === 'DELETE' && pathname === '/api/competitors/related-pins/seeds') {
+  // DELETE /api/creators/related-pins/seeds
+  if (method === 'DELETE' && pathname === '/api/creators/related-pins/seeds') {
     let id = searchParams.get('competitor_id') || searchParams.get('id');
     let pinId = searchParams.get('pin_id') || searchParams.get('pin_ids');
     if (!id || !pinId) {
@@ -658,8 +658,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/related-pins/intersections
-  if (method === 'GET' && pathname === '/api/competitors/related-pins/intersections') {
+  // GET /api/creators/related-pins/intersections
+  if (method === 'GET' && pathname === '/api/creators/related-pins/intersections') {
     const id = searchParams.get('id') || searchParams.get('competitor_id');
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
@@ -676,8 +676,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/related-pins/harvest-live
-  if (method === 'POST' && pathname === '/api/competitors/related-pins/harvest-live') {
+  // POST /api/creators/related-pins/harvest-live
+  if (method === 'POST' && pathname === '/api/creators/related-pins/harvest-live') {
     const body = await request.json().catch(() => ({}));
     const id = body.competitor_id || body.id;
     const pinId = body.pin_id;
@@ -692,8 +692,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/related-pins/dispatch-workflow
-  if (method === 'POST' && pathname === '/api/competitors/related-pins/dispatch-workflow') {
+  // POST /api/creators/related-pins/dispatch-workflow
+  if (method === 'POST' && pathname === '/api/creators/related-pins/dispatch-workflow') {
     const body = await request.json().catch(() => ({}));
     const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
@@ -716,8 +716,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse({ success: false, error: dRes.error }, dRes.status);
   }
 
-  // DELETE /api/competitors/snapshot or snapshots
-  if (method === 'DELETE' && (pathname === '/api/competitors/snapshot' || pathname === '/api/competitors/snapshots')) {
+  // DELETE /api/creators/snapshot or snapshots
+  if (method === 'DELETE' && (pathname === '/api/creators/snapshot' || pathname === '/api/creators/snapshots')) {
     try {
       let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
       if (!snapshotId) {
@@ -734,8 +734,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/status or toggle
-  if (method === 'POST' && (pathname === '/api/competitors/status' || pathname === '/api/competitors/toggle')) {
+  // POST /api/creators/status or toggle
+  if (method === 'POST' && (pathname === '/api/creators/status' || pathname === '/api/creators/toggle')) {
     try {
       const body = await request.json();
       const idOrUser = body.username || body.id || body.competitor_id;
@@ -747,16 +747,16 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 2. Base Resource /api/competitors (Strict Exact Equality)
+  // 2. Base Resource /api/creators (Strict Exact Equality)
 
-  // GET /api/competitors
-  if (method === 'GET' && pathname === '/api/competitors') {
+  // GET /api/creators
+  if (method === 'GET' && pathname === '/api/creators') {
     const account_type = searchParams.get('account_type') || 'all';
     const search = searchParams.get('search') || '';
     const limit = clampLimit(searchParams.get('limit'), 5000, 5000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
-    const cacheKey = buildCanonicalCacheKey('competitors', {
+    const cacheKey = buildCanonicalCacheKey('creators', {
       account_type,
       search,
       limit,
@@ -773,7 +773,7 @@ export async function handleCreatorsRoutes(routeCtx) {
           offset
         });
         if (overview?._degraded || competitors?._degraded) {
-          const degradedErr = new Error('Competitors overview or list query degraded due to transient DB failure');
+          const degradedErr = new Error('Creators overview or list query degraded due to transient DB failure');
           degradedErr.status = 503;
           throw degradedErr;
         }
@@ -782,7 +782,7 @@ export async function handleCreatorsRoutes(routeCtx) {
 
       return jsonResponse({ success: true, ...data }, 200, 0);
     } catch (err) {
-      console.error('[Competitors Error]', err.message);
+      console.error('[Creators Error]', err.message);
       return jsonResponse({
         success: false,
         error: 'DB_UNAVAILABLE',
@@ -792,8 +792,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors
-  if (method === 'POST' && pathname === '/api/competitors') {
+  // POST /api/creators
+  if (method === 'POST' && pathname === '/api/creators') {
     try {
       const body = await request.json().catch(() => ({}));
       const row = await trackCompetitor(sql, body);
@@ -803,8 +803,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // DELETE /api/competitors
-  if (method === 'DELETE' && pathname === '/api/competitors') {
+  // DELETE /api/creators
+  if (method === 'DELETE' && pathname === '/api/creators') {
     try {
       let id = searchParams.get('id');
       let username = searchParams.get('username');
@@ -829,13 +829,12 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  
   // =========================================================================
   // UNIFIED CREATOR ARCHIVE, TOPICS, PINS & SNAPSHOT ROUTES
   // =========================================================================
 
-  // 1. Archive Overview (GET /api/creators/archive-overview & /api/competitors/archive-overview)
-  if (method === 'GET' && (pathname === '/api/competitors/archive-overview' || originalPathname === '/api/creators/archive-overview' || originalPathname === '/api/creators/pinarchive-overview')) {
+  // 1. Archive Overview (GET /api/creators/archive-overview & /api/creators/pinarchive-overview)
+  if (method === 'GET' && (pathname === '/api/creators/archive-overview' || pathname === '/api/creators/pinarchive-overview')) {
     const cacheKey = buildCanonicalCacheKey('pinarchive:overview', {});
     try {
       const overview = await getCachedOrFetch(cacheKey, async () => {
@@ -853,8 +852,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 2. Topic Clusters API (GET /api/creators/topics & /api/competitors/topics)
-  if (method === 'GET' && (pathname === '/api/competitors/topics' || originalPathname === '/api/creators/topics')) {
+  // 2. Topic Clusters API (GET /api/creators/topics)
+  if (method === 'GET' && pathname === '/api/creators/topics') {
     const minPins = Number(searchParams.get('min_pins') || 1);
     const search = searchParams.get('search') || '';
     const account = searchParams.get('account') || '';
@@ -885,8 +884,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // 3. Archived Pins Listing (GET /api/creators/pins & /api/competitors/pins)
-  if (method === 'GET' && (pathname === '/api/competitors/pins' || originalPathname === '/api/creators/pins')) {
+  // 3. Archived Pins Listing (GET /api/creators/pins)
+  if (method === 'GET' && pathname === '/api/creators/pins') {
     const search = searchParams.get('search') || '';
     const topic = searchParams.get('topic') || '';
     const board = searchParams.get('board') || '';
@@ -939,8 +938,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse(data, 200, 10);
   }
 
-  // 4. Pin Detail With Metrics (GET /api/creators/pin-detail & /api/competitors/pin-detail)
-  if (method === 'GET' && (pathname === '/api/competitors/pin-detail' || originalPathname === '/api/creators/pin-detail')) {
+  // 4. Pin Detail With Metrics (GET /api/creators/pin-detail)
+  if (method === 'GET' && pathname === '/api/creators/pin-detail') {
     const pinId = searchParams.get('pin_id') || searchParams.get('id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true';
@@ -950,9 +949,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
   }
 
-  // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot & /api/competitors/pin-snapshot)
-  // Redirects to canonical pins_daily_metrics deletion pattern
-  if (method === 'DELETE' && (pathname === '/api/competitors/pin-snapshot' || originalPathname === '/api/creators/pin-snapshot')) {
+  // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot)
+  if (method === 'DELETE' && pathname === '/api/creators/pin-snapshot') {
     invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
@@ -990,7 +988,6 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   return null;
 }
-
 
 // Backward-compatible router aliases
 export const handleCompetitorsRoutes = handleCreatorsRoutes;
