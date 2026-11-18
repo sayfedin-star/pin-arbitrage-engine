@@ -27,7 +27,6 @@ permissions:
 env:
   DATABASE_TOPOLOGY: unified_postgres
   PG_POOL_MAX: '2'
-  SKIP_MV_REFRESH: 'true'
 
 jobs:
   check-seeds:

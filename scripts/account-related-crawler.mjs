@@ -355,6 +355,13 @@ async function main() {
     seedRecords.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
 
     await sql`
+      INSERT INTO universal_master_pins (pin_id, first_discovered_pillar)
+      SELECT x.pin_id, 'creator'
+      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(seedRecords))}::jsonb) AS x(pin_id varchar)
+      ON CONFLICT (pin_id) DO NOTHING;
+    `;
+
+    await sql`
       INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
       SELECT x.competitor_id, x.pin_id, x.title, x.image_url, x.board_name, x.save_count
       FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(seedRecords))}::jsonb) AS x(

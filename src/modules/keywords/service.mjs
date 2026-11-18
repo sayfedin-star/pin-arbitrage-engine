@@ -1274,7 +1274,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           prev_rank_position int,
           crawled_at text
         )
-        WHERE NOT EXISTS (
+        WHERE EXISTS (
+          SELECT 1 FROM universal_master_pins ump
+          WHERE ump.pin_id = u.pin_id
+        )
+        AND NOT EXISTS (
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = u.pin_id
         )
@@ -1283,6 +1287,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           prev_rank_position = COALESCE(keyword_serp_positions.rank_position, EXCLUDED.prev_rank_position),
           rank_position = EXCLUDED.rank_position,
           is_displaced = FALSE,
+          displaced_date = NULL,
           last_known_rank = EXCLUDED.rank_position,
           crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_positions.crawled_at),
           updated_at = NOW();
@@ -1484,7 +1489,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       COALESCE(ump.clean_domain, '') AS domain,
       ump.destination_url,
       ump.image_url,
-      ump.account_username AS creator_username,
+      ump.creator_username,
       ump.board_name,
       ksp.last_known_rank,
       ksp.displaced_date,

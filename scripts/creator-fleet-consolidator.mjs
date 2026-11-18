@@ -10,7 +10,7 @@
  * 2. Formats Active Competitors Performance Matrix using official Pinterest Business terminology
  *    (Impressions, Total audience, Total Pins, Qualified Winners).
  * 3. Highlights Top High-Velocity Rising Pins with momentum deltas.
- * 4. Runs automated Central Hub maintenance (optimizeHubStorage) and non-blocking VACUUM (ANALYZE).
+ * 4. Runs non-blocking VACUUM (ANALYZE) and refreshes mv_pulse_24h_summary.
  * 
  * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
  * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
@@ -18,7 +18,6 @@
 
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
-import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 
 // Auto-load .env in local execution environments
 if (typeof process.loadEnvFile === 'function') {
@@ -322,16 +321,8 @@ async function main() {
     }
   }
 
-  // 5. Automated Hub Maintenance & Vacuum
-  console.log('\n[*] Running Automated Hub Storage Optimization & Compaction...');
-  try {
-    const hubResults = await optimizeHubStorage(sql);
-    console.log(`[✓] Hub Optimization Complete: Cleaned ${hubResults?.cleanedSerpMetadata ?? 0} SERP rows, ${hubResults?.cleanedKwMetadata ?? 0} keyword rows, vacuumed ${(hubResults?.vacuumedTables || []).length} tables.`);
-  } catch (optErr) {
-    console.warn(`[!] Hub storage optimization warning: ${optErr.message}`);
-  }
-
-  console.log('[*] Executing non-blocking VACUUM (ANALYZE) on Creator Hub tables...');
+  // 5. Non-blocking VACUUM (ANALYZE) on Creator Hub tables
+  console.log('\n[*] Executing non-blocking VACUUM (ANALYZE) on Creator Hub tables...');
   try {
     await sql`VACUUM (ANALYZE) competitor_board_pins;`.catch(err => console.warn('    [!] VACUUM competitor_board_pins warning:', err.message));
     await sql`VACUUM (ANALYZE) competitor_profiles;`.catch(err => console.warn('    [!] VACUUM competitor_profiles warning:', err.message));
@@ -341,16 +332,18 @@ async function main() {
     console.warn('[!] VACUUM warning (non-fatal):', vErr.message);
   }
 
-  // 6. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
+  // 6. Standalone Materialized View Refresh + VACUUM (outside transaction block for SQLSTATE 25001 safety)
   if (process.env.SKIP_MV_REFRESH !== 'true') {
     try {
       console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
       await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
-      console.log('[✓] mv_pulse_24h_summary refreshed cleanly.');
+      await sql`VACUUM public.mv_pulse_24h_summary;`;
+      console.log('[✓] mv_pulse_24h_summary refreshed and vacuumed cleanly.');
     } catch (mvErr) {
       if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
         try {
           await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+          await sql`VACUUM public.mv_pulse_24h_summary;`;
           console.log('[✓] mv_pulse_24h_summary populated via initial non-concurrent refresh.');
         } catch (fallbackErr) {
           console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);

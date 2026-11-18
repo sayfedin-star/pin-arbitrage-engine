@@ -14,8 +14,8 @@
 
 import { createSqlClient } from '../src/db/client.mjs';
 import fs from 'node:fs';
-import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 import { winsorize } from '../src/modules/keywords/service.mjs';
+import { calculateRollingGainsFromSnapshots } from '../src/lib/math.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -432,33 +432,36 @@ async function main() {
     mdReport += `\n`;
   }
 
-  // 4. Automated Janitor GC: Clean orphan SERP positions for purged keywords in Unified PostgreSQL SSOT
-  const gcPurgedKeywords = await runKeywordJanitorGC();
-  if (gcPurgedKeywords > 0) {
-    mdReport += `\n> 🧹 **Automated Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords in Unified PostgreSQL SSOT.\n\n`;
-  }
-
-  // 5. Automated Zero-Bloat Hub Storage Maintenance
+  // 4. Authentic Rolling Window Gains Consolidation (strict span & tolerance validation)
   try {
-    console.log('[*] Executing Automated Hub Storage Self-Healing Maintenance...');
-    const optRes = await optimizeHubStorage(sql);
-    console.log(`  ✓ Storage Maintenance: Cleaned SERP metadata: ${optRes?.cleanedSerpMetadata ?? 0}, Cleaned Keyword metadata: ${optRes?.cleanedKwMetadata ?? 0}, Vacuumed: ${(optRes?.vacuumedTables || []).length} tables`);
-  } catch (optErr) {
-    console.warn('[!] Hub Storage maintenance non-fatal warning:', optErr.message);
+    console.log('[*] Consolidating authentic rolling window gains (5d/7d/10d/15d)...');
+    const updatedGainsCount = await refreshRollingWindowGainsBatch();
+    console.log(`  ✓ Rolling Window Gains Consolidated: ${updatedGainsCount} pins updated.`);
+  } catch (gainsErr) {
+    console.warn('[!] Rolling window gains consolidation warning:', gainsErr.message);
   }
 
-  // 5B. Hub tables already vacuumed & analyzed inside optimizeHubStorage(sql) above.
+  // 5. Non-blocking VACUUM (ANALYZE) on Keyword & Master Pin SSOT tables
+  try {
+    await sql`VACUUM (ANALYZE) keyword_serp_positions;`.catch(err => console.warn('  [!] VACUUM keyword_serp_positions warning:', err.message));
+    await sql`VACUUM (ANALYZE) pins_daily_metrics;`.catch(err => console.warn('  [!] VACUUM pins_daily_metrics warning:', err.message));
+    await sql`VACUUM (ANALYZE) universal_master_pins;`.catch(err => console.warn('  [!] VACUUM universal_master_pins warning:', err.message));
+  } catch (vacErr) {
+    console.warn('[!] Hub VACUUM non-fatal warning:', vacErr.message);
+  }
 
-  // 7. Standalone Materialized View Refresh (outside transaction block for SQLSTATE 25001 safety)
+  // 6. Standalone Materialized View Refresh + VACUUM (outside transaction block for SQLSTATE 25001 safety)
   if (process.env.SKIP_MV_REFRESH !== 'true') {
     try {
       console.log('[*] Refreshing Materialized View public.mv_pulse_24h_summary (CONCURRENTLY)...');
       await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
-      console.log('  ✓ mv_pulse_24h_summary refreshed cleanly.');
+      await sql`VACUUM public.mv_pulse_24h_summary;`;
+      console.log('  ✓ mv_pulse_24h_summary refreshed and vacuumed cleanly.');
     } catch (mvErr) {
       if (/has not been populated|cannot refresh.*concurrently/i.test(String(mvErr?.message || ''))) {
         try {
           await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
+          await sql`VACUUM public.mv_pulse_24h_summary;`;
           console.log('  ✓ mv_pulse_24h_summary populated via initial non-concurrent refresh.');
         } catch (fallbackErr) {
           console.warn('[!] mv_pulse_24h_summary refresh fallback warning:', fallbackErr.message);
@@ -489,63 +492,101 @@ async function main() {
 }
 
 /**
- * Automated Keyword Janitor Garbage Collection (Orphan SERP Positions GC)
- * Purges keyword_serp_positions in Unified PostgreSQL SSOT for keywords tracked in keyword_tombstones.
- * 
- * Production Inquest Guarantees:
- * 1. Real Lifecycle: Sourced directly from persistent `keyword_tombstones` populated upon keyword deletion.
- * 2. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
- *    preserving their historical SERP rank trajectories intact for charts and analytics.
- * 3. Run-Once Semantics: Tombstones are atomically updated with purged_at = NOW(),
- *    permanently preventing repeated GC sweeps across subsequent fleet runs.
+ * Recomputes rolling save gains (5d, 7d, 10d, 15d) from pins_daily_metrics
+ * using strict span & tolerance gates in calculateRollingGainsFromSnapshots.
  */
-async function runKeywordJanitorGC() {
-  console.log('\n[*] Running Automated Keyword Janitor GC...');
-  try {
-    // Sweep any orphan keyword_ids in keyword_serp_positions missing from tracked_keywords
-    await sql`
-      INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at)
-      SELECT DISTINCT ksp.keyword_id, '<orphan>', NOW()
-      FROM keyword_serp_positions ksp
-      LEFT JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
-      WHERE tk.id IS NULL AND ksp.keyword_id IS NOT NULL
-      ON CONFLICT (keyword_id) DO NOTHING;
-    `.catch(() => {});
+async function refreshRollingWindowGainsBatch() {
+  const nowUtc = new Date();
+  const [pinRows, snapRows] = await Promise.all([
+    sql`
+      SELECT pin_id, gains_5d, gains_7d, gains_10d, gains_15d
+      FROM universal_master_pins
+      WHERE is_hydrated = TRUE
+        OR gains_5d IS NOT NULL
+        OR gains_7d IS NOT NULL
+        OR gains_10d IS NOT NULL
+        OR gains_15d IS NOT NULL
+      ORDER BY pin_id ASC;
+    `,
+    sql`
+      SELECT pin_id, recorded_date::text AS recorded_date, save_count, repin_count, daily_save_velocity
+      FROM pins_daily_metrics
+      WHERE recorded_date >= (CURRENT_DATE - INTERVAL '25 days')::date
+        AND save_count IS NOT NULL
+      ORDER BY pin_id ASC, recorded_date DESC;
+    `
+  ]);
 
-    const pendingTombstones = await sql`
-      SELECT keyword_id, keyword
-      FROM keyword_tombstones
-      WHERE purged_at IS NULL;
-    `.catch(() => []);
-
-    if (!pendingTombstones || pendingTombstones.length === 0) {
-      console.log('    [+] Keyword Janitor GC: No pending tombstones found. Orphan SERP positions clean.');
-      return 0;
+  const snapsByPin = new Map();
+  for (const row of snapRows) {
+    const pid = String(row.pin_id || '');
+    if (!pid) continue;
+    let bucket = snapsByPin.get(pid);
+    if (!bucket) {
+      bucket = [];
+      snapsByPin.set(pid, bucket);
     }
-
-    const purgeIds = pendingTombstones.map(r => Number(r.keyword_id)).filter(id => id && !isNaN(id));
-    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Purging keyword_serp_positions in Unified PostgreSQL...`);
-
-    await sql`
-      DELETE FROM keyword_serp_positions
-      WHERE keyword_id = ANY(${purgeIds});
-    `;
-
-    // Atomic State Transition: Mark purged_at = NOW() to guarantee strictly-once execution
-    await sql`
-      UPDATE keyword_tombstones
-      SET purged_at = NOW()
-      WHERE keyword_id = ANY(${purgeIds});
-    `.catch(err => {
-      console.warn('    [!] Failed marking purged_at on keyword_tombstones:', err.message);
-    });
-
-    console.log(`    [+] Janitor GC: Purged ${purgeIds.length} tombstone keywords.`);
-    return purgeIds.length;
-  } catch (gcErr) {
-    console.warn('    [!] Keyword Janitor GC non-fatal warning:', gcErr.message);
-    return 0;
+    bucket.push(row);
   }
+
+  const normalizeGain = (val) => (val === null || val === undefined ? null : Number(val));
+  const changed = [];
+
+  for (const pin of pinRows) {
+    const pid = String(pin.pin_id || '');
+    if (!pid) continue;
+    const snaps = snapsByPin.get(pid) || [];
+    const computed = calculateRollingGainsFromSnapshots(snaps, nowUtc);
+    const next5 = normalizeGain(computed.gains_5d);
+    const next7 = normalizeGain(computed.gains_7d);
+    const next10 = normalizeGain(computed.gains_10d);
+    const next15 = normalizeGain(computed.gains_15d);
+
+    if (
+      normalizeGain(pin.gains_5d) !== next5 ||
+      normalizeGain(pin.gains_7d) !== next7 ||
+      normalizeGain(pin.gains_10d) !== next10 ||
+      normalizeGain(pin.gains_15d) !== next15
+    ) {
+      changed.push({
+        pin_id: pid,
+        gains_5d: next5,
+        gains_7d: next7,
+        gains_10d: next10,
+        gains_15d: next15
+      });
+    }
+  }
+
+  changed.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+  const CHUNK_SIZE = 500;
+  for (let i = 0; i < changed.length; i += CHUNK_SIZE) {
+    const chunk = changed.slice(i, i + CHUNK_SIZE);
+    await sql`
+      UPDATE universal_master_pins ump
+      SET
+        gains_5d = u.gains_5d,
+        gains_7d = u.gains_7d,
+        gains_10d = u.gains_10d,
+        gains_15d = u.gains_15d
+      FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS u(
+        pin_id text,
+        gains_5d int,
+        gains_7d int,
+        gains_10d int,
+        gains_15d int
+      )
+      WHERE ump.pin_id = u.pin_id
+        AND (
+          ump.gains_5d IS DISTINCT FROM u.gains_5d
+          OR ump.gains_7d IS DISTINCT FROM u.gains_7d
+          OR ump.gains_10d IS DISTINCT FROM u.gains_10d
+          OR ump.gains_15d IS DISTINCT FROM u.gains_15d
+        );
+    `;
+  }
+
+  return changed.length;
 }
 
 main().catch(err => {

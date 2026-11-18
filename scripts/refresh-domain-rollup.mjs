@@ -30,15 +30,17 @@ const startTime = Date.now();
 try {
   const res = await refreshDomainIntelligenceRollup(sql);
 
-  // Refresh Materialized View for Pulse 24h Summary outside transaction
+  // Refresh Materialized View for Pulse 24h Summary + VACUUM outside transaction
   try {
     console.log('[DomainRollup] Refreshing mv_pulse_24h_summary...');
     await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pulse_24h_summary;`;
-    console.log('[DomainRollup] Successfully refreshed mv_pulse_24h_summary.');
+    await sql`VACUUM public.mv_pulse_24h_summary;`;
+    console.log('[DomainRollup] Successfully refreshed and vacuumed mv_pulse_24h_summary.');
   } catch (_) {
     try {
       await sql`REFRESH MATERIALIZED VIEW public.mv_pulse_24h_summary;`;
-      console.log('[DomainRollup] Refreshed mv_pulse_24h_summary (standard mode).');
+      await sql`VACUUM public.mv_pulse_24h_summary;`;
+      console.log('[DomainRollup] Refreshed and vacuumed mv_pulse_24h_summary (standard mode).');
     } catch (e) {
       console.warn('[DomainRollup] Notice: mv_pulse_24h_summary refresh skipped:', e.message);
     }

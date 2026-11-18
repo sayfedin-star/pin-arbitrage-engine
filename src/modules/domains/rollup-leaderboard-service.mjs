@@ -94,26 +94,6 @@ export async function listDomainsIntelligence(sql, {
         AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
       `}
-
-      UNION ALL
-
-      -- Base Pillar 0: Preserved Domain Registry Metadata (Guarantees all discovered domains remain visible with WHOIS & ads.txt)
-      SELECT
-        drm.domain AS clean_domain,
-        'reg_' || drm.domain AS pin_id,
-        NULL::int AS keyword_id,
-        NULL::int AS active_rank,
-        TRUE AS is_displaced,
-        0::bigint AS saves,
-        0::bigint AS repins,
-        0::numeric AS velocity,
-        '' AS username,
-        '/' AS url_slug,
-        FALSE AS is_serp_ranked
-      FROM domain_registry_metadata drm
-      WHERE ${includeArchiveAndComp} = TRUE
-        AND (${pillar} IN ('all', 'serp'))
-        AND drm.domain IS NOT NULL AND drm.domain <> ''
     ),
     deduped_pins AS (
       SELECT
@@ -133,7 +113,7 @@ export async function listDomainsIntelligence(sql, {
         AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
         AND (${excludeMarketplaces} = FALSE OR ${fId}::int IS NOT NULL OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
         AND clean_domain LIKE '%.%'
-        AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern})
+        AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern} ESCAPE '\\')
         AND (${pillar} <> 'competitors' OR clean_domain IN (
           SELECT ump.clean_domain
           FROM competitor_board_pins cbp
@@ -149,41 +129,41 @@ export async function listDomainsIntelligence(sql, {
         -- Only count pins and URLs that actually ranked in SERP or Displaced SERP Vault (is_serp_ranked = TRUE),
         -- falling back to catalog pins only for catalog-only domains that have 0 SERP/Vault occurrences.
         COALESCE(
-          NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-          NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
+          NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+          NULLIF(COUNT(DISTINCT dp.pin_id), 0),
           1
         )::int AS total_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = FALSE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS catalog_only_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = FALSE)::int AS catalog_only_pins,
         CASE
           WHEN dp.clean_domain = 'Uploaded by user' THEN 0
           ELSE GREATEST(
             1,
             COALESCE(
-              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
-              COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+              COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
             )
           )::int
         END AS unique_urls,
         ROUND(
           COALESCE(
-            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
+            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+            NULLIF(COUNT(DISTINCT dp.pin_id), 0),
             1
           )::numeric /
           GREATEST(
             1,
             COALESCE(
-              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
-              COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+              NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+              COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
             )
           ),
           2
         ) AS pins_per_url,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank IS NOT NULL AND NOT (dp.pin_id LIKE 'reg_%'))::int AS active_serp_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 3 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top3_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 10 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top10_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank > 10 AND dp.best_serp_rank <= 50 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS rank_11_50_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_displaced_only = TRUE AND dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS displaced_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank IS NOT NULL)::int AS active_serp_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 3)::int AS top3_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 10)::int AS top10_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank > 10 AND dp.best_serp_rank <= 50)::int AS rank_11_50_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_displaced_only = TRUE AND dp.is_serp_ranked = TRUE)::int AS displaced_pins,
         MIN(dp.best_serp_rank)::int AS best_rank,
         ROUND(AVG(dp.best_serp_rank), 1) AS avg_rank,
         ROUND(
@@ -195,23 +175,23 @@ export async function listDomainsIntelligence(sql, {
           1
         ) AS visibility_score,
         COALESCE(
-          NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-          SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+          SUM(dp.saves),
           0
         )::bigint AS total_saves,
         ROUND(COALESCE(
-          NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-          AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+          AVG(dp.saves),
           0
         ))::bigint AS avg_saves,
         COALESCE(
-          NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-          SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+          NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+          SUM(dp.repins),
           0
         )::bigint AS total_repins,
         ROUND(COALESCE(
-          NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0),
-          SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0),
+          NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0),
+          SUM(dp.velocity) FILTER (WHERE dp.velocity > 0),
           0
         ), 1) AS avg_velocity,
         COALESCE(
@@ -261,24 +241,24 @@ export async function listDomainsIntelligence(sql, {
     enriched AS (
       SELECT
         da.*,
-        drm.registered_at AS domain_created_at,
-        drm.expires_at AS domain_expires_at,
-        drm.lookup_status AS age_status,
+        dir.domain_created_at,
+        dir.domain_expires_at,
+        COALESCE(NULLIF(dir.age_status, 'unchecked'), NULLIF(dir.lookup_status, 'pending'), dir.age_status) AS age_status,
         CASE
-          WHEN drm.registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 86400))::int
-          ELSE drm.initial_age_days
+          WHEN dir.domain_created_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 86400))::int
+          ELSE dir.age_days
         END AS age_days,
         CASE
-          WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric, 2)
-          ELSE drm.initial_age_years
+          WHEN dir.domain_created_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 31557600)::numeric, 2)
+          ELSE dir.age_years
         END AS age_years,
-        COALESCE(dmm.current_ad_network, 'unchecked') AS ad_network,
-        dmm.ad_manager_domain,
-        dmm.primary_pub_id,
-        dmm.previous_ad_network,
-        dmm.switched_at AS ad_switched_at,
-        dmm.network_history AS ad_network_history,
-        COALESCE(dmm.ads_txt_status, 'pending') AS ads_txt_status,
+        COALESCE(dir.ad_network, 'unchecked') AS ad_network,
+        dir.ad_manager_domain,
+        dir.primary_pub_id,
+        dir.previous_ad_network,
+        dir.ad_switched_at,
+        dir.ad_network_history,
+        COALESCE(dir.ads_txt_status, 'pending') AS ads_txt_status,
         ROUND(
           (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) * 100,
           1
@@ -289,8 +269,8 @@ export async function listDomainsIntelligence(sql, {
             GREATEST(
               0.25,
               COALESCE(
-                CASE WHEN drm.registered_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric ELSE NULL END,
-                drm.initial_age_years,
+                CASE WHEN dir.domain_created_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 31557600)::numeric ELSE NULL END,
+                dir.age_years,
                 2.5
               )
             )
@@ -298,11 +278,10 @@ export async function listDomainsIntelligence(sql, {
           2
         ) AS arbitrage_score
       FROM domain_agg da
-      LEFT JOIN domain_registry_metadata drm ON drm.domain = da.domain
-      LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = da.domain
+      LEFT JOIN domain_intelligence_rollup dir ON dir.domain = da.domain
       WHERE (
         ${preset} = 'all'
-        OR (${preset} = 'baby_giants' AND drm.registered_at >= ${referenceTime}::timestamptz - INTERVAL '2 years' AND (da.top10_pins >= 1 OR da.total_saves >= 1000))
+        OR (${preset} = 'baby_giants' AND dir.domain_created_at >= ${referenceTime}::timestamptz - INTERVAL '2 years' AND (da.top10_pins >= 1 OR da.total_saves >= 1000))
         OR (${preset} = 'easy_arbitrage' AND da.total_pins <= 25 AND (da.top10_pins >= 1 OR da.avg_velocity >= 5))
         OR (${preset} = 'bleeding_giants' AND da.displaced_pins >= 3 AND (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.30)
         OR (${preset} = 'high_multipliers' AND da.pins_per_url >= 3.0)
@@ -311,9 +290,9 @@ export async function listDomainsIntelligence(sql, {
       )
       AND (
         ${adNetwork} = 'all'
-        OR (${adNetwork} = 'switched' AND dmm.switched_at IS NOT NULL)
-        OR (${adNetwork} = 'unchecked' AND (dmm.current_ad_network IS NULL OR dmm.current_ad_network = 'unchecked'))
-        OR dmm.current_ad_network = ${adNetwork}
+        OR (${adNetwork} = 'switched' AND dir.ad_switched_at IS NOT NULL)
+        OR (${adNetwork} = 'unchecked' AND (dir.ad_network IS NULL OR dir.ad_network = 'unchecked'))
+        OR dir.ad_network = ${adNetwork}
       )
     ),
     modular_evaluated AS (
@@ -500,24 +479,6 @@ export async function refreshDomainIntelligenceRollup(sql) {
         FROM universal_master_pins ump
         LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
         WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
-
-        UNION ALL
-
-        SELECT
-          drm.domain AS clean_domain,
-          'reg_' || drm.domain AS pin_id,
-          NULL::int AS keyword_id,
-          NULL::int AS active_rank,
-          TRUE AS is_displaced,
-          0::bigint AS saves,
-          0::bigint AS repins,
-          0::numeric AS velocity,
-          '' AS username,
-          '/' AS url_slug,
-          FALSE AS is_serp_ranked,
-          'reg_' || drm.domain AS creative_signature
-        FROM domain_registry_metadata drm
-        WHERE drm.domain IS NOT NULL AND drm.domain <> '' AND drm.domain LIKE '%.%'
       ),
       dedup_pins AS (
         SELECT
@@ -544,39 +505,39 @@ export async function refreshDomainIntelligenceRollup(sql) {
           -- [INVARIANT: SERP-ONLY-RANKED-PINS-COUNTING]
           -- Count SERP + Displaced Vault pins & URLs first, falling back to catalog only when 0 SERP/Vault pins exist
           COALESCE(
-            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-            COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%'))
+            NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+            COUNT(DISTINCT dp.pin_id)
           )::int AS total_pins,
           CASE
             WHEN dp.clean_domain = 'Uploaded by user' THEN 0
             ELSE GREATEST(
               1,
               COALESCE(
-                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
-                COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+                COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
               )
             )::int
           END AS unique_urls,
           ROUND(
             COALESCE(
-              NULLIF(COUNT(DISTINCT dp.creative_signature) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-              NULLIF(COUNT(DISTINCT dp.creative_signature) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0),
+              NULLIF(COUNT(DISTINCT dp.creative_signature) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+              NULLIF(COUNT(DISTINCT dp.creative_signature), 0),
               1
             )::numeric / 
             GREATEST(
               1,
               COALESCE(
-                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
-                COUNT(DISTINCT dp.url_slug) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
+                NULLIF(COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'), 0),
+                COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')
               )
             ), 
             2
           ) AS pins_per_url,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank IS NOT NULL AND NOT (dp.pin_id LIKE 'reg_%'))::int AS active_serp_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 3 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top3_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 10 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top10_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank BETWEEN 11 AND 50 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS rank_11_50_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE AND dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS displaced_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank IS NOT NULL)::int AS active_serp_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 3)::int AS top3_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 10)::int AS top10_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank BETWEEN 11 AND 50)::int AS rank_11_50_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE AND dp.is_serp_ranked = TRUE)::int AS displaced_pins,
           MIN(dp.active_rank) AS best_rank,
           ROUND(AVG(dp.active_rank), 1) AS avg_rank,
           ROUND(
@@ -588,24 +549,24 @@ export async function refreshDomainIntelligenceRollup(sql) {
             1
           ) AS visibility_score,
           COALESCE(
-            NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-            SUM(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            NULLIF(SUM(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+            SUM(dp.saves),
             0
           )::bigint AS total_saves,
           ROUND(COALESCE(
-            NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-            AVG(dp.saves) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            NULLIF(AVG(dp.saves) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+            AVG(dp.saves),
             0
           ), 1) AS avg_saves,
           COALESCE(
-            NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%')), 0),
-            SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')),
+            NULLIF(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE), 0),
+            SUM(dp.repins),
             0
           )::bigint AS total_repins,
           -- [INVARIANT: DUAL-DOMAIN-VELOCITY] Non-diluted active pin aggregate daily velocity
           ROUND(COALESCE(
-            NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0),
-            SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0),
+            NULLIF(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0),
+            SUM(dp.velocity) FILTER (WHERE dp.velocity > 0),
             0
           ), 1) AS avg_velocity,
           COALESCE(
@@ -654,30 +615,30 @@ export async function refreshDomainIntelligenceRollup(sql) {
       enriched AS (
         SELECT
           da.*,
-          drm.registered_at AS domain_created_at,
-          drm.expires_at AS domain_expires_at,
+          dir.domain_created_at,
+          dir.domain_expires_at,
           CASE
-            WHEN drm.registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 86400))::int
-            ELSE drm.initial_age_days
+            WHEN dir.domain_created_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 86400))::int
+            ELSE dir.age_days
           END AS age_days,
           CASE
-            WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric, 2)
-            ELSE drm.initial_age_years
+            WHEN dir.domain_created_at IS NOT NULL THEN LEAST(999.99, ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 31557600)::numeric, 2))
+            ELSE dir.age_years
           END AS age_years,
           CASE
             WHEN da.domain = 'Uploaded by user' THEN 'organic_unlinked'
-            ELSE COALESCE(drm.lookup_status, 'unchecked')
+            ELSE COALESCE(NULLIF(dir.age_status, 'unchecked'), NULLIF(dir.lookup_status, 'pending'), 'unchecked')
           END AS age_status,
           CASE
             WHEN da.domain = 'Uploaded by user' THEN 'unmonetized'
-            ELSE COALESCE(dmm.current_ad_network, 'unchecked')
+            ELSE COALESCE(dir.ad_network, 'unchecked')
           END AS ad_network,
-          dmm.ad_manager_domain,
-          dmm.primary_pub_id,
-          dmm.previous_ad_network,
-          dmm.switched_at AS ad_switched_at,
-          COALESCE(dmm.network_history, '[]'::jsonb) AS ad_network_history,
-          COALESCE(dmm.ads_txt_status, 'pending') AS ads_txt_status,
+          dir.ad_manager_domain,
+          dir.primary_pub_id,
+          dir.previous_ad_network,
+          dir.ad_switched_at,
+          COALESCE(dir.ad_network_history, '[]'::jsonb) AS ad_network_history,
+          COALESCE(dir.ads_txt_status, 'pending') AS ads_txt_status,
           ROUND(
             (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) * 100,
             1
@@ -688,8 +649,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
               GREATEST(
                 0.25,
                 COALESCE(
-                  CASE WHEN drm.registered_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric ELSE NULL END,
-                  drm.initial_age_years,
+                  CASE WHEN dir.domain_created_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - dir.domain_created_at)) / 31557600)::numeric ELSE NULL END,
+                  dir.age_years,
                   2.5
                 )
               )
@@ -697,8 +658,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
             2
           ) AS arbitrage_score
         FROM domain_agg da
-        LEFT JOIN domain_registry_metadata drm ON drm.domain = da.domain
-        LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = da.domain
+        LEFT JOIN domain_intelligence_rollup dir ON dir.domain = da.domain
       )
       INSERT INTO domain_intelligence_rollup (
         domain, total_pins, unique_urls, pins_per_url, active_serp_pins,
@@ -784,6 +744,21 @@ export async function refreshDomainIntelligenceRollup(sql) {
         domain_intelligence_rollup.decay_rate_pct IS DISTINCT FROM EXCLUDED.decay_rate_pct OR
         domain_intelligence_rollup.arbitrage_score IS DISTINCT FROM EXCLUDED.arbitrage_score;
     `;
+
+    // Prune stale zero-pin ghost domains absent from universal_master_pins and folder_pinned_domains
+    await sql`
+      DELETE FROM domain_intelligence_rollup dir
+      WHERE NOT EXISTS (
+        SELECT 1 FROM universal_master_pins ump
+        WHERE ump.clean_domain = dir.domain
+           OR (dir.domain = 'Uploaded by user' AND LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic'))
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM folder_pinned_domains fpd
+        WHERE fpd.domain = dir.domain
+      );
+    `.catch(() => {});
+
     return { success: true, count: res?.length || 0 };
   } catch (err) {
     console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, err.message);
@@ -911,8 +886,8 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
         WITH rollup_src AS (
           SELECT *
           FROM domain_intelligence_rollup r
-          WHERE (${minPins} <= 1 OR r.total_pins >= ${minPins})
-            AND (${searchPattern}::text IS NULL OR LOWER(r.domain) LIKE ${searchPattern})
+          WHERE r.total_pins >= ${minPins}
+            AND (${searchPattern}::text IS NULL OR LOWER(r.domain) LIKE ${searchPattern} ESCAPE '\\')
             AND (
               ${excludeMarketplaces} = FALSE
               OR r.domain NOT IN (

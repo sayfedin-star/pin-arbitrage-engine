@@ -110,12 +110,13 @@ async function run() {
     )
     SELECT agg.domain
     FROM aggregated agg
-    LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = agg.domain
+    LEFT JOIN domain_intelligence_rollup dir ON dir.domain = agg.domain
     WHERE (
       ${forceRefresh} = TRUE
-      OR dmm.domain IS NULL
-      OR dmm.current_ad_network = 'unchecked'
-      OR (dmm.current_ad_network = 'failed' AND dmm.checked_at < NOW() - INTERVAL '14 days')
+      OR dir.domain IS NULL
+      OR dir.ad_network IS NULL
+      OR dir.ad_network = 'unchecked'
+      OR (dir.ad_network = 'failed' AND COALESCE(dir.ads_checked_at, dir.updated_at) < NOW() - INTERVAL '14 days')
     )
     ORDER BY agg.visibility_score DESC, agg.total_saves DESC
     LIMIT ${Number.isFinite(maxTotal) ? maxTotal : 500};

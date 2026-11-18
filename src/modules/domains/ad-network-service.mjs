@@ -546,21 +546,32 @@ export async function fetchAdsTxt(cleanDomain) {
  */
 export function normalizeMonetizationRecord(record) {
   if (!record) return null;
+  const rawHist = record.network_history ?? record.ad_network_history;
   let history = [];
-  if (Array.isArray(record.network_history)) {
-    history = record.network_history;
-  } else if (typeof record.network_history === 'string' && record.network_history.trim()) {
+  if (Array.isArray(rawHist)) {
+    history = rawHist;
+  } else if (typeof rawHist === 'string' && rawHist.trim()) {
     try {
-      const parsed = JSON.parse(record.network_history);
+      const parsed = JSON.parse(rawHist);
       history = Array.isArray(parsed) ? parsed : [];
     } catch (_) {
       history = [];
     }
   }
 
+  const currentNet = record.current_ad_network ?? record.ad_network ?? 'unchecked';
+  const switchedAt = record.switched_at ?? record.ad_switched_at ?? null;
+  const checkedAt = record.checked_at ?? record.ads_checked_at ?? null;
+
   return {
     ...record,
-    network_history: history
+    current_ad_network: currentNet,
+    ad_network: currentNet,
+    switched_at: switchedAt,
+    ad_switched_at: switchedAt,
+    checked_at: checkedAt,
+    network_history: history,
+    ad_network_history: history
   };
 }
 
@@ -571,20 +582,24 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) return null;
 
-  // 1. Check existing record
+  // 1. Check existing record in unified domain_intelligence_rollup
   const [existing] = await sql`
     SELECT
       domain,
-      current_ad_network,
+      COALESCE(ad_network, 'unchecked') AS current_ad_network,
+      ad_network,
       ad_manager_domain,
       primary_pub_id,
       previous_ad_network,
-      switched_at,
-      network_history,
+      ad_switched_at AS switched_at,
+      ad_switched_at,
+      ad_network_history AS network_history,
+      ad_network_history,
       ads_txt_status,
       raw_header_snippet,
-      checked_at
-    FROM domain_monetization_metadata
+      ads_checked_at AS checked_at,
+      ads_checked_at
+    FROM domain_intelligence_rollup
     WHERE domain = ${cleanDomain};
   `.catch(() => []);
 
@@ -676,19 +691,36 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
 
   try {
     const [saved] = await sql`
-      INSERT INTO domain_monetization_metadata (
+      WITH pin_cnt AS (
+        SELECT COUNT(*)::int AS cnt
+        FROM universal_master_pins
+        WHERE clean_domain = ${cleanDomain}
+      ),
+      eligible AS (
+        SELECT pc.cnt
+        FROM pin_cnt pc
+        WHERE pc.cnt > 0
+           OR EXISTS (SELECT 1 FROM domain_intelligence_rollup WHERE domain = ${cleanDomain})
+           OR EXISTS (SELECT 1 FROM folder_pinned_domains WHERE domain = ${cleanDomain})
+      )
+      INSERT INTO domain_intelligence_rollup (
         domain,
-        current_ad_network,
+        total_pins,
+        ad_network,
         ad_manager_domain,
         primary_pub_id,
         previous_ad_network,
-        switched_at,
-        network_history,
+        ad_switched_at,
+        ad_network_history,
         ads_txt_status,
         raw_header_snippet,
-        checked_at
-      ) VALUES (
+        ads_checked_at,
+        refreshed_at,
+        updated_at
+      )
+      SELECT
         ${cleanDomain},
+        GREATEST(0, e.cnt),
         ${finalNetwork},
         ${managerDomain},
         ${primaryPubId},
@@ -697,36 +729,54 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
         ${JSON.stringify(networkHistory)}::jsonb,
         ${adsTxtStatus},
         ${headerSnippet},
+        NOW(),
+        NOW(),
         NOW()
-      )
+      FROM eligible e
       ON CONFLICT (domain) DO UPDATE SET
-        current_ad_network = EXCLUDED.current_ad_network,
-        ad_manager_domain = COALESCE(EXCLUDED.ad_manager_domain, domain_monetization_metadata.ad_manager_domain),
-        primary_pub_id = COALESCE(EXCLUDED.primary_pub_id, domain_monetization_metadata.primary_pub_id),
-        previous_ad_network = COALESCE(EXCLUDED.previous_ad_network, domain_monetization_metadata.previous_ad_network),
-        switched_at = COALESCE(EXCLUDED.switched_at, domain_monetization_metadata.switched_at),
-        network_history = EXCLUDED.network_history,
+        ad_network = EXCLUDED.ad_network,
+        ad_manager_domain = COALESCE(EXCLUDED.ad_manager_domain, domain_intelligence_rollup.ad_manager_domain),
+        primary_pub_id = COALESCE(EXCLUDED.primary_pub_id, domain_intelligence_rollup.primary_pub_id),
+        previous_ad_network = COALESCE(EXCLUDED.previous_ad_network, domain_intelligence_rollup.previous_ad_network),
+        ad_switched_at = COALESCE(EXCLUDED.ad_switched_at, domain_intelligence_rollup.ad_switched_at),
+        ad_network_history = EXCLUDED.ad_network_history,
         ads_txt_status = EXCLUDED.ads_txt_status,
-        raw_header_snippet = COALESCE(EXCLUDED.raw_header_snippet, domain_monetization_metadata.raw_header_snippet),
-        checked_at = NOW()
-      RETURNING *;
+        raw_header_snippet = COALESCE(EXCLUDED.raw_header_snippet, domain_intelligence_rollup.raw_header_snippet),
+        ads_checked_at = NOW(),
+        updated_at = NOW()
+      RETURNING
+        domain,
+        ad_network AS current_ad_network,
+        ad_network,
+        ad_manager_domain,
+        primary_pub_id,
+        previous_ad_network,
+        ad_switched_at AS switched_at,
+        ad_switched_at,
+        ad_network_history AS network_history,
+        ad_network_history,
+        ads_txt_status,
+        raw_header_snippet,
+        ads_checked_at AS checked_at,
+        ads_checked_at;
     `;
+
     if (saved) {
-      // [INVARIANT: SYNC-ENRICHMENT-ROLLUP-ADS] Sync ads.txt monetization directly into domain_intelligence_rollup
-      sql`
-        UPDATE domain_intelligence_rollup
-        SET ad_network = ${saved.current_ad_network || finalNetwork},
-            ad_manager_domain = ${saved.ad_manager_domain || managerDomain},
-            primary_pub_id = ${saved.primary_pub_id || primaryPubId},
-            ads_txt_status = ${saved.ads_txt_status || adsTxtStatus},
-            ad_switched_at = ${saved.switched_at ? new Date(saved.switched_at) : (switchedAt ? new Date(switchedAt) : null)},
-            previous_ad_network = ${saved.previous_ad_network || prevNetwork},
-            refreshed_at = NOW()
-        WHERE domain = ${cleanDomain};
-      `.catch(() => {});
+      return normalizeMonetizationRecord(saved);
     }
 
-    return normalizeMonetizationRecord(saved);
+    return normalizeMonetizationRecord({
+      domain: cleanDomain,
+      current_ad_network: finalNetwork,
+      ad_manager_domain: managerDomain,
+      primary_pub_id: primaryPubId,
+      previous_ad_network: prevNetwork,
+      switched_at: switchedAt,
+      network_history: networkHistory,
+      ads_txt_status: adsTxtStatus,
+      raw_header_snippet: headerSnippet,
+      checked_at: new Date().toISOString()
+    });
   } catch (err) {
     return normalizeMonetizationRecord({
       domain: cleanDomain,
@@ -838,26 +888,26 @@ export async function getDatabaseMonetizationStats(sql) {
           AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
           AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       ),
-      dmm_agg AS (
+      dir_agg AS (
         SELECT
           COUNT(*)::int AS total_checked,
-          COUNT(*) FILTER (WHERE current_ad_network = 'raptive')::int AS raptive_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'mediavine')::int AS mediavine_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'journey')::int AS journey_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'ezoic')::int AS ezoic_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'hbagency')::int AS hbagency_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'monumetric')::int AS monumetric_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'shemedia')::int AS shemedia_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'freestar')::int AS freestar_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'playwire')::int AS playwire_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'snigel')::int AS snigel_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'adsense')::int AS adsense_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'affiliate_only')::int AS affiliate_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'protected')::int AS protected_count,
-          COUNT(*) FILTER (WHERE current_ad_network = 'failed')::int AS failed_count,
-          COUNT(*) FILTER (WHERE switched_at IS NOT NULL)::int AS switched_count
-        FROM domain_monetization_metadata
-        WHERE current_ad_network IS NOT NULL AND current_ad_network <> 'unchecked'
+          COUNT(*) FILTER (WHERE ad_network = 'raptive')::int AS raptive_count,
+          COUNT(*) FILTER (WHERE ad_network = 'mediavine')::int AS mediavine_count,
+          COUNT(*) FILTER (WHERE ad_network = 'journey')::int AS journey_count,
+          COUNT(*) FILTER (WHERE ad_network = 'ezoic')::int AS ezoic_count,
+          COUNT(*) FILTER (WHERE ad_network = 'hbagency')::int AS hbagency_count,
+          COUNT(*) FILTER (WHERE ad_network = 'monumetric')::int AS monumetric_count,
+          COUNT(*) FILTER (WHERE ad_network = 'shemedia')::int AS shemedia_count,
+          COUNT(*) FILTER (WHERE ad_network = 'freestar')::int AS freestar_count,
+          COUNT(*) FILTER (WHERE ad_network = 'playwire')::int AS playwire_count,
+          COUNT(*) FILTER (WHERE ad_network = 'snigel')::int AS snigel_count,
+          COUNT(*) FILTER (WHERE ad_network = 'adsense')::int AS adsense_count,
+          COUNT(*) FILTER (WHERE ad_network = 'affiliate_only')::int AS affiliate_count,
+          COUNT(*) FILTER (WHERE ad_network = 'protected')::int AS protected_count,
+          COUNT(*) FILTER (WHERE ad_network = 'failed')::int AS failed_count,
+          COUNT(*) FILTER (WHERE ad_switched_at IS NOT NULL)::int AS switched_count
+        FROM domain_intelligence_rollup
+        WHERE ad_network IS NOT NULL AND ad_network <> 'unchecked'
       )
       SELECT
         (SELECT COUNT(*)::int FROM filtered_candidates) AS total_domains,
@@ -877,7 +927,7 @@ export async function getDatabaseMonetizationStats(sql) {
         COALESCE(da.protected_count, 0) AS protected_count,
         COALESCE(da.failed_count, 0) AS failed_count,
         COALESCE(da.switched_count, 0) AS switched_count
-      FROM dmm_agg da;
+      FROM dir_agg da;
     `;
     const r = rows[0] || {};
     const totalDomains = Number(r.total_domains || 0);
@@ -969,12 +1019,13 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
     )
     SELECT agg.domain
     FROM aggregated agg
-    LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = agg.domain
+    LEFT JOIN domain_intelligence_rollup dir ON dir.domain = agg.domain
     WHERE (
       ${forceRefresh} = TRUE
-      OR dmm.domain IS NULL
-      OR dmm.current_ad_network = 'unchecked'
-      OR (dmm.current_ad_network = 'failed' AND dmm.checked_at < NOW() - INTERVAL '7 days')
+      OR dir.domain IS NULL
+      OR dir.ad_network IS NULL
+      OR dir.ad_network = 'unchecked'
+      OR (dir.ad_network = 'failed' AND COALESCE(dir.ads_checked_at, dir.updated_at) < NOW() - INTERVAL '7 days')
     )
     ORDER BY agg.visibility_score DESC, agg.total_saves DESC
     LIMIT ${bSize};

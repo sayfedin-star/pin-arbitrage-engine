@@ -347,6 +347,12 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   const seedSaves = Number(metaPin?.save_count || 0);
 
   await sql`
+    INSERT INTO universal_master_pins (pin_id, creator_username, first_discovered_pillar)
+    VALUES (${cleanPin}, ${targetUsername || null}, 'creator')
+    ON CONFLICT (pin_id) DO NOTHING;
+  `;
+
+  await sql`
     INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count, last_crawled_at)
     VALUES (${numericId}, ${cleanPin}, ${seedTitle}, ${seedImg}, ${seedBoard}, ${seedSaves}, NOW())
     ON CONFLICT (competitor_id, pin_id) DO UPDATE SET 

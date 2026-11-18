@@ -44,8 +44,7 @@ import {
   resavePinsMetricsBatch,
   ingestPinsBatch
 } from '../src/modules/pins/repository.mjs';
-import { calculateDailyVelocity } from '../src/lib/math.mjs';
-import { calculateRollingGainsFromSnapshots } from './backfill_rolling_window_gains.mjs';
+import { calculateDailyVelocity, calculateRollingGainsFromSnapshots } from '../src/lib/math.mjs';
 import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
 import { Semaphore } from '../src/utils.mjs';
 

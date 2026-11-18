@@ -4,16 +4,17 @@
  */
 
 /**
- * Evaluates the canonical 6-rule anti-hydration jump invariants.
+ * Evaluates the canonical anti-hydration jump invariants.
  * [INVARIANT: ANTI-HYDRATION-SPIKE]
  *
  * Rules:
  * 1. prev.save_count <= 0 && curr.save_count > 0
- * 2. prev.save_count < prev.repin_count
- * 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
- * 4. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
- * 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
- * 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+ * 2. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+ * 3. prev.repin_count === 0 && curr.repin_count >= 25 && curr.save_count >= prev.save_count * 2.5
+ * 4. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+ * 5. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prev.save_count <= 0 or curr / prev > 20)
+ *
+ * Note: `save_count < repin_count` is legitimate on Pinterest (independent counters) and MUST NOT zero-lock velocity.
  *
  * @param {number} curSaves
  * @param {number} prevSaves
@@ -32,28 +33,23 @@ export function evaluateCanonicalHydrationRules(curSaves, prevSaves, curRepins, 
     return true;
   }
 
-  // 2. prev.save_count < prev.repin_count
-  if (prevRepins > 0 && prevSaves < prevRepins) {
-    return true;
-  }
-
-  // 3. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
+  // 2. prev.repin_count > 0 && prev.save_count === prev.repin_count && curr.save_count > curr.repin_count * 1.35
   const effCurRepins = curRepins > 0 ? curRepins : prevRepins;
   if (prevRepins > 0 && prevSaves === prevRepins && curSaves > effCurRepins * 1.35) {
     return true;
   }
 
-  // 4. prev.repin_count === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5
+  // 3. prev.repin_count === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5
   if (prevRepins === 0 && curRepins >= 25 && curSaves >= prevSaves * 2.5) {
     return true;
   }
 
-  // 5. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
+  // 4. prev.save_count > 0 && (curr.save_count / prev.save_count) >= 4.0 && (curr.save_count - prev.save_count) >= 2500
   if (prevSaves > 0 && (curSaves / prevSaves) >= 4.0 && (curSaves - prevSaves) >= 2500) {
     return true;
   }
 
-  // 6. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)
+  // 5. Legacy: rawDelta > 2000 when prev.save_count < 500 and (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)
   if (rawDelta > 2000 && prevSaves < 500 && (prevSaves <= 0 || (curSaves / Math.max(1, prevSaves)) > 20)) {
     return true;
   }
@@ -601,6 +597,166 @@ const CRC32_TABLE = (() => {
   }
   return table;
 })();
+
+/**
+ * Computes authentic rolling save gains (5d, 7d, 10d, 15d) and daily velocity from snapshot history.
+ * Enforces strict time-span gates so short-lived pins NEVER clone 1-2 day deltas into 7d/10d/15d windows:
+ * - `actualSpanDays >= Math.ceil(windowDays * 0.6)` (>= 3d for 5d, >= 5d for 7d, >= 6d for 10d, >= 9d for 15d)
+ * - `Math.abs(snapDaysAgo - windowDays) <= Math.ceil(windowDays * 0.4)`
+ *
+ * @param {Array<object>} snapshots - Ordered or unordered snapshot array (`recorded_date` or `snapshot_date`)
+ * @param {Date|string|null} [refDate=null] - Optional reference date (defaults to latest snapshot date)
+ * @returns {object} { daily_save_velocity, daily_repin_velocity, delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
+ */
+export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    return {
+      daily_save_velocity: null,
+      daily_repin_velocity: null,
+      delta_repins_24h: null,
+      gains_5d: null,
+      gains_7d: null,
+      gains_10d: null,
+      gains_15d: null
+    };
+  }
+
+  const byDayMap = new Map();
+  for (const s of snapshots) {
+    if (!s) continue;
+    const rawDate = s.recorded_date ?? s.snapshot_date;
+    if (!rawDate) continue;
+    if (s.save_count === null || s.save_count === undefined) continue;
+    const dStr = rawDate instanceof Date
+      ? (isNaN(rawDate.getTime()) ? '' : rawDate.toISOString().slice(0, 10))
+      : String(rawDate).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) continue;
+    const savesNum = Number(s.save_count);
+    if (!Number.isFinite(savesNum)) continue;
+    const repinsNum = s.repin_count != null && Number.isFinite(Number(s.repin_count)) ? Number(s.repin_count) : null;
+    const prev = byDayMap.get(dStr);
+    if (!prev) {
+      byDayMap.set(dStr, { ...s, snapshot_date: dStr, save_count: savesNum, repin_count: repinsNum });
+    } else {
+      byDayMap.set(dStr, {
+        ...prev,
+        ...s,
+        snapshot_date: dStr,
+        save_count: Math.max(savesNum, Number(prev.save_count || 0)),
+        repin_count: repinsNum !== null
+          ? (prev.repin_count !== null ? Math.max(repinsNum, prev.repin_count) : repinsNum)
+          : prev.repin_count,
+        daily_save_velocity: Math.max(Number(s.daily_save_velocity || 0), Number(prev.daily_save_velocity || 0))
+      });
+    }
+  }
+
+  const sorted = Array.from(byDayMap.values()).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date));
+  if (sorted.length < 2) {
+    return {
+      daily_save_velocity: null,
+      daily_repin_velocity: null,
+      delta_repins_24h: 0,
+      gains_5d: null,
+      gains_7d: null,
+      gains_10d: null,
+      gains_15d: null
+    };
+  }
+
+  const latest = sorted[0];
+  const oldest = sorted[sorted.length - 1];
+  const currentSaves = Number(latest.save_count || 0);
+  const currentRepins = latest.repin_count != null ? Number(latest.repin_count) : null;
+
+  const latestDayMs = Date.parse(`${latest.snapshot_date}T00:00:00Z`);
+  const oldestDayMs = Date.parse(`${oldest.snapshot_date}T00:00:00Z`);
+  const actualSpanDays = Math.max(0, Math.round((latestDayMs - oldestDayMs) / 86400000));
+
+  let anchorDayMs = latestDayMs;
+  let stalenessDays = 0;
+  if (refDate != null) {
+    const refObj = refDate instanceof Date ? refDate : new Date(refDate);
+    if (!isNaN(refObj.getTime())) {
+      const refUtcMs = Date.UTC(refObj.getUTCFullYear(), refObj.getUTCMonth(), refObj.getUTCDate());
+      stalenessDays = Math.max(0, Math.round((refUtcMs - latestDayMs) / 86400000));
+      anchorDayMs = Math.max(refUtcMs, latestDayMs);
+    }
+  }
+
+  const isFresh = refDate == null || stalenessDays <= 2;
+  let daily_save_velocity = 0;
+  let daily_repin_velocity = 0;
+  let delta_repins_24h = 0;
+
+  if (isFresh) {
+    const prior = sorted[1];
+    const prevSaves = prior.save_count != null ? Number(prior.save_count) : null;
+    const prevRepins = prior.repin_count != null ? Number(prior.repin_count) : null;
+    const priorDayMs = Date.parse(`${prior.snapshot_date}T00:00:00Z`);
+    const daysDiff = Math.max(1, Math.round((latestDayMs - priorDayMs) / 86400000));
+    const isJump = isMultiStageHydrationJump(prior, latest);
+    const isRepinJump = isJump || isRepinHydrationJump(prior, latest);
+
+    if (prevSaves !== null && prevSaves > 0 && currentSaves >= prevSaves && !isJump) {
+      daily_save_velocity = Math.min(25000, Math.round(((currentSaves - prevSaves) / daysDiff) * 100) / 100);
+    }
+
+    if (isRepinJump) {
+      delta_repins_24h = 0;
+      daily_repin_velocity = 0;
+    } else if (prevRepins !== null && prevRepins > 0 && currentRepins !== null && currentRepins >= prevRepins) {
+      delta_repins_24h = Math.min(25000, Math.round((currentRepins - prevRepins) / daysDiff));
+      daily_repin_velocity = Math.min(25000, Math.round(((currentRepins - prevRepins) / daysDiff) * 100) / 100);
+    }
+  }
+
+  function getGainsForWindow(windowDays) {
+    if (sorted.length < 2 || currentSaves <= 0) return null;
+    const minSpanDays = Math.ceil(windowDays * 0.6);
+    const maxToleranceDays = Math.ceil(windowDays * 0.4);
+    if (actualSpanDays < minSpanDays) return null;
+    if (refDate != null && stalenessDays > maxToleranceDays) return null;
+
+    let bestSnap = null;
+    let bestSnapDaysAgo = Infinity;
+    let minDiff = Infinity;
+
+    for (let i = 1; i < sorted.length; i++) {
+      const s = sorted[i];
+      if (s.save_count == null) continue;
+      const sTime = Date.parse(`${s.snapshot_date}T00:00:00Z`);
+      if (!Number.isFinite(sTime)) continue;
+      const snapDaysAgo = Math.round((anchorDayMs - sTime) / 86400000);
+      const diff = Math.abs(snapDaysAgo - windowDays);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestSnap = s;
+        bestSnapDaysAgo = snapDaysAgo;
+      }
+    }
+
+    if (!bestSnap || Math.abs(bestSnapDaysAgo - windowDays) > maxToleranceDays) {
+      return null;
+    }
+
+    const baseSaves = Number(bestSnap.save_count || 0);
+    if (baseSaves <= 0 && currentSaves > 0) return null;
+    if (isMultiStageHydrationJump(bestSnap, latest)) return 0;
+
+    return Math.max(0, currentSaves - baseSaves);
+  }
+
+  return {
+    daily_save_velocity,
+    daily_repin_velocity,
+    delta_repins_24h,
+    gains_5d: getGainsForWindow(5),
+    gains_7d: getGainsForWindow(7),
+    gains_10d: getGainsForWindow(10),
+    gains_15d: getGainsForWindow(15)
+  };
+}
 
 /**
  * Deterministic IEEE 802.3 CRC32 unsigned 32-bit hash for worker slice partitioning.

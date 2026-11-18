@@ -424,7 +424,7 @@ export async function getKeywordPins(sql, keywordId) {
       ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
       ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
       ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
-      ump.account_username AS creator_username,
+      ump.creator_username,
       ump.board_name,
       ump.dominant_color,
       COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,

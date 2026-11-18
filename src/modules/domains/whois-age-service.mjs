@@ -172,25 +172,27 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
       const [cached] = await sql`
         SELECT
           domain,
-          registered_at,
+          domain_created_at AS registered_at,
           updated_at_whois,
-          expires_at,
+          domain_expires_at AS expires_at,
           lookup_source,
-          lookup_status,
-          checked_at,
+          COALESCE(NULLIF(lookup_status, 'pending'), NULLIF(age_status, 'unchecked'), lookup_status) AS lookup_status,
+          age_status,
+          whois_checked_at AS checked_at,
           CASE
-            WHEN registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - registered_at)) / 86400))::int
-            ELSE initial_age_days
+            WHEN domain_created_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - domain_created_at)) / 86400))::int
+            ELSE age_days
           END AS age_days,
           CASE
-            WHEN registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - registered_at)) / 31557600)::numeric, 2)
-            ELSE initial_age_years
+            WHEN domain_created_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - domain_created_at)) / 31557600)::numeric, 2)
+            ELSE age_years
           END AS age_years
-        FROM domain_registry_metadata
+        FROM domain_intelligence_rollup
         WHERE domain = ${cleanDomain}
           AND (
             lookup_status = 'resolved'
-            OR (lookup_status = 'failed' AND checked_at > ${referenceTime}::timestamptz - INTERVAL '3 days')
+            OR age_status = 'resolved'
+            OR ((lookup_status = 'failed' OR age_status = 'failed') AND COALESCE(whois_checked_at, updated_at) > ${referenceTime}::timestamptz - INTERVAL '3 days')
           )
         LIMIT 1;
       `;
@@ -380,71 +382,97 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
   const status = isValidCreated ? 'resolved' : 'failed';
 
   try {
+    const cappedAgeYears = ageYears != null ? Math.min(999.99, Number(ageYears)) : null;
     const [saved] = await sql`
-      INSERT INTO domain_registry_metadata (
-        domain, registered_at, updated_at_whois, expires_at,
-        initial_age_days, initial_age_years, lookup_source, lookup_status, checked_at
-      ) VALUES (
+      WITH pin_cnt AS (
+        SELECT COUNT(*)::int AS cnt
+        FROM universal_master_pins
+        WHERE clean_domain = ${cleanDomain}
+      ),
+      eligible AS (
+        SELECT pc.cnt
+        FROM pin_cnt pc
+        WHERE pc.cnt > 0
+           OR EXISTS (SELECT 1 FROM domain_intelligence_rollup WHERE domain = ${cleanDomain})
+           OR EXISTS (SELECT 1 FROM folder_pinned_domains WHERE domain = ${cleanDomain})
+      )
+      INSERT INTO domain_intelligence_rollup (
+        domain, total_pins, domain_created_at, updated_at_whois, domain_expires_at,
+        age_days, age_years, lookup_source, lookup_status, age_status, whois_checked_at,
+        refreshed_at, updated_at
+      )
+      SELECT
         ${cleanDomain},
+        GREATEST(0, e.cnt),
         ${isValidCreated ? parsedCreated.toISOString() : null},
         ${parsedUpdated},
         ${parsedExpires},
         ${ageDays},
-        ${ageYears},
+        ${cappedAgeYears},
         ${source},
         ${status},
+        ${status},
+        NOW(),
+        NOW(),
         NOW()
-      )
+      FROM eligible e
       ON CONFLICT (domain) DO UPDATE SET
-        registered_at = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.registered_at ELSE domain_registry_metadata.registered_at END,
-        updated_at_whois = COALESCE(EXCLUDED.updated_at_whois, domain_registry_metadata.updated_at_whois),
-        expires_at = COALESCE(EXCLUDED.expires_at, domain_registry_metadata.expires_at),
-        initial_age_days = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.initial_age_days ELSE domain_registry_metadata.initial_age_days END,
-        initial_age_years = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.initial_age_years ELSE domain_registry_metadata.initial_age_years END,
-        lookup_source = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.lookup_source ELSE domain_registry_metadata.lookup_source END,
+        domain_created_at = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.domain_created_at ELSE domain_intelligence_rollup.domain_created_at END,
+        updated_at_whois = COALESCE(EXCLUDED.updated_at_whois, domain_intelligence_rollup.updated_at_whois),
+        domain_expires_at = COALESCE(EXCLUDED.domain_expires_at, domain_intelligence_rollup.domain_expires_at),
+        age_days = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.age_days ELSE domain_intelligence_rollup.age_days END,
+        age_years = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.age_years ELSE domain_intelligence_rollup.age_years END,
+        lookup_source = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.lookup_source ELSE domain_intelligence_rollup.lookup_source END,
         lookup_status = CASE
           WHEN EXCLUDED.lookup_status = 'resolved' THEN 'resolved'
-          WHEN domain_registry_metadata.lookup_status = 'resolved' THEN 'resolved'
+          WHEN domain_intelligence_rollup.lookup_status = 'resolved' OR domain_intelligence_rollup.age_status = 'resolved' THEN 'resolved'
           ELSE EXCLUDED.lookup_status
         END,
-        checked_at = NOW()
+        age_status = CASE
+          WHEN EXCLUDED.age_status = 'resolved' THEN 'resolved'
+          WHEN domain_intelligence_rollup.age_status = 'resolved' OR domain_intelligence_rollup.lookup_status = 'resolved' THEN 'resolved'
+          ELSE EXCLUDED.age_status
+        END,
+        whois_checked_at = NOW(),
+        updated_at = NOW()
       RETURNING
         domain,
-        registered_at,
+        domain_created_at AS registered_at,
         updated_at_whois,
-        expires_at,
+        domain_expires_at AS expires_at,
         lookup_source,
         lookup_status,
+        age_status,
+        whois_checked_at AS checked_at,
         CASE
-          WHEN registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (NOW() - registered_at)) / 86400))::int
-          ELSE initial_age_days
+          WHEN domain_created_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (NOW() - domain_created_at)) / 86400))::int
+          ELSE age_days
         END AS age_days,
         CASE
-          WHEN registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (NOW() - registered_at)) / 31557600)::numeric, 2)
-          ELSE initial_age_years
+          WHEN domain_created_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (NOW() - domain_created_at)) / 31557600)::numeric, 2)
+          ELSE age_years
         END AS age_years;
     `;
+
     if (saved) {
-      // [INVARIANT: SYNC-ENRICHMENT-ROLLUP-AGE] Sync WHOIS age directly into domain_intelligence_rollup
-      const resolvedAgeDays = saved.age_days != null ? Number(saved.age_days) : null;
-      const resolvedAgeYears = saved.age_years != null ? Number(saved.age_years) : null;
-      sql`
-        UPDATE domain_intelligence_rollup
-        SET domain_created_at = ${saved.registered_at ? new Date(saved.registered_at) : null},
-            domain_expires_at = ${saved.expires_at ? new Date(saved.expires_at) : null},
-            age_days = ${resolvedAgeDays},
-            age_years = ${resolvedAgeYears},
-            age_status = ${saved.lookup_status || status},
-            refreshed_at = NOW()
-        WHERE domain = ${cleanDomain};
-      `.catch(() => {});
+      return {
+        ...saved,
+        age_days: saved.age_days != null ? Number(saved.age_days) : null,
+        age_years: saved.age_years != null ? Number(saved.age_years) : null
+      };
     }
 
-    return saved ? {
-      ...saved,
-      age_days: saved.age_days != null ? Number(saved.age_days) : null,
-      age_years: saved.age_years != null ? Number(saved.age_years) : null
-    } : null;
+    return {
+      domain: cleanDomain,
+      registered_at: isValidCreated ? parsedCreated.toISOString() : null,
+      updated_at_whois: parsedUpdated,
+      expires_at: parsedExpires,
+      age_days: ageDays,
+      age_years: ageYears,
+      lookup_source: source,
+      lookup_status: status,
+      age_status: status
+    };
   } catch (_) {
     return {
       domain: cleanDomain,
@@ -454,7 +482,8 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
       age_days: ageDays,
       age_years: ageYears,
       lookup_source: source,
-      lookup_status: status
+      lookup_status: status,
+      age_status: status
     };
   }
 }
@@ -510,35 +539,26 @@ export async function getDatabaseEnrichmentStats(sql) {
     }
 
     const [stats] = await sql`
-      WITH all_domains AS (
+      WITH valid_domains AS (
         SELECT DISTINCT ump.clean_domain
         FROM universal_master_pins ump
-        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
-        UNION
-        SELECT DISTINCT domain AS clean_domain
-        FROM domain_registry_metadata
-        WHERE domain IS NOT NULL AND domain <> ''
-      ),
-      valid_domains AS (
-        SELECT clean_domain
-        FROM all_domains
-        WHERE clean_domain IS NOT NULL
-          AND clean_domain <> ''
-          AND clean_domain LIKE '%.%'
-          AND clean_domain NOT LIKE '% %'
-          AND LENGTH(clean_domain) >= 4
-          AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-          AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
+        WHERE ump.clean_domain IS NOT NULL
+          AND ump.clean_domain <> ''
+          AND ump.clean_domain LIKE '%.%'
+          AND ump.clean_domain NOT LIKE '% %'
+          AND LENGTH(ump.clean_domain) >= 4
+          AND ump.clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
+          AND ump.clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       )
       SELECT
         COUNT(*)::int AS total_domains,
-        COUNT(drm.domain)::int AS checked_domains,
-        COUNT(drm.domain) FILTER (WHERE drm.lookup_status = 'resolved')::int AS resolved_domains,
-        COUNT(drm.domain) FILTER (WHERE drm.lookup_status = 'failed')::int AS failed_domains,
-        (COUNT(*) - COUNT(drm.domain))::int AS unchecked_domains,
-        ROUND((COUNT(drm.domain)::numeric / GREATEST(1, COUNT(*))) * 100, 1) AS percent_complete
+        COUNT(dir.domain) FILTER (WHERE dir.age_status IN ('resolved', 'failed') OR dir.lookup_status IN ('resolved', 'failed') OR dir.age_days IS NOT NULL)::int AS checked_domains,
+        COUNT(dir.domain) FILTER (WHERE dir.age_status = 'resolved' OR dir.lookup_status = 'resolved' OR (COALESCE(dir.age_status, '') <> 'failed' AND dir.age_days IS NOT NULL))::int AS resolved_domains,
+        COUNT(dir.domain) FILTER (WHERE dir.age_status = 'failed' OR (dir.age_status IS DISTINCT FROM 'resolved' AND dir.lookup_status = 'failed'))::int AS failed_domains,
+        (COUNT(*) - COUNT(dir.domain) FILTER (WHERE dir.age_status IN ('resolved', 'failed') OR dir.lookup_status IN ('resolved', 'failed') OR dir.age_days IS NOT NULL))::int AS unchecked_domains,
+        ROUND((COUNT(dir.domain) FILTER (WHERE dir.age_status IN ('resolved', 'failed') OR dir.lookup_status IN ('resolved', 'failed') OR dir.age_days IS NOT NULL)::numeric / GREATEST(1, COUNT(*))) * 100, 1) AS percent_complete
       FROM valid_domains vd
-      LEFT JOIN domain_registry_metadata drm ON drm.domain = vd.clean_domain;
+      LEFT JOIN domain_intelligence_rollup dir ON dir.domain = vd.clean_domain;
     `;
     return {
       total_domains: Number(stats?.total_domains || 0),
@@ -598,11 +618,20 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
     )
     SELECT agg.domain
     FROM aggregated agg
-    LEFT JOIN domain_registry_metadata drm ON drm.domain = agg.domain
+    LEFT JOIN domain_intelligence_rollup dir ON dir.domain = agg.domain
     WHERE (
       ${forceRefresh} = TRUE
-      OR drm.domain IS NULL
-      OR (drm.lookup_status = 'failed' AND drm.checked_at < NOW() - INTERVAL '30 days')
+      OR dir.domain IS NULL
+      OR (
+        COALESCE(dir.lookup_status, 'pending') NOT IN ('resolved', 'failed')
+        AND COALESCE(dir.age_status, 'unchecked') NOT IN ('resolved', 'failed')
+        AND dir.age_days IS NULL
+      )
+      OR (
+        (dir.lookup_status = 'failed' OR dir.age_status = 'failed')
+        AND dir.age_days IS NULL
+        AND COALESCE(dir.whois_checked_at, dir.updated_at) < NOW() - INTERVAL '30 days'
+      )
     )
     ORDER BY agg.visibility_score DESC, agg.total_saves DESC
     LIMIT ${lim};

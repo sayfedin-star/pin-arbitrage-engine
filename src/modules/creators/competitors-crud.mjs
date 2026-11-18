@@ -7,7 +7,7 @@ import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
 import { fetchUserResource } from '../../core/pinterest/index.mjs';
 import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
 
-export const SYSTEM_RULES_USERNAME = '__system_qualification_rules__';
+export const GLOBAL_QUALIFICATION_RULES_KEY = 'pin_qualification_rules';
 
 
 /**
@@ -247,7 +247,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, ingest_interval = 'daily', auto_archive_winning = true }) {
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
-  if (cleanUsername === SYSTEM_RULES_USERNAME) throw new Error('Reserved system profile.');
+  if (cleanUsername.startsWith('__system_')) throw new Error('Reserved system profile.');
 
   const metaPayload = {
     auto_archive_winning: auto_archive_winning !== false
@@ -898,6 +898,8 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   return { ok: true, competitor_id: updated.id, username: updated.username, rules: updated.rules };
 }
 
+export const updateCompetitorRules = saveCompetitorRules;
+
 
 /**
  * Hardened Natural-Key Shard ID Resolver
@@ -1030,6 +1032,13 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
     };
   });
 
+  await sql`
+    INSERT INTO universal_master_pins (pin_id, first_discovered_pillar)
+    SELECT x.pin_id, 'creator'
+    FROM jsonb_to_recordset(${JSON.stringify(seedRecords)}::jsonb) AS x(pin_id varchar)
+    ON CONFLICT (pin_id) DO NOTHING;
+  `;
+
   const inserted = await sql`
     INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
     SELECT
@@ -1092,18 +1101,21 @@ export const DEFAULT_QUALIFICATION_RULES = {
 
 
 /**
- * Get active Pin Qualification Rules from competitor_profiles.metadata->'global_qualification_rules'
+ * Get active Global Pin Qualification Rules from app_settings (key = 'pin_qualification_rules')
  */
 export async function getQualificationRules(sql, options = {}) {
   try {
     const [row] = await sql`
-      SELECT metadata->'global_qualification_rules' AS rules, updated_at
-      FROM competitor_profiles
-      WHERE username = ${SYSTEM_RULES_USERNAME}
+      SELECT value AS rules, updated_at
+      FROM app_settings
+      WHERE key = ${GLOBAL_QUALIFICATION_RULES_KEY}
       LIMIT 1;
     `;
-    if (row?.rules && typeof row.rules === 'object') {
-      const r = row.rules;
+    const parsedRules = typeof row?.rules === 'string'
+      ? (() => { try { return JSON.parse(row.rules); } catch (_) { return null; } })()
+      : row?.rules;
+    if (parsedRules && typeof parsedRules === 'object') {
+      const r = parsedRules;
       return {
         id: 1,
         tier1_min_saves: Number(r.tier1_min_saves ?? 100),
@@ -1130,7 +1142,7 @@ export async function getQualificationRules(sql, options = {}) {
 
 
 /**
- * Update and persist Pin Qualification Rules in competitor_profiles.metadata
+ * Update and persist Global Pin Qualification Rules in app_settings (key = 'pin_qualification_rules')
  */
 export async function updateQualificationRules(sql, rules = {}) {
   const current = await getQualificationRules(sql);
@@ -1165,45 +1177,26 @@ export async function updateQualificationRules(sql, rules = {}) {
   };
 
   const [updated] = await sql`
-    INSERT INTO competitor_profiles (
-      username,
-      display_name,
-      account_type,
-      is_active,
-      monthly_reach,
-      profile_views,
-      total_pins,
-      total_boards,
-      metadata,
-      updated_at
-    ) VALUES (
-      ${SYSTEM_RULES_USERNAME},
-      'System Qualification Rules',
-      'system',
-      FALSE,
-      0,
-      0,
-      0,
-      0,
-      jsonb_build_object('global_qualification_rules', ${JSON.stringify(sanitizedRules)}::jsonb),
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (
+      ${GLOBAL_QUALIFICATION_RULES_KEY},
+      ${JSON.stringify(sanitizedRules)}::jsonb,
       NOW()
     )
-    ON CONFLICT (username) DO UPDATE SET
-      account_type = 'system',
-      is_active = FALSE,
-      monthly_reach = 0,
-      profile_views = 0,
-      total_pins = 0,
-      total_boards = 0,
-      metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || jsonb_build_object('global_qualification_rules', ${JSON.stringify(sanitizedRules)}::jsonb),
+    ON CONFLICT (key) DO UPDATE SET
+      value = EXCLUDED.value,
       updated_at = NOW()
-    RETURNING metadata->'global_qualification_rules' AS rules, updated_at;
+    RETURNING value AS rules, updated_at;
   `;
+
+  const savedObj = typeof updated?.rules === 'string'
+    ? (() => { try { return JSON.parse(updated.rules); } catch (_) { return null; } })()
+    : updated?.rules;
 
   return {
     id: 1,
     ...sanitizedRules,
-    ...(updated?.rules && typeof updated.rules === 'object' ? updated.rules : {}),
+    ...(savedObj && typeof savedObj === 'object' ? savedObj : {}),
     master_ingest_enabled: masterEnabled,
     cron_enabled: masterEnabled,
     updated_at: updated?.updated_at || new Date().toISOString()

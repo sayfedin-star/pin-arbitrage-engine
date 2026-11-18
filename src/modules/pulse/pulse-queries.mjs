@@ -116,7 +116,7 @@ export async function queryVaultAndVacuum(sql, folderIdNum, env) {
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE ksp.is_displaced = TRUE
-          AND (COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
+          AND (ump.daily_save_velocity > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
           AND ksp.updated_at >= NOW() - INTERVAL '48 hours'
           AND (${folderIdNum}::int IS NULL OR EXISTS (
             SELECT 1 FROM keyword_folder_items fi 
@@ -197,7 +197,7 @@ export async function queryViralCreatorPins(sql, folderIdNum) {
         SELECT 1 FROM folder_competitor_items fci 
         WHERE fci.competitor_id = cbp.competitor_id AND fci.folder_id = ${folderIdNum}::int
       ))
-      AND (COALESCE(ump.daily_save_velocity, 0) > 0 OR COALESCE(ump.delta_saves_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0 OR COALESCE(ump.save_count, 0) >= 50)
+      AND (ump.daily_save_velocity > 0 OR COALESCE(ump.delta_saves_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0 OR COALESCE(ump.save_count, 0) >= 50)
     ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 120;
   `;
@@ -466,10 +466,10 @@ export async function queryWinnersAndDomains(sql) {
         ump.updated_at AS last_updated_at
       FROM universal_master_pins ump
       WHERE (
-        COALESCE(ump.daily_save_velocity, 0) > 0
+        ump.daily_save_velocity > 0
         OR (COALESCE(ump.save_count, 0) >= 100 AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
       )
-      ORDER BY COALESCE(ump.daily_save_velocity, 0) DESC NULLS LAST, ump.save_count DESC NULLS LAST
+      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 100;
     `,
     sql`

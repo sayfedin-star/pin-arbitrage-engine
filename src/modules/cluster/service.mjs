@@ -750,6 +750,14 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
 
   for (const item of items) inspectAndCapture(item);
 
+  if (seedPinId) {
+    await targetSql`
+      INSERT INTO cluster_seeds (pin_id, label)
+      VALUES (${seedPinId}, ${'Seed ' + seedPinId})
+      ON CONFLICT (pin_id) DO NOTHING;
+    `;
+  }
+
   if (capturedCapsules.length > 0) {
     const dedupCapMap = new Map();
     for (const cap of capturedCapsules) {
@@ -1080,8 +1088,8 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
           COUNT(DISTINCT cgn.seed_pin_id)::int AS seed_clusters_count,
           COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE)::int AS organic_keywords_count,
           MIN(ksp.rank_position) FILTER (WHERE ksp.is_displaced = FALSE)::int AS best_serp_rank,
-          COALESCE(dir.age_days, 365)::int AS domain_age_days,
-          COALESCE(dir.age_years, 1.0)::numeric AS domain_age_years,
+          dir.age_days::int AS domain_age_days,
+          dir.age_years::numeric AS domain_age_years,
           COALESCE(dir.ad_network, 'unchecked') AS ad_network,
           COALESCE(dir.arbitrage_score, 0)::numeric AS domain_arbitrage_score,
           ROUND(
@@ -1090,9 +1098,9 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
               (LN(GREATEST(1.0, 1.0 + COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0))) * 15.0) +
               (COUNT(DISTINCT ksp.keyword_id) FILTER (WHERE ksp.is_displaced = FALSE) * 10.0) +
               (CASE 
-                WHEN COALESCE(dir.age_days, 365) <= 365 THEN 25.0
-                WHEN COALESCE(dir.age_days, 365) <= 730 THEN 15.0
-                WHEN COALESCE(dir.age_days, 365) <= 1095 THEN 5.0
+                WHEN dir.age_days IS NOT NULL AND dir.age_days <= 365 THEN 25.0
+                WHEN dir.age_days IS NOT NULL AND dir.age_days <= 730 THEN 15.0
+                WHEN dir.age_days IS NOT NULL AND dir.age_days <= 1095 THEN 5.0
                 ELSE 0.0
               END)
             )::numeric,
@@ -1106,7 +1114,7 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
           AND COALESCE(ump.is_product, FALSE) = FALSE
           AND (${seedId}::text IS NULL OR cgn.seed_pin_id = ${seedId})
           AND COALESCE(ump.daily_save_velocity, cgn.daily_velocity, 0) >= ${minVel}
-          AND (${maxAge}::int IS NULL OR COALESCE(dir.age_days, 9999) <= ${maxAge})
+          AND (${maxAge}::int IS NULL OR (dir.age_days IS NOT NULL AND dir.age_days <= ${maxAge}))
         GROUP BY 
           cgn.candidate_pin_id,
           ump.title, cgn.title,
@@ -1149,8 +1157,8 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
       seed_clusters_count: Number(r.seed_clusters_count || 0),
       organic_keywords_count: Number(r.organic_keywords_count || 0),
       best_serp_rank: r.best_serp_rank != null ? Number(r.best_serp_rank) : null,
-      domain_age_days: Number(r.domain_age_days || 0),
-      domain_age_years: Number(r.domain_age_years || 0),
+      domain_age_days: r.domain_age_days != null ? Number(r.domain_age_days) : null,
+      domain_age_years: r.domain_age_years != null ? Number(r.domain_age_years) : null,
       ad_network: r.ad_network,
       domain_arbitrage_score: Number(r.domain_arbitrage_score || 0),
       convergence_score: Number(r.convergence_score || 0)

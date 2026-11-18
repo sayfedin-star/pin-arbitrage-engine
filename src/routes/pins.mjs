@@ -80,31 +80,39 @@ export async function reconcilePinMetricsAfterSnapshotDelete({ sql, pinId }) {
     let newSaveVel = null;
     let newRepinVel = null;
     if (i > 0) {
-      const prev = chrono[i - 1];
-      const prevDateStr = prev.recorded_date instanceof Date
-        ? prev.recorded_date.toISOString().slice(0, 10)
-        : String(prev.recorded_date).slice(0, 10);
-      const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
-      const isSaveJump = curr.save_count !== null && prev.save_count !== null && detectHydrationJump(prev, curr);
-      if (curr.save_count !== null && prev.save_count !== null) {
-        newSaveVel = isSaveJump
-          ? 0
-          : calculateDailyVelocity({
-              currentSaves: Number(curr.save_count),
-              baselineSaves: Number(prev.save_count),
-              currentRepins: Number(curr.repin_count ?? 0),
-              baselineRepins: Number(prev.repin_count ?? 0),
-              currentDate: currDateStr,
-              baselineDate: prevDateStr,
-              maxCap: 25000
-            });
+      let prev = null;
+      for (let j = i - 1; j >= 0; j--) {
+        if (chrono[j].save_count !== null) {
+          prev = chrono[j];
+          break;
+        }
       }
-      if (curr.repin_count !== null && prev.repin_count !== null) {
-        if (isSaveJump || isRepinHydrationJump(prev, curr)) {
-          newRepinVel = 0;
-        } else {
-          const repinsDiff = Math.max(0, Number(curr.repin_count) - Number(prev.repin_count));
-          newRepinVel = Math.min(25000, Math.round((repinsDiff / daysDiff) * 10) / 10);
+      if (prev) {
+        const prevDateStr = prev.recorded_date instanceof Date
+          ? prev.recorded_date.toISOString().slice(0, 10)
+          : String(prev.recorded_date).slice(0, 10);
+        const daysDiff = Math.max(1, Math.round((new Date(currDateStr) - new Date(prevDateStr)) / 86400000));
+        const isSaveJump = curr.save_count !== null && detectHydrationJump(prev, curr);
+        if (curr.save_count !== null) {
+          newSaveVel = isSaveJump
+            ? 0
+            : calculateDailyVelocity({
+                currentSaves: Number(curr.save_count),
+                baselineSaves: Number(prev.save_count),
+                currentRepins: Number(curr.repin_count ?? 0),
+                baselineRepins: Number(prev.repin_count ?? 0),
+                currentDate: currDateStr,
+                baselineDate: prevDateStr,
+                maxCap: 25000
+              });
+        }
+        if (curr.repin_count !== null && prev.repin_count !== null) {
+          if (isSaveJump || isRepinHydrationJump(prev, curr)) {
+            newRepinVel = 0;
+          } else {
+            const repinsDiff = Math.max(0, Number(curr.repin_count) - Number(prev.repin_count));
+            newRepinVel = Math.min(25000, Math.round((repinsDiff / daysDiff) * 10) / 10);
+          }
         }
       }
     }

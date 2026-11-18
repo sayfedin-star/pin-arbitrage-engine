@@ -148,7 +148,7 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
         ksp.last_known_rank,
         ksp.displaced_date,
         ksp.vacuum_opportunity_score,
-        ksp.metadata,
+        '{}'::jsonb AS metadata,
         COALESCE(ksp.crawled_at, ksp.updated_at) AS crawled_at,
         ksp.updated_at
       FROM keyword_serp_positions ksp

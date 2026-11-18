@@ -5,7 +5,7 @@
  *
  * Canonical Unified Migration Runner for Pin Arbitrage Engine (PAE)
  * Applies SQL schema migrations sequentially from scripts/migrations/
- * while tracking idempotent execution status in schema_migrations.
+ * while tracking idempotent execution status and SHA-256 checksums in schema_migrations.
  */
 
 import fs from 'node:fs';
@@ -172,130 +172,11 @@ export function splitSqlStatements(sqlText) {
 }
 
 /**
- * Canonical special versions for migrations with shared numeric prefixes or custom names in schema_migrations.
+ * Calculates SHA-256 checksum of SQL migration content.
  */
-export const CANONICAL_SPECIAL_VERSIONS = {
-  '001_core_registry.sql': {
-    version: '001',
-    name: 'core_registry',
-    aliases: ['001', '001_legacy', '001_core_registry', 'core_registry']
-  },
-  '009_crawler_shard_heartbeats.sql': {
-    version: '009_heartbeats',
-    name: 'crawler_shard_heartbeats',
-    aliases: ['009_heartbeats', '009_crawler_shard_heartbeats', 'crawler_shard_heartbeats']
-  },
-  '009b_keyword_guided_capsules.sql': {
-    version: '009_capsules',
-    name: 'keyword_guided_capsules',
-    aliases: ['009_capsules', '009b', '009_keyword_guided_capsules', '009b_keyword_guided_capsules', 'keyword_guided_capsules']
-  },
-  '029_domain_monetization_metadata.sql': {
-    version: '029',
-    name: 'domain_monetization_metadata',
-    aliases: ['029', 'domain_monetization_metadata']
-  },
-  '029b_keyword_snapshots_not_null_displaced.sql': {
-    version: '029_displaced',
-    name: 'keyword_snapshots_not_null_displaced',
-    aliases: ['029_displaced', '029b', '029_keyword_snapshots_not_null_displaced', '029b_keyword_snapshots_not_null_displaced', 'keyword_snapshots_not_null_displaced']
-  },
-  '038_campaign_workspace_scoping.sql': {
-    version: '038',
-    name: '038_campaign_workspace_scoping.sql',
-    aliases: ['038', '038_campaign_workspace_scoping.sql', '038_campaign_workspace_scoping']
-  },
-  '038b_pa_pins_competitor_pins_shard_id.sql': {
-    version: '038_shard_id',
-    name: '038_pa_pins_competitor_pins_shard_id',
-    aliases: ['038_shard_id', '038b', '038_pa_pins_competitor_pins_shard_id', '038b_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id']
-  },
-  '042_hot_and_schema_compaction.sql': {
-    version: '042',
-    name: '042_hot_and_schema_compaction',
-    aliases: ['042', '042_hot_and_schema_compaction', 'hot_and_schema_compaction']
-  },
-  '043_displaced_index_creator.sql': {
-    version: '043',
-    name: '043_displaced_index_creator',
-    aliases: ['043', '043_displaced_index_creator', 'displaced_index_creator']
-  },
-  '043b_unified_ssot_ecosystem_and_indexes.sql': {
-    version: '043_ssot_indexes',
-    name: '043_unified_ssot_ecosystem_and_indexes',
-    aliases: ['043_ssot_indexes', '043b', '043_unified_ssot_ecosystem_and_indexes', '043b_unified_ssot_ecosystem_and_indexes', 'unified_ssot_ecosystem_and_indexes']
-  },
-  '044_hot_index_and_velocity_sanitization.sql': {
-    version: '044',
-    name: '044_hot_index_and_velocity_sanitization',
-    aliases: ['044', '044_hot_index_and_velocity_sanitization', 'hot_index_and_velocity_sanitization']
-  },
-  '047b_drop_unused_legacy_tables.sql': {
-    version: '047_drop_tables',
-    name: '047_drop_unused_legacy_tables',
-    aliases: ['047_drop_tables', '047b', '047_drop_unused_legacy_tables', '047b_drop_unused_legacy_tables', 'drop_unused_legacy_tables']
-  },
-  '055_heal_hydration_baselines_and_ssot.sql': {
-    version: '055',
-    name: 'heal_hydration_baselines_and_ssot',
-    aliases: ['055', '055_heal_hydration_baselines_and_ssot', 'heal_hydration_baselines_and_ssot']
-  },
-  '056_create_mv_pulse_24h_summary.sql': {
-    version: '056',
-    name: 'create_mv_pulse_24h_summary',
-    aliases: ['056', '056_create_mv_pulse_24h_summary', 'mv_pulse_24h_summary']
-  },
-  '057_pa_pins_clean_domain_and_indexes.sql': {
-    version: '057',
-    name: 'pa_pins_clean_domain_and_indexes',
-    aliases: ['057', '057_pa_pins_clean_domain_and_indexes', 'pa_pins_clean_domain_and_indexes']
-  },
-  '058_phase4_ssot_compaction_and_cleanup.sql': {
-    version: '058',
-    name: 'phase4_ssot_compaction_and_cleanup',
-    aliases: ['058', '058_phase4_ssot_compaction_and_cleanup', 'phase4_ssot_compaction_and_cleanup']
-  },
-  '059_add_trgm_index_domain_rollup.sql': {
-    version: '059',
-    name: 'add_trgm_index_domain_rollup',
-    aliases: ['059', '059_add_trgm_index_domain_rollup', 'add_trgm_index_domain_rollup']
-  },
-  '060_clean_slate_4_table_ssot.sql': {
-    version: '060',
-    name: 'clean_slate_4_table_ssot',
-    aliases: ['060', '060_clean_slate_4_table_ssot', 'clean_slate_4_table_ssot']
-  },
-  '061_ssot_functions_views_and_indexes.sql': {
-    version: '061',
-    name: 'ssot_functions_views_and_indexes',
-    aliases: ['061', '061_ssot_functions_views_and_indexes', 'ssot_functions_views_and_indexes']
-  },
-  '062_ssot_hot_tuning_and_functions.sql': {
-    version: '062',
-    name: 'ssot_hot_tuning_and_functions',
-    aliases: ['062', '062_ssot_hot_tuning_and_functions', 'ssot_hot_tuning_and_functions']
-  },
-  '063_forensic_audit_hardening.sql': {
-    version: '063',
-    name: 'forensic_audit_hardening',
-    aliases: ['063', '063_forensic_audit_hardening', 'forensic_audit_hardening']
-  },
-  '064_cleanup_and_index_hygiene.sql': {
-    version: '064',
-    name: 'cleanup_and_index_hygiene',
-    aliases: ['064', '064_cleanup_and_index_hygiene', 'cleanup_and_index_hygiene']
-  },
-  '065_instant_search_trgm_indexes.sql': {
-    version: '065',
-    name: 'instant_search_trgm_indexes',
-    aliases: ['065', '065_instant_search_trgm_indexes', 'instant_search_trgm_indexes']
-  },
-  '066_db_hygiene_and_pulse_indexes.sql': {
-    version: '066',
-    name: 'db_hygiene_and_pulse_indexes',
-    aliases: ['066', '066_db_hygiene_and_pulse_indexes', 'db_hygiene_and_pulse_indexes']
-  }
-};
+export function calculateChecksum(content) {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
 
 /**
  * Ensures schema_migrations tracking table exists on the target database.
@@ -349,41 +230,64 @@ export async function getAppliedMigrations(sql) {
 }
 
 /**
- * Robust matcher checking if a migration is already applied in schema_migrations.
- * Matches by primary version, canonical aliases, name, or filename stem.
+ * Checks if a migration is already applied in schema_migrations.
+ * Requires matching name when both stored entry and target migration define a name,
+ * preventing pre-squash legacy versions ('001:core_registry', '002:competitor_intelligence')
+ * from falsely shadowing squashed canonical migrations ('001:baseline_schema', '002:wave2_hygiene_and_unification').
  */
 export function findAppliedMigration(appliedMap, migration) {
   if (!appliedMap || appliedMap.size === 0 || !migration) return null;
   const byName = appliedMap.byName instanceof Map ? appliedMap.byName : null;
+  const baseName = migration.filename ? migration.filename.replace(/\.sql$/i, '') : null;
 
   const lookupByName = (candidateName) => {
     if (!candidateName) return null;
     if (byName && byName.has(candidateName)) return byName.get(candidateName);
-    if (appliedMap.has(`name:${candidateName}`)) return appliedMap.get(`name:${candidateName}`);
     for (const entry of appliedMap.values()) {
       if (entry && entry.name === candidateName) return entry;
     }
     return null;
   };
 
-  // 1. Direct version match
+  // 1. Direct version match (verified against migration name when present)
   if (migration.version && appliedMap.has(migration.version)) {
-    return appliedMap.get(migration.version);
+    const entry = appliedMap.get(migration.version);
+    if (
+      !migration.name ||
+      !entry.name ||
+      entry.name === migration.name ||
+      entry.name === migration.filename ||
+      (baseName && entry.name === baseName)
+    ) {
+      return entry;
+    }
   }
+
   // 2. Known aliases
   if (Array.isArray(migration.aliases)) {
     for (const alias of migration.aliases) {
-      if (appliedMap.has(alias)) return appliedMap.get(alias);
+      if (appliedMap.has(alias)) {
+        const aliasEntry = appliedMap.get(alias);
+        if (
+          !migration.name ||
+          !aliasEntry.name ||
+          aliasEntry.name === migration.name ||
+          aliasEntry.name === alias ||
+          (baseName && aliasEntry.name === baseName)
+        ) {
+          return aliasEntry;
+        }
+      }
       const aliasHit = lookupByName(alias);
       if (aliasHit) return aliasHit;
     }
   }
+
   // 3. Name match
   const nameHit = lookupByName(migration.name);
   if (nameHit) return nameHit;
 
-  // 4. Filename base match without .sql
-  const baseName = migration.filename ? migration.filename.replace(/\.sql$/i, '') : null;
+  // 4. Filename stem match without .sql
   if (baseName) {
     if (appliedMap.has(baseName)) return appliedMap.get(baseName);
     const stemHit = lookupByName(baseName);
@@ -393,7 +297,8 @@ export function findAppliedMigration(appliedMap, migration) {
 }
 
 /**
- * Discovers and naturally sorts SQL migration files in the migrations directory.
+ * Discovers and naturally sorts SQL migration files in the migrations directory,
+ * computing exact SHA-256 checksums for each file.
  */
 export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migrations')) {
   if (!fs.existsSync(migrationsDir)) return [];
@@ -409,43 +314,28 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
     });
 
   return files.map(filename => {
-    const special = CANONICAL_SPECIAL_VERSIONS[filename];
+    const filepath = path.join(migrationsDir, filename);
+    const content = fs.readFileSync(filepath, 'utf8');
+    const checksum = calculateChecksum(content);
     const numPrefix = parseInt(filename.split('_')[0], 10);
     const numericPrefix = isNaN(numPrefix) ? null : numPrefix;
-
-    if (special) {
-      return {
-        filename,
-        filepath: path.join(migrationsDir, filename),
-        version: special.version,
-        name: special.name,
-        aliases: special.aliases || [],
-        numericPrefix
-      };
-    }
-
     const match = filename.match(/^(\d+)_(.*)\.sql$/i);
-    const version = match ? match[1] : filename.replace(/\.sql$/i, '');
-    const name = match ? match[2] : filename.replace(/\.sql$/i, '');
+    const stem = filename.replace(/\.sql$/i, '');
+    const version = match ? match[1] : stem;
+    const name = match ? match[2] : stem;
     return {
       filename,
-      filepath: path.join(migrationsDir, filename),
+      filepath,
       version,
       name,
-      aliases: [filename.replace(/\.sql$/i, '')],
+      checksum,
+      aliases: [stem],
       numericPrefix
     };
   });
 }
 
 export const discoverMigrations = getMigrationFiles;
-
-/**
- * Calculates SHA-256 checksum of SQL migration content.
- */
-export function calculateChecksum(content) {
-  return crypto.createHash('sha256').update(content).digest('hex');
-}
 
 /**
  * Executes a single migration file against the database endpoint with cold-start retries.
@@ -489,6 +379,7 @@ export async function applyMigration(sql, migration, { dryRun = false, maxRetrie
         INSERT INTO schema_migrations (version, name, checksum, applied_at)
         VALUES (${migration.version}, ${migration.name}, ${checksum}, NOW())
         ON CONFLICT (version) DO UPDATE SET
+          name = EXCLUDED.name,
           checksum = EXCLUDED.checksum,
           applied_at = NOW();
       `;

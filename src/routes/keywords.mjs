@@ -223,7 +223,7 @@ export async function handleKeywordsRoutes({
                 AND (
                   (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
                   OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
-                  OR destination_url LIKE ${escapedCleanUrl + '?%'} ESCAPE '\\'
+                  OR LEFT(destination_url, 1024) LIKE ${escapedCleanUrl.slice(0, 1000) + '?%'} ESCAPE '\\'
                 );
             `.catch(() => {});
           })(), 'write_back_single_url_global_saves');
@@ -335,6 +335,7 @@ export async function handleKeywordsRoutes({
             JOIN universal_master_pins ump
               ON ump.destination_url IS NOT NULL
              AND ump.destination_url <> ''
+             AND md5(ump.destination_url) = md5(iu.url)
              AND ump.destination_url = iu.url
             UNION ALL
             SELECT ump.pin_id, iu.count
@@ -342,6 +343,7 @@ export async function handleKeywordsRoutes({
             JOIN universal_master_pins ump
               ON ump.destination_url IS NOT NULL
              AND ump.destination_url <> ''
+             AND md5(ump.destination_url) = md5(iu.url || '/')
              AND ump.destination_url = (iu.url || '/')
             UNION ALL
             SELECT ump.pin_id, iu.count
@@ -349,9 +351,9 @@ export async function handleKeywordsRoutes({
             JOIN universal_master_pins ump
               ON ump.destination_url IS NOT NULL
              AND ump.destination_url <> ''
-             AND ump.destination_url ~>=~ (iu.url || '?')
-             AND ump.destination_url ~<~ (iu.url || '@')
-             AND ump.destination_url LIKE (iu.escaped_url || '?%') ESCAPE '\\'
+             AND LEFT(ump.destination_url, 1024) ~>=~ (LEFT(iu.url, 1020) || '?')
+             AND LEFT(ump.destination_url, 1024) ~<~ (LEFT(iu.url, 1020) || '@')
+             AND LEFT(ump.destination_url, 1024) LIKE (LEFT(iu.escaped_url, 1020) || '?%') ESCAPE '\\'
           ),
           dedup_matches AS (
             SELECT pin_id, MAX(count)::bigint AS max_count
@@ -653,22 +655,7 @@ export async function handleKeywordsRoutes({
     const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
     try {
       await runInTx(async (tx) => {
-        // 1. Fetch keyword metadata for the tombstone audit trail
-        const existingKw = await tx`
-          SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
-        `;
-
-        // 2. Record tombstones in unified keyword_tombstones audit trail
-        if (Array.isArray(existingKw) && existingKw.length > 0) {
-          await tx`
-            INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, purged_at)
-            SELECT u.id, u.keyword, NOW(), NOW()
-            FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
-            ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), purged_at = NOW();
-          `;
-        }
-
-        // 3. Clean Central Hub items & execute deletion from tracked_keywords
+        // Delete child SERP/capsule/folder rows and tracked_keywords (backed by ON DELETE CASCADE)
         await tx`DELETE FROM keyword_serp_positions WHERE keyword_id = ANY(${targetIds});`;
         await tx`DELETE FROM keyword_ignored_pins WHERE keyword_id = ANY(${targetIds});`;
         await tx`DELETE FROM keyword_guided_capsules WHERE keyword_id = ANY(${targetIds});`;
