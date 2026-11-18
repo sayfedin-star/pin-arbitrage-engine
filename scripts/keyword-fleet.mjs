@@ -281,10 +281,20 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
       `;
     }
 
-    console.log(`[*] Dispatched ${targetRows.length} active keywords across 20 Persistent Fleet Workers.`);
+    let standaloneAnchorsCount = 0;
+    if (isSweepAll) {
+      const anchorCntRows = await sql`
+        SELECT COUNT(*)::int AS total
+        FROM newborn_daily_anchors
+        WHERE is_active = TRUE;
+      `.catch(() => [{ total: 0 }]);
+      standaloneAnchorsCount = Number(anchorCntRows?.[0]?.total || 0);
+    }
 
-    if (targetRows.length === 0) {
-      console.log('[!] Warning: No active keywords found in database. Emitting empty matrix.');
+    console.log(`[*] Dispatched ${targetRows.length} active keywords (+ ${standaloneAnchorsCount} standalone Newborn daily anchors) across 20 Persistent Fleet Workers.`);
+
+    if (targetRows.length === 0 && standaloneAnchorsCount === 0) {
+      console.log('[!] Warning: No active keywords or Newborn daily anchors found in database. Emitting empty matrix.');
       matrixTasks = [];
     } else {
       const WORKER_COUNT = DEFAULT_FLEET_WORKER_TOTAL;
@@ -298,11 +308,12 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
           target_keyword: '',
           keyword: chunk.length > 0
             ? `${chunk[0].keyword} (+${Math.max(0, chunk.length - 1)} kw)`
-            : `Pin Slice Worker #${w + 1}`,
-          keyword_id: chunk[0]?.id || targetRows[0].id,
+            : (standaloneAnchorsCount > 0 ? `Newborn Anchor Slice #${w + 1}` : `Pin Slice Worker #${w + 1}`),
+          keyword_id: chunk[0]?.id || targetRows[0]?.id || null,
           keyword_ids: chunk.map(r => r.id).join(','),
           all_keyword_ids: allKeywordIdsCsv,
           keywords_count: chunk.length,
+          standalone_anchors_count: standaloneAnchorsCount,
           category: 'Global Pin Swarm',
           worker_index: w,
           worker_slot: w + 1,
@@ -311,7 +322,7 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
           max_serp_pins: explicitEnvSerpPins !== null ? String(explicitEnvSerpPins) : '',
           max_catalog_inspect: maxCatalogInspect,
           crawl_scope: crawlScope,
-          enable_serp_harvest: enableSerpHarvest
+          enable_serp_harvest: targetRows.length > 0 ? enableSerpHarvest : false
         });
       }
     }
@@ -319,6 +330,7 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
     summaryDetails = {
       mode: 'Global Two-Phase Distributed Pin Swarm (20 Persistent Workers)',
       keywordsCount: targetRows.length,
+      standaloneAnchorsCount,
       runnersAssigned: matrixTasks.length,
       keywordsList: targetRows.map(r => r.keyword)
     };

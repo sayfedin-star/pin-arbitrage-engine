@@ -478,7 +478,7 @@ export function getPinDetailsClientAppScripts() {
                   if (refKid) this.originKeywordId = refKid.trim();
                 } else if (refUrl.pathname !== '/' && !refUrl.pathname.startsWith('/api') && !refUrl.pathname.startsWith('/pin')) {
                   const pathParts = refUrl.pathname.split('/').filter(Boolean);
-                  const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin', 'pulse', '24h', 'accounts', 'clusters']);
+                  const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin', 'pulse', '24h', 'accounts', 'clusters', 'newborn']);
                   const RESERVED_CREATOR_TABS = new Set(['all-pins', 'winning-pins', 'links', 'boards', 'topics', 'related-pins', 'pin']);
 
                   if (pathParts.length === 1 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {

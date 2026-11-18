@@ -9,11 +9,15 @@
 
 import { sanitizeForJsonb, normalizeCleanDomain } from '../src/utils.mjs';
 import {
-  CANONICAL_FINGERPRINT,
   randomJitterMs,
   sleep,
   setDefaultDispatcher
 } from '../src/core/pinterest/index.mjs';
+import {
+  buildZoneARelatedModulesHeaders,
+  fetchRelatedModulesWithZoneA
+} from '../src/modules/newborn/cookie-router.mjs';
+import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
 
 import {
   runFleetLifecycle
@@ -47,29 +51,27 @@ process.on('SIGTERM', () => {
   isShuttingDown = true;
 });
 
-const BASE_HEADERS = {
-  'accept': 'application/json, text/javascript, */*, q=0.01',
-  'accept-language': 'en-US,en;q=0.9',
-  'screen-dpr': '1',
-  'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
-  'x-pinterest-pws-handler': 'www/pin/[id].js',
-  'x-requested-with': 'XMLHttpRequest',
-  'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
-  'origin': 'https://www.pinterest.com',
-  'sec-fetch-dest': 'empty',
-  'sec-fetch-mode': 'cors',
-  'sec-fetch-site': 'same-origin'
-};
+export function buildAccountRelatedHeaders(seedPinId, rawCookie = '') {
+  return buildZoneARelatedModulesHeaders({ pinId: seedPinId, rawCookie });
+}
 
-async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
+export async function crawlSeedPin(competitorId, seedPinId, targetUsername, options = {}) {
+  const dbSql = options.sql || sql;
+  const pageCap = options.maxPages !== undefined
+    ? Math.min(Math.max(1, Number(options.maxPages) || 1), 10)
+    : maxPages;
+  const resolvedCookie = typeof options.rawCookie === 'string'
+    ? options.rawCookie
+    : (await resolveNewbornRawCookie(dbSql, options.env || process.env).catch(() => ({ rawCookie: '' })))?.rawCookie || '';
+
   console.log(`\n[*] ---> Scraping Related Nodes for Seed Pin: ${seedPinId} (Account: @${targetUsername})...`);
   let totalDiscoveredForSeed = 0;
   let bookmark = null;
 
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = 1; page <= pageCap; page++) {
     if (page > 1) {
-      const delay = randomJitterMs(200, 400);
-      await sleep(delay);
+      const delay = options.skipDelay ? 0 : randomJitterMs(200, 400);
+      if (delay > 0) await sleep(delay);
     }
 
     const optionsObj = {
@@ -96,32 +98,29 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
     });
 
     const url = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(`/pin/${seedPinId}/`)}&data=${encodeURIComponent(dataParam)}`;
-    const headers = {
-      ...BASE_HEADERS,
-      'referer': `https://www.pinterest.com/pin/${seedPinId}/`
-    };
 
-    let res;
+    let zoneRes;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000), ...(undiciAgent ? { dispatcher: undiciAgent } : {}) });
+      zoneRes = await fetchRelatedModulesWithZoneA(url, {
+        pinId: String(seedPinId),
+        sql: dbSql,
+        env: options.env || process.env,
+        rawCookie: resolvedCookie,
+        fetchImpl: options.fetchImpl,
+        dispatcher: undiciAgent,
+        timeoutMs: 8000
+      });
     } catch (err) {
       console.warn(`    [-] Network timeout / abort on page ${page} for seed ${seedPinId}:`, err.message);
       break;
     }
 
-    if (!res.ok) {
-      if (res.body) await res.body.cancel().catch(() => {});
-      console.warn(`    [-] HTTP ${res.status} on page ${page} for seed ${seedPinId}. Skipping further pages.`);
+    if (!zoneRes.ok || !zoneRes.data) {
+      console.warn(`    [-] HTTP ${zoneRes.status} on page ${page} for seed ${seedPinId}. Skipping further pages.`);
       break;
     }
 
-    let json;
-    try {
-      json = await res.json();
-    } catch (err) {
-      console.warn(`    [-] JSON parse error on page ${page}:`, err.message);
-      break;
-    }
+    const json = zoneRes.data;
 
     const resResponse = json?.resource_response || json;
     const items = resResponse?.data || [];
@@ -194,7 +193,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       candidateRows.sort((a, b) => a.candidate_pin_id.localeCompare(b.candidate_pin_id));
 
       // Batch insert into competitor_related_nodes
-      await sql`
+      await dbSql`
         INSERT INTO competitor_related_nodes (
           competitor_id, seed_pin_id, candidate_pin_id, title, image_url,
           dominant_color, saves, repins, domain, destination_url,
@@ -232,7 +231,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
 
   // Update last_crawled_at for this seed only if crawl was successful (discovered nodes > 0) [CAP-28]
   if (totalDiscoveredForSeed > 0) {
-    await sql`
+    await dbSql`
       UPDATE competitor_seed_pins 
       SET last_crawled_at = NOW() 
       WHERE competitor_id = ${competitorId} AND pin_id = ${String(seedPinId)};

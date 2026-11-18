@@ -32,7 +32,8 @@ export const RESERVED_PINTEREST_PATHS = new Set([
   'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
   'messages', 'edit', 'following', 'followers', 'analytics',
   'board-idea', 'board-ideas', 'domains', 'folders', 'folder',
-  'campaign-folders', 'discovery', 'board', 'boards', 'feed'
+  'campaign-folders', 'discovery', 'board', 'boards', 'feed',
+  'newborn'
 ]);
 
 

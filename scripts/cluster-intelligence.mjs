@@ -92,7 +92,16 @@ function cleanString(val) {
 }
 
 import { formatPinterestCookie, normalizeCleanDomain, chunkArray } from '../src/utils.mjs';
+import {
+  buildZoneARelatedModulesHeaders,
+  stripAllCookiesFromHeaders
+} from '../src/modules/newborn/cookie-router.mjs';
+import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
 export { formatPinterestCookie };
+
+export function buildClusterSeedRelatedHeaders(pinId, rawCookie = '') {
+  return buildZoneARelatedModulesHeaders({ pinId, rawCookie });
+}
 
 /**
  * Resilient database query wrapper: delegates transient PG connection retries to canonical withDbRetry
@@ -106,13 +115,17 @@ export async function sqlWithRetry(queryFn, maxRetries = 3) {
 }
 
 /**
- * Fetch with resilience: timeout abort, HTTP 429 backoff, jitter
+ * Fetch with resilience: timeout abort, HTTP 429 backoff, Zone-A 412/401 guest fallback, jitter
  */
-async function fetchWithRetry(url, headers, maxRetries = 3) {
+export async function fetchWithRetry(url, headers, maxRetries = 3, options = {}) {
+  const fetchFn = typeof options.fetchImpl === 'function' ? options.fetchImpl : fetch;
+  let activeHeaders = { ...headers };
+  let attemptedGuestFallback = false;
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(url, {
-        headers,
+      const response = await fetchFn(url, {
+        headers: activeHeaders,
         signal: AbortSignal.timeout(8000),
         ...(undiciAgent ? { dispatcher: undiciAgent } : {})
       });
@@ -124,9 +137,22 @@ async function fetchWithRetry(url, headers, maxRetries = 3) {
         continue;
       }
 
-      if (response.status === 403 || response.status === 401) {
+      if (response.status === 412 || response.status === 401) {
         if (response?.body) await response.body.cancel().catch(() => {});
-        console.error(`[-] HTTP ${response.status} Forbidden/Unauthorized on attempt ${attempt}: Pinterest blocked guest request. Check PINTEREST_COOKIE in .env.`);
+        const hadCookie = Boolean(activeHeaders.Cookie || activeHeaders.cookie);
+        if (hadCookie && !attemptedGuestFallback) {
+          attemptedGuestFallback = true;
+          activeHeaders = stripAllCookiesFromHeaders(activeHeaders);
+          console.warn(`[!] HTTP ${response.status} on Zone-A session cookie; retrying once with zero-cookie guest headers...`);
+          attempt--;
+          continue;
+        }
+        throw new Error(`HTTP error ${response.status}: ${response.statusText || 'Login required'}`);
+      }
+
+      if (response.status === 403) {
+        if (response?.body) await response.body.cancel().catch(() => {});
+        console.error(`[-] HTTP 403 Forbidden on attempt ${attempt}: Pinterest blocked request.`);
       }
 
       if (!response.ok) {
@@ -141,6 +167,9 @@ async function fetchWithRetry(url, headers, maxRetries = 3) {
 
       return await response.json();
     } catch (err) {
+      if (/^HTTP error (?:412|401):/.test(String(err?.message || ''))) {
+        throw err;
+      }
       if (err.name === 'TimeoutError' || err.name === 'AbortError') {
         console.warn(`[!] Request timed out (attempt ${attempt}/${maxRetries})`);
       } else {
@@ -1010,20 +1039,12 @@ async function crawlSeed(seed) {
   const rawMaxPages = parseInt(process.env.MAX_PAGES, 10);
   const maxPages = (!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 60;
 
-  const baseHeaders = {
-    'accept': 'application/json, text/javascript, */*, q=0.01',
-    'accept-language': 'en-US,en;q=0.9',
-    'screen-dpr': '1',
-    'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
-    'x-pinterest-pws-handler': `www/pin/[id].js`,
-    'x-requested-with': 'XMLHttpRequest',
-    'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
-    'referer': `https://www.pinterest.com/pin/${pinId}/`,
-    'origin': 'https://www.pinterest.com',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin'
-  };
+  const resolvedCookieInfo = await resolveNewbornRawCookie(sql, process.env).catch(() => ({ rawCookie: '' }));
+  const { headers: baseHeaders, guestHeaders, usedAuthCookie } = buildZoneARelatedModulesHeaders({
+    pinId,
+    rawCookie: resolvedCookieInfo?.rawCookie || ''
+  });
+  console.log(`[*] RelatedModulesResource Routing: ${usedAuthCookie ? 'Zone-A Authenticated (_auth=1)' : 'Guest Fallback (Zero-Cookie)'}`);
 
   for (let page = 1; page <= maxPages; page++) {
     console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource...`);
@@ -1413,9 +1434,9 @@ async function crawlSeed(seed) {
     }
     console.log(`[+] Successfully stored candidate nodes in Unified PostgreSQL.`);
 
-    // Phase 2: Automated Deep Metrics Enrichment via PinResource (Authentic Zero-Hallucination Repins)
+    // Phase 2: Automated Deep Metrics Enrichment via PinResource (Strict Zero-Cookie Zone 2)
     console.log(`[*] Initiating automated deep metrics enrichment for candidate nodes...`);
-    await enrichCandidatesWithPinMetrics(pinId, baseHeaders);
+    await enrichCandidatesWithPinMetrics(pinId, guestHeaders);
   }
 
   // Recompute highSaveTokens with authentic post-enrichment saves [NEW-09]

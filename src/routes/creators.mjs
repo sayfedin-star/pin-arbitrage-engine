@@ -683,7 +683,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const pinId = body.pin_id;
     if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
     try {
-      const result = await harvestSinglePinRelatedLive(sql, id, pinId);
+      const result = await harvestSinglePinRelatedLive(sql, id, pinId, { env });
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);

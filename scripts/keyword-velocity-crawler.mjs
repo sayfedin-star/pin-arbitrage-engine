@@ -634,12 +634,124 @@ async function inspectPin(pin, kw) {
 }
 
 /**
- * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
- * Replaces N individual roundtrips with 2 atomic set-based PostgreSQL queries.
+ * Fetches active standalone Newborn daily crawler anchors (`newborn_daily_anchors`)
+ * shard-partitioned across the 20-runner 01:00 UTC velocity fleet so promoted Golden Pins
+ * receive daily `pins_daily_metrics` velocity updates even without a SERP keyword or tracked creator.
  */
+export async function fetchStandaloneNewbornAnchorsForWorker(targetSql, { workerIndex = 0, workerTotal = 20 } = {}) {
+  if (!targetSql || typeof targetSql !== 'function') return [];
+  const wTotal = Math.max(1, Number(workerTotal) || 20);
+  const wIdx = Math.max(0, Math.min(wTotal - 1, Number(workerIndex) || 0));
+
+  try {
+    if (wTotal === 20) {
+      return await targetSql`
+        SELECT
+          nda.pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          ump.is_hydrated AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(nda.last_crawled_at, nda.promoted_at) AS crawled_at,
+          nda.updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_newborn_anchor,
+          CASE
+            WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+             AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+             AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM newborn_daily_anchors nda
+        JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
+        WHERE nda.is_active = TRUE
+          AND (ABS(hashtext(nda.pin_id::text)::bigint) % 20) = ${wIdx}
+        ORDER BY nda.pin_id ASC;
+      `;
+    }
+    return await targetSql`
+      SELECT
+        nda.pin_id,
+        NULL::int AS keyword_id,
+        NULL::int AS rank_position,
+        NULL::int AS last_known_rank,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ump.created_at_pinterest,
+        ump.creation_method,
+        ump.is_hydrated AS is_deep_hydrated,
+        ump.last_scraped_at,
+        ump.visual_annotations,
+        ump.image_signature,
+        ump.metadata,
+        ump.title,
+        COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+        ump.destination_url,
+        ump.image_url,
+        COALESCE(nda.last_crawled_at, nda.promoted_at) AS crawled_at,
+        nda.updated_at,
+        FALSE AS is_displaced,
+        TRUE AS is_newborn_anchor,
+        NULL::bigint AS baseline_day_saves,
+        NULL::date AS baseline_day_date,
+        '[]'::jsonb AS folder_positions
+      FROM newborn_daily_anchors nda
+      JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
+      WHERE nda.is_active = TRUE
+        AND (ABS(hashtext(nda.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+      ORDER BY nda.pin_id ASC;
+    `;
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Stamps `last_crawled_at` on active `newborn_daily_anchors` after daily velocity refresh.
+ */
+export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
+  if (!targetSql || typeof targetSql !== 'function') return 0;
+  const cleanIds = Array.from(new Set((pinIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (cleanIds.length === 0) return 0;
+  try {
+    const updated = await targetSql`
+      UPDATE newborn_daily_anchors
+      SET last_crawled_at = NOW(),
+          updated_at = NOW()
+      WHERE pin_id = ANY(${cleanIds}::text[])
+        AND is_active = TRUE
+      RETURNING pin_id;
+    `;
+    return Array.isArray(updated) ? updated.length : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
 /**
  * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
- * Supports single-keyword, folder cluster, and global fleet cross-keyword fan-out in 2 atomic SQL queries.
+ * Supports single-keyword, folder cluster, global fleet cross-keyword fan-out, and standalone Newborn anchors.
  */
 async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
   if (!pinsChunk || pinsChunk.length === 0) return;
@@ -653,31 +765,43 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
     was_live_scraped: p.was_live_scraped === true || (!p.from_hydration_cache && !p.scrape_failed)
   })));
 
-  const kwIds = (isGlobalFleet || isFolder) ? (kw.all_keyword_ids || [kw.id]) : [kw.id];
+  const rawKwIds = (isGlobalFleet || isFolder) ? (kw?.all_keyword_ids || [kw?.id]) : [kw?.id];
+  const validKwIds = Array.from(new Set(
+    (rawKwIds || []).map((id) => Number(id)).filter((n) => Number.isInteger(n) && n > 0)
+  ));
   const dbSql = targetSql || sql?.noRetry || sql;
 
-  // Update keyword_serp_positions (vacuum opportunity score & crawled_at)
-  await dbSql`
-    UPDATE keyword_serp_positions ksp
-    SET
-      vacuum_opportunity_score = CASE 
-        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 5 THEN 85
-        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 15 THEN 75
-        WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 50 THEN 60
-        WHEN ksp.is_displaced = TRUE THEN 45
-        ELSE ksp.vacuum_opportunity_score
-      END,
-      crawled_at = CASE WHEN u.was_live_scraped = TRUE THEN NOW() ELSE ksp.crawled_at END,
-      updated_at = NOW()
-    FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
-      pin_id text,
-      from_hydration_cache boolean,
-      scrape_failed boolean,
-      was_live_scraped boolean
-    )
-    WHERE ksp.pin_id = u.pin_id
-      AND ksp.keyword_id = ANY(${kwIds}::int[]);
-  `;
+  if (validKwIds.length > 0) {
+    // Update keyword_serp_positions (vacuum opportunity score & crawled_at)
+    await dbSql`
+      UPDATE keyword_serp_positions ksp
+      SET
+        vacuum_opportunity_score = CASE 
+          WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 5 THEN 85
+          WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 15 THEN 75
+          WHEN ksp.is_displaced = TRUE AND COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 50 THEN 60
+          WHEN ksp.is_displaced = TRUE THEN 45
+          ELSE ksp.vacuum_opportunity_score
+        END,
+        crawled_at = CASE WHEN u.was_live_scraped = TRUE THEN NOW() ELSE ksp.crawled_at END,
+        updated_at = NOW()
+      FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
+        pin_id text,
+        from_hydration_cache boolean,
+        scrape_failed boolean,
+        was_live_scraped boolean
+      )
+      WHERE ksp.pin_id = u.pin_id
+        AND ksp.keyword_id = ANY(${validKwIds}::int[]);
+    `;
+  }
+
+  const liveScrapedIds = pinsChunk
+    .filter((p) => p && (p.was_live_scraped === true || (!p.from_hydration_cache && !p.scrape_failed)))
+    .map((p) => String(p.pin_id));
+  if (liveScrapedIds.length > 0) {
+    await markNewbornAnchorsCrawled(dbSql, liveScrapedIds);
+  }
 }
 
 /**
@@ -1500,8 +1624,12 @@ async function run() {
       }
     }
 
-    if (allFleetKeywordIds.length === 0) {
-      console.log('[!] No active keywords to crawl. Exiting cleanly.');
+    const preCheckAnchors = allFleetKeywordIds.length === 0
+      ? await fetchStandaloneNewbornAnchorsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal })
+      : [];
+
+    if (allFleetKeywordIds.length === 0 && preCheckAnchors.length === 0) {
+      console.log('[!] No active keywords or standalone Newborn daily anchors in this worker slice. Exiting cleanly.');
       await closeCrawlerDb(0);
     }
 
@@ -1574,7 +1702,7 @@ async function run() {
     }
 
     // Failure-Immune Logical Token Barrier Sync across all 20 fleet workers
-    if (enableSerpHarvest && workerTotal > 1) {
+    if (enableSerpHarvest && workerTotal > 1 && allFleetKeywordIds.length > 0) {
       console.log(`[Phase 1A] Barrier Sync: Waiting for peer workers to complete SERP ingestion across ${allFleetKeywordIds.length} keywords (token: ${fleetRunToken})...`);
       const barrierStart = Date.now();
       const BARRIER_TIMEOUT_MS = 150000;
@@ -1617,61 +1745,78 @@ async function run() {
     // -------------------------------------------------------------------------
     const phase1bSqlA = sql?.noRetry || sql;
     const phase1bRetryOpts = { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 6000, retryOnStatementTimeout: true };
-    let myPins = await withDbRetry(() => phase1bSqlA`
-      WITH global_ksp AS (
-        SELECT 
-          ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
-          ump.save_count, ump.repin_count, ump.daily_save_velocity,
-          ump.created_at_pinterest, ump.creation_method,
-          ump.is_hydrated AS is_deep_hydrated,
-          ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
-          ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
-          CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
-          CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ksp.crawled_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
-        FROM keyword_serp_positions ksp
-        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-        WHERE ksp.keyword_id = ANY(${allFleetKeywordIds})
-          AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''
-          AND (${crawlScope === 'active_serp'}::boolean = FALSE OR ksp.is_displaced = FALSE)
-          AND ${Number(workerTotal) === 20
-            ? sql`(ABS(hashtext(ksp.pin_id::text)::bigint) % 20) = ${workerIndex}`
-            : sql`(ABS(hashtext(ksp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
-          AND (
-            ksp.is_displaced = FALSE
-            OR COALESCE(ksp.last_known_rank, 999) <= 50
-            OR COALESCE(ump.daily_save_velocity, 0) >= 5
-            OR ksp.updated_at >= NOW() - INTERVAL '3 days'
-            OR MOD(EXTRACT(DOY FROM CURRENT_DATE)::int + ksp.keyword_id, 5) = 0
+    let myPins = allFleetKeywordIds.length > 0
+      ? await withDbRetry(() => phase1bSqlA`
+          WITH global_ksp AS (
+            SELECT 
+              ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
+              ump.save_count, ump.repin_count, ump.daily_save_velocity,
+              ump.created_at_pinterest, ump.creation_method,
+              ump.is_hydrated AS is_deep_hydrated,
+              ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
+              ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
+              CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
+              CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ksp.crawled_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
+            FROM keyword_serp_positions ksp
+            JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+            WHERE ksp.keyword_id = ANY(${allFleetKeywordIds})
+              AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''
+              AND (${crawlScope === 'active_serp'}::boolean = FALSE OR ksp.is_displaced = FALSE)
+              AND ${Number(workerTotal) === 20
+                ? sql`(ABS(hashtext(ksp.pin_id::text)::bigint) % 20) = ${workerIndex}`
+                : sql`(ABS(hashtext(ksp.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
+              AND (
+                ksp.is_displaced = FALSE
+                OR COALESCE(ksp.last_known_rank, 999) <= 50
+                OR COALESCE(ump.daily_save_velocity, 0) >= 5
+                OR ksp.updated_at >= NOW() - INTERVAL '3 days'
+                OR MOD(EXTRACT(DOY FROM CURRENT_DATE)::int + ksp.keyword_id, 5) = 0
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+              )
+          ),
+          aggregated_positions AS (
+            SELECT 
+              pin_id,
+              jsonb_agg(jsonb_build_object(
+                'keyword_id', keyword_id,
+                'rank_position', rank_position,
+                'is_displaced', is_displaced,
+                'last_known_rank', last_known_rank
+              )) AS folder_positions
+            FROM global_ksp
+            GROUP BY pin_id
           )
-          AND NOT EXISTS (
-            SELECT 1 FROM keyword_ignored_pins kip
-            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
-          )
-      ),
-      aggregated_positions AS (
-        SELECT 
-          pin_id,
-          jsonb_agg(jsonb_build_object(
-            'keyword_id', keyword_id,
-            'rank_position', rank_position,
-            'is_displaced', is_displaced,
-            'last_known_rank', last_known_rank
-          )) AS folder_positions
-        FROM global_ksp
-        GROUP BY pin_id
-      )
-      SELECT DISTINCT ON (g.pin_id)
-        g.pin_id, g.keyword_id, g.rank_position, g.last_known_rank,
-        g.save_count, g.repin_count, g.daily_save_velocity,
-        g.created_at_pinterest, g.creation_method,
-        g.is_deep_hydrated, g.last_scraped_at, g.visual_annotations, g.image_signature, g.metadata, g.title, g.domain, g.destination_url, g.image_url,
-        g.crawled_at, g.updated_at, g.is_displaced,
-        g.baseline_day_saves, g.baseline_day_date,
-        ap.folder_positions
-      FROM global_ksp g
-      JOIN aggregated_positions ap ON ap.pin_id = g.pin_id
-      ORDER BY g.pin_id, g.is_displaced ASC, g.rank_position ASC NULLS LAST;
-    `, phase1bRetryOpts);
+          SELECT DISTINCT ON (g.pin_id)
+            g.pin_id, g.keyword_id, g.rank_position, g.last_known_rank,
+            g.save_count, g.repin_count, g.daily_save_velocity,
+            g.created_at_pinterest, g.creation_method,
+            g.is_deep_hydrated, g.last_scraped_at, g.visual_annotations, g.image_signature, g.metadata, g.title, g.domain, g.destination_url, g.image_url,
+            g.crawled_at, g.updated_at, g.is_displaced,
+            g.baseline_day_saves, g.baseline_day_date,
+            ap.folder_positions
+          FROM global_ksp g
+          JOIN aggregated_positions ap ON ap.pin_id = g.pin_id
+          ORDER BY g.pin_id, g.is_displaced ASC, g.rank_position ASC NULLS LAST;
+        `, phase1bRetryOpts)
+      : [];
+
+    // Union standalone Newborn daily crawler anchors (`newborn_daily_anchors`) assigned to this shard
+    const standaloneAnchors = allFleetKeywordIds.length === 0
+      ? preCheckAnchors
+      : await fetchStandaloneNewbornAnchorsForWorker(phase1bSqlA, { workerIndex, workerTotal });
+
+    if (standaloneAnchors.length > 0) {
+      const existingPinIds = new Set(myPins.map((p) => String(p.pin_id)));
+      for (const anchorPin of standaloneAnchors) {
+        if (anchorPin?.pin_id && !existingPinIds.has(String(anchorPin.pin_id))) {
+          existingPinIds.add(String(anchorPin.pin_id));
+          myPins.push(anchorPin);
+        }
+      }
+    }
 
     myPins.sort((a, b) => {
       if (a.is_displaced !== b.is_displaced) return a.is_displaced ? 1 : -1;

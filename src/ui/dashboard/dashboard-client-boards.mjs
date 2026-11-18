@@ -661,7 +661,7 @@ export function getDashboardBoardsAndPinMethods() {
             'pin', 'pins', 'search', 'ideas', 'today', 'settings', 'about',
             'business', 'blog', 'help', 'password', 'login', 'signup',
             'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
-            'messages', 'edit', 'following', 'followers', 'analytics'
+            'messages', 'edit', 'following', 'followers', 'analytics', 'newborn'
           ]);
 
           if (!handle || reservedPaths.has(handle) || !/^[a-z0-9_.-]{3,64}$/.test(handle)) {

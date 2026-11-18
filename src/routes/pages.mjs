@@ -188,6 +188,24 @@ export async function handlePagesRoutes(routeCtx) {
     return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
   }
 
+  // 4D. Level 6: Newborn Breakout Hunter & Automation Studio (/newborn)
+  if (
+    pathLower === '/newborn' ||
+    pathLower === '/newborn/' ||
+    pathLower.startsWith('/newborn/')
+  ) {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    if (method === 'HEAD') {
+      return sendNative(null, 200, HTML_HEADERS);
+    }
+    const nbSegments = normalizedPath.split('/').filter(Boolean);
+    const subRoom = (nbSegments[1] || '').toLowerCase();
+    const { getNewbornPageHtml } = await import('../ui/newborn/index.mjs');
+    return sendNative(getNewbornPageHtml('', subRoom), 200, HTML_HEADERS);
+  }
+
   // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id)
   if (pathLower.startsWith('/pins/') || pathLower.startsWith('/pin/')) {
     if (method !== 'GET' && method !== 'HEAD') {
@@ -290,6 +308,12 @@ export async function handlePagesRoutes(routeCtx) {
       return sendNative(getPulsePageHtml(folderId), 200, HTML_HEADERS);
     }
 
+    if (room === 'newborn') {
+      const subRoom = (segments[3] || '').toLowerCase();
+      const { getNewbornPageHtml } = await import('../ui/newborn/index.mjs');
+      return sendNative(getNewbornPageHtml(folderId, subRoom), 200, HTML_HEADERS);
+    }
+
     const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
     return sendNative(getCampaignFoldersPageHtml(folderId), 200, HTML_HEADERS);
   }
@@ -343,6 +367,11 @@ export async function handlePagesRoutes(routeCtx) {
         if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         const { getPulsePageHtml } = await import('../ui/pulse/index.mjs');
         return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
+      }
+      if (slugLower === 'newborn') {
+        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
+        const { getNewbornPageHtml } = await import('../ui/newborn/index.mjs');
+        return sendNative(getNewbornPageHtml(''), 200, HTML_HEADERS);
       }
     }
 

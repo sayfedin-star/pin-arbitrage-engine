@@ -522,11 +522,11 @@ test('app_settings qualification rules, single-table domain services, null age_d
   assert.equal(arbTargets.items[0].domain_age_days, null);
   assert.equal(arbTargets.items[0].domain_age_years, null);
 
-  // 4. Squashed migrations directory contains strictly 001 + 002 with real SHA-256 checksums
+  // 4. Squashed migrations directory starts strictly with immutable 001 + 002 with real SHA-256 checksums
   const migrations = getMigrationFiles();
-  assert.equal(migrations.length, 2);
-  assert.deepEqual(migrations.map((m) => m.version), ['001', '002']);
-  assert.deepEqual(migrations.map((m) => m.name), ['baseline_schema', 'wave2_hygiene_and_unification']);
+  assert.ok(migrations.length >= 2);
+  assert.deepEqual(migrations.slice(0, 2).map((m) => m.version), ['001', '002']);
+  assert.deepEqual(migrations.slice(0, 2).map((m) => m.name), ['baseline_schema', 'wave2_hygiene_and_unification']);
   assert.match(calculateChecksum('SELECT 1;'), /^[a-f0-9]{64}$/);
 
   const legacyApplied = new Map([

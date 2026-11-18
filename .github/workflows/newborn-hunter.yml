@@ -1,0 +1,207 @@
+name: Newborn Breakout Hunter & Watchlist Pipeline
+
+on:
+  schedule:
+    # Evaluates dynamic newborn_engine_settings schedule, UTC active window, and cooldowns every 3 hours
+    - cron: '30 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution Mode: auto_cycle (schedule/full cycle), discovery (8-surface hunt), watchlist_poll (sharded poll), or snowball'
+        required: true
+        type: choice
+        options:
+          - auto_cycle
+          - discovery
+          - watchlist_poll
+          - snowball
+        default: 'auto_cycle'
+      profile:
+        description: 'Named Rule Profile slug or ID (e.g. default-golden-breakout, ultra-fresh-7d-rockets, linkless-arbitrage-vacuum)'
+        required: false
+        type: string
+        default: ''
+      query:
+        description: 'Seed trends, keywords, board URLs, or Pin IDs (comma-separated; leave empty for zero-query / growing trends)'
+        required: false
+        type: string
+        default: ''
+      shards:
+        description: 'Parallel worker shards (1..20, leave empty for dynamic shard sizing)'
+        required: false
+        type: string
+        default: ''
+      force:
+        description: 'Force immediate execution regardless of schedule window/cooldown?'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: newborn-hunter-${{ github.workflow }}-${{ github.ref }}-${{ inputs.mode || 'cron' }}-${{ inputs.query || 'all' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DATABASE_TOPOLOGY: unified_postgres
+  PG_POOL_MAX: '2'
+
+jobs:
+  # ============================================================================
+  # STAGE 0: Schedule Evaluator, 410m Max-Run Guard & Dynamic Shard Dispatcher
+  # ============================================================================
+  dispatch:
+    name: Stage 0 - Newborn Schedule & Shard Dispatcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix_tasks: ${{ steps.dispatcher.outputs.matrix_tasks }}
+      effective_mode: ${{ steps.dispatcher.outputs.effective_mode }}
+      task_count: ${{ steps.dispatcher.outputs.task_count }}
+      skip_reason: ${{ steps.dispatcher.outputs.skip_reason }}
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: 3b. Setup InstaBox DB Tunnel (410m Guard + Cloudflare Access Headers)
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: 4. Evaluate Schedule & Emit Sharded Worker Matrix
+        id: dispatcher
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          NEWBORN_PINTEREST_COOKIE: ${{ secrets.NEWBORN_PINTEREST_COOKIE }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          TARGET_MODE: ${{ inputs.mode || 'auto_cycle' }}
+          NEWBORN_PROFILE: ${{ inputs.profile || '' }}
+          NEWBORN_QUERY: ${{ inputs.query || '' }}
+          NEWBORN_SHARDS: ${{ inputs.shards || '' }}
+          NEWBORN_FORCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.force == false && 'false' || 'true') || 'false' }}
+        run: node scripts/newborn-fleet.mjs --mode=dispatch
+
+  # ============================================================================
+  # STAGE 1: Sharded Newborn Discovery / Watchlist Poll Fleet (Up to 20 Workers)
+  # ============================================================================
+  hunter-fleet:
+    name: Newborn Worker #${{ matrix.worker_slot }}/${{ matrix.worker_total }} - ${{ matrix.label }}
+    needs: [dispatch]
+    if: needs.dispatch.outputs.task_count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include: ${{ fromJson(needs.dispatch.outputs.matrix_tasks) }}
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: 3b. Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          skip-wakeup: 'true'
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: 4. Execute Newborn Fleet Worker
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          NEWBORN_PINTEREST_COOKIE: ${{ secrets.NEWBORN_PINTEREST_COOKIE }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          NEWBORN_MODE: ${{ matrix.mode }}
+          NEWBORN_PROFILE: ${{ matrix.profile || '' }}
+          NEWBORN_QUERY: ${{ matrix.query || '' }}
+          NEWBORN_PIN_IDS: ${{ matrix.pin_ids || '' }}
+          NEWBORN_FORCE: ${{ matrix.force || 'false' }}
+          WORKER_INDEX: ${{ matrix.worker_index }}
+          WORKER_TOTAL: ${{ matrix.worker_total }}
+        run: node scripts/newborn-fleet.mjs
+
+  # ============================================================================
+  # STAGE 2: Telemetry Consolidation & Origin Cache Refresh
+  # ============================================================================
+  consolidate:
+    name: Stage 2 - Newborn Telemetry Consolidation
+    needs: [dispatch, hunter-fleet]
+    if: always() && needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: 3b. Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          skip-wakeup: 'false'
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: 4. Consolidate Newborn Telemetry Summary
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+        run: node scripts/newborn-fleet.mjs --mode=consolidate
+
+      - name: 5. Notify Origin Server Cache Invalidation
+        if: success()
+        env:
+          API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
+        run: |
+          if [ -n "$API_SECRET_KEY" ]; then
+            curl -s -X POST "${APP_PUBLIC_URL}/api/cache/invalidate" \
+              -H "x-api-key: $API_SECRET_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"scope":"newborn","event":"newborn_fleet_complete"}' || true
+          fi

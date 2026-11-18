@@ -4,7 +4,8 @@
  */
 
 import { sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
-import { CANONICAL_FINGERPRINT, fetchPinFromPinResource, fetchPinFromPinterest, pinterestFetch, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { fetchPinFromPinResource, fetchPinFromPinterest, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import { fetchRelatedModulesWithZoneA } from '../newborn/cookie-router.mjs';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectory, fetchUniversalPinDossier } from '../pins/repository.mjs';
 import { normalizePinterestUsername, syncCompetitorProfile, resolveNumericCompetitorId } from './competitors-crud.mjs';
 import { syncCompetitorPins, reEvaluateCompetitorPins, reconcileQualifiedCatalogPins } from './creator-ingest.mjs';
@@ -317,11 +318,11 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
 }
 
 /**
- * Fast live harvest for a single pin (Zero-Cookie, Jitter, AbortSignal).
+ * Fast live harvest for a single pin (Zone-A Authenticated with graceful Zero-Cookie fallback, AbortSignal).
  * In-memory Map deduplication prevents PostgreSQL cardinality violations.
  * Monotonic sorting eliminates deadlocks.
  */
-export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
+export async function harvestSinglePinRelatedLive(sql, competitorId, pinId, options = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
   const cleanPin = String(pinId || '').trim();
@@ -381,31 +382,19 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   const dataParam = JSON.stringify({ options: optionsObj, context: {} });
   const url = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(`/pin/${cleanPin}/`)}&data=${encodeURIComponent(dataParam)}`;
 
-  const headers = {
-    'accept': 'application/json, text/javascript, */*, q=0.01',
-    'accept-language': 'en-US,en;q=0.9',
-    'screen-dpr': '1',
-    'sec-ch-ua': `"Google Chrome";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Chromium";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Not_A Brand";v="24"`,
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'x-app-version': CANONICAL_FINGERPRINT.APP_VERSION,
-    'x-pinterest-pws-handler': 'www/pin/[id].js',
-    'x-requested-with': 'XMLHttpRequest',
-    'user-agent': CANONICAL_FINGERPRINT.USER_AGENT,
-    'origin': 'https://www.pinterest.com',
-    'referer': `https://www.pinterest.com/pin/${cleanPin}/`,
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin'
-  };
-
-  const res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
-  if (!res.ok) {
-    if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
-    throw new Error(`Pinterest returned HTTP ${res.status}`);
+  const zoneRes = await fetchRelatedModulesWithZoneA(url, {
+    pinId: cleanPin,
+    sql,
+    env: options.env || null,
+    rawCookie: options.rawCookie,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: 8000
+  });
+  if (!zoneRes.ok || !zoneRes.data) {
+    throw new Error(`Pinterest returned HTTP ${zoneRes.status}`);
   }
 
-  const json = await res.json();
+  const json = zoneRes.data;
   const resResponse = json?.resource_response || json;
   const items = resResponse?.data || [];
 
@@ -499,7 +488,13 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     `;
   }
 
-  return { ok: true, pin_id: cleanPin, discovered_count: candidateRows.length };
+  return {
+    ok: true,
+    pin_id: cleanPin,
+    discovered_count: candidateRows.length,
+    used_auth_cookie: Boolean(zoneRes.usedAuthCookie),
+    used_guest_fallback: Boolean(zoneRes.usedGuestFallback)
+  };
 }
 
 /**

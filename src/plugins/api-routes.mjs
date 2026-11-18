@@ -12,6 +12,7 @@ import { isCreatorsRoute, handleCreatorsRoutes } from '../routes/creators.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from '../routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from '../routes/pins.mjs';
 import { handleDomainsRoutes } from '../routes/domains.mjs';
+import { isNewbornRoute, handleNewbornRoutes, NEWBORN_CRAWLER_PATHS } from '../routes/newborn.mjs';
 import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
@@ -185,6 +186,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             pathname.startsWith('/api/crawl/') ||
             pathname === '/api/keywords/sync' ||
             CREATOR_CRAWLER_PATHS.has(pathname) ||
+            NEWBORN_CRAWLER_PATHS.has(pathname) ||
             (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
             isLiveScrapeGet;
 
@@ -257,6 +259,11 @@ export async function apiRoutesPlugin(app, options = {}) {
               pathname === '/api/pins/resolve-shortlink' ||
               pathname === '/api/urls/global-saves' ||
               pathname === '/api/urls/batch-global-saves' ||
+              (method === 'GET' && (
+                pathname === '/api/newborn/settings' ||
+                pathname === '/api/newborn/cookie' ||
+                pathname === '/api/newborn/launchpad'
+              )) ||
               pathname.startsWith('/api/boards') ||
               pathname.endsWith('/latest-pins');
 
@@ -379,6 +386,29 @@ export async function apiRoutesPlugin(app, options = {}) {
               redactSecrets
             });
             if (domainsRes) return domainsRes;
+          }
+
+          if (isNewbornRoute(pathname)) {
+            const newbornRes = await handleNewbornRoutes({
+              pathname,
+              method,
+              request,
+              reply,
+              searchParams,
+              env,
+              ctx,
+              sql,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
+              clampLimit,
+              buildCanonicalCacheKey,
+              getCachedOrFetch,
+              invalidateEdgeCache,
+              safeWaitUntil,
+              tripPinterestCircuitBreaker,
+              redactSecrets
+            });
+            if (newbornRes) return newbornRes;
           }
 
           return boundJsonResponse({

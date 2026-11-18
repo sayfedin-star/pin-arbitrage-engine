@@ -36,7 +36,7 @@ const sanitizeHex6 = (c, fallback = '#E11D48') => {
 };
 
 export function renderCampaignWorkspaceHeader({
-  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'settings' | 'pulse' | '24h'
+  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'newborn' | 'settings' | 'pulse' | '24h'
   folderId = '',
   folder = null
 } = {}) {
@@ -65,6 +65,7 @@ export function renderCampaignWorkspaceHeader({
   const isKeywords = activeRoom === 'keywords';
   const isCreators = activeRoom === 'creators';
   const isDomains = activeRoom === 'domains';
+  const isNewborn = activeRoom === 'newborn';
   const isPulse = activeRoom === 'pulse' || activeRoom === '24h';
   const isSettings = activeRoom === 'settings';
 
@@ -72,6 +73,7 @@ export function renderCampaignWorkspaceHeader({
   const keywordsClass = isKeywords ? tabActive : tabInactive;
   const creatorsClass = isCreators ? tabActive : tabInactive;
   const domainsClass = isDomains ? tabActive : tabInactive;
+  const newbornClass = isNewborn ? tabActive : tabInactive;
   const settingsClass = isSettings ? tabActive : tabInactive;
 
   const iconActive = 'text-rose-600 dark:text-rose-400 shrink-0';
@@ -129,7 +131,7 @@ export function renderCampaignWorkspaceHeader({
                   <a href="/folders" class="text-rose-600 dark:text-rose-400 hover:underline">All Folders →</a>
                 </div>
                 <template x-for="f in (typeof foldersList !== 'undefined' && foldersList && foldersList.length ? foldersList : ((typeof folders !== 'undefined' && folders && folders.length) ? folders : ((typeof allFolders !== 'undefined' && allFolders) ? allFolders : [])))" :key="f.id">
-                  <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isPulse ? "'/pulse'" : (isSettings ? "'/settings'" : "''"))))})"
+                  <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isNewborn ? "'/newborn'" : (isPulse ? "'/pulse'" : (isSettings ? "'/settings'" : "''")))))})"
                      class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors cursor-pointer"
                      :class="(f.id == '${jsCleanFolderId}') ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
                     <div class="flex items-center gap-2 truncate">
@@ -214,6 +216,14 @@ export function renderCampaignWorkspaceHeader({
           <span>Domain Studio</span>
           <span class="${isDomains ? badgeActive : badgeInactive}"
                 x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' 📌)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
+        </a>
+
+        <!-- Room 4B: Newborn Breakout Hunter -->
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}')) + '/newborn'"
+           href="/folders/${cleanFolderId}/newborn" class="${newbornClass}">
+          <i data-lucide="flame" class="w-4 h-4 ${isNewborn ? iconActive : iconInactive}"></i>
+          <span>Newborn Hunter</span>
+          <span class="${isNewborn ? badgeActive : badgeInactive}">8-Surf</span>
         </a>
 
         <!-- Room 5: Settings & Pruning -->

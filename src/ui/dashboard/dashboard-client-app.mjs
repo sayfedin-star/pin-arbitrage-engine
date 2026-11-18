@@ -1602,7 +1602,7 @@ ${getDashboardSeedComputedProperties()}
               'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
               'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'relatedpins', 'intersections', 'archive', 'explorer',
               'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard', 'domains',
-              'folders', 'folder', 'campaign-folders', 'discovery', 'board', 'boards', 'feed', 'search'
+              'folders', 'folder', 'campaign-folders', 'discovery', 'board', 'boards', 'feed', 'search', 'newborn'
             ]);
             const CREATOR_SUB_TABS = {
               'links': 'top_urls',

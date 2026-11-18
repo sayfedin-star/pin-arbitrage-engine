@@ -157,7 +157,7 @@ export function renderAppTopbar({
 }
 
 export function renderAppSidebar({
-  activeNav = 'overview', // 'overview' | 'pulse' | 'creators' | 'keywords' | 'domains' | 'related_pins' | 'folders'
+  activeNav = 'overview', // 'overview' | 'pulse' | 'newborn' | 'creators' | 'keywords' | 'domains' | 'related_pins' | 'folders'
   refreshHandler = 'window.location.reload()',
   isDashboardSpa = false,
   showTopbar = true,
@@ -168,6 +168,7 @@ export function renderAppSidebar({
   const hasCustomHeader = Boolean(customHeaderLeftHtml || customHeaderRightHtml);
   const isOverview = activeNav === 'overview';
   const isPulse = activeNav === 'pulse' || activeNav === '24h';
+  const isNewborn = activeNav === 'newborn';
   const isCreators = activeNav === 'creators';
   const isKeywords = activeNav === 'keywords';
   const isDomains = activeNav === 'domains';
@@ -180,6 +181,7 @@ export function renderAppSidebar({
 
   const overviewActive = isOverview ? activeClass : inactiveClass;
   const pulseActive = isPulse ? activeClass : inactiveClass;
+  const newbornActive = isNewborn ? activeClass : inactiveClass;
   const creatorsActive = isCreators ? activeClass : inactiveClass;
   const keywordsActive = isKeywords ? activeClass : inactiveClass;
   const domainsActive = isDomains ? activeClass : inactiveClass;
@@ -338,6 +340,14 @@ export function renderAppSidebar({
               <span>24h Pulse Studio</span>
             </div>
             <span class="${isPulse ? badgeActive : badgeInactive}">Live</span>
+          </a>
+
+          <a href="/newborn" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${newbornActive}">
+            <div class="flex items-center space-x-2.5">
+              <i data-lucide="flame" class="w-4 h-4 shrink-0 ${isNewborn ? iconActive : iconInactive}"></i>
+              <span>Newborn Hunter</span>
+            </div>
+            <span class="${isNewborn ? badgeActive : badgeInactive}">8-Surf</span>
           </a>
         </div>
 
@@ -517,6 +527,20 @@ export function renderAppSidebar({
             </div>
             <span x-show="!isSidebarCollapsed" class="${isPulse ? badgeActive : badgeInactive}">Live</span>
             ${isPulse ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+          </a>
+
+          <!-- Newborn Breakout Hunter -->
+          <a
+            href="/newborn"
+            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${newbornActive}"
+            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            title="Newborn Breakout Hunter">
+            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+              <i data-lucide="flame" class="w-4 h-4 shrink-0 ${isNewborn ? iconActive : iconInactive}"></i>
+              <span x-show="!isSidebarCollapsed" class="truncate">Newborn Hunter</span>
+            </div>
+            <span x-show="!isSidebarCollapsed" class="${isNewborn ? badgeActive : badgeInactive}">8-Surf</span>
+            ${isNewborn ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>
         </div>
 
@@ -863,6 +887,7 @@ export function renderAppSidebar({
       var STATIC_STUDIO_ITEMS = [
         { groupKey: 'exec', groupTitle: 'Executive Studios', uid: 'static-overview', kind: 'static', title: 'Overview & Hub', metric: '/', iconGlyph: 'O', iconClass: 'bg-slate-100 dark:bg-[#18181B] text-slate-500 border border-slate-200 dark:border-[#27272A]', url: '/' },
         { groupKey: 'exec', groupTitle: 'Executive Studios', uid: 'static-pulse', kind: 'static', title: '24h Pulse Studio', metric: 'Live', badgeClass: 'text-rose-500 font-semibold', iconGlyph: 'P', iconClass: 'bg-rose-500/10 text-rose-500 border border-rose-500/20', url: '/pulse' },
+        { groupKey: 'exec', groupTitle: 'Executive Studios', uid: 'static-newborn', kind: 'static', title: 'Newborn Breakout Hunter', metric: '/newborn', badgeClass: 'text-rose-600 dark:text-rose-400 font-semibold', iconGlyph: 'N', iconClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20', url: '/newborn' },
         { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-accounts', kind: 'static', title: 'Creator Hub', metric: '/accounts', iconGlyph: '@', iconClass: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20', url: '/accounts' },
         { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-keywords', kind: 'static', title: 'Keywords Fleet', metric: '/keywords', iconGlyph: 'K', iconClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20', url: '/keywords' },
         { groupKey: 'intel', groupTitle: 'Intelligence Fleet', uid: 'static-domains', kind: 'static', title: 'Domain Radar', metric: '/domains', iconGlyph: 'D', iconClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20', url: '/domains' },
@@ -1107,6 +1132,17 @@ export function renderAppSidebar({
                   badge: '',
                   headerClass: 'text-slate-400 dark:text-[#71717A]',
                   items: [
+                    {
+                      uid: 'fb-newborn',
+                      idx: idx++,
+                      kind: 'action',
+                      title: 'Hunt or Filter Newborn Studio for "' + q + '"',
+                      subtitle: '/newborn?search=' + enc,
+                      metric: 'Newborn',
+                      iconGlyph: 'N',
+                      iconClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+                      url: '/newborn?search=' + enc
+                    },
                     {
                       uid: 'fb-keywords',
                       idx: idx++,

@@ -24,6 +24,7 @@ import { getPinDetailPageHtml } from '../src/ui/pin-details/index.mjs';
 import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
 import { getDomainsPageHtml } from '../src/ui/domains/index.mjs';
 import { getPulsePageHtml } from '../src/ui/pulse/index.mjs';
+import { getNewbornPageHtml } from '../src/ui/newborn/index.mjs';
 
 const VOID_HTML_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
@@ -238,7 +239,10 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     ['campaign-folders-ui', getCampaignFoldersPageHtml()],
     ['campaign-folders-ui (settings)', foldersSettingsHtml],
     ['domains-ui', getDomainsPageHtml('example.com')],
-    ['pulse-ui', getPulsePageHtml()]
+    ['pulse-ui', getPulsePageHtml()],
+    ['newborn-ui', getNewbornPageHtml()],
+    ['newborn-ui (folder-scoped)', getNewbornPageHtml('test_folder_123')],
+    ['newborn-ui (settings)', getNewbornPageHtml('', 'settings')]
   ];
 
   // 3. Compile inline <script> blocks via vm.Script & verify DOM tag balance + <template x-if> single-root nesting
