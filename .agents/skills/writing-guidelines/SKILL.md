@@ -1,6 +1,6 @@
 ---
 name: writing-guidelines
-description: "Review and enforce Writing Guidelines, voice, tone, terminology consistency, microcopy, error states, and button labels. Use automatically whenever creating, reviewing, editing, or auditing user-facing copy in frontend UI files or design documentation, specifically: src/dashboard-ui.mjs, src/keywords-ui.mjs, src/domains-ui.mjs, src/discovery-ui.mjs, src/campaign-folders-ui.mjs, src/pin-details-ui.mjs, src/ui/app-sidebar.mjs, src/ui/campaign-workspace-header.mjs, src/ui/dashboard-modals.mjs, src/ui/keywords-drawers.mjs, and DESIGN.md."
+description: "Review and enforce Writing Guidelines, voice, tone, terminology consistency, microcopy, error states, and button labels. Use automatically whenever creating, reviewing, editing, or auditing user-facing copy in frontend UI files or design documentation, specifically: public/pae-shell.js, src/ui/**/index.mjs, src/ui/app-sidebar.mjs, src/ui/campaign-workspace-header.mjs, src/ui/dashboard-modals.mjs, src/ui/keywords-drawers.mjs, and DESIGN.md."
 metadata:
   author: vercel
   version: "1.0.0"

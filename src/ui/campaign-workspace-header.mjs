@@ -166,7 +166,7 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Delete Action -->
-        <button @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : (confirm('Are you sure you want to delete this folder?') && (typeof executeDeleteFolder === 'function' ? executeDeleteFolder('${jsCleanFolderId}') : fetch('/api/folders/' + encodeURIComponent('${jsCleanFolderId}'), { method: 'DELETE' }).then(() => window.location.href = '/folders')))"
+        <button @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : window.PAE.confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'), typeof executeDeleteFolder === 'function' ? executeDeleteFolder : null)"
                 class="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-xs font-semibold text-rose-600 dark:text-rose-400 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Delete Folder">
           <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i>

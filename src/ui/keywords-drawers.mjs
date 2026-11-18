@@ -916,10 +916,10 @@ export function getKeywordDrawersAndModalsHtml() {
                 </div>
 
                 <div class="flex items-center space-x-1 shrink-0">
-                  <button @click="selectFolder(f); isFolderManagerOpen = false; activeTab = 'crossover'"
-                          class="px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-600 dark:text-pink-400 text-[10px] font-bold font-mono transition cursor-pointer">
+                  <a :href="'/folders/' + encodeURIComponent(f.id)"
+                     class="px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-600 dark:text-pink-400 text-[10px] font-bold font-mono transition cursor-pointer">
                     View Matrix
-                  </button>
+                  </a>
                   <button @click="deleteCampaignFolder(f.id)"
                           class="p-1 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-500 transition cursor-pointer">
                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>

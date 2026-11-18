@@ -1,28 +1,28 @@
 /**
- * UI HTML Pages Sub-Router
- * 
- * Serves all static and server-rendered HTML dashboard views.
- * Dispatched BEFORE API authentication gate to guarantee 405 Method Not Allowed
- * on mutative HTTP verbs (POST/PUT/DELETE) without requiring API authorization.
- * 
- * [INVARIANT: DYNAMIC-UI-LAZY-LOADING]
- * All 7 UI template modules are loaded lazily via dynamic await import() inside
- * handlePagesRoutes to eliminate 1.65 MB of cold-start V8 compilation overhead
- * on all /api/... requests and health checks.
+ * UI HTML Pages & Static Shell Sub-Router
+ *
+ * Serves `/pae-shell.js` from an in-memory buffer with strong SHA-256 ETag and
+ * renders all 7 server-rendered HTML studio views via lazy dynamic imports.
  */
 
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { requestContextStorage } from '../http/security-and-response.mjs';
 
-// [INVARIANT: FAST-EDGE-FAVICON]
-// Clean inline SVG pin favicon to serve browser requests instantly (0ms network round-trip)
+const PAE_SHELL_PATH = fileURLToPath(new URL('../../public/pae-shell.js', import.meta.url));
+export const PAE_SHELL_BUF = fs.readFileSync(PAE_SHELL_PATH);
+export const PAE_SHELL_TEXT = PAE_SHELL_BUF.toString('utf8');
+export const PAE_SHELL_HASH = crypto.createHash('sha256').update(PAE_SHELL_BUF).digest('hex');
+export const PAE_SHELL_ETAG = `"${PAE_SHELL_HASH}"`;
+export const PAE_SHELL_VERSION = PAE_SHELL_HASH.slice(0, 12);
+
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📌</text></svg>';
 
-// [INVARIANT: STATIC-ASSETS-FAST-404]
-// Supported static asset file extensions to prevent missing assets from triggering expensive dashboard SSR (902KB)
 const STATIC_ASSET_REGEX = /\.(?:ico|png|jpe?g|gif|svg|webp|css|js|map|woff2?|ttf|xml|txt|json)$/i;
 
 /**
- * Handles incoming UI HTML page requests.
+ * Handles incoming UI HTML page and `/pae-shell.js` requests.
  * Returns Response if handled, or null if the request should proceed to API routers.
  */
 export async function handlePagesRoutes(routeCtx) {
@@ -40,15 +40,18 @@ export async function handlePagesRoutes(routeCtx) {
 
   const store = requestContextStorage?.getStore?.();
   const effectiveReply = routeCtx.reply || store?.reply;
+  const effectiveRequest = routeCtx.request || store?.request;
 
   const sendNative = (body, status = 200, headers = {}) => {
+    const isBodyless = method === 'HEAD' || status === 204 || status === 304;
     if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
       effectiveReply.code(status);
       for (const [k, v] of Object.entries(headers)) {
         effectiveReply.header(k, v);
       }
-      return effectiveReply.send(method === 'HEAD' ? '' : (body || ''));
+      return effectiveReply.send(isBodyless ? '' : (body ?? ''));
     }
+    const textBody = Buffer.isBuffer(body) ? body.toString('utf8') : (body || '');
     const lowerHeaders = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
     const outHeaders = { ...headers };
     Object.defineProperties(outHeaders, {
@@ -67,12 +70,35 @@ export async function handlePagesRoutes(routeCtx) {
       ok: status >= 200 && status < 300,
       status,
       headers: outHeaders,
-      body: method === 'HEAD' ? null : body,
-      text: async () => (method === 'HEAD' ? '' : (body || ''))
+      body: isBodyless ? null : textBody,
+      text: async () => (isBodyless ? '' : textBody)
     };
   };
 
-  // 1. Fast Edge Favicon Interception [INVARIANT: FAST-EDGE-FAVICON]
+  // 0. Cached Shared Browser Runtime (/pae-shell.js) — served from memory BEFORE STATIC_ASSET_REGEX
+  if (pathLower === '/pae-shell.js') {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, HEAD, OPTIONS');
+    }
+    const shellHeaders = {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'ETag': PAE_SHELL_ETAG,
+      'Cache-Control': 'public, max-age=3600, must-revalidate',
+      'X-Content-Type-Options': 'nosniff'
+    };
+    const rawIfNoneMatch = effectiveRequest?.headers?.['if-none-match']
+      || (typeof effectiveRequest?.headers?.get === 'function' ? effectiveRequest.headers.get('if-none-match') : '')
+      || '';
+    if (rawIfNoneMatch) {
+      const candidates = String(rawIfNoneMatch).split(',').map((s) => s.trim());
+      if (candidates.includes(PAE_SHELL_ETAG) || candidates.includes('*')) {
+        return sendNative(null, 304, shellHeaders);
+      }
+    }
+    return sendNative(PAE_SHELL_BUF, 200, shellHeaders);
+  }
+
+  // 1. Fast Edge Favicon Interception
   const isFavicon = pathLower === '/favicon.ico' ||
     pathLower === '/favicon.png' ||
     pathLower === '/favicon.svg' ||
@@ -103,8 +129,7 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
-  // 3. Fast Edge Missing Static Assets Trap [INVARIANT: STATIC-ASSETS-FAST-404] [INVARIANT: PREVENT-DASHBOARD-FALLTHROUGH]
-  // Intercept any static asset extension across root or nested subpaths before triggering expensive SSR
+  // 3. Fast Edge Missing Static Assets Trap
   if (!pathLower.startsWith('/api/') && STATIC_ASSET_REGEX.test(pathLower)) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
@@ -116,7 +141,7 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
-  // 3B. Fast Edge /fleet Redirect (Redirect legacy Fleet Manager UI to Overview)
+  // 3B. Fast Edge /fleet Redirect
   if (pathLower === '/fleet' || pathLower === '/fleet/') {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
@@ -140,7 +165,7 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
+    const { getDiscoveryPageHtml } = await import('../ui/discovery/index.mjs');
     return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
   }
 
@@ -159,11 +184,11 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+    const { getPulsePageHtml } = await import('../ui/pulse/index.mjs');
     return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
   }
 
-  // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id) [CAP-07]
+  // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id)
   if (pathLower.startsWith('/pins/') || pathLower.startsWith('/pin/')) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
@@ -180,7 +205,7 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getPinDetailPageHtml } = await import('../pin-details-ui.mjs');
+    const { getPinDetailPageHtml } = await import('../ui/pin-details/index.mjs');
     return sendNative(getPinDetailPageHtml(cleanPinId), 200, HTML_HEADERS);
   }
 
@@ -214,7 +239,6 @@ export async function handlePagesRoutes(routeCtx) {
     }
   }
 
-  // [INVARIANT: SSR-WORKSPACE-ROOM-ROUTING]
   // 6. Level 4: Dedicated Campaign Workspace Rooms (/folders, /folders/:id, and /folders/:id/*)
   if (pathLower === '/folders' || pathLower.startsWith('/folders/')) {
     if (method !== 'GET' && method !== 'HEAD') {
@@ -225,10 +249,8 @@ export async function handlePagesRoutes(routeCtx) {
     }
 
     const segments = normalizedPath.split('/').filter(Boolean);
-    // segments: ['folders'] or ['folders', ':id'] or ['folders', ':id', 'keywords'|'creators'|'domains']
     if (segments.length <= 1) {
-      // /folders -> Folder Hub Index
-      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
       return sendNative(getCampaignFoldersPageHtml(''), 200, HTML_HEADERS);
     }
 
@@ -237,45 +259,38 @@ export async function handlePagesRoutes(routeCtx) {
     const room = (segments[2] || '').toLowerCase();
 
     if (!room) {
-      // Room 1: /folders/:id -> Crossover & Super-Pins Room
-      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
       return sendNative(getCampaignFoldersPageHtml(folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'keywords') {
-      // Room 2: /folders/:id/keywords -> Scoped Keywords Fleet Dashboard
-      const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
+      const { getKeywordsPageHtml } = await import('../ui/keywords/index.mjs');
       return sendNative(getKeywordsPageHtml('', '', folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'creators') {
-      // Room 3: /folders/:id/creators -> Scoped Creator Hub
-      const { getDashboardHtml } = await import('../dashboard-ui.mjs');
+      const { getDashboardHtml } = await import('../ui/dashboard/index.mjs');
       return sendNative(getDashboardHtml(folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'domains') {
-      // Room 4: /folders/:id/domains -> Scoped Domain Intelligence Studio
       let domainParam = segments[3] || '';
       try { domainParam = decodeURIComponent(domainParam); } catch (_) {}
-      const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+      const { getDomainsPageHtml } = await import('../ui/domains/index.mjs');
       return sendNative(getDomainsPageHtml(domainParam, folderId), 200, HTML_HEADERS);
     }
 
     if (room === 'settings') {
-      // Room 5: /folders/:id/settings -> Dedicated Folder Settings & Control Room
-      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
       return sendNative(getCampaignFoldersPageHtml(folderId, 'settings'), 200, HTML_HEADERS);
     }
 
     if (room === 'pulse' || room === '24h') {
-      // Room 6: /folders/:id/pulse -> Scoped 24h Pulse Radar
-      const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+      const { getPulsePageHtml } = await import('../ui/pulse/index.mjs');
       return sendNative(getPulsePageHtml(folderId), 200, HTML_HEADERS);
     }
 
-    // Fallback to Room 1
-    const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+    const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
     return sendNative(getCampaignFoldersPageHtml(folderId), 200, HTML_HEADERS);
   }
 
@@ -290,7 +305,7 @@ export async function handlePagesRoutes(routeCtx) {
     const segments = normalizedPath.split('/').filter(Boolean);
     let domain = segments[1] || '';
     try { domain = decodeURIComponent(domain); } catch (_) {}
-    const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+    const { getDomainsPageHtml } = await import('../ui/domains/index.mjs');
     return sendNative(getDomainsPageHtml(domain), 200, HTML_HEADERS);
   }
 
@@ -303,11 +318,10 @@ export async function handlePagesRoutes(routeCtx) {
     const rawSlug = segments[1] || '';
     const slugLower = rawSlug.toLowerCase();
 
-    // Defend against reserved slugs
     if (rawSlug && RESERVED_KEYWORD_SLUGS.has(slugLower)) {
       if (slugLower === 'discovery') {
         if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
-        const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
+        const { getDiscoveryPageHtml } = await import('../ui/discovery/index.mjs');
         return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
       }
       if (slugLower === 'folders') {
@@ -315,24 +329,23 @@ export async function handlePagesRoutes(routeCtx) {
         const folderId = segments[2] || '';
         let cleanFolderId = folderId;
         try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
-        const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+        const { getCampaignFoldersPageHtml } = await import('../ui/folders/index.mjs');
         return sendNative(getCampaignFoldersPageHtml(cleanFolderId), 200, HTML_HEADERS);
       }
       if (slugLower === 'domains') {
         if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         let domain = segments[2] || '';
         try { domain = decodeURIComponent(domain); } catch (_) {}
-        const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+        const { getDomainsPageHtml } = await import('../ui/domains/index.mjs');
         return sendNative(getDomainsPageHtml(domain), 200, HTML_HEADERS);
       }
       if (slugLower === 'pulse' || slugLower === '24h') {
         if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
-        const { getPulsePageHtml } = await import('../pulse-ui.mjs');
+        const { getPulsePageHtml } = await import('../ui/pulse/index.mjs');
         return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
       }
     }
 
-    // Query parameter fallback (?q=... or ?keyword=...)
     let slug = rawSlug;
     const queryParam = searchParams.get('q') || searchParams.get('keyword') || searchParams.get('slug');
     if (!slug && queryParam) {
@@ -342,7 +355,7 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
+    const { getKeywordsPageHtml } = await import('../ui/keywords/index.mjs');
     return sendNative(getKeywordsPageHtml(slug), 200, HTML_HEADERS);
   }
 
@@ -354,7 +367,7 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getDashboardHtml } = await import('../dashboard-ui.mjs');
+    const { getDashboardHtml } = await import('../ui/dashboard/index.mjs');
     return sendNative(getDashboardHtml(), 200, HTML_HEADERS);
   }
 

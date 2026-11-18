@@ -139,7 +139,7 @@ export function getDiscoveryClientAppScript() {
 
         async loadFolders() {
           try {
-            const res = await fetch('/api/folders');
+            const res = await window.apiFetch('/api/folders');
             if (res.ok) {
               const data = await res.json();
               this.availableFolders = data.folders || [];
@@ -232,7 +232,7 @@ export function getDiscoveryClientAppScript() {
           this.isCacheHit = false;
 
           try {
-            const res = await fetch('/api/discovery/typeahead?q=' + encodeURIComponent(q), {
+            const res = await window.apiFetch('/api/discovery/typeahead?q=' + encodeURIComponent(q), {
               signal: this.abortController.signal
             });
             if (reqId !== this.activeRequestId) return; // Stale request discarded
@@ -330,7 +330,7 @@ export function getDiscoveryClientAppScript() {
           this.relatedData = null;
 
           try {
-            const res = await fetch('/api/keywords/related-interests?q=' + encodeURIComponent(clean) + '&mode=both', {
+            const res = await window.apiFetch('/api/keywords/related-interests?q=' + encodeURIComponent(clean) + '&mode=both', {
               signal: this.relatedAbortController.signal
             });
             if (reqId !== this.activeRelatedRequestId) return; // Stale request discarded
@@ -473,7 +473,7 @@ export function getDiscoveryClientAppScript() {
           const clean = String(kw || '').trim();
           if (!clean) return;
           try {
-            const res = await fetch('/api/keywords/bulk-import', {
+            const res = await window.apiFetch('/api/keywords/bulk-import', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keywords: [clean] })
@@ -493,7 +493,7 @@ export function getDiscoveryClientAppScript() {
           if (!this.selectedKeywords.length || this.submittingBulk) return;
           this.submittingBulk = true;
           try {
-            const res = await fetch('/api/keywords/bulk-import', {
+            const res = await window.apiFetch('/api/keywords/bulk-import', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keywords: this.selectedKeywords })
@@ -527,7 +527,7 @@ export function getDiscoveryClientAppScript() {
 
             let targetFid = this.selectedFolderId;
             if (!targetFid && this.newFolderName.trim()) {
-              const createRes = await fetch('/api/folders', {
+              const createRes = await window.apiFetch('/api/folders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: this.newFolderName.trim() })
@@ -538,7 +538,7 @@ export function getDiscoveryClientAppScript() {
               }
             }
 
-            const res = await fetch('/api/keywords/bulk-import', {
+            const res = await window.apiFetch('/api/keywords/bulk-import', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
@@ -579,7 +579,7 @@ export function getDiscoveryClientAppScript() {
 
           this.submittingBulk = true;
           try {
-            const res = await fetch('/api/keywords/bulk-import', {
+            const res = await window.apiFetch('/api/keywords/bulk-import', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

@@ -676,7 +676,7 @@ export function getPinDetailsClientAppScripts() {
           this.isTrackingCreator = true;
           try {
             const cleanUser = String(username).replace(/^@+/, '').trim();
-            const res = await (window.safeApiFetch || fetch)('/api/competitors', {
+            const res = await (window.safeApiFetch || fetch)('/api/creators', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

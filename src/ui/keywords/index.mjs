@@ -1,25 +1,16 @@
 /**
- * Keyword Intelligence & Velocity Dashboard UI
- * Orchestrator module coordinating submodules under src/ui/keywords/:
- * - keywords-dashboard-view.mjs: Level 1A Executive Dashboard
- * - keywords-serp-studio.mjs: Level 2 SERP Radar Studio
- * - keywords-modals.mjs: Bulk Add & 20-Runner Fleet Dispatch Modals
- * - keywords-client-app.mjs: Alpine.js keywordStudio() client script
+ * Keyword Intelligence & Velocity Dashboard UI (src/ui/keywords/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { getKeywordDrawersAndModalsHtml } from './ui/keywords-drawers.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
-import { getKeywordsDashboardViewHtml } from './ui/keywords/keywords-dashboard-view.mjs';
-import { getKeywordsSerpStudioViewHtml } from './ui/keywords/keywords-serp-studio.mjs';
-import { getKeywordsModalsHtml } from './ui/keywords/keywords-modals.mjs';
-import { getKeywordsClientAppScript } from './ui/keywords/keywords-client-app.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
+import { getKeywordDrawersAndModalsHtml } from '../keywords-drawers.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { getKeywordsDashboardViewHtml } from './keywords-dashboard-view.mjs';
+import { getKeywordsSerpStudioViewHtml } from './keywords-serp-studio.mjs';
+import { getKeywordsModalsHtml } from './keywords-modals.mjs';
+import { getKeywordsClientAppScript } from './keywords-client-app.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
 
-export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folderId = '') {
-  const safeSlug = String(initialSlug || '').trim().toLowerCase();
-  const safeKeyword = String(initialKeyword || '').trim();
+export function getKeywordsPageHtml(initialSlug = '', _initialKeyword = '', folderId = '') {
   const safeFolderId = String(folderId || '').trim();
 
   return `<!DOCTYPE html>
@@ -79,10 +70,9 @@ ${renderSharedDocumentHead({
 
   ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'fetchKeywords(true)' })}
 
-  <!-- Main Full-Width Executive Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <!-- Main Full-Width Executive Container (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    <!-- ========================================================================= -->
     ${getKeywordsDashboardViewHtml({ safeFolderId })}
 
     ${getKeywordsSerpStudioViewHtml({ safeFolderId })}
@@ -94,7 +84,6 @@ ${renderSharedDocumentHead({
   ${getKeywordDrawersAndModalsHtml()}
 
   ${getKeywordsClientAppScript()}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

@@ -6,36 +6,7 @@
 import { renderAppSidebar } from '../app-sidebar.mjs';
 
 export function getPinDetailsBodyHtml(safePinId) {
-  return `
-<body class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-200" x-data="pinDetailApp('${safePinId}')">
-
-  <!-- Toast Notification Container -->
-  <div 
-    x-show="toast.show" 
-    x-transition:enter="transition ease-out duration-200"
-    x-transition:enter-start="opacity-0 translate-y-2 scale-95"
-    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-    x-transition:leave="transition ease-in duration-150"
-    x-transition:leave-start="opacity-100 translate-y-0 scale-100"
-    x-transition:leave-end="opacity-0 translate-y-2 scale-95"
-    class="fixed top-5 right-5 z-50 max-w-sm px-4 py-3 rounded-xl shadow-xl border flex items-center gap-3 text-xs font-medium backdrop-blur-md"
-    :class="toast.type === 'error' ? 'bg-red-950/90 text-red-200 border-red-800' : 'bg-emerald-950/90 text-emerald-200 border-emerald-800'"
-    x-cloak
-  >
-    <span x-text="toast.type === 'error' ? '⚠️' : '✅'" class="text-base"></span>
-    <span x-text="toast.message" class="flex-1 font-sans"></span>
-    <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
-  </div>
-
-  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'loadDossier(true)' })}
-
-  <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
-
-  <!-- Unified Top Sticky Command Bar (56px) -->
-  <header class="border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs">
-    <!-- Left: Navigation & Context Breadcrumb -->
-    <div class="flex items-center gap-3 min-w-0">
+  const customHeaderLeftHtml = `
       <a 
         :href="getBackUrl()" 
         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition shadow-2xs shrink-0"
@@ -46,7 +17,7 @@ export function getPinDetailsBodyHtml(safePinId) {
       </a>
 
       <!-- Breadcrumbs Trail -->
-      <nav aria-label="Breadcrumb" class="hidden md:flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
+      <nav aria-label="Breadcrumb" class="hidden lg:flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
         <template x-if="isCreatorContext()">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
@@ -117,11 +88,9 @@ export function getPinDetailsBodyHtml(safePinId) {
         </template>
         <span class="text-slate-600">/</span>
         <span class="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">#<span x-text="pinId"></span></span>
-      </nav>
-    </div>
+      </nav>`;
 
-    <!-- Right: Command Actions -->
-    <div class="flex items-center gap-2 shrink-0">
+  const customHeaderRightHtml = `
       <!-- Silent Background Refresh Indicator -->
       <template x-if="isSilentRefreshing">
         <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-amber-300 bg-amber-950/50 border border-amber-800 shadow-xs">
@@ -158,36 +127,44 @@ export function getPinDetailsBodyHtml(safePinId) {
         :href="'https://www.pinterest.com/pin/' + pinId + '/'" 
         target="_blank" 
         rel="noopener noreferrer" 
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-medium transition"
+        class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-medium transition"
         title="Open pin page on Pinterest in new tab"
       >
         <span>Open on Pinterest</span>
         <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
-      </a>
+      </a>`;
 
-      <!-- Theme Switcher (Dark/Light Mode) -->
-      <button 
-        type="button" 
-        @click="toggleTheme()" 
-        class="p-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
-        :title="isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
-      >
-        <svg x-show="isDark" class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
-        <svg x-show="!isDark" class="w-4 h-4 text-slate-600 dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-      </button>
+  return `
+<body class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-200" x-data="pinDetailApp('${safePinId}')">
 
-      <!-- Refresh Button -->
-      <button 
-        type="button"
-        @click="loadDossier(true)" 
-        :disabled="loading"
-        class="p-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer flex items-center justify-center min-w-[34px] min-h-[34px]"
-        :title="'Reload dossier from Native VPS PostgreSQL'"
-      >
-        <svg :class="loading ? 'animate-spin' : ''" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-      </button>
-    </div>
-  </header>
+  <!-- Toast Notification Container -->
+  <div 
+    x-show="toast.show" 
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-2 scale-95"
+    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100 translate-y-0 scale-100"
+    x-transition:leave-end="opacity-0 translate-y-2 scale-95"
+    class="fixed top-5 right-5 z-50 max-w-sm px-4 py-3 rounded-xl shadow-xl border flex items-center gap-3 text-xs font-medium backdrop-blur-md"
+    :class="toast.type === 'error' ? 'bg-red-950/90 text-red-200 border-red-800' : 'bg-emerald-950/90 text-emerald-200 border-emerald-800'"
+    x-cloak
+  >
+    <span x-text="toast.type === 'error' ? '⚠️' : '✅'" class="text-base"></span>
+    <span x-text="toast.message" class="flex-1 font-sans"></span>
+    <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
+  </div>
+
+  ${renderAppSidebar({
+    activeNav: 'keywords',
+    refreshHandler: 'loadDossier(true)',
+    refreshLoadingExpr: 'loading',
+    customHeaderLeftHtml,
+    customHeaderRightHtml
+  })}
+
+  <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
   <!-- Full-Page Loading Spinner (Initial load only) -->
   <div x-show="loading && !dossier" class="flex-1 flex items-center justify-center p-12" x-cloak>

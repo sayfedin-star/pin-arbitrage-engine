@@ -86,7 +86,20 @@ export default [
     },
     rules: sharedSafetyRules
   },
-  // 4. Behavioral Test Suites (tests/)
+  // 4. Shared Browser Static Runtime (public/)
+  {
+    files: ['public/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+        ...webStandardGlobals
+      }
+    },
+    rules: sharedSafetyRules
+  },
+  // 5. Behavioral Test Suites (tests/)
   {
     files: ['tests/**/*.mjs'],
     languageOptions: {

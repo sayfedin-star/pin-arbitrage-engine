@@ -130,8 +130,10 @@ export function getDashboardModalsHtml() {
                 <span>•</span>
                 <span class="text-rose-500 font-bold" x-text="Number(selectedCandidate?.total_saves || selectedCandidate?.saves || 0).toLocaleString() + ' Saves'"></span>
                 <template x-if="selectedCandidate?.ingestion_method && selectedCandidate?.ingestion_method !== 'uploaded'">
-                  <span>•</span>
-                  <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="selectedCandidate.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : selectedCandidate.ingestion_method)"></span>
+                  <span class="inline-flex items-center gap-1.5">
+                    <span>•</span>
+                    <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="selectedCandidate.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : selectedCandidate.ingestion_method)"></span>
+                  </span>
                 </template>
               </div>
             </div>
@@ -1493,8 +1495,10 @@ export function getDashboardModalsHtml() {
               <span>•</span>
               <span x-text="visualFeedPins.length + ' Latest Pins'"></span>
               <template x-if="visualFeedUser?.follower_count">
-                <span>•</span>
-                <span x-text="formatNumber(visualFeedUser.follower_count) + ' Followers'"></span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span>•</span>
+                  <span x-text="formatNumber(visualFeedUser.follower_count) + ' Followers'"></span>
+                </span>
               </template>
             </div>
           </div>

@@ -1,6 +1,6 @@
 ---
 name: web-design-guidelines
-description: "Review and enforce Web Interface Guidelines compliance, accessibility (WCAG AA, ARIA), keyboard focus, reduced motion, and UX patterns. Use automatically whenever designing, reviewing, editing, or auditing any frontend UI file or design doc, specifically: src/dashboard-ui.mjs, src/keywords-ui.mjs, src/domains-ui.mjs, src/discovery-ui.mjs, src/campaign-folders-ui.mjs, src/pin-details-ui.mjs, src/ui/app-sidebar.mjs, src/ui/campaign-workspace-header.mjs, src/ui/dashboard-modals.mjs, src/ui/keywords-drawers.mjs, and DESIGN.md."
+description: "Review and enforce Web Interface Guidelines compliance, accessibility (WCAG AA, ARIA), keyboard focus, reduced motion, and UX patterns. Use automatically whenever designing, reviewing, editing, or auditing any frontend UI file or design doc, specifically: public/pae-shell.js, src/ui/**/index.mjs, src/ui/app-sidebar.mjs, src/ui/campaign-workspace-header.mjs, src/ui/dashboard-modals.mjs, src/ui/keywords-drawers.mjs, and DESIGN.md."
 metadata:
   author: vercel
   version: "1.0.0"

@@ -1996,8 +1996,8 @@ export function getFoldersClientAppScript() {
         async resolveShortlinkSearch(url) {
           if (!url) return;
           try {
-            const res = await fetch('/api/pins/resolve-shortlink?url=' + encodeURIComponent(url), {
-              signal: AbortSignal.timeout(8000)
+            const res = await window.apiFetch('/api/pins/resolve-shortlink?url=' + encodeURIComponent(url), {
+              timeout: 8000
             });
             if (!res.ok) return;
             const data = await res.json();
@@ -2019,7 +2019,7 @@ export function getFoldersClientAppScript() {
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/competitors/' + encodeURIComponent(cleanUser) + '/latest-pins');
+            const res = await window.apiFetch('/api/creators/' + encodeURIComponent(cleanUser) + '/latest-pins');
             if (res.ok) {
               const data = await res.json();
               if (data.ok) {

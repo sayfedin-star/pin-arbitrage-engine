@@ -174,7 +174,7 @@ export function getDashboardSeedActionMethods() {
         async fetchWorkflowRuns() {
           this.isLoadingWorkflowRuns = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/workflow/runs?limit=15'));
+            const res = await window.apiFetch(this.getApiUrl('/api/workflow/runs?limit=15'));
             if (res.ok) {
               this.workflowRuns = await res.json();
             }

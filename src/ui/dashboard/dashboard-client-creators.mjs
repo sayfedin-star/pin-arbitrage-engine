@@ -17,8 +17,8 @@ export function getDashboardCreatorsFleetMethods() {
           }
           const reqSeq = ++this._creatorsReqSeq;
           try {
-            const baseEndpoint = '/api/competitors?limit=5000' + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
+            const baseEndpoint = '/api/creators?limit=5000' + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
+            const res = await window.apiFetch(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
             if (reqSeq !== this._creatorsReqSeq) return;
             if (res.ok) {
               const data = await res.json();
@@ -54,7 +54,7 @@ export function getDashboardCreatorsFleetMethods() {
           try {
             const cleanName = (username || '').replace(/^@+/, '');
             this.showToast('Syncing profile for @' + cleanName + '...');
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/sync'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username: cleanName })
@@ -88,7 +88,7 @@ export function getDashboardCreatorsFleetMethods() {
               const c = this.competitors[i];
               this.showToast('Syncing (' + (i + 1) + '/' + this.competitors.length + '): @' + c.username + '...');
               try {
-                const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/sync'), {
+                const res = await window.apiFetch(this.getApiUrl('/api/creators/sync'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ username: c.username })
@@ -118,7 +118,7 @@ export function getDashboardCreatorsFleetMethods() {
           // Optimistically remove from UI
           this.competitors = this.competitors.filter(c => Number(c.id) !== Number(id));
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors?id=' + id), { method: 'DELETE' });
+            const res = await window.apiFetch(this.getApiUrl('/api/creators?id=' + id), { method: 'DELETE' });
             if (res.ok) {
               if (this.activeCreator && Number(this.activeCreator.id) === Number(id)) {
                 this.closeCreatorProfile();
@@ -454,7 +454,7 @@ export function getDashboardCreatorsFleetMethods() {
           this.fastRefreshingCompetitorId = compId;
           this.showToast('⚡ Fast refreshing archived pins for @' + username + ' directly from Pinterest...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/fast-refresh'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/fast-refresh'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, username })
@@ -486,7 +486,7 @@ export function getDashboardCreatorsFleetMethods() {
           this.discoveringCatalogCompetitorId = compId;
           this.showToast('📋 Starting Full Catalog Discovery for @' + username + ' (crawling all pages to end of feed)...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/sync-pins'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/sync-pins'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -526,7 +526,7 @@ export function getDashboardCreatorsFleetMethods() {
           this.auditSweepingCompetitorId = compId;
           this.showToast('🏛️ Starting Comprehensive Audit Sweep for @' + username + '...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/audit-sweep'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/audit-sweep'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, username })
@@ -665,7 +665,7 @@ export function getDashboardCreatorsFleetMethods() {
           try {
             for (const cid of idsToDelete) {
               try {
-                const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors?id=' + cid), { method: 'DELETE' });
+                const res = await window.apiFetch(this.getApiUrl('/api/creators?id=' + cid), { method: 'DELETE' });
                 if (!res.ok) {
                   failedCount++;
                   const err = await res.json().catch(() => ({}));
@@ -713,7 +713,7 @@ export function getDashboardCreatorsFleetMethods() {
           // 2. Persist to backend in background
           try {
             for (const cid of this.selectedCompetitorIds) {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/status'), {
+              await window.apiFetch(this.getApiUrl('/api/creators/status'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: cid, is_active: activeStatus })
@@ -735,7 +735,7 @@ export function getDashboardCreatorsFleetMethods() {
           this.isSyncingBoards = true;
           this.showToast('Syncing boards for @' + competitor.username + ' from Pinterest...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/sync-boards'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/sync-boards'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: competitor.id, username: competitor.username })
@@ -744,7 +744,7 @@ export function getDashboardCreatorsFleetMethods() {
               this._clientCache?.boards?.clear();
               const data = await res.json();
               this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
-              const bRes = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(competitor.id) + (competitor.username ? '&username=' + encodeURIComponent(competitor.username) : '')));
+              const bRes = await window.apiFetch(this.getApiUrl('/api/creators/boards?competitor_id=' + encodeURIComponent(competitor.id) + (competitor.username ? '&username=' + encodeURIComponent(competitor.username) : '')));
               if (bRes.ok) {
                 const bData = await bRes.json();
                 this.competitorBoardsList = bData.boards || [];
@@ -798,7 +798,7 @@ export function getDashboardCreatorsDossierMethods() {
         async deleteSnapshotAction(snapshotId) {
           if (!confirm('Are you sure you want to delete this snapshot?')) return;
           try {
-            await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/snapshot?id=' + snapshotId), { method: 'DELETE' });
+            await window.apiFetch(this.getApiUrl('/api/creators/snapshot?id=' + snapshotId), { method: 'DELETE' });
             this.activeCreatorSnapshots = this.activeCreatorSnapshots.filter(s => String(s.id) !== String(snapshotId));
             this.showToast('Snapshot deleted successfully.');
           } catch (e) {
@@ -900,7 +900,7 @@ export function getDashboardCreatorsDossierMethods() {
           }
 
           try {
-            const detailRes = await fetch(this.getApiUrl('/api/competitors/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId)));
+            const detailRes = await window.apiFetch(this.getApiUrl('/api/creators/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId)));
 
             let freshDetail = null;
 
@@ -997,8 +997,8 @@ export function getDashboardCreatorsDossierMethods() {
             if (this.creatorRelatedSearch) p.set('search', this.creatorRelatedSearch.trim());
 
             const [interRes, seedsRes] = await Promise.all([
-              fetch(this.getApiUrl('/api/competitors/related-pins/intersections?' + p.toString())),
-              fetch(this.getApiUrl('/api/competitors/related-pins/seeds?id=' + encodeURIComponent(compId)))
+              window.apiFetch(this.getApiUrl('/api/creators/related-pins/intersections?' + p.toString())),
+              window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds?id=' + encodeURIComponent(compId)))
             ]);
 
             if (interRes.ok) {
@@ -1032,7 +1032,7 @@ export function getDashboardCreatorsDossierMethods() {
               this.showToast('No valid numeric Pin IDs found in input.');
               return;
             }
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, pin_ids: matches })
@@ -1073,7 +1073,7 @@ export function getDashboardCreatorsDossierMethods() {
               this.showToast('No winning pins found for this account yet.');
               return;
             }
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, pin_ids: top10Ids })
@@ -1095,7 +1095,7 @@ export function getDashboardCreatorsDossierMethods() {
           const compId = this.activeCreator.id || this.activeCreator.username;
           this.isAddingSeeds = true;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, pin_ids: this.selectedCreatorPinIds })
@@ -1117,7 +1117,7 @@ export function getDashboardCreatorsDossierMethods() {
           if (!confirm('Delete Seed #' + pinId + ' and its discovered related nodes?')) return;
           try {
             const compId = this.activeCreator.id || this.activeCreator.username;
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/seeds?id=' + encodeURIComponent(compId) + '&pin_id=' + encodeURIComponent(pinId)), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds?id=' + encodeURIComponent(compId) + '&pin_id=' + encodeURIComponent(pinId)), {
               method: 'DELETE'
             });
             if (res.ok) {
@@ -1135,7 +1135,7 @@ export function getDashboardCreatorsDossierMethods() {
           this.showToast('🔍 Scraping Pinterest Related Feed live for Seed #' + pinId + '...');
           try {
             const compId = this.activeCreator.id || this.activeCreator.username;
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/harvest-live'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/harvest-live'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: compId, pin_id: pinId })
@@ -1161,7 +1161,7 @@ export function getDashboardCreatorsDossierMethods() {
           if (!confirm('Dispatch dedicated GitHub Actions Harvester for @' + handle + '? This will crawl all account seeds in parallel without cookies.')) return;
           this.isHarvestingRelated = true;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/related-pins/dispatch-workflow'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/dispatch-workflow'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1216,7 +1216,7 @@ export function getDashboardCreatorsDossierMethods() {
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 
-            const res = await fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString()), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/all-pins?' + p.toString()), {
               signal: this._creatorAllPinsAbortController.signal
             });
             if (reqSeq !== this._creatorAllPinsReqSeq) return;
@@ -1259,7 +1259,7 @@ export function getDashboardCreatorsDossierMethods() {
           this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
 
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/competitors/' + encodeURIComponent(cleanUser) + '/latest-pins');
+            const res = await window.apiFetch('/api/creators/' + encodeURIComponent(cleanUser) + '/latest-pins');
             if (res.ok) {
               const data = await res.json();
               if (data.ok) {
@@ -1314,7 +1314,7 @@ export function getDashboardCreatorsDossierMethods() {
         async fetchCreatorRules() {
           if (!this.activeCreator?.id) return;
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/rules?id=' + this.activeCreator.id));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/rules?id=' + this.activeCreator.id));
             if (res.ok) {
               const data = await res.json();
               if (data.rules) {
@@ -1330,7 +1330,7 @@ export function getDashboardCreatorsDossierMethods() {
           if (!this.activeCreator?.id) return;
           this.isSavingCreatorRules = true;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/rules'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/rules'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1359,7 +1359,7 @@ export function getDashboardCreatorsDossierMethods() {
           this.isReEvaluatingCreatorPins = true;
           this.reEvaluateMessage = '';
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/re-evaluate'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/re-evaluate'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ competitor_id: this.activeCreator.id })
@@ -1401,7 +1401,7 @@ export function getDashboardCreatorsDossierMethods() {
             p.set('page', this.creatorTopUrlsPage || 1);
             p.set('limit', 50);
 
-            const res = await fetch(this.getApiUrl('/api/competitors/top-urls?' + p.toString()));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/top-urls?' + p.toString()));
             if (res.ok) {
               const data = await res.json();
               this.activeCreatorTopUrls = data.urls || [];

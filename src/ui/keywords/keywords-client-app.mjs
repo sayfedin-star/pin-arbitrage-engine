@@ -199,10 +199,9 @@ export function getKeywordsClientAppScript() {
         popularPinsView: 'full',
         toast: { show: false, message: '', type: 'info' },
 
-        // Campaign Folders & Crossover Engine State
+        // Campaign Folders State
         folders: [],
         crossoverData: null,
-        isCrossoverLoading: false,
         currentKeywordFolders: [],
         isFolderManagerOpen: false,
         isCreateFolderModalOpen: false,
@@ -1208,7 +1207,7 @@ export function getKeywordsClientAppScript() {
             this.dashboardFolderFilter = this.activeFolderId;
             (async () => {
               try {
-                const fRes = await fetch('/api/folders/' + encodeURIComponent(this.activeFolderId));
+                const fRes = await window.apiFetch('/api/folders/' + encodeURIComponent(this.activeFolderId));
                 if (fRes.ok) {
                   const fData = await fRes.json().catch(() => ({}));
                   this.activeFolder = fData.folder || null;
@@ -1596,7 +1595,7 @@ export function getKeywordsClientAppScript() {
           try {
             const refreshParam = forceRefresh ? '&refresh=true' : '';
             const folderParam = this.activeFolderId ? ('&folder_id=' + encodeURIComponent(this.activeFolderId)) : '';
-            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam + folderParam));
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam + folderParam));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             const raw = Array.isArray(data.keywords) ? data.keywords : [];
@@ -1629,7 +1628,7 @@ export function getKeywordsClientAppScript() {
             this.isDetailsLoading = true;
             try {
               const autoParam = allowCreate ? '&auto_create=true' : '';
-              const res = await fetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam));
+              const res = await window.apiFetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam));
               const data = await res.json();
               if (data.success && data.keyword) {
                 this.selectedKeyword = data.keyword;
@@ -1701,7 +1700,7 @@ export function getKeywordsClientAppScript() {
           const currentReqId = ++this.detailRequestId;
 
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/serp-compare?keyword_id=' + kw.id), {
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/serp-compare?keyword_id=' + kw.id), {
               signal: this.detailAbortController.signal
             });
             if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1748,8 +1747,8 @@ export function getKeywordsClientAppScript() {
             }
 
             const [trendsRes, popularRes] = await Promise.allSettled([
-              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
-              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
+              window.apiFetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
+              window.apiFetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
             ]);
 
             let merged = {};
@@ -1820,7 +1819,7 @@ export function getKeywordsClientAppScript() {
           this.isDossierLoading = true;
           try {
             const kid = keywordId || this.selectedKeyword?.id || '';
-            const res = await fetch(this.getApiUrl('/api/keywords/pins/dossier?pin_id=' + encodeURIComponent(cleanPin) + (kid ? '&keyword_id=' + kid : '')), {
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/pins/dossier?pin_id=' + encodeURIComponent(cleanPin) + (kid ? '&keyword_id=' + kid : '')), {
               signal: abortSignal
             });
             if (currentReqId !== this.activePinRequestId) return;
@@ -1855,7 +1854,7 @@ export function getKeywordsClientAppScript() {
           const r = range || this.trajectoryRange || '30d';
           try {
             const kid = keywordId || this.selectedKeyword?.id || '';
-            const res = await fetch(this.getApiUrl('/api/keywords/pins/trajectory?pin_id=' + encodeURIComponent(cleanPin) + '&range=' + r + (kid ? '&keyword_id=' + kid : '')), {
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/pins/trajectory?pin_id=' + encodeURIComponent(cleanPin) + '&range=' + r + (kid ? '&keyword_id=' + kid : '')), {
               signal: abortSignal
             });
             if (currentReqId !== this.activePinRequestId) return;
@@ -1896,7 +1895,7 @@ export function getKeywordsClientAppScript() {
             const offset = append ? this.displacedOffset : 0;
             const limit = 500;
             const statusParam = this.displacedStatusFilter !== 'ALL' ? '&status=' + encodeURIComponent(this.displacedStatusFilter) : '';
-            const res = await fetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam));
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam));
             if (res.ok) {
               const data = await res.json();
               const incoming = data.displaced_pins || data.pins || [];
@@ -1940,7 +1939,7 @@ export function getKeywordsClientAppScript() {
 
         async fetchSettings() {
           try {
-            const res = await fetch(this.getApiUrl('/api/settings'));
+            const res = await window.apiFetch(this.getApiUrl('/api/settings'));
             if (res.ok) {
               const data = await res.json();
               if (data.success && data.settings) {
@@ -2284,7 +2283,7 @@ export function getKeywordsClientAppScript() {
 
           this.isTypeaheadLoading = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/typeahead?q=' + encodeURIComponent(q)));
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/typeahead?q=' + encodeURIComponent(q)));
             if (res.ok) {
               const data = await res.json();
               this.typeaheadSuggestions = data.suggestions || [];
@@ -2310,8 +2309,8 @@ export function getKeywordsClientAppScript() {
         async resolveAndInspectShortlink(url) {
           if (!url) return;
           try {
-            const res = await fetch('/api/pins/resolve-shortlink?url=' + encodeURIComponent(url), {
-              signal: AbortSignal.timeout(8000)
+            const res = await window.apiFetch('/api/pins/resolve-shortlink?url=' + encodeURIComponent(url), {
+              timeout: 8000
             });
             if (!res.ok) return;
             const data = await res.json();
@@ -2366,8 +2365,8 @@ export function getKeywordsClientAppScript() {
         async hydratePinUrlGlobalSaves(url) {
           if (!url) return;
           try {
-            const res = await fetch('/api/urls/global-saves?url=' + encodeURIComponent(url), {
-              signal: AbortSignal.timeout(6000)
+            const res = await window.apiFetch('/api/urls/global-saves?url=' + encodeURIComponent(url), {
+              timeout: 6000
             });
             if (res.ok) {
               const data = await res.json();
@@ -2723,7 +2722,7 @@ export function getKeywordsClientAppScript() {
           this.visualLensError = null;
 
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/visual-search?pin_id=' + encodeURIComponent(pin.pin_id)));
+            const res = await window.apiFetch(this.getApiUrl('/api/keywords/visual-search?pin_id=' + encodeURIComponent(pin.pin_id)));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to fetch visual search matches');
             this.visualLensResults = data.matches || [];
@@ -2827,12 +2826,12 @@ export function getKeywordsClientAppScript() {
         },
 
         // =========================================================================
-        // CAMPAIGN FOLDERS & CROSSOVER MATRIX ENGINE METHODS
+        // CAMPAIGN FOLDERS METHODS
         // =========================================================================
 
         async fetchFolders() {
           try {
-            const res = await fetch(this.getApiUrl('/api/folders'));
+            const res = await window.apiFetch(this.getApiUrl('/api/folders'));
             if (res.ok) {
               const data = await res.json();
               this.folders = data.folders || [];
@@ -2851,46 +2850,9 @@ export function getKeywordsClientAppScript() {
                 } else if (!this.activeFolder) {
                   this.activeFolder = this.folders[0];
                 }
-                if (this.activeTab === 'crossover' && this.activeFolder) {
-                  this.fetchFolderCrossover(this.activeFolder.id);
-                }
               }
             }
           } catch (_) {}
-        },
-
-        async selectFolder(folder) {
-          if (!folder) return;
-          this.activeFolder = folder;
-          this.activeTab = 'crossover';
-          await this.fetchFolderCrossover(folder.id);
-        },
-
-        openCrossoverTab() {
-          this.activeTab = 'crossover';
-          if (this.activeFolder) {
-            if (!this.crossoverData || this.crossoverData.folder?.id !== this.activeFolder.id) {
-              this.fetchFolderCrossover(this.activeFolder.id);
-            }
-          } else if (this.folders.length > 0) {
-            this.selectFolder(this.folders[0]);
-          }
-        },
-
-        async fetchFolderCrossover(folderId) {
-          if (!folderId) return;
-          this.isCrossoverLoading = true;
-          try {
-            const res = await fetch(this.getApiUrl('/api/folders/crossover?folder_id=' + folderId));
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            this.crossoverData = data.crossover || null;
-          } catch (err) {
-            this.showToast('Error loading crossover matrix: ' + err.message, 'error');
-          } finally {
-            this.isCrossoverLoading = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
         },
 
         openCreateFolderModal() {
@@ -2901,7 +2863,7 @@ export function getKeywordsClientAppScript() {
         async saveNewCampaignFolder() {
           if (!this.newFolder.name?.trim()) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/folders'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.newFolder)
@@ -2915,8 +2877,7 @@ export function getKeywordsClientAppScript() {
             this.isCreateFolderModalOpen = false;
             await this.fetchFolders();
             if (data.folder) {
-              this.selectFolder(data.folder);
-              this.activeTab = 'crossover';
+              this.activeFolder = data.folder;
             }
           } catch (err) {
             this.showToast('Error creating folder: ' + err.message, 'error');
@@ -2924,9 +2885,14 @@ export function getKeywordsClientAppScript() {
         },
 
         async deleteCampaignFolder(folderId) {
-          if (!confirm('Are you sure you want to delete this campaign folder? Keywords will remain tracked.')) return;
+          const ok = await window.PAE.confirm('Are you sure you want to delete this campaign folder? Keywords will remain tracked.', {
+            title: 'Delete Campaign Folder',
+            confirmLabel: 'Delete Folder',
+            danger: true
+          });
+          if (!ok) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders?id=' + folderId), { method: 'DELETE' });
+            const res = await window.apiFetch(this.getApiUrl('/api/folders?id=' + folderId), { method: 'DELETE' });
             if (!res.ok) {
               const errPayload = await res.json().catch(() => ({}));
               throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
@@ -2948,7 +2914,7 @@ export function getKeywordsClientAppScript() {
             return;
           }
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/by-keyword?keyword_id=' + this.selectedKeyword.id));
+            const res = await window.apiFetch(this.getApiUrl('/api/folders/by-keyword?keyword_id=' + this.selectedKeyword.id));
             if (res.ok) {
               const data = await res.json();
               this.currentKeywordFolders = data.folders || [];
@@ -2965,14 +2931,14 @@ export function getKeywordsClientAppScript() {
           const inFolder = this.isKeywordInFolder(folderId);
           try {
             if (inFolder) {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
+              await window.apiFetch(this.getApiUrl('/api/folders/items'), {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
               });
               this.showToast('Removed from folder', 'info');
             } else {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
+              await window.apiFetch(this.getApiUrl('/api/folders/items'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
@@ -2981,29 +2947,9 @@ export function getKeywordsClientAppScript() {
             }
             await this.fetchCurrentKeywordFolders();
             await this.fetchFolders();
-            if (this.activeFolder?.id === folderId) {
-              await this.fetchFolderCrossover(folderId);
-            }
           } catch (err) {
             this.showToast('Folder update error: ' + err.message, 'error');
           }
-        },
-
-        async openAddKeywordsModal() {
-          if (!this.activeFolder) return;
-          this.folderKeywordSearch = '';
-          try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders?id=' + this.activeFolder.id));
-            if (res.ok) {
-              const data = await res.json();
-              this.selectedFolderKeywordIds = (data.folder?.items || []).map(i => i.keyword_id);
-            } else {
-              this.selectedFolderKeywordIds = [];
-            }
-          } catch (_) {
-            this.selectedFolderKeywordIds = [];
-          }
-          this.isAddKeywordsModalOpen = true;
         },
 
         isKeywordSelected(kid) {
@@ -3021,7 +2967,7 @@ export function getKeywordsClientAppScript() {
         async commitFolderKeywords() {
           if (!this.activeFolder) return;
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/folders/items'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -3033,74 +2979,21 @@ export function getKeywordsClientAppScript() {
             this.showToast('Folder keywords updated!', 'success');
             this.isAddKeywordsModalOpen = false;
             await this.fetchFolders();
-            await this.fetchFolderCrossover(this.activeFolder.id);
           } catch (err) {
             this.showToast('Error saving keywords: ' + err.message, 'error');
           }
         },
 
-        copyAllUniversalTags() {
-          const tags = (this.crossoverData?.tag_bridges || []).slice(0, 15).map(t => t.tag).join(', ');
-          if (!tags) return;
-          this.copyToClipboard(tags, 'Copied Universal Tag Blueprint to clipboard!');
-        },
-
         safeUrl(url) {
-          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
-            return window.PAEFormatters.safeUrl(url);
-          }
-          // @deprecated VM fallback when shared-head formatters are absent
-          if (!url) return '#';
-          const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
-          return '#';
+          return window.PAE.safeUrl(url);
         },
 
         safeColor(color, fallback = '#ec4899') {
-          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeColor === 'function') {
-            return window.PAEFormatters.safeColor(color, fallback);
-          }
-          // @deprecated VM fallback when shared-head formatters are absent
-          if (!color) return fallback;
-          const s = String(color).trim();
-          if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
-          if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
-          return fallback;
+          return window.PAE.safeColor(color, fallback);
         },
 
         sanitizeCsvCell(val) {
-          let str = String(val == null ? '' : val);
-          const code = str.charCodeAt(0);
-          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
-            str = "'" + str;
-          }
-          return '"' + str.replace(/"/g, '""') + '"';
-        },
-
-        exportClusterBlueprintCsv() {
-          const blueprint = this.crossoverData?.topic_cluster_blueprint;
-          if (!blueprint || !Array.isArray(blueprint.csv_rows) || blueprint.csv_rows.length === 0) {
-            this.showToast('No blueprint rows available for export', 'error');
-            return;
-          }
-          const rows = blueprint.csv_rows;
-          const headers = Object.keys(rows[0]);
-          const csvContent = [
-            headers.map(h => this.sanitizeCsvCell(h)).join(','),
-            ...rows.map(r => headers.map(h => this.sanitizeCsvCell(r[h])).join(','))
-          ].join('\\r\\n');
-
-          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          const safeName = (this.activeFolder?.name || 'cluster_blueprint').toLowerCase().replace(/[^a-z0-9]+/g, '_');
-          a.download = 'pinterest_cluster_' + safeName + '.csv';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          this.showToast('1-Click CSV Blueprint downloaded successfully!', 'success');
+          return window.PAE.sanitizeCsvCell(val);
         }
       };
     }

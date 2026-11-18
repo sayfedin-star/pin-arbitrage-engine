@@ -9,7 +9,7 @@
 export function getDashboardArchiveRulesMethods() {
   return `        async fetchPinArchiveOverview() {
           try {
-            const res = await fetch(this.getApiUrl('/api/creators/archive-overview'));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/archive-overview'));
             if (res.ok) {
               const data = await res.json();
               this.pinarchiveOverview = data.overview || data;
@@ -25,7 +25,7 @@ export function getDashboardArchiveRulesMethods() {
         async fetchPinArchiveTopics() {
           try {
             const search = encodeURIComponent(this.pinarchiveTopicSearch || '');
-            const res = await fetch(this.getApiUrl('/api/creators/topics?search=' + search));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/topics?search=' + search));
             if (res.ok) {
               const data = await res.json();
               this.pinarchiveTopics = data.topics || [];
@@ -50,7 +50,7 @@ export function getDashboardArchiveRulesMethods() {
             if (this.pinarchiveSelectedTopic) p.set('topic', this.pinarchiveSelectedTopic);
             if (this.pinarchiveSelectedAccount) p.set('account', this.pinarchiveSelectedAccount.trim());
             p.set('limit', '48');
-            const res = await fetch(this.getApiUrl('/api/creators/pins?' + p.toString()));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/pins?' + p.toString()));
             if (res.ok) {
               const data = await res.json();
               this.pinarchivePins = data.pins || [];
@@ -77,7 +77,7 @@ export function getDashboardArchiveRulesMethods() {
 
         async fetchQualificationRules() {
           try {
-            const res = await fetch(this.getApiUrl('/api/creators/rules'));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/rules'));
             if (res.ok) {
               const data = await res.json();
               if (data.rules) {
@@ -172,7 +172,7 @@ export function getDashboardArchiveRulesMethods() {
           this.harvestingCompetitorId = compId;
           this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, max ' + maxPages + 'p)...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/dispatch-crawl'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/dispatch-crawl'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

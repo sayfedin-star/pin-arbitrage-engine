@@ -1,22 +1,15 @@
 /**
- * Dashboard & Executive Command Center UI
- * Orchestrator module coordinating submodules under src/ui/dashboard/:
- * - dashboard-board-view.mjs: Dedicated Board Detail & Complete Pin Inventory
- * - dashboard-overview.mjs: Tab 0 Executive Command Center
- * - dashboard-related-pins.mjs: Unified Related Pins Hub
- * - dashboard-creators.mjs: Creator Hub & PinArchive Showcase
- * - dashboard-client-app.mjs: Alpine.js dashboardApp() client script
+ * Dashboard & Executive Command Center UI (src/ui/dashboard/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { getDashboardModalsHtml } from './ui/dashboard-modals.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { getDashboardBoardViewHtml } from './ui/dashboard/dashboard-board-view.mjs';
-import { getDashboardOverviewHtml } from './ui/dashboard/dashboard-overview.mjs';
-import { getDashboardRelatedPinsHtml } from './ui/dashboard/dashboard-related-pins.mjs';
-import { getDashboardCreatorsHtml } from './ui/dashboard/dashboard-creators.mjs';
-import { getDashboardClientAppScript } from './ui/dashboard/dashboard-client-app.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
+import { getDashboardModalsHtml } from '../dashboard-modals.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { getDashboardBoardViewHtml } from './dashboard-board-view.mjs';
+import { getDashboardOverviewHtml } from './dashboard-overview.mjs';
+import { getDashboardRelatedPinsHtml } from './dashboard-related-pins.mjs';
+import { getDashboardCreatorsHtml } from './dashboard-creators.mjs';
+import { getDashboardClientAppScript } from './dashboard-client-app.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getDashboardHtml(folderId = '') {
   const safeFolderId = String(folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
@@ -100,7 +93,6 @@ ${renderSharedDocumentHead({
   </div>
 
   ${getDashboardClientAppScript({ safeFolderId })}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

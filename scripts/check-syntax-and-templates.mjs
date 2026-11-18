@@ -17,13 +17,13 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as acorn from 'acorn';
 
-import { getDashboardHtml } from '../src/dashboard-ui.mjs';
-import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
-import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
-import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
-import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
-import { getDomainsPageHtml } from '../src/domains-ui.mjs';
-import { getPulsePageHtml } from '../src/pulse-ui.mjs';
+import { getDashboardHtml } from '../src/ui/dashboard/index.mjs';
+import { getKeywordsPageHtml } from '../src/ui/keywords/index.mjs';
+import { getDiscoveryPageHtml } from '../src/ui/discovery/index.mjs';
+import { getPinDetailPageHtml } from '../src/ui/pin-details/index.mjs';
+import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
+import { getDomainsPageHtml } from '../src/ui/domains/index.mjs';
+import { getPulsePageHtml } from '../src/ui/pulse/index.mjs';
 
 const VOID_HTML_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
@@ -198,15 +198,7 @@ export function countTagBalance(html, label) {
   return { openMain, closeMain, openDiv, closeDiv };
 }
 
-// 4 pre-existing inline <span>•</span><span>...</span> pairs in src/ui/** deferred to Wave 5 UI pass
-const WAVE5_DEFERRED_MULTI_SPAN_XIF = new Set([
-  "selectedCandidate?.ingestion_method && selectedCandidate?.ingestion_method !== 'uploaded'",
-  'visualFeedUser?.follower_count',
-  'art.best_rank',
-  'art.is_vulnerable'
-]);
-
-export function verifyAlpineTemplateXIfSingleRoot(root, label, { allowLegacyDeferred = true } = {}) {
+export function verifyAlpineTemplateXIfSingleRoot(root, label) {
   const xIfTemplates = findNodes(root, (n) => n.tag === 'template' && n.attrs && Object.hasOwn(n.attrs, 'x-if'));
   for (const tpl of xIfTemplates) {
     const expr = String(tpl.attrs['x-if'] || '').trim();
@@ -216,9 +208,6 @@ export function verifyAlpineTemplateXIfSingleRoot(root, label, { allowLegacyDefe
       );
     }
     if (tpl.children.length > 1) {
-      if (allowLegacyDeferred && WAVE5_DEFERRED_MULTI_SPAN_XIF.has(expr)) {
-        continue;
-      }
       throw new Error(
         `FAIL [${label}]: <template x-if="${expr}"> has ${tpl.children.length} root elements (Alpine.js strictly requires 1 root element).`
       );
@@ -230,8 +219,13 @@ export function verifyAlpineTemplateXIfSingleRoot(root, label, { allowLegacyDefe
 export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
   const startTime = performance.now();
 
-  // 1. Parse 100% of .mjs files across src/, scripts/, workers/, and tests/
+  // 1. Parse 100% of .mjs files across src/, scripts/, workers/, and tests/, plus public/pae-shell.js
   const mjsCount = verifyAllMjsSyntax(rootDir);
+  const paeShellPath = path.join(rootDir, 'public', 'pae-shell.js');
+  if (fs.existsSync(paeShellPath)) {
+    const shellCode = fs.readFileSync(paeShellPath, 'utf8');
+    new vm.Script(shellCode, { filename: 'pae-shell.js' });
+  }
 
   // 2. Render all 7 SSR UI pages (including folder-scoped variants) with zero DB/network
   const foldersSettingsHtml = getCampaignFoldersPageHtml('test_folder_123', 'settings');

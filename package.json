@@ -15,7 +15,7 @@
     "dashboard": "node --use-system-ca src/server.mjs",
     "enrich:domains": "node --use-system-ca scripts/domain-enrich.mjs --mode=whois",
     "enrich:ads": "node --use-system-ca scripts/domain-enrich.mjs --mode=ads",
-    "lint": "npx eslint src/ scripts/ workers/ tests/ --max-warnings=0",
+    "lint": "npx eslint src/ scripts/ workers/ public/ tests/ --max-warnings=0",
     "check": "node scripts/check-syntax-and-templates.mjs && npm run lint",
     "test": "node --import \"data:text/javascript,process.env.NODE_ENV='test'\" --test \"tests/*.test.mjs\""
   },

@@ -1,15 +1,11 @@
 /**
- * Keyword Discovery & Autocomplete Hub UI (Level 1B)
- * Orchestrator module coordinating submodules under src/ui/discovery/:
- * - discovery-studio-view.mjs: Main Exploration Hub, Floating Bulk Actions Bar & Modals
- * - discovery-client-app.mjs: Alpine.js discoveryApp() client script
+ * Keyword Discovery & Autocomplete Hub UI (src/ui/discovery/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
-import { getDiscoveryStudioViewHtml } from './ui/discovery/discovery-studio-view.mjs';
-import { getDiscoveryClientAppScript } from './ui/discovery/discovery-client-app.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { getDiscoveryStudioViewHtml } from './discovery-studio-view.mjs';
+import { getDiscoveryClientAppScript } from './discovery-client-app.mjs';
 
 export function getDiscoveryPageHtml() {
   return `<!DOCTYPE html>
@@ -46,8 +42,8 @@ ${renderSharedDocumentHead({
 <body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="discoveryApp()">
 
   <!-- Toast Notification Container -->
-  <div 
-    x-show="toast.show" 
+  <div
+    x-show="toast.show"
     x-transition:enter="transition ease-out duration-200"
     x-transition:enter-start="opacity-0 translate-y-2 scale-95"
     x-transition:enter-end="opacity-100 translate-y-0 scale-100"
@@ -68,7 +64,6 @@ ${renderSharedDocumentHead({
 ${getDiscoveryStudioViewHtml()}
 
 ${getDiscoveryClientAppScript()}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

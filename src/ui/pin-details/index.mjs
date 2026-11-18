@@ -1,18 +1,11 @@
 /**
- * Dedicated Pin Intelligence Page UI (Level 3) - V5 Cockpit Architecture
- * Pure ES Module assembling the HTML application for /pins/:pin_id and /pin/:pin_id.
- *
- * Modularized into:
- * - ./ui/pin-details/styles.mjs
- * - ./ui/pin-details/page-template.mjs
- * - ./ui/pin-details/client-app.mjs
+ * Dedicated Pin Intelligence Page UI (src/ui/pin-details/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { getPinDetailsStyles } from './ui/pin-details/styles.mjs';
-import { getPinDetailsBodyHtml } from './ui/pin-details/page-template.mjs';
-import { getPinDetailsClientAppScripts } from './ui/pin-details/client-app.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
+import { getPinDetailsStyles } from './styles.mjs';
+import { getPinDetailsBodyHtml } from './page-template.mjs';
+import { getPinDetailsClientAppScripts } from './client-app.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getPinDetailPageHtml(pinId = '') {
   const safePinId = String(pinId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
@@ -63,7 +56,6 @@ ${getPinDetailsStyles()}
 </head>
 ${getPinDetailsBodyHtml(safePinId)}
 ${getPinDetailsClientAppScripts()}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

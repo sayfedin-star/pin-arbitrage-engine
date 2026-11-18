@@ -1,22 +1,14 @@
 /**
- * src/domains-ui.mjs
- *
- * Dedicated Domain Intelligence & SERP Monopoly Studio UI (Level 4B)
- * Orchestrator module coordinating submodules under src/ui/domains/:
- * - domains-leaderboard-view.mjs: Top 5 KPI Cards & Leaderboard Table
- * - domains-studio-view.mjs: Dedicated Full-Page Domain Intelligence Studio
- * - domains-modals.mjs: Arbitrage Attack Blueprint & Pin Inspector Modals
- * - domains-client-app.mjs: Alpine.js domainsApp() client script
+ * Dedicated Domain Intelligence & SERP Monopoly Studio UI (src/ui/domains/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
-import { getDomainsLeaderboardViewHtml } from './ui/domains/domains-leaderboard-view.mjs';
-import { getDomainsStudioViewHtml } from './ui/domains/domains-studio-view.mjs';
-import { getDomainsModalsHtml } from './ui/domains/domains-modals.mjs';
-import { getDomainsClientAppScript } from './ui/domains/domains-client-app.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
+import { getDomainsLeaderboardViewHtml } from './domains-leaderboard-view.mjs';
+import { getDomainsStudioViewHtml } from './domains-studio-view.mjs';
+import { getDomainsModalsHtml } from './domains-modals.mjs';
+import { getDomainsClientAppScript } from './domains-client-app.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
@@ -25,7 +17,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawFolderId = String(folderId || '').trim();
   const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
 
-    return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 ${renderSharedDocumentHead({
@@ -66,12 +58,11 @@ ${renderSharedDocumentHead({
 
   ${renderAppSidebar({ activeNav: 'domains', refreshHandler: 'refreshDomains()' })}
 
-  <!-- Main Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <!-- Main Container (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
     ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: safeFolderId }) : ''}
 
-    <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
     <template x-if="!scopedFolderId">
       <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
@@ -108,7 +99,6 @@ ${renderSharedDocumentHead({
       </section>
     </template>
 
-
     ${getDomainsLeaderboardViewHtml({ hasInitialDomain })}
 
     ${getDomainsStudioViewHtml({ hasInitialDomain })}
@@ -118,7 +108,6 @@ ${renderSharedDocumentHead({
   ${getDomainsModalsHtml()}
 
   ${getDomainsClientAppScript()}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

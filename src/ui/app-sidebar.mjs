@@ -15,13 +15,85 @@
  */
 
 export function renderAppTopbar({
-  activeNav = 'overview',
+  activeNav: _activeNav = 'overview',
   refreshHandler = 'window.location.reload()',
-  isDashboardSpa = false
+  isDashboardSpa = false,
+  refreshLoadingExpr = '',
+  customHeaderLeftHtml = '',
+  customHeaderRightHtml = ''
 } = {}) {
   const darkExpr = `(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false))`;
-  const loadingSpinAttr = isDashboardSpa ? ` :class="{'animate-spin': isLoading}"` : '';
-  const disabledRefreshAttr = isDashboardSpa ? ` :disabled="isLoading"` : '';
+  const effectiveLoadingExpr = refreshLoadingExpr || (isDashboardSpa ? 'isLoading' : '');
+  const loadingSpinAttr = effectiveLoadingExpr ? ` :class="{'animate-spin': ${effectiveLoadingExpr}}"` : '';
+  const disabledRefreshAttr = effectiveLoadingExpr ? ` :disabled="${effectiveLoadingExpr}"` : '';
+  const hasCustomHeader = Boolean(customHeaderLeftHtml || customHeaderRightHtml);
+
+  if (hasCustomHeader) {
+    return `
+  <!-- Unified Single Sticky Command Bar (Responsive Mobile + Desktop Shell) -->
+  <header
+    class="flex sticky top-0 z-40 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-3 shadow-xs"
+    :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
+
+    <!-- Left: Mobile Menu / Sidebar Toggle & Contextual Slot -->
+    <div class="flex items-center gap-2.5 min-w-0">
+      <button
+        type="button"
+        @click="isMobileMenuOpen = !isMobileMenuOpen"
+        aria-label="Toggle Navigation Menu"
+        class="md:hidden p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shrink-0 cursor-pointer"
+        title="Toggle Navigation Menu">
+        <i data-lucide="menu" class="w-4 h-4"></i>
+      </button>
+
+      <button
+        type="button"
+        @click="toggleSidebar()"
+        class="hidden md:inline-flex p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 shrink-0 cursor-pointer"
+        :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
+        aria-label="Toggle Sidebar">
+        <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
+        <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
+      </button>
+
+      ${customHeaderLeftHtml}
+    </div>
+
+    <!-- Right: Contextual Actions & Global Shell Controls -->
+    <div class="flex items-center gap-2 shrink-0">
+      ${customHeaderRightHtml}
+
+      <button
+        type="button"
+        @click="window.dispatchEvent(new CustomEvent('pae:open-command-palette'))"
+        aria-label="Search or Jump (⌘K)"
+        class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] transition active:scale-95 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+        title="Search or Jump to Studio (⌘K)">
+        <i data-lucide="search" class="w-4 h-4"></i>
+      </button>
+
+      <button
+        type="button"
+        @click="toggleTheme()"
+        class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-600 hover:text-slate-900 dark:text-[#A1A1AA] dark:hover:text-[#FAFAFA] hover:bg-slate-100 dark:hover:bg-[#27272A] transition active:scale-95 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+        :title="${darkExpr} ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
+        aria-label="Toggle color theme">
+        <span x-show="!${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="moon" class="w-4 h-4"></i></span>
+        <span x-show="${darkExpr}" class="inline-flex items-center justify-center"><i data-lucide="sun" class="w-4 h-4"></i></span>
+      </button>
+
+      <button
+        type="button"
+        @click="${refreshHandler}"${disabledRefreshAttr}
+        class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition active:scale-95 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+        title="Refresh View Data"
+        aria-label="Refresh View Data">
+        <i data-lucide="rotate-cw"${loadingSpinAttr} class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+  `;
+  }
 
   return `
   <!-- Desktop Sticky Topbar (Light-Mode Bento Shell) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
@@ -88,8 +160,12 @@ export function renderAppSidebar({
   activeNav = 'overview', // 'overview' | 'pulse' | 'creators' | 'keywords' | 'domains' | 'related_pins' | 'folders'
   refreshHandler = 'window.location.reload()',
   isDashboardSpa = false,
-  showTopbar = true
+  showTopbar = true,
+  refreshLoadingExpr = '',
+  customHeaderLeftHtml = '',
+  customHeaderRightHtml = ''
 } = {}) {
+  const hasCustomHeader = Boolean(customHeaderLeftHtml || customHeaderRightHtml);
   const isOverview = activeNav === 'overview';
   const isPulse = activeNav === 'pulse' || activeNav === '24h';
   const isCreators = activeNav === 'creators';
@@ -151,7 +227,7 @@ export function renderAppSidebar({
   `;
 
   return `
-  <!-- Mobile Top Header (Visible on screens < md) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  ${hasCustomHeader ? '' : `<!-- Mobile Top Header (Visible on screens < md) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <header class="md:hidden border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl sticky top-0 z-40 px-4 py-2.5 flex items-center justify-between shadow-xs">
     <div class="flex items-center space-x-2.5">
       <button
@@ -200,7 +276,7 @@ export function renderAppSidebar({
         <i data-lucide="rotate-cw"${loadingSpinAttr} class="w-4 h-4"></i>
       </button>
     </div>
-  </header>
+  </header>`}
 
   <!-- Mobile Drawer Backdrop & Drawer [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <div
@@ -607,7 +683,7 @@ export function renderAppSidebar({
     </div>
   </aside>
 
-  ${showTopbar ? renderAppTopbar({ activeNav, refreshHandler, isDashboardSpa }) : ''}
+  ${showTopbar ? renderAppTopbar({ activeNav, refreshHandler, isDashboardSpa, refreshLoadingExpr, customHeaderLeftHtml, customHeaderRightHtml }) : ''}
 
   <!-- Global Command Palette Modal (⌘K / ⌘F) [INVARIANT: GLOBAL-SEARCH-PALETTE] -->
   <div
@@ -1183,7 +1259,7 @@ export function renderAppSidebar({
               try {
                 var fetchOpts = { headers: { 'Accept': 'application/json' } };
                 if (controller) fetchOpts.signal = controller.signal;
-                var res = await fetch('/api/search/autocomplete?q=' + encodeURIComponent(q) + '&limit=5', fetchOpts);
+                var res = await (window.apiFetch || fetch)('/api/search/autocomplete?q=' + encodeURIComponent(q) + '&limit=5', fetchOpts);
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 var data = await res.json();
                 if (seq !== this._cmdSeq || this.cmdTrimmed.toLowerCase() !== q.toLowerCase()) return;

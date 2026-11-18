@@ -241,8 +241,10 @@ export function getFoldersModalsHtml() {
               <span>•</span>
               <span x-text="visualFeedPins.length + ' Latest Pins'"></span>
               <template x-if="visualFeedUser?.follower_count">
-                <span>•</span>
-                <span x-text="formatNumber(visualFeedUser.follower_count) + ' Followers'"></span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span>•</span>
+                  <span x-text="formatNumber(visualFeedUser.follower_count) + ' Followers'"></span>
+                </span>
               </template>
             </div>
           </div>

@@ -1,23 +1,12 @@
 /**
- * src/pulse-ui.mjs
- *
- * Global 24-Hour Algorithmic Pulse & Crossover Studio UI
- * Single Source of Truth (SSOT) for /pulse, /24h, and /folders/:id/pulse.
- *
- * Thin SSR orchestrator shell composing:
- * - Shared document head (renderSharedDocumentHead)
- * - Unified desktop/mobile sidebar (renderAppSidebar)
- * - Campaign workspace header (renderCampaignWorkspaceHeader)
- * - 3-Room Cockpit & Slide-Over Blueprint Drawer views (getPulseStudioViewsHtml)
- * - Alpine.js client controller (getPulseClientAppScript)
+ * Global 24-Hour Algorithmic Pulse & Crossover Studio UI (src/ui/pulse/index.mjs)
  */
 
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { getPulseStudioViewsHtml } from './ui/pulse/pulse-views.mjs';
-import { getPulseClientAppScript } from './ui/pulse/pulse-client-app.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { getPulseStudioViewsHtml } from './pulse-views.mjs';
+import { getPulseClientAppScript } from './pulse-client-app.mjs';
 
 export function getPulsePageHtml(folderId = '') {
   const rawFolderId = String(folderId || '').trim();
@@ -55,8 +44,7 @@ ${renderSharedDocumentHead({
   referrerPolicy: 'same-origin',
   tailwindScriptHtml,
   includeThemeScript: true,
-  defaultTheme: 'light',
-  extraHeadHtml: getEdgeShieldClientScript()
+  defaultTheme: 'light'
 })}
 </head>
 <body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="pulseStudioApp('${safeFolderId}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal();">
@@ -79,7 +67,7 @@ ${renderSharedDocumentHead({
 
   ${renderAppSidebar({ activeNav: 'pulse', refreshHandler: 'refreshPulse(true)' })}
 
-  <!-- Main Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <!-- Main Container (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
     ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'pulse', folderId: safeFolderId }) : ''}

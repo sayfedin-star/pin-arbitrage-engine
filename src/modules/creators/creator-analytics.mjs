@@ -173,7 +173,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   }
 
   // [INVARIANT: ZERO-READ-PATH-MUTATIONS]
-  // Read path is strictly read-only: zero UPDATE competitor_profiles or writes during GET /api/competitors/detail.
+  // Read path is strictly read-only: zero UPDATE competitor_profiles or writes during GET /api/creators/detail.
 
   const aggregatesPromise = (async () => {
     try {

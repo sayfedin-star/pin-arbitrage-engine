@@ -156,8 +156,8 @@ export function getDashboardBoardsAndPinMethods() {
             p.set('limit', 1000);
 
             const [pinsRes, detailRes] = await Promise.all([
-              fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString())),
-              cleanUser ? fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(cleanUser) + '&board=' + encodeURIComponent(boardName))) : Promise.resolve(null)
+              window.apiFetch(this.getApiUrl('/api/creators/all-pins?' + p.toString())),
+              cleanUser ? window.apiFetch(this.getApiUrl('/api/creators/board-detail?username=' + encodeURIComponent(cleanUser) + '&board=' + encodeURIComponent(boardName))) : Promise.resolve(null)
             ]);
 
             let updatedBoard = { ...this.activeBoard };
@@ -222,8 +222,7 @@ export function getDashboardBoardsAndPinMethods() {
           if (!handle) return;
           this.showToast('🔍 Scraping authentic Related Interests (board_vase) from Pinterest...');
           try {
-            const fetchFn = window.safeApiFetch || fetch;
-            const res = await fetchFn(this.getApiUrl('/api/competitors/board-detail/sync'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/board-detail/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username: handle, board: this.activeBoardName, refresh: true })
@@ -300,7 +299,7 @@ export function getDashboardBoardsAndPinMethods() {
           const cleanUser = (creator.username || '').replace(/^@+/, '').trim();
           this.isLoadingBoards = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(targetId) + (cleanUser ? '&username=' + encodeURIComponent(cleanUser) : '')));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/boards?competitor_id=' + encodeURIComponent(targetId) + (cleanUser ? '&username=' + encodeURIComponent(cleanUser) : '')));
             if (res.ok) {
               const data = await res.json();
               this.activeCreatorBoards = data.boards || [];
@@ -322,7 +321,7 @@ export function getDashboardBoardsAndPinMethods() {
           const handle = (creator.username || '').replace(/^@+/, '').trim();
           if (!handle) return;
           try {
-            const res = await fetch(this.getApiUrl('/api/creators/pins?account=@' + encodeURIComponent(handle) + '&limit=500'));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/pins?account=@' + encodeURIComponent(handle) + '&limit=500'));
             if (res.ok) {
               const data = await res.json();
               this.activeCreatorPins = data.pins || [];
@@ -523,7 +522,7 @@ export function getDashboardBoardsAndPinMethods() {
 
           // 2. Persist to backend
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/status'), {
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/status'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ id: targetId, is_active: newStatus })
@@ -674,7 +673,7 @@ export function getDashboardBoardsAndPinMethods() {
           try {
             // 1. Ensure competitor profile is registered in database before crawling
             if (this.newCompetitorAlsoTrack || this.newCompetitorDiscoverPins) {
-              const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors'), {
+              const res = await window.apiFetch(this.getApiUrl('/api/creators'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -700,7 +699,7 @@ export function getDashboardBoardsAndPinMethods() {
               const maxPages = this.newCompetitorDiscoverMode === 'deep' ? Math.min(10000, Math.max(1, Number(this.newCompetitorMaxPages) || 500)) : 3;
               this.showToast('⚡ Dispatching 20-runner GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
               
-              const resPins = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/dispatch-crawl'), {
+              const resPins = await window.apiFetch(this.getApiUrl('/api/creators/dispatch-crawl'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -1,26 +1,36 @@
 /**
  * src/ui/shared-formatters.mjs
- * 
- * Single Source of Truth (SSOT) for UI Numeric, Date, and Metric Formatters
+ *
+ * Single Source of Truth (SSOT) for Node-side UI Formatters, Sanitizers & Safe API Client.
+ * Browser-side equivalents are served from the cached static `/pae-shell.js` bundle.
+ *
  * Enforces:
  * - [INVARIANT: UNIVERSAL-STRICT-TIME-FORMATTING] (Rule 31: >=365d => years only e.g. '11.2y', <365d => days only e.g. '145d')
  * - [INVARIANT: ANTI-NAN-POISONING] (Rule 3: strict Number.isFinite() guards on all numeric formats)
- * - [INVARIANT: DESIGN-TOKEN-PARITY] (Geist / JetBrains Mono tabular-nums)
- * - [INVARIANT: HEADLESS-NODE-SHIELD] (Rule 17: browser globals safely guarded)
+ * - [INVARIANT: SAFE-UI-API-CLIENT] (15s AbortSignal.timeout, fresh signal per retry, 502/503/504 & AUTH_NOT_CONFIGURED handling)
  */
 
-/**
- * Format a number with comma separators or compact notation
- * @param {number|string|bigint|null|undefined} val
- * @param {object} [options]
- * @param {boolean} [options.compact=false] - If true, formats e.g. 1.2M, 45.3K
- * @param {number} [options.decimals=1] - Decimal precision for compact mode
- * @returns {string}
- */
+export function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function sanitizeCsvCell(val) {
+  let str = String(val == null ? '' : val);
+  const code = str.charCodeAt(0);
+  if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
+    str = "'" + str;
+  }
+  return '"' + str.replace(/"/g, '""') + '"';
+}
+
 export function formatNumber(val, options = {}) {
   if (val === null || val === undefined || val === '') return '0';
-  
-  // Unpack object if passed accidentally (Anti-Object Poisoning Rule 3)
+
   if (typeof val === 'object' && val !== null) {
     val = val.saves ?? val.count ?? val.value ?? val.number ?? 0;
   }
@@ -47,13 +57,6 @@ export function formatNumber(val, options = {}) {
   return Math.round(num).toLocaleString('en-US');
 }
 
-/**
- * Format age strictly complying with Rule 31:
- * - If duration/age is >= 365 days: display strictly in years only (e.g. '11.2y', '2.1y' - NEVER show days in parentheses)
- * - If duration/age is < 365 days: display strictly in days only (e.g. '145d')
- * @param {number|string|Date|null|undefined} daysOrDate - Number of days or ISO date string
- * @returns {string}
- */
 export function formatUniversalAge(daysOrDate) {
   if (daysOrDate === null || daysOrDate === undefined || daysOrDate === '') return '—';
 
@@ -64,7 +67,6 @@ export function formatUniversalAge(daysOrDate) {
   } else if (typeof daysOrDate === 'string' && /^-?\d+(\.\d+)?$/.test(daysOrDate.trim())) {
     days = Number(daysOrDate);
   } else {
-    // Treat as date string
     const t = new Date(daysOrDate).getTime();
     if (!Number.isNaN(t)) {
       days = Math.max(0, Math.floor((Date.now() - t) / 86400000));
@@ -74,7 +76,6 @@ export function formatUniversalAge(daysOrDate) {
   if (days === null || !Number.isFinite(days)) return '—';
   if (days < 0) days = 0;
 
-  // [INVARIANT: UNIVERSAL-STRICT-TIME-FORMATTING] Rule 31 Parity
   if (days >= 365) {
     const years = (days / 365).toFixed(1);
     return `${years}y`;
@@ -82,17 +83,8 @@ export function formatUniversalAge(daysOrDate) {
   return `${Math.round(days)}d`;
 }
 
-/**
- * Alias for formatUniversalAge
- */
 export const formatAge = formatUniversalAge;
 
-/**
- * Format daily velocity with explicit + sign and tabular-nums
- * @param {number|string|null|undefined} vel
- * @param {string} [suffix='/d']
- * @returns {string}
- */
 export function formatVelocity(vel, suffix = '/d') {
   if (vel === null || vel === undefined || vel === '') return `0${suffix}`;
   const num = Number(vel);
@@ -102,12 +94,6 @@ export function formatVelocity(vel, suffix = '/d') {
   return (num > 0 ? `+${formatted}` : `${formatted}`) + suffix;
 }
 
-/**
- * Format percentage delta
- * @param {number|string|null|undefined} val
- * @param {number} [decimals=1]
- * @returns {string}
- */
 export function formatPercent(val, decimals = 1) {
   if (val === null || val === undefined || val === '') return '0%';
   const num = Number(val);
@@ -116,11 +102,6 @@ export function formatPercent(val, decimals = 1) {
   return (num > 0 ? `+${formatted}%` : `${formatted}%`);
 }
 
-/**
- * Format pin creation method label
- * @param {object|string|null|undefined} pinOrMethod
- * @returns {string}
- */
 export function formatPinMethod(pinOrMethod) {
   let method = '';
   if (typeof pinOrMethod === 'string') {
@@ -140,11 +121,6 @@ export function formatPinMethod(pinOrMethod) {
   return 'Standard';
 }
 
-/**
- * Get CSS badge classes for pin method badge
- * @param {object|string|null|undefined} pinOrMethod
- * @returns {string}
- */
 export function getPinMethodBadgeClass(pinOrMethod) {
   const method = formatPinMethod(pinOrMethod).toLowerCase();
   if (method === 'carousel') {
@@ -162,11 +138,6 @@ export function getPinMethodBadgeClass(pinOrMethod) {
   return 'bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]';
 }
 
-/**
- * Format Date to standard YYYY-MM-DD
- * @param {Date|string|number|null|undefined} date
- * @returns {string}
- */
 export function formatDate(date) {
   if (!date) return '—';
   try {
@@ -178,11 +149,6 @@ export function formatDate(date) {
   }
 }
 
-/**
- * Format Timeframe code to human-readable label
- * @param {string|null|undefined} tf
- * @returns {string}
- */
 export function formatTimeframe(tf) {
   const t = String(tf || '').trim().toLowerCase();
   if (t === '24h') return '24 Hours';
@@ -192,11 +158,6 @@ export function formatTimeframe(tf) {
   return tf || '24h';
 }
 
-/**
- * Safe URL sanitizer (prevents javascript: protocols)
- * @param {string|null|undefined} url
- * @returns {string}
- */
 export function safeUrl(url) {
   if (!url || typeof url !== 'string') return '#';
   const trimmed = url.trim();
@@ -206,12 +167,6 @@ export function safeUrl(url) {
   return '#';
 }
 
-/**
- * Safe CSS color sanitizer (prevents CSS/attribute injection via color strings)
- * @param {string|null|undefined} color
- * @param {string} [fallback='#cbd5e1']
- * @returns {string}
- */
 export function safeColor(color, fallback = '#cbd5e1') {
   if (!color || typeof color !== 'string') return fallback;
   const s = color.trim();
@@ -222,148 +177,150 @@ export function safeColor(color, fallback = '#cbd5e1') {
 }
 
 /**
- * Get client-side inline script initializing window.PAEFormatters
- * Safe for injection into SSR HTML templates.
- * @returns {string}
+ * Node/Universal safe fetch client helper (replaces deleted src/edge-shield-client.mjs)
+ * Enforces AbortSignal.timeout(15000), fresh signal per retry, and 502/503/504 vs AUTH_NOT_CONFIGURED handling.
  */
-export function getInlineFormattersScript() {
-  return `
-  <script>
-    (function() {
-      if (typeof window === 'undefined') return;
-      if (window.PAEFormatters) return;
+export async function safeApiFetch(url, options = {}) {
+  const timeoutMs = options.timeout || 15000;
+  const maxRetries = Number.isInteger(options.retries) ? Math.max(0, options.retries) : 0;
+  const retryDelay = options.retryDelay || 1000;
+  const callerSignal = options.signal;
+  const fetchImpl = options.fetchImpl || fetch;
+  const opts = { ...options };
+  delete opts.timeout;
+  delete opts.retries;
+  delete opts.retryDelay;
+  delete opts.fetchImpl;
 
-      var formatNumber = function(val, options) {
-        if (val === null || val === undefined || val === '') return '0';
-        if (typeof val === 'object' && val !== null) {
-          val = val.saves || val.count || val.value || val.number || 0;
-        }
-        var num = Number(val);
-        if (!Number.isFinite(num)) return '0';
-        if (options && options.compact) {
-          var abs = Math.abs(num);
-          var sign = num < 0 ? '-' : '';
-          var dec = options.decimals !== undefined ? options.decimals : 1;
-          if (abs >= 1000000000) return sign + (abs / 1000000000).toFixed(dec).replace(/\\.0+$/, '') + 'B';
-          if (abs >= 1000000) return sign + (abs / 1000000).toFixed(dec).replace(/\\.0+$/, '') + 'M';
-          if (abs >= 1000) return sign + (abs / 1000).toFixed(dec).replace(/\\.0+$/, '') + 'K';
-          return sign + Math.round(abs).toLocaleString('en-US');
-        }
-        return Math.round(num).toLocaleString('en-US');
-      };
+  function createSignal() {
+    let timeoutSig;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      timeoutSig = AbortSignal.timeout(timeoutMs);
+    } else if (typeof AbortController !== 'undefined') {
+      const controller = new AbortController();
+      setTimeout(() => {
+        try { controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)); } catch (_) {}
+      }, timeoutMs);
+      timeoutSig = controller.signal;
+    }
+    if (callerSignal && timeoutSig && typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+      return AbortSignal.any([callerSignal, timeoutSig]);
+    }
+    return callerSignal || timeoutSig;
+  }
 
-      var formatUniversalAge = function(daysOrDate) {
-        if (daysOrDate === null || daysOrDate === undefined || daysOrDate === '') return '—';
-        var days = null;
-        if (typeof daysOrDate === 'number') {
-          days = daysOrDate;
-        } else if (typeof daysOrDate === 'string' && /^-?\\d+(\\.\\d+)?$/.test(daysOrDate.trim())) {
-          days = Number(daysOrDate);
-        } else {
-          var t = new Date(daysOrDate).getTime();
-          if (!Number.isNaN(t)) {
-            days = Math.max(0, Math.floor((Date.now() - t) / 86400000));
-          }
-        }
-        if (days === null || !Number.isFinite(days)) return '—';
-        if (days < 0) days = 0;
-        if (days >= 365) return (days / 365).toFixed(1) + 'y';
-        return Math.round(days) + 'd';
-      };
+  let rawRes;
+  let parsedData = null;
+  let rawText = '';
+  let attempt = 0;
 
-      var formatVelocity = function(vel, suffix) {
-        suffix = suffix || '/d';
-        if (vel === null || vel === undefined || vel === '') return '0' + suffix;
-        var num = Number(vel);
-        if (!Number.isFinite(num) || num === 0) return '0' + suffix;
-        var fmt = Number.isInteger(num) ? num : num.toFixed(1);
-        return (num > 0 ? ('+' + fmt) : String(fmt)) + suffix;
-      };
+  while (true) {
+    const attemptOpts = { ...opts };
+    const sig = createSignal();
+    if (sig) attemptOpts.signal = sig;
+    parsedData = null;
+    rawText = '';
 
-      var formatPercent = function(val, decimals) {
-        decimals = decimals !== undefined ? decimals : 1;
-        if (val === null || val === undefined || val === '') return '0%';
-        var num = Number(val);
-        if (!Number.isFinite(num)) return '0%';
-        var fmt = num.toFixed(decimals).replace(/\\.0+$/, '');
-        return (num > 0 ? ('+' + fmt + '%') : (fmt + '%'));
-      };
+    try {
+      rawRes = await fetchImpl(url, attemptOpts);
+    } catch (err) {
+      if (callerSignal?.aborted) throw err;
+      const isTimeout = err && (err.name === 'TimeoutError' || /timeout|aborted/i.test(String(err.message || '')));
+      if (attempt < maxRetries) {
+        attempt++;
+        await new Promise((r) => setTimeout(r, retryDelay));
+        continue;
+      }
+      if (isTimeout) {
+        throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s (server or database cold-start). Please retry.`);
+      }
+      throw err;
+    }
 
-      var formatPinMethod = function(pinOrMethod) {
-        var m = '';
-        if (typeof pinOrMethod === 'string') {
-          m = pinOrMethod;
-        } else if (pinOrMethod && typeof pinOrMethod === 'object') {
-          m = pinOrMethod.creation_method || (pinOrMethod.metadata && pinOrMethod.metadata.creation_method) || (pinOrMethod.is_video ? 'video' : 'standard');
-        }
-        m = String(m || '').toLowerCase().trim();
-        if (m.indexOf('carousel') !== -1) return 'Carousel';
-        if (m.indexOf('video') !== -1) return 'Video';
-        if (m.indexOf('idea') !== -1 || m.indexOf('story') !== -1) return 'Idea';
-        if (m.indexOf('product') !== -1) return 'Product';
-        return 'Standard';
-      };
+    const contentType = (rawRes.headers && typeof rawRes.headers.get === 'function' && rawRes.headers.get('content-type')) || '';
+    if (contentType.includes('application/json')) {
+      try {
+        parsedData = await rawRes.json();
+      } catch (jsonErr) {
+        parsedData = {
+          success: false,
+          ok: false,
+          error: `Failed to parse JSON response: ${jsonErr.message}`,
+          status: rawRes.status
+        };
+      }
+    } else {
+      try {
+        rawText = await rawRes.text();
+      } catch (_) {}
+    }
 
-      var getPinMethodBadgeClass = function(pinOrMethod) {
-        var m = formatPinMethod(pinOrMethod).toLowerCase();
-        if (m === 'carousel') return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30';
-        if (m === 'video') return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30';
-        if (m === 'product') return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
-        if (m === 'idea') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
-        return 'bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]';
-      };
+    const isAuth503 = rawRes.status === 503 && (
+      (parsedData && (parsedData.error === 'AUTH_NOT_CONFIGURED' || parsedData.code === 'AUTH_NOT_CONFIGURED')) ||
+      (rawText && (rawText.includes('API_SECRET_KEY is not configured') || rawText.includes('AUTH_NOT_CONFIGURED')))
+    );
 
-      var formatTimeframe = function(tf) {
-        var t = String(tf || '').trim().toLowerCase();
-        if (t === '24h') return '24 Hours';
-        if (t === '5d') return '5 Days';
-        if (t === '7d') return '7 Days';
-        if (t === '15d') return '15 Days';
-        return tf || '24h';
-      };
+    if (!rawRes.ok && !isAuth503 && (rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504) && attempt < maxRetries) {
+      attempt++;
+      await new Promise((r) => setTimeout(r, retryDelay));
+      continue;
+    }
+    break;
+  }
 
-      var safeUrl = function(url) {
-        if (!url || typeof url !== 'string') return '#';
-        var t = url.trim();
-        if (/^https?:\\/\\//i.test(t) || (t.indexOf('/') === 0 && t.indexOf('//') !== 0)) return t;
-        return '#';
-      };
+  const isAuthNotConfigured = rawRes.status === 503 && (
+    (parsedData && (parsedData.error === 'AUTH_NOT_CONFIGURED' || parsedData.code === 'AUTH_NOT_CONFIGURED')) ||
+    (rawText && (rawText.includes('API_SECRET_KEY is not configured') || rawText.includes('AUTH_NOT_CONFIGURED')))
+  );
+  const isColdStartOrGateway = !isAuthNotConfigured && (rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504);
 
-      var safeColor = function(color, fallback) {
-        fallback = fallback || '#cbd5e1';
-        if (!color || typeof color !== 'string') return fallback;
-        var s = color.trim();
-        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
-        if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
-        if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(s)) return s;
-        return fallback;
-      };
+  if (!parsedData) {
+    parsedData = {
+      success: rawRes.ok,
+      ok: rawRes.ok,
+      error: isAuthNotConfigured
+        ? 'AUTH_NOT_CONFIGURED'
+        : (isColdStartOrGateway
+          ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
+          : (rawRes.ok ? null : (rawText || `HTTP ${rawRes.status}: ${rawRes.statusText || 'Error'}`))),
+      message: isAuthNotConfigured
+        ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.'
+        : (isColdStartOrGateway
+          ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
+          : rawText),
+      raw_text: rawText,
+      status: rawRes.status
+    };
+  } else if (!rawRes.ok) {
+    if (isAuthNotConfigured) {
+      parsedData.error = 'AUTH_NOT_CONFIGURED';
+      parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in server environment variables.';
+    } else if (rawRes.status === 401) {
+      parsedData.error = parsedData.error || 'UNAUTHORIZED';
+      parsedData.message = parsedData.message || 'Invalid or missing API key (HTTP 401).';
+    }
+  }
 
-      window.PAEFormatters = {
-        formatNumber: formatNumber,
-        formatUniversalAge: formatUniversalAge,
-        formatAge: formatUniversalAge,
-        formatVelocity: formatVelocity,
-        formatPercent: formatPercent,
-        formatPinMethod: formatPinMethod,
-        getPinMethodBadgeClass: getPinMethodBadgeClass,
-        formatTimeframe: formatTimeframe,
-        safeUrl: safeUrl,
-        safeColor: safeColor
-      };
-
-      // Expose to window for backwards compatibility with inline templates
-      if (!window.formatNumber) window.formatNumber = formatNumber;
-      if (!window.formatUniversalAge) window.formatUniversalAge = formatUniversalAge;
-      if (!window.formatAge) window.formatAge = formatUniversalAge;
-      if (!window.formatVelocity) window.formatVelocity = formatVelocity;
-      if (!window.formatPercent) window.formatPercent = formatPercent;
-      if (!window.formatPinMethod) window.formatPinMethod = formatPinMethod;
-      if (!window.getPinMethodBadgeClass) window.getPinMethodBadgeClass = getPinMethodBadgeClass;
-      if (!window.formatTimeframe) window.formatTimeframe = formatTimeframe;
-      if (!window.safeUrl) window.safeUrl = safeUrl;
-      if (!window.safeColor) window.safeColor = safeColor;
-    })();
-  </script>
-  `;
+  return {
+    ok: rawRes.ok,
+    status: rawRes.status,
+    statusText: rawRes.statusText,
+    headers: rawRes.headers,
+    url: rawRes.url,
+    redirected: rawRes.redirected,
+    type: rawRes.type,
+    data: parsedData,
+    raw: rawRes,
+    async json() {
+      return parsedData;
+    },
+    async text() {
+      return rawText || (typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData));
+    },
+    clone() {
+      return typeof rawRes.clone === 'function' ? rawRes.clone() : this;
+    }
+  };
 }
+
+export const apiFetch = safeApiFetch;

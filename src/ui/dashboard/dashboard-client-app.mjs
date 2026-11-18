@@ -1442,10 +1442,10 @@ ${getDashboardSeedComputedProperties()}
 
           try {
             const [candRes, telRes, pbRes, capRes] = await Promise.all([
-              fetch(this.getApiUrl('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
-              fetch(this.getApiUrl('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id)),
-              fetch(this.getApiUrl('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id)),
-              fetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + seed.pin_id))
+              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
+              window.apiFetch(this.getApiUrl('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id)),
+              window.apiFetch(this.getApiUrl('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id)),
+              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + seed.pin_id))
             ]);
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (telRes.ok) this.dossierTelemetry = await telRes.json();
@@ -1464,8 +1464,8 @@ ${getDashboardSeedComputedProperties()}
           if (!this.activeDossierSeed) return;
           try {
             const [candRes, capRes] = await Promise.all([
-              fetch(this.getApiUrl('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
-              fetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id))
+              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
+              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id))
             ]);
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
@@ -1492,7 +1492,7 @@ ${getDashboardSeedComputedProperties()}
           this.isDossierOpen = true;
           if (!this.recgptPlaybook || (item?.seed_pin_id && this.recgptPlaybook.seed_pin_id !== item.seed_pin_id)) {
             try {
-              const res = await fetch(this.getApiUrl('/api/recgpt-playbook' + (item?.seed_pin_id ? '?seed_pin_id=' + item.seed_pin_id : '')));
+              const res = await window.apiFetch(this.getApiUrl('/api/recgpt-playbook' + (item?.seed_pin_id ? '?seed_pin_id=' + item.seed_pin_id : '')));
               if (res.ok) this.recgptPlaybook = await res.json();
             } catch (e) {}
           }
@@ -1881,7 +1881,7 @@ ${getDashboardArchiveRulesMethods()}
 
         async fetchOverview() {
           try {
-            const res = await fetch(this.getApiUrl('/api/overview'));
+            const res = await window.apiFetch(this.getApiUrl('/api/overview'));
             if (res.ok) {
               this.overview = await res.json();
             } else {
@@ -1896,7 +1896,7 @@ ${getDashboardArchiveRulesMethods()}
 
         async fetchSeeds() {
           try {
-            const res = await fetch(this.getApiUrl('/api/seeds'));
+            const res = await window.apiFetch(this.getApiUrl('/api/seeds'));
             if (res.ok) {
               this.seeds = await res.json();
             } else {
@@ -1909,7 +1909,7 @@ ${getDashboardArchiveRulesMethods()}
 
         async fetchIntersections() {
           try {
-            const res = await fetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'));
+            const res = await window.apiFetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'));
             if (res.ok) {
               this.intersections = await res.json();
             } else {
@@ -1926,7 +1926,7 @@ ${getDashboardArchiveRulesMethods()}
             url += '&seed_pin_id=' + this.explorerSeedId;
           }
           try {
-            const res = await fetch(this.getApiUrl(url));
+            const res = await window.apiFetch(this.getApiUrl(url));
             if (res.ok) this.explorerCandidates = await res.json();
           } catch (e) {}
           this.$nextTick(() => {
@@ -1993,7 +1993,7 @@ ${getDashboardArchiveRulesMethods()}
           if (this._isPollingCrawl) return;
           this._isPollingCrawl = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/crawl-status'));
+            const res = await window.apiFetch(this.getApiUrl('/api/crawl-status'));
             if (res.ok) {
               const prevCrawling = this.crawlStatus.is_crawling;
               this.crawlStatus = await res.json();
@@ -2020,7 +2020,7 @@ ${getDashboardArchiveRulesMethods()}
 
         async fetchCookieStatus() {
           try {
-            const res = await fetch(this.getApiUrl('/api/settings/cookie'));
+            const res = await window.apiFetch(this.getApiUrl('/api/settings/cookie'));
             if (res.ok) {
               const data = await res.json();
               this.cookieStatus = data;

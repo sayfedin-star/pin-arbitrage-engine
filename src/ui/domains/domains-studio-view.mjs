@@ -598,12 +598,16 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                             </span>
                           </template>
                           <template x-if="art.best_rank">
-                            <span>•</span>
-                            <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'Best Rank #' + art.best_rank"></span>
+                            <span class="inline-flex items-center gap-1">
+                              <span>•</span>
+                              <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'Best Rank #' + art.best_rank"></span>
+                            </span>
                           </template>
                           <template x-if="art.is_vulnerable">
-                            <span>•</span>
-                            <span class="text-rose-600 dark:text-rose-400 font-bold">⚡ Vulnerable</span>
+                            <span class="inline-flex items-center gap-1">
+                              <span>•</span>
+                              <span class="text-rose-600 dark:text-rose-400 font-bold">⚡ Vulnerable</span>
+                            </span>
                           </template>
                           <!-- Clickable Keyword Count Drilldown -->
                           <template x-if="(art.keywords || art.target_keywords || []).length > 0">

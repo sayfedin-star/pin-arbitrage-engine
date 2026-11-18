@@ -1,22 +1,15 @@
 /**
- * Dedicated Campaign Folders & Crossover Studio UI (Level 4)
- * Orchestrator module coordinating submodules under src/ui/folders/:
- * - folders-studio-view.mjs: VIEW A Studio View (Lock 1 Sibling DOM)
- * - folders-hub-view.mjs: VIEW B Hub View
- * - folders-modals.mjs: New Folder, Edit, Delete, Visual Feed Modals
- * - folders-client-app.mjs: Alpine.js foldersApp() client script
+ * Dedicated Campaign Folders & Crossover Studio UI (src/ui/folders/index.mjs)
  */
 
-import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
-import { renderAppSidebar } from './ui/app-sidebar.mjs';
-import { getFoldersStudioViewHtml } from './ui/folders/folders-studio-view.mjs';
-import { getFoldersHubViewHtml } from './ui/folders/folders-hub-view.mjs';
-import { getFoldersModalsHtml } from './ui/folders/folders-modals.mjs';
-import { getFoldersClientAppScript } from './ui/folders/folders-client-app.mjs';
-import { renderSharedDocumentHead } from './ui/shared-head.mjs';
+import { renderAppSidebar } from '../app-sidebar.mjs';
+import { getFoldersStudioViewHtml } from './folders-studio-view.mjs';
+import { getFoldersHubViewHtml } from './folders-hub-view.mjs';
+import { getFoldersModalsHtml } from './folders-modals.mjs';
+import { getFoldersClientAppScript } from './folders-client-app.mjs';
+import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
-  // Sanitize folderId against script/attribute injection
   const rawId = String(folderId || '').trim();
   const safeFolderId = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
   const activeRoom = initialRoom === 'settings' ? 'settings' : 'crossover';
@@ -62,10 +55,9 @@ ${renderSharedDocumentHead({
 
   ${renderAppSidebar({ activeNav: 'folders', refreshHandler: 'loadFolders()' })}
 
-  <!-- Main View (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <!-- Main View (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
     <template x-if="!activeFolderId">
       <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
@@ -102,7 +94,6 @@ ${renderSharedDocumentHead({
       </section>
     </template>
 
-
     ${getFoldersStudioViewHtml({ activeRoom, safeFolderId })}
 
     ${getFoldersHubViewHtml()}
@@ -112,7 +103,6 @@ ${renderSharedDocumentHead({
   ${getFoldersModalsHtml()}
 
   ${getFoldersClientAppScript()}
-  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

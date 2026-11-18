@@ -112,7 +112,7 @@ export function getPulseClientAppScript() {
         loadFolderInfo: async function() {
           try {
             if (!this.scopedFolderId) return;
-            const res = await fetch('/api/folders');
+            const res = await window.apiFetch('/api/folders');
             const data = await res.json();
             if (data && Array.isArray(data.folders)) {
               this.foldersList = data.folders;
@@ -308,48 +308,11 @@ export function getPulseClientAppScript() {
             if (forceRefresh) params.set('force', 'true');
 
             var url = '/api/pulse/24h?' + params.toString();
-            var maxAttempts = 2;
-            var res = null;
-            var lastFetchErr = null;
-
-            for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-              if (seq !== this._pulseReqSeq) return; // Discard if user triggered new action
-              try {
-                // Generate fresh AbortSignal for each attempt
-                var fetchOptions = {
-                  headers: { 'Accept': 'application/json' },
-                  signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(15000) : undefined
-                };
-
-                res = await fetch(url, fetchOptions);
-
-                // [INVARIANT: COLD-START-TRANSIENT-RETRY] Automatic retry on cold-start HTTP 502/503/504
-                if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < maxAttempts && seq === this._pulseReqSeq) {
-                  console.warn('[Pulse UI] Cold-start HTTP ' + res.status + ' encountered (attempt ' + attempt + '/' + maxAttempts + '). Retrying in 1,200ms...');
-                  await new Promise(function(resolve) { setTimeout(resolve, 1200); });
-                  continue;
-                }
-
-                lastFetchErr = null;
-                break;
-              } catch (fetchErr) {
-                lastFetchErr = fetchErr;
-                var isTransient = fetchErr.name === 'TimeoutError' ||
-                                  fetchErr.name === 'AbortError' ||
-                                  fetchErr instanceof TypeError ||
-                                  (fetchErr.message && /network|fetch|timeout|abort/i.test(fetchErr.message));
-                if (attempt < maxAttempts && isTransient && seq === this._pulseReqSeq) {
-                  console.warn('[Pulse UI] Transient network/timeout error encountered (' + (fetchErr.message || fetchErr.name) + ') on attempt ' + attempt + '/' + maxAttempts + '. Retrying in 1,500ms...');
-                  await new Promise(function(resolve) { setTimeout(resolve, 1500); });
-                  continue;
-                }
-                throw fetchErr;
-              }
-            }
-
-            if (seq !== this._pulseReqSeq) return; // Discard stale race responses
-            if (lastFetchErr) throw lastFetchErr;
-            if (!res) throw new Error('No response received from server');
+            var res = await window.apiFetch(url, {
+              headers: { 'Accept': 'application/json' },
+              retries: 1,
+              retryDelay: 1200
+            });
 
             if (seq !== this._pulseReqSeq) return; // Discard stale race responses
 
@@ -768,9 +731,9 @@ export function getPulseClientAppScript() {
           var targetPinId = pin.pin_id;
 
           // Non-blocking live /api/pins/:id hydration
-          fetch('/api/pins/' + encodeURIComponent(targetPinId), {
+          window.apiFetch('/api/pins/' + encodeURIComponent(targetPinId), {
             headers: { 'Accept': 'application/json' },
-            signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
+            timeout: 8000
           })
           .then(function(res) { return res.ok ? res.json() : null; })
           .then(function(data) {
