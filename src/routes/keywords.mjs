@@ -82,9 +82,17 @@ export function _resetBatchGlobalSavesRateLimit() {
 }
 
 export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
-  const originHeader = (request.headers.get('Origin') || '').trim();
-  const secFetchSite = (request.headers.get('Sec-Fetch-Site') || '').trim().toLowerCase();
-  if (secFetchSite === 'cross-site') {
+  const getHdr = (name) => {
+    if (!request?.headers) return '';
+    if (typeof request.headers.get === 'function') {
+      return request.headers.get(name) || '';
+    }
+    return request.headers[name.toLowerCase()] || request.headers[name] || '';
+  };
+
+  const originHeader = String(getHdr('Origin')).trim();
+  const secFetchSite = String(getHdr('Sec-Fetch-Site')).trim().toLowerCase();
+  if (secFetchSite && secFetchSite !== 'same-origin') {
     return { allowed: false, reason: 'Cross-site requests to batch-global-saves are forbidden.' };
   }
 
@@ -100,18 +108,23 @@ export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
       if (callerOrigin !== reqOrigin && !allowedList.includes(callerOrigin)) {
         return { allowed: false, reason: `Origin mismatch (${callerOrigin} !== ${reqOrigin}).` };
       }
+      return { allowed: true };
     } catch (_) {
       return { allowed: false, reason: 'Malformed Origin header.' };
     }
   }
 
-  const apiKey = request.headers.get('x-api-key');
-  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
-  if ((apiKey && apiKey.trim()) || authHeader.toLowerCase().startsWith('bearer ')) {
+  if (secFetchSite === 'same-origin') {
     return { allowed: true };
   }
 
-  return { allowed: true };
+  const apiKey = String(getHdr('x-api-key')).trim();
+  const authHeader = String(getHdr('Authorization') || getHdr('authorization')).trim();
+  if (apiKey || authHeader.toLowerCase().startsWith('bearer ')) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: 'Same-origin Origin header or valid API credentials required.' };
 }
 
 export function enforceBatchGlobalSavesRateLimit(request, nowMs = Date.now(), maxRequests = BATCH_GLOBAL_SAVES_MAX_REQUESTS) {
@@ -200,6 +213,7 @@ export async function handleKeywordsRoutes({
       const count = Number(fetchRes?.count || 0);
       if (fetchRes && fetchRes.ok) {
         if (sql && count > 0) {
+          const escapedCleanUrl = escapeSqlWildcards(cleanUrl);
           safeWaitUntil(ctx, (async () => {
             await sql`
               UPDATE universal_master_pins
@@ -209,7 +223,7 @@ export async function handleKeywordsRoutes({
                 AND (
                   (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
                   OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
-                  OR destination_url LIKE ${cleanUrl + '?%'}
+                  OR destination_url LIKE ${escapedCleanUrl + '?%'} ESCAPE '\\'
                 );
             `.catch(() => {});
           })(), 'write_back_single_url_global_saves');
@@ -304,14 +318,16 @@ export async function handleKeywordsRoutes({
     // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
     if (sql && writeBackEntries.length > 0) {
       safeWaitUntil(ctx, (async () => {
-        const validEntries = writeBackEntries.filter(e => e.count > 0 && e.url);
+        const validEntries = writeBackEntries
+          .filter(e => e.count > 0 && e.url)
+          .map(e => ({ url: e.url, escaped_url: escapeSqlWildcards(e.url), count: e.count }));
         if (validEntries.length === 0) return;
         validEntries.sort((a, b) => a.url.localeCompare(b.url));
         const payloadJson = JSON.stringify(validEntries);
         await sql`
           WITH input_urls AS (
-            SELECT url, count
-            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, count bigint)
+            SELECT url, escaped_url, count
+            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, escaped_url text, count bigint)
           ),
           matched_pins AS (
             SELECT ump.pin_id, iu.count
@@ -335,7 +351,7 @@ export async function handleKeywordsRoutes({
              AND ump.destination_url <> ''
              AND ump.destination_url ~>=~ (iu.url || '?')
              AND ump.destination_url ~<~ (iu.url || '@')
-             AND ump.destination_url LIKE (iu.url || '?%')
+             AND ump.destination_url LIKE (iu.escaped_url || '?%') ESCAPE '\\'
           ),
           dedup_matches AS (
             SELECT pin_id, MAX(count)::bigint AS max_count

@@ -178,56 +178,50 @@ async function main() {
   console.log('🚀 PAE: LIVE SHARD ROLLING WINDOW GAINS BACKFILL RUNNER');
   console.log('================================================================================');
 
-  const activityLease = startInstaBoxActivityLease();
+  const activityLease = startInstaBoxActivityLease('backfill-rolling-gains');
   const isDryRun = process.argv.includes('--dry-run');
 
-  if (!process.env.DATABASE_URL || !hubSql) {
+  try {
+    if (!process.env.DATABASE_URL || !hubSql) {
+      if (isDryRun) {
+        console.log('[*] --dry-run flag detected without live DATABASE_URL: validating offline delta calculation engine...');
+        const mockSnapshots = [
+          { snapshot_date: new Date().toISOString().slice(0, 10), save_count: 500, repin_count: 20 },
+          { snapshot_date: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), save_count: 350, repin_count: 15 }
+        ];
+        const testGains = calculateRollingGainsFromSnapshots(mockSnapshots);
+        console.log(`  -> Tested calculateRollingGainsFromSnapshots: 7d gains = +${testGains.gains_7d}`);
+        console.log('✅ Dry-run validation completed successfully.');
+        return;
+      }
+      console.error('[-] Error: DATABASE_URL environment variable is required.');
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(`[*] Central Hub: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
+
     if (isDryRun) {
-      console.log('[*] --dry-run flag detected without live DATABASE_URL: validating offline delta calculation engine...');
+      console.log('[*] --dry-run flag detected: validating delta calculation engine and connection handling...');
       const mockSnapshots = [
         { snapshot_date: new Date().toISOString().slice(0, 10), save_count: 500, repin_count: 20 },
         { snapshot_date: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), save_count: 350, repin_count: 15 }
       ];
       const testGains = calculateRollingGainsFromSnapshots(mockSnapshots);
       console.log(`  -> Tested calculateRollingGainsFromSnapshots: 7d gains = +${testGains.gains_7d}`);
+      if (testGains.gains_7d !== 150) {
+        throw new Error(`Dry-run calculation test failed: expected 150, got ${testGains.gains_7d}`);
+      }
+      try {
+        console.log('[*] Testing Hub connection in dry-run mode...');
+        await hubSql`SELECT 1 AS dry_run_check;`;
+        console.log('  -> Hub connection responsive.');
+      } catch (err) {
+        console.log(`  -> Dry-run notice: DB connection not established (${err.message}). Query compilation valid.`);
+      }
       console.log('✅ Dry-run validation completed successfully.');
       return;
     }
-    console.error('[-] Error: DATABASE_URL environment variable is required.');
-    process.exit(1);
-  }
-
-  console.log(`[*] Central Hub: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
-
-  if (isDryRun) {
-    console.log('[*] --dry-run flag detected: validating delta calculation engine and connection handling...');
-    const mockSnapshots = [
-      { snapshot_date: new Date().toISOString().slice(0, 10), save_count: 500, repin_count: 20 },
-      { snapshot_date: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), save_count: 350, repin_count: 15 }
-    ];
-    const testGains = calculateRollingGainsFromSnapshots(mockSnapshots);
-    console.log(`  -> Tested calculateRollingGainsFromSnapshots: 7d gains = +${testGains.gains_7d}`);
-    if (testGains.gains_7d !== 150) {
-      throw new Error(`Dry-run calculation test failed: expected 150, got ${testGains.gains_7d}`);
-    }
-    try {
-      console.log('[*] Testing Hub connection in dry-run mode...');
-      await hubSql`SELECT 1 AS dry_run_check;`;
-      console.log('  -> Hub connection responsive.');
-    } catch (err) {
-      console.log(`  -> Dry-run notice: DB connection not established (${err.message}). Query compilation valid.`);
-    } finally {
-      if (hubSql && typeof hubSql.end === 'function') {
-        try {
-          await hubSql.end({ timeout: 5 });
-        } catch (_) {}
-      }
-    }
-    console.log('✅ Dry-run validation completed successfully.');
-    return;
-  }
-
-  try {
     // Environment guard to exit cleanly with 0 bytes of Hub egress when protecting monthly cap
     if (process.env.SKIP_GLOBAL_GAINS_BACKFILL === 'true' && !process.env.FOLDER_ID && !process.env.TARGET_KEYWORD) {
       console.log('[*] SKIP_GLOBAL_GAINS_BACKFILL=true and no folder/keyword scope specified. Exiting cleanly with 0 bytes of Hub egress.');
@@ -453,7 +447,7 @@ async function main() {
   console.log('🏁 BACKFILL COMPLETE');
   console.log('================================================================================\n');
   } finally {
-    activityLease.stop();
+    await activityLease.stop();
     if (hubSql && typeof hubSql.end === 'function') {
       try {
         await hubSql.end({ timeout: 5 });
@@ -463,8 +457,12 @@ async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  main().catch(err => {
-    console.error('[-] Fatal error running backfill:', err);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      if (process.exitCode) process.exit(process.exitCode);
+    })
+    .catch(err => {
+      console.error('[-] Fatal error running backfill:', err);
+      process.exit(1);
+    });
 }

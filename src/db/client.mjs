@@ -223,7 +223,10 @@ export async function withDbRetry(operation, options = {}) {
     try {
       return await operation();
     } catch (err) {
-      const canRetry = isTransientPgConnectionError(err) || (retryOnStatementTimeout && isStatementTimeoutError(err));
+      const canRetry = !err?.__paeEnteredTxCallback && (
+        isTransientPgConnectionError(err) ||
+        (retryOnStatementTimeout && isStatementTimeoutError(err))
+      );
       if (!canRetry || attempt >= maxRetries) {
         throw err;
       }
@@ -298,11 +301,34 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
 
   if (origBegin) {
     pgClient.begin = async (...args) => {
+      let enteredCallback = false;
+      const cbIdx = args.findLastIndex((a) => typeof a === 'function');
+      const wrappedArgs = cbIdx === -1
+        ? args
+        : args.map((arg, idx) => {
+            if (idx !== cbIdx) return arg;
+            return async (...cbArgs) => {
+              enteredCallback = true;
+              return await arg(...cbArgs);
+            };
+          });
+
       return await withDbRetry(async () => {
         activeQueryCount++;
         totalQueryCount++;
         try {
-          return await origBegin(...args);
+          return await origBegin(...wrappedArgs);
+        } catch (err) {
+          if (enteredCallback) {
+            const nonRetryableErr = err && typeof err === 'object' ? err : new Error(String(err));
+            Object.defineProperty(nonRetryableErr, '__paeEnteredTxCallback', {
+              value: true,
+              enumerable: false,
+              configurable: true
+            });
+            throw nonRetryableErr;
+          }
+          throw err;
         } finally {
           activeQueryCount = Math.max(0, activeQueryCount - 1);
         }
@@ -346,12 +372,24 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
   });
 }
 
+function RetryablePendingQuery() {}
+
 function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
   if (!pending || typeof pending.then !== 'function' || pending.__paeRetryWrapped) {
     return pending;
   }
   const isReadOnly = retryOptions.isReadOnly !== false;
   const origThen = pending.then.bind(pending);
+  if (pending.constructor === Promise) {
+    // Silence eager unhandled rejection before .then() is awaited and ensure V8 PromiseResolve invokes custom .then
+    origThen(() => {}, () => {});
+    Object.defineProperty(pending, 'constructor', {
+      value: RetryablePendingQuery,
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+  }
   const modifiers = [];
   for (const modName of ['values', 'raw', 'simple']) {
     if (typeof pending[modName] === 'function') {
@@ -472,6 +510,8 @@ export function createSqlClient(dsn, options = {}) {
   // Cap GITHUB_ACTIONS pool size to 3-4 connections
   const maxConnections = isCi ? Math.max(1, Math.min(requestedMax, 4)) : Math.max(1, requestedMax);
   const defaultStatementTimeoutMs = isCi ? 45000 : 15000;
+  const resolvedStatementTimeoutMs = Number(options.connection?.statement_timeout ?? defaultStatementTimeoutMs);
+  const defaultIdleInTxTimeoutMs = Math.max(isCi ? 60000 : 30000, resolvedStatementTimeoutMs);
 
   const pgClient = postgres(cleanDsn, {
     max: maxConnections,
@@ -482,8 +522,10 @@ export function createSqlClient(dsn, options = {}) {
     onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
     connection: {
       ...(options.connection || {}),
-      statement_timeout: Number(options.connection?.statement_timeout ?? defaultStatementTimeoutMs),
-      idle_in_transaction_session_timeout: Number(options.connection?.idle_in_transaction_session_timeout ?? 10000)
+      statement_timeout: resolvedStatementTimeoutMs,
+      idle_in_transaction_session_timeout: Number(
+        options.connection?.idle_in_transaction_session_timeout ?? defaultIdleInTxTimeoutMs
+      )
     },
     prepare: true,
     transform: {
@@ -587,7 +629,12 @@ export async function drainSqlClient({ timeout = 5 } = {}) {
 /**
  * Global process-level sql client instance (or null if DATABASE_URL is not set).
  */
-export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL)
+export const sql = (
+  typeof process !== 'undefined' &&
+  process.env?.NODE_ENV !== 'test' &&
+  process.env?.ENVIRONMENT !== 'test' &&
+  process.env?.DATABASE_URL
+)
   ? getSqlClient()
   : null;
 

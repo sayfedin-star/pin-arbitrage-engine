@@ -57,8 +57,10 @@ export async function apiRoutesPlugin(app, options = {}) {
       for (const [k, v] of Object.entries(dynamicCors)) {
         reply.header(k, v);
       }
-      reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-      reply.header('Access-Control-Max-Age', '86400');
+      if (dynamicCors['Access-Control-Allow-Origin']) {
+        reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        reply.header('Access-Control-Max-Age', '86400');
+      }
       return reply.send();
     }
 
@@ -429,7 +431,7 @@ export async function apiRoutesPlugin(app, options = {}) {
   }
 
   // Register explicit domain prefixes cleanly inside Fastify's native route tree
-  app.post('/api/keywords/bulk-import', { config: { bodyLimit: 512 * 1024 } }, dispatchApiRequest);
+  app.post('/api/keywords/bulk-import', { bodyLimit: 512 * 1024 }, dispatchApiRequest);
   app.all('/api/pins/*', dispatchApiRequest);
   app.all('/api/urls/*', dispatchApiRequest);
   app.all('/api/folders', dispatchApiRequest);

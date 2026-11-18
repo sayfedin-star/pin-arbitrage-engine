@@ -1,0 +1,129 @@
+{
+  "entityId": "70437491132581",
+  "id": "UGluOjcwNDM3NDkxMTMyNTgx",
+  "__typename": "Pin",
+  "title": "",
+  "gridTitle": "",
+  "unauthOnPageTitle": "Thick Porkchops Dinner Ideas",
+  "unauthOnPageDescription": "Parmesan Baked Pork Chops",
+  "closeupUnifiedTitle": "",
+  "closeupUnifiedDescription": "Parmesan Baked Pork Chops",
+  "description": "Parmesan Baked Pork Chops",
+  "seoTitle": "Parmesan Baked Pork Chops | Recipe | Porkchops baked with cheese, Porkchops baked with parmesean crumb topping, Pork chops recipes in the oven parm",
+  "seoDescription": "Jan 20, 2026 — There are certain dinners that instantly make a house feel warmer the moment they slide into the oven. Parmesan Baked Pork Chops is one of those meals for me.",
+  "seoUrl": "/pin/70437491132581/",
+  "createdAt": "Sun, 01 Mar 2026 18:19:34 +0000",
+  "domain": "nourishyourglow.com",
+  "link": "https://www.nourishyourglow.com/01/parmesan-baked-pork-chops/",
+  "trackedLink": "https://www.nourishyourglow.com/01/parmesan-baked-pork-chops/",
+  "utmLink": "https://www.nourishyourglow.com/01/parmesan-baked-pork-chops/?utm_source=Pinterest&utm_medium=organic",
+  "imageSignature": "0892528dd65edc951b271ec3b26d3993",
+  "method": "button",
+  "isRepin": true,
+  "isVideo": false,
+  "isPromoted": false,
+  "isGoLinkless": false,
+  "repinCount": 15272,
+  "shareCount": 1742,
+  "totalReactionCount": 161,
+  "reactionCountsData": [
+    {
+      "reactionCount": 161,
+      "reactionType": 1
+    }
+  ],
+  "aggregatedPinData": {
+    "entityId": "3171470614017620544",
+    "aggregatedStats": {
+      "saves": 23716
+    },
+    "commentCount": 17,
+    "isShopTheLook": false
+  },
+  "images_736x": {
+    "url": "https://i.pinimg.com/736x/08/92/52/0892528dd65edc951b271ec3b26d3993.jpg",
+    "width": 736,
+    "height": 1766
+  },
+  "images_orig": {
+    "url": "https://i.pinimg.com/originals/08/92/52/0892528dd65edc951b271ec3b26d3993.webp",
+    "width": 800,
+    "height": 1920
+  },
+  "pinner": {
+    "entityId": "70574902609349",
+    "username": "towson09",
+    "fullName": "Lysa Guertler",
+    "followerCount": 1506,
+    "isVerifiedMerchant": false
+  },
+  "nativeCreator": {
+    "entityId": "431079132990836938",
+    "username": "bleyerj1",
+    "fullName": "Iva Jean Bleyer",
+    "followerCount": 10
+  },
+  "originPinner": {
+    "entityId": "431079132990836938",
+    "username": "bleyerj1",
+    "fullName": "Iva Jean Bleyer",
+    "followerCount": 10
+  },
+  "closeupUnifiedAttribution": {
+    "entityId": "431079132990836938",
+    "username": "bleyerj1",
+    "fullName": "Iva Jean Bleyer",
+    "followerCount": 10,
+    "isVerifiedMerchant": false
+  },
+  "linkDomain": {
+    "officialUser": {
+      "entityId": "359795595138836292",
+      "username": "nourishyourglow",
+      "fullName": "Nourish Your Glow",
+      "followerCount": 20784,
+      "isVerifiedMerchant": false
+    }
+  },
+  "board": {
+    "entityId": "70506183641728",
+    "name": "Baked boneless pork chops",
+    "url": "/towson09/baked-boneless-pork-chops/",
+    "pinCount": 20,
+    "privacy": "public",
+    "isCollaborative": false
+  },
+  "pinJoin": {
+    "visualAnnotation": [
+      "Thick Porkchops Dinner Ideas",
+      "Dinners With Pork Chops",
+      "Pork Recipe Ideas",
+      "Fall Dinner Recipes Easy"
+    ],
+    "annotationsWithLinksArray": [
+      {
+        "name": "Thick Porkchops Dinner Ideas",
+        "url": "/ideas/thick-porkchops-dinner-ideas/917980612818/"
+      },
+      {
+        "name": "Dinners With Pork Chops",
+        "url": "/ideas/dinners-with-pork-chops/902211182300/"
+      },
+      {
+        "name": "Pork Recipe Ideas",
+        "url": "/ideas/pork-recipe-ideas/943628193951/"
+      },
+      {
+        "name": "Fall Dinner Recipes Easy",
+        "url": "/ideas/fall-dinner-recipes-easy/911945167983/"
+      }
+    ],
+    "seoBreadcrumbs": [
+      {
+        "__typename": "SeoBreadcrumbs",
+        "name": "Food And Drinks",
+        "url": ""
+      }
+    ]
+  }
+}

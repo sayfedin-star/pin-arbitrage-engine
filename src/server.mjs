@@ -39,8 +39,11 @@ import {
 
 export { createSqlClient, getSqlClient, getPoolStats, drainSqlClient };
 
-// Auto-load .env if present via built-in Node 20.12+/22+ API
-if (typeof process !== 'undefined' && typeof process.loadEnvFile === 'function') {
+// Auto-load .env if present via built-in Node 20.12+/22+ API (skipped in test mode to protect live DATABASE_URL)
+const isInitialTestEnv = typeof process !== 'undefined' && (
+  process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'
+);
+if (!isInitialTestEnv && typeof process !== 'undefined' && typeof process.loadEnvFile === 'function') {
   try {
     if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('your_password')) {
       delete process.env.DATABASE_URL;
@@ -55,7 +58,9 @@ export function getServerSqlClient(dsn) {
   return getSqlClient({ DATABASE_URL: targetDsn });
 }
 
-export const sql = (typeof process !== 'undefined' && process.env?.DATABASE_URL) ? getServerSqlClient() : null;
+export const sql = (!isInitialTestEnv && typeof process !== 'undefined' && process.env?.DATABASE_URL)
+  ? getServerSqlClient()
+  : null;
 
 export async function dbHealthCheck(client) {
   const sqlClient = client || getServerSqlClient();
@@ -64,7 +69,7 @@ export async function dbHealthCheck(client) {
     await sqlClient`SELECT 1 as alive;`;
     return { status: 'connected' };
   } catch (err) {
-    return { status: 'error', error: err?.message || String(err) };
+    return { status: 'error', error: redactSecrets(err?.message || String(err)) };
   }
 }
 
@@ -237,8 +242,6 @@ export function createFastifyApp(customEnv = {}) {
     return payload;
   });
 
-  const sqlClient = customEnv.SQL_CLIENT || getServerSqlClient(process.env.DATABASE_URL);
-
   const isTestMode = (
     customEnv.ENVIRONMENT === 'test' ||
     customEnv.NODE_ENV === 'test' ||
@@ -246,11 +249,16 @@ export function createFastifyApp(customEnv = {}) {
     (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
 
+  const resolvedDatabaseUrl = customEnv.DATABASE_URL !== undefined
+    ? customEnv.DATABASE_URL
+    : (isTestMode ? '' : (process.env.DATABASE_URL || ''));
+  const sqlClient = customEnv.SQL_CLIENT || (resolvedDatabaseUrl ? getServerSqlClient(resolvedDatabaseUrl) : null);
+
   const env = {
     ...process.env,
     DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
     SQL_CLIENT: sqlClient,
-    DATABASE_URL: customEnv.DATABASE_URL || process.env.DATABASE_URL || '',
+    DATABASE_URL: resolvedDatabaseUrl,
     ENVIRONMENT: customEnv.ENVIRONMENT || process.env.ENVIRONMENT || (isTestMode ? 'test' : 'development'),
     NODE_ENV: customEnv.NODE_ENV || process.env.NODE_ENV || (isTestMode ? 'test' : 'development'),
     ...customEnv
@@ -330,7 +338,7 @@ export function createFastifyApp(customEnv = {}) {
       timestamp: new Date().toISOString()
     };
 
-    if (dbError) payload.error = dbError;
+    if (dbError) payload.error = redactSecrets(dbError);
 
     return reply
       .code(isHealthy ? 200 : 503)
@@ -512,8 +520,10 @@ export function createFastifyApp(customEnv = {}) {
       for (const [k, v] of Object.entries(dynamicCors)) {
         reply.header(k, v);
       }
-      reply.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      reply.header('Access-Control-Max-Age', '86400');
+      if (dynamicCors['Access-Control-Allow-Origin']) {
+        reply.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+        reply.header('Access-Control-Max-Age', '86400');
+      }
       return reply.send();
     }
 

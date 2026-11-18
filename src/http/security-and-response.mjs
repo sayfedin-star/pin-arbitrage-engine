@@ -33,7 +33,8 @@ export function redactSecrets(str) {
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
     .replace(/(_pinterest_sess=)[^;\s"']+/gi, '$1[REDACTED_COOKIE]')
-    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]');
+    .replace(/([?&](?:password|token|secret|apiKey|api_key)=)[^&\s"']+/gi, '$1[REDACTED]')
+    .replace(/\b((?:password|passwd|pwd|api_secret_key|instabox_api_key)\s*[=:]\s*)[^\s,;'"&]+/gi, '$1[REDACTED]');
 }
 
 // Normalized Path Resolver (Resolves traversal %2e%2e, removes duplicate/trailing slashes)
@@ -179,28 +180,38 @@ export function isValidPinId(pinId) {
 }
 
 export function getCorsHeaders(requestOrigin = null, env = {}) {
-  const allowedOriginsStr = (env && env.ALLOWED_ORIGINS) || '';
-  let origin = '*';
+  const allowedOriginsStr = String((env && env.ALLOWED_ORIGINS) || '').trim();
+  let matchedOrigin = null;
 
-  if (allowedOriginsStr && allowedOriginsStr !== '*') {
-    const list = allowedOriginsStr.split(',').map(s => s.trim().toLowerCase());
-    if (requestOrigin && list.includes(requestOrigin.toLowerCase())) {
-      origin = requestOrigin;
-    } else {
-      origin = list[0] || 'null';
+  if (allowedOriginsStr === '*') {
+    matchedOrigin = '*';
+  } else if (allowedOriginsStr.length > 0 && requestOrigin && typeof requestOrigin === 'string') {
+    const cleanReqOrigin = requestOrigin.trim();
+    const list = allowedOriginsStr
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (cleanReqOrigin && list.includes(cleanReqOrigin.toLowerCase())) {
+      matchedOrigin = cleanReqOrigin;
     }
-  } else if (requestOrigin) {
-    origin = requestOrigin;
   }
 
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+  const headers = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin'
   };
+
+  if (matchedOrigin) {
+    headers['Access-Control-Allow-Origin'] = matchedOrigin;
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, x-api-key';
+    if (matchedOrigin !== '*') {
+      headers['Vary'] = 'Origin';
+    }
+  }
+
+  return headers;
 }
 
 // [INVARIANT: SEC-01 FAIL-CLOSED PRODUCTION AUTH & URL-KEY DEPRECATION]
@@ -319,13 +330,18 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
   }
 
   const store = requestContextStorage.getStore();
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
 
   reply.code(status);
   reply.header('Content-Type', 'application/json; charset=utf-8');
-  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
-  reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  if (resolvedOrigin) {
+    reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+    if (resolvedOrigin !== '*') {
+      reply.header('Vary', 'Origin');
+    }
+  }
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -406,16 +422,21 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
     responsePayload = sanitized;
   }
 
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
 
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': resolvedOrigin,
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...(resolvedOrigin
+      ? {
+          'Access-Control-Allow-Origin': resolvedOrigin,
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+          ...(resolvedOrigin !== '*' ? { 'Vary': 'Origin' } : {})
+        }
+      : {}),
     ...(customCors || {})
   };
   const hasExplicitCacheControl = Boolean(
@@ -442,7 +463,7 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
 
 export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
   const store = requestContextStorage.getStore();
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
 
   const payload = {
     success: false,
@@ -453,9 +474,14 @@ export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
   reply.code(405);
   reply.header('Content-Type', 'application/json; charset=utf-8');
   reply.header('Allow', allow);
-  reply.header('Access-Control-Allow-Origin', resolvedOrigin);
-  reply.header('Access-Control-Allow-Methods', allow);
-  reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  if (resolvedOrigin) {
+    reply.header('Access-Control-Allow-Origin', resolvedOrigin);
+    reply.header('Access-Control-Allow-Methods', allow);
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+    if (resolvedOrigin !== '*') {
+      reply.header('Vary', 'Origin');
+    }
+  }
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -469,14 +495,14 @@ export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
   return reply.send(payload);
 }
 
-export function createBoundJsonResponse(reply, origin = '*') {
+export function createBoundJsonResponse(reply, origin = null) {
   return function boundJsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
     const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
     return sendJsonResponse(reply, data, status, cacheSeconds, cors);
   };
 }
 
-export function createBoundMethodNotAllowed(reply, origin = '*') {
+export function createBoundMethodNotAllowed(reply, origin = null) {
   return function boundMethodNotAllowed(allow, customCors = null) {
     const cors = customCors || (origin ? { 'Access-Control-Allow-Origin': origin } : null);
     return sendMethodNotAllowedResponse(reply, allow, cors);
@@ -490,7 +516,7 @@ export function methodNotAllowedResponse(allow, customCors = null, reply = null)
     return sendMethodNotAllowedResponse(effectiveReply, allow, customCors);
   }
 
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
 
   const payload = {
     success: false,
@@ -501,12 +527,17 @@ export function methodNotAllowedResponse(allow, customCors = null, reply = null)
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Allow': allow,
-    'Access-Control-Allow-Origin': resolvedOrigin,
-    'Access-Control-Allow-Methods': allow,
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...(resolvedOrigin
+      ? {
+          'Access-Control-Allow-Origin': resolvedOrigin,
+          'Access-Control-Allow-Methods': allow,
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+          ...(resolvedOrigin !== '*' ? { 'Vary': 'Origin' } : {})
+        }
+      : {}),
     ...(customCors || {})
   };
 
@@ -526,8 +557,12 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
   const cors = getCorsHeaders(requestOrigin, env);
   const headers = {
     ...cors,
-    'Access-Control-Allow-Methods': allow,
-    'Access-Control-Max-Age': '86400'
+    ...(cors['Access-Control-Allow-Origin']
+      ? {
+          'Access-Control-Allow-Methods': allow,
+          'Access-Control-Max-Age': '86400'
+        }
+      : {})
   };
 
   if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
@@ -548,11 +583,11 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
   };
 }
 
-// [INVARIANT: EDGE-COMPRESSION-AND-SMART-CACHING]
-// HTML headers omit 'no-transform' to allow proxy/HTTP compression and cache UI shells with SWR.
+// Operator HTML shells must never be cached in shared CDN/proxy caches across Cookie boundaries.
 export const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
+  'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+  'Vary': 'Cookie',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -562,10 +597,32 @@ export const HTML_HEADERS = {
 // In-Memory SWR Cache & Single-Flight Request Coalescing
 export const edgeCache = new Map();
 export const inflightPromises = new Map();
+export const swrInflightPromises = new Map();
 const MAX_CACHE_ENTRIES = 512;
 let cacheEpoch = 0;
 let globalClearEpoch = 0;
 const prefixInvalidationEpochs = new Map();
+
+const CASE_INSENSITIVE_CACHE_KEYS = new Set([
+  'domain',
+  'clean_domain',
+  'keyword',
+  'canonical_keyword',
+  'slug',
+  'q',
+  'query',
+  'search',
+  'username',
+  'creator',
+  'account',
+  'sort',
+  'order',
+  'status',
+  'stage',
+  'types',
+  'account_type',
+  'topic'
+]);
 
 function isCacheWriteValid(key, startEpoch) {
   if (globalClearEpoch > startEpoch) return false;
@@ -594,7 +651,13 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
   const sortedEntries = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== '')
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v).trim().toLowerCase())}`);
+    .map(([k, v]) => {
+      const trimmed = String(v).trim();
+      const normalizedVal = CASE_INSENSITIVE_CACHE_KEYS.has(String(k).toLowerCase())
+        ? trimmed.toLowerCase()
+        : trimmed;
+      return `${encodeURIComponent(k)}=${encodeURIComponent(normalizedVal)}`;
+    });
   return sortedEntries.length > 0 ? `${prefix}?${sortedEntries.join('&')}` : prefix;
 }
 
@@ -607,17 +670,18 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
     if (now < cached.expiresAt) {
       return cached.data;
     }
-    // Stale-While-Revalidate: return stale data immediately, revalidate in background
+    // Stale-While-Revalidate: return stale data immediately, revalidate in isolated swrInflightPromises
     if (now < cached.staleUntil) {
-      if (!inflightPromises.has(key)) {
+      if (!swrInflightPromises.has(key) && !inflightPromises.has(key)) {
         const revalEpoch = cacheEpoch;
         const revalPromise = (async () => {
           try {
             let timerId;
-            const fetchTask = fetcher();
+            const fetchTask = Promise.resolve().then(() => fetcher());
             fetchTask.catch(() => {});
             const timeoutPromise = new Promise((_, reject) => {
               timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), timeoutMs);
+              timerId?.unref?.();
             });
             const fresh = await Promise.race([
               fetchTask,
@@ -636,11 +700,16 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
               setBoundedCacheEntry(key, fresh, ttlMs, staleMs);
             }
             return fresh;
-          } catch (_) {} finally {
-            inflightPromises.delete(key);
+          } catch (swrErr) {
+            console.warn(
+              `[getCachedOrFetch] Background SWR revalidation failed for "${key}":`,
+              redactSecrets(swrErr?.message || String(swrErr))
+            );
+          } finally {
+            swrInflightPromises.delete(key);
           }
         })();
-        inflightPromises.set(key, revalPromise);
+        swrInflightPromises.set(key, revalPromise);
         const store = requestContextStorage?.getStore?.();
         const ctx = store?.ctx;
         if (ctx && typeof ctx.waitUntil === 'function') {
@@ -651,20 +720,21 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
     }
   }
 
-  // 2. Coalesce concurrent in-flight requests (Single-Flight)
-  if (inflightPromises.has(key)) {
+  // 2. Coalesce concurrent foreground in-flight requests (bypassed on explicit forceRefresh)
+  if (!forceRefresh && inflightPromises.has(key)) {
     return await inflightPromises.get(key);
   }
 
-  // 3. Cache Miss or Force Refresh: Fetch fresh data with single-flight deduplication
+  // 3. Cache Miss or Force Refresh: Fetch fresh data in foreground (never swallows errors to undefined)
   const fetchEpoch = cacheEpoch;
   const promise = (async () => {
     try {
       let timerId;
-      const fetchTask = fetcher();
+      const fetchTask = Promise.resolve().then(() => fetcher());
       fetchTask.catch(() => {});
       const timeoutPromise = new Promise((_, reject) => {
         timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), timeoutMs);
+        timerId?.unref?.();
       });
       const fresh = await Promise.race([
         fetchTask,
@@ -685,7 +755,9 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
 
       return fresh;
     } finally {
-      inflightPromises.delete(key);
+      if (inflightPromises.get(key) === promise) {
+        inflightPromises.delete(key);
+      }
     }
   })();
 

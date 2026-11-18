@@ -1,9 +1,9 @@
 name: 'Setup InstaBox Database Bridge'
-description: 'Wakes InstaBox VM if sleeping and establishes verified Cloudflare TCP tunnel to PostgreSQL'
+description: 'Wakes InstaBox VM with 120m->480m max-run guard and establishes verified Cloudflare TCP tunnel to PostgreSQL'
 
 inputs:
   instabox-api-key:
-    description: 'InstaBox API Key for waking machine (optional)'
+    description: 'InstaBox API Key for waking and inspecting machine'
     required: false
     default: ''
   machine-id:
@@ -18,72 +18,183 @@ inputs:
     description: 'Skip InstaBox API wakeup call when Stage 0 already woke the VM'
     required: false
     default: 'false'
+  cf-access-client-id:
+    description: 'Optional Cloudflare Access Service Token Client ID'
+    required: false
+    default: ''
+  cf-access-client-secret:
+    description: 'Optional Cloudflare Access Service Token Client Secret'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
   steps:
-    - name: 1. Wake InstaBox Machine & Long-Poll Operation (if sleeping)
+    - name: 1. Smart 120m->480m Max-Run Guard, Wakeup & Stage 0 Readiness Ping
       shell: bash
       env:
         IB_API_KEY: ${{ inputs.instabox-api-key }}
         IB_MACHINE_ID: ${{ inputs.machine-id }}
         IB_SKIP_WAKEUP: ${{ inputs.skip-wakeup }}
       run: |
+        set -uo pipefail
         if [ "${IB_SKIP_WAKEUP}" = "true" ] || [ "${SKIP_WAKEUP:-false}" = "true" ]; then
           echo "Skipping InstaBox wakeup API call (already woken by Stage 0)."
         elif [ -n "${IB_API_KEY}" ]; then
-          IDEMP_KEY="gha-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%Y%m%d%H%M)"
-          echo "Starting/Resuming InstaBox machine: ${IB_MACHINE_ID} (Idempotency-Key: ${IDEMP_KEY})..."
-          START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+          echo "Inspecting InstaBox machine ${IB_MACHINE_ID} lifecycle state (120m->480m dynamic runtime guard)..."
+          META_JSON=$(curl -s "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -H "Idempotency-Key: ${IDEMP_KEY}" \
-            -d '{}' || echo "{}")
+            -H "X-API-Key: ${IB_API_KEY}" || echo "{}")
 
-          OP_INFO=$(node -e '
+          PARSED_META=$(node -e '
             try {
-              const d = JSON.parse(process.argv[1] || "{}");
-              const opId = d.id || (d.error && d.error.operationId) || "";
-              const state = d.state || "";
-              const errCode = (d.error && d.error.code) || "";
-              console.log(`${opId}|${state}|${errCode}`);
+              const m = JSON.parse(process.argv[1] || "{}");
+              const state = String(m.state || "unknown");
+              const runStartedAt = m.runStartedAt || "";
+              const maxRunMinutes = Number(m.maxRunMinutes || 120);
+              const cooldownUntil = m.cooldownUntil || "";
+              let elapsedMinutes = 0;
+              if (state === "running" && runStartedAt) {
+                const startMs = Date.parse(runStartedAt);
+                if (Number.isFinite(startMs)) {
+                  elapsedMinutes = Math.max(0, Math.floor((Date.now() - startMs) / 60000));
+                }
+              }
+              let cooldownWaitSec = 0;
+              if (cooldownUntil) {
+                const cdMs = Date.parse(cooldownUntil);
+                if (Number.isFinite(cdMs) && cdMs > Date.now()) {
+                  cooldownWaitSec = Math.ceil((cdMs - Date.now()) / 1000);
+                }
+              }
+              console.log(`${state}|${elapsedMinutes}|${maxRunMinutes}|${cooldownWaitSec}|${cooldownUntil}`);
             } catch (_) {
-              console.log("||");
+              console.log("unknown|0|120|0|");
             }
-          ' "${START_RESP}")
+          ' "${META_JSON}")
 
-          IFS='|' read -r OP_ID OP_STATE ERR_CODE <<< "${OP_INFO}"
-          echo "InstaBox start response -> opId=${OP_ID:-none}, state=${OP_STATE:-unknown}, error=${ERR_CODE:-none}"
+          IFS='|' read -r M_STATE ELAPSED_MIN MAX_RUN_MIN COOLDOWN_WAIT_SEC COOLDOWN_UNTIL <<< "${PARSED_META}"
+          echo "Machine telemetry -> state=${M_STATE}, elapsedRunMinutes=${ELAPSED_MIN}m, maxRunMinutes=${MAX_RUN_MIN}m, cooldownUntil=${COOLDOWN_UNTIL:-none}"
 
-          if [ -n "${OP_ID}" ] && [ "${OP_STATE}" != "succeeded" ]; then
-            echo "Long-polling InstaBox operation ${OP_ID} (?wait=25s) until VM is ready..."
-            curl -s "https://api.instabox.sh/v1/operations/${OP_ID}?wait=25s" \
-              -H "Authorization: Bearer ${IB_API_KEY}" > /dev/null 2>&1 || true
+          if [ "${COOLDOWN_WAIT_SEC}" -gt 0 ] && [ "${COOLDOWN_WAIT_SEC}" -le 120 ]; then
+            echo "Waiting ${COOLDOWN_WAIT_SEC}s for brief InstaBox cooldown to clear..."
+            sleep "${COOLDOWN_WAIT_SEC}"
           fi
+
+          # Preemptive external suspend -> poll -> start reset when continuous runtime exceeds 410m (approaching hard 480m 8h ceiling)
+          if [ "${M_STATE}" = "running" ] && [ "${ELAPSED_MIN}" -ge 410 ]; then
+            echo "⚠️ Continuous runtime is ${ELAPSED_MIN}m (>= 410m guard approaching hard 480m ceiling). Performing clean external POST /suspend -> poll -> POST /start reset..."
+            SUSP_KEY="gha-preempt-suspend-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%s)"
+            SUSP_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/suspend" \
+              -H "Authorization: Bearer ${IB_API_KEY}" \
+              -H "X-API-Key: ${IB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Idempotency-Key: ${SUSP_KEY}" \
+              -d '{}' || echo "{}")
+
+            SUSP_OP_ID=$(node -e '
+              try {
+                const d = JSON.parse(process.argv[1] || "{}");
+                console.log(d.id || (d.error && d.error.operationId) || "");
+              } catch (_) { console.log(""); }
+            ' "${SUSP_RESP}")
+
+            if [ -n "${SUSP_OP_ID}" ]; then
+              curl -s "https://api.instabox.sh/v1/operations/${SUSP_OP_ID}?wait=25s" \
+                -H "Authorization: Bearer ${IB_API_KEY}" \
+                -H "X-API-Key: ${IB_API_KEY}" > /dev/null 2>&1 || true
+            fi
+
+            for poll in $(seq 1 30); do
+              CHECK_STATE=$(curl -s "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}" \
+                -H "Authorization: Bearer ${IB_API_KEY}" \
+                -H "X-API-Key: ${IB_API_KEY}" | node -e '
+                  let s = "";
+                  process.stdin.on("data", c => s += c);
+                  process.stdin.on("end", () => {
+                    try { console.log(JSON.parse(s).state || ""); } catch (_) { console.log(""); }
+                  });
+                ')
+              if [ "${CHECK_STATE}" = "suspended" ] || [ "${CHECK_STATE}" = "stopped" ]; then
+                echo "✅ Machine cleanly suspended (poll ${poll}/30). Proceeding to fresh POST /start..."
+                M_STATE="${CHECK_STATE}"
+                break
+              fi
+              sleep 2
+            done
+          fi
+
+          if [ "${M_STATE}" != "running" ]; then
+            IDEMP_KEY="gha-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%Y%m%d%H%M%S)"
+            echo "Starting/Resuming InstaBox machine: ${IB_MACHINE_ID} (Idempotency-Key: ${IDEMP_KEY})..."
+            START_RESP=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
+              -H "Authorization: Bearer ${IB_API_KEY}" \
+              -H "X-API-Key: ${IB_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Idempotency-Key: ${IDEMP_KEY}" \
+              -d '{}' || echo "{}")
+
+            OP_INFO=$(node -e '
+              try {
+                const d = JSON.parse(process.argv[1] || "{}");
+                const opId = d.id || (d.error && d.error.operationId) || "";
+                const state = d.state || "";
+                const errCode = (d.error && d.error.code) || "";
+                console.log(`${opId}|${state}|${errCode}`);
+              } catch (_) {
+                console.log("||");
+              }
+            ' "${START_RESP}")
+
+            IFS='|' read -r OP_ID OP_STATE ERR_CODE <<< "${OP_INFO}"
+            echo "InstaBox start response -> opId=${OP_ID:-none}, state=${OP_STATE:-unknown}, error=${ERR_CODE:-none}"
+
+            if [ -n "${OP_ID}" ] && [ "${OP_STATE}" != "succeeded" ]; then
+              echo "Long-polling InstaBox operation ${OP_ID} (?wait=25s) until VM is ready..."
+              curl -s "https://api.instabox.sh/v1/operations/${OP_ID}?wait=25s" \
+                -H "Authorization: Bearer ${IB_API_KEY}" \
+                -H "X-API-Key: ${IB_API_KEY}" > /dev/null 2>&1 || true
+            fi
+          fi
+
+          # Lightweight Stage 0 /exec echo readiness ping so InstaBox registers active guest execution
+          # (allowing natural 120m -> 240m -> 480m maxRunMinutes growth across consecutive runs)
+          curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/exec" \
+            -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "X-API-Key: ${IB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"argv": ["echo", "pae-stage0-active"], "noHistory": true, "timeoutSeconds": 15}' > /dev/null 2>&1 || true
         fi
 
-    - name: 1b. Restore cached cloudflared-linux-amd64 binary
+    - name: 1b. Restore cached cloudflared-linux-amd64 binary (2026.11.1)
       uses: actions/cache@v4
       with:
         path: ~/.cache/cloudflared
-        key: ${{ runner.os }}-cloudflared-linux-amd64-v1
+        key: ${{ runner.os }}-cloudflared-linux-amd64-2026.11.1
 
-    - name: 2. Install and launch Cloudflare Access TCP Tunnel + Verify PostgreSQL Handshake
+    - name: 2. Install verified cloudflared, launch Cloudflare Access TCP Tunnel & Probe PostgreSQL
       shell: bash
       env:
         IB_API_KEY: ${{ inputs.instabox-api-key }}
         IB_MACHINE_ID: ${{ inputs.machine-id }}
         DB_HOSTNAME: ${{ inputs.db-hostname }}
+        CF_ACCESS_CLIENT_ID: ${{ inputs.cf-access-client-id }}
+        CF_ACCESS_CLIENT_SECRET: ${{ inputs.cf-access-client-secret }}
       run: |
+        set -eo pipefail
+        CLOUDFLARED_VERSION="2026.11.1"
+        CLOUDFLARED_DEB_SHA256="744ce90be92adb361103d51c85f78646314c47e4a68bbaadfe12ab5acc16c9b6"
         CLOUDFLARED_CACHE_DIR="${HOME}/.cache/cloudflared"
         CLOUDFLARED_CACHE_BIN="${CLOUDFLARED_CACHE_DIR}/cloudflared-linux-amd64"
+
         if ! command -v cloudflared &> /dev/null; then
           if [ -x "${CLOUDFLARED_CACHE_BIN}" ]; then
-            echo "Restoring cached cloudflared-linux-amd64 binary..."
+            echo "Restoring cached cloudflared-linux-amd64 (${CLOUDFLARED_VERSION}) binary..."
             sudo install -m 0755 "${CLOUDFLARED_CACHE_BIN}" /usr/local/bin/cloudflared
           else
-            echo "Installing cloudflared client..."
-            curl -sL --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+            echo "Downloading pinned cloudflared ${CLOUDFLARED_VERSION} (.deb) and verifying SHA-256..."
+            curl -fsSL --output /tmp/cloudflared.deb "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb"
+            echo "${CLOUDFLARED_DEB_SHA256}  /tmp/cloudflared.deb" | sha256sum -c -
             sudo dpkg -i /tmp/cloudflared.deb > /dev/null 2>&1
             rm -f /tmp/cloudflared.deb
             mkdir -p "${CLOUDFLARED_CACHE_DIR}"
@@ -92,10 +203,15 @@ runs:
           fi
         fi
 
-        echo "Starting Cloudflare TCP proxy to ${DB_HOSTNAME} on 127.0.0.1:5432..."
-        cloudflared access tcp --hostname "${DB_HOSTNAME}" --url 127.0.0.1:5432 > /dev/null 2>&1 &
+        CF_ACCESS_ARGS=(access tcp --hostname "${DB_HOSTNAME}" --url 127.0.0.1:5432)
+        if [ -n "${CF_ACCESS_CLIENT_ID}" ] && [ -n "${CF_ACCESS_CLIENT_SECRET}" ]; then
+          CF_ACCESS_ARGS+=(--id "${CF_ACCESS_CLIENT_ID}" --secret "${CF_ACCESS_CLIENT_SECRET}")
+        fi
 
-        # End-to-End PostgreSQL Wire Handshake Probe (sends 8-byte SSLRequest packet through tunnel to remote Postgres)
+        echo "Starting Cloudflare TCP proxy to ${DB_HOSTNAME} on 127.0.0.1:5432..."
+        cloudflared "${CF_ACCESS_ARGS[@]}" > /dev/null 2>&1 &
+
+        set +e
         echo "Verifying end-to-end PostgreSQL responsiveness over Cloudflare Tunnel (127.0.0.1:5432 -> ${DB_HOSTNAME})..."
         HANDSHAKE_OK=false
         for i in {1..20}; do
@@ -118,12 +234,12 @@ runs:
           sleep 1
         done
 
-        # If 20s probe failed, retry machine wakeup if API key is provided
         if [ "${HANDSHAKE_OK}" != "true" ] && [ -n "${IB_API_KEY}" ]; then
           echo "⚠️ Initial 20s probe failed. Attempting emergency InstaBox machine wakeup/resume on ${IB_MACHINE_ID}..."
           RETRY_IDEMP_KEY="gha-retry-wake-${IB_MACHINE_ID}-${GITHUB_RUN_ID:-0}-$(date +%s)"
           RETRY_START=$(curl -s -X POST "https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}/start" \
             -H "Authorization: Bearer ${IB_API_KEY}" \
+            -H "X-API-Key: ${IB_API_KEY}" \
             -H "Content-Type: application/json" \
             -H "Idempotency-Key: ${RETRY_IDEMP_KEY}" \
             -d '{}' || echo "{}")
@@ -138,7 +254,8 @@ runs:
           if [ -n "${RETRY_OP_ID}" ]; then
             echo "Waiting for InstaBox resume operation ${RETRY_OP_ID} (?wait=25s)..."
             curl -s "https://api.instabox.sh/v1/operations/${RETRY_OP_ID}?wait=25s" \
-              -H "Authorization: Bearer ${IB_API_KEY}" > /dev/null 2>&1 || true
+              -H "Authorization: Bearer ${IB_API_KEY}" \
+              -H "X-API-Key: ${IB_API_KEY}" > /dev/null 2>&1 || true
           fi
 
           echo "Re-probing PostgreSQL wire protocol after machine wakeup..."
@@ -171,6 +288,5 @@ runs:
           echo "Network listening ports:"
           netstat -tulpn 2>/dev/null | grep 5432 || ss -tulpn 2>/dev/null | grep 5432 || echo "Port 5432 not listening!"
           echo "------------------------------"
-          echo "Failing fast to prevent silent connection drop or unhandled stream ECONNRESET crash."
           exit 1
         fi

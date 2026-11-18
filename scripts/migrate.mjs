@@ -6,11 +6,6 @@
  * Canonical Unified Migration Runner for Pin Arbitrage Engine (PAE)
  * Applies SQL schema migrations sequentially from scripts/migrations/
  * while tracking idempotent execution status in schema_migrations.
- *
- * // [INVARIANT: ATOMIC-TRANSACTION-BUILDER]
- * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
- * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
- * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
 import fs from 'node:fs';
@@ -22,9 +17,10 @@ import { createSqlClient } from '../src/db/client.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Auto-load .env in Node runtime
+// Auto-load .env in Node runtime (skipped in test mode to prevent live DB side effects)
+const isTestRuntime = process.env.NODE_ENV === 'test' || process.env.ENVIRONMENT === 'test';
 const envPath = path.resolve(process.cwd(), '.env');
-if (fs.existsSync(envPath)) {
+if (!isTestRuntime && fs.existsSync(envPath)) {
   try {
     const content = fs.readFileSync(envPath, 'utf8');
     for (const line of content.split('\n')) {
@@ -42,7 +38,7 @@ if (fs.existsSync(envPath)) {
   } catch (_) {}
 }
 
-if (typeof process.loadEnvFile === 'function') {
+if (!isTestRuntime && typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
 }
 
@@ -76,7 +72,6 @@ export function splitSqlStatements(sqlText) {
     const char = sqlText[i];
     const nextChar = i + 1 < len ? sqlText[i + 1] : '';
 
-    // If currently inside a single-line comment (-- ...)
     if (inLineComment) {
       current += char;
       if (char === '\n') {
@@ -85,7 +80,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // If currently inside a block comment (/* ... */)
     if (inBlockComment) {
       current += char;
       if (char === '*' && nextChar === '/') {
@@ -96,7 +90,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // If currently inside a dollar-quoted string ($tag$ ... $tag$ or $$ ... $$)
     if (inDollarQuote) {
       if (char === '$' && sqlText.startsWith(dollarTag, i)) {
         current += dollarTag;
@@ -109,10 +102,8 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // If currently inside a single-quoted string (' ... ')
     if (inSingleQuote) {
       current += char;
-      // Handle SQL escaped single quote: '' or \'
       if (char === "'" && nextChar === "'") {
         current += "'";
         i++;
@@ -129,9 +120,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // --- NORMAL CODE CONTEXT ---
-
-    // 1. Line comment start: --
     if (char === '-' && nextChar === '-') {
       inLineComment = true;
       current += '--';
@@ -139,7 +127,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // 2. Block comment start: /*
     if (char === '/' && nextChar === '*') {
       inBlockComment = true;
       current += '/*';
@@ -147,7 +134,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // 3. Dollar quote start: $$ or $tag$
     if (char === '$') {
       const match = sqlText.slice(i).match(/^(\$[A-Za-z0-9_]*\$)/);
       if (match) {
@@ -159,14 +145,12 @@ export function splitSqlStatements(sqlText) {
       }
     }
 
-    // 4. Single quote start: '
     if (char === "'") {
       inSingleQuote = true;
       current += char;
       continue;
     }
 
-    // 5. Statement delimiter: ;
     if (char === ';') {
       const stmt = current.trim();
       if (hasExecutableSql(stmt)) {
@@ -176,7 +160,6 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    // Regular character
     current += char;
   }
 
@@ -190,7 +173,6 @@ export function splitSqlStatements(sqlText) {
 
 /**
  * Canonical special versions for migrations with shared numeric prefixes or custom names in schema_migrations.
- * Guarantees zero version collisions and zero false-pending flags on live database.
  */
 export const CANONICAL_SPECIAL_VERSIONS = {
   '001_core_registry.sql': {
@@ -206,8 +188,7 @@ export const CANONICAL_SPECIAL_VERSIONS = {
   '009b_keyword_guided_capsules.sql': {
     version: '009_capsules',
     name: 'keyword_guided_capsules',
-    aliases: ['009_capsules', '009b', '009_keyword_guided_capsules', '009b_keyword_guided_capsules', 'keyword_guided_capsules'],
-    legacyFilenames: ['009_keyword_guided_capsules.sql']
+    aliases: ['009_capsules', '009b', '009_keyword_guided_capsules', '009b_keyword_guided_capsules', 'keyword_guided_capsules']
   },
   '029_domain_monetization_metadata.sql': {
     version: '029',
@@ -217,8 +198,7 @@ export const CANONICAL_SPECIAL_VERSIONS = {
   '029b_keyword_snapshots_not_null_displaced.sql': {
     version: '029_displaced',
     name: 'keyword_snapshots_not_null_displaced',
-    aliases: ['029_displaced', '029b', '029_keyword_snapshots_not_null_displaced', '029b_keyword_snapshots_not_null_displaced', 'keyword_snapshots_not_null_displaced'],
-    legacyFilenames: ['029_keyword_snapshots_not_null_displaced.sql']
+    aliases: ['029_displaced', '029b', '029_keyword_snapshots_not_null_displaced', '029b_keyword_snapshots_not_null_displaced', 'keyword_snapshots_not_null_displaced']
   },
   '038_campaign_workspace_scoping.sql': {
     version: '038',
@@ -228,8 +208,7 @@ export const CANONICAL_SPECIAL_VERSIONS = {
   '038b_pa_pins_competitor_pins_shard_id.sql': {
     version: '038_shard_id',
     name: '038_pa_pins_competitor_pins_shard_id',
-    aliases: ['038_shard_id', '038b', '038_pa_pins_competitor_pins_shard_id', '038b_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id'],
-    legacyFilenames: ['038_pa_pins_competitor_pins_shard_id.sql']
+    aliases: ['038_shard_id', '038b', '038_pa_pins_competitor_pins_shard_id', '038b_pa_pins_competitor_pins_shard_id', 'pa_pins_competitor_pins_shard_id']
   },
   '042_hot_and_schema_compaction.sql': {
     version: '042',
@@ -244,8 +223,7 @@ export const CANONICAL_SPECIAL_VERSIONS = {
   '043b_unified_ssot_ecosystem_and_indexes.sql': {
     version: '043_ssot_indexes',
     name: '043_unified_ssot_ecosystem_and_indexes',
-    aliases: ['043_ssot_indexes', '043b', '043_unified_ssot_ecosystem_and_indexes', '043b_unified_ssot_ecosystem_and_indexes', 'unified_ssot_ecosystem_and_indexes'],
-    legacyFilenames: ['043_unified_ssot_ecosystem_and_indexes.sql']
+    aliases: ['043_ssot_indexes', '043b', '043_unified_ssot_ecosystem_and_indexes', '043b_unified_ssot_ecosystem_and_indexes', 'unified_ssot_ecosystem_and_indexes']
   },
   '044_hot_index_and_velocity_sanitization.sql': {
     version: '044',
@@ -255,8 +233,7 @@ export const CANONICAL_SPECIAL_VERSIONS = {
   '047b_drop_unused_legacy_tables.sql': {
     version: '047_drop_tables',
     name: '047_drop_unused_legacy_tables',
-    aliases: ['047_drop_tables', '047b', '047_drop_unused_legacy_tables', '047b_drop_unused_legacy_tables', 'drop_unused_legacy_tables'],
-    legacyFilenames: ['047_drop_unused_legacy_tables.sql']
+    aliases: ['047_drop_tables', '047b', '047_drop_unused_legacy_tables', '047b_drop_unused_legacy_tables', 'drop_unused_legacy_tables']
   },
   '055_heal_hydration_baselines_and_ssot.sql': {
     version: '055',
@@ -335,37 +312,40 @@ export async function ensureSchemaMigrationsTable(sql) {
 }
 
 /**
- * Retrieves Map of currently applied migrations from schema_migrations,
- * indexing by primary version and by name for drift-free lookup.
+ * Retrieves Map of currently applied migrations from schema_migrations.
+ * Fails closed (throws) on SQL errors after connection and stores strictly one Map entry per unique version
+ * so `applied.size` reflects exact unique applied versions (secondary name index lives on `applied.byName`).
  */
 export async function getAppliedMigrations(sql) {
-  try {
-    await ensureSchemaMigrationsTable(sql);
-    const rows = await sql`
-      SELECT version, name, checksum, applied_at
-      FROM schema_migrations
-      ORDER BY version ASC;
-    `;
-    const map = new Map();
-    for (const r of rows) {
-      const v = String(r.version).trim();
-      const n = String(r.name || '').trim();
-      const entry = {
-        version: v,
-        name: n,
-        checksum: r.checksum,
-        applied_at: r.applied_at
-      };
-      map.set(v, entry);
-      if (n) {
-        map.set(`name:${n}`, entry);
-      }
+  await ensureSchemaMigrationsTable(sql);
+  const rows = await sql`
+    SELECT version, name, checksum, applied_at
+    FROM schema_migrations
+    ORDER BY version ASC;
+  `;
+  const map = new Map();
+  const byName = new Map();
+  for (const r of rows) {
+    const v = String(r.version || '').trim();
+    if (!v) continue;
+    const n = String(r.name || '').trim();
+    const entry = {
+      version: v,
+      name: n,
+      checksum: r.checksum,
+      applied_at: r.applied_at
+    };
+    map.set(v, entry);
+    if (n) {
+      byName.set(n, entry);
     }
-    return map;
-  } catch (err) {
-    console.warn('[-] Warning reading schema_migrations:', err.message);
-    return new Map();
   }
+  Object.defineProperty(map, 'byName', {
+    value: byName,
+    enumerable: false,
+    configurable: true
+  });
+  return map;
 }
 
 /**
@@ -374,7 +354,19 @@ export async function getAppliedMigrations(sql) {
  */
 export function findAppliedMigration(appliedMap, migration) {
   if (!appliedMap || appliedMap.size === 0 || !migration) return null;
-  // 1. Direct version match (e.g. '001', '029', '029_displaced', '009_heartbeats')
+  const byName = appliedMap.byName instanceof Map ? appliedMap.byName : null;
+
+  const lookupByName = (candidateName) => {
+    if (!candidateName) return null;
+    if (byName && byName.has(candidateName)) return byName.get(candidateName);
+    if (appliedMap.has(`name:${candidateName}`)) return appliedMap.get(`name:${candidateName}`);
+    for (const entry of appliedMap.values()) {
+      if (entry && entry.name === candidateName) return entry;
+    }
+    return null;
+  };
+
+  // 1. Direct version match
   if (migration.version && appliedMap.has(migration.version)) {
     return appliedMap.get(migration.version);
   }
@@ -382,17 +374,20 @@ export function findAppliedMigration(appliedMap, migration) {
   if (Array.isArray(migration.aliases)) {
     for (const alias of migration.aliases) {
       if (appliedMap.has(alias)) return appliedMap.get(alias);
-      if (appliedMap.has(`name:${alias}`)) return appliedMap.get(`name:${alias}`);
+      const aliasHit = lookupByName(alias);
+      if (aliasHit) return aliasHit;
     }
   }
-  // 3. Name match (e.g. 'name:crawler_shard_heartbeats', 'name:domain_monetization_metadata')
-  if (migration.name && appliedMap.has(`name:${migration.name}`)) {
-    return appliedMap.get(`name:${migration.name}`);
-  }
+  // 3. Name match
+  const nameHit = lookupByName(migration.name);
+  if (nameHit) return nameHit;
+
   // 4. Filename base match without .sql
   const baseName = migration.filename ? migration.filename.replace(/\.sql$/i, '') : null;
-  if (baseName && appliedMap.has(`name:${baseName}`)) {
-    return appliedMap.get(`name:${baseName}`);
+  if (baseName) {
+    if (appliedMap.has(baseName)) return appliedMap.get(baseName);
+    const stemHit = lookupByName(baseName);
+    if (stemHit) return stemHit;
   }
   return null;
 }
@@ -405,7 +400,6 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
   const files = fs.readdirSync(migrationsDir)
     .filter(f => f.endsWith('.sql'))
     .sort((a, b) => {
-      // Natural sort by numeric prefix e.g. 001, 002, ..., 029, 029_displaced, 035
       const numA = parseInt(a.split('_')[0], 10);
       const numB = parseInt(b.split('_')[0], 10);
       if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
@@ -414,7 +408,7 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
       return a.localeCompare(b);
     });
 
-  const result = files.map(filename => {
+  return files.map(filename => {
     const special = CANONICAL_SPECIAL_VERSIONS[filename];
     const numPrefix = parseInt(filename.split('_')[0], 10);
     const numericPrefix = isNaN(numPrefix) ? null : numPrefix;
@@ -426,7 +420,6 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
         version: special.version,
         name: special.name,
         aliases: special.aliases || [],
-        legacyFilenames: special.legacyFilenames || [],
         numericPrefix
       };
     }
@@ -440,24 +433,9 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
       version,
       name,
       aliases: [filename.replace(/\.sql$/i, '')],
-      legacyFilenames: [],
       numericPrefix
     };
   });
-
-  const originalFind = result.find.bind(result);
-  result.find = function(predicate, thisArg) {
-    const found = originalFind(predicate, thisArg);
-    if (found) return found;
-    return originalFind((m, idx, arr) => {
-      if (m.legacyFilenames && m.legacyFilenames.some(legacy => predicate({ ...m, filename: legacy }, idx, arr))) {
-        return true;
-      }
-      return false;
-    }, thisArg);
-  };
-
-  return result;
 }
 
 export const discoverMigrations = getMigrationFiles;
@@ -472,7 +450,7 @@ export function calculateChecksum(content) {
 /**
  * Executes a single migration file against the database endpoint with cold-start retries.
  */
-export async function applyMigration(sql, migration, { dryRun = false, force = false, maxRetries = 3 } = {}) {
+export async function applyMigration(sql, migration, { dryRun = false, maxRetries = 3 } = {}) {
   const content = fs.readFileSync(migration.filepath, 'utf8');
   const checksum = calculateChecksum(content);
 
@@ -499,7 +477,6 @@ export async function applyMigration(sql, migration, { dryRun = false, force = f
         });
       } else {
         for (const stmt of statements) {
-          // Execute each discrete statement
           if (typeof sql.unsafe === 'function') {
             await sql.unsafe(stmt);
           } else {
@@ -508,7 +485,6 @@ export async function applyMigration(sql, migration, { dryRun = false, force = f
         }
       }
 
-      // Record in schema_migrations
       await sql`
         INSERT INTO schema_migrations (version, name, checksum, applied_at)
         VALUES (${migration.version}, ${migration.name}, ${checksum}, NOW())
@@ -542,95 +518,102 @@ export async function runMigrations({
   dryRun = false,
   force = false,
   upToVersion = null,
-  singleFile = null
+  singleFile = null,
+  sqlClient = null
 } = {}) {
-  if (!dbUrl) {
+  if (!dbUrl && !sqlClient) {
     throw new Error('DATABASE_URL is required to run migrations.');
   }
 
-  const sql = createSqlClient(dbUrl);
-
-  let applied;
+  let sql = null;
   try {
-    await ensureSchemaMigrationsTable(sql);
-    applied = await getAppliedMigrations(sql);
-  } catch (connErr) {
-    if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(connErr.message)) {
-      console.warn('================================================================================');
-      console.warn('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
-      console.warn('================================================================================');
-      console.warn(`[!] Target Database:     ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
-      console.warn(`[!] Status:              Database is offline or unreachable (${connErr.message}).`);
-      console.warn(`    Schema migrations will be applied when the database container boots up.`);
-      console.warn('================================================================================\n');
-      await sql.end({ timeout: 1 }).catch(() => {});
-      return { applied: 0, skipped: 0, total: 0, offline: true };
+    sql = sqlClient || createSqlClient(dbUrl);
+
+    let applied;
+    try {
+      applied = await getAppliedMigrations(sql);
+    } catch (connErr) {
+      if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(connErr.message)) {
+        console.warn('================================================================================');
+        console.warn('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
+        console.warn('================================================================================');
+        console.warn(`[!] Target Database:     ${String(dbUrl || '').replace(/:[^:@]+@/, ':***@')}`);
+        console.warn(`[!] Status:              Database is offline or unreachable (${connErr.message}).`);
+        console.warn('    Schema migrations will be applied when the database container boots up.');
+        console.warn('================================================================================\n');
+        return { applied: 0, skipped: 0, total: 0, offline: true };
+      }
+      throw connErr;
     }
-    throw connErr;
-  }
-  const allFiles = getMigrationFiles(migrationsDir);
 
-  console.log('================================================================================');
-  console.log('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
-  console.log('================================================================================');
-  console.log(`[*] Target Database:     ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
-  console.log(`[*] Migrations Directory: ${migrationsDir}`);
-  console.log(`[*] Discovered Files:    ${allFiles.length}`);
-  console.log(`[*] Currently Applied:   ${applied.size}`);
-  if (dryRun) console.log(`[*] Mode:                DRY RUN (no changes committed)`);
-  if (upToVersion) console.log(`[*] Target Version Cap:  ${upToVersion}`);
-  console.log('--------------------------------------------------------------------------------\n');
+    const allFiles = getMigrationFiles(migrationsDir);
 
-  let targetFiles = allFiles;
-  if (singleFile) {
-    const cleanSearch = singleFile.trim();
-    targetFiles = allFiles.filter(f =>
-      f.filename === cleanSearch ||
-      f.version === cleanSearch ||
-      (f.aliases && f.aliases.includes(cleanSearch)) ||
-      f.filename.replace(/\.sql$/i, '') === cleanSearch
-    );
-    if (targetFiles.length === 0) {
-      throw new Error(`Migration file or version '${singleFile}' not found in ${migrationsDir}`);
-    }
-  }
+    console.log('================================================================================');
+    console.log('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
+    console.log('================================================================================');
+    console.log(`[*] Target Database:     ${String(dbUrl || '').replace(/:[^:@]+@/, ':***@')}`);
+    console.log(`[*] Migrations Directory: ${migrationsDir}`);
+    console.log(`[*] Discovered Files:    ${allFiles.length}`);
+    console.log(`[*] Currently Applied:   ${applied.size}`);
+    if (dryRun) console.log('[*] Mode:                DRY RUN (no changes committed)');
+    if (upToVersion) console.log(`[*] Target Version Cap:  ${upToVersion}`);
+    console.log('--------------------------------------------------------------------------------\n');
 
-  const results = {
-    applied: 0,
-    skipped: 0,
-    total: targetFiles.length,
-    details: []
-  };
-
-  for (const mig of targetFiles) {
-    if (upToVersion) {
-      const numMig = mig.numericPrefix ?? parseInt(mig.version, 10);
-      const numTarget = parseInt(upToVersion, 10);
-      if (!isNaN(numMig) && !isNaN(numTarget) && numMig > numTarget) {
-        console.log(`  [-] Reached target cap ${upToVersion}. Halting migrations.`);
-        break;
+    let targetFiles = allFiles;
+    if (singleFile) {
+      const cleanSearch = singleFile.trim();
+      targetFiles = allFiles.filter(f =>
+        f.filename === cleanSearch ||
+        f.version === cleanSearch ||
+        (f.aliases && f.aliases.includes(cleanSearch)) ||
+        f.filename.replace(/\.sql$/i, '') === cleanSearch
+      );
+      if (targetFiles.length === 0) {
+        throw new Error(`Migration file or version '${singleFile}' not found in ${migrationsDir}`);
       }
     }
 
-    const appliedEntry = findAppliedMigration(applied, mig);
-    const isApplied = Boolean(appliedEntry);
-    if (isApplied && !force) {
-      console.log(`  - [SKIPPED] Migration ${mig.version} (${mig.filename}) already applied at ${appliedEntry.applied_at}`);
-      results.skipped++;
-      results.details.push({ version: mig.version, status: 'skipped' });
-      continue;
+    const results = {
+      applied: 0,
+      skipped: 0,
+      total: targetFiles.length,
+      details: []
+    };
+
+    for (const mig of targetFiles) {
+      if (upToVersion) {
+        const numMig = mig.numericPrefix ?? parseInt(mig.version, 10);
+        const numTarget = parseInt(upToVersion, 10);
+        if (!isNaN(numMig) && !isNaN(numTarget) && numMig > numTarget) {
+          console.log(`  [-] Reached target cap ${upToVersion}. Halting migrations.`);
+          break;
+        }
+      }
+
+      const appliedEntry = findAppliedMigration(applied, mig);
+      const isApplied = Boolean(appliedEntry);
+      if (isApplied && !force) {
+        console.log(`  - [SKIPPED] Migration ${mig.version} (${mig.filename}) already applied at ${appliedEntry.applied_at}`);
+        results.skipped++;
+        results.details.push({ version: mig.version, status: 'skipped' });
+        continue;
+      }
+
+      const res = await applyMigration(sql, mig, { dryRun, force });
+      results.applied++;
+      results.details.push({ version: mig.version, status: 'applied', ...res });
     }
 
-    const res = await applyMigration(sql, mig, { dryRun, force });
-    results.applied++;
-    results.details.push({ version: mig.version, status: 'applied', ...res });
+    console.log('\n================================================================================');
+    console.log(`🏁 MIGRATION RUN COMPLETE: ${results.applied} applied, ${results.skipped} skipped, ${results.total} total.`);
+    console.log('================================================================================\n');
+
+    return results;
+  } finally {
+    if (sql && typeof sql.end === 'function') {
+      await sql.end({ timeout: 2 }).catch(() => {});
+    }
   }
-
-  console.log('\n================================================================================');
-  console.log(`🏁 MIGRATION RUN COMPLETE: ${results.applied} applied, ${results.skipped} skipped, ${results.total} total.`);
-  console.log('================================================================================\n');
-
-  return results;
 }
 
 /**
@@ -638,30 +621,39 @@ export async function runMigrations({
  */
 export async function listMigrations({
   dbUrl = process.env.DATABASE_URL,
-  migrationsDir = path.join(__dirname, 'migrations')
+  migrationsDir = path.join(__dirname, 'migrations'),
+  sqlClient = null
 } = {}) {
-  if (!dbUrl) {
+  if (!dbUrl && !sqlClient) {
     throw new Error('DATABASE_URL is required to list migrations.');
   }
 
-  const sql = createSqlClient(dbUrl);
-  const applied = await getAppliedMigrations(sql);
-  const allFiles = getMigrationFiles(migrationsDir);
+  let sql = null;
+  try {
+    sql = sqlClient || createSqlClient(dbUrl);
+    const applied = await getAppliedMigrations(sql);
+    const allFiles = getMigrationFiles(migrationsDir);
 
-  console.log('================================================================================');
-  console.log('📋 MIGRATION STATUS REPORT');
-  console.log('================================================================================\n');
+    console.log('================================================================================');
+    console.log('📋 MIGRATION STATUS REPORT');
+    console.log('================================================================================\n');
 
-  for (const mig of allFiles) {
-    const app = findAppliedMigration(applied, mig);
-    if (app) {
-      console.log(`  ✅ [APPLIED] ${mig.version.padEnd(16)} ${mig.filename.padEnd(50)} (Applied: ${app.applied_at})`);
-    } else {
-      console.log(`  ⏳ [PENDING] ${mig.version.padEnd(16)} ${mig.filename.padEnd(50)}`);
+    for (const mig of allFiles) {
+      const app = findAppliedMigration(applied, mig);
+      if (app) {
+        console.log(`  ✅ [APPLIED] ${mig.version.padEnd(16)} ${mig.filename.padEnd(50)} (Applied: ${app.applied_at})`);
+      } else {
+        console.log(`  ⏳ [PENDING] ${mig.version.padEnd(16)} ${mig.filename.padEnd(50)}`);
+      }
+    }
+
+    console.log('\n================================================================================\n');
+    return { appliedCount: applied.size, totalFiles: allFiles.length };
+  } finally {
+    if (sql && typeof sql.end === 'function') {
+      await sql.end({ timeout: 2 }).catch(() => {});
     }
   }
-
-  console.log('\n================================================================================\n');
 }
 
 // CLI entry point
@@ -670,7 +662,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const dryRun = args.includes('--dry-run');
   const force = args.includes('--force');
   const isList = args.includes('--list') || args.includes('--status');
-  
+
   const upToArg = args.find(a => a.startsWith('--up-to='));
   const upToVersion = upToArg ? upToArg.split('=')[1] : null;
 
@@ -696,4 +688,3 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       });
   }
 }
-

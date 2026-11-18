@@ -1,41 +1,57 @@
 /**
  * Pin Arbitrage Engine (PAE) - Cloudflare Edge Auto-Wake Shield & Access Gate
  *
- * 1. ZERO-TRUST ACCESS GATE: Validates operator credentials at Cloudflare Edge in 0ms.
- *    Unauthorized requests are blocked BEFORE touching or waking the InstaBox VM!
+ * 1. ZERO-TRUST ACCESS GATE:
+ *    - Issues HMAC-SHA256 expiring cookies (<expUnixSec>.<hmacSha256Hex>) with SameSite=Strict.
+ *    - Enforces per-IP PIN brute-force rate limiting (max 5 failures / 10m -> 429 + Retry-After).
+ *    - Enforces same-origin CSRF validation on mutating cookie-authenticated requests BEFORE
+ *      injecting x-api-key or waking/proxying the InstaBox origin.
  * 2. PROACTIVE & RESILIENT AUTO-WAKE SHIELD:
- *    - Enforces a fast timeout on origin tunnel requests to defeat frozen "Zombie Tunnels".
- *    - Catches all 5xx/tunnel error codes (500, 502, 503, 504, 520-530).
+ *    - Enforces fast timeouts on origin tunnel requests to defeat frozen tunnels.
+ *    - Catches gateway/tunnel offline statuses (502, 503, 504, 520-530).
  *    - Wakes stopped or suspended InstaBox VMs via official OpenAPI `POST /v1/machines/:id/start`
  *      with required `Idempotency-Key` (20s time-bucketed) and `{}` JSON body.
- *    - Proactively dispatches wake-up upon successful PIN authentication (`/api/shield-auth`).
- *    - Provides a dedicated lightweight `/api/shield-wake-status` endpoint that checks
- *      internal `/api/health` every 2s and throttles InstaBox metadata checks (`?meta=1`)
- *      to once every 6s to protect API rate limits.
  */
 
 const MACHINE_ID = 'm_agq2t32m5xv5joj67rqoze5h4u';
 const AUTH_COOKIE_NAME = 'pae_shield_auth';
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days (seconds)
+const PIN_FAIL_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const PIN_MAX_FAILURES = 5;
+const PIN_RATE_MAP_MAX_SIZE = 2000;
 const TUNNEL_DOWN_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
 
-// Isolate-level throttling caches to protect InstaBox API rate limits
+// Isolate-level throttling & brute-force protection stores
 let lastWakeAt = 0;
 let lastWakeResult = null;
 let lastMetaCheckAt = 0;
 let lastMetaState = null;
+const pinFailureStore = new Map();
 
-async function computeExpectedToken(secret) {
+export function _resetWakeShieldState() {
+  lastWakeAt = 0;
+  lastWakeResult = null;
+  lastMetaCheckAt = 0;
+  lastMetaState = null;
+  pinFailureStore.clear();
+}
+
+async function computeHmacSha256Hex(secret, message) {
   const enc = new TextEncoder();
-  const data = enc.encode(`${secret}:pae_access_salt_2026`);
-  const hashBuf = await crypto.subtle.digest('SHA-256', data);
-  const hashArr = Array.from(new Uint8Array(hashBuf));
-  return hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(`${secret}:pae_shield_hmac_v1`),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  const sigArr = Array.from(new Uint8Array(sigBuf));
+  return sigArr.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Constant-time byte-by-byte comparison using WebCrypto SHA-256 digests + XOR loop
- * to defend against timing side-channel attacks.
+ * Constant-time string equality check using WebCrypto SHA-256 digests + XOR loop.
  */
 async function timingSafeEqualWebCrypto(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -54,12 +70,15 @@ async function timingSafeEqualWebCrypto(a, b) {
 }
 
 /**
- * Constant-time membership check across an array of valid secrets/tokens using WebCrypto SHA-256.
- * Accepts either (candidate, allowedValues) or (allowedValues, candidate).
+ * Constant-time membership check across an array of valid secrets.
  */
 async function timingSafeIncludes(candidateOrList, allowedOrCandidate) {
-  const candidate = typeof candidateOrList === 'string' ? candidateOrList : (typeof allowedOrCandidate === 'string' ? allowedOrCandidate : null);
-  const allowedValues = Array.isArray(allowedOrCandidate) ? allowedOrCandidate : (Array.isArray(candidateOrList) ? candidateOrList : null);
+  const candidate = typeof candidateOrList === 'string'
+    ? candidateOrList
+    : (typeof allowedOrCandidate === 'string' ? allowedOrCandidate : null);
+  const allowedValues = Array.isArray(allowedOrCandidate)
+    ? allowedOrCandidate
+    : (Array.isArray(candidateOrList) ? candidateOrList : null);
 
   if (!candidate || !allowedValues || allowedValues.length === 0) return false;
 
@@ -72,17 +91,151 @@ async function timingSafeIncludes(candidateOrList, allowedOrCandidate) {
   return matchFound;
 }
 
-function parseCookie(request, name) {
-  const cookieHeader = request.headers.get('Cookie') || '';
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]) : null;
+/**
+ * Issues an expiring `<expUnixSec>.<hmacSha256Hex>` cookie token.
+ */
+export async function issueShieldCookieToken(secret, nowMs = Date.now(), maxAgeSec = COOKIE_MAX_AGE) {
+  const expUnixSec = Math.floor(nowMs / 1000) + Math.max(1, Math.floor(maxAgeSec));
+  const expStr = String(expUnixSec);
+  const hmacHex = await computeHmacSha256Hex(secret, expStr);
+  return `${expStr}.${hmacHex}`;
 }
 
 /**
- * Triggers InstaBox machine start/resume in full compliance with InstaBox OpenAPI 3.1.0:
- * - Route: POST /v1/machines/{id}/start (resumes suspended VMs AND starts stopped VMs)
- * - Header: Idempotency-Key (required by InstaBox for all mutating POST requests, bucketed to 20s)
- * - Body: JSON.stringify({}) (required when Content-Type is application/json)
+ * Verifies `<expUnixSec>.<hmacSha256Hex>` cookie token in constant time with expiry enforcement.
+ */
+export async function verifyShieldCookieToken(cookieValue, validSecrets, nowMs = Date.now()) {
+  if (typeof cookieValue !== 'string' || !Array.isArray(validSecrets) || validSecrets.length === 0) {
+    return false;
+  }
+  const dotIdx = cookieValue.indexOf('.');
+  if (dotIdx <= 0 || cookieValue.indexOf('.', dotIdx + 1) !== -1) {
+    return false;
+  }
+  const expStr = cookieValue.slice(0, dotIdx);
+  const providedHmac = cookieValue.slice(dotIdx + 1).toLowerCase();
+  if (!/^\d{1,15}$/.test(expStr) || !/^[0-9a-f]{64}$/.test(providedHmac)) {
+    return false;
+  }
+
+  const expUnixSec = Number(expStr);
+  const isUnexpired = Number.isSafeInteger(expUnixSec) && (nowMs / 1000) < expUnixSec;
+
+  let hmacValid = false;
+  for (const secret of validSecrets) {
+    const expectedHmac = await computeHmacSha256Hex(String(secret), expStr);
+    if (await timingSafeEqualWebCrypto(providedHmac, expectedHmac)) {
+      hmacValid = true;
+    }
+  }
+
+  return hmacValid && isUnexpired;
+}
+
+/**
+ * Escapes `<`, `>`, and `&` for safe embedding inside HTML `<script>` blocks.
+ */
+export function serializeSafeJsonForScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+function getClientIpKey(request) {
+  const cfIp = (request.headers.get('CF-Connecting-IP') || '').trim();
+  if (cfIp) return cfIp;
+  const xff = (request.headers.get('X-Forwarded-For') || '').split(',')[0].trim();
+  return xff || 'unknown';
+}
+
+function prunePinFailureStore(nowMs) {
+  for (const [ip, timestamps] of pinFailureStore.entries()) {
+    const recent = timestamps.filter((ts) => nowMs - ts < PIN_FAIL_WINDOW_MS);
+    if (recent.length === 0) {
+      pinFailureStore.delete(ip);
+    } else {
+      pinFailureStore.set(ip, recent);
+    }
+  }
+  while (pinFailureStore.size > PIN_RATE_MAP_MAX_SIZE) {
+    const oldestKey = pinFailureStore.keys().next().value;
+    if (oldestKey === undefined) break;
+    pinFailureStore.delete(oldestKey);
+  }
+}
+
+function checkPinRateLimit(ipKey, nowMs = Date.now()) {
+  const existing = pinFailureStore.get(ipKey);
+  if (!existing || existing.length === 0) {
+    return { limited: false, retryAfterSec: 0 };
+  }
+  const recent = existing.filter((ts) => nowMs - ts < PIN_FAIL_WINDOW_MS);
+  if (recent.length === 0) {
+    pinFailureStore.delete(ipKey);
+    return { limited: false, retryAfterSec: 0 };
+  }
+  pinFailureStore.set(ipKey, recent);
+  if (recent.length >= PIN_MAX_FAILURES) {
+    const oldest = recent[0];
+    const retryAfterSec = Math.max(1, Math.ceil((PIN_FAIL_WINDOW_MS - (nowMs - oldest)) / 1000));
+    return { limited: true, retryAfterSec };
+  }
+  return { limited: false, retryAfterSec: 0 };
+}
+
+function recordPinFailure(ipKey, nowMs = Date.now()) {
+  if (!pinFailureStore.has(ipKey) && pinFailureStore.size >= PIN_RATE_MAP_MAX_SIZE) {
+    prunePinFailureStore(nowMs);
+    if (pinFailureStore.size >= PIN_RATE_MAP_MAX_SIZE) {
+      const oldestKey = pinFailureStore.keys().next().value;
+      if (oldestKey !== undefined) pinFailureStore.delete(oldestKey);
+    }
+  }
+  const existing = (pinFailureStore.get(ipKey) || []).filter((ts) => nowMs - ts < PIN_FAIL_WINDOW_MS);
+  existing.push(nowMs);
+  pinFailureStore.set(ipKey, existing);
+}
+
+function parseCookie(request, name) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch (_) {
+    return match[1];
+  }
+}
+
+/**
+ * Normalizes logout redirect targets strictly to a single-slash same-origin path.
+ */
+function resolveSafeLogoutLocation(url) {
+  const cleanSearch = new URLSearchParams(url.searchParams);
+  cleanSearch.delete('logout');
+  const rawPath = url.pathname === '/logout' ? '/' : url.pathname;
+  const singleSlashPath = '/' + rawPath.replace(/^\/+/, '').replace(/^\\+/, '');
+  const querySuffix = cleanSearch.toString() ? `?${cleanSearch.toString()}` : '';
+  const cleanTarget = singleSlashPath === '/logout' ? '/' : `${singleSlashPath}${querySuffix}`;
+
+  try {
+    const resolved = new URL(cleanTarget, url.origin);
+    if (resolved.origin !== url.origin) {
+      return '/';
+    }
+    const finalPath = '/' + resolved.pathname.replace(/^\/+/, '').replace(/^\\+/, '');
+    return `${finalPath}${resolved.search}`;
+  } catch (_) {
+    return '/';
+  }
+}
+
+/**
+ * Triggers InstaBox machine start/resume in compliance with InstaBox OpenAPI 3.1.0:
+ * - Route: POST /v1/machines/{id}/start
+ * - Header: Idempotency-Key (20s time-bucketed)
+ * - Body: JSON.stringify({})
  */
 async function triggerInstaBoxWake(machineId, apiKey, { force = false } = {}) {
   if (!apiKey) {
@@ -179,7 +332,6 @@ async function getThrottledInstaBoxMeta(machineId, apiKey, ctx) {
       const runtimeReady = Boolean(machine?.runtime?.ready);
       const cooldownUntil = machine?.cooldownUntil || null;
 
-      // If the VM is still stopped or suspended and not in cooldown, re-trigger start
       if ((state === 'suspended' || state === 'stopped') && !cooldownUntil) {
         const wakePromise = triggerInstaBoxWake(machineId, apiKey);
         if (ctx && typeof ctx.waitUntil === 'function') {
@@ -207,11 +359,14 @@ export default {
   async fetch(request, env, ctx) {
     const machineId = env.INSTABOX_MACHINE_ID || MACHINE_ID;
     const apiKey = env.INSTABOX_API_KEY;
+    const nowMs = Date.now();
 
     // Fail-closed: require explicit SHIELD_PIN or API_SECRET_KEY in Worker environment
     const validPins = [];
-    if (env.SHIELD_PIN) validPins.push(env.SHIELD_PIN);
-    if (env.API_SECRET_KEY && !validPins.includes(env.API_SECRET_KEY)) validPins.push(env.API_SECRET_KEY);
+    if (env.SHIELD_PIN) validPins.push(String(env.SHIELD_PIN));
+    if (env.API_SECRET_KEY && !validPins.includes(String(env.API_SECRET_KEY))) {
+      validPins.push(String(env.API_SECRET_KEY));
+    }
     if (validPins.length === 0) {
       return new Response(JSON.stringify({
         success: false,
@@ -226,58 +381,53 @@ export default {
       });
     }
 
-    const expectedTokens = await Promise.all(
-      validPins.map(pin => computeExpectedToken(pin))
-    );
-
     const url = new URL(request.url);
+    const methodUpper = (request.method || 'GET').toUpperCase();
 
     // -------------------------------------------------------------
     // A. LOGOUT HANDLER (?logout=true or /logout)
     // -------------------------------------------------------------
     if (url.searchParams.get('logout') === 'true' || url.pathname === '/logout') {
-      url.searchParams.delete('logout');
-      const cleanUrl = url.pathname === '/logout' ? '/' : (url.pathname + (url.search ? url.search : ''));
+      const cleanLocation = resolveSafeLogoutLocation(url);
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': cleanUrl,
-          'Set-Cookie': `${AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure`
+          'Location': cleanLocation,
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Set-Cookie': `${AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict; Secure`
         }
       });
     }
 
     // -------------------------------------------------------------
-    // B. AUTHENTICATION VERIFICATION (Cookie or HTTP Header)
+    // B. AJAX PIN SUBMISSION (POST /api/shield-auth) WITH RATE LIMIT
     // -------------------------------------------------------------
-    let isAuthorized = false;
+    if (methodUpper === 'POST' && url.pathname === '/api/shield-auth') {
+      const ipKey = getClientIpKey(request);
+      const rateCheck = checkPinRateLimit(ipKey, nowMs);
+      if (rateCheck.limited) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'TOO_MANY_ATTEMPTS',
+          message: `Too many failed PIN attempts. Retry after ${rateCheck.retryAfterSec} seconds.`,
+          retryAfter: rateCheck.retryAfterSec
+        }), {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(rateCheck.retryAfterSec),
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+          }
+        });
+      }
 
-    // 1. Check Cookie
-    const clientToken = parseCookie(request, AUTH_COOKIE_NAME);
-    if (clientToken && (await timingSafeIncludes(clientToken, expectedTokens))) {
-      isAuthorized = true;
-    }
-
-    // 2. Check HTTP Headers (x-api-key or Authorization Bearer)
-    const headerApiKey = request.headers.get('x-api-key') || '';
-    const authHeader = request.headers.get('Authorization') || '';
-    const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
-
-    if (
-      (headerApiKey && (await timingSafeIncludes(headerApiKey, validPins))) ||
-      (bearerToken && (await timingSafeIncludes(bearerToken, validPins)))
-    ) {
-      isAuthorized = true;
-    }
-
-    // 3. Handle AJAX PIN submission from the Login Gate (POST /api/shield-auth)
-    if (request.method === 'POST' && url.pathname === '/api/shield-auth') {
       try {
         const body = await request.json();
-        const pinAttempt = (body?.pin || '').trim();
+        const pinAttempt = typeof body?.pin === 'string' ? body.pin.trim() : '';
         if (pinAttempt && (await timingSafeIncludes(pinAttempt, validPins))) {
-          const token = await computeExpectedToken(pinAttempt);
-          // Proactively wake the InstaBox VM immediately upon valid PIN authentication!
+          pinFailureStore.delete(ipKey);
+          const signingSecret = validPins[0];
+          const token = await issueShieldCookieToken(signingSecret, nowMs, COOKIE_MAX_AGE);
           if (apiKey) {
             const wakePromise = triggerInstaBoxWake(machineId, apiKey);
             if (ctx && typeof ctx.waitUntil === 'function') {
@@ -288,24 +438,59 @@ export default {
             status: 200,
             headers: {
               'Content-Type': 'application/json',
-              'Set-Cookie': `${AUTH_COOKIE_NAME}=${token}; Path=/; Max-Age=${COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax; Secure`
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'Set-Cookie': `${AUTH_COOKIE_NAME}=${token}; Path=/; Max-Age=${COOKIE_MAX_AGE}; HttpOnly; SameSite=Strict; Secure`
             }
           });
         }
+
+        recordPinFailure(ipKey, nowMs);
         return new Response(JSON.stringify({ success: false, error: 'Invalid access PIN' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json' }
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+          }
         });
       } catch (_) {
         return new Response(JSON.stringify({ success: false, error: 'Malformed request' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json' }
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+          }
         });
       }
     }
 
     // -------------------------------------------------------------
-    // C. ACCESS DENIED: STOP HERE! DO NOT WAKE OR FETCH INSTABOX!
+    // C. AUTHENTICATION VERIFICATION (Distinguish header vs cookie)
+    // -------------------------------------------------------------
+    let isAuthorized = false;
+    let authSource = null;
+
+    // 1. Check HTTP Headers (x-api-key or Authorization Bearer)
+    const headerApiKey = request.headers.get('x-api-key') || '';
+    const authHeader = request.headers.get('Authorization') || '';
+    const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+
+    if (
+      (headerApiKey && (await timingSafeIncludes(headerApiKey, validPins))) ||
+      (bearerToken && (await timingSafeIncludes(bearerToken, validPins)))
+    ) {
+      isAuthorized = true;
+      authSource = 'header';
+    } else {
+      // 2. Check HMAC-SHA256 Expiring Cookie
+      const clientToken = parseCookie(request, AUTH_COOKIE_NAME);
+      if (clientToken && (await verifyShieldCookieToken(clientToken, validPins, nowMs))) {
+        isAuthorized = true;
+        authSource = 'cookie';
+      }
+    }
+
+    // -------------------------------------------------------------
+    // D. ACCESS DENIED: STOP HERE! DO NOT WAKE OR FETCH INSTABOX!
     // -------------------------------------------------------------
     if (!isAuthorized) {
       const acceptHeader = request.headers.get('accept') || '';
@@ -323,7 +508,6 @@ export default {
         });
       }
 
-      // Return Swiss-grid Dark Mode PIN Login Screen
       return new Response(renderAuthGateHtml(), {
         status: 401,
         headers: {
@@ -333,7 +517,33 @@ export default {
       });
     }
 
-    // Inject secret API key automatically for authenticated operator so UI never prompts
+    // -------------------------------------------------------------
+    // E. STRICT CSRF & SAME-ORIGIN GATE BEFORE x-api-key INJECTION
+    // -------------------------------------------------------------
+    const isSafeMethod = methodUpper === 'GET' || methodUpper === 'HEAD' || methodUpper === 'OPTIONS';
+    if (authSource === 'cookie' && !isSafeMethod) {
+      const reqOrigin = (request.headers.get('Origin') || '').trim();
+      const rawSecFetchSite = request.headers.get('Sec-Fetch-Site');
+      const secFetchSite = rawSecFetchSite !== null ? rawSecFetchSite.trim().toLowerCase() : null;
+      const originMatches = reqOrigin === url.origin;
+      const secFetchAllowed = !secFetchSite || secFetchSite === 'same-origin';
+
+      if (!originMatches || !secFetchAllowed) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'Cross-origin mutating request rejected by Edge CSRF gate.'
+        }), {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+          }
+        });
+      }
+    }
+
+    // Inject secret API key ONLY after authentication + CSRF verification pass
     const originHeaders = new Headers(request.headers);
     const secretKeyToInject = env.API_SECRET_KEY || env.SHIELD_PIN || '';
     if (secretKeyToInject && !originHeaders.has('x-api-key')) {
@@ -341,9 +551,7 @@ export default {
     }
 
     // -------------------------------------------------------------
-    // D. DEDICATED WAKE POLLING ENDPOINT (GET /api/shield-wake-status)
-    //    - Checks internal tunnel `/api/health` first (fast 2.5s timeout).
-    //    - Only touches InstaBox API when `?meta=1` is passed (every 6s).
+    // F. DEDICATED WAKE POLLING ENDPOINT (GET /api/shield-wake-status)
     // -------------------------------------------------------------
     if (url.pathname === '/api/shield-wake-status') {
       try {
@@ -397,7 +605,7 @@ export default {
     }
 
     // -------------------------------------------------------------
-    // E. OPERATOR AUTHORIZED -> PROCEED TO AUTO-WAKE SHIELD LOGIC
+    // G. OPERATOR AUTHORIZED -> PROCEED TO AUTO-WAKE SHIELD LOGIC
     // -------------------------------------------------------------
     let response;
     let isDown = false;
@@ -405,9 +613,11 @@ export default {
     const acceptHeader = request.headers.get('accept') || '';
     const isApi = url.pathname.startsWith('/api/');
     const isHealthProbe = url.pathname === '/api/health';
-    // Decouple API timeout (15000ms) from browser navigation timeout (3500ms).
-    // Fast 3500ms timeout for browser HTML navigation and /api/health probes; 15000ms for API endpoints.
-    const isBrowserNavigation = !isApi && (request.mode === 'navigate' || acceptHeader.includes('text/html') || ((request.method === 'GET' || request.method === 'HEAD') && !acceptHeader.includes('application/json')));
+    const isBrowserNavigation = !isApi && (
+      request.mode === 'navigate' ||
+      acceptHeader.includes('text/html') ||
+      ((methodUpper === 'GET' || methodUpper === 'HEAD') && !acceptHeader.includes('application/json'))
+    );
     const timeoutMs = (isBrowserNavigation || isHealthProbe) ? 3500 : 15000;
 
     try {
@@ -416,26 +626,19 @@ export default {
         signal: AbortSignal.timeout(timeoutMs)
       });
 
-      // 1. Attempt to pass through to origin tunnel
       response = await fetch(originRequest);
 
-      // Catch only genuine gateway/tunnel offline statuses (502, 503, 504, 521, 522, 523, 524, 530)
-      // Do NOT intercept HTTP 500 application errors when the machine is already awake
       if (TUNNEL_DOWN_STATUSES.has(response.status)) {
         isDown = true;
       }
     } catch (_) {
-      // Direct network/fetch error or AbortSignal timeout when tunnel is frozen/offline
       isDown = true;
     }
 
-    // Tunnel is alive and healthy: pass through immediately with zero overhead
     if (!isDown && response) {
       return response;
     }
 
-    // 2. Before treating the VPS as asleep and returning 503 "waking up", probe /api/health.
-    // If the VPS is already awake, do NOT mask a 500 error or slow query as 503 waking up.
     let vpsAwake = false;
     if (!isHealthProbe) {
       try {
@@ -458,7 +661,6 @@ export default {
     }
 
     if (vpsAwake) {
-      // VPS is confirmed awake: do not mask application errors, slow queries, or timeouts as "waking up"
       if (response) {
         return response;
       }
@@ -485,12 +687,11 @@ export default {
       });
     }
 
-    // 3. Machine is asleep! Trigger wake-up via InstaBox OpenAPI (`POST /v1/machines/:id/start`)
+    // Machine is asleep -> Trigger wake-up via InstaBox OpenAPI
     let wakeInfo = lastWakeResult;
     if (apiKey) {
       const isHtmlVisit = !url.pathname.startsWith('/api/') && !acceptHeader.includes('application/json');
       if (isHtmlVisit) {
-        // Await initial wake response (up to 5s) so we immediately know if VM is booting or in cooldown
         wakeInfo = await triggerInstaBoxWake(machineId, apiKey);
       } else {
         const wakePromise = triggerInstaBoxWake(machineId, apiKey);
@@ -502,7 +703,6 @@ export default {
       }
     }
 
-    // 4. API client requesting JSON -> Return structured retry JSON
     if (url.pathname.startsWith('/api/') || acceptHeader.includes('application/json')) {
       const retrySec = wakeInfo?.retryAfterSeconds || 3;
       return new Response(JSON.stringify({
@@ -512,8 +712,7 @@ export default {
         message: wakeInfo?.errorCode === 'machine_cooldown'
           ? `PAE instance is in mandatory max-run cooldown. Retry in ${retrySec}s.`
           : 'PAE dedicated instance is waking up from idle state. Retry in 3 seconds.',
-        retryAfter: retrySec,
-        machineId
+        retryAfter: retrySec
       }), {
         status: 503,
         headers: {
@@ -524,8 +723,7 @@ export default {
       });
     }
 
-    // 5. Browser visit -> Render Swiss-grid Dark Mode Smart Waking Splash Screen
-    return new Response(renderWakingHtml(machineId, wakeInfo), {
+    return new Response(renderWakingHtml(wakeInfo), {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -727,7 +925,7 @@ function renderAuthGateHtml() {
           btn.textContent = 'Authorized! Connecting...';
           window.location.reload();
         } else {
-          err.textContent = data.error || 'Invalid PIN entered. Access denied.';
+          err.textContent = data.message || data.error || 'Invalid PIN entered. Access denied.';
           err.style.display = 'block';
           btn.disabled = false;
           btn.textContent = 'Unlock Engine';
@@ -744,8 +942,8 @@ function renderAuthGateHtml() {
 </html>`;
 }
 
-function renderWakingHtml(machineId, initialWakeInfo = null) {
-  const initialDataJson = JSON.stringify({
+export function renderWakingHtml(initialWakeInfo = null) {
+  const initialDataJson = serializeSafeJsonForScript({
     state: initialWakeInfo?.state || 'resuming',
     phase: initialWakeInfo?.phase || 'booting',
     errorCode: initialWakeInfo?.errorCode || null,
@@ -907,7 +1105,7 @@ function renderWakingHtml(machineId, initialWakeInfo = null) {
     
     <div class="telemetry-row">
       <span>Target Instance</span>
-      <span class="telemetry-val">${machineId.slice(0, 14)}...</span>
+      <span class="telemetry-val">pae-dedicated-origin</span>
     </div>
     <div class="telemetry-row">
       <span>Lifecycle Phase</span>
@@ -965,7 +1163,6 @@ function renderWakingHtml(machineId, initialWakeInfo = null) {
     async function pollWakeStatus() {
       if (isRedirecting) return;
       pollTick += 1;
-      // Only request InstaBox metadata (?meta=1) every 3rd poll (every 6 seconds) to protect API rate limits
       const query = (pollTick % 3 === 0) ? '?meta=1' : '';
       try {
         const res = await fetch('/api/shield-wake-status' + query, {
@@ -1014,7 +1211,6 @@ function renderWakingHtml(machineId, initialWakeInfo = null) {
       }
     }, 2000);
 
-    // First check after 1.5s
     setTimeout(pollWakeStatus, 1500);
   </script>
 </body>

@@ -22,11 +22,16 @@ import {
   fetchPinsBatchFromPidgets
 } from '../src/core/pinterest/index.mjs';
 
-import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
+import {
+  loadDotEnvIfPresent,
+  bootstrapUndiciKeepAliveDispatcher,
+  startInstaBoxActivityLease
+} from './lib/cli-utils.mjs';
 
 const undiciAgent = await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
 loadDotEnvIfPresent();
 
+let lease = null;
 let _sql = null;
 function getSql() {
   if (!_sql) {
@@ -1682,6 +1687,10 @@ async function main() {
         console.log(`[Graceful Shutdown] Released lease for seed pin ID ${currentSeedLeaseContext.pinId}`);
       } catch (_) {}
     }
+    await lease?.stop?.();
+    if (_sql && typeof _sql.end === 'function') {
+      await _sql.end({ timeout: 2 }).catch(() => {});
+    }
     process.exit(1);
   };
   process.once('SIGINT', () => cleanupAndExit('SIGINT'));
@@ -1753,8 +1762,21 @@ const isDirectRun = process.argv[1] && (
 );
 
 if (isDirectRun) {
-  main().catch((err) => {
-    console.error(`[-] Fatal orchestrator error:`, err);
-    process.exit(1);
-  });
+  lease = startInstaBoxActivityLease('cluster-intelligence');
+  (async () => {
+    try {
+      await main();
+    } catch (err) {
+      console.error('[-] Fatal orchestrator error:', err);
+      process.exitCode = 1;
+    } finally {
+      await lease.stop();
+      if (_sql && typeof _sql.end === 'function') {
+        await _sql.end({ timeout: 2 }).catch(() => {});
+      }
+    }
+    if (process.exitCode) {
+      process.exit(process.exitCode);
+    }
+  })();
 }

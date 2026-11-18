@@ -64,6 +64,8 @@ jobs:
       - name: 5. Execute Account Related Pins Harvester
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_PIN_IDS: ${{ inputs.pin_ids }}

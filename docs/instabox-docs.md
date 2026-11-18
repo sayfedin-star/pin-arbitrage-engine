@@ -1,97 +1,83 @@
-# InstaBox Free-Tier Resilience & Operational Playbook
+# InstaBox Free-Tier Lifecycle, Resilience & PostgreSQL 16 Playbook
 
-> **Scope**: Pin Arbitrage Engine (PAE) VPS Infrastructure, Dedicated PostgreSQL 16, and Free-Tier Uptime & Activity Management.
+> **Scope**: Pin Arbitrage Engine (PAE) VPS Infrastructure (`m_agq2t32m5xv5joj67rqoze5h4u`), Official InstaBox Free-Plan Lifecycle Mechanics, Activity Lease API, and Dedicated PostgreSQL 16 Tuning.
 
 ---
 
 ## 1. Architecture Overview
 
-Pin Arbitrage Engine operates on an InstaBox VPS instance (`m_agq2t32m5xv5joj67rqoze5h4u`), running:
-- **Dedicated PostgreSQL 16 container** (`pae-postgres`) on a 20 GiB persistent volume (`/data/postgres`).
-- **Shared memory**: 1 GiB `/dev/shm` allocation with `/data/tmp` host mounting.
-- **Fastify API Server**: Listening on `http://localhost:3000` (`HOST=::`).
-- **Cloudflare Zero Trust Tunnel** (`cloudflared`): Secure ingress endpoint routing `https://app.hymum.com` directly to the local server without open inbound firewall ports.
-- **Auto-Sync & Boot Hook**: `scripts/instabox-boot-sync.sh` installed as a systemd `ExecStartPre` hook on `pae-server.service`.
+Pin Arbitrage Engine operates on an InstaBox sandbox instance (`m_agq2t32m5xv5joj67rqoze5h4u`), running:
+- **Dedicated PostgreSQL 16 container** (`pae-postgres`) on a 20 GiB persistent volume (`/data/postgres`) with `-c max_connections=250`.
+- **Shared memory & temp spill**: 1 GiB `/dev/shm` allocation with `/data/tmp` host mounting (`TMPDIR=/data/tmp`).
+- **Fastify v5 Origin Server**: Listening on `http://127.0.0.1:3000` (`pae-server.service`).
+- **Cloudflare Zero Trust Tunnel (`cloudflared`) + Edge Wake-Shield**: Routes `https://app.hymum.com` and `db.hymum.com` without open inbound firewall ports.
+- **Systemd Boot Hook**: `scripts/instabox-boot-sync.sh` installed as `ExecStartPre=+/bin/bash /data/app/scripts/instabox-boot-sync.sh --boot` on `pae-server.service`.
 
 ---
 
-## 2. 480-Minute Continuous Runtime Epoch & Preemptive Reset
+## 2. Official InstaBox Free-Plan Lifecycle Mechanics
 
-### The Free-Tier Constraint
-InstaBox free-tier instances enforce a hard **480-minute (8-hour)** ceiling on continuous active execution. Once a machine runs continuously for 480 minutes without a power state transition, InstaBox forcefully stops the VM and applies an enforced cooldown period.
+### A. Fixed 30-Minute Idle Auto-Pause (`0s` Cooldown)
+- InstaBox free-plan machines have a fixed **`30-minute` (`1800s`)** idle auto-pause window (`autoSuspendAfterSeconds: 1800`).
+- Entering natural 30-minute idle auto-pause incurs **`0 seconds` cooldown** (`cooldownUntil: null`) AND **resets max-run cooldown escalation steps**.
+- Releasing activity leases promptly as soon as crawls finish allows the machine to sleep cleanly between scheduled runs with zero penalty.
 
-### The Zero-Cooldown Reset Solution
-A voluntary machine suspension clears the continuous run counter immediately:
-```bash
-instabox suspend && sleep 5 && instabox resume
-```
-When executed proactively before reaching the 480-minute mark, this state transition resets the 480-minute epoch back to zero with **0 seconds cooldown**.
+### B. Dynamic `maxRunMinutes` (`120m` -> `480m`) & Escalating Max-Run Cooldowns
+- When a machine resumes from suspended/stopped state, `maxRunMinutes` starts at **`120 minutes` (2 hours)** and **automatically grows with active guest usage** (`>= 1 minute` of active execution within a `30-minute` window) up to a hard ceiling of **`480 minutes` (8 hours)**.
+- Once a machine reaches its `maxRunMinutes` ceiling (especially the hard `480m` wall where no further auto-extension is possible), InstaBox forcibly suspends the VM and applies an **escalating mandatory cooldown** (`5–20m` -> `60–75m` -> `120–135m`).
 
-### Automated Threshold & Hook
-`scripts/instabox-boot-sync.sh` embeds `check_and_reset_uptime_epoch`:
-- Inspects `/proc/uptime`.
-- If machine continuous uptime is **>= 420 minutes (7 hours)**:
-  1. Issues `instabox suspend`.
-  2. Sleeps 5 seconds.
-  3. Issues `instabox resume`.
-- Can be invoked directly via:
-  ```bash
-  /data/app/scripts/instabox-boot-sync.sh --check-uptime
-  # Or force an immediate epoch reset:
-  /data/app/scripts/instabox-boot-sync.sh --reset-epoch
-  ```
-- Automatically evaluated upon every service boot/sync cycle.
-- **Orchestration Note**: When running inside the guest VM, invoking `instabox suspend` halts guest CPU execution before subsequent shell commands run; in production, machine power transitions should be orchestrated externally (via host CLI, CI workflow, or the InstaBox Machine API).
+### C. Smart CI Stage 0 Preemptive Reset (`410m` Guard) & Active-Use Registration
+In `.github/actions/setup-instabox-db/action.yml` (when `skip-wakeup` is `false` and `IB_API_KEY` is configured):
+1. Queries `GET https://api.instabox.sh/v1/machines/${IB_MACHINE_ID}` and inspects `state`, `runStartedAt`, `maxRunMinutes`, and `cooldownUntil`.
+2. If the machine has been running continuously past **`410 minutes`** (approaching the hard `480m` ceiling), CI performs a clean external reset before launching a 60-minute crawl:
+   - `POST /v1/machines/${IB_MACHINE_ID}/suspend` (with `Idempotency-Key`)
+   - Polls until `state === 'suspended'`
+   - `POST /v1/machines/${IB_MACHINE_ID}/start` (with `Idempotency-Key`)
+3. Dispatches a lightweight guest `POST /v1/machines/${IB_MACHINE_ID}/exec` (`["echo", "pae-stage0-active"]`) readiness probe during Stage 0 so InstaBox records active guest execution and enables natural `120m -> 240m -> 480m` growth when consecutive pipelines run.
 
 ---
 
-## 3. 30-Minute Idle Auto-Pause Prevention (Activity Leases)
+## 3. Official Activity Lease API (`PUT` / `DELETE /activity-leases/{taskId}`)
 
-### The Idle Timeout Trap
-When no network requests or terminal sessions touch the InstaBox VM for 30 consecutive minutes, the hypervisor initiates auto-pause to conserve compute credits. If long-running batch transactions (such as domain intelligence rollups or rolling gains backfills) are processing entirely within local database transactions without outbound HTTP or external interaction, the machine risks mid-transaction suspension.
+> **Important:** Passive `GET /v1/machines/{id}` metadata polls do **NOT** count as machine activity and do **NOT** prevent the 30-minute idle auto-pause!
 
-### The Activity Lease Heartbeat
-Long-running background scripts instantiate `startInstaBoxActivityLease()`:
-- **Modules**:
-  - `scripts/refresh-domain-rollup.mjs`
-  - `scripts/backfill_rolling_window_gains.mjs`
-- **Mechanism**:
-  - Spawns an unref'd timer ticking every **5 minutes** (well inside the 30-minute window).
-  - Performs a lightweight authenticated GET ping to the InstaBox machine API:
-    ```javascript
-    fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` }
-    });
+Long-running CLI crawlers and consolidation jobs use `startInstaBoxActivityLease(taskName)` in `scripts/lib/cli-utils.mjs`:
+- **Acquire & Renew (`PUT`):**
+  - Immediately on startup and every **`240,000 ms` (4 minutes)** thereafter, sends:
+    ```http
+    PUT https://api.instabox.sh/v1/machines/{machineId}/activity-leases/{taskId}
+    Authorization: Bearer <INSTABOX_API_KEY>
+    X-API-Key: <INSTABOX_API_KEY>
+    Content-Type: application/json
+
+    {"ttlSeconds": 600}
     ```
-  - Keeps the InstaBox activity session hot throughout multi-hour data processing.
-  - Automatically disposes of the interval when the job terminates or encounters an unhandled rejection.
+  - `taskId` is sanitized to `[a-zA-Z0-9_-]+` (e.g., `pae-keyword-velocity-crawler-<pid>`).
+- **Deterministic Release (`DELETE` in `finally`):**
+  - Every crawler/rollup script (`keyword-velocity-crawler.mjs`, `creator-velocity-crawler.mjs`, `cluster-intelligence.mjs`, `account-related-crawler.mjs`, `refresh-domain-rollup.mjs`, `backfill_rolling_window_gains.mjs`) calls `await lease.stop()` in its `finally` block alongside `await sql.end()`:
+    ```http
+    DELETE https://api.instabox.sh/v1/machines/{machineId}/activity-leases/{taskId}
+    Authorization: Bearer <INSTABOX_API_KEY>
+    X-API-Key: <INSTABOX_API_KEY>
+    ```
+  - Deleting the lease immediately upon completion lets the VM enter clean `30m` idle auto-pause (`0s` cooldown) instead of lingering unnecessarily.
 
 ---
 
-## 4. PostgreSQL Container Provisioning & Safe Parallel Queries
+## 4. Hardened Boot Provisioning & PostgreSQL 16 Tuning (`scripts/instabox-boot-sync.sh`)
 
-### `/dev/shm` Shared Memory Guard
-By default, Docker allocates 64 MB of shared memory (`/dev/shm`). Complex parallel query plans (`Hash Join`, `Parallel Bitmap Heap Scan`, `Sort`) across large datasets (`universal_master_pins`, `keyword_serp_positions`) fail fatally with:
-```
-ERROR: could not resize shared memory segment "/PostgreSQL.XXXXXX": No space left on device
-```
-`scripts/instabox-boot-sync.sh` provisions `pae-postgres` with:
-```bash
-docker run -d \
-  --name pae-postgres \
-  --restart unless-stopped \
-  --shm-size=1g \
-  -v /data/postgres:/var/lib/postgresql/data \
-  -v /data/tmp:/data/tmp \
-  -e TMPDIR=/data/tmp \
-  -e POSTGRES_DB=pin_arbitrage \
-  -p 127.0.0.1:5432:5432 \
-  postgres:16-alpine
-```
-
-### Parallel Worker Configuration
-With verified 1 GiB `/dev/shm`, the boot-sync script configures:
-```sql
-ALTER DATABASE pin_arbitrage SET max_parallel_workers_per_gather = 2;
-```
-This enables dual-worker parallel scans on `universal_master_pins` and `keyword_serp_positions` for sub-15ms queries while preventing CPU starvation on InstaBox's vCPU allocation.
+1. **Secret & Privilege Hardening:**
+   - Validates `MODE` against an explicit `case` allowlist (`--sync|--boot|--force|--install-hook|--check-uptime|--reset-epoch`) and drops privileges with positional `runuser` / `sudo -u` arguments (never `su -c` string interpolation).
+   - Enforces `chmod 600` on `/data/app/.env` and passes `POSTGRES_PASSWORD` to `docker run` via a temporary `0600` `--env-file` deleted immediately after container creation (never exposing passwords in `ps aux` argv).
+   - Installs systemd drop-in `ExecStartPre=+/bin/bash /data/app/scripts/instabox-boot-sync.sh --boot` (`+` grants root Docker access; omitting `-` halts service startup if SQL migrations fail).
+2. **Container & Database-Level PostgreSQL 16 Tuning:**
+   - Provisions `pae-postgres` (`postgres:16-alpine -c max_connections=250`) with `--shm-size=1g` and `-v /data/tmp:/data/tmp`.
+   - Applies idempotent database-level settings on `pin_arbitrage`:
+     ```sql
+     ALTER DATABASE pin_arbitrage SET statement_timeout = '60s';
+     ALTER DATABASE pin_arbitrage SET lock_timeout = '15s';
+     ALTER DATABASE pin_arbitrage SET idle_in_transaction_session_timeout = '60s';
+     ALTER DATABASE pin_arbitrage SET random_page_cost = 1.1;
+     ALTER DATABASE pin_arbitrage SET work_mem = '32MB';
+     ALTER DATABASE pin_arbitrage SET max_parallel_workers_per_gather = 2;
+     ```

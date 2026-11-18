@@ -1,11 +1,15 @@
 /**
  * Shared CLI & Fleet Worker Utilities (scripts/lib/cli-utils.mjs)
- * Centralizes InstaBox activity lease heartbeats, database connection cleanup,
- * GitHub Actions output writing, terminal progress bars, and .env loading.
+ * Centralizes official InstaBox activity leases (PUT/DELETE /activity-leases/{taskId}),
+ * database connection cleanup, GitHub Actions output writing, terminal progress bars,
+ * and .env loading.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+
+const DEFAULT_LEASE_RENEW_INTERVAL_MS = 240_000; // 4 minutes
+const DEFAULT_LEASE_TTL_SECONDS = 600; // 10 minutes
 
 /**
  * Loads .env variables into process.env if present in local execution environments.
@@ -36,28 +40,118 @@ export function loadDotEnvIfPresent(envFilePath = '.env') {
 }
 
 /**
- * Periodically pings InstaBox machine API during long-running CLI tasks to keep VM lease active.
+ * Acquires, periodically renews (every 240s), and cleanly releases (on `await lease.stop()`)
+ * an official InstaBox Activity Lease (`PUT` / `DELETE /v1/machines/{id}/activity-leases/{taskId}`)
+ * so long-running crawlers prevent 30-minute idle auto-pause while active, and allow immediate
+ * 0s-cooldown idle sleep once finished.
+ *
+ * @param {string|number|object} [taskNameOrOptions='cli-worker']
+ * @param {object} [maybeOptions={}]
+ * @returns {{ active: boolean, taskId: string, ready: Promise<boolean>, stop: () => Promise<void> }}
  */
-export function startInstaBoxActivityLease(intervalMs = 300000) {
-  const machineId = process.env.INSTABOX_MACHINE_ID;
-  const apiKey = process.env.INSTABOX_API_KEY;
-  if (!machineId || !apiKey) return { stop: () => {} };
-  const timer = setInterval(async () => {
+export function startInstaBoxActivityLease(taskNameOrOptions = 'cli-worker', maybeOptions = {}) {
+  let rawTaskName = 'cli-worker';
+  let opts = {};
+
+  if (typeof taskNameOrOptions === 'string') {
+    rawTaskName = taskNameOrOptions;
+    opts = maybeOptions && typeof maybeOptions === 'object' ? maybeOptions : {};
+  } else if (typeof taskNameOrOptions === 'number') {
+    opts = { intervalMs: taskNameOrOptions };
+  } else if (taskNameOrOptions && typeof taskNameOrOptions === 'object') {
+    opts = taskNameOrOptions;
+    if (typeof opts.taskName === 'string') {
+      rawTaskName = opts.taskName;
+    }
+  }
+
+  const machineId = String(opts.machineId ?? process.env.INSTABOX_MACHINE_ID ?? '').trim();
+  const apiKey = String(opts.apiKey ?? process.env.INSTABOX_API_KEY ?? '').trim();
+  const fetchFn = opts.fetchImpl ?? globalThis.fetch;
+  const intervalMs = Math.max(1000, Number(opts.intervalMs ?? DEFAULT_LEASE_RENEW_INTERVAL_MS));
+  const ttlSeconds = Math.max(60, Math.floor(Number(opts.ttlSeconds ?? DEFAULT_LEASE_TTL_SECONDS)));
+  const pid = opts.pid ?? process.pid;
+
+  const sanitizedName = String(rawTaskName || 'cli-worker')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'cli-worker';
+  const taskId = String(opts.taskId || `pae-${sanitizedName}-${pid}`)
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .slice(0, 96);
+
+  if (!machineId || !apiKey || typeof fetchFn !== 'function') {
+    return {
+      active: false,
+      taskId,
+      ready: Promise.resolve(false),
+      stop: async () => {}
+    };
+  }
+
+  const leaseUrl = `https://api.instabox.sh/v1/machines/${encodeURIComponent(machineId)}/activity-leases/${encodeURIComponent(taskId)}`;
+  const authHeaders = {
+    'Authorization': `Bearer ${apiKey}`,
+    'X-API-Key': apiKey
+  };
+
+  let stopped = false;
+
+  const acquireOrRenew = async () => {
+    if (stopped) return false;
     try {
-      await fetch(`https://api.instabox.sh/v1/machines/${machineId}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(5000)
-      }).catch(() => {});
-    } catch (_) {}
+      const res = await fetchFn(leaseUrl, {
+        method: 'PUT',
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ttlSeconds }),
+        signal: AbortSignal.timeout(8000)
+      });
+      return Boolean(res?.ok);
+    } catch (_) {
+      return false;
+    }
+  };
+
+  // Acquire activity lease immediately on start
+  const initialPromise = acquireOrRenew();
+
+  const timer = setInterval(() => {
+    acquireOrRenew().catch(() => {});
   }, intervalMs);
   timer.unref?.();
-  return { stop: () => clearInterval(timer) };
+
+  return {
+    active: true,
+    taskId,
+    ready: initialPromise,
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      await initialPromise.catch(() => {});
+      try {
+        await fetchFn(leaseUrl, {
+          method: 'DELETE',
+          headers: authHeaders,
+          signal: AbortSignal.timeout(8000)
+        });
+      } catch (_) {}
+    }
+  };
 }
 
 /**
- * Gracefully closes a postgres.js SQL client and exits the process.
+ * Gracefully releases any active InstaBox activity lease, closes a postgres.js SQL client,
+ * and exits the process.
  */
-export async function closeCrawlerDb(sql, exitCode = 0) {
+export async function closeCrawlerDb(sql, exitCode = 0, lease = null) {
+  try {
+    if (lease && typeof lease.stop === 'function') {
+      await lease.stop();
+    }
+  } catch (_) {}
   try {
     if (sql && typeof sql.end === 'function') {
       await sql.end({ timeout: 2 });
@@ -127,4 +221,3 @@ export async function bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcherFn 
   } catch (_) {}
   return undiciAgent;
 }
-

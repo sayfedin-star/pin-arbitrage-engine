@@ -57,7 +57,8 @@ import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mj
 import {
   closeCrawlerDb as closeDbClient,
   loadDotEnvIfPresent,
-  bootstrapUndiciKeepAliveDispatcher
+  bootstrapUndiciKeepAliveDispatcher,
+  startInstaBoxActivityLease
 } from './lib/cli-utils.mjs';
 
 const isDirectCrawlerRun = Boolean(
@@ -79,7 +80,12 @@ if (isDirectCrawlerRun && !DATABASE_URL) {
 }
 
 const sql = DATABASE_URL ? createSqlClient(DATABASE_URL) : null;
-const closeCrawlerDb = (exitCode = 0) => (sql ? closeDbClient(sql, exitCode) : Promise.resolve());
+let lease = null;
+const closeCrawlerDb = (exitCode = 0) => (
+  sql
+    ? closeDbClient(sql, exitCode, lease)
+    : Promise.resolve().then(() => lease?.stop?.())
+);
 const mode = (process.env.MODE || 'creator_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -1340,8 +1346,21 @@ async function run() {
 }
 
 if (isDirectCrawlerRun) {
-  run().catch(async err => {
-    console.error('[-] Fatal Worker Error:', err);
-    await closeCrawlerDb(1);
-  });
+  lease = startInstaBoxActivityLease('creator-velocity-crawler');
+  (async () => {
+    try {
+      await run();
+    } catch (err) {
+      console.error('[-] Fatal Worker Error:', err);
+      process.exitCode = 1;
+    } finally {
+      await lease.stop();
+      if (sql && typeof sql.end === 'function') {
+        await sql.end({ timeout: 2 }).catch(() => {});
+      }
+    }
+    if (process.exitCode) {
+      process.exit(process.exitCode);
+    }
+  })();
 }

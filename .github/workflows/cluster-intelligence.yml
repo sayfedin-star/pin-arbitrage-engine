@@ -60,6 +60,8 @@ jobs:
         id: seed_check
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
         run: |
           if [ -n "$TARGET_PIN_ID" ]; then
@@ -124,6 +126,8 @@ jobs:
       - name: Execute Cluster Intelligence Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
           MAX_PAGES: ${{ inputs.max_pages || '60' }}

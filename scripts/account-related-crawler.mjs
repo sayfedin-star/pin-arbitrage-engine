@@ -16,7 +16,11 @@ import {
   setDefaultDispatcher
 } from '../src/core/pinterest/index.mjs';
 
-import { loadDotEnvIfPresent, bootstrapUndiciKeepAliveDispatcher } from './lib/cli-utils.mjs';
+import {
+  loadDotEnvIfPresent,
+  bootstrapUndiciKeepAliveDispatcher,
+  startInstaBoxActivityLease
+} from './lib/cli-utils.mjs';
 
 const undiciAgent = await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher);
 loadDotEnvIfPresent();
@@ -256,7 +260,8 @@ async function main() {
 
   if (!cleanAccount) {
     console.error('[-] FATAL: TARGET_ACCOUNT is required (e.g. TARGET_ACCOUNT=freshmancook)');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   // 1. Resolve Competitor Profile
@@ -319,7 +324,7 @@ async function main() {
       console.log(`[*] No explicit seeds found, auto-seeded top ${seedIds.length} winning pins from competitor_board_pins.`);
     } else {
       console.log('[-] No seed pins found to crawl. Register seeds first via UI or --pins argument.');
-      process.exit(0);
+      return;
     }
   }
 
@@ -429,11 +434,17 @@ async function main() {
   console.log('================================================================\n');
 }
 
-main()
-  .catch((err) => {
-    console.error('[-] Fatal error in crawler:', err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await sql.end({ timeout: 2 }).catch(() => {});
-  });
+const lease = startInstaBoxActivityLease('account-related-crawler');
+try {
+  await main();
+} catch (err) {
+  console.error('[-] Fatal error in crawler:', err);
+  process.exitCode = 1;
+} finally {
+  await lease.stop();
+  await sql.end({ timeout: 2 }).catch(() => {});
+}
+
+if (process.exitCode) {
+  process.exit(process.exitCode);
+}

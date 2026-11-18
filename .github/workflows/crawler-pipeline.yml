@@ -86,6 +86,8 @@ jobs:
         id: dispatcher
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'refresh' }}
@@ -141,6 +143,8 @@ jobs:
       - name: 5. Execute Fleet Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           MODE: ${{ matrix.mode }}
           TARGET_ACCOUNT: ${{ matrix.target_account || '' }}
@@ -189,6 +193,8 @@ jobs:
       - name: 4. Execute Consolidation & Report Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           SKIP_MV_REFRESH: 'true'
@@ -197,6 +203,8 @@ jobs:
       - name: 5. Recompute Domain Intelligence Rollup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
         run: node scripts/refresh-domain-rollup.mjs
 
       - name: 6. Notify VPS Server Cache Refresh

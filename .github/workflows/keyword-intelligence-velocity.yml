@@ -96,6 +96,8 @@ jobs:
         id: dispatcher
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
@@ -153,6 +155,8 @@ jobs:
       - name: 5. Execute Fleet Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           MODE: ${{ matrix.mode }}
           TARGET_KEYWORD: ${{ matrix.target_keyword || '' }}
@@ -207,11 +211,15 @@ jobs:
       - name: 4a. Remediate Poisoned Canonical Saves & Velocity
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
         run: node scripts/remediate_poisoned_canonical_and_velocity.mjs
 
       - name: 4. Recompute Authentic Multi-Window Rolling Gains (5d/7d/10d/15d)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/backfill_rolling_window_gains.mjs
@@ -219,6 +227,8 @@ jobs:
       - name: 5. Execute Consolidation & Report Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
@@ -229,6 +239,8 @@ jobs:
       - name: 6. Recompute Domain Intelligence Rollup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
         run: node scripts/refresh-domain-rollup.mjs
 
       - name: 7. Notify VPS Server Cache Refresh

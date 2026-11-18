@@ -84,8 +84,12 @@ async function stampPhase1ABarrierToken(kid, token, leaseToken) {
     WHERE id = ${kid};
   `, { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2000 });
 }
-import { closeCrawlerDb as closeDbClient } from './lib/cli-utils.mjs';
-const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode);
+import {
+  closeCrawlerDb as closeDbClient,
+  startInstaBoxActivityLease
+} from './lib/cli-utils.mjs';
+let lease = null;
+const closeCrawlerDb = (exitCode = 0) => closeDbClient(sql, exitCode, lease);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
 const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
@@ -1729,8 +1733,21 @@ async function run() {
 }
 
 if (isMainModule) {
-  run().catch(async err => {
-    console.error('[-] Fatal Worker Error:', err);
-    await closeCrawlerDb(1);
-  });
+  lease = startInstaBoxActivityLease('keyword-velocity-crawler');
+  (async () => {
+    try {
+      await run();
+    } catch (err) {
+      console.error('[-] Fatal Worker Error:', err);
+      process.exitCode = 1;
+    } finally {
+      await lease.stop();
+      if (sql && typeof sql.end === 'function') {
+        await sql.end({ timeout: 2 }).catch(() => {});
+      }
+    }
+    if (process.exitCode) {
+      process.exit(process.exitCode);
+    }
+  })();
 }
