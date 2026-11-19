@@ -73,6 +73,11 @@ export const ENDPOINT_BOUNDARY_RULES = Object.freeze({
     allowGuestRetry: false,
     requiresAuthCookie: false
   },
+  home_feed: {
+    zone: COOKIE_ZONES.AUTH_SESSION,
+    allowGuestRetry: false,
+    requiresAuthCookie: true
+  },
   pin_resource: {
     zone: COOKIE_ZONES.ZERO_COOKIE,
     strictZeroCookie: true
@@ -128,6 +133,7 @@ export function resolveUrlCookieZone(urlStr, endpointHint = '') {
   if (/RelatedModulesResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.related_modules;
   if (/BestPinsFeedAltResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.best_pins_ideas;
   if (/SearchTabResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.search_tab_ideas;
+  if (/UserHomefeedResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.home_feed;
   if (/BoardFeedResource\/get/i.test(u)) {
     let decoded = u;
     try { decoded = decodeURIComponent(u); } catch (_) {}

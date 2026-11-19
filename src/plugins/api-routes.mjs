@@ -187,6 +187,7 @@ export async function apiRoutesPlugin(app, options = {}) {
             pathname === '/api/keywords/sync' ||
             CREATOR_CRAWLER_PATHS.has(pathname) ||
             NEWBORN_CRAWLER_PATHS.has(pathname) ||
+            /^\/api\/newborn\/candidates\/[^/]+\/fetch-account$/.test(pathname) ||
             (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
             isLiveScrapeGet;
 
@@ -262,7 +263,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               (method === 'GET' && (
                 pathname === '/api/newborn/settings' ||
                 pathname === '/api/newborn/cookie' ||
-                pathname === '/api/newborn/launchpad'
+                pathname === '/api/newborn/launchpad' ||
+                pathname === '/api/newborn/idea-intelligence'
               )) ||
               pathname.startsWith('/api/boards') ||
               pathname.endsWith('/latest-pins');

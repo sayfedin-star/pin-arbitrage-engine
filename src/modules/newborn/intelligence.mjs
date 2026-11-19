@@ -138,14 +138,14 @@ export function computeCandidateMetrics(candidate = {}, nowMs = Date.now()) {
     effectiveFollowers = Number(candidate.effective_creator_followers);
   }
 
-  const primaryVolume = (saveCount !== null || repinCount !== null)
-    ? Math.max(saveCount ?? 0, repinCount ?? 0)
-    : null;
-  const primaryVelocity = (savePerDay !== null || repinPerDay !== null)
-    ? Math.max(savePerDay ?? 0, repinPerDay ?? 0)
-    : null;
+  const primaryVolume = repinCount !== null
+    ? repinCount
+    : (saveCount !== null ? saveCount : null);
+  const primaryVelocity = repinPerDay !== null
+    ? repinPerDay
+    : (savePerDay !== null ? savePerDay : null);
   const outlierRatio = (effectiveFollowers !== null && Number.isFinite(effectiveFollowers))
-    ? round2((primaryVolume ?? 0) / Math.max(50, effectiveFollowers))
+    ? round2((Math.max(repinCount ?? 0, saveCount ?? 0)) / Math.max(50, effectiveFollowers))
     : null;
 
   return {
@@ -186,24 +186,22 @@ export function evaluateCandidateQualification(candidate = {}, rawSettings = DEF
     reasons.push('age_out_of_window');
   }
 
-  // 2. Engagement & velocity thresholds — Pinterest 2026 primary signal is MAX(save_count, repin_count)
-  //    and MAX(save_per_day, repin_per_day) because repin_count is frequently 0 while saves is populated.
-  const effectiveEngagement = metrics.primary_engagement ?? 0;
-  const effectiveVelocity = metrics.primary_velocity ?? 0;
-
-  if (qual.min_repin_count > 0 && effectiveEngagement < qual.min_repin_count) {
+  // 2. Engagement & velocity thresholds:
+  //    - Primary Gate: `repin_count >= min_repin_count` (strictly Re-pins, never substituted with Saves!)
+  //    - Optional Conditional Gate: `min_save_count === 0` completely ignores Saves; `> 0` enforces `save_count >= min_save_count`!
+  if (qual.min_repin_count > 0 && (metrics.repin_count === null || metrics.repin_count < qual.min_repin_count)) {
     reasons.push('below_min_repins');
   }
 
-  if (qual.min_save_count > 0 && effectiveEngagement < qual.min_save_count) {
+  if (qual.min_save_count > 0 && (metrics.save_count === null || metrics.save_count < qual.min_save_count)) {
     reasons.push('below_min_saves');
   }
 
-  if (qual.min_repin_per_day > 0 && metrics.age_days !== null && effectiveVelocity < qual.min_repin_per_day) {
+  if (qual.min_repin_per_day > 0 && metrics.age_days !== null && (metrics.repin_per_day === null || metrics.repin_per_day < qual.min_repin_per_day)) {
     reasons.push('below_min_repin_velocity');
   }
 
-  if (qual.min_save_per_day > 0 && metrics.age_days !== null && effectiveVelocity < qual.min_save_per_day) {
+  if (qual.min_save_per_day > 0 && metrics.age_days !== null && (metrics.save_per_day === null || metrics.save_per_day < qual.min_save_per_day)) {
     reasons.push('below_min_save_velocity');
   }
 
@@ -218,7 +216,8 @@ export function evaluateCandidateQualification(candidate = {}, rawSettings = DEF
   }
 
   // 3. Creator follower cap & Rookie Outlier detection
-  const rookieVelFloor = Math.max(1, qual.min_save_per_day ?? 0, qual.min_repin_per_day ?? 0);
+  const effectiveVelocity = Math.max(metrics.repin_per_day ?? 0, metrics.save_per_day ?? 0);
+  const rookieVelFloor = Math.max(1, qual.min_repin_per_day ?? 0, qual.min_save_per_day ?? 0);
   const isRookieOutlier = Boolean(
     metrics.effective_creator_followers !== null &&
     metrics.effective_creator_followers <= qual.max_creator_followers &&
@@ -286,9 +285,13 @@ export function scoreNewbornCandidate(candidate = {}, rawSettings = DEFAULT_NEWB
   const qual = settings.qualification;
   const vacuumCfg = qual.linkless_vacuum || DEFAULT_NEWBORN_SETTINGS.qualification.linkless_vacuum;
 
-  // 1. Velocity Intensity (0..38) — primary velocity is MAX(save_per_day, repin_per_day)
-  const effectiveVel = Math.max(metrics.save_per_day ?? 0, metrics.repin_per_day ?? 0);
-  const velocityScore = Math.min(38, Math.log1p(Math.max(0, effectiveVel)) * 12.5);
+  // 1. Re-pin Velocity & Volume Intensity (0..42)
+  const effectiveVel = (metrics.repin_per_day !== null && metrics.repin_per_day > 0)
+    ? metrics.repin_per_day
+    : Math.max(metrics.repin_per_day ?? 0, metrics.save_per_day ?? 0);
+  const effectiveRepins = metrics.repin_count ?? 0;
+  const velocityScore = Math.min(30, Math.log1p(Math.max(0, effectiveVel)) * 11.0) +
+    Math.min(12, Math.log1p(Math.max(0, effectiveRepins)) * 2.2);
 
   // 2. Newborn Freshness Bonus (0..22)
   let freshnessScore = 8;
@@ -301,27 +304,23 @@ export function scoreNewbornCandidate(candidate = {}, rawSettings = DEFAULT_NEWB
     else freshnessScore = Math.max(0, 4 - (metrics.age_days - 90) / 60);
   }
 
-  // 3. Rookie / Outlier Leverage (0..18)
+  // 3. Rookie / Outlier Leverage (0..14)
   let outlierScore = 0;
   if (evalRes.is_rookie_outlier) {
-    outlierScore += 10;
+    outlierScore += 8;
   }
   if (metrics.outlier_ratio !== null) {
-    outlierScore += Math.min(8, Math.log1p(metrics.outlier_ratio * 10) * 3.2);
+    outlierScore += Math.min(6, Math.log1p(metrics.outlier_ratio * 10) * 2.6);
   }
-  outlierScore = Math.min(18, outlierScore);
+  outlierScore = Math.min(14, outlierScore);
 
-  // 4. Multi-Surface & Engagement Depth (0..12)
+  // 4. Multi-Surface & Annotations Richness (0..10)
   const surfaceCount = Array.isArray(candidate.discovered_surfaces) ? candidate.discovered_surfaces.length : 1;
   const annCount = Array.isArray(candidate.visual_annotations) ? candidate.visual_annotations.length : 0;
-  const secondaryInteractions = Number(candidate.share_count ?? 0) * 2 +
-    Number(candidate.comment_count ?? 0) * 1.5 +
-    Number(candidate.reaction_count ?? 0);
   const depthScore = Math.min(
-    12,
+    10,
     Math.min(5, (surfaceCount - 1) * 2.5) +
-    Math.min(4, annCount * 0.8) +
-    Math.min(3, Math.log1p(secondaryInteractions))
+    Math.min(5, annCount * 1.0)
   );
 
   // 5. Linkless Arbitrage Vacuum Boost (0..score_boost)
@@ -340,8 +339,7 @@ export function scoreNewbornCandidate(candidate = {}, rawSettings = DEFAULT_NEWB
     goldenScore = round2(Math.min(goldenScore * 0.55, 54.9));
   }
 
-  const minSeedGoldenScore = Number(settings.discovery?.snowball?.min_seed_golden_score ?? 65);
-  const isGoldenPin = Boolean(evalRes.qualified && goldenScore >= minSeedGoldenScore);
+  const isGoldenPin = Boolean(evalRes.qualified);
 
   return {
     ...candidate,
@@ -380,37 +378,43 @@ export function evaluatePinAutoRules(scoredCandidate = {}, rawSettings = DEFAULT
   const saves = scoredCandidate.save_count !== null && scoredCandidate.save_count !== undefined
     ? Number(scoredCandidate.save_count)
     : null;
-  const effectiveEngagement = Math.max(saves ?? 0, repins);
   const repinVel = Number(scoredCandidate.repin_per_day ?? 0);
   const saveVel = Number(scoredCandidate.save_per_day ?? 0);
-  const effectiveVel = Math.max(saveVel, repinVel);
   const ageDays = scoredCandidate.age_days !== null && scoredCandidate.age_days !== undefined
     ? Number(scoredCandidate.age_days)
     : null;
   const goldenScore = Number(scoredCandidate.golden_score ?? 0);
   const consecutiveDays = Math.max(0, Number(scoredCandidate.consecutive_qualifying_days ?? 0));
 
-  const watchMinEng = Math.max(Number(watchT.min_saves ?? 0), Number(watchT.min_repins ?? 0));
-  const watchMinVel = Math.max(Number(watchT.min_save_per_day ?? 0), Number(watchT.min_repin_per_day ?? 0));
+  const watchMinRepins = Number(watchT.min_repins ?? 0);
+  const watchMinSaves = Number(watchT.min_saves ?? 0);
+  const watchMinRepinVel = Number(watchT.min_repin_per_day ?? 0);
+  const watchMinSaveVel = Number(watchT.min_save_per_day ?? 0);
 
   const meetsWatchlist = Boolean(
     scoredCandidate.qualified !== false &&
     ageDays !== null &&
     ageDays <= watchT.max_age_days &&
-    effectiveEngagement >= watchMinEng &&
-    effectiveVel >= watchMinVel &&
+    (watchMinRepins === 0 || repins >= watchMinRepins) &&
+    (watchMinSaves === 0 || (saves !== null && saves >= watchMinSaves)) &&
+    (watchMinRepinVel === 0 || repinVel >= watchMinRepinVel) &&
+    (watchMinSaveVel === 0 || saveVel >= watchMinSaveVel) &&
     goldenScore >= watchT.min_golden_score
   );
 
-  const promoMinEng = Math.max(Number(promoT.min_saves ?? 0), Number(promoT.min_repins ?? 0));
-  const promoMinVel = Math.max(Number(promoT.min_save_per_day ?? 0), Number(promoT.min_repin_per_day ?? 0));
+  const promoMinRepins = Number(promoT.min_repins ?? 0);
+  const promoMinSaves = Number(promoT.min_saves ?? 0);
+  const promoMinRepinVel = Number(promoT.min_repin_per_day ?? 0);
+  const promoMinSaveVel = Number(promoT.min_save_per_day ?? 0);
 
   const meetsPromotionMetrics = Boolean(
     scoredCandidate.qualified !== false &&
     ageDays !== null &&
     ageDays <= promoT.max_age_days &&
-    effectiveEngagement >= promoMinEng &&
-    effectiveVel >= promoMinVel &&
+    (promoMinRepins === 0 || repins >= promoMinRepins) &&
+    (promoMinSaves === 0 || (saves !== null && saves >= promoMinSaves)) &&
+    (promoMinRepinVel === 0 || repinVel >= promoMinRepinVel) &&
+    (promoMinSaveVel === 0 || saveVel >= promoMinSaveVel) &&
     goldenScore >= promoT.min_golden_score
   );
 
@@ -654,33 +658,47 @@ export function synthesizeNewbornCrossoverBlueprint(candidate = {}, peerCandidat
  */
 export function buildNewbornCrossoverMatrix(candidates = [], { limit = 30 } = {}) {
   const termBuckets = new Map();
+  const totalPins = Array.isArray(candidates) ? candidates.filter(Boolean).length : 0;
 
-  for (const c of candidates) {
+  for (const c of (candidates || [])) {
     if (!c) continue;
     const boardLower = String(c.board_name || '').trim().toLowerCase();
     const boardWords = new Set(tokenizeSemanticPhrase(boardLower));
     const seenForPin = new Set();
 
     for (const rawAnn of (c.visual_annotations || [])) {
-      const term = String(typeof rawAnn === 'string' ? rawAnn : (rawAnn?.name || '')).trim().toLowerCase();
+      const annObj = typeof rawAnn === 'object' && rawAnn !== null ? rawAnn : null;
+      const term = String(typeof rawAnn === 'string' ? rawAnn : (annObj?.name || '')).trim().toLowerCase();
       if (!term || term.length < 2 || seenForPin.has(term)) continue;
       seenForPin.add(term);
+
+      const rawUrl = annObj?.url ? String(annObj.url).trim() : null;
+      const ideaId = annObj?.idea_id ? String(annObj.idea_id).trim() : (rawUrl?.match(/\/ideas\/[^/]+\/(\d+)/)?.[1] || null);
+      const ideaUrl = rawUrl
+        ? (rawUrl.startsWith('http') ? rawUrl : `https://www.pinterest.com${rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`}`)
+        : null;
 
       let bucket = termBuckets.get(term);
       if (!bucket) {
         bucket = {
           term,
           display: toTitleCase(term),
+          idea_id: ideaId,
+          idea_url: ideaUrl,
           pin_count: 0,
           golden_pin_count: 0,
           linkless_count: 0,
           board_title_matches: 0,
+          repin_sum: 0,
           repin_vel_sum: 0,
           golden_score_sum: 0,
           sample_boards: new Set(),
           sample_pin_ids: []
         };
         termBuckets.set(term, bucket);
+      } else {
+        if (!bucket.idea_id && ideaId) bucket.idea_id = ideaId;
+        if (!bucket.idea_url && ideaUrl) bucket.idea_url = ideaUrl;
       }
 
       bucket.pin_count++;
@@ -699,6 +717,7 @@ export function buildNewbornCrossoverMatrix(candidates = [], { limit = 30 } = {}
         }
       }
 
+      bucket.repin_sum += Number(c.repin_count || 0);
       bucket.repin_vel_sum += Number(c.repin_per_day || 0);
       bucket.golden_score_sum += Number(c.golden_score || 0);
       if (bucket.sample_pin_ids.length < 6 && c.pin_id) {
@@ -709,9 +728,12 @@ export function buildNewbornCrossoverMatrix(candidates = [], { limit = 30 } = {}
 
   return Array.from(termBuckets.values())
     .map((b) => {
+      const avgRepins = b.pin_count > 0 ? Math.round(b.repin_sum / b.pin_count) : 0;
       const avgRepinPerDay = b.pin_count > 0 ? round2(b.repin_vel_sum / b.pin_count) : 0;
       const avgGoldenScore = b.pin_count > 0 ? round2(b.golden_score_sum / b.pin_count) : 0;
       const linklessSharePct = b.pin_count > 0 ? round2((b.linkless_count / b.pin_count) * 100) : 0;
+      const overlapPct = totalPins > 0 ? round2((b.pin_count / totalPins) * 100) : 0;
+      const sampleBoards = Array.from(b.sample_boards);
       const convictionScore = round2(
         Math.min(
           100,
@@ -724,19 +746,26 @@ export function buildNewbornCrossoverMatrix(candidates = [], { limit = 30 } = {}
       );
       return {
         term: b.term,
+        annotation: b.display,
         display: b.display,
+        idea_id: b.idea_id,
+        idea_url: b.idea_url,
         pin_count: b.pin_count,
+        overlap_pct: overlapPct,
         golden_pin_count: b.golden_pin_count,
         board_title_matches: b.board_title_matches,
         linkless_count: b.linkless_count,
         linkless_share_pct: linklessSharePct,
+        total_repins: b.repin_sum,
+        avg_repins: avgRepins,
         avg_repin_per_day: avgRepinPerDay,
         avg_golden_score: avgGoldenScore,
         conviction_score: convictionScore,
-        sample_boards: Array.from(b.sample_boards),
+        sample_boards: sampleBoards,
+        top_board_names: sampleBoards.map((name) => ({ name })),
         sample_pin_ids: b.sample_pin_ids
       };
     })
-    .sort((a, b) => b.conviction_score - a.conviction_score || b.pin_count - a.pin_count || a.term.localeCompare(b.term))
+    .sort((a, b) => b.pin_count - a.pin_count || b.avg_repins - a.avg_repins || b.conviction_score - a.conviction_score || a.term.localeCompare(b.term))
     .slice(0, Math.max(1, Math.min(200, Number(limit) || 30)));
 }

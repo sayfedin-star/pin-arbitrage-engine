@@ -73,21 +73,30 @@ export const SURFACES_CATALOG = Object.freeze([
   },
   {
     id: 'ideas_feeds',
-    label: '/ideas/ Taxonomy Feeds',
+    label: 'Idea Page Feed (/ideas/)',
     endpoint: 'InterestResource/get (is_interest) -> BestPinsFeedAltResource/get + __PWS_INITIAL_PROPS__',
     cookie_zone: 'auth_session',
     guest_fallback_supported: true,
     default_enabled: true,
-    default_max_pages: 2
+    default_max_pages: 5
+  },
+  {
+    id: 'home_feed',
+    label: 'Authenticated Home Feed',
+    endpoint: 'UserHomefeedResource/get',
+    cookie_zone: 'auth_session',
+    guest_fallback_supported: false,
+    default_enabled: false,
+    default_max_pages: 5
   },
   {
     id: 'related_pin_snowball',
-    label: 'Related Pin Snowball',
+    label: 'Related Pins Deep Scroll',
     endpoint: 'RelatedModulesResource/get',
     cookie_zone: 'auth_session',
     guest_fallback_supported: false,
-    default_enabled: true,
-    default_max_pages: 2
+    default_enabled: false,
+    default_max_pages: 10
   }
 ]);
 
@@ -102,8 +111,10 @@ const SURFACE_KEY_ALIASES = new Map([
   ['pin_serp_capsules', 'pin_serp_capsules'],
   ['pin_serp', 'pin_serp_capsules'],
   ['serp_pins', 'pin_serp_capsules'],
+  ['search', 'pin_serp_capsules'],
   ['fresh_boards', 'fresh_boards'],
   ['boards_search', 'fresh_boards'],
+  ['boards', 'fresh_boards'],
   ['board_feed', 'board_feed'],
   ['board_pins', 'board_feed'],
   ['board_more_ideas', 'board_more_ideas'],
@@ -111,9 +122,16 @@ const SURFACE_KEY_ALIASES = new Map([
   ['more_ideas', 'board_more_ideas'],
   ['ideas_feeds', 'ideas_feeds'],
   ['ideas', 'ideas_feeds'],
+  ['idea_page', 'ideas_feeds'],
   ['ideas_hub', 'ideas_feeds'],
+  ['home_feed', 'home_feed'],
+  ['homefeed', 'home_feed'],
+  ['home', 'home_feed'],
+  ['user_homefeed', 'home_feed'],
   ['related_pin_snowball', 'related_pin_snowball'],
   ['related_snowball', 'related_pin_snowball'],
+  ['related_pins', 'related_pin_snowball'],
+  ['related', 'related_pin_snowball'],
   ['snowball', 'related_pin_snowball']
 ]);
 
@@ -183,6 +201,7 @@ const AGE_PRESET_TO_DAYS = Object.freeze({
   '7d': 7,
   '14d': 14,
   '30d': 30,
+  '60d': 60,
   '90d': 90
 });
 const CADENCE_TO_MINUTES = Object.freeze({
@@ -197,41 +216,43 @@ const VALID_LINKLESS_MODES = new Set(['off', 'boost', 'only']);
 const VALID_TRACKING_MODES = new Set(['pulse_only', 'full']);
 
 export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
-  schema_version: 1,
+  schema_version: 2,
   discovery: {
     country: 'US',
     default_l1_interest: 'all',
-    max_board_age_days: 30,
+    max_board_age_days: 90,
     surfaces: {
       growing_trends: { enabled: true, max_pages: 1, limit: 25 },
       zero_query_popular: { enabled: true, max_pages: 1 },
-      pin_serp_capsules: { enabled: true, max_pages: 2, page_size: 50 },
-      fresh_boards: { enabled: true, max_pages: 1, max_boards_to_expand: 8 },
-      board_feed: { enabled: true, max_pages: 2, page_size: 50 },
+      pin_serp_capsules: { enabled: true, max_pages: 10, page_size: 50, target_pins: 500 },
+      fresh_boards: { enabled: true, max_pages: 2, max_boards_to_expand: 10, max_boards: 10, target_pins_per_board: 100 },
+      board_feed: { enabled: true, max_pages: 2, page_size: 100, target_pins_per_board: 100 },
       board_more_ideas: { enabled: true, max_pages: 2, page_size: 25 },
-      ideas_feeds: { enabled: true, max_pages: 2, max_interests_per_run: 6 },
-      related_pin_snowball: { enabled: true, max_pages: 2, page_size: 24 }
+      ideas_feeds: { enabled: true, max_pages: 5, page_size: 50, target_pins: 250, max_interests_per_run: 1 },
+      home_feed: { enabled: false, max_pages: 5, page_size: 50, target_pins: 250 },
+      related_pin_snowball: { enabled: false, max_pages: 10, page_size: 30, target_pins: 300 }
     },
     snowball: {
-      enabled: true,
-      max_hops: 2,
+      enabled: false,
+      max_hops: 1,
       seed_cap: 10,
-      min_seed_golden_score: 65
+      min_seed_golden_score: 50
     },
     hydration: {
       enable_pidgets_pretriage: true,
-      max_pin_hydrations_per_run: 150,
-      max_user_hydrations_per_run: 50
+      max_pin_hydrations_per_run: 500,
+      auto_fetch_accounts: false,
+      max_user_hydrations_per_run: 25
     }
   },
   qualification: {
     age_window_preset: '30d',
     min_age_days: 0,
     max_age_days: 30,
-    min_repin_count: 0,
-    min_save_count: 15,
+    min_repin_count: 20,
+    min_save_count: 0,
     min_repin_per_day: 0,
-    min_save_per_day: 2.0,
+    min_save_per_day: 0,
     min_shares: 0,
     min_comments: 0,
     min_reactions: 0,
@@ -263,20 +284,20 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     },
     pin_promotion_rules: {
       watchlist_thresholds: {
-        min_repins: 0,
-        min_saves: 15,
+        min_repins: 20,
+        min_saves: 0,
         min_repin_per_day: 0,
-        min_save_per_day: 2.0,
+        min_save_per_day: 0,
         max_age_days: 30,
-        min_golden_score: 55
+        min_golden_score: 50
       },
       promote_thresholds: {
-        min_repins: 0,
-        min_saves: 40,
+        min_repins: 50,
+        min_saves: 0,
         min_repin_per_day: 0,
-        min_save_per_day: 4.0,
+        min_save_per_day: 0,
         max_age_days: 30,
-        min_golden_score: 75,
+        min_golden_score: 65,
         min_consecutive_days: 2
       },
       destinations: {
@@ -391,6 +412,13 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     }
   }
 
+  const SURFACE_TARGET_PIN_CAPS = {
+    pin_serp_capsules: { min: 50, max: 5000 },
+    ideas_feeds: { min: 50, max: 2000 },
+    home_feed: { min: 50, max: 2000 },
+    related_pin_snowball: { min: 50, max: 1000 }
+  };
+
   const normalizedSurfaces = {};
   for (const cat of SURFACES_CATALOG) {
     const id = cat.id;
@@ -399,7 +427,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     const pSurf = mappedPatchSurfaces[id] || {};
     const entry = {
       enabled: cleanBool(pSurf.enabled, cleanBool(curSurf.enabled, defSurf.enabled)),
-      max_pages: clampInt(pSurf.max_pages ?? pSurf.pages ?? pSurf.depth, curSurf.max_pages ?? defSurf.max_pages, 1, 50)
+      max_pages: clampInt(pSurf.max_pages ?? pSurf.pages ?? pSurf.depth, curSurf.max_pages ?? defSurf.max_pages, 1, 100)
     };
     if (defSurf.limit !== undefined) {
       entry.limit = clampInt(pSurf.limit, curSurf.limit ?? defSurf.limit, 5, 200);
@@ -407,13 +435,32 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     if (defSurf.page_size !== undefined) {
       entry.page_size = clampInt(pSurf.page_size, curSurf.page_size ?? defSurf.page_size, 10, 100);
     }
+    if (defSurf.target_pins !== undefined) {
+      const cap = SURFACE_TARGET_PIN_CAPS[id] || { min: 50, max: 2000 };
+      entry.target_pins = clampInt(
+        pSurf.target_pins ?? pSurf.scroll_target ?? pSurf.max_pins,
+        curSurf.target_pins ?? defSurf.target_pins,
+        cap.min,
+        cap.max
+      );
+    }
+    if (defSurf.target_pins_per_board !== undefined) {
+      entry.target_pins_per_board = clampInt(
+        pSurf.target_pins_per_board ?? pSurf.pins_per_board ?? pSurf.target_pins,
+        curSurf.target_pins_per_board ?? defSurf.target_pins_per_board,
+        25,
+        1000
+      );
+    }
     if (defSurf.max_boards_to_expand !== undefined) {
-      entry.max_boards_to_expand = clampInt(
-        pSurf.max_boards_to_expand,
-        curSurf.max_boards_to_expand ?? defSurf.max_boards_to_expand,
+      const clampedBoards = clampInt(
+        pSurf.max_boards_to_expand ?? pSurf.max_boards,
+        curSurf.max_boards_to_expand ?? curSurf.max_boards ?? defSurf.max_boards_to_expand,
         1,
         50
       );
+      entry.max_boards_to_expand = clampedBoards;
+      entry.max_boards = clampedBoards;
     }
     if (defSurf.max_interests_per_run !== undefined) {
       entry.max_interests_per_run = clampInt(
@@ -424,6 +471,25 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       );
     }
     normalizedSurfaces[id] = entry;
+  }
+
+  // Keep fresh_boards.target_pins_per_board & board_feed.target_pins_per_board synchronized
+  if (
+    mappedPatchSurfaces.fresh_boards?.target_pins_per_board !== undefined &&
+    mappedPatchSurfaces.board_feed?.target_pins_per_board === undefined &&
+    normalizedSurfaces.board_feed
+  ) {
+    normalizedSurfaces.board_feed.target_pins_per_board = normalizedSurfaces.fresh_boards.target_pins_per_board;
+    normalizedSurfaces.board_feed.max_pages = Math.max(
+      normalizedSurfaces.board_feed.max_pages,
+      Math.min(20, Math.ceil(normalizedSurfaces.fresh_boards.target_pins_per_board / 100))
+    );
+  } else if (
+    mappedPatchSurfaces.board_feed?.target_pins_per_board !== undefined &&
+    mappedPatchSurfaces.fresh_boards?.target_pins_per_board === undefined &&
+    normalizedSurfaces.fresh_boards
+  ) {
+    normalizedSurfaces.fresh_boards.target_pins_per_board = normalizedSurfaces.board_feed.target_pins_per_board;
   }
 
   const baseSnow = baseDisc.snowball || DEFAULT_NEWBORN_SETTINGS.discovery.snowball;
@@ -541,17 +607,17 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
   ).trim().toLowerCase();
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     discovery: {
       country,
       default_l1_interest: defaultL1Interest,
-      max_board_age_days: clampInt(patchDisc.max_board_age_days, baseDisc.max_board_age_days ?? 30, 1, 365),
+      max_board_age_days: clampInt(patchDisc.max_board_age_days, baseDisc.max_board_age_days ?? 90, 1, 365),
       surfaces: normalizedSurfaces,
       snowball: {
-        enabled: cleanBool(patchSnow.enabled, cleanBool(baseSnow.enabled, true)),
-        max_hops: clampInt(patchSnow.max_hops ?? patchSnow.hops, baseSnow.max_hops ?? 2, 0, 5),
+        enabled: cleanBool(patchSnow.enabled, cleanBool(baseSnow.enabled, false)),
+        max_hops: clampInt(patchSnow.max_hops ?? patchSnow.hops, baseSnow.max_hops ?? 1, 0, 5),
         seed_cap: clampInt(patchSnow.seed_cap, baseSnow.seed_cap ?? 10, 1, 100),
-        min_seed_golden_score: clampNum(patchSnow.min_seed_golden_score, baseSnow.min_seed_golden_score ?? 65, 0, 100)
+        min_seed_golden_score: clampNum(patchSnow.min_seed_golden_score, baseSnow.min_seed_golden_score ?? 50, 0, 100)
       },
       hydration: {
         enable_pidgets_pretriage: cleanBool(
@@ -560,14 +626,18 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
         ),
         max_pin_hydrations_per_run: clampInt(
           patchHyd.max_pin_hydrations_per_run,
-          baseHyd.max_pin_hydrations_per_run ?? 150,
+          baseHyd.max_pin_hydrations_per_run ?? 500,
           5,
           2000
         ),
+        auto_fetch_accounts: cleanBool(
+          patchHyd.auto_fetch_accounts,
+          cleanBool(baseHyd.auto_fetch_accounts, false)
+        ),
         max_user_hydrations_per_run: clampInt(
           patchHyd.max_user_hydrations_per_run,
-          baseHyd.max_user_hydrations_per_run ?? 50,
-          1,
+          baseHyd.max_user_hydrations_per_run ?? 25,
+          0,
           500
         )
       }
@@ -576,10 +646,10 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       age_window_preset: agePreset,
       min_age_days: minAgeDays,
       max_age_days: maxAgeDays,
-      min_repin_count: clampInt(patchQual.min_repin_count, baseQual.min_repin_count ?? 0, 0, 10000000),
-      min_save_count: clampInt(patchQual.min_save_count, baseQual.min_save_count ?? 15, 0, 10000000),
+      min_repin_count: clampInt(patchQual.min_repin_count, baseQual.min_repin_count ?? 20, 0, 10000000),
+      min_save_count: clampInt(patchQual.min_save_count, baseQual.min_save_count ?? 0, 0, 10000000),
       min_repin_per_day: clampNum(patchQual.min_repin_per_day, baseQual.min_repin_per_day ?? 0, 0, 100000),
-      min_save_per_day: clampNum(patchQual.min_save_per_day, baseQual.min_save_per_day ?? 2.0, 0, 100000),
+      min_save_per_day: clampNum(patchQual.min_save_per_day, baseQual.min_save_per_day ?? 0, 0, 100000),
       min_shares: clampInt(patchQual.min_shares, baseQual.min_shares ?? 0, 0, 1000000),
       min_comments: clampInt(patchQual.min_comments, baseQual.min_comments ?? 0, 0, 1000000),
       min_reactions: clampInt(patchQual.min_reactions, baseQual.min_reactions ?? 0, 0, 1000000),
@@ -625,20 +695,20 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       },
       pin_promotion_rules: {
         watchlist_thresholds: {
-          min_repins: clampInt(patchWatchThresh.min_repins, baseWatchThresh.min_repins ?? 0, 0, 10000000),
-          min_saves: clampInt(patchWatchThresh.min_saves, baseWatchThresh.min_saves ?? 15, 0, 10000000),
+          min_repins: clampInt(patchWatchThresh.min_repins, baseWatchThresh.min_repins ?? 20, 0, 10000000),
+          min_saves: clampInt(patchWatchThresh.min_saves, baseWatchThresh.min_saves ?? 0, 0, 10000000),
           min_repin_per_day: clampNum(patchWatchThresh.min_repin_per_day, baseWatchThresh.min_repin_per_day ?? 0, 0, 100000),
-          min_save_per_day: clampNum(patchWatchThresh.min_save_per_day, baseWatchThresh.min_save_per_day ?? 2.0, 0, 100000),
+          min_save_per_day: clampNum(patchWatchThresh.min_save_per_day, baseWatchThresh.min_save_per_day ?? 0, 0, 100000),
           max_age_days: clampNum(patchWatchThresh.max_age_days, baseWatchThresh.max_age_days ?? 30, 0.5, 3650),
-          min_golden_score: clampNum(patchWatchThresh.min_golden_score, baseWatchThresh.min_golden_score ?? 55, 0, 100)
+          min_golden_score: clampNum(patchWatchThresh.min_golden_score, baseWatchThresh.min_golden_score ?? 50, 0, 100)
         },
         promote_thresholds: {
-          min_repins: clampInt(patchPromoThresh.min_repins, basePromoThresh.min_repins ?? 0, 0, 10000000),
-          min_saves: clampInt(patchPromoThresh.min_saves, basePromoThresh.min_saves ?? 40, 0, 10000000),
+          min_repins: clampInt(patchPromoThresh.min_repins, basePromoThresh.min_repins ?? 50, 0, 10000000),
+          min_saves: clampInt(patchPromoThresh.min_saves, basePromoThresh.min_saves ?? 0, 0, 10000000),
           min_repin_per_day: clampNum(patchPromoThresh.min_repin_per_day, basePromoThresh.min_repin_per_day ?? 0, 0, 100000),
-          min_save_per_day: clampNum(patchPromoThresh.min_save_per_day, basePromoThresh.min_save_per_day ?? 4.0, 0, 100000),
+          min_save_per_day: clampNum(patchPromoThresh.min_save_per_day, basePromoThresh.min_save_per_day ?? 0, 0, 100000),
           max_age_days: clampNum(patchPromoThresh.max_age_days, basePromoThresh.max_age_days ?? 30, 0.5, 3650),
-          min_golden_score: clampNum(patchPromoThresh.min_golden_score, basePromoThresh.min_golden_score ?? 75, 0, 100),
+          min_golden_score: clampNum(patchPromoThresh.min_golden_score, basePromoThresh.min_golden_score ?? 65, 0, 100),
           min_consecutive_days: clampInt(patchPromoThresh.min_consecutive_days, basePromoThresh.min_consecutive_days ?? 2, 1, 30)
         },
         destinations: {
@@ -1229,7 +1299,7 @@ export async function getNewbornCookieStatus(sql, env = {}) {
     preview: hasCookie ? '[CONFIGURED]' : '',
     zone_routing_mode: hasCookie ? 'two_zone_auth_plus_zero_cookie' : 'guest_zero_cookie_fallback',
     auth_surfaces_unlocked: hasCookie
-      ? ['related_pin_snowball', 'pin_serp_capsules', 'board_feed', 'board_more_ideas', 'ideas_feeds', 'zero_query_popular']
+      ? ['related_pin_snowball', 'pin_serp_capsules', 'board_feed', 'board_more_ideas', 'ideas_feeds', 'home_feed', 'zero_query_popular']
       : [],
     zero_cookie_surfaces: ['growing_trends', 'fresh_boards', 'PinResource/get', 'Pidgets', 'UserResource/get', 'InterestResource/get'],
     source: hasCookie ? source : 'none'

@@ -86,24 +86,30 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   const newbornNavLinks = collectNodes(globalTree, (n) => n.tag === 'a' && n.attrs.href === '/newborn');
   assert.ok(newbornNavLinks.length >= 2, 'App sidebar (mobile + desktop) must link to /newborn');
 
-  assert.ok(globalHtml.includes('Newborn Pin Hunter'), 'Header must display simplified "Newborn Pin Hunter" title');
-  assert.ok(globalHtml.includes('Settings &amp; Automation'), 'Header must offer single Settings & Automation slide-over button');
-  assert.ok(globalHtml.includes('Browse Rising Trends'), 'Hero Hunt Bar must expose collapsible Browse Rising Trends picker');
-  assert.ok(globalHtml.includes('This Hunt'), '3-View workspace must render This Hunt tab');
-  assert.ok(globalHtml.includes('Watchlist'), '3-View workspace must render Watchlist tab');
-  assert.ok(globalHtml.includes('Past Hunts'), '3-View workspace must render Past Hunts tab');
-  assert.ok(globalHtml.includes('Total audience'), 'Rising Creators must use official "Total audience" label');
-  assert.ok(globalHtml.includes('Impressions'), 'Rising Creators must use official "Impressions" label');
-  assert.ok(globalHtml.includes('Creator Hub'), 'Rising Creators must reference "Creator Hub"');
-  assert.ok(globalHtml.includes('Origin Creator'), 'Pin Dossier/Cards must attribute Origin Creator');
-  assert.ok(globalHtml.includes('Linkless Goldmine'), 'Cards must expose Linkless Goldmine arbitrage signal');
-  assert.ok(globalHtml.includes('Find Related Newborns'), 'Cards must expose Find Related Newborns action');
-  assert.ok(globalHtml.includes('Track / Promote'), 'Cards must expose Track / Promote action');
+  assert.ok(globalHtml.includes('Newborn Pin Hunter'), 'Header must display "Newborn Pin Hunter" title');
+  assert.ok(globalHtml.includes('Max Pin Age (Days)'), 'Hero Hunt Card must expose Max Pin Age filter');
+  assert.ok(globalHtml.includes('Min Re-pins'), 'Hero Hunt Card must expose Min Re-pins primary filter');
+  assert.ok(globalHtml.includes('Min Saves (Optional)'), 'Hero Hunt Card must expose optional Min Saves filter');
+  assert.ok(globalHtml.includes('Idea Page'), 'Hero Hunt Card must expose official Idea Page path & intelligence');
+  assert.ok(globalHtml.includes('Home Feed'), 'Hero Hunt Card must expose Home Feed extraction path');
+  assert.ok(globalHtml.includes('Rising Trends'), 'Hero Hunt Card must expose collapsible Rising Trends picker');
+  assert.ok(globalHtml.includes('This Hunt'), '3-Tab workspace must render This Hunt tab');
+  assert.ok(globalHtml.includes('Tracked / Watchlist'), '3-Tab workspace must render Tracked / Watchlist tab');
+  assert.ok(globalHtml.includes('Past Hunts'), '3-Tab workspace must render Past Hunts tab');
+  assert.ok(globalHtml.includes('Annotations Crossover'), 'This Hunt must show Annotations Crossover panel');
+  assert.ok(globalHtml.includes('No Link / Linkless'), 'Results UI must show clear No Link / Linkless badge');
+  assert.ok(globalHtml.includes('Scroll Related'), 'Results UI must expose Scroll Related action');
+  assert.ok(globalHtml.includes('Track Daily'), 'Results UI must expose opt-in Track Daily action');
+  assert.ok(globalHtml.includes('Pull Account'), 'Results UI must expose manual Pull Account action');
+  assert.ok(globalHtml.includes('Total audience'), 'Opt-in account reach must use official "Total audience" label');
+  assert.ok(globalHtml.includes('Impressions'), 'Opt-in account reach must use official "Impressions" label');
+  assert.ok(globalHtml.includes('Export CSV'), 'Results toolbar must offer Export CSV');
 
-  // Zero UI emojis inside global <main> studio rooms
+  // Strictly ZERO Comments, Reactions, or Shares UI clutter anywhere on /newborn
   const mainMatch = globalHtml.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
   assert.ok(mainMatch, 'Expected <main> block in global Newborn HTML');
   assert.equal(/\p{Extended_Pictographic}/u.test(mainMatch[1]), false, 'Global Newborn <main> must contain zero UI emojis');
+  assert.equal(/>\s*(Comments|Reactions|Shares)\s*</i.test(globalHtml), false, 'Wave 6D /newborn UI must not render Comments, Reactions, or Shares');
 
   // Folder-scoped mode renders shared Campaign Workspace Header with active Newborn tab and safe Settings link
   const folderTree = parseHtmlElementTree(folderHtml);
@@ -337,27 +343,29 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   const mockCandidatesPayload = [
     {
       pin_id: '901000200030004001',
-      title: 'Viral Graduation Fruit Skewers',
+      title: '=HYPERLINK("https://evil.example","Meal Prep Chicken Bowls")',
       stage: 'discovered',
+      first_surface: 'pin_serp_capsules',
       is_golden_pin: true,
       is_linkless: true,
       is_repin: false,
       golden_score: 91.2,
       age_days: 5.0,
-      save_count: 92,
-      save_per_day: 18.4,
-      repin_count: 0,
-      repin_per_day: 0,
-      share_count: null,
-      comment_count: null,
-      reaction_count: null,
-      origin_creator_username: 'rookiewoodworker',
-      pinner_username: 'rookiewoodworker',
-      effective_creator_username: 'rookiewoodworker',
+      repin_count: 145,
+      repin_per_day: 29.0,
+      save_count: 210,
+      save_per_day: 42.0,
+      created_at_pinterest: '2026-11-14T10:00:00Z',
+      effective_creator_username: 'rookiechef',
+      creator_monthly_reach: null,
+      creator_profile_views: null,
       clean_domain: null,
-      board_name: 'Graduation Party Food Ideas',
-      board_url: 'https://www.pinterest.com/rookiewoodworker/graduation-party-food-ideas/',
-      upload_provenance: 'SHARE_EXTENSION_IOS'
+      board_name: 'Weekly Meal Prep Ideas',
+      board_url: 'https://www.pinterest.com/rookiechef/weekly-meal-prep-ideas/',
+      visual_annotations: [
+        { name: 'meal prep for the week', url: '/ideas/meal-prep-for-the-week/956840852136/' },
+        { name: 'chicken meal prep' }
+      ]
     }
   ];
 
@@ -400,14 +408,50 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
       if (String(url) === '/api/folders') {
         return jsonRes({ folders: [{ id: 42, name: 'Outdoor Living', color: '#E11D48' }] });
       }
+      if (String(url).startsWith('/api/newborn/idea-intelligence')) {
+        return jsonRes({
+          success: true,
+          found: true,
+          id: '956840852136',
+          term: 'meal prep for the week',
+          idea_url: 'https://www.pinterest.com/ideas/meal-prep-for-the-week/956840852136/',
+          internal_search_count: 720549,
+          weekly_change: 18,
+          monthly_change: 42,
+          yearly_change: 65,
+          related_interests: [{ name: 'High protein meal prep', id: '911000111' }]
+        });
+      }
+      if (String(url) === '/api/newborn/candidates/901000200030004001/fetch-account' && method === 'POST') {
+        return jsonRes({
+          success: true,
+          fetched_count: 1,
+          users_fetched: 1,
+          results: [{
+            pin_id: '901000200030004001',
+            username: 'rookiechef',
+            fetched: true,
+            effective_creator_followers: 840,
+            creator_monthly_reach: 520000,
+            creator_profile_views: 690000,
+            creator_pin_count: 34
+          }]
+        });
+      }
       if (String(url) === '/api/newborn/settings' && method === 'GET') {
         return jsonRes({
           success: true,
           settings: {
-            discovery: { country: 'US', default_l1_interest: 'all', max_board_age_days: 30, surfaces: { pin_serp_capsules: { enabled: true } } },
+            discovery: {
+              country: 'US',
+              default_l1_interest: 'all',
+              max_board_age_days: 30,
+              surfaces: { pin_serp_capsules: { enabled: true }, home_feed: { enabled: false } },
+              hydration: { max_pin_hydrations_per_run: 500, auto_fetch_accounts: false }
+            },
             qualification: {
               age_window_preset: '30d', min_age_days: 0, max_age_days: 30,
-              min_repin_count: 0, min_save_count: 15, min_repin_per_day: 0, min_save_per_day: 2.0,
+              min_repin_count: 20, min_save_count: 0, min_repin_per_day: 0, min_save_per_day: 0,
               max_creator_followers: 25000, enforce_max_followers_filter: false,
               provenance: { allowed_sources: ['SHARE_EXTENSION_IOS', 'UPLOADED'], excluded_sources: [], ai_disclosure_policy: 'exclude', exclude_products: true, exclude_videos: false },
               linkless_vacuum: { mode: 'boost', linkless_vacuum_only: false, score_boost: 12 }
@@ -419,7 +463,7 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
           surfaces_catalog: [{ id: 'pin_serp_capsules', label: 'Pin SERP + Guided Capsules', endpoint: 'BaseSearchResource/get' }],
           l1_interests_catalog: OFFICIAL_L1_INTERESTS,
           supported_countries: [{ code: 'US', label: 'United States (US)' }],
-          profiles: [{ id: 1, slug: 'default-golden-breakout', name: 'Default Golden Breakout', is_default: true, qualification_config: { max_age_days: 30, min_save_per_day: 2 } }]
+          profiles: [{ id: 1, slug: 'default-golden-breakout', name: 'Default Golden Breakout', is_default: true, qualification_config: { max_age_days: 30, min_repin_count: 20, min_save_count: 0 } }]
         });
       }
       if (String(url) === '/api/newborn/settings' && method === 'PATCH') {
@@ -478,7 +522,11 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
         return jsonRes({ success: true, total: 1, candidates: mockCandidatesPayload });
       }
       if (String(url).startsWith('/api/newborn/crossover')) {
-        return jsonRes({ success: true, analyzed_pins: 1, clusters: [{ annotation: 'graduation party foods', pin_count: 1, top_board_names: [{ name: 'Graduation Party Food Ideas' }] }] });
+        return jsonRes({
+          success: true,
+          analyzed_pins: 1,
+          clusters: [{ annotation: 'meal prep for the week', pin_count: 1, overlap_pct: 100, avg_repins: 145, top_board_names: [{ name: 'Weekly Meal Prep Ideas' }] }]
+        });
       }
       if (String(url).startsWith('/api/newborn/rookies')) {
         return jsonRes({ success: true, total: 1, rookies: [{ username: 'rookiewoodworker', follower_count: 640, monthly_reach: 10000001, profile_views: 500000, rookie_score: 88, stage: 'discovered' }] });
@@ -571,15 +619,19 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   const studio = sandbox.newbornStudioApp('42', 'hunt');
   await studio.init();
 
-  // 1. Verify URL ?search= hydration, folder scope, run-scoped candidate loading, and zero currentRoom conflict
+  // 1. Verify URL ?search= hydration, folder scope, run-scoped candidate loading, default sort=repins, Idea Page lookup & zero currentRoom conflict
   assert.equal(studio.scopedFolderId, '42');
   assert.equal(studio.activeFolder?.name, 'Outdoor Living');
   assert.equal(studio.huntInput, 'graduation party foods');
   assert.equal(studio.activeView, 'hunt');
   assert.equal(studio.activeRunId, 7);
+  assert.equal(studio.filters.sort, 'repins');
   assert.equal(studio.candidates.length, 1);
+  assert.equal(studio.crossoverClusters.length, 1);
   assert.equal('currentRoom' in studio, false, 'Must not declare currentRoom to avoid folder header hijack');
-  assert.ok(apiRequests.some((r) => r.url.includes('/api/newborn/candidates?') && r.url.includes('run_id=7')), 'This Hunt must scope candidates to activeRunId');
+  assert.ok(apiRequests.some((r) => r.url.includes('/api/newborn/candidates?') && r.url.includes('run_id=7') && r.url.includes('sort=repins')), 'This Hunt must scope candidates to activeRunId sorted by repins');
+  assert.ok(apiRequests.some((r) => r.url.startsWith('/api/newborn/idea-intelligence?')), 'Init with query seed must resolve official Idea Page intelligence');
+  assert.equal(studio.activeIdeaPage?.internal_search_count, 720549);
 
   // 2. Verify theme toggling mutates document.documentElement ONLY, never document.body
   studio.toggleTheme();
@@ -609,13 +661,15 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   studio.openProfileModal(null);
   studio.profileForm.name = 'Patio 14d Rockets';
   studio.profileForm.maxAgeDays = 14;
-  studio.profileForm.minSavePerDay = 3.5;
+  studio.profileForm.minRepins = 50;
+  studio.profileForm.minSaves = 0;
   await studio.saveProfile();
   const createRuleCall = apiRequests.find((r) => r.url === '/api/newborn/rules' && r.method === 'POST');
   assert.ok(createRuleCall);
   assert.ok('surfaces_config' in createRuleCall.body && 'qualification_config' in createRuleCall.body && 'automation_config' in createRuleCall.body);
   assert.equal(createRuleCall.body.qualification_config.max_age_days, 14);
-  assert.equal(createRuleCall.body.qualification_config.min_save_per_day, 3.5);
+  assert.equal(createRuleCall.body.qualification_config.min_repin_count, 50);
+  assert.equal(createRuleCall.body.qualification_config.min_save_count, 0);
   await studio.deleteProfile({ id: 9, slug: 'patio-14d', name: 'Patio 14d Rockets', is_default: false });
 
   // 5. Verify Redacted Cookie Vault uses exact `preview` key & wipes raw input immediately
@@ -628,26 +682,50 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   await studio.clearCookie();
   assert.equal(studio.cookieStatus.has_cookie, false);
 
-  // 6. Verify HTTP 202 Focused Hunt + live run polling -> clean timer stop on completion
-  await studio.selectTrendAndHunt('graduation party foods');
+  // 6. Verify HTTP 202 Focused Hunt passes 3-Filter + Per-Path deep-scroll targets -> clean timer stop on completion
+  studio.huntFilters.maxAgeDays = 14;
+  studio.huntFilters.minRepins = 50;
+  studio.huntFilters.minSaves = 0;
+  studio.huntPaths.search.target_pins = 2000;
+  studio.huntPaths.boards.max_boards = 25;
+  await studio.selectTrendAndHunt('meal prep for the week');
   await new Promise((r) => setTimeout(r, 40));
+  const discoverCall = apiRequests.find((r) => r.url === '/api/newborn/discover' && r.method === 'POST');
+  assert.ok(discoverCall);
+  assert.equal(discoverCall.body.filters.max_age_days, 14);
+  assert.equal(discoverCall.body.filters.min_repin_count, 50);
+  assert.equal(discoverCall.body.filters.min_save_count, 0);
+  assert.equal(discoverCall.body.paths.search.target_pins, 2000);
+  assert.equal(discoverCall.body.paths.boards.max_boards, 25);
   assert.equal(studio.activeRunId, 18);
   assert.equal(studio.activeRun.status, 'completed');
   assert.equal(studio.pollTimerId, null, 'Poll timer must stop cleanly when run reaches terminal status');
   assert.equal(studio.isPollingRun, false);
 
-  // 7. Verify Snowball, Watchlist Poll, Hunt Insights & Promote Modal
-  await studio.snowballPins(['901000200030004001']);
+  // 7. Verify Scroll Related, On-Demand Pull Account Reach, Annotations Filter + Volume Check, CSV Formula Neutralization & Track Daily
+  studio.huntPaths.related.target_pins = 500;
+  await studio.scrollRelatedPins(['901000200030004001']);
   await new Promise((r) => setTimeout(r, 30));
   const snowballCall = apiRequests.find((r) => r.url === '/api/newborn/snowball' && r.method === 'POST');
   assert.deepEqual(snowballCall.body.seed_pin_ids, ['901000200030004001']);
+  assert.equal(snowballCall.body.target_pins, 500);
+
+  await studio.pullAccountReach(['901000200030004001']);
+  const accPullCall = apiRequests.find((r) => r.url === '/api/newborn/candidates/901000200030004001/fetch-account' && r.method === 'POST');
+  assert.ok(accPullCall, 'Pull Account must call single-pin fetch-account endpoint on demand');
+  assert.equal(studio.candidates[0].creator_monthly_reach, 520000);
+  assert.equal(studio.candidates[0].creator_profile_views, 690000);
+
+  await studio.selectAnnotationFilter('meal prep for the week');
+  assert.ok(apiRequests.some((r) => r.url.includes('annotation=meal+prep+for+the+week')));
+  await studio.checkAnnotationVolumes();
+  assert.equal(studio.annotationVolumeMap['meal prep for the week']?.internal_search_count, 720549);
+
+  const exportedCsv = studio.exportCsv();
+  assert.ok(exportedCsv.includes('"\'=HYPERLINK('), 'CSV export must neutralize formula injection payloads');
 
   await studio.pollWatchlistNow();
   await new Promise((r) => setTimeout(r, 30));
-
-  await studio.toggleHuntInsights();
-  assert.equal(studio.crossoverClusters.length, 1);
-  assert.equal(studio.rookies.length, 1);
 
   studio.openPromoteModal(['901000200030004001']);
   studio.promoteForm.promoteClusterSeeds = true;
@@ -659,10 +737,12 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   assert.equal(promoteCall.body.destinations.promote_to_campaign_folder_id, 42);
   assert.equal(promoteCall.body.destinations.promote_to_cluster_seeds, true);
 
-  // 8. Verify external board URL normalization, human-readable upload source, 10M+ ceiling & /pin/:id back-link
+  // 8. Verify external board URL normalization, surface labels, 10M+ ceiling & /pin/:id back-link
   assert.equal(studio.formatBoardUrl('/curatorjane/urban-balcony-ideas/'), 'https://www.pinterest.com/curatorjane/urban-balcony-ideas/');
-  assert.equal(studio.formatProvenanceLabel('SHARE_EXTENSION_IOS'), 'iOS App');
-  assert.equal(studio.formatProvenanceLabel('UPLOADED'), 'Web Upload');
+  assert.equal(studio.formatSurfaceLabel('pin_serp_capsules'), 'Search');
+  assert.equal(studio.formatSurfaceLabel('board_more_ideas'), 'Find More Ideas');
+  assert.equal(studio.formatSurfaceLabel('ideas_feeds'), 'Idea Page');
+  assert.equal(studio.formatSurfaceLabel('home_feed'), 'Home Feed');
   assert.equal(studio.formatReach(10000001), '10M+');
   assert.equal(studio.formatNullableCount(null), '—');
   assert.ok(studio.buildPinDetailsHref('901000200030004001').includes('source=newborn'));

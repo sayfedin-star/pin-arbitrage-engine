@@ -1,16 +1,18 @@
 /**
  * src/ui/newborn/newborn-settings-and-modals.mjs
  *
- * Out-of-sight power controls & interactive overlays:
- * 1. Slide-Over Settings & Automation Drawer (`z-[60]`): Age presets (7d/14d/30d/90d),
- *    min saves/day, Linkless Vacuum, Provenance, Rule Profiles CRUD, Cookie Vault (redacted),
- *    Surface toggles, Auto-Track schedule & GitHub Fleet dispatch.
- * 2. Pin Dossier Slide-Over (`z-[65]`): Full breakdown of verified root creation date,
- *    metrics (null-safe), origin creator vs pinner, annotations, crossover blueprint & trajectory.
- * 3. Track / Promote Modal (`z-[75]`): Stage to Watchlist or Promote to Daily SSOT + 01:00 UTC
- *    anchor + Campaign Folder + Tracked Keyword + Discovery Cluster Seeds.
- * 4. Rule Profile Create / Edit Modal (`z-[75]`): Exact `surfaces_config`, `qualification_config`,
- *    `automation_config` contract.
+ * Wave 6D Settings Drawer & Interactive Overlays:
+ * 1. Slide-Over Settings & Automation Drawer (`z-[60]`):
+ *    - Filters & Rules (`Max Pin Age` 7d/14d/30d/60d/90d/custom, `Min Re-pins`, `Min Saves (0 = ignored)`),
+ *    - Rule Profiles CRUD,
+ *    - Cookie Vault (strictly redacted write-only Zone-A `_pinterest_sess`),
+ *    - Surfaces & Opt-In Automation (`auto_track_enabled: false` and `auto_fetch_accounts: false` by default).
+ * 2. Pin Dossier Slide-Over (`z-[65]`):
+ *    - Verified Root Age + UTC Created, Re-pins (+Re-pins/day), Saves, Destination / No Link,
+ *      Discovery Source, Pin Annotations, and On-Demand Account Reach (`Total audience` & `Impressions`).
+ *    - Strictly ZERO Comments, Reactions, or Shares noise.
+ * 3. Track Daily Modal (`z-[75]`): Explicit opt-in enrollment to `newborn_daily_anchors` + Campaign Folder.
+ * 4. Rule Profile Modal (`z-[75]`): Create / Edit named hunt profiles.
  */
 
 export function getNewbornSettingsAndModalsHtml() {
@@ -26,8 +28,8 @@ export function getNewbornSettingsAndModalsHtml() {
           <!-- Drawer Header -->
           <div class="px-5 py-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-3 shrink-0">
             <div>
-              <h2 id="newborn-settings-drawer-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Settings &amp; Automation</h2>
-              <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Configure age windows, qualification rules, profiles, cookies, and schedules.</p>
+              <h2 id="newborn-settings-drawer-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Settings &amp; Session Cookie</h2>
+              <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Configure default qualification thresholds, Zone-A session cookie, profiles, and opt-in automation.</p>
             </div>
             <button type="button"
                     @click="closeSettingsDrawer()"
@@ -40,9 +42,9 @@ export function getNewbornSettingsAndModalsHtml() {
           <!-- Drawer Section Pills -->
           <div class="px-5 py-2.5 border-b border-slate-100 dark:border-[#27272A] flex items-center gap-1.5 overflow-x-auto shrink-0 bg-slate-50/70 dark:bg-[#18181B]">
             <button type="button" @click="settingsTab = 'filters'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'filters' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Filters &amp; Rules</button>
+            <button type="button" @click="settingsTab = 'cookie'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'cookie' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Session Cookie</button>
             <button type="button" @click="settingsTab = 'profiles'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'profiles' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Rule Profiles</button>
-            <button type="button" @click="settingsTab = 'cookie'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'cookie' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Cookie Vault</button>
-            <button type="button" @click="settingsTab = 'surfaces'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'surfaces' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Surfaces &amp; Auto-Track</button>
+            <button type="button" @click="settingsTab = 'surfaces'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'surfaces' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Surfaces &amp; Automation</button>
           </div>
 
           <!-- Drawer Scrollable Body -->
@@ -53,9 +55,9 @@ export function getNewbornSettingsAndModalsHtml() {
               <div class="space-y-5">
                 <!-- Age Presets -->
                 <div class="space-y-2">
-                  <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Root Pin Age Window</label>
-                  <div class="grid grid-cols-5 gap-2">
-                    <template x-for="preset in ['7d', '14d', '30d', '90d', 'custom']" :key="preset">
+                  <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Default Root Pin Age Window</label>
+                  <div class="grid grid-cols-6 gap-2">
+                    <template x-for="preset in ['7d', '14d', '30d', '60d', '90d', 'custom']" :key="preset">
                       <button type="button"
                               @click="applyAgePreset(preset)"
                               class="py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer"
@@ -69,31 +71,31 @@ export function getNewbornSettingsAndModalsHtml() {
                       <input type="number" min="0" max="365" x-model.number="settingsDraft.qualification.min_age_days" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
                     </label>
                     <label class="block space-y-1">
-                      <span class="text-xs text-slate-600 dark:text-[#A1A1AA]">Max Age (days)</span>
+                      <span class="text-xs text-slate-600 dark:text-[#A1A1AA]">Max Pin Age (days)</span>
                       <input type="number" min="1" max="3650" x-model.number="settingsDraft.qualification.max_age_days" @input="settingsDraft.qualification.age_window_preset = 'custom'" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
                     </label>
                   </div>
                 </div>
 
-                <!-- Engagement & Velocity Thresholds -->
+                <!-- Primary Re-pins & Optional Saves -->
                 <div class="grid grid-cols-2 gap-3">
                   <label class="block space-y-1">
-                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Min Saves</span>
+                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Min Re-pins (Primary Gate)</span>
+                    <input type="number" min="0" x-model.number="settingsDraft.qualification.min_repin_count" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
+                  </label>
+                  <label class="block space-y-1">
+                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Min Saves (0 = Ignored)</span>
                     <input type="number" min="0" x-model.number="settingsDraft.qualification.min_save_count" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
                   </label>
                   <label class="block space-y-1">
-                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Min Saves / day</span>
-                    <input type="number" min="0" step="0.5" x-model.number="settingsDraft.qualification.min_save_per_day" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
+                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Max Pin Hydrations / Hunt</span>
+                    <input type="number" min="20" max="2000" step="50" x-model.number="settingsDraft.discovery.hydration.max_pin_hydrations_per_run" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
                   </label>
                   <label class="block space-y-1">
-                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Max Creator Followers (Rookie Cap)</span>
-                    <input type="number" min="0" step="500" x-model.number="settingsDraft.qualification.max_creator_followers" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
-                  </label>
-                  <label class="block space-y-1">
-                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Linkless Vacuum Mode</span>
+                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">No Link / Linkless Mode</span>
                     <select x-model="settingsDraft.qualification.linkless_vacuum.mode" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs">
-                      <option value="boost">Boost Linkless Pins (+12 pts)</option>
-                      <option value="only">Only Linkless Goldmines</option>
+                      <option value="boost">Boost Linkless Pins</option>
+                      <option value="only">Only No Link / Linkless</option>
                       <option value="off">No Linkless Preference</option>
                     </select>
                   </label>
@@ -109,10 +111,6 @@ export function getNewbornSettingsAndModalsHtml() {
                     <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Exclude Video Pins</span>
                     <input type="checkbox" x-model="settingsDraft.qualification.provenance.exclude_videos" class="rounded text-rose-600 focus:ring-rose-500" />
                   </label>
-                  <label class="flex items-center justify-between gap-3 cursor-pointer">
-                    <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Enforce Max Creator Followers Hard Filter</span>
-                    <input type="checkbox" x-model="settingsDraft.qualification.enforce_max_followers_filter" class="rounded text-rose-600 focus:ring-rose-500" />
-                  </label>
                   <div class="flex items-center justify-between gap-3 pt-1">
                     <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">AI Disclosure Policy</span>
                     <select x-model="settingsDraft.qualification.provenance.ai_disclosure_policy" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-xs">
@@ -125,11 +123,53 @@ export function getNewbornSettingsAndModalsHtml() {
               </div>
             </template>
 
-            <!-- TAB 2: RULE PROFILES CRUD -->
+            <!-- TAB 2: COOKIE VAULT (REDACTED) -->
+            <template x-if="settingsTab === 'cookie'">
+              <div class="space-y-4">
+                <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] space-y-1.5">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Zone-A Deep-Scroll Auth</span>
+                    <span class="font-mono font-bold" :class="cookieStatus?.has_cookie ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'" x-text="cookieStatus?.has_cookie ? 'Active (_auth=1)' : 'Not Configured'"></span>
+                  </div>
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-500">Stored Status</span>
+                    <span class="font-mono text-slate-700 dark:text-[#E4E4E7]" x-text="cookieStatus?.preview || 'Not configured'"></span>
+                  </div>
+                  <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA] pt-1 leading-relaxed">
+                    Cookies are strictly write-only and never returned to the browser. Zone-A <code>_auth=1</code> unlocks deep scrolling (1,000–5,000 pins across Search, Home Feed, Idea Page &amp; Related), while <code>Pidgets</code>, <code>PinResource</code>, and on-demand <code>UserResource</code> remain <strong>100% Zero-Cookie</strong> so Pin Annotations stay intact.
+                  </p>
+                </div>
+
+                <div class="space-y-2">
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">Paste Pinterest Session Cookie (<code>_pinterest_sess</code>)</label>
+                  <textarea rows="3"
+                            x-model="cookieInput"
+                            placeholder="Paste raw _pinterest_sess token or full Cookie header..."
+                            class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-500"></textarea>
+                  <div class="flex items-center justify-between gap-2 pt-1">
+                    <button type="button"
+                            @click="saveCookie()"
+                            :disabled="isSavingCookie || !cookieInput.trim()"
+                            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer">
+                      Save Session Cookie
+                    </button>
+                    <template x-if="cookieStatus?.has_cookie">
+                      <button type="button"
+                              @click="clearCookie()"
+                              class="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold cursor-pointer">
+                        Clear Stored Cookie
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- TAB 3: RULE PROFILES CRUD -->
             <template x-if="settingsTab === 'profiles'">
               <div class="space-y-4">
                 <div class="flex items-center justify-between">
-                  <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Reusable presets selectable right from the Hero Hunt Bar.</p>
+                  <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Named hunt presets for recurring niche sweeps.</p>
                   <button type="button"
                           @click="openProfileModal(null)"
                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer">
@@ -162,54 +202,12 @@ export function getNewbornSettingsAndModalsHtml() {
               </div>
             </template>
 
-            <!-- TAB 3: COOKIE VAULT (REDACTED) -->
-            <template x-if="settingsTab === 'cookie'">
-              <div class="space-y-4">
-                <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] space-y-1.5">
-                  <div class="flex items-center justify-between text-xs">
-                    <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Active Mode</span>
-                    <span class="font-mono font-bold" :class="cookieStatus?.has_cookie ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'" x-text="cookieStatus?.has_cookie ? 'Full Auth Session (_auth=1)' : 'Guest Zero-Cookie Mode'"></span>
-                  </div>
-                  <div class="flex items-center justify-between text-xs">
-                    <span class="text-slate-500">Stored Status</span>
-                    <span class="font-mono text-slate-700 dark:text-[#E4E4E7]" x-text="cookieStatus?.preview || 'Not configured'"></span>
-                  </div>
-                  <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA] pt-1">
-                    Raw cookies are strictly write-only and never returned to the browser. Zero-Cookie hydrators (<code>PinResource</code>, <code>UserResource</code>, <code>Pidgets</code>) never send cookies so visual annotations remain intact.
-                  </p>
-                </div>
-
-                <div class="space-y-2">
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">Paste Pinterest Session Cookie (<code>_pinterest_sess</code>)</label>
-                  <textarea rows="3"
-                            x-model="cookieInput"
-                            placeholder="Paste raw _pinterest_sess token or full Cookie header..."
-                            class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-500"></textarea>
-                  <div class="flex items-center justify-between gap-2 pt-1">
-                    <button type="button"
-                            @click="saveCookie()"
-                            :disabled="isSavingCookie || !cookieInput.trim()"
-                            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer">
-                      Save Cookie
-                    </button>
-                    <template x-if="cookieStatus?.has_cookie">
-                      <button type="button"
-                              @click="clearCookie()"
-                              class="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold cursor-pointer">
-                        Clear Stored Cookie
-                      </button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <!-- TAB 4: SURFACES & AUTO-TRACK SCHEDULE -->
+            <!-- TAB 4: SURFACES & OPT-IN AUTOMATION -->
             <template x-if="settingsTab === 'surfaces'">
               <div class="space-y-5">
                 <!-- Surface Toggles -->
                 <div class="space-y-2">
-                  <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Discovery Surfaces</h3>
+                  <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Default Extraction Surfaces</h3>
                   <div class="space-y-2">
                     <template x-for="surf in surfacesCatalog" :key="surf.id">
                       <label class="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] cursor-pointer">
@@ -226,12 +224,20 @@ export function getNewbornSettingsAndModalsHtml() {
                   </div>
                 </div>
 
-                <!-- Auto-Track Schedule -->
+                <!-- Strictly Opt-In Automation Controls -->
                 <div class="space-y-3 p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]">
                   <label class="flex items-center justify-between gap-3 cursor-pointer">
                     <div>
-                      <div class="text-xs font-bold text-slate-900 dark:text-[#FAFAFA]">Enable Auto-Track &amp; Auto-Promotion</div>
-                      <div class="text-[11px] text-slate-500">Automatically stages winners to Watchlist and promotes multi-day breakouts.</div>
+                      <div class="text-xs font-bold text-slate-900 dark:text-[#FAFAFA]">Auto-Fetch Creator Account Reach During Hunts</div>
+                      <div class="text-[11px] text-slate-500">OFF by default for speed. Leave off and use manual "Pull Account" buttons per pin.</div>
+                    </div>
+                    <input type="checkbox" x-model="settingsDraft.discovery.hydration.auto_fetch_accounts" class="rounded text-rose-600 focus:ring-rose-500" />
+                  </label>
+
+                  <label class="flex items-center justify-between gap-3 pt-2 border-t border-slate-200/70 dark:border-[#27272A] cursor-pointer">
+                    <div>
+                      <div class="text-xs font-bold text-slate-900 dark:text-[#FAFAFA]">Enable Automatic Daily Tracking &amp; Watchlist</div>
+                      <div class="text-[11px] text-slate-500">OFF by default. When off, Golden Pins stay in This Hunt until you click "Track Daily".</div>
                     </div>
                     <input type="checkbox" x-model="settingsDraft.automation.auto_track_enabled" class="rounded text-rose-600 focus:ring-rose-500" />
                   </label>
@@ -288,7 +294,7 @@ export function getNewbornSettingsAndModalsHtml() {
     </template>
 
     <!-- ====================================================================== -->
-    <!-- 2. PIN DOSSIER SLIDE-OVER (z-[65])                                     -->
+    <!-- 2. CLEAN PIN DOSSIER SLIDE-OVER (z-[65] — High-Signal Core Metrics Only) -->
     <!-- ====================================================================== -->
     <template x-if="dossierOpen">
       <div class="fixed inset-0 z-[65] flex justify-end" role="dialog" aria-modal="true" aria-labelledby="newborn-dossier-title">
@@ -296,7 +302,7 @@ export function getNewbornSettingsAndModalsHtml() {
 
         <aside class="relative z-10 w-full max-w-xl bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] h-full flex flex-col shadow-2xl">
           <div class="px-5 py-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-3">
-            <h2 id="newborn-dossier-title" class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA] truncate" x-text="dossierData?.candidate?.title || 'Pin Dossier'"></h2>
+            <h2 id="newborn-dossier-title" class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA] truncate" x-text="dossierData?.candidate?.title || 'Golden Pin Dossier'"></h2>
             <button type="button" @click="dossierOpen = false" aria-label="Close pin dossier" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
               <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
             </button>
@@ -304,58 +310,61 @@ export function getNewbornSettingsAndModalsHtml() {
 
           <div class="flex-1 overflow-y-auto p-5 space-y-4">
             <template x-if="isLoadingDossier">
-              <div class="py-12 text-center text-xs text-slate-500">Loading verified pin telemetry...</div>
+              <div class="py-12 text-center text-xs text-slate-500">Loading verified root pin details...</div>
             </template>
 
             <template x-if="!isLoadingDossier && dossierData?.candidate">
               <div class="space-y-4">
                 <template x-if="dossierData.candidate.image_url">
-                  <img :src="dossierData.candidate.image_url" :alt="dossierData.candidate.title || 'Pin image'" class="w-full max-h-72 object-cover rounded-xl bg-slate-100 dark:bg-[#18181B]" />
+                  <img :src="dossierData.candidate.image_url" :alt="dossierData.candidate.title || 'Golden Pin image'" width="480" height="360" loading="lazy" class="w-full max-h-72 object-cover rounded-xl bg-slate-100 dark:bg-[#18181B]" />
                 </template>
 
+                <!-- Primary Signal KPIs: True Root Age, Re-pins, Saves -->
                 <div class="grid grid-cols-3 gap-2 text-center">
                   <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
                     <div class="text-[10px] uppercase text-slate-500">Root Age</div>
                     <div class="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA]" x-text="formatRootAge(dossierData.candidate.age_days)"></div>
                   </div>
                   <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
-                    <div class="text-[10px] uppercase text-slate-500">Saves</div>
-                    <div class="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(dossierData.candidate.save_count)"></div>
+                    <div class="text-[10px] uppercase text-slate-500">Re-pins</div>
+                    <div class="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(dossierData.candidate.repin_count)"></div>
+                    <div class="text-[10px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold" x-text="formatVelocity(dossierData.candidate.repin_per_day)"></div>
                   </div>
                   <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
-                    <div class="text-[10px] uppercase text-slate-500">+Saves / day</div>
-                    <div class="text-sm font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatVelocity(dossierData.candidate.save_per_day)"></div>
+                    <div class="text-[10px] uppercase text-slate-500">Saves</div>
+                    <div class="text-sm font-bold font-mono tabular-nums text-slate-700 dark:text-[#E4E4E7]" x-text="formatNullableCount(dossierData.candidate.save_count)"></div>
                   </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono tabular-nums">
-                  <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#18181B] border border-slate-100 dark:border-[#27272A]">
-                    <span class="text-slate-400 block text-[10px]">Shares</span>
-                    <span class="font-semibold" x-text="formatNullableCount(dossierData.candidate.share_count)"></span>
-                  </div>
-                  <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#18181B] border border-slate-100 dark:border-[#27272A]">
-                    <span class="text-slate-400 block text-[10px]">Comments</span>
-                    <span class="font-semibold" x-text="formatNullableCount(dossierData.candidate.comment_count)"></span>
-                  </div>
-                  <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#18181B] border border-slate-100 dark:border-[#27272A]">
-                    <span class="text-slate-400 block text-[10px]">Reactions</span>
-                    <span class="font-semibold" x-text="formatNullableCount(dossierData.candidate.reaction_count)"></span>
+                <!-- Root Metadata & Opt-In Account Reach -->
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] space-y-2 text-xs">
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Root Created (UTC)</span><span class="font-mono tabular-nums" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Source</span><span class="font-semibold" x-text="formatSurfaceLabel(dossierData.candidate.first_surface)"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link / Linkless' : (dossierData.candidate.clean_domain || '—')"></span></div>
+                  <div class="pt-2 border-t border-slate-200/70 dark:border-[#27272A] flex items-center justify-between gap-2">
+                    <div>
+                      <div class="text-slate-500">Account Reach (Opt-In)</div>
+                      <div class="font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA] mt-0.5"
+                           x-text="dossierData.candidate.creator_monthly_reach != null ? ('@' + (dossierData.candidate.effective_creator_username || 'creator') + ' · Total audience: ' + formatReach(dossierData.candidate.creator_monthly_reach) + (dossierData.candidate.creator_profile_views != null ? (' · Impressions: ' + formatReach(dossierData.candidate.creator_profile_views)) : '')) : 'Not pulled yet'"></div>
+                    </div>
+                    <button type="button"
+                            @click="pullAccountReach([dossierData.candidate.pin_id], true)"
+                            :disabled="Boolean(pullingAccountPins[dossierData.candidate.pin_id])"
+                            class="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-[11px] font-semibold cursor-pointer shrink-0">
+                      <span x-text="pullingAccountPins[dossierData.candidate.pin_id] ? 'Pulling...' : 'Pull Account Reach'"></span>
+                    </button>
                   </div>
                 </div>
 
-                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] space-y-1.5 text-xs">
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Origin Creator</span><span class="font-semibold" x-text="dossierData.candidate.effective_creator_username ? ('@' + dossierData.candidate.effective_creator_username) : '—'"></span></div>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Upload Source</span><span class="font-semibold" x-text="formatProvenanceLabel(dossierData.candidate.upload_provenance)"></span></div>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Root Created</span><span class="font-mono" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'Linkless Goldmine (No outbound URL)' : (dossierData.candidate.clean_domain || '—')"></span></div>
-                </div>
-
-                <template x-if="Array.isArray(dossierData.candidate.visual_annotations) && dossierData.candidate.visual_annotations.length > 0">
+                <template x-if="extractPinAnnotationNames(dossierData.candidate).length > 0">
                   <div class="space-y-1.5">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Visual Annotations</h3>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Pin Annotations</h3>
                     <div class="flex flex-wrap gap-1.5">
-                      <template x-for="ann in dossierData.candidate.visual_annotations" :key="ann.name || ann">
-                        <span class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#27272A] text-xs text-slate-700 dark:text-[#E4E4E7]" x-text="ann.name || ann"></span>
+                      <template x-for="tag in extractPinAnnotationNames(dossierData.candidate)" :key="tag">
+                        <button type="button"
+                                @click="dossierOpen = false; selectAnnotationFilter(tag)"
+                                class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#27272A] hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs text-slate-700 dark:text-[#E4E4E7] cursor-pointer"
+                                x-text="tag"></button>
                       </template>
                     </div>
                   </div>
@@ -368,14 +377,15 @@ export function getNewbornSettingsAndModalsHtml() {
                      class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-[#FAFAFA]">
                     View on Pinterest
                   </a>
-                  <a :href="buildPinDetailsHref(dossierData.candidate.pin_id)"
-                     class="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B] text-xs font-semibold">
-                    Full Intelligence Dossier
-                  </a>
+                  <button type="button"
+                          @click="dossierOpen = false; scrollRelatedPins([dossierData.candidate.pin_id])"
+                          class="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B] text-xs font-semibold cursor-pointer">
+                    Scroll Related
+                  </button>
                   <button type="button"
                           @click="dossierOpen = false; openPromoteModal([dossierData.candidate.pin_id])"
                           class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer">
-                    Track / Promote
+                    Track Daily
                   </button>
                 </div>
               </div>
@@ -386,7 +396,7 @@ export function getNewbornSettingsAndModalsHtml() {
     </template>
 
     <!-- ====================================================================== -->
-    <!-- 3. TRACK / PROMOTE MODAL (z-[75])                                      -->
+    <!-- 3. TRACK DAILY MODAL (z-[75] — Explicit Opt-In Enrollment)             -->
     <!-- ====================================================================== -->
     <template x-if="promoteModalOpen">
       <div class="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="newborn-promote-modal-title">
@@ -395,9 +405,9 @@ export function getNewbornSettingsAndModalsHtml() {
         <div class="relative z-10 w-full max-w-md bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4">
           <div class="flex items-center justify-between gap-2">
             <h2 id="newborn-promote-modal-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">
-              Track or Promote <span class="font-mono tabular-nums text-rose-600" x-text="'(' + promotePinIds.length + ' pin' + (promotePinIds.length === 1 ? '' : 's') + ')'"></span>
+              Track Daily <span class="font-mono tabular-nums text-rose-600" x-text="'(' + promotePinIds.length + ' pin' + (promotePinIds.length === 1 ? '' : 's') + ')'"></span>
             </h2>
-            <button type="button" @click="promoteModalOpen = false" aria-label="Close promote dialog" class="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
+            <button type="button" @click="promoteModalOpen = false" aria-label="Close Track Daily dialog" class="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
               <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
             </button>
           </div>
@@ -407,15 +417,15 @@ export function getNewbornSettingsAndModalsHtml() {
               <input type="checkbox" x-model="promoteForm.promoteToDailySsot" class="mt-0.5 rounded text-rose-600 focus:ring-rose-500" />
               <div>
                 <div class="font-semibold text-slate-900 dark:text-[#FAFAFA]">Enroll in 01:00 UTC Daily Velocity Tracking</div>
-                <div class="text-[11px] text-slate-500">Creates a <code>newborn_daily_anchors</code> record and promotes to Master Catalog.</div>
+                <div class="text-[11px] text-slate-500">Registers in <code>universal_master_pins</code> and <code>newborn_daily_anchors</code>.</div>
               </div>
             </label>
 
             <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#121215] cursor-pointer">
               <input type="checkbox" x-model="promoteForm.promoteKeyword" class="mt-0.5 rounded text-rose-600 focus:ring-rose-500" />
               <div>
-                <div class="font-semibold text-slate-900 dark:text-[#FAFAFA]">Track Top Visual Annotation as Keyword</div>
-                <div class="text-[11px] text-slate-500">Adds the primary crossover keyword to your Keywords Radar.</div>
+                <div class="font-semibold text-slate-900 dark:text-[#FAFAFA]">Track Top Pin Annotation as Keyword</div>
+                <div class="text-[11px] text-slate-500">Adds the primary crossover annotation to your Keywords Radar.</div>
               </div>
             </label>
 
@@ -448,7 +458,7 @@ export function getNewbornSettingsAndModalsHtml() {
                     @click="submitPromotePins()"
                     :disabled="isPromoting"
                     class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer"
-                    x-text="isPromoting ? 'Promoting...' : 'Promote Now'"></button>
+                    x-text="isPromoting ? 'Enrolling...' : 'Start Daily Tracking'"></button>
           </div>
         </div>
       </div>
@@ -472,25 +482,29 @@ export function getNewbornSettingsAndModalsHtml() {
           <div class="space-y-3 text-xs">
             <label class="block space-y-1">
               <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Profile Name</span>
-              <input type="text" required x-model="profileForm.name" placeholder="e.g. 7-Day Linkless Recipes" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]" />
+              <input type="text" required x-model="profileForm.name" placeholder="e.g. 14-Day High Re-pin Recipes" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]" />
             </label>
             <label class="block space-y-1">
               <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Description</span>
               <input type="text" x-model="profileForm.description" placeholder="Short summary of when to use this profile" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]" />
             </label>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 gap-2.5">
               <label class="block space-y-1">
-                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Max Age (days)</span>
-                <input type="number" min="1" max="365" x-model.number="profileForm.maxAgeDays" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Max Age (d)</span>
+                <input type="number" min="1" max="365" x-model.number="profileForm.maxAgeDays" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
               </label>
               <label class="block space-y-1">
-                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Min Saves / day</span>
-                <input type="number" min="0" step="0.5" x-model.number="profileForm.minSavePerDay" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Min Re-pins</span>
+                <input type="number" min="0" x-model.number="profileForm.minRepins" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
+              </label>
+              <label class="block space-y-1">
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Min Saves</span>
+                <input type="number" min="0" x-model.number="profileForm.minSaves" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
               </label>
             </div>
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" x-model="profileForm.linklessOnly" class="rounded text-rose-600 focus:ring-rose-500" />
-              <span class="font-medium text-slate-700 dark:text-[#E4E4E7]">Only Linkless Goldmine Pins</span>
+              <span class="font-medium text-slate-700 dark:text-[#E4E4E7]">Only No Link / Linkless Pins</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" x-model="profileForm.isDefault" class="rounded text-rose-600 focus:ring-rose-500" />

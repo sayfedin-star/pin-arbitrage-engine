@@ -21,6 +21,7 @@ import {
 import {
   formatPinterestBoardUrl,
   mergeCandidatePinRecords,
+  resolveIdeaPageIntelligence,
   harvestGrowingTrendsSurface,
   harvestZeroQueryPopularSurface,
   harvestPinSerpWithCapsulesSurface,
@@ -28,6 +29,7 @@ import {
   harvestBoardFeedSurface,
   harvestBoardMoreIdeasSurface,
   harvestIdeasHubSurface,
+  harvestHomeFeedSurface,
   harvestRelatedPinSnowballSurface,
   pretriageCandidatesWithPidgets,
   hydratePinZeroCookie,
@@ -711,14 +713,35 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     } catch (_) {}
   }
 
+  const funnel = {
+    scrolled_pins: 0,
+    matched_repins: 0,
+    hydrated_pins: 0,
+    board_repins_unwrapped: 0,
+    verified_winners: 0,
+    boards_scanned: 0,
+    pages_scrolled: 0
+  };
+  let runIdeaPage = null;
+
   const reportProgress = async (stage, detail, pct, counters = null) => {
     const clampedPct = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    if (counters && typeof counters === 'object') {
+      if (counters.scrolled_pins !== undefined) funnel.scrolled_pins = Number(counters.scrolled_pins) || 0;
+      if (counters.matched_repins !== undefined) funnel.matched_repins = Number(counters.matched_repins) || 0;
+      if (counters.hydrated_pins !== undefined) funnel.hydrated_pins = Number(counters.hydrated_pins) || 0;
+      if (counters.verified_winners !== undefined) funnel.verified_winners = Number(counters.verified_winners) || 0;
+    }
     if (typeof onProgress === 'function') {
       try {
-        onProgress({ stage, detail, pct: clampedPct, counters });
+        onProgress({ stage, detail, pct: clampedPct, counters, funnel: { ...funnel }, idea_page: runIdeaPage });
       } catch (_) {}
     }
     if (sql && typeof sql === 'function' && runRowId !== null) {
+      const liveTelemetryPatch = sanitizeForJsonb({
+        funnel: { ...funnel },
+        ...(runIdeaPage ? { idea_page: runIdeaPage } : {})
+      });
       await sql`
         UPDATE newborn_runs
         SET
@@ -726,9 +749,10 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           progress_detail = ${detail},
           progress_pct = ${clampedPct},
           cookie_mode = ${router.effectiveMode},
-          candidates_discovered = COALESCE(${counters?.candidates_discovered ?? null}::int, candidates_discovered),
+          candidates_discovered = COALESCE(${counters?.candidates_discovered ?? funnel.scrolled_pins}::int, candidates_discovered),
           candidates_qualified = COALESCE(${counters?.candidates_qualified ?? null}::int, candidates_qualified),
-          golden_pins_count = COALESCE(${counters?.golden_pins_count ?? null}::int, golden_pins_count)
+          golden_pins_count = COALESCE(${counters?.golden_pins_count ?? null}::int, golden_pins_count),
+          telemetry = COALESCE(telemetry, '{}'::jsonb) || ${JSON.stringify(liveTelemetryPatch)}::jsonb
         WHERE id = ${runRowId};
       `.catch(() => {});
     }
@@ -746,20 +770,47 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
   const ingestCandidate = (cand) => {
     if (!cand || !cand.pin_id) return;
+    // Unwrap board/feed repin to its explicit origin_pin_id immediately if already exposed,
+    // preserving board/surface provenance so Pidgets checks the root pin's real Re-pin count!
+    if (cand.is_repin && cand.origin_pin_id && cand.origin_pin_id !== cand.pin_id && !cand.is_hydrated) {
+      const unwrapped = {
+        ...cand,
+        pin_id: cand.origin_pin_id,
+        root_pin_id: cand.origin_pin_id,
+        unwrapped_from_repin_id: cand.pin_id,
+        is_repin: false
+      };
+      candidateMap.set(unwrapped.pin_id, mergeCandidatePinRecords(candidateMap.get(unwrapped.pin_id), unwrapped));
+      return;
+    }
     candidateMap.set(cand.pin_id, mergeCandidatePinRecords(candidateMap.get(cand.pin_id), cand));
   };
 
+  const hasExplicitIntent = hasExplicitSeeds || Boolean(surfacesCfg.home_feed?.enabled);
+
   try {
-    await reportProgress('harvesting', '1. Harvesting search & fresh boards...', 12);
+    await reportProgress('harvesting', '1. Scrolling enabled Pinterest extraction paths…', 8);
 
     if (!snowballOnly) {
+      // Automatically resolve official Pinterest Idea Page metadata & search volume for explicit seed query
+      if (cleanSeeds.length > 0) {
+        runIdeaPage = await resolveIdeaPageIntelligence(cleanSeeds[0], {
+          router,
+          country: settings.discovery.country
+        }).catch(() => null);
+        if (runIdeaPage?.found) {
+          await reportProgress(
+            'harvesting',
+            `Resolved Idea Page (${runIdeaPage.formatted_volume} searches) — scrolling enabled paths…`,
+            12
+          );
+        }
+      }
+
       // CRITICAL ZERO-POLLUTION INVARIANT:
       // Growing Trends & Zero-Query Popular belong strictly to unseeded autonomous sweeps
-      // or the user-triggered "Browse Rising Trends" picker. When a user hunts an explicit
-      // keyword, board URL, pin ID, or /ideas/ slug, NEVER invoke growing_trends or
-      // zero_query_popular and NEVER inject unrelated terms into activeQueryPool!
-      if (!hasExplicitSeeds) {
-        // Surface 1: Growing Trends (Zero-Cookie + x-new-site: "true")
+      // (zero explicit seeds AND not a dedicated Home Feed hunt).
+      if (!hasExplicitIntent) {
         if (surfacesCfg.growing_trends?.enabled) {
           const trRes = await harvestGrowingTrendsSurface(router, {
             country: settings.discovery.country,
@@ -774,7 +825,6 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           }
         }
 
-        // Surface 2: Zero-Query Popular / Ideas for You (unseeded sweeps only)
         if (surfacesCfg.zero_query_popular?.enabled) {
           const zqRes = await harvestZeroQueryPopularSurface(router, {
             country: settings.discovery.country
@@ -788,147 +838,296 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
 
       const queriesToRun = Array.from(activeQueryPool).slice(0, 8);
+      const pathTasks = [];
 
-      // Surface 3: Pin SERP + Guided Capsules
+      // Path 1: Search (`BaseSearchResource/get`, `scope: "pins"`, up to 5,000 pins)
       if (surfacesCfg.pin_serp_capsules?.enabled && queriesToRun.length > 0) {
         surfacesExecuted.push('pin_serp_capsules');
-        for (const q of queriesToRun) {
-          const serpRes = await harvestPinSerpWithCapsulesSurface(router, q, {
-            maxPages: surfacesCfg.pin_serp_capsules.max_pages,
-            pageSize: surfacesCfg.pin_serp_capsules.page_size
-          });
-          for (const p of (serpRes.pins || [])) ingestCandidate(p);
-          for (const cap of (serpRes.capsules || [])) {
-            if (cap?.term) discoveredCapsules.add(`${q} ${cap.term}`.trim().toLowerCase());
-          }
-        }
-      }
-
-      // Surface 4: Fresh Boards Search (Zero-Cookie, filtered by board_order_modified_at + semantic overlap)
-      if (surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) {
-        surfacesExecuted.push('fresh_boards');
-        const seenBoardIds = new Set();
-        for (const q of queriesToRun) {
-          const bRes = await harvestFreshBoardsSurface(router, q, {
-            maxPages: surfacesCfg.fresh_boards.max_pages,
-            maxBoardAgeDays: settings.discovery.max_board_age_days,
-            nowMs
-          });
-          for (const b of (bRes.boards || [])) {
-            if (!seenBoardIds.has(b.board_id)) {
-              seenBoardIds.add(b.board_id);
-              freshBoardsDiscovered.push(b);
+        pathTasks.push((async () => {
+          for (const q of queriesToRun) {
+            const serpRes = await harvestPinSerpWithCapsulesSurface(router, q, {
+              maxPages: surfacesCfg.pin_serp_capsules.max_pages,
+              pageSize: surfacesCfg.pin_serp_capsules.page_size || 50,
+              targetPins: surfacesCfg.pin_serp_capsules.target_pins ?? null,
+              onPageProgress: async ({ pagesFetched }) => {
+                funnel.pages_scrolled += 1;
+                funnel.scrolled_pins = candidateMap.size;
+                await reportProgress(
+                  'harvesting',
+                  `1. Deep-scrolling Search (page ${pagesFetched}, ${candidateMap.size} pins scrolled)…`,
+                  Math.min(30, 12 + Math.round(pagesFetched * 0.4)),
+                  { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+                );
+              }
+            });
+            funnel.pages_scrolled += Number(serpRes.pages_fetched || 0);
+            for (const p of (serpRes.pins || [])) ingestCandidate(p);
+            for (const cap of (serpRes.capsules || [])) {
+              if (cap?.term) discoveredCapsules.add(`${q} ${cap.term}`.trim().toLowerCase());
             }
           }
-        }
+        })());
       }
 
-      // Include any explicit seed boards passed from the Hunt Bar
-      if (cleanSeedBoards.length > 0) {
-        for (const sb of cleanSeedBoards) {
-          freshBoardsDiscovered.unshift(sb);
-        }
+      // Path 2: Matching Boards -> Parallel Board Fan-out (`Semaphore(5)`) + Optional Board "Find more ideas"
+      if ((surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) || cleanSeedBoards.length > 0) {
+        pathTasks.push((async () => {
+          const maxBoardsLimit = Math.max(1, Math.min(50, Number(surfacesCfg.fresh_boards?.max_boards_to_expand) || 10));
+          if (surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) {
+            surfacesExecuted.push('fresh_boards');
+            const seenBoardIds = new Set();
+            for (const q of queriesToRun) {
+              const bRes = await harvestFreshBoardsSurface(router, q, {
+                maxPages: surfacesCfg.fresh_boards.max_pages,
+                maxBoards: maxBoardsLimit,
+                maxBoardAgeDays: settings.discovery.max_board_age_days,
+                nowMs
+              });
+              for (const b of (bRes.boards || [])) {
+                if (!seenBoardIds.has(b.board_id)) {
+                  seenBoardIds.add(b.board_id);
+                  freshBoardsDiscovered.push(b);
+                }
+              }
+            }
+          }
+
+          if (cleanSeedBoards.length > 0) {
+            for (const sb of cleanSeedBoards) {
+              freshBoardsDiscovered.unshift(sb);
+            }
+          }
+
+          const boardsToExpand = freshBoardsDiscovered.slice(0, maxBoardsLimit);
+          if (boardsToExpand.length === 0) return;
+
+          const boardSem = new Semaphore(5);
+          if (surfacesCfg.board_feed?.enabled) {
+            surfacesExecuted.push('board_feed');
+            await Promise.all(
+              boardsToExpand.map((board) => boardSem.run(async () => {
+                const bfRes = await harvestBoardFeedSurface(router, board, {
+                  maxPages: surfacesCfg.board_feed.max_pages,
+                  pageSize: surfacesCfg.board_feed.page_size || 100,
+                  targetPins: surfacesCfg.board_feed.target_pins_per_board ?? null
+                });
+                funnel.boards_scanned++;
+                funnel.pages_scrolled += Number(bfRes.pages_fetched || 0);
+                for (const p of (bfRes.pins || [])) ingestCandidate(p);
+                if (funnel.boards_scanned % 3 === 0 || funnel.boards_scanned === boardsToExpand.length) {
+                  funnel.scrolled_pins = candidateMap.size;
+                  await reportProgress(
+                    'harvesting',
+                    `1. Scanned ${funnel.boards_scanned}/${boardsToExpand.length} boards (${candidateMap.size} total pins scrolled)…`,
+                    24,
+                    { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+                  );
+                }
+              }))
+            );
+          }
+
+          if (surfacesCfg.board_more_ideas?.enabled && router.canUseAuthSession) {
+            surfacesExecuted.push('board_more_ideas');
+            let authSkippedMoreIdeas = false;
+            await Promise.all(
+              boardsToExpand.slice(0, Math.min(15, boardsToExpand.length)).map((board) => boardSem.run(async () => {
+                if (authSkippedMoreIdeas) return;
+                const bmiRes = await harvestBoardMoreIdeasSurface(router, board, {
+                  maxPages: surfacesCfg.board_more_ideas.max_pages,
+                  pageSize: surfacesCfg.board_more_ideas.page_size || 25
+                });
+                funnel.pages_scrolled += Number(bmiRes.pages_fetched || 0);
+                for (const p of (bmiRes.pins || [])) ingestCandidate(p);
+                if (bmiRes.skipped_auth_only) authSkippedMoreIdeas = true;
+              }))
+            );
+          }
+        })());
       }
 
-      const boardsToExpand = freshBoardsDiscovered.slice(0, surfacesCfg.fresh_boards?.max_boards_to_expand || 8);
-
-      // Surface 5: Fresh Board Pin Feeds
-      if (surfacesCfg.board_feed?.enabled && boardsToExpand.length > 0) {
-        surfacesExecuted.push('board_feed');
-        for (const board of boardsToExpand) {
-          const bfRes = await harvestBoardFeedSurface(router, board, {
-            maxPages: surfacesCfg.board_feed.max_pages,
-            pageSize: surfacesCfg.board_feed.page_size
-          });
-          for (const p of (bfRes.pins || [])) ingestCandidate(p);
-        }
-      }
-
-      // Surface 6: Board "Find more ideas" (`/<user>/<slug>/more_ideas/`, `add_vase: true`)
-      if (surfacesCfg.board_more_ideas?.enabled && boardsToExpand.length > 0) {
-        surfacesExecuted.push('board_more_ideas');
-        for (const board of boardsToExpand) {
-          const bmiRes = await harvestBoardMoreIdeasSurface(router, board, {
-            maxPages: surfacesCfg.board_more_ideas.max_pages,
-            pageSize: surfacesCfg.board_more_ideas.page_size
-          });
-          for (const p of (bmiRes.pins || [])) ingestCandidate(p);
-          if (bmiRes.skipped_auth_only) break;
-        }
-      }
-
-      // Surface 7: `/ideas/` Taxonomy Feeds (InterestResource `is_interest` gate -> BestPinsFeedAltResource / SSR)
-      if (surfacesCfg.ideas_feeds?.enabled) {
-        const interestTerms = Array.from(new Set([
-          ...queriesToRun,
-          ...Array.from(discoveredCapsules)
-        ])).slice(0, surfacesCfg.ideas_feeds.max_interests_per_run || 6);
-
-        if (interestTerms.length > 0) {
-          surfacesExecuted.push('ideas_feeds');
-          for (const term of interestTerms) {
+      // Path 3: Official Idea Page Feed (`/ideas/<slug>/<id>/` via `BestPinsFeedAltResource/get` + SSR fallback, up to 2,000 pins)
+      if (surfacesCfg.ideas_feeds?.enabled && queriesToRun.length > 0) {
+        surfacesExecuted.push('ideas_feeds');
+        pathTasks.push((async () => {
+          const interestTerms = queriesToRun.slice(0, Math.max(1, Number(surfacesCfg.ideas_feeds.max_interests_per_run) || 1));
+          for (let i = 0; i < interestTerms.length; i++) {
+            const term = interestTerms[i];
             const idRes = await harvestIdeasHubSurface(router, term, {
-              maxPages: surfacesCfg.ideas_feeds.max_pages
+              maxPages: surfacesCfg.ideas_feeds.max_pages,
+              pageSize: surfacesCfg.ideas_feeds.page_size || 50,
+              targetPins: surfacesCfg.ideas_feeds.target_pins ?? null,
+              preResolvedInterest: i === 0 && runIdeaPage?.found ? runIdeaPage : null
             });
+            funnel.pages_scrolled += Number(idRes.pages_fetched || 0);
             for (const p of (idRes.pins || [])) ingestCandidate(p);
           }
-        }
+        })());
       }
+
+      // Path 4: Authenticated Home Feed Deep Scroll (`UserHomefeedResource/get`, up to 2,000 pins)
+      if (surfacesCfg.home_feed?.enabled) {
+        surfacesExecuted.push('home_feed');
+        pathTasks.push((async () => {
+          const hfRes = await harvestHomeFeedSurface(router, {
+            maxPages: surfacesCfg.home_feed.max_pages,
+            pageSize: surfacesCfg.home_feed.page_size || 50,
+            targetPins: surfacesCfg.home_feed.target_pins ?? 250,
+            seedQuery: cleanSeeds[0] || 'home feed'
+          });
+          funnel.pages_scrolled += Number(hfRes.pages_fetched || 0);
+          for (const p of (hfRes.pins || [])) ingestCandidate(p);
+        })());
+      }
+
+      await Promise.all(pathTasks);
     }
 
-    // Parallelized 50x Pidgets pre-triage + Semaphore(6) Zero-Cookie PinResource/get root hydration
-    let remainingPinHydrations = settings.discovery.hydration.max_pin_hydrations_per_run;
-    const pinHydrateSem = new Semaphore(6);
+    funnel.scrolled_pins = candidateMap.size;
 
-    const enrichAndScoreIds = async (targetIds, progressLabelPrefix = '2. Verifying root creation dates on Pinterest') => {
+    // Parallelized 50x Zero-Cookie Pidgets Pre-Triage (Semaphore 6) +
+    // Min Re-pins (+ optional Min Saves) Pre-Filter +
+    // Semaphore(8) Zero-Cookie PinResource/get Root Age & Annotations Verification
+    let remainingPinHydrations = settings.discovery.hydration.max_pin_hydrations_per_run;
+    const pinHydrateSem = new Semaphore(8);
+    const minRepinsGate = Math.max(0, Number(settings.qualification?.min_repin_count ?? 0));
+    const minSavesGate = Math.max(0, Number(settings.qualification?.min_save_count ?? 0));
+
+    const enrichAndScoreIds = async (targetIds, progressLabelPrefix = '2. Verifying root ages & annotations') => {
       if (targetIds.length === 0) return;
 
       if (settings.discovery.hydration.enable_pidgets_pretriage) {
-        const pidgetsMap = await pretriageCandidatesWithPidgets(targetIds, router);
-        for (const [pid, pInfo] of pidgetsMap.entries()) {
+        await reportProgress(
+          'pretriaging',
+          `1b. Checking Re-pins across ${targetIds.length} scrolled pins (50x Zero-Cookie Pidgets)…`,
+          34,
+          { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+        );
+        const pidgetsMap = await pretriageCandidatesWithPidgets(targetIds, router, {
+          concurrency: 6,
+          onBatchProgress: async ({ completedBatches, totalBatches }) => {
+            const pct = 34 + Math.round((completedBatches / Math.max(1, totalBatches)) * 12);
+            await reportProgress(
+              'pretriaging',
+              `1b. Checking Re-pins via 50x Pidgets (${completedBatches}/${totalBatches} batches)…`,
+              pct,
+              { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+            );
+          }
+        });
+        for (const [, pInfo] of pidgetsMap.entries()) {
           ingestCandidate(pInfo);
         }
       }
 
-      // Prioritize candidates with the highest preliminary engagement signal that still need PinResource root hydration
-      const orderedForHydration = targetIds
+      // Gate candidates by Min Re-pins (primary) and Min Saves (ONLY when > 0) before hydrating via PinResource/get.
+      // CRITICAL: Zero-Cookie Pidgets does NOT expose `is_repin` and reports copy-local `repin_count = 0` on board repins
+      // while reporting global cluster saves in `aggregated_pin_data.aggregated_stats.saves` (`save_count`).
+      // Therefore, during pre-triage ONLY, rescue any unhydrated board/repin candidate with `save_count >= minRepinsGate`
+      // so `PinResource/get` can unwrap its true root pin; strict `root.repin_count >= minRepinsGate` is then enforced post-hydration!
+      const matchingPreGate = targetIds
         .map((pid) => candidateMap.get(pid))
         .filter(Boolean)
-        .filter((c) => !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0 || c.save_count === null)
-        .sort((a, b) => Math.max(Number(b.save_count ?? 0), Number(b.repin_count ?? 0)) - Math.max(Number(a.save_count ?? 0), Number(a.repin_count ?? 0)))
+        .filter((c) => {
+          const repinsVal = c.repin_count !== null && c.repin_count !== undefined ? Number(c.repin_count) : null;
+          const savesVal = c.save_count !== null && c.save_count !== undefined ? Number(c.save_count) : null;
+          const isBoardOrigin = Array.isArray(c.discovery_surfaces) &&
+            (c.discovery_surfaces.includes('board_feed') || c.discovery_surfaces.includes('board_more_ideas'));
+          const rescueRepinCandidate = Boolean(
+            (c.is_repin || isBoardOrigin || (!c.is_hydrated && repinsVal === 0)) &&
+            savesVal !== null &&
+            savesVal >= minRepinsGate
+          );
+          const passesRepins = minRepinsGate === 0 ||
+            repinsVal === null ||
+            repinsVal >= minRepinsGate ||
+            rescueRepinCandidate;
+          const passesSaves = minSavesGate === 0 ||
+            savesVal === null ||
+            savesVal >= minSavesGate;
+          return passesRepins && passesSaves;
+        });
+
+      funnel.matched_repins = Math.max(funnel.matched_repins, matchingPreGate.length);
+
+      const orderedForHydration = matchingPreGate
+        .filter((c) => !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0)
+        .sort((a, b) => {
+          const aDirect = Number(a.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
+          const bDirect = Number(b.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
+          if (bDirect !== aDirect) return bDirect - aDirect;
+          const aSig = Math.max(Number(a.repin_count ?? 0), Number(a.save_count ?? 0));
+          const bSig = Math.max(Number(b.repin_count ?? 0), Number(b.save_count ?? 0));
+          return (bSig - aSig) || (Number(b.repin_count ?? 0) - Number(a.repin_count ?? 0));
+        })
         .slice(0, Math.max(0, remainingPinHydrations));
 
       remainingPinHydrations = Math.max(0, remainingPinHydrations - orderedForHydration.length);
 
       await reportProgress(
         'hydrating_pins',
-        `${progressLabelPrefix} (0/${orderedForHydration.length} pins)...`,
-        38,
-        { candidates_discovered: candidateMap.size }
+        `${progressLabelPrefix} (0/${orderedForHydration.length} matched pins)…`,
+        48,
+        {
+          scrolled_pins: candidateMap.size,
+          matched_repins: funnel.matched_repins,
+          candidates_discovered: candidateMap.size
+        }
       );
 
       let hydratedDone = 0;
-      const reportEvery = Math.max(8, Math.ceil(orderedForHydration.length / 4));
+      const reportEvery = Math.max(8, Math.ceil(orderedForHydration.length / 5));
+      const unwrappedIds = new Set();
+
       await Promise.all(
         orderedForHydration.map((cand) => pinHydrateSem.run(async () => {
           const hyd = await hydratePinZeroCookie(cand.pin_id, router, { rootPinCache, nowMs });
           if (hyd.ok && hyd.pin) {
-            ingestCandidate(hyd.pin);
+            const existingCand = candidateMap.get(cand.pin_id) || cand;
+            // If this board/feed pin was a repin whose true root pin was cleanly verified,
+            // unwrap & deduplicate directly onto the root pin ID so board gems never duplicate or lose provenance!
+            if (hyd.pin.is_repin && hyd.pin.root_pin_id && hyd.pin.root_pin_id !== cand.pin_id && hyd.pin.root_age_verified === true) {
+              const rootId = hyd.pin.root_pin_id;
+              const mergedRoot = mergeCandidatePinRecords(
+                candidateMap.get(rootId),
+                mergeCandidatePinRecords(existingCand, {
+                  ...hyd.pin,
+                  pin_id: rootId,
+                  root_pin_id: rootId,
+                  unwrapped_from_repin_id: cand.pin_id
+                })
+              );
+              mergedRoot.pin_id = rootId;
+              mergedRoot.root_pin_id = rootId;
+              mergedRoot.root_age_verified = true;
+              candidateMap.set(rootId, mergedRoot);
+              candidateMap.delete(cand.pin_id);
+              unwrappedIds.add(rootId);
+              funnel.board_repins_unwrapped++;
+            } else {
+              ingestCandidate(hyd.pin);
+            }
           }
           hydratedDone++;
+          funnel.hydrated_pins++;
           if (hydratedDone % reportEvery === 0 || hydratedDone === orderedForHydration.length) {
-            const pct = 38 + Math.round((hydratedDone / Math.max(1, orderedForHydration.length)) * 30);
+            const pct = 48 + Math.round((hydratedDone / Math.max(1, orderedForHydration.length)) * 34);
             await reportProgress(
               'hydrating_pins',
-              `${progressLabelPrefix} (${hydratedDone}/${orderedForHydration.length} pins)...`,
+              `${progressLabelPrefix} (${hydratedDone}/${orderedForHydration.length} pins)…`,
               pct,
-              { candidates_discovered: candidateMap.size }
+              {
+                scrolled_pins: candidateMap.size,
+                matched_repins: funnel.matched_repins,
+                hydrated_pins: funnel.hydrated_pins,
+                candidates_discovered: candidateMap.size
+              }
             );
           }
         }))
       );
 
-      for (const pid of targetIds) {
+      for (const pid of new Set([...targetIds, ...unwrappedIds])) {
         const cur = candidateMap.get(pid);
         if (cur) {
           candidateMap.set(pid, scoreNewbornCandidate(cur, settings, { nowMs }));
@@ -938,31 +1137,38 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
     await enrichAndScoreIds(Array.from(candidateMap.keys()));
 
-    // Surface 8: Multi-Hop Golden Pin Snowball (`RelatedModulesResource/get`)
+    // Path 5: Related Pins Deep Scroll (`RelatedModulesResource/get`, 200..1,000 pins)
     const snowballEnabled = Boolean(
       snowballOnly ||
+      cleanSeedPinIds.length > 0 ||
       (surfacesCfg.related_pin_snowball?.enabled && settings.discovery.snowball.enabled && settings.discovery.snowball.max_hops > 0)
     );
 
     if (snowballEnabled) {
       const maxHops = Math.max(1, settings.discovery.snowball.max_hops || 1);
       const seedCap = settings.discovery.snowball.seed_cap || 10;
-      const minSeedGoldenScore = settings.discovery.snowball.min_seed_golden_score ?? 65;
+      const relatedTargetPins = surfacesCfg.related_pin_snowball?.target_pins ?? null;
 
       const expandedSeeds = new Set();
       let currentFrontier = Array.from(new Set([
         ...cleanSeedPinIds,
-        ...Array.from(candidateMap.values())
-          .filter((c) => c.qualified === true && c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore)
-          .sort((a, b) => (b.golden_score || 0) - (a.golden_score || 0))
-          .slice(0, seedCap)
-          .map((c) => c.pin_id)
+        ...(cleanSeedPinIds.length === 0
+          ? Array.from(candidateMap.values())
+              .filter((c) => c.qualified === true && c.is_golden_pin)
+              .sort((a, b) => (b.repin_count || 0) - (a.repin_count || 0) || (b.golden_score || 0) - (a.golden_score || 0))
+              .slice(0, seedCap)
+              .map((c) => c.pin_id)
+          : [])
       ])).slice(0, seedCap);
 
       if (currentFrontier.length > 0) {
         surfacesExecuted.push('related_pin_snowball');
-        await reportProgress('snowballing', `Expanding related newborn pins from ${currentFrontier.length} top seeds...`, 72);
+        await reportProgress('snowballing', `Scrolling Related Pins from ${currentFrontier.length} seed pin(s)…`, 84);
       }
+
+      const perSeedTarget = relatedTargetPins
+        ? Math.max(50, Math.ceil(Number(relatedTargetPins) / Math.max(1, currentFrontier.length)))
+        : null;
 
       for (let hop = 1; hop <= maxHops && currentFrontier.length > 0; hop++) {
         const newSnowballIds = [];
@@ -974,11 +1180,13 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
           const parentCand = candidateMap.get(seedId);
           const sbRes = await harvestRelatedPinSnowballSurface(router, seedId, {
-            maxPages: surfacesCfg.related_pin_snowball?.max_pages || 2,
-            pageSize: surfacesCfg.related_pin_snowball?.page_size || 24,
+            maxPages: surfacesCfg.related_pin_snowball?.max_pages || 10,
+            pageSize: surfacesCfg.related_pin_snowball?.page_size || 30,
+            targetPins: perSeedTarget,
             hop,
             seedQuery: parentCand?.seed_query || cleanSeeds[0] || null
           });
+          funnel.pages_scrolled += Number(sbRes.pages_fetched || 0);
 
           if (sbRes.skipped_auth_only) {
             authSkipped = true;
@@ -997,95 +1205,111 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
         if (authSkipped) break;
         snowballHopsExecuted = hop;
+        funnel.scrolled_pins = candidateMap.size;
 
         if (newSnowballIds.length > 0) {
-          await enrichAndScoreIds(newSnowballIds, `2b. Verifying root dates for related pins (hop ${hop})`);
+          await enrichAndScoreIds(newSnowballIds, `2b. Verifying root dates for Related Pins (hop ${hop})`);
         }
 
-        currentFrontier = newSnowballIds
-          .map((id) => candidateMap.get(id))
-          .filter((c) => c && c.qualified === true && c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore && !expandedSeeds.has(c.pin_id))
-          .sort((a, b) => (b.golden_score || 0) - (a.golden_score || 0))
-          .slice(0, seedCap)
-          .map((c) => c.pin_id);
+        if (hop < maxHops) {
+          currentFrontier = newSnowballIds
+            .map((id) => candidateMap.get(id))
+            .filter((c) => c && c.qualified === true && c.is_golden_pin && !expandedSeeds.has(c.pin_id))
+            .sort((a, b) => (b.repin_count || 0) - (a.repin_count || 0))
+            .slice(0, seedCap)
+            .map((c) => c.pin_id);
+        } else {
+          currentFrontier = [];
+        }
       }
     }
 
-    // Preliminary score pass to identify verified qualified candidates BEFORE UserResource hydration
+    // Preliminary score pass before optional opt-in creator sync
     const preScoredCandidates = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
     for (const c of preScoredCandidates) candidateMap.set(c.pin_id, c);
 
-    // Zero-Cookie Creator Hydration (`UserResource/get`) parallelized with Semaphore(4)
-    const creatorBuckets = new Map();
-    for (const cand of preScoredCandidates) {
-      // Only spend UserResource hydration budget on candidates with verified root dates in window
-      if (!cand.created_at_pinterest || cand.root_age_verified === false || cand.qualified !== true) continue;
-      const uname = cand.effective_creator_username;
-      if (!uname) continue;
-      if (!creatorBuckets.has(uname)) creatorBuckets.set(uname, []);
-      creatorBuckets.get(uname).push(cand);
-    }
-
-    const prioritizedCreators = Array.from(creatorBuckets.entries())
-      .sort((a, b) => {
-        const bestA = Math.max(...a[1].map((c) => Number(c.golden_score || 0)));
-        const bestB = Math.max(...b[1].map((c) => Number(c.golden_score || 0)));
-        return bestB - bestA;
-      })
-      .slice(0, settings.discovery.hydration.max_user_hydrations_per_run)
-      .map(([uname]) => uname);
-
-    await reportProgress(
-      'hydrating_creators',
-      `3. Ranking verified newborn winners & inspecting ${prioritizedCreators.length} creators...`,
-      84
-    );
-
-    const userHydrateSem = new Semaphore(4);
+    // STRICT OPT-IN ACCOUNT SYNC (OFF BY DEFAULT!):
+    // Never run automatic `UserResource/get` calls during hunts unless explicitly opted-in via
+    // `settings.discovery.hydration.auto_fetch_accounts === true`.
     const hydratedUsersMap = new Map();
-    await Promise.all(
-      prioritizedCreators.map((uname) => userHydrateSem.run(async () => {
-        const uRes = await hydrateUserZeroCookie(uname, router);
-        if (uRes.ok && uRes.user) {
-          hydratedUsersMap.set(uname, uRes.user);
-          for (const cand of (creatorBuckets.get(uname) || [])) {
-            if (cand.origin_creator_username === uname) {
-              cand.origin_creator_followers = uRes.user.follower_count;
-            } else if (cand.pinner_username === uname) {
-              cand.pinner_followers = uRes.user.follower_count;
+    if (
+      settings.discovery.hydration.auto_fetch_accounts === true &&
+      settings.discovery.hydration.max_user_hydrations_per_run > 0
+    ) {
+      const creatorBuckets = new Map();
+      for (const cand of preScoredCandidates) {
+        if (!cand.created_at_pinterest || cand.root_age_verified === false || cand.qualified !== true) continue;
+        const uname = cand.effective_creator_username;
+        if (!uname) continue;
+        if (!creatorBuckets.has(uname)) creatorBuckets.set(uname, []);
+        creatorBuckets.get(uname).push(cand);
+      }
+
+      const prioritizedCreators = Array.from(creatorBuckets.entries())
+        .sort((a, b) => {
+          const bestA = Math.max(...a[1].map((c) => Number(c.repin_count || 0)));
+          const bestB = Math.max(...b[1].map((c) => Number(c.repin_count || 0)));
+          return bestB - bestA;
+        })
+        .slice(0, settings.discovery.hydration.max_user_hydrations_per_run)
+        .map(([uname]) => uname);
+
+      if (prioritizedCreators.length > 0) {
+        await reportProgress(
+          'hydrating_creators',
+          `3. Pulling account reach for ${prioritizedCreators.length} opt-in creators…`,
+          88
+        );
+
+        const userHydrateSem = new Semaphore(4);
+        await Promise.all(
+          prioritizedCreators.map((uname) => userHydrateSem.run(async () => {
+            const uRes = await hydrateUserZeroCookie(uname, router);
+            if (uRes.ok && uRes.user) {
+              hydratedUsersMap.set(uname, uRes.user);
+              for (const cand of (creatorBuckets.get(uname) || [])) {
+                if (cand.origin_creator_username === uname) {
+                  cand.origin_creator_followers = uRes.user.follower_count;
+                } else if (cand.pinner_username === uname) {
+                  cand.pinner_followers = uRes.user.follower_count;
+                }
+                cand.effective_creator_followers = uRes.user.follower_count;
+                cand.creator_monthly_reach = uRes.user.monthly_reach;
+                cand.creator_profile_views = uRes.user.profile_views;
+                cand.creator_pin_count = uRes.user.pin_count;
+              }
             }
-            cand.effective_creator_followers = uRes.user.follower_count;
-            cand.creator_monthly_reach = uRes.user.monthly_reach;
-            cand.creator_profile_views = uRes.user.profile_views;
-            cand.creator_pin_count = uRes.user.pin_count;
-          }
-        }
-      }))
-    );
+          }))
+        );
+      }
+    }
 
     // Final re-scoring + HARD GATE BEFORE PERSISTENCE:
     // Discard in memory any candidate that lacks a verified root `created_at_pinterest`,
-    // falls outside `[min_age_days, max_age_days]`, or fails qualification (`qualified !== true`).
-    // Unqualified / stale / unverified repin clones are NEVER written to `newborn_candidates`!
+    // falls outside `[min_age_days, max_age_days]`, fails `Min Re-pins`, or fails optional `Min Saves > 0`.
     const minAge = Number(settings.qualification?.min_age_days ?? 0);
     const maxAge = Number(settings.qualification?.max_age_days ?? 30);
     const allEvaluated = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
-    const verifiedQualified = allEvaluated.filter((c) => {
-      if (!c || c.qualified !== true) return false;
-      if (!c.created_at_pinterest) return false;
-      if (c.root_age_verified === false || c.repin_root_unverified === true) return false;
-      const age = c.age_days != null ? Number(c.age_days) : NaN;
-      if (!Number.isFinite(age) || age < minAge || age > maxAge) return false;
-      return true;
-    });
+    const verifiedQualified = allEvaluated
+      .filter((c) => {
+        if (!c || c.qualified !== true) return false;
+        if (!c.created_at_pinterest) return false;
+        if (c.root_age_verified === false || c.repin_root_unverified === true) return false;
+        const age = c.age_days != null ? Number(c.age_days) : NaN;
+        if (!Number.isFinite(age) || age < minAge || age > maxAge) return false;
+        return true;
+      })
+      .sort((a, b) => (Number(b.repin_count ?? 0) - Number(a.repin_count ?? 0)) || (Number(a.age_days ?? 9999) - Number(b.age_days ?? 9999)));
 
     const discardedInMemoryCount = Math.max(0, allEvaluated.length - verifiedQualified.length);
+    funnel.scrolled_pins = Math.max(funnel.scrolled_pins, allEvaluated.length);
+    funnel.verified_winners = verifiedQualified.length;
 
     for (const cand of verifiedQualified) {
       cand.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(cand, verifiedQualified);
     }
 
-    // Build Rookie Creator records strictly from verified qualified newborn winners
+    // Build Rookie Creator records strictly from opt-in hydrated creators
     const verifiedByCreator = new Map();
     for (const c of verifiedQualified) {
       const uname = c.effective_creator_username;
@@ -1104,7 +1328,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    // Determine autonomous watchlist staging before DB upsert when auto_track_enabled is ON
+    // Determine autonomous watchlist staging ONLY when auto_track_enabled is explicitly ON (OFF by default)
     let autoWatchlistedCount = 0;
     if (settings.automation.auto_track_enabled) {
       for (const cand of verifiedQualified) {
@@ -1124,10 +1348,13 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
     await reportProgress(
       'persisting',
-      `3. Saving ${verifiedQualified.length} verified newborn winners...`,
+      `3. Saving ${verifiedQualified.length} verified Golden Pin winner${verifiedQualified.length === 1 ? '' : 's'}…`,
       94,
       {
-        candidates_discovered: allEvaluated.length,
+        scrolled_pins: funnel.scrolled_pins,
+        matched_repins: funnel.matched_repins,
+        verified_winners: verifiedQualified.length,
+        candidates_discovered: funnel.scrolled_pins,
         candidates_qualified: verifiedQualified.length,
         golden_pins_count: verifiedQualified.filter((c) => c.is_golden_pin).length
       }
@@ -1153,7 +1380,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    // Trigger immediate auto-promotion if `auto_track_enabled` AND `min_consecutive_days` is already satisfied
+    // Trigger immediate auto-promotion ONLY if `auto_track_enabled` AND `min_consecutive_days` is already satisfied
     let autoPromotedCount = 0;
     if (settings.automation.auto_track_enabled) {
       const promotablePinIds = persistedCandidates
@@ -1179,8 +1406,22 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
     const qualifiedCount = persistedCandidates.length;
     const goldenPinsCount = persistedCandidates.filter((c) => c.is_golden_pin).length;
-    const crossoverMatrix = buildNewbornCrossoverMatrix(persistedCandidates, { limit: 20 });
+    const crossoverMatrix = buildNewbornCrossoverMatrix(persistedCandidates, { limit: 30 });
     const routerTelemetry = router.getRedactedTelemetry();
+    const finalTelemetry = sanitizeForJsonb({
+      router: routerTelemetry,
+      funnel: { ...funnel, verified_winners: qualifiedCount },
+      idea_page: runIdeaPage,
+      fresh_boards_found: freshBoardsDiscovered.length,
+      growing_trends_found: discoveredTrends.length,
+      total_scanned_count: funnel.scrolled_pins,
+      discarded_in_memory_count: discardedInMemoryCount,
+      applied_filters: {
+        max_age_days: maxAge,
+        min_repin_count: minRepinsGate,
+        min_save_count: minSavesGate
+      }
+    });
 
     if (sql && typeof sql === 'function') {
       await stampAutomationRunTimestamp(sql, 'discovery', new Date(nowMs).toISOString()).catch(() => {});
@@ -1190,25 +1431,19 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           SET
             status = 'completed',
             progress_stage = 'completed',
-            progress_detail = ${`Found ${qualifiedCount} verified newborn pin${qualifiedCount === 1 ? '' : 's'} (scanned ${allEvaluated.length}, discarded ${discardedInMemoryCount} unverified/stale).`},
+            progress_detail = ${`Scrolled ${funnel.scrolled_pins} pins -> ${funnel.matched_repins} matched Re-pins -> ${qualifiedCount} verified Golden Pin${qualifiedCount === 1 ? '' : 's'}.`},
             progress_pct = 100,
             error_message = NULL,
             surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
             cookie_mode = ${router.effectiveMode},
-            candidates_discovered = ${allEvaluated.length},
+            candidates_discovered = ${funnel.scrolled_pins},
             candidates_qualified = ${qualifiedCount},
             golden_pins_count = ${goldenPinsCount},
             rookie_creators_count = ${persistedRookies.length},
             auto_watchlisted_count = ${autoWatchlistedCount},
             auto_promoted_count = ${autoPromotedCount},
             snowball_hops_executed = ${snowballHopsExecuted},
-            telemetry = ${JSON.stringify(sanitizeForJsonb({
-              router: routerTelemetry,
-              fresh_boards_found: freshBoardsDiscovered.length,
-              growing_trends_found: discoveredTrends.length,
-              total_scanned_count: allEvaluated.length,
-              discarded_in_memory_count: discardedInMemoryCount
-            }))}::jsonb,
+            telemetry = ${JSON.stringify(finalTelemetry)}::jsonb,
             completed_at = NOW()
           WHERE id = ${runRowId};
         `.catch(() => {});
@@ -1223,10 +1458,14 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       cookie_mode: router.effectiveMode,
       surfaces_executed: surfacesExecuted,
       snowball_hops_executed: snowballHopsExecuted,
+      idea_page: runIdeaPage,
+      funnel: { ...funnel, verified_winners: qualifiedCount },
       stats: {
-        candidates_scanned: allEvaluated.length,
+        scrolled_pins: funnel.scrolled_pins,
+        matched_repins: funnel.matched_repins,
+        candidates_scanned: funnel.scrolled_pins,
         candidates_discarded_in_memory: discardedInMemoryCount,
-        candidates_discovered: allEvaluated.length,
+        candidates_discovered: funnel.scrolled_pins,
         candidates_qualified: qualifiedCount,
         golden_pins_count: goldenPinsCount,
         rookie_creators_count: persistedRookies.length,

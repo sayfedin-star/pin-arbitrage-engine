@@ -54,6 +54,7 @@ import {
   formatPinterestBoardUrl,
   parseSmartHuntInput,
   mergeCandidatePinRecords,
+  resolveIdeaPageIntelligence,
   harvestGrowingTrendsSurface,
   harvestZeroQueryPopularSurface,
   pretriageCandidatesWithPidgets,
@@ -81,6 +82,7 @@ export {
   SUPPORTED_TREND_TYPES,
   SUPPORTED_TREND_COUNTRIES,
   parseSmartHuntInput,
+  resolveIdeaPageIntelligence,
   getNewbornSettings,
   updateNewbornSettings,
   patchNewbornSettings,
@@ -567,7 +569,7 @@ export async function runNewbornSnowball(sql, options = {}) {
       FROM newborn_candidates
       WHERE stage IN ('discovered', 'watchlist')
         AND is_golden_pin = TRUE
-      ORDER BY golden_score DESC, first_seen_at DESC
+      ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
       LIMIT ${cap};
     `;
     seedPinIds = (rows || []).map((r) => String(r.pin_id));
@@ -1006,7 +1008,10 @@ export function clearNewbornInflightRunsForTest() {
   inflightNewbornRuns.clear();
 }
 
-export function buildNewbornDedupeKey(runType, { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null } = {}) {
+export function buildNewbornDedupeKey(
+  runType,
+  { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null, settingsOverrides = null } = {}
+) {
   const cleanQueries = Array.from(new Set(
     (Array.isArray(seedQueries) ? seedQueries : [seedQueries])
       .map((q) => String(q || '').trim().toLowerCase())
@@ -1024,7 +1029,9 @@ export function buildNewbornDedupeKey(runType, { seedQueries = [], seedPinIds = 
   )).sort();
   const normalizedSeeds = JSON.stringify({ q: cleanQueries, p: cleanPins, b: cleanBoards });
   const fid = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : 'global';
-  return `${String(runType || 'discovery').toLowerCase()}|${normalizedSeeds}|${fid}`;
+  const hasOverrides = settingsOverrides && typeof settingsOverrides === 'object' && Object.keys(settingsOverrides).length > 0;
+  const overrideSig = hasOverrides ? `|${JSON.stringify(settingsOverrides)}` : '';
+  return `${String(runType || 'discovery').toLowerCase()}|${normalizedSeeds}|${fid}${overrideSig}`;
 }
 
 /**
@@ -1095,7 +1102,8 @@ export async function enqueueNewbornRun(sql, options = {}) {
     seedQueries: cleanSeeds,
     seedPinIds: cleanPinIds,
     seedBoards: cleanBoards,
-    folderId: numericFolderId
+    folderId: numericFolderId,
+    settingsOverrides
   });
 
   // Single-flight deduplication on (run_type, normalized_seeds, folder_id)
@@ -1292,16 +1300,16 @@ export async function getNewbornOverview(sql, env = {}) {
              folder_id, seed_queries, surfaces_used, cookie_mode,
              candidates_discovered, candidates_qualified,
              golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
-             snowball_hops_executed, started_at, completed_at
+             snowball_hops_executed, telemetry, started_at, completed_at
       FROM newborn_runs
       ORDER BY started_at DESC
       LIMIT 12;
     `,
     sql`
-      SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_per_day, visual_annotations
+      SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
       FROM newborn_candidates
       WHERE stage IN ('discovered', 'watchlist', 'promoted')
-      ORDER BY golden_score DESC, first_seen_at DESC
+      ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
       LIMIT 100;
     `
   ]);
@@ -1360,14 +1368,18 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const minGoldenScore = filters.min_golden_score != null && filters.min_golden_score !== ''
     ? Number(filters.min_golden_score)
     : null;
+  const minRepins = filters.min_repins != null && filters.min_repins !== ''
+    ? Number(filters.min_repins)
+    : null;
   const maxAgeDays = filters.max_age_days != null && filters.max_age_days !== ''
     ? Number(filters.max_age_days)
     : null;
+  const cleanAnnotation = String(filters.annotation || '').trim().toLowerCase() || null;
 
   const rawSearch = String(filters.search || filters.q || '').trim().toLowerCase();
   const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
 
-  const sort = String(filters.sort || 'golden_score').trim().toLowerCase();
+  const sort = String(filters.sort || 'repins').trim().toLowerCase();
   const limit = Math.min(500, Math.max(1, Number(filters.limit) || 50));
   const offset = Math.max(0, Number(filters.offset) || 0);
 
@@ -1382,7 +1394,21 @@ export async function listNewbornCandidates(sql, filters = {}) {
     AND (${rookieOnly}::boolean = FALSE OR nc.is_rookie_outlier = TRUE)
     AND (${linklessOnly}::boolean = FALSE OR nc.is_linkless = TRUE)
     AND (${minGoldenScore}::double precision IS NULL OR nc.golden_score >= ${minGoldenScore})
+    AND (${minRepins}::double precision IS NULL OR nc.repin_count >= ${minRepins})
     AND (${maxAgeDays}::double precision IS NULL OR nc.age_days <= ${maxAgeDays})
+    AND (
+      ${cleanAnnotation}::text IS NULL
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(COALESCE(nc.visual_annotations, '[]'::jsonb)) AS elem
+        WHERE (
+          CASE
+            WHEN jsonb_typeof(elem) = 'object' THEN LOWER(COALESCE(elem->>'name', ''))
+            ELSE LOWER(elem #>> '{}')
+          END
+        ) = ${cleanAnnotation}
+      )
+    )
     AND (
       ${searchPattern}::text IS NULL
       OR LOWER(nc.title) LIKE ${searchPattern} ESCAPE '\\'
@@ -1424,14 +1450,14 @@ export async function listNewbornCandidates(sql, filters = {}) {
       ? sql`
           SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.repin_count DESC NULLS LAST, nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'fresh' || sort === 'age_days'
       ? sql`
           SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.age_days ASC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+          ORDER BY nc.age_days ASC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'recent'
@@ -1441,10 +1467,17 @@ export async function listNewbornCandidates(sql, filters = {}) {
           ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
+      : sort === 'golden_score'
+      ? sql`
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          WHERE ${whereCond}
+          ORDER BY nc.golden_score DESC, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+          LIMIT ${limit} OFFSET ${offset};
+        `
       : sql`
           SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.golden_score DESC, nc.save_per_day DESC NULLS LAST, nc.pin_id ASC
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `,
     sql`
@@ -1702,24 +1735,24 @@ export async function getNewbornCrossoverReport(sql, { runId = null, stage = nul
   const rows = numericRunId !== null
     ? await sql`
         SELECT nc.pin_id, nc.title, nc.board_name, nc.is_golden_pin, nc.is_linkless,
-               nc.golden_score, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
+               nc.golden_score, nc.repin_count, nc.save_count, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
         FROM newborn_run_candidates nrc
         JOIN newborn_candidates nc ON nc.pin_id = nrc.pin_id
         WHERE nrc.run_id = ${numericRunId}
           AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
           AND nc.stage <> 'discarded'
           AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
-        ORDER BY nc.golden_score DESC
+        ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC
         LIMIT 1000;
       `
     : await sql`
         SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
-               golden_score, repin_per_day, save_per_day, visual_annotations
+               golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
         FROM newborn_candidates
         WHERE (${cleanStage}::text IS NULL OR stage = ${cleanStage})
           AND stage <> 'discarded'
           AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
-        ORDER BY golden_score DESC
+        ORDER BY repin_count DESC NULLS LAST, golden_score DESC
         LIMIT 1000;
       `;
 
@@ -1887,5 +1920,222 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     zero_query_used_guest_fallback: Boolean(zeroQueryRes.used_guest_fallback),
     router_telemetry: router.getRedactedTelemetry(),
     cached_at: nowIso
+  };
+}
+
+/**
+ * Resolves Official Pinterest `Idea Page` Intelligence (`GET /api/newborn/idea-intelligence`):
+ * Official Idea Page URL (`/ideas/<slug>/<id>/`), `internal_search_count`, weekly/monthly/yearly
+ * growth %, SEO breadcrumbs, and related interests. Works offline / scale-to-zero (`sql` optional).
+ */
+export async function getNewbornIdeaPageIntelligence(term, { country = 'US', routerOptions = {}, env = null } = {}) {
+  const cleanTerm = String(term || '').trim();
+  if (!cleanTerm || cleanTerm.length < 2) {
+    return {
+      ok: true,
+      found: false,
+      term: cleanTerm,
+      idea_url: null,
+      internal_search_count: 0,
+      formatted_volume: '0',
+      weekly_change: null,
+      monthly_change: null,
+      yearly_change: null,
+      seo_breadcrumbs: [],
+      related_interests: [],
+      ideas_pivots: []
+    };
+  }
+
+  const fetchImpl = routerOptions.fetchImpl || (typeof env?.NEWBORN_FETCH_IMPL === 'function' ? env.NEWBORN_FETCH_IMPL : undefined);
+  const router = new NewbornCookieRouter({
+    rawCookie: '',
+    ...routerOptions,
+    ...(fetchImpl ? { fetchImpl } : {})
+  });
+
+  const info = await resolveIdeaPageIntelligence(cleanTerm, { router, country });
+  return {
+    ok: true,
+    ...info
+  };
+}
+
+/**
+ * On-demand Zero-Cookie Account Reach & Impressions fetcher (`POST /api/newborn/candidates/:pin_id/fetch-account`
+ * and `POST /api/newborn/candidates/fetch-accounts`).
+ *
+ * Account scraping is strictly OFF BY DEFAULT during hunts; this endpoint runs `UserResource/get`
+ * ONLY when explicitly triggered by the user, updating `newborn_candidates` (`creator_monthly_reach`,
+ * `creator_profile_views`, `effective_creator_followers`, `creator_pin_count`) and staging rookie metadata.
+ */
+export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions = {}, env = null, nowMs = Date.now() } = {}) {
+  if (!sql || typeof sql !== 'function') {
+    const err = new Error('Database client is required to pull account reach.');
+    err.status = 503;
+    throw err;
+  }
+
+  const cleanIds = Array.from(new Set(
+    (Array.isArray(pinIds) ? pinIds : [pinIds])
+      .map((id) => String(id || '').trim())
+      .filter(isValidPinId)
+  )).slice(0, 50);
+
+  if (cleanIds.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      fetched_count: 0,
+      users_fetched: 0,
+      results: [],
+      message: 'Provide at least one valid numeric pin_id.'
+    };
+  }
+
+  const rows = await sql`
+    SELECT *
+    FROM newborn_candidates
+    WHERE pin_id = ANY(${cleanIds}::text[])
+    ORDER BY pin_id ASC;
+  `;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      ok: false,
+      status: 404,
+      fetched_count: 0,
+      users_fetched: 0,
+      results: [],
+      message: 'No matching Newborn candidates found.'
+    };
+  }
+
+  const settings = await getNewbornSettings(sql);
+  const fetchImpl = routerOptions.fetchImpl || (typeof env?.NEWBORN_FETCH_IMPL === 'function' ? env.NEWBORN_FETCH_IMPL : undefined);
+  // Strictly Zero-Cookie for both PinResource & UserResource!
+  const router = new NewbornCookieRouter({
+    rawCookie: '',
+    ...routerOptions,
+    ...(fetchImpl ? { fetchImpl } : {})
+  });
+
+  // 1. Ensure each candidate has a creator username (hydrate via zero-cookie PinResource only if missing)
+  const pinSem = new Semaphore(6);
+  const rootPinCache = new Map();
+  const workingRows = await Promise.all(
+    rows.map((row) => pinSem.run(async () => {
+      const existingUsername = normalizePinterestUsername(
+        row.effective_creator_username || row.origin_creator_username || row.pinner_username || ''
+      );
+      if (existingUsername) {
+        return { ...row, _resolved_username: existingUsername };
+      }
+      const hyd = await hydratePinZeroCookie(String(row.pin_id), router, { rootPinCache, nowMs });
+      if (hyd.ok && hyd.pin) {
+        const merged = mergeCandidatePinRecords(row, hyd.pin);
+        const foundUser = normalizePinterestUsername(
+          merged.effective_creator_username || merged.origin_creator_username || merged.pinner_username || ''
+        );
+        return { ...merged, _resolved_username: foundUser || null };
+      }
+      return { ...row, _resolved_username: null };
+    }))
+  );
+
+  // 2. Deduplicate usernames and pull Total audience (`profile_reach`) + Impressions (`profile_views`) via Zero-Cookie UserResource
+  const uniqueUsernames = Array.from(new Set(
+    workingRows.map((r) => r._resolved_username).filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+
+  const userMap = new Map();
+  const userSem = new Semaphore(4);
+  await Promise.all(
+    uniqueUsernames.map((uname) => userSem.run(async () => {
+      const uRes = await hydrateUserZeroCookie(uname, router);
+      if (uRes.ok && uRes.user) {
+        userMap.set(uname, uRes.user);
+      }
+    }))
+  );
+
+  // 3. Persist updated account metrics onto newborn_candidates and stage rookies
+  const results = [];
+  const scoredRookies = [];
+
+  for (const row of workingRows) {
+    const uname = row._resolved_username;
+    const u = uname ? userMap.get(uname) : null;
+    if (!u) {
+      results.push({
+        pin_id: String(row.pin_id),
+        username: uname || null,
+        fetched: false,
+        effective_creator_followers: row.effective_creator_followers ?? null,
+        creator_monthly_reach: row.creator_monthly_reach ?? null,
+        creator_profile_views: row.creator_profile_views ?? null,
+        creator_pin_count: row.creator_pin_count ?? null
+      });
+      continue;
+    }
+
+    const enriched = {
+      ...row,
+      effective_creator_username: u.username || uname,
+      effective_creator_followers: u.follower_count != null ? Math.round(Number(u.follower_count)) : (row.effective_creator_followers ?? null),
+      creator_monthly_reach: u.monthly_reach != null ? Math.round(Number(u.monthly_reach)) : (row.creator_monthly_reach ?? null),
+      creator_profile_views: u.profile_views != null ? Math.round(Number(u.profile_views)) : (row.creator_profile_views ?? null),
+      creator_pin_count: u.pin_count != null ? Math.round(Number(u.pin_count)) : (row.creator_pin_count ?? null)
+    };
+    const rescored = scoreNewbornCandidate(enriched, settings, { nowMs });
+
+    await sql`
+      UPDATE newborn_candidates
+      SET
+        effective_creator_username = ${enriched.effective_creator_username},
+        effective_creator_followers = ${enriched.effective_creator_followers},
+        creator_monthly_reach = ${enriched.creator_monthly_reach},
+        creator_profile_views = ${enriched.creator_profile_views},
+        creator_pin_count = ${enriched.creator_pin_count},
+        is_rookie_outlier = ${Boolean(rescored.is_rookie_outlier)},
+        outlier_ratio = ${rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null},
+        updated_at = NOW()
+      WHERE pin_id = ${String(row.pin_id)};
+    `;
+
+    results.push({
+      pin_id: String(row.pin_id),
+      username: enriched.effective_creator_username,
+      display_name: u.display_name || null,
+      avatar_url: u.avatar_url || null,
+      website_url: u.website_url || null,
+      fetched: true,
+      effective_creator_followers: enriched.effective_creator_followers,
+      creator_monthly_reach: enriched.creator_monthly_reach,
+      creator_profile_views: enriched.creator_profile_views,
+      creator_pin_count: enriched.creator_pin_count,
+      board_count: u.board_count ?? null,
+      is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
+      outlier_ratio: rescored.outlier_ratio ?? null
+    });
+  }
+
+  for (const [uname, u] of userMap.entries()) {
+    const assocPins = workingRows.filter((r) => r._resolved_username === uname);
+    const rk = scoreRookieCreator(u, assocPins, settings);
+    if (rk) scoredRookies.push(rk);
+  }
+  if (scoredRookies.length > 0) {
+    await upsertStagedRookiesBatch(sql, scoredRookies, { nowMs }).catch(() => {});
+  }
+
+  await invalidateEdgeCache('newborn');
+
+  return {
+    ok: true,
+    fetched_count: results.filter((r) => r.fetched).length,
+    users_fetched: userMap.size,
+    results,
+    router_telemetry: router.getRedactedTelemetry()
   };
 }

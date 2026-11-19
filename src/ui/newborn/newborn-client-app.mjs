@@ -1,13 +1,15 @@
 /**
  * src/ui/newborn/newborn-client-app.mjs
  *
- * Client-Side Alpine.js Studio Controller for `/newborn` 3-Second Studio:
- * - Instant HTTP 202 Accepted launch + 1.5s live progress polling (`GET /api/newborn/runs/:id`)
- * - Strict `activeRunId` result scoping (`This Hunt` | `Watchlist` | `Past Hunts`)
- * - Slide-over Settings & Automation Drawer (opens cleanly on `/newborn/settings`)
- * - Exact backend JSON contract alignment (`surfaces_config`, `qualification_config`,
- *   `automation_config`, `cookieStatus.preview`, `schedule.watchlist_poll_due`)
- * - Clean timer teardown on terminal run status and `pagehide` / `beforeunload`
+ * Wave 6D Client-Side Alpine.js Controller for `/newborn`:
+ * - Pure 3-Filter Hunt Card (`Max Pin Age`, `Min Re-pins`, Optional `Min Saves` with 0 = ignored)
+ * - Per-Path Deep-Scroll Targets (`Search` up to 5,000, `Boards` up to 50 + Find More Ideas,
+ *   `Idea Page` up to 2,000, `Home Feed` up to 2,000, `Related Pins` up to 1,000)
+ * - Automatic Official `Idea Page` Intelligence (`GET /api/newborn/idea-intelligence`)
+ * - Instant HTTP 202 Accepted launch + 1.5s Live Funnel Polling (`GET /api/newborn/runs/:id`)
+ * - Annotations Crossover Panel (overlap, avg Re-pins, optional volume lookup, click-to-filter, copy)
+ * - On-Demand Zero-Cookie Account Reach (`POST /api/newborn/candidates/:pin_id/fetch-account`)
+ * - Strictly Opt-In Daily Tracking (`Track Daily` modal) + Formula-Safe CSV Export
  */
 
 export function getNewbornClientAppScript() {
@@ -19,26 +21,27 @@ export function getNewbornClientAppScript() {
           default_l1_interest: 'all',
           max_board_age_days: 30,
           surfaces: {
-            growing_trends: { enabled: true, max_pages: 1, limit: 25 },
-            zero_query_popular: { enabled: true, max_pages: 1 },
-            pin_serp_capsules: { enabled: true, max_pages: 2, page_size: 50 },
-            fresh_boards: { enabled: true, max_pages: 1, max_boards_to_expand: 8 },
-            board_feed: { enabled: true, max_pages: 2, page_size: 50 },
-            board_more_ideas: { enabled: true, max_pages: 2, page_size: 25 },
-            ideas_feeds: { enabled: true, max_pages: 2, max_interests_per_run: 6 },
-            related_pin_snowball: { enabled: true, max_pages: 2, page_size: 24 }
+            growing_trends: { enabled: false, max_pages: 1, limit: 25 },
+            zero_query_popular: { enabled: false, max_pages: 1 },
+            pin_serp_capsules: { enabled: true, max_pages: 10, page_size: 50, target_pins: 500 },
+            fresh_boards: { enabled: true, max_pages: 2, max_boards: 10, target_pins_per_board: 100 },
+            board_feed: { enabled: true, max_pages: 2, page_size: 100, target_pins_per_board: 100 },
+            board_more_ideas: { enabled: true, max_pages: 2, page_size: 25, max_boards: 8 },
+            ideas_feeds: { enabled: true, max_pages: 5, target_pins: 250, max_interests_per_run: 3 },
+            home_feed: { enabled: false, max_pages: 5, page_size: 50, target_pins: 250 },
+            related_pin_snowball: { enabled: false, max_pages: 8, page_size: 25, target_pins: 200 }
           },
-          snowball: { enabled: true, max_hops: 2, seed_cap: 10, min_seed_golden_score: 65 },
-          hydration: { enable_pidgets_pretriage: true, max_pin_hydrations_per_run: 150, max_user_hydrations_per_run: 50 }
+          snowball: { enabled: false, max_hops: 1, seed_cap: 10, min_seed_golden_score: 65 },
+          hydration: { enable_pidgets_pretriage: true, max_pin_hydrations_per_run: 500, max_user_hydrations_per_run: 0, auto_fetch_accounts: false }
         },
         qualification: {
           age_window_preset: '30d',
           min_age_days: 0,
           max_age_days: 30,
-          min_repin_count: 0,
-          min_save_count: 15,
+          min_repin_count: 20,
+          min_save_count: 0,
           min_repin_per_day: 0,
-          min_save_per_day: 2.0,
+          min_save_per_day: 0,
           max_creator_followers: 25000,
           enforce_max_followers_filter: false,
           provenance: {
@@ -73,10 +76,31 @@ export function getNewbornClientAppScript() {
         activeView: initialMode === 'watchlist' ? 'watchlist' : (initialMode === 'history' ? 'history' : 'hunt'),
         isLoading: false,
 
-        // Hero Hunt & Trends State
+        // Hero Hunt & Idea Page Intelligence State
         huntInput: '',
         selectedProfileId: '',
         isSubmittingHunt: false,
+        ideaPageInfo: null,
+        isLookingUpIdeaPage: false,
+        _ideaLookupSeq: 0,
+
+        // Pure 3-Filter Qualification Controls
+        huntFilters: {
+          maxAgeDays: 30,
+          minRepins: 20,
+          minSaves: 0
+        },
+
+        // Per-Path Deep-Scroll Extraction Controls
+        huntPaths: {
+          search: { enabled: true, target_pins: 500 },
+          boards: { enabled: true, max_boards: 10, target_pins_per_board: 100, find_more_ideas: true },
+          idea_page: { enabled: true, target_pins: 250 },
+          home_feed: { enabled: false, target_pins: 250 },
+          related: { target_pins: 200 }
+        },
+
+        // Rising Trends Drawer
         showTrendsDrawer: initialMode === 'launchpad',
         isRefreshingLaunchpad: false,
         launchpadCountry: 'US',
@@ -102,20 +126,21 @@ export function getNewbornClientAppScript() {
         candidatesTotal: 0,
         selectedPinIds: [],
         filters: {
-          goldenOnly: false,
           linklessOnly: false,
-          rookieOnly: false,
+          annotation: '',
           search: '',
-          sort: 'golden_score'
+          sort: 'repins'
         },
 
-        // Collapsible Hunt Insights (Strictly Scoped to activeRunId)
-        showHuntInsights: false,
+        // Annotations Crossover & On-Demand Account Reach
         crossoverClusters: [],
-        rookies: [],
+        annotationVolumeMap: {},
+        isCheckingAnnotationVolumes: false,
+        pullingAccountPins: {},
+        isPullingBulkAccounts: false,
 
-        // Watchlist & History
-        watchlistSubView: 'staged',
+        // Tracked / Watchlist & Past Hunts
+        watchlistSubView: 'anchors',
         watchlistCandidates: [],
         dailyAnchors: [],
         isSubmittingWatchlistPoll: false,
@@ -138,7 +163,7 @@ export function getNewbornClientAppScript() {
         dossierData: null,
         isLoadingDossier: false,
 
-        // Track / Promote Modal
+        // Track Daily Modal
         promoteModalOpen: false,
         promotePinIds: [],
         promoteForm: {
@@ -158,9 +183,17 @@ export function getNewbornClientAppScript() {
           name: '',
           description: '',
           maxAgeDays: 30,
-          minSavePerDay: 2,
+          minRepins: 20,
+          minSaves: 0,
           linklessOnly: false,
           isDefault: false
+        },
+
+        get activeIdeaPage() {
+          if (this.ideaPageInfo && this.ideaPageInfo.found) return this.ideaPageInfo;
+          const runIdea = this.activeRun && this.activeRun.telemetry && this.activeRun.telemetry.idea_page;
+          if (runIdea && runIdea.found) return runIdea;
+          return null;
         },
 
         async init() {
@@ -206,10 +239,14 @@ export function getNewbornClientAppScript() {
             }
           }
 
+          if (this.huntInput && this.huntInput.trim().length >= 2) {
+            this.lookupIdeaPage(this.huntInput);
+          }
+
           if (this.activeView === 'watchlist') {
             await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
           } else {
-            await this.loadCandidates();
+            await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
           }
 
           if (this.showTrendsDrawer) {
@@ -309,16 +346,54 @@ export function getNewbornClientAppScript() {
           this.settingsDrawerOpen = false;
         },
 
+        estimateScrollBudget() {
+          let total = 0;
+          if (this.huntPaths.search.enabled) total += Number(this.huntPaths.search.target_pins || 0);
+          if (this.huntPaths.boards.enabled) {
+            total += Number(this.huntPaths.boards.max_boards || 0) * Number(this.huntPaths.boards.target_pins_per_board || 0);
+          }
+          if (this.huntPaths.idea_page.enabled) total += Number(this.huntPaths.idea_page.target_pins || 0);
+          if (this.huntPaths.home_feed.enabled) total += Number(this.huntPaths.home_feed.target_pins || 0);
+          return total;
+        },
+
+        async lookupIdeaPage(rawTerm) {
+          const clean = String(rawTerm || '').trim();
+          if (!clean || clean.length < 2 || /^\\d{10,30}$/.test(clean) || /^https?:\\/\\//i.test(clean)) {
+            this.ideaPageInfo = null;
+            this.isLookingUpIdeaPage = false;
+            return null;
+          }
+          const seq = ++this._ideaLookupSeq;
+          this.isLookingUpIdeaPage = true;
+          try {
+            const params = new URLSearchParams({
+              q: clean,
+              country: this.launchpadCountry || 'US'
+            });
+            const { data } = await this.apiJson('/api/newborn/idea-intelligence?' + params.toString());
+            if (seq === this._ideaLookupSeq) {
+              this.ideaPageInfo = data && data.found ? data : null;
+            }
+            return data;
+          } catch (_) {
+            if (seq === this._ideaLookupSeq) this.ideaPageInfo = null;
+            return null;
+          } finally {
+            if (seq === this._ideaLookupSeq) {
+              this.isLookingUpIdeaPage = false;
+              this.refreshIcons();
+            }
+          }
+        },
+
         async refreshWorkspace(force = false) {
           await Promise.all([
             this.loadOverviewAndRuns(),
             this.activeView === 'watchlist'
               ? Promise.all([this.loadWatchlist(), this.loadDailyAnchors()])
-              : this.loadCandidates()
+              : Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()])
           ]);
-          if (this.showHuntInsights) {
-            await this.loadHuntInsights();
-          }
           if (force) this.toast('Workspace refreshed', 'success');
           this.refreshIcons();
         },
@@ -329,6 +404,11 @@ export function getNewbornClientAppScript() {
             if (data.settings) {
               this.settingsDraft = cloneJson(data.settings);
               this.launchpadCountry = data.settings?.discovery?.country || 'US';
+              // Sync Hunt Card 3-Filter defaults from saved settings
+              const q = data.settings.qualification || {};
+              this.huntFilters.maxAgeDays = Number(q.max_age_days || 30);
+              this.huntFilters.minRepins = Number(q.min_repin_count ?? 20);
+              this.huntFilters.minSaves = Number(q.min_save_count ?? 0);
             }
             if (data.schedule) this.scheduleStatus = data.schedule;
             if (data.cookie_status) this.cookieStatus = data.cookie_status;
@@ -365,7 +445,7 @@ export function getNewbornClientAppScript() {
         async switchView(view) {
           this.activeView = view;
           if (view === 'hunt') {
-            await this.loadCandidates();
+            await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
           } else if (view === 'watchlist') {
             await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
           } else if (view === 'history') {
@@ -381,28 +461,35 @@ export function getNewbornClientAppScript() {
           this.showRunCompleteBanner = false;
           this.activeView = 'hunt';
           this.selectedPinIds = [];
+          this.filters.annotation = '';
           if (run.status === 'running') {
             this.startPollingRun(this.activeRunId);
           }
-          await this.loadCandidates();
-          if (this.showHuntInsights) {
-            await this.loadHuntInsights();
-          }
+          await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
           this.refreshIcons();
         },
 
         async clearRunScope() {
           this.activeRunId = null;
           this.selectedPinIds = [];
-          await this.loadCandidates();
-          if (this.showHuntInsights) {
-            await this.loadHuntInsights();
-          }
+          this.filters.annotation = '';
+          await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
           this.refreshIcons();
         },
 
         toggleFilterFlag(key) {
           this.filters[key] = !this.filters[key];
+          this.loadCandidates();
+        },
+
+        selectAnnotationFilter(tag) {
+          const clean = String(tag || '').trim();
+          if (!clean) return;
+          if (this.filters.annotation && this.filters.annotation.toLowerCase() === clean.toLowerCase()) {
+            this.filters.annotation = '';
+          } else {
+            this.filters.annotation = clean;
+          }
           this.loadCandidates();
         },
 
@@ -412,42 +499,166 @@ export function getNewbornClientAppScript() {
             const params = new URLSearchParams();
             if (this.activeRunId) params.set('run_id', String(this.activeRunId));
             if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
-            if (this.filters.goldenOnly) params.set('golden_only', 'true');
             if (this.filters.linklessOnly) params.set('linkless_only', 'true');
-            if (this.filters.rookieOnly) params.set('rookie_only', 'true');
+            if (this.filters.annotation && this.filters.annotation.trim()) params.set('annotation', this.filters.annotation.trim());
             if (this.filters.search && this.filters.search.trim()) params.set('search', this.filters.search.trim());
-            params.set('sort', this.filters.sort || 'golden_score');
-            params.set('limit', '100');
+            params.set('sort', this.filters.sort || 'repins');
+            params.set('limit', '200');
 
             const { data } = await this.apiJson('/api/newborn/candidates?' + params.toString());
             this.candidates = Array.isArray(data?.candidates) ? data.candidates : [];
             this.candidatesTotal = Number(data?.total ?? this.candidates.length);
           } catch (err) {
-            this.toast('Failed to load candidates: ' + err.message, 'error');
+            this.toast('Failed to load Golden Pins: ' + err.message, 'error');
           } finally {
             this.isLoading = false;
             this.refreshIcons();
           }
         },
 
-        async toggleHuntInsights() {
-          this.showHuntInsights = !this.showHuntInsights;
-          if (this.showHuntInsights) {
-            await this.loadHuntInsights();
+        async loadCrossoverForActiveHunt() {
+          try {
+            const qs = this.activeRunId ? ('?run_id=' + encodeURIComponent(this.activeRunId) + '&limit=30') : '?limit=30';
+            const { data } = await this.apiJson('/api/newborn/crossover' + qs);
+            this.crossoverClusters = Array.isArray(data?.clusters) ? data.clusters : [];
+          } catch (_) {
+            this.crossoverClusters = [];
           }
-          this.refreshIcons();
         },
 
-        async loadHuntInsights() {
+        annotationsCrossoverList() {
+          if (Array.isArray(this.crossoverClusters) && this.crossoverClusters.length > 0) {
+            return this.crossoverClusters;
+          }
+          const totalPins = this.candidates.length;
+          if (totalPins === 0) return [];
+          const map = new Map();
+          for (const pin of this.candidates) {
+            const tags = this.extractPinAnnotationNames(pin);
+            const seen = new Set();
+            for (const tag of tags) {
+              const key = tag.toLowerCase();
+              if (seen.has(key)) continue;
+              seen.add(key);
+              if (!map.has(key)) {
+                map.set(key, { annotation: tag, pin_count: 0, repins_sum: 0 });
+              }
+              const entry = map.get(key);
+              entry.pin_count += 1;
+              entry.repins_sum += Number(pin.repin_count || 0);
+            }
+          }
+          return Array.from(map.values())
+            .map((e) => ({
+              annotation: e.annotation,
+              pin_count: e.pin_count,
+              overlap_pct: Math.round((e.pin_count / totalPins) * 100),
+              avg_repins: e.pin_count > 0 ? Math.round(e.repins_sum / e.pin_count) : 0
+            }))
+            .sort((a, b) => (b.pin_count - a.pin_count) || (b.avg_repins - a.avg_repins));
+        },
+
+        async checkAnnotationVolumes() {
+          const list = this.annotationsCrossoverList().slice(0, 10);
+          if (list.length === 0) return;
+          this.isCheckingAnnotationVolumes = true;
           try {
-            const qs = this.activeRunId ? ('?run_id=' + encodeURIComponent(this.activeRunId)) : '';
-            const [cxRes, rkRes] = await Promise.all([
-              this.apiJson('/api/newborn/crossover' + qs),
-              this.apiJson('/api/newborn/rookies' + qs)
-            ]);
-            this.crossoverClusters = Array.isArray(cxRes.data?.clusters) ? cxRes.data.clusters : [];
-            this.rookies = Array.isArray(rkRes.data?.rookies) ? rkRes.data.rookies : [];
-          } catch (_) {}
+            const toFetch = list.filter((it) => !this.annotationVolumeMap[it.annotation.toLowerCase()]);
+            for (let i = 0; i < toFetch.length; i += 4) {
+              const chunk = toFetch.slice(i, i + 4);
+              await Promise.all(chunk.map(async (it) => {
+                try {
+                  const params = new URLSearchParams({ q: it.annotation, country: this.launchpadCountry || 'US' });
+                  const { data } = await this.apiJson('/api/newborn/idea-intelligence?' + params.toString());
+                  this.annotationVolumeMap = {
+                    ...this.annotationVolumeMap,
+                    [it.annotation.toLowerCase()]: data
+                  };
+                } catch (_) {}
+              }));
+            }
+            this.toast('Checked Idea Page search volume for top Annotations', 'success');
+          } finally {
+            this.isCheckingAnnotationVolumes = false;
+            this.refreshIcons();
+          }
+        },
+
+        async copyAnnotationTags() {
+          const tags = this.annotationsCrossoverList().slice(0, 30).map((it) => it.annotation);
+          if (tags.length === 0) return;
+          const text = tags.join(', ');
+          try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+              await navigator.clipboard.writeText(text);
+            }
+            this.toast('Copied ' + tags.length + ' Annotation tags', 'success');
+          } catch (_) {
+            this.toast('Tags: ' + text.slice(0, 80), 'info');
+          }
+        },
+
+        async pullAccountReach(pinIds = [], refreshDossier = false) {
+          const clean = Array.from(new Set((Array.isArray(pinIds) ? pinIds : [pinIds]).filter(Boolean)));
+          if (clean.length === 0) return;
+          const nextFlags = { ...this.pullingAccountPins };
+          for (const id of clean) nextFlags[id] = true;
+          this.pullingAccountPins = nextFlags;
+          if (clean.length > 1) this.isPullingBulkAccounts = true;
+
+          try {
+            const url = clean.length === 1
+              ? ('/api/newborn/candidates/' + encodeURIComponent(clean[0]) + '/fetch-account')
+              : '/api/newborn/candidates/fetch-accounts';
+            const body = clean.length === 1 ? {} : { pin_ids: clean };
+            const { data } = await this.apiJson(url, {
+              method: 'POST',
+              body: JSON.stringify(body)
+            });
+
+            const results = Array.isArray(data?.results) ? data.results : [];
+            const resMap = new Map(results.map((r) => [String(r.pin_id), r]));
+
+            this.candidates = this.candidates.map((c) => {
+              const r = resMap.get(String(c.pin_id));
+              if (!r || !r.fetched) return c;
+              return {
+                ...c,
+                effective_creator_username: r.username || c.effective_creator_username,
+                effective_creator_followers: r.effective_creator_followers,
+                creator_monthly_reach: r.creator_monthly_reach,
+                creator_profile_views: r.creator_profile_views,
+                creator_pin_count: r.creator_pin_count
+              };
+            });
+
+            if (refreshDossier && this.dossierData && this.dossierData.candidate) {
+              const dr = resMap.get(String(this.dossierData.candidate.pin_id));
+              if (dr && dr.fetched) {
+                this.dossierData = {
+                  ...this.dossierData,
+                  candidate: {
+                    ...this.dossierData.candidate,
+                    effective_creator_username: dr.username || this.dossierData.candidate.effective_creator_username,
+                    effective_creator_followers: dr.effective_creator_followers,
+                    creator_monthly_reach: dr.creator_monthly_reach,
+                    creator_profile_views: dr.creator_profile_views,
+                    creator_pin_count: dr.creator_pin_count
+                  }
+                };
+              }
+            }
+
+            this.toast('Pulled Account Reach for ' + Number(data?.fetched_count || 0) + ' pin(s)', 'success');
+          } catch (err) {
+            this.toast('Pull Account Reach failed: ' + err.message, 'error');
+          } finally {
+            const cleared = { ...this.pullingAccountPins };
+            for (const id of clean) delete cleared[id];
+            this.pullingAccountPins = cleared;
+            this.isPullingBulkAccounts = false;
+            this.refreshIcons();
+          }
         },
 
         async toggleTrendsDrawer() {
@@ -502,21 +713,57 @@ export function getNewbornClientAppScript() {
           if (!clean) return;
           this.huntInput = clean;
           this.showTrendsDrawer = false;
+          this.lookupIdeaPage(clean);
           await this.runFocusedHunt(clean);
         },
 
         async runFocusedHunt(explicitSeed = null) {
           const rawSeed = String(explicitSeed !== null ? explicitSeed : this.huntInput || '').trim();
-          if (!rawSeed) {
-            this.toast('Enter a keyword, board URL, or pin ID to hunt.', 'warning');
+          const hasAnyPath = this.huntPaths.search.enabled || this.huntPaths.boards.enabled || this.huntPaths.idea_page.enabled || this.huntPaths.home_feed.enabled;
+          if (!hasAnyPath) {
+            this.toast('Enable at least one extraction path (Search, Boards, Idea Page, or Home Feed).', 'warning');
             return;
           }
+          if (!rawSeed && !this.huntPaths.home_feed.enabled) {
+            this.toast('Enter a keyword, board URL, or pin ID — or enable Home Feed.', 'warning');
+            return;
+          }
+
+          if (rawSeed && (!this.ideaPageInfo || this.ideaPageInfo.term !== rawSeed.toLowerCase())) {
+            this.lookupIdeaPage(rawSeed);
+          }
+
           this.isSubmittingHunt = true;
           try {
             const payload = {
               query: rawSeed,
               profile_id: this.selectedProfileId || null,
-              folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null
+              folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
+              filters: {
+                max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
+                min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
+                min_save_count: Math.max(0, Number(this.huntFilters.minSaves) || 0)
+              },
+              paths: {
+                search: {
+                  enabled: Boolean(this.huntPaths.search.enabled),
+                  target_pins: Number(this.huntPaths.search.target_pins) || 500
+                },
+                boards: {
+                  enabled: Boolean(this.huntPaths.boards.enabled),
+                  max_boards: Number(this.huntPaths.boards.max_boards) || 10,
+                  target_pins_per_board: Number(this.huntPaths.boards.target_pins_per_board) || 100,
+                  find_more_ideas: Boolean(this.huntPaths.boards.find_more_ideas)
+                },
+                idea_page: {
+                  enabled: Boolean(this.huntPaths.idea_page.enabled),
+                  target_pins: Number(this.huntPaths.idea_page.target_pins) || 250
+                },
+                home_feed: {
+                  enabled: Boolean(this.huntPaths.home_feed.enabled),
+                  target_pins: Number(this.huntPaths.home_feed.target_pins) || 250
+                }
+              }
             };
             const { data } = await this.apiJson('/api/newborn/discover', {
               method: 'POST',
@@ -530,13 +777,14 @@ export function getNewbornClientAppScript() {
                 run_type: 'discovery',
                 status: 'running',
                 progress_stage: 'queued',
-                progress_detail: 'Queued — starting Newborn hunt...',
+                progress_detail: 'Queued — starting deep-scroll Golden Pin hunt...',
                 progress_pct: 5,
-                seed_queries: [rawSeed]
+                seed_queries: rawSeed ? [rawSeed] : ['home_feed']
               };
               this.activeView = 'hunt';
               this.showRunCompleteBanner = false;
               this.selectedPinIds = [];
+              this.filters.annotation = '';
               this.startPollingRun(this.activeRunId);
               this.toast(data.deduplicated ? ('Attached to live Hunt #' + this.activeRunId) : ('Hunt #' + this.activeRunId + ' started'), 'info');
             }
@@ -548,7 +796,7 @@ export function getNewbornClientAppScript() {
           }
         },
 
-        async snowballPins(pinIds = []) {
+        async scrollRelatedPins(pinIds = []) {
           const cleanIds = Array.isArray(pinIds) ? pinIds.filter(Boolean) : [];
           if (cleanIds.length === 0) return;
           try {
@@ -556,6 +804,12 @@ export function getNewbornClientAppScript() {
               method: 'POST',
               body: JSON.stringify({
                 seed_pin_ids: cleanIds,
+                target_pins: Number(this.huntPaths.related.target_pins) || 200,
+                filters: {
+                  max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
+                  min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
+                  min_save_count: Math.max(0, Number(this.huntFilters.minSaves) || 0)
+                },
                 profile_id: this.selectedProfileId || null,
                 folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null
               })
@@ -567,17 +821,22 @@ export function getNewbornClientAppScript() {
                 run_type: 'snowball',
                 status: 'running',
                 progress_stage: 'queued',
-                progress_detail: 'Queued — finding related newborn pins...',
+                progress_detail: 'Queued — scrolling Related Pins...',
                 progress_pct: 5
               };
               this.activeView = 'hunt';
               this.selectedPinIds = [];
+              this.filters.annotation = '';
               this.startPollingRun(this.activeRunId);
-              this.toast('Finding related newborns (Hunt #' + this.activeRunId + ')', 'info');
+              this.toast('Scrolling Related Pins (Hunt #' + this.activeRunId + ')', 'info');
             }
           } catch (err) {
-            this.toast('Snowball launch failed: ' + err.message, 'error');
+            this.toast('Related Pins scroll failed: ' + err.message, 'error');
           }
+        },
+
+        async snowballPins(pinIds = []) {
+          return this.scrollRelatedPins(pinIds);
         },
 
         stopPollingRun() {
@@ -596,7 +855,6 @@ export function getNewbornClientAppScript() {
           this.pollTimerId = setInterval(() => {
             this.pollRunOnce(targetId);
           }, 1500);
-          // Also perform an immediate quick check
           this.pollRunOnce(targetId);
         },
 
@@ -607,6 +865,10 @@ export function getNewbornClientAppScript() {
             if (!run) return;
             this.activeRun = run;
 
+            if (run.telemetry && run.telemetry.idea_page && run.telemetry.idea_page.found) {
+              this.ideaPageInfo = run.telemetry.idea_page;
+            }
+
             if (run.status !== 'running') {
               this.stopPollingRun();
               this.showRunCompleteBanner = true;
@@ -616,16 +878,14 @@ export function getNewbornClientAppScript() {
                 await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
               } else {
                 this.activeRunId = Number(run.id);
-                await this.loadCandidates();
-                if (this.showHuntInsights) {
-                  await this.loadHuntInsights();
-                }
+                await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
               }
 
               if (run.status === 'failed') {
                 this.toast('Hunt #' + run.id + ' failed: ' + (run.error_message || 'Unknown error'), 'error');
               } else {
-                this.toast('Hunt #' + run.id + ' complete: ' + (run.candidates_qualified || 0) + ' verified newborns', 'success');
+                const f = this.getRunFunnel(run);
+                this.toast('Hunt #' + run.id + ' complete: ' + f.verifiedWinners + ' Golden Pin winners', 'success');
               }
               this.refreshIcons();
             }
@@ -638,6 +898,66 @@ export function getNewbornClientAppScript() {
           } else {
             this.selectedPinIds = [...this.selectedPinIds, pinId];
           }
+        },
+
+        toggleSelectAllPins(checked) {
+          if (checked) {
+            this.selectedPinIds = this.candidates.map((c) => c.pin_id);
+          } else {
+            this.selectedPinIds = [];
+          }
+        },
+
+        sanitizeCsvCell(val) {
+          const str = String(val === null || val === undefined ? '' : val);
+          const safe = /^[=+\\-@\\t\\r]/.test(str) ? ("'" + str) : str;
+          return '"' + safe.replace(/"/g, '""') + '"';
+        },
+
+        exportCsv() {
+          if (!Array.isArray(this.candidates) || this.candidates.length === 0) return;
+          const headers = [
+            'Pin ID', 'Title', 'Pinterest URL', 'Destination Domain', 'No Link',
+            'Root Age (Days)', 'Root Created UTC', 'Re-pins', 'Re-pins/day', 'Saves',
+            'Pin Annotations', 'Discovery Source', 'Board Name',
+            'Account Username', 'Total Audience', 'Impressions'
+          ];
+          const rows = [headers.map((h) => this.sanitizeCsvCell(h)).join(',')];
+          for (const p of this.candidates) {
+            const tags = this.extractPinAnnotationNames(p).join('; ');
+            rows.push([
+              p.pin_id,
+              p.title || '',
+              'https://www.pinterest.com/pin/' + p.pin_id + '/',
+              p.is_linkless ? '' : (p.clean_domain || ''),
+              p.is_linkless ? 'YES' : 'NO',
+              p.age_days != null ? Math.round(Number(p.age_days)) : '',
+              p.created_at_pinterest || '',
+              p.repin_count != null ? p.repin_count : '',
+              p.repin_per_day != null ? p.repin_per_day : '',
+              p.save_count != null ? p.save_count : '',
+              tags,
+              this.formatSurfaceLabel(p.first_surface),
+              p.board_name || '',
+              p.effective_creator_username ? ('@' + p.effective_creator_username) : '',
+              p.creator_monthly_reach != null ? p.creator_monthly_reach : '',
+              p.creator_profile_views != null ? p.creator_profile_views : ''
+            ].map((v) => this.sanitizeCsvCell(v)).join(','));
+          }
+          const csvContent = rows.join('\\n');
+          if (typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof document !== 'undefined') {
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'golden-pins-hunt-' + (this.activeRunId || 'all') + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+          this.toast('Exported ' + this.candidates.length + ' Golden Pins to CSV', 'success');
+          return csvContent;
         },
 
         async stagePins(pinIds, nextStage) {
@@ -695,35 +1015,17 @@ export function getNewbornClientAppScript() {
               this.loadWatchlist(),
               this.loadDailyAnchors()
             ]);
-            this.toast('Promoted ' + (data?.pins?.promoted_count || this.promotePinIds.length) + ' pin(s) to daily tracking', 'success');
+            this.toast('Enrolled ' + (data?.pins?.promoted_count || this.promotePinIds.length) + ' pin(s) in Daily Tracking', 'success');
           } catch (err) {
-            this.toast('Promotion failed: ' + err.message, 'error');
+            this.toast('Track Daily failed: ' + err.message, 'error');
           } finally {
             this.isPromoting = false;
           }
         },
 
-        async promoteRookieCreator(username) {
-          if (!username) return;
-          try {
-            await this.apiJson('/api/newborn/promote', {
-              method: 'POST',
-              body: JSON.stringify({
-                usernames: [username],
-                tracking_mode: 'pulse_only',
-                folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null
-              })
-            });
-            await this.loadHuntInsights();
-            this.toast('Tracking @' + username + ' in Creator Hub', 'success');
-          } catch (err) {
-            this.toast('Creator promotion failed: ' + err.message, 'error');
-          }
-        },
-
         async loadWatchlist() {
           try {
-            const { data } = await this.apiJson('/api/newborn/candidates?stage=watchlist&limit=200');
+            const { data } = await this.apiJson('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins');
             this.watchlistCandidates = Array.isArray(data?.candidates) ? data.candidates : [];
           } catch (_) {}
         },
@@ -782,7 +1084,7 @@ export function getNewbornClientAppScript() {
 
         applyAgePreset(preset) {
           this.settingsDraft.qualification.age_window_preset = preset;
-          const map = { '7d': 7, '14d': 14, '30d': 30, '90d': 90 };
+          const map = { '7d': 7, '14d': 14, '30d': 30, '60d': 60, '90d': 90 };
           if (map[preset]) {
             this.settingsDraft.qualification.max_age_days = map[preset];
             this.settingsDraft.qualification.min_age_days = 0;
@@ -804,7 +1106,12 @@ export function getNewbornClientAppScript() {
               method: 'PATCH',
               body: JSON.stringify(this.settingsDraft)
             });
-            if (data?.settings) this.settingsDraft = cloneJson(data.settings);
+            if (data?.settings) {
+              this.settingsDraft = cloneJson(data.settings);
+              this.huntFilters.maxAgeDays = Number(data.settings.qualification?.max_age_days || 30);
+              this.huntFilters.minRepins = Number(data.settings.qualification?.min_repin_count ?? 20);
+              this.huntFilters.minSaves = Number(data.settings.qualification?.min_save_count ?? 0);
+            }
             if (data?.schedule) this.scheduleStatus = data.schedule;
             this.toast('Settings saved', 'success');
             this.closeSettingsDrawer();
@@ -818,7 +1125,12 @@ export function getNewbornClientAppScript() {
         async resetSettingsToDefaults() {
           try {
             const { data } = await this.apiJson('/api/newborn/settings/reset', { method: 'POST' });
-            if (data?.settings) this.settingsDraft = cloneJson(data.settings);
+            if (data?.settings) {
+              this.settingsDraft = cloneJson(data.settings);
+              this.huntFilters.maxAgeDays = Number(data.settings.qualification?.max_age_days || 30);
+              this.huntFilters.minRepins = Number(data.settings.qualification?.min_repin_count ?? 20);
+              this.huntFilters.minSaves = Number(data.settings.qualification?.min_save_count ?? 0);
+            }
             if (data?.schedule) this.scheduleStatus = data.schedule;
             this.toast('Settings reset to defaults', 'success');
           } catch (err) {
@@ -848,7 +1160,7 @@ export function getNewbornClientAppScript() {
           try {
             const { data } = await this.apiJson('/api/newborn/cookie', { method: 'DELETE' });
             this.cookieStatus = data;
-            this.toast('Stored cookie cleared (Guest Mode active)', 'info');
+            this.toast('Stored cookie cleared', 'info');
           } catch (err) {
             this.toast('Clear cookie failed: ' + err.message, 'error');
           }
@@ -892,7 +1204,8 @@ export function getNewbornClientAppScript() {
               name: prof.name || '',
               description: prof.description || '',
               maxAgeDays: Number(q.max_age_days || 30),
-              minSavePerDay: Number(q.min_save_per_day ?? 2),
+              minRepins: Number(q.min_repin_count ?? 20),
+              minSaves: Number(q.min_save_count ?? 0),
               linklessOnly: Boolean(q.linkless_vacuum?.linkless_vacuum_only || q.linkless_vacuum?.mode === 'only'),
               isDefault: Boolean(prof.is_default)
             };
@@ -902,7 +1215,8 @@ export function getNewbornClientAppScript() {
               name: '',
               description: '',
               maxAgeDays: 14,
-              minSavePerDay: 2,
+              minRepins: 20,
+              minSaves: 0,
               linklessOnly: false,
               isDefault: false
             };
@@ -922,9 +1236,10 @@ export function getNewbornClientAppScript() {
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
               surfaces_config: {},
               qualification_config: {
-                age_window_preset: [7, 14, 30, 90].includes(Number(this.profileForm.maxAgeDays)) ? (this.profileForm.maxAgeDays + 'd') : 'custom',
+                age_window_preset: [7, 14, 30, 60, 90].includes(Number(this.profileForm.maxAgeDays)) ? (this.profileForm.maxAgeDays + 'd') : 'custom',
                 max_age_days: Number(this.profileForm.maxAgeDays || 30),
-                min_save_per_day: Number(this.profileForm.minSavePerDay ?? 2),
+                min_repin_count: Number(this.profileForm.minRepins ?? 20),
+                min_save_count: Number(this.profileForm.minSaves ?? 0),
                 linkless_vacuum: {
                   mode: this.profileForm.linklessOnly ? 'only' : 'boost',
                   linkless_vacuum_only: Boolean(this.profileForm.linklessOnly)
@@ -966,33 +1281,73 @@ export function getNewbornClientAppScript() {
         },
 
         // ---- Pure Formatting Helpers ----
+        getRunFunnel(run) {
+          const f = (run && run.telemetry && run.telemetry.funnel) || {};
+          return {
+            scrolled: Number(f.scrolled_pins ?? run?.candidates_discovered ?? 0),
+            matchedRepins: Number(f.matched_repins ?? f.hydrated_pins ?? run?.candidates_qualified ?? 0),
+            verifiedWinners: Number(f.verified_winners ?? run?.golden_pins_count ?? run?.candidates_qualified ?? 0)
+          };
+        },
+
+        extractPinAnnotationNames(pin) {
+          const raw = pin && Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [];
+          const out = [];
+          const seen = new Set();
+          for (const item of raw) {
+            const name = typeof item === 'string' ? item.trim() : String(item?.name || '').trim();
+            if (!name) continue;
+            const key = name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(name);
+          }
+          return out;
+        },
+
+        formatSurfaceLabel(surface) {
+          const map = {
+            pin_serp_capsules: 'Search',
+            fresh_boards: 'Board',
+            board_feed: 'Board',
+            board_more_ideas: 'Find More Ideas',
+            ideas_feeds: 'Idea Page',
+            home_feed: 'Home Feed',
+            related_pin_snowball: 'Related',
+            growing_trends: 'Trends',
+            zero_query_popular: 'Popular'
+          };
+          return map[String(surface || '').toLowerCase()] || 'Search';
+        },
+
         formatRunSeedLabel(run) {
           if (!run) return '';
           const seeds = Array.isArray(run.seed_queries) ? run.seed_queries : [];
           if (seeds.length > 0) return seeds.slice(0, 2).join(', ');
           if (run.run_type === 'watchlist_poll') return 'Watchlist Refresh';
-          if (run.run_type === 'snowball') return 'Related Newborn Expansion';
-          return 'Discovery Sweep';
+          if (run.run_type === 'snowball') return 'Related Pins Scroll';
+          return 'Deep-Scroll Hunt';
         },
 
         getHumanProgressStep(stage) {
           const map = {
-            queued: 'Queued — preparing Newborn hunt...',
-            harvesting: '1. Harvesting search & fresh boards...',
-            hydrating_pins: '2. Verifying root creation dates on Pinterest...',
-            snowballing: '2b. Expanding related newborn pins...',
-            hydrating_creators: '3. Ranking verified newborn winners...',
-            persisting: '3. Saving verified newborn winners...',
+            queued: 'Queued — preparing deep-scroll hunt...',
+            harvesting: '1. Deep-scrolling selected paths...',
+            pretriage: '2. Filtering Re-pins via 50x Zero-Cookie Pidgets...',
+            hydrating_pins: '3. Verifying root Age & Pin Annotations...',
+            snowballing: '3. Scrolling Related Pins...',
+            hydrating_creators: '3. Finalizing Golden Pin winners...',
+            persisting: '3. Saving verified Golden Pin winners...',
             completed: 'Hunt complete',
             failed: 'Hunt failed'
           };
-          return map[String(stage || '').toLowerCase()] || 'Running Newborn hunt...';
+          return map[String(stage || '').toLowerCase()] || 'Running Golden Pin hunt...';
         },
 
         getProgressStepIndex(stage) {
           const s = String(stage || '').toLowerCase();
-          if (s === 'hydrating_creators' || s === 'persisting' || s === 'completed') return 3;
-          if (s === 'hydrating_pins' || s === 'snowballing') return 2;
+          if (s === 'hydrating_pins' || s === 'hydrating_creators' || s === 'persisting' || s === 'completed') return 3;
+          if (s === 'pretriage' || s === 'snowballing') return 2;
           return 1;
         },
 
@@ -1003,6 +1358,17 @@ export function getNewbornClientAppScript() {
           if (n < 1) return Math.max(1, Math.round(n * 24)) + 'h';
           if (n >= 365) return (n / 365).toFixed(1) + 'y';
           return Math.round(n) + 'd';
+        },
+
+        formatUtcDateOnly(iso) {
+          if (!iso) return '';
+          try {
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return '';
+            return d.toISOString().slice(0, 10);
+          } catch (_) {
+            return '';
+          }
         },
 
         formatNullableCount(val) {
@@ -1034,21 +1400,6 @@ export function getNewbornClientAppScript() {
           if (!Number.isFinite(n)) return '—';
           if (n >= 10_000_001) return '10M+';
           return this.formatCompact(n);
-        },
-
-        formatProvenanceLabel(code) {
-          const map = {
-            SHARE_EXTENSION_IOS: 'iOS App',
-            SHARE_EXTENSION_ANDROID: 'Android App',
-            UPLOADED: 'Web Upload',
-            ORGANIC_PIN: 'Organic Pin',
-            CAROUSEL: 'Carousel',
-            VIDEO: 'Video Pin',
-            IDEA_PIN: 'Idea Pin',
-            BOOKMARKLET: 'Browser Save',
-            UNKNOWN: 'Standard Pin'
-          };
-          return map[String(code || '').toUpperCase()] || 'Standard Pin';
         },
 
         formatBoardUrl(rawUrl) {

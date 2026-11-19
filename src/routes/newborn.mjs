@@ -44,6 +44,8 @@ import {
   getNewbornCrossoverReport,
   getNewbornLaunchpadFeed,
   refreshNewbornLaunchpadFeed,
+  getNewbornIdeaPageIntelligence,
+  fetchNewbornCandidateAccounts,
   enqueueNewbornRun,
   promoteNewbornCandidates,
   promoteNewbornRookies
@@ -54,8 +56,149 @@ export const NEWBORN_CRAWLER_PATHS = new Set([
   '/api/newborn/snowball',
   '/api/newborn/watchlist/poll',
   '/api/newborn/auto-run',
-  '/api/newborn/launchpad'
+  '/api/newborn/launchpad',
+  '/api/newborn/candidates/fetch-accounts'
 ]);
+
+function deepMergePlain(base, extra) {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return base;
+  const out = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
+  for (const [k, v] of Object.entries(extra)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) {
+      out[k] = deepMergePlain(out[k], v);
+    } else if (v !== undefined) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * Translates direct Wave 6D Hunt Card inputs (`filters`, `paths`, `target_pins`) into
+ * normalized `settings_overrides` merged with any explicit `settings_overrides` / `overrides`.
+ */
+function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
+  const explicit = body?.settings_overrides ?? body?.overrides ?? null;
+  const patch = {};
+
+  const f = (body?.filters && typeof body.filters === 'object') ? body.filters : {};
+  const maxAge = f.max_age_days ?? body?.max_age_days;
+  const minRepins = f.min_repin_count ?? f.min_repins ?? body?.min_repin_count ?? body?.min_repins;
+  const minSaves = f.min_save_count ?? f.min_saves ?? body?.min_save_count ?? body?.min_saves;
+  const strictRootAge = f.strict_root_age ?? body?.strict_root_age;
+
+  if (maxAge !== undefined || minRepins !== undefined || minSaves !== undefined || strictRootAge !== undefined) {
+    patch.qualification = {};
+    if (maxAge !== undefined && maxAge !== null && maxAge !== '') {
+      patch.qualification.max_age_days = Math.max(1, Math.min(365, Number(maxAge) || 30));
+    }
+    if (minRepins !== undefined && minRepins !== null && minRepins !== '') {
+      patch.qualification.min_repin_count = Math.max(0, Math.min(100000, Number(minRepins) || 0));
+    }
+    if (minSaves !== undefined && minSaves !== null && minSaves !== '') {
+      patch.qualification.min_save_count = Math.max(0, Math.min(100000, Number(minSaves) || 0));
+    }
+    if (strictRootAge !== undefined) {
+      patch.qualification.strict_root_age = Boolean(strictRootAge);
+    }
+  }
+
+  const p = (body?.paths && typeof body.paths === 'object') ? body.paths : null;
+  if (p) {
+    const surfaces = {};
+    if (p.search !== undefined) {
+      const sObj = typeof p.search === 'boolean' ? { enabled: p.search } : (p.search || {});
+      const targetPins = Math.max(50, Math.min(5000, Number(sObj.target_pins ?? sObj.limit ?? 500) || 500));
+      surfaces.pin_serp_capsules = {
+        enabled: sObj.enabled !== false,
+        target_pins: targetPins,
+        max_pages: Math.max(1, Math.min(100, Math.ceil(targetPins / 50)))
+      };
+    }
+    if (p.boards !== undefined) {
+      const bObj = typeof p.boards === 'boolean' ? { enabled: p.boards } : (p.boards || {});
+      const enabled = bObj.enabled !== false;
+      const maxBoards = Math.max(1, Math.min(50, Number(bObj.max_boards ?? bObj.count ?? 10) || 10));
+      const pinsPerBoard = Math.max(25, Math.min(1000, Number(bObj.target_pins_per_board ?? bObj.pins_per_board ?? 100) || 100));
+      surfaces.fresh_boards = {
+        enabled,
+        max_boards: maxBoards,
+        max_boards_to_expand: maxBoards,
+        target_pins_per_board: pinsPerBoard
+      };
+      surfaces.board_feed = {
+        enabled,
+        page_size: 100,
+        target_pins_per_board: pinsPerBoard,
+        max_pages: Math.max(1, Math.min(20, Math.ceil(pinsPerBoard / 100)))
+      };
+      surfaces.board_more_ideas = {
+        enabled: Boolean(enabled && bObj.find_more_ideas !== false),
+        max_boards: Math.min(20, maxBoards)
+      };
+    }
+    if (p.idea_page !== undefined) {
+      const iObj = typeof p.idea_page === 'boolean' ? { enabled: p.idea_page } : (p.idea_page || {});
+      const targetPins = Math.max(50, Math.min(2000, Number(iObj.target_pins ?? iObj.limit ?? 250) || 250));
+      surfaces.ideas_feeds = {
+        enabled: iObj.enabled !== false,
+        target_pins: targetPins,
+        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 50)))
+      };
+    }
+    if (p.home_feed !== undefined) {
+      const hObj = typeof p.home_feed === 'boolean' ? { enabled: p.home_feed } : (p.home_feed || {});
+      const targetPins = Math.max(50, Math.min(2000, Number(hObj.target_pins ?? hObj.limit ?? 250) || 250));
+      surfaces.home_feed = {
+        enabled: hObj.enabled === true,
+        target_pins: targetPins,
+        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 50)))
+      };
+    }
+    if (p.related !== undefined) {
+      const rObj = typeof p.related === 'boolean' ? { enabled: p.related } : (p.related || {});
+      const targetPins = Math.max(50, Math.min(1000, Number(rObj.target_pins ?? rObj.limit ?? 200) || 200));
+      surfaces.related_pin_snowball = {
+        enabled: Boolean(rObj.enabled),
+        target_pins: targetPins,
+        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 25)))
+      };
+    }
+    // Keep Trend/Zero-Query seed expansion off when user picks explicit Hunt Card paths unless explicitly toggled
+    if (p.growing_trends === undefined) {
+      surfaces.growing_trends = { enabled: false };
+    } else {
+      surfaces.growing_trends = { enabled: Boolean(typeof p.growing_trends === 'boolean' ? p.growing_trends : p.growing_trends?.enabled) };
+    }
+    if (p.zero_query_popular === undefined) {
+      surfaces.zero_query_popular = { enabled: false };
+    } else {
+      surfaces.zero_query_popular = { enabled: Boolean(typeof p.zero_query_popular === 'boolean' ? p.zero_query_popular : p.zero_query_popular?.enabled) };
+    }
+
+    if (Object.keys(surfaces).length > 0) {
+      patch.discovery = { ...(patch.discovery || {}), surfaces };
+    }
+  }
+
+  if (isSnowball && (body?.target_pins !== undefined || body?.max_hops !== undefined)) {
+    const targetPins = Math.max(50, Math.min(1000, Number(body?.target_pins ?? 200) || 200));
+    patch.discovery = deepMergePlain(patch.discovery || {}, {
+      surfaces: {
+        related_pin_snowball: {
+          enabled: true,
+          target_pins: targetPins,
+          max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 25)))
+        }
+      },
+      ...(body?.max_hops !== undefined ? { snowball: { enabled: true, max_hops: Math.max(1, Math.min(3, Number(body.max_hops) || 1)) } } : {})
+    });
+  }
+
+  const hasPatch = Object.keys(patch).length > 0;
+  if (!hasPatch) return explicit;
+  return explicit ? deepMergePlain(patch, explicit) : patch;
+}
 
 /**
  * Fast URI discriminator for `/api/newborn/*` routes.
@@ -277,6 +420,21 @@ export async function handleNewbornRoutes({
     return jsonResponse(payload, 200, -1);
   }
 
+  // 4B. /api/newborn/idea-intelligence (GET) — Official Idea Page URL, Search Volume & Growth %
+  if (pathname === '/api/newborn/idea-intelligence') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('keyword') || '';
+    const country = searchParams.get('country') || 'US';
+    const result = await getNewbornIdeaPageIntelligence(q, {
+      country,
+      routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+      env
+    });
+    return jsonResponse({ success: true, ...result }, 200, -1);
+  }
+
   // 5. /api/newborn/candidates (GET)
   if (pathname === '/api/newborn/candidates') {
     if (method !== 'GET') {
@@ -293,9 +451,11 @@ export async function handleNewbornRoutes({
       linkless_only: searchParams.get('linkless_only') || searchParams.get('linkless') || null,
       qualified_only: searchParams.get('qualified_only') || null,
       min_golden_score: searchParams.get('min_golden_score') || null,
+      min_repins: searchParams.get('min_repins') || searchParams.get('min_repin_count') || null,
       max_age_days: searchParams.get('max_age_days') || null,
+      annotation: searchParams.get('annotation') || null,
       search: searchParams.get('search') || searchParams.get('q') || '',
-      sort: searchParams.get('sort') || 'golden_score',
+      sort: searchParams.get('sort') || 'repins',
       limit: clampLimit(searchParams.get('limit'), 50, 500),
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
@@ -313,6 +473,41 @@ export async function handleNewbornRoutes({
     const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
     const result = await updateNewbornCandidateStage(sql, pinIds, body?.stage);
     return jsonResponse({ success: true, ...result }, 200, -1);
+  }
+
+  // 5B2. /api/newborn/candidates/:pin_id/fetch-account (POST on-demand Zero-Cookie Account Reach & Impressions)
+  const fetchAccountMatch = pathname.match(/^\/api\/newborn\/candidates\/([^/]+)\/fetch-account$/);
+  if (fetchAccountMatch) {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    const pinId = decodeURIComponent(fetchAccountMatch[1]).trim();
+    try {
+      const result = await fetchNewbornCandidateAccounts(sql, [pinId], {
+        routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+        env
+      });
+      if (!result.ok) {
+        return jsonResponse({
+          success: false,
+          error: result.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
+          message: result.message
+        }, result.status || 400, -1);
+      }
+      return jsonResponse({ success: true, ...result }, 200, -1);
+    } catch (err) {
+      if (err instanceof CircuitBreakerOpenError || err?.name === 'CircuitBreakerOpenError') {
+        if (typeof tripPinterestCircuitBreaker === 'function') {
+          await tripPinterestCircuitBreaker(env, 'Newborn CircuitBreakerOpenError', 300).catch(() => {});
+        }
+        return jsonResponse({
+          success: false,
+          error: 'PINTEREST_RATE_LIMITED',
+          message: redactSecrets(err.message || 'Pinterest rate-limit circuit breaker is open.')
+        }, 429, -1);
+      }
+      throw err;
+    }
   }
 
   // 5C. /api/newborn/candidates/:pin_id (GET, PATCH, DELETE)
@@ -486,13 +681,29 @@ export async function handleNewbornRoutes({
 
     const body = await request.json().catch(() => ({}));
     try {
+      if (pathname === '/api/newborn/candidates/fetch-accounts') {
+        const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
+        const result = await fetchNewbornCandidateAccounts(sql, pinIds, {
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+          env
+        });
+        if (!result.ok) {
+          return jsonResponse({
+            success: false,
+            error: result.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
+            message: result.message
+          }, result.status || 400, -1);
+        }
+        return jsonResponse({ success: true, ...result }, 200, -1);
+      }
+
       if (pathname === '/api/newborn/launchpad') {
         const result = await refreshNewbornLaunchpadFeed(sql, {
           country: body?.country || null,
           trendType: body?.trend_type || body?.type || 'growing',
           l1Interest: body?.l1_interest || body?.interest || 'all',
           limit: body?.limit || 25,
-          routerOptions: { env },
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env
         });
         return jsonResponse({ success: true, ...result }, 200, -1);
@@ -525,6 +736,8 @@ export async function handleNewbornRoutes({
           }
         }
 
+        const mergedOverrides = buildHuntOverridesFromBody(body, { isSnowball: false });
+
         const queued = await enqueueNewbornRun(sql, {
           runType: 'discovery',
           seedQueries: parsedQueries,
@@ -532,7 +745,7 @@ export async function handleNewbornRoutes({
           seedBoards: parsedBoards,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
-          settingsOverrides: body?.settings_overrides ?? body?.overrides ?? null,
+          settingsOverrides: mergedOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
@@ -545,12 +758,13 @@ export async function handleNewbornRoutes({
         const seedPinIds = (Array.isArray(rawPinIds) ? rawPinIds : [rawPinIds])
           .map((id) => String(id || '').trim())
           .filter(Boolean);
+        const mergedOverrides = buildHuntOverridesFromBody(body, { isSnowball: true });
         const queued = await enqueueNewbornRun(sql, {
           runType: 'snowball',
           seedPinIds,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
-          settingsOverrides: body?.settings_overrides ?? body?.overrides ?? null,
+          settingsOverrides: mergedOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx

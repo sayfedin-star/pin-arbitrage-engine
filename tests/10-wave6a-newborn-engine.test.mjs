@@ -50,6 +50,8 @@ import {
   formatPinterestBoardUrl,
   boardMatchesSeedQuery,
   extractPinsFromRelatedModulesPayload,
+  resolveTrendsLatestAvailableDate,
+  resolveIdeaPageIntelligence,
   harvestGrowingTrendsSurface,
   harvestZeroQueryPopularSurface,
   harvestPinSerpWithCapsulesSurface,
@@ -57,6 +59,7 @@ import {
   harvestBoardFeedSurface,
   harvestBoardMoreIdeasSurface,
   harvestIdeasHubSurface,
+  harvestHomeFeedSurface,
   harvestRelatedPinSnowballSurface,
   pretriageCandidatesWithPidgets,
   hydratePinZeroCookie,
@@ -348,6 +351,21 @@ function createStatefulNewbornSqlMock() {
           cur.promoted_at = new Date().toISOString();
           cur.promoted_destinations = destinations;
         }
+      }
+      return [];
+    }
+    if (/UPDATE newborn_candidates SET effective_creator_username =/i.test(q)) {
+      const [uname, followers, reach, views, pinCount, isRookie, ratio, pid] = values;
+      const cur = state.candidates.get(String(pid));
+      if (cur) {
+        cur.effective_creator_username = uname;
+        cur.effective_creator_followers = followers;
+        cur.creator_monthly_reach = reach;
+        cur.creator_profile_views = views;
+        cur.creator_pin_count = pinCount;
+        cur.is_rookie_outlier = Boolean(isRookie);
+        cur.outlier_ratio = ratio;
+        cur.updated_at = new Date().toISOString();
       }
       return [];
     }
@@ -1271,7 +1289,8 @@ test('Wave 6A.5: End-to-end 8-Surface Harvest + Snowball keeps staging isolated,
   await patchNewbornSettings(sql, {
     discovery: {
       enabled_surfaces: ['pin_serp_capsules', 'related_pin_snowball'],
-      snowball: { enabled: true, max_hops: 1, seed_cap: 5, min_seed_golden_score: 60 }
+      snowball: { enabled: true, max_hops: 1, seed_cap: 5, min_seed_golden_score: 60 },
+      hydration: { auto_fetch_accounts: true, max_user_hydrations_per_run: 50 }
     },
     qualification: {
       age_window_preset: '14d',
@@ -1518,7 +1537,7 @@ test('Wave 6A.6: Fastify /api/newborn/* routes enforce auth fail-closed, Cache-C
   });
   assert.equal(offlineRes.statusCode, 200);
   assert.ok(String(offlineRes.headers['cache-control']).includes('no-store'));
-  assert.equal(offlineRes.json().surfaces_catalog.length, 8);
+  assert.equal(offlineRes.json().surfaces_catalog.length, 9);
 
   // 2. Unauthenticated PATCH /api/newborn/settings blocked in production (401)
   const unauthPatch = await app.inject({
@@ -1760,8 +1779,8 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
   });
   assert.equal(realProductPin.is_product, true);
 
-  // 2. 2026 Saves-primary qualification & null secondary metrics (repin_count = 0, save_count = 45, age_days = 5)
-  const pin2026 = scoreNewbornCandidate({
+  // 2. Wave 6D Re-pins-primary qualification (Min Re-pins = 20 required, Min Saves = 0 ignored!) & null secondary metrics
+  const pinRejectedZeroRepins = scoreNewbornCandidate({
     pin_id: '77770000111124',
     created_at_pinterest: '2026-04-10T12:00:00Z',
     repin_count: 0,
@@ -1772,10 +1791,23 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
     is_hydrated: true,
     root_age_verified: true
   }, DEFAULT_NEWBORN_SETTINGS, { nowMs });
-  assert.equal(pin2026.qualified, true);
-  assert.equal(pin2026.share_count, null);
-  assert.equal(pin2026.comment_count, null);
-  assert.equal(pin2026.reaction_count, null);
+  assert.equal(pinRejectedZeroRepins.qualified, false, 'Zero Re-pins must not pass default Min Re-pins = 20');
+
+  const pinQualifiesRepinsOnly = scoreNewbornCandidate({
+    pin_id: '77770000111125',
+    created_at_pinterest: '2026-04-10T12:00:00Z',
+    repin_count: 45,
+    save_count: null,
+    share_count: null,
+    comment_count: null,
+    reaction_count: null,
+    is_hydrated: true,
+    root_age_verified: true
+  }, DEFAULT_NEWBORN_SETTINGS, { nowMs });
+  assert.equal(pinQualifiesRepinsOnly.qualified, true, '45 Re-pins must pass with save_count=null when Min Saves = 0');
+  assert.equal(pinQualifiesRepinsOnly.share_count, null);
+  assert.equal(pinQualifiesRepinsOnly.comment_count, null);
+  assert.equal(pinQualifiesRepinsOnly.reaction_count, null);
 
   // 3. Semantic board overlap & strict SSR node.type === 'pin' filter + nested RelatedModules unwrap
   assert.equal(boardMatchesSeedQuery('Graduation Party Food Ideas', 'graduation-party-food', 'graduation party foods'), true);
@@ -1842,9 +1874,9 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
     if (url.includes('widgets.pinterest.com/v3/pidgets/pins/info/')) {
       return new Response(JSON.stringify({
         data: [
-          { id: '66000000000001', aggregated_pin_data: { aggregated_stats: { saves: 42 } } },
-          { id: '66000000000002', aggregated_pin_data: { aggregated_stats: { saves: 500 } } },
-          { id: '66000000000003', aggregated_pin_data: { aggregated_stats: { saves: 300 } } }
+          { id: '66000000000001', repin_count: 42, aggregated_pin_data: { aggregated_stats: { saves: 42 } } },
+          { id: '66000000000002', repin_count: 500, aggregated_pin_data: { aggregated_stats: { saves: 500 } } },
+          { id: '66000000000003', repin_count: 300, aggregated_pin_data: { aggregated_stats: { saves: 300 } } }
         ]
       }), { status: 200 });
     }
@@ -1856,7 +1888,7 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
               id: '66000000000001',
               title: 'Graduation Dessert Shooters',
               created_at: threeDaysAgo,
-              repin_count: 0,
+              repin_count: 42,
               aggregated_pin_data: { aggregated_stats: { saves: 42 } },
               insertion_source: 'share_extension_ios',
               is_repin: false,
@@ -1927,8 +1959,8 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
     nowMs
   });
 
-  // Zero cross-topic pollution: trends & SearchTabResource NEVER called on explicit seed hunt
-  assert.equal(urlsHit.some((u) => u.includes('trends.pinterest.com') || u.includes('SearchTabResource')), false);
+  // Zero cross-topic pollution: top_trends_filtered & SearchTabResource NEVER called on explicit seed hunt
+  assert.equal(urlsHit.some((u) => u.includes('top_trends_filtered') || u.includes('SearchTabResource')), false);
 
   // Hard Gate Before Persistence: ONLY the verified 3-day-old original pin survived!
   assert.equal(huntRes.candidates.length, 1);
@@ -1961,4 +1993,448 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
   const workflowYml = fs.readFileSync(path.resolve('.github/workflows/newborn-hunter.yml'), 'utf8');
   assert.ok(workflowYml.includes("vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'"));
   assert.ok(workflowYml.includes("needs.hunter-fleet.result == 'success'"));
+});
+
+test('Wave 6D.1: Pure Deep-Scroll Re-pin Hunter — Min Re-pins gate, Min Saves 0 vs >0, per-path targets up to 5,000, board repin root unwrapping, Trends lag fix, Idea Page volume, Home Feed, zero auto-UserResource & manual account pull', async (t) => {
+  clearNewbornInflightRunsForTest();
+  const nowMs = Date.parse('2026-11-19T12:00:00Z');
+  const fiveDaysAgo = '2026-11-14T12:00:00Z';
+  const sixDaysAgo = '2026-11-13T12:00:00Z';
+  const old2021 = '2021-03-10T12:00:00Z';
+
+  // 1. Min Re-pins primary gate + Min Saves = 0 completely ignored vs Min Saves > 0 enforced
+  const savesIgnoredSettings = normalizeNewbornSettings({
+    qualification: { max_age_days: 30, min_repin_count: 50, min_save_count: 0 }
+  });
+  const passesWithZeroSaves = evaluateCandidateQualification({
+    pin_id: '70100000000001',
+    created_at_pinterest: fiveDaysAgo,
+    repin_count: 65,
+    save_count: 0,
+    is_hydrated: true,
+    root_age_verified: true
+  }, savesIgnoredSettings, { nowMs });
+  assert.equal(passesWithZeroSaves.qualified, true, 'Min Saves = 0 must completely ignore save_count = 0');
+
+  const failsLowRepinsDespiteHighSaves = evaluateCandidateQualification({
+    pin_id: '70100000000002',
+    created_at_pinterest: fiveDaysAgo,
+    repin_count: 15,
+    save_count: 900,
+    is_hydrated: true,
+    root_age_verified: true
+  }, savesIgnoredSettings, { nowMs });
+  assert.equal(failsLowRepinsDespiteHighSaves.qualified, false, 'High saves must NEVER bypass Min Re-pins');
+  assert.ok(failsLowRepinsDespiteHighSaves.reasons.includes('below_min_repins'));
+
+  const savesEnforcedSettings = normalizeNewbornSettings({
+    qualification: { max_age_days: 30, min_repin_count: 50, min_save_count: 100 }
+  });
+  const failsWhenSavesEnforced = evaluateCandidateQualification({
+    pin_id: '70100000000003',
+    created_at_pinterest: fiveDaysAgo,
+    repin_count: 75,
+    save_count: 40,
+    is_hydrated: true,
+    root_age_verified: true
+  }, savesEnforcedSettings, { nowMs });
+  assert.equal(failsWhenSavesEnforced.qualified, false, 'Min Saves > 0 must enforce save_count >= min_save_count');
+  assert.ok(failsWhenSavesEnforced.reasons.includes('below_min_saves'));
+
+  // 2. Per-path deep-scroll targets normalization (Search up to 5,000, Boards up to 50, Idea Page & Home Feed up to 2,000, Related up to 1,000)
+  const deepScrollSettings = normalizeNewbornSettings({
+    discovery: {
+      surfaces: {
+        pin_serp_capsules: { enabled: true, target_pins: 5000, max_pages: 100 },
+        fresh_boards: { enabled: true, max_boards: 50, target_pins_per_board: 500 },
+        ideas_feeds: { enabled: true, target_pins: 2000 },
+        home_feed: { enabled: true, target_pins: 2000 },
+        related_pin_snowball: { enabled: true, target_pins: 1000 }
+      }
+    }
+  });
+  assert.equal(deepScrollSettings.discovery.surfaces.pin_serp_capsules.target_pins, 5000);
+  assert.equal(deepScrollSettings.discovery.surfaces.pin_serp_capsules.max_pages, 100);
+  assert.equal(deepScrollSettings.discovery.surfaces.fresh_boards.max_boards, 50);
+  assert.equal(deepScrollSettings.discovery.surfaces.fresh_boards.target_pins_per_board, 500);
+  assert.equal(deepScrollSettings.discovery.surfaces.ideas_feeds.target_pins, 2000);
+  assert.equal(deepScrollSettings.discovery.surfaces.home_feed.target_pins, 2000);
+  assert.equal(deepScrollSettings.discovery.surfaces.related_pin_snowball.target_pins, 1000);
+  assert.equal(deepScrollSettings.discovery.hydration.auto_fetch_accounts, false, 'Auto-fetch accounts must be OFF by default');
+  assert.equal(deepScrollSettings.automation.auto_track_enabled, false, 'Daily tracking must be OFF by default');
+
+  // 3. Mock Pinterest universe verifying Trends latest_available_date, Idea Page Intelligence, Home Feed,
+  //    Board Repin -> Root Pin unwrapping, Original Pin visual-similarity guard, and ZERO automatic UserResource calls!
+  let userResourceCalls = 0;
+  let trendsRequestedEndDate = '';
+  const observedHomeFeedHeaders = [];
+
+  const mockFetch = async (url, init = {}) => {
+    const cookieHeader = init?.headers?.Cookie || init?.headers?.cookie || '';
+    if (url.includes('trends.pinterest.com/latest_available_date')) {
+      return new Response(JSON.stringify({ date: '2026-11-15' }), { status: 200 });
+    }
+    if (url.includes('trends.pinterest.com/top_trends_filtered')) {
+      const u = new URL(url);
+      trendsRequestedEndDate = u.searchParams.get('endDate') || '';
+      return new Response(JSON.stringify({
+        values: [
+          { term: 'meal prep for the week', wow_change: { value: 0.45 }, mom_change: { value: 1.2 }, yoy_change: { value: 2.1 } }
+        ]
+      }), { status: 200 });
+    }
+    if (url.includes('trends.pinterest.com/prefix_match')) {
+      return new Response(JSON.stringify([
+        { term: 'meal prep for the week', counts: [40, 50, 55, 60, 75, 90] }
+      ]), { status: 200 });
+    }
+    if (url.includes('InterestResource/get')) {
+      assert.equal(cookieHeader, '', 'InterestResource must remain strictly Zero-Cookie');
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: {
+            is_interest: true,
+            id: '956840852136',
+            key: 'meal prep for the week',
+            url_name: 'meal-prep-for-the-week',
+            internal_search_count: 720549,
+            seo_breadcrumbs: [{ name: 'Food and drink' }, { name: 'Meal prep' }],
+            seo_related_interests: [{ name: 'High protein meal prep', key: 'high protein meal prep', id: '911000111' }]
+          }
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('UserHomefeedResource/get')) {
+      observedHomeFeedHeaders.push(cookieHeader);
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: [
+            { id: '70200000000011', type: 'pin', title: 'High Protein Chicken Bowls', repin_count: 88, images: { '736x': { url: 'https://i.pinimg.com/736x/hf1.jpg' } } }
+          ]
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('BaseSearchResource/get') && decodeURIComponent(url).includes('"scope":"pins"')) {
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: {
+            results: [
+              // Story wrapper returned by live Pinterest Search MUST be ignored
+              { id: '3168570376897426', type: 'story', title: 'Story Wrapper Noise' },
+              // Original fresh pin whose pin_join.canonical_pin points to an unrelated 2021 visually-similar pin!
+              { id: '70000000000001', type: 'pin', title: '5-Day Chicken Rice Meal Prep', repin_count: 65, is_repin: false, images: { '736x': { url: 'https://i.pinimg.com/736x/mp1.jpg' } } }
+            ]
+          }
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('BaseSearchResource/get') && decodeURIComponent(url).includes('"scope":"boards"')) {
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: {
+            results: [
+              { id: '888000111', type: 'board', name: 'Weekly Meal Prep Ideas', url: '/prepper/weekly-meal-prep/', pin_count: 50, board_order_modified_at: fiveDaysAgo }
+            ]
+          }
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('BoardFeedResource/get')) {
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: [
+            // Board repin with low board-level repin_count=1 whose root pin 70000000000099 has 108 repins & 6d age!
+            {
+              id: '70000000000002',
+              type: 'pin',
+              title: 'Sunday Steak & Veggies Meal Prep',
+              is_repin: true,
+              repin_count: 1,
+              aggregated_pin_data: { aggregated_stats: { saves: 319 } },
+              images: { '736x': { url: 'https://i.pinimg.com/736x/mp2.jpg' } }
+            },
+            // Zero-Cookie Pidgets-style board repin: NO is_repin flag, local repin_count=0, cluster saves=240 -> must STILL be rescued & unwrapped!
+            {
+              id: '70000000000003',
+              type: 'pin',
+              title: 'High Protein Turkey Meal Prep',
+              repin_count: 0,
+              aggregated_pin_data: { aggregated_stats: { saves: 240 } },
+              images: { '736x': { url: 'https://i.pinimg.com/736x/mp3.jpg' } }
+            },
+            // Original board pin with repin_count=8, saves=60 -> rescued for check, then STRICTLY REJECTED by min_repin_count=20!
+            {
+              id: '70000000000004',
+              type: 'pin',
+              title: 'Low Repin Original Meal Prep',
+              repin_count: 8,
+              aggregated_pin_data: { aggregated_stats: { saves: 60 } },
+              images: { '736x': { url: 'https://i.pinimg.com/736x/mp4.jpg' } }
+            }
+          ]
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('BestPinsFeedAltResource/get')) {
+      return new Response(JSON.stringify({ resource_response: { data: [] } }), { status: 200 });
+    }
+    if (url.includes('widgets.pinterest.com/v3/pidgets/pins/info/')) {
+      assert.equal(cookieHeader, '', 'Pidgets must remain strictly Zero-Cookie');
+      return new Response(JSON.stringify({
+        data: [
+          { id: '70000000000001', repin_count: 65, aggregated_pin_data: { aggregated_stats: { saves: 140 } } },
+          { id: '70000000000002', repin_count: 1, aggregated_pin_data: { aggregated_stats: { saves: 319 } } },
+          { id: '70000000000003', repin_count: 0, aggregated_pin_data: { aggregated_stats: { saves: 240 } } },
+          { id: '70000000000004', repin_count: 8, aggregated_pin_data: { aggregated_stats: { saves: 60 } } }
+        ]
+      }), { status: 200 });
+    }
+    if (url.includes('PinResource/get')) {
+      assert.equal(cookieHeader, '', 'PinResource must remain strictly Zero-Cookie');
+      if (url.includes('70000000000001')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000001',
+              title: '5-Day Chicken Rice Meal Prep',
+              created_at: fiveDaysAgo,
+              repin_count: 65,
+              aggregated_pin_data: { aggregated_stats: { saves: 140 } },
+              is_repin: false,
+              pinner: { username: 'fresh_prep_chef', follower_count: 1200 },
+              pin_join: {
+                canonical_pin: { id: '99999999999999' }, // Visual cluster neighbor from 2021 — MUST NOT overwrite original!
+                visual_annotation: ['meal prep for the week', 'high protein chicken bowls']
+              }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('99999999999999')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: { id: '99999999999999', title: 'Old 2021 Cluster Neighbor', created_at: old2021, is_repin: false }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('70000000000002')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000002',
+              title: 'Sunday Steak & Veggies Meal Prep',
+              created_at: fiveDaysAgo,
+              repin_count: 1,
+              aggregated_pin_data: { aggregated_stats: { saves: 319 } },
+              is_repin: true,
+              pinner: { username: 'board_curator', follower_count: 50000 },
+              pin_join: {
+                canonical_pin: { id: '70000000000099' },
+                visual_annotation: ['meal prep for the week', 'steak meal prep']
+              }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('70000000000003')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000003',
+              title: 'High Protein Turkey Meal Prep',
+              created_at: fiveDaysAgo,
+              repin_count: 0,
+              aggregated_pin_data: { aggregated_stats: { saves: 240 } },
+              is_repin: true,
+              pinner: { username: 'board_curator', follower_count: 50000 },
+              pin_join: {
+                canonical_pin: { id: '70000000000098' },
+                visual_annotation: ['meal prep for the week', 'high protein turkey bowls']
+              }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('70000000000098')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000098',
+              title: 'High Protein Turkey Meal Prep (Verified Root)',
+              created_at: fiveDaysAgo,
+              repin_count: 74,
+              aggregated_pin_data: { aggregated_stats: { saves: 240 } },
+              is_repin: false,
+              pinner: { username: 'turkey_prep_creator', follower_count: 900 },
+              pin_join: {
+                visual_annotation: ['meal prep for the week', 'high protein turkey bowls']
+              }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('70000000000004')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000004',
+              title: 'Low Repin Original Meal Prep',
+              created_at: fiveDaysAgo,
+              repin_count: 8,
+              aggregated_pin_data: { aggregated_stats: { saves: 60 } },
+              is_repin: false,
+              pinner: { username: 'low_repin_user', follower_count: 300 },
+              pin_join: { visual_annotation: ['meal prep for the week'] }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('70000000000099')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '70000000000099',
+              title: 'Sunday Steak & Veggies Meal Prep (Root)',
+              created_at: sixDaysAgo,
+              repin_count: 108,
+              aggregated_pin_data: { aggregated_stats: { saves: 319 } },
+              is_repin: false,
+              pinner: { username: 'steak_prep_origin', follower_count: 900 },
+              pin_join: {
+                visual_annotation: ['meal prep for the week', 'steak meal prep', 'sunday meal prep']
+              }
+            }
+          }
+        }), { status: 200 });
+      }
+    }
+    if (url.includes('UserResource/get')) {
+      userResourceCalls++;
+      assert.equal(cookieHeader, '', 'UserResource must remain strictly Zero-Cookie');
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: {
+            username: 'steak_prep_origin',
+            full_name: 'Steak Prep Origin',
+            follower_count: 900,
+            profile_reach: 485000,
+            profile_views: 612000,
+            pin_count: 42,
+            board_count: 5
+          }
+        }
+      }), { status: 200 });
+    }
+    return new Response('{}', { status: 404 });
+  };
+
+  const router = new NewbornCookieRouter({ rawCookie: 'TWc9PSZtest_wave6d_cookie', fetchImpl: mockFetch });
+
+  // 4. Trends lag fix (latest_available_date + endDate + values[] parsing)
+  const latestDate = await resolveTrendsLatestAvailableDate(router, nowMs);
+  assert.equal(latestDate, '2026-11-15');
+  const trendsRes = await harvestGrowingTrendsSurface(router, { country: 'US', limit: 10, fetch90dForecast: false });
+  assert.equal(trendsRequestedEndDate, '2026-11-15', 'Trends must pass latest_available_date as endDate');
+  assert.equal(trendsRes.trends.length, 1);
+  assert.equal(trendsRes.trends[0].term, 'meal prep for the week');
+  assert.equal(trendsRes.trends[0].weekly_growth_pct, 45);
+  assert.equal(trendsRes.trends[0].monthly_growth_pct, 120);
+
+  // 5. Official Idea Page Intelligence + Home Feed surface
+  const ideaInfo = await resolveIdeaPageIntelligence('Meal prep for the week', { router, country: 'US' });
+  assert.equal(ideaInfo.found, true);
+  assert.equal(ideaInfo.id, '956840852136');
+  assert.equal(ideaInfo.internal_search_count, 720549);
+  assert.equal(ideaInfo.idea_url, 'https://www.pinterest.com/ideas/meal-prep-for-the-week/956840852136/');
+  assert.equal(ideaInfo.weekly_change, 20);
+
+  const homeRes = await harvestHomeFeedSurface(router, { targetPins: 100 });
+  assert.equal(homeRes.ok, true);
+  assert.equal(homeRes.pins.length, 1);
+  assert.equal(homeRes.pins[0].first_surface, 'home_feed');
+  assert.ok(observedHomeFeedHeaders[0].includes('_auth=1'));
+
+  // 6. Full Discovery Run: Board Repin unwraps to root pin 70000000000099 (108 repins), Original pin 70000000000001
+  //    is NOT corrupted by 2021 visual cluster neighbor, AND ZERO UserResource/get calls occur by default!
+  const sql = createStatefulNewbornSqlMock();
+  const discRes = await runNewbornDiscovery(sql, {
+    seedQueries: ['Meal prep for the week'],
+    rawCookieOverride: 'TWc9PSZtest_wave6d_cookie',
+    settingsOverrides: {
+      qualification: { max_age_days: 30, min_repin_count: 20, min_save_count: 0 },
+      discovery: {
+        surfaces: {
+          pin_serp_capsules: { enabled: true, target_pins: 100, max_pages: 2 },
+          fresh_boards: { enabled: true, max_boards: 5, target_pins_per_board: 50 },
+          board_more_ideas: { enabled: false },
+          ideas_feeds: { enabled: false },
+          home_feed: { enabled: false },
+          growing_trends: { enabled: false },
+          zero_query_popular: { enabled: false }
+        }
+      }
+    },
+    routerOptions: { fetchImpl: mockFetch },
+    nowMs
+  });
+
+  assert.equal(discRes.ok, true);
+  assert.equal(userResourceCalls, 0, 'ZERO automatic UserResource/get calls may run by default during hunts');
+  assert.equal(discRes.idea_page?.id, '956840852136');
+  assert.equal(discRes.idea_page?.internal_search_count, 720549);
+
+  const survivingIds = discRes.candidates.map((c) => c.pin_id).sort();
+  assert.deepEqual(
+    survivingIds,
+    ['70000000000001', '70000000000098', '70000000000099'],
+    'Original pin + both unwrapped board root pins (incl. Pidgets repin_count=0 rescue) must survive, while low-repin pin 04 & story wrapper are excluded'
+  );
+  assert.equal(discRes.funnel.board_repins_unwrapped, 2);
+  const unwrappedRoot = discRes.candidates.find((c) => c.pin_id === '70000000000099');
+  assert.equal(unwrappedRoot.repin_count, 108);
+  assert.ok(unwrappedRoot.age_days <= 7, 'Unwrapped board repin must carry verified 6d root age');
+  assert.ok(unwrappedRoot.visual_annotations.length >= 2, 'Pin Annotations must remain intact');
+
+  // 7. HTTP endpoints: GET /api/newborn/idea-intelligence (offline-safe) + POST /api/newborn/candidates/:pin_id/fetch-account
+  const app = createFastifyApp({
+    NODE_ENV: 'production',
+    ENVIRONMENT: 'production',
+    API_SECRET_KEY: 'wave6d-secret-key',
+    DATABASE_URL: '',
+    SQL_CLIENT: sql,
+    NEWBORN_FETCH_IMPL: mockFetch
+  });
+  t.after(async () => {
+    clearNewbornInflightRunsForTest();
+    await app.close();
+  });
+
+  const ideaApiRes = await app.inject({
+    method: 'GET',
+    url: '/api/newborn/idea-intelligence?q=Meal+prep+for+the+week'
+  });
+  assert.equal(ideaApiRes.statusCode, 200);
+  assert.equal(ideaApiRes.json().found, true);
+  assert.equal(ideaApiRes.json().id, '956840852136');
+  assert.equal(ideaApiRes.json().internal_search_count, 720549);
+
+  // Manual on-demand Account Reach fetch calls UserResource/get ONLY when explicitly triggered!
+  const fetchAccRes = await app.inject({
+    method: 'POST',
+    url: '/api/newborn/candidates/70000000000099/fetch-account',
+    headers: { 'x-api-key': 'wave6d-secret-key' }
+  });
+  assert.equal(fetchAccRes.statusCode, 200);
+  assert.ok(String(fetchAccRes.headers['cache-control'] || '').includes('no-store'));
+  assert.equal(userResourceCalls, 1, 'Manual Pull Account must invoke UserResource/get once on demand');
+  const accBody = fetchAccRes.json();
+  assert.equal(accBody.fetched_count, 1);
+  assert.equal(accBody.results[0].creator_monthly_reach, 485000);
+  assert.equal(accBody.results[0].creator_profile_views, 612000);
+  assert.equal(sql.state.candidates.get('70000000000099').creator_monthly_reach, 485000);
+
+  // 8. Migration 005 transactional safety (zero CONCURRENTLY)
+  const mig005 = fs.readFileSync(path.resolve('scripts/migrations/005_wave6d_repin_hunter_realignment.sql'), 'utf8');
+  const mig005NoComments = mig005.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(/\bCONCURRENTLY\b/i.test(mig005NoComments), false, 'Migration 005 must be strictly transactional (no CONCURRENTLY)');
 });
