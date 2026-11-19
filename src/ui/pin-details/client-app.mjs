@@ -47,6 +47,11 @@ export function getPinDetailsClientAppScripts() {
         isDeleting: false,
         isSyncing: false,
         isTrackingCreator: false,
+        annotationsIntelOpen: false,
+        annotationsIntelLoading: false,
+        annotationsIntelError: '',
+        annotationsIntelData: null,
+        annotationsIntelPinId: null,
         selectedKeywordFilter: 'ALL',
         expandedDays: {},
         searchKeywordInput: '',
@@ -890,6 +895,76 @@ export function getPinDetailsClientAppScripts() {
           }));
         },
 
+        async toggleAnnotationsIntel() {
+          this.annotationsIntelOpen = !this.annotationsIntelOpen;
+          if (this.annotationsIntelOpen) {
+            const hasCachedForPin = Boolean(this.annotationsIntelData && this.annotationsIntelPinId === this.pinId);
+            if (!hasCachedForPin && !this.annotationsIntelLoading) {
+              await this.loadAnnotationsIntel(false);
+            }
+          }
+        },
+
+        async loadAnnotationsIntel(forceRefresh = false) {
+          if (!this.pinId || this.annotationsIntelLoading) return;
+          this.annotationsIntelLoading = true;
+          this.annotationsIntelError = '';
+          try {
+            const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
+            if (!fetcher) return;
+            const qs = forceRefresh ? ('?refresh=true&_ts=' + Date.now()) : '';
+            const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/annotations-intel' + qs, {
+              cache: 'no-store',
+              headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+              signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(20000) : undefined
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data && data.success) {
+              this.annotationsIntelData = data;
+              this.annotationsIntelPinId = this.pinId;
+            } else {
+              this.annotationsIntelError = data?.message || data?.error || ('Failed to inspect annotations (HTTP ' + res.status + ')');
+            }
+          } catch (err) {
+            this.annotationsIntelError = err?.message || 'Network error while loading annotations intelligence';
+          } finally {
+            this.annotationsIntelLoading = false;
+          }
+        },
+
+        annotationsIntelRows() {
+          return Array.isArray(this.annotationsIntelData?.annotations) ? this.annotationsIntelData.annotations : [];
+        },
+
+        formatAnnotationDate(rawDate, fallbackLabel) {
+          if (fallbackLabel && typeof fallbackLabel === 'string') return fallbackLabel;
+          if (!rawDate) return '—';
+          const str = String(rawDate).trim();
+          if (!str || str.includes('1970')) return '—';
+          const d = /^\\d{10}$/.test(str)
+            ? new Date(Number(str) * 1000)
+            : (/^\\d{13}$/.test(str) ? new Date(Number(str)) : new Date(str));
+          if (isNaN(d.getTime()) || d.getUTCFullYear() <= 1970) return '—';
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+        },
+
+        copyAnnotationId(id) {
+          if (!id) return;
+          this.copyText(String(id), 'Annotation ID');
+        },
+
+        copyAllAnnotations() {
+          const rows = this.annotationsIntelRows();
+          const names = rows.length > 0
+            ? rows.map(r => r?.annotation).filter(Boolean)
+            : this.activeLiveTags().map(t => t?.name).filter(Boolean);
+          if (!names.length) {
+            this.showToast('No annotations available to copy', 'error');
+            return;
+          }
+          this.copyText(names.join('\\n'), names.length + ' Annotations');
+        },
+
         latestSnapshot() {
           return this.dossier?.snapshots?.[0] || null;
         },
@@ -1283,7 +1358,13 @@ export function getPinDetailsClientAppScripts() {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               this.showToast('Pin synchronized across all 4 pillars successfully!');
+              this.annotationsIntelData = null;
+              this.annotationsIntelPinId = null;
+              this.annotationsIntelError = '';
               await this.loadDossier(true);
+              if (this.annotationsIntelOpen) {
+                await this.loadAnnotationsIntel(true);
+              }
             } else {
               this.showToast(data?.message || data?.error || 'Deep sync failed', 'error');
             }

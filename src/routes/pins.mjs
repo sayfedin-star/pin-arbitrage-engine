@@ -17,6 +17,7 @@ import {
 import { fetchPinFromPinterest, fetchPinFromPinResource, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 import { ignoreAndRemoveSerpPin } from '../modules/keywords/service.mjs';
 import { detectHydrationJump, isRepinHydrationJump, calculateDailyVelocity } from '../lib/math.mjs';
+import { fetchPinAnnotationsIntel } from '../modules/pins/annotations-intel.mjs';
 
 // Record deleted date in universal_master_pins
 export async function recordDeletedSnapshotTombstone({ sql, pinId, targetDate }) {
@@ -582,6 +583,47 @@ export async function handlePinsRoutes({
         message: redactSecrets ? redactSecrets(err.message) : err.message,
         pin_id: pinId
       }, 500);
+    }
+  }
+
+  // 2B. GET /api/pins/:pin_id/annotations-intel (Lazy-Loaded On-Demand Annotations Volume & Taxonomy)
+  if (parts[1] === 'annotations-intel' && parts.length === 2) {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    if (!pinId || !isValidPinId(pinId)) {
+      return jsonResponse({
+        success: false,
+        error: 'INVALID_PIN_ID',
+        message: 'Pin ID must be a valid identifier (numeric Snowflake, 10-30 digits)'
+      }, 400, 0);
+    }
+    try {
+      const force = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+      const result = await fetchPinAnnotationsIntel({
+        sql,
+        pinId,
+        force,
+        concurrency: 4,
+        maxItems: 15,
+        ...(typeof env?.FETCH_INTEREST_VOLUME === 'function' ? { fetchInterestFn: env.FETCH_INTEREST_VOLUME } : {})
+      });
+      if (!result.found) {
+        return jsonResponse({
+          success: false,
+          error: 'NOT_FOUND',
+          message: `Pin not found for pin_id: ${pinId}`,
+          pin_id: pinId
+        }, 404, 0);
+      }
+      return jsonResponse(result.payload, 200, 0);
+    } catch (err) {
+      return jsonResponse({
+        success: false,
+        error: 'ANNOTATIONS_INTEL_ERROR',
+        message: redactSecrets ? redactSecrets(err.message) : err.message,
+        pin_id: pinId
+      }, 500, 0);
     }
   }
 

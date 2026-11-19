@@ -509,14 +509,161 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
         </template>
 
-        <!-- Live Pinterest Vision Tags Cloud -->
+        <!-- Live Pinterest Vision Tags Cloud + Lazy-Loaded Collapsible Annotations Inspector -->
         <template x-if="activeLiveTags().length > 0">
-          <div class="space-y-1.5 pt-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live Active Vision Tags</span>
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">Live Active Vision Tags</span>
+              <button
+                type="button"
+                @click="toggleAnnotationsIntel()"
+                :aria-expanded="annotationsIntelOpen ? 'true' : 'false'"
+                aria-controls="annotations-intel-panel"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+                :class="annotationsIntelOpen ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100/80 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30 dark:hover:bg-rose-500/20' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900 dark:bg-[#18181B] dark:text-zinc-200 dark:border-[#27272A] dark:hover:bg-[#27272A] dark:hover:text-white'"
+                title="Inspect Pinterest search volume, annotation IDs, and taxonomy tree on demand"
+              >
+                <span x-text="'Inspect Volume & Taxonomy (' + activeLiveTags().length + ')'"></span>
+                <svg class="w-3.5 h-3.5 transition-transform duration-150" :class="annotationsIntelOpen ? 'rotate-180' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
             <div class="flex items-center gap-1.5 flex-wrap">
               <template x-for="tag in activeLiveTags()" :key="tag.name">
                 <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300" x-text="tag.name"></span>
               </template>
+            </div>
+
+            <!-- Collapsible On-Demand Annotations Volume & Taxonomy Inspector -->
+            <div
+              id="annotations-intel-panel"
+              x-show="annotationsIntelOpen"
+              x-transition:enter="transition ease-out duration-150"
+              x-transition:enter-start="opacity-0 -translate-y-1"
+              x-transition:enter-end="opacity-100 translate-y-0"
+              x-transition:leave="transition ease-in duration-100"
+              x-transition:leave-start="opacity-100 translate-y-0"
+              x-transition:leave-end="opacity-0 -translate-y-1"
+              class="mt-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#09090B]/60 overflow-hidden"
+              x-cloak
+            >
+              <!-- Skeleton Loading State -->
+              <div x-show="annotationsIntelLoading" class="p-3.5 space-y-2.5 animate-pulse" aria-busy="true" aria-label="Loading annotations intelligence">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="h-4 w-48 rounded bg-slate-200/90 dark:bg-[#27272A]"></div>
+                  <div class="flex items-center gap-2">
+                    <div class="h-6 w-28 rounded-md bg-slate-200/90 dark:bg-[#27272A]"></div>
+                    <div class="h-6 w-16 rounded-md bg-slate-200/90 dark:bg-[#27272A]"></div>
+                  </div>
+                </div>
+                <div class="space-y-1.5 pt-1">
+                  <div class="h-8 w-full rounded bg-slate-200/70 dark:bg-[#18181B]"></div>
+                  <div class="h-8 w-full rounded bg-slate-200/70 dark:bg-[#18181B]"></div>
+                  <div class="h-8 w-full rounded bg-slate-200/70 dark:bg-[#18181B]"></div>
+                  <div class="h-8 w-full rounded bg-slate-200/70 dark:bg-[#18181B]"></div>
+                </div>
+              </div>
+
+              <!-- Error State -->
+              <div x-show="!annotationsIntelLoading && annotationsIntelError" class="p-4 flex items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300 min-w-0">
+                  <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                  <span class="truncate" x-text="annotationsIntelError"></span>
+                </div>
+                <button
+                  type="button"
+                  @click="loadAnnotationsIntel(true)"
+                  class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-zinc-200 text-[11px] font-semibold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+
+              <!-- Populated Summary Bar + 4-Column Pin Inspector Table -->
+              <div x-show="!annotationsIntelLoading && !annotationsIntelError && annotationsIntelData">
+                <div class="px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap border-b border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]/70">
+                  <div class="flex items-center gap-2 text-xs flex-wrap">
+                    <span class="text-[11px] font-medium text-slate-500 dark:text-zinc-400">Total Search Volume</span>
+                    <span class="font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-[#FAFAFA]" x-text="formatNumber(annotationsIntelData?.total_search_volume || 0)"></span>
+                    <span class="text-slate-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                    <span class="font-mono tabular-nums text-[11px] text-slate-500 dark:text-zinc-400" x-text="(annotationsIntelData?.checked_count || 0) + ' checked' + (annotationsIntelData?.capped ? ' (top 15)' : '')"></span>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      @click="copyAllAnnotations()"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-zinc-200 text-[11px] font-medium whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                      title="Copy all annotations to clipboard"
+                    >
+                      <svg class="w-3 h-3 text-slate-400 dark:text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                      <span>Copy All Annotations</span>
+                    </button>
+                    <button
+                      type="button"
+                      @click="loadAnnotationsIntel(true)"
+                      :disabled="annotationsIntelLoading"
+                      class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-600 dark:text-zinc-300 text-[11px] font-medium whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 transition-colors"
+                      title="Force refresh Pinterest Interest metrics"
+                    >
+                      <svg class="w-3 h-3" :class="annotationsIntelLoading ? 'animate-spin' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-[11.5px] border-collapse">
+                    <thead class="bg-slate-100/70 dark:bg-[#18181B] border-b border-slate-200 dark:border-[#27272A] text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      <tr>
+                        <th class="px-3 py-2 font-semibold whitespace-nowrap">Annotation</th>
+                        <th class="px-3 py-2 font-semibold text-right whitespace-nowrap">Search Volume</th>
+                        <th class="px-3 py-2 font-semibold whitespace-nowrap w-full">Category Tree</th>
+                        <th class="px-3 py-2 font-semibold text-right whitespace-nowrap">Link</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200/70 dark:divide-[#1E1E22] bg-white dark:bg-[#121215]">
+                      <template x-for="row in annotationsIntelRows()" :key="row.annotation + '_' + (row.annotation_id || '')">
+                        <tr class="hover:bg-slate-50 dark:hover:bg-[#18181B] transition-colors">
+                          <td
+                            class="px-3 py-2 font-medium text-slate-900 dark:text-[#FAFAFA] whitespace-nowrap max-w-[220px] xl:max-w-[250px] truncate"
+                            :title="[row.annotation, row.annotation_id ? ('ID: ' + row.annotation_id) : '', (row.last_updated || row.last_updated_display) ? ('Updated: ' + formatAnnotationDate(row.last_updated, row.last_updated_display)) : ''].filter(Boolean).join(' · ')"
+                            x-text="row.annotation"
+                          ></td>
+                          <td class="px-3 py-2 text-right font-mono tabular-nums font-bold whitespace-nowrap">
+                            <span
+                              :class="(row.search_volume || 0) >= 500000 ? 'text-rose-600 dark:text-rose-400' : ((row.search_volume || 0) >= 50000 ? 'text-emerald-600 dark:text-emerald-400' : ((row.search_volume || 0) >= 10000 ? 'text-amber-600 dark:text-amber-400' : ((row.search_volume || 0) > 0 ? 'text-slate-900 dark:text-[#FAFAFA]' : 'text-slate-400 dark:text-zinc-500')))"
+                              x-text="(row.resolved || (row.search_volume || 0) > 0) ? formatNumber(row.search_volume || 0) : '—'"
+                            ></span>
+                          </td>
+                          <td
+                            class="px-3 py-2 text-[11px] text-slate-600 dark:text-zinc-300 leading-snug break-words"
+                            :title="row.category_tree_text || (Array.isArray(row.category_tree) ? row.category_tree.join(' > ') : '')"
+                            x-text="row.category_tree_text || (Array.isArray(row.category_tree) && row.category_tree.length ? row.category_tree.join(' > ') : '—')"
+                          ></td>
+                          <td class="px-3 py-2 text-right whitespace-nowrap">
+                            <a
+                              :href="safeUrl(row.link)"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="inline-flex items-center justify-center w-6 h-6 rounded-md text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/15 transition-colors"
+                              :aria-label="'Open ' + row.annotation + ' on Pinterest Ideas'"
+                              :title="'Open ' + row.annotation + ' on Pinterest Ideas'"
+                            >
+                              <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                            </a>
+                          </td>
+                        </tr>
+                      </template>
+                      <template x-if="annotationsIntelRows().length === 0">
+                        <tr>
+                          <td colspan="4" class="px-3 py-4 text-center text-xs text-slate-500 dark:text-zinc-400">
+                            No stored annotations available to inspect for this pin.
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </template>

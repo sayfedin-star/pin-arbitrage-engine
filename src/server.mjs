@@ -65,8 +65,9 @@ export const sql = (!isInitialTestEnv && typeof process !== 'undefined' && proce
 export async function dbHealthCheck(client) {
   const sqlClient = client || getServerSqlClient();
   if (!sqlClient) return { status: 'disconnected' };
+  const probeSql = sqlClient.noRetry || sqlClient;
   try {
-    await sqlClient`SELECT 1 as alive;`;
+    await probeSql`SELECT 1 as alive;`;
     return { status: 'connected' };
   } catch (err) {
     return { status: 'error', error: redactSecrets(err?.message || String(err)) };
@@ -348,8 +349,9 @@ export function createFastifyApp(customEnv = {}) {
     let dbError = null;
 
     if (currentSql) {
+      const probeSql = currentSql.noRetry || currentSql;
       try {
-        await currentSql`SELECT 1 as alive;`;
+        await probeSql`SELECT 1 as alive;`;
         dbStatus = 'connected';
       } catch (err) {
         dbError = err?.message || String(err);

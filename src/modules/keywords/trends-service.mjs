@@ -27,11 +27,12 @@ const relatedInterestsCache = new TtlSingleflightCache({ maxEntries: RELATED_INT
  * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
  * Direct access to Pinterest's InterestResource via slug or ID.
  */
-export async function fetchPinterestInterestVolume(term) {
+export async function fetchPinterestInterestVolume(term, options = {}) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm) return null;
   const slug = cleanTerm.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
   if (!slug) return null;
+  const forceRefresh = Boolean(options?.force);
 
   return await interestCache.getOrFetch(
     slug,
@@ -96,7 +97,7 @@ export async function fetchPinterestInterestVolume(term) {
         }
       }
     },
-    { shouldCache: (val) => Boolean(val) }
+    { forceRefresh, shouldCache: (val) => Boolean(val) }
   );
 }
 

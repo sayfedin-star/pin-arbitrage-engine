@@ -158,7 +158,8 @@ export async function apiRoutesPlugin(app, options = {}) {
             searchParams.get('force_refresh') === 'true' ||
             pathname === '/api/keywords/visual-search' ||
             pathname === '/api/urls/global-saves' ||
-            pathname === '/api/pins/resolve-shortlink'
+            pathname === '/api/pins/resolve-shortlink' ||
+            /^\/api\/pins\/[^/]+\/annotations-intel$/.test(pathname)
           );
 
           if (isMutatingMethod || isSensitiveEndpoint || isSideEffectingGet) {
