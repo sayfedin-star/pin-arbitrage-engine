@@ -65,6 +65,7 @@ permissions:
 env:
   DATABASE_TOPOLOGY: unified_postgres
   PG_POOL_MAX: '2'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ============================================================================
@@ -245,9 +246,16 @@ jobs:
           API_SECRET_KEY: ${{ secrets.API_SECRET_KEY }}
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL || 'https://app.hymum.com' }}
         run: |
-          if [ -n "$API_SECRET_KEY" ]; then
-            curl -s -X POST "${APP_PUBLIC_URL}/api/cache/invalidate" \
-              -H "x-api-key: $API_SECRET_KEY" \
-              -H "Content-Type: application/json" \
-              -d '{"scope":"all_folders","event":"crawl_complete"}' || true
+          if [ -z "$API_SECRET_KEY" ]; then
+            echo "⚠️ API_SECRET_KEY secret is not configured — skipping VPS cache invalidation."
+            exit 0
+          fi
+          HTTP_CODE=$(curl -s -o /tmp/cache-invalidate.out -w "%{http_code}" --max-time 15 \
+            -X POST "${APP_PUBLIC_URL}/api/cache/invalidate" \
+            -H "x-api-key: $API_SECRET_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"scope":"all_folders","event":"crawl_complete"}' || echo "000")
+          echo "VPS cache invalidation (${APP_PUBLIC_URL}/api/cache/invalidate) returned HTTP ${HTTP_CODE}."
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "⚠️ Non-2xx response from cache invalidate (non-fatal): $(head -c 200 /tmp/cache-invalidate.out 2>/dev/null || true)"
           fi

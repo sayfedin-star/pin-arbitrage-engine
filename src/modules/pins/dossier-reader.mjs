@@ -229,20 +229,25 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
   const topHubMeta = normalizeMetadata(hubSerpRows[0]?.metadata);
   const masterMetaObj = normalizeMetadata(masterRecord?.metadata);
 
+  const masterTags = normalizeVisualAnnotations(masterRecord?.visual_annotations);
   const unionSet = new Set();
-  for (const tag of normalizeVisualAnnotations(masterRecord?.visual_annotations)) {
+  for (const tag of masterTags) {
     if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
   }
-  for (const tag of normalizeVisualAnnotations(masterMetaObj?.visual_annotations)) {
-    if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
-  }
-  for (const rowItem of hubSerpRows) {
-    for (const tag of normalizeVisualAnnotations(rowItem.visual_annotations)) {
+  // Only fall back to legacy metadata / SERP row annotations when universal_master_pins has none,
+  // so fresh Live Deep Sync / annotations_with_links updates immediately replace older tags cleanly.
+  if (unionSet.size === 0) {
+    for (const tag of normalizeVisualAnnotations(masterMetaObj?.visual_annotations)) {
       if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
     }
-    const rMeta = normalizeMetadata(rowItem.metadata);
-    for (const tag of normalizeVisualAnnotations(rMeta.visual_annotations)) {
-      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+    for (const rowItem of hubSerpRows) {
+      for (const tag of normalizeVisualAnnotations(rowItem.visual_annotations)) {
+        if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+      }
+      const rMeta = normalizeMetadata(rowItem.metadata);
+      for (const tag of normalizeVisualAnnotations(rMeta.visual_annotations)) {
+        if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+      }
     }
   }
 
@@ -902,17 +907,34 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
   };
 
   const latestLiveAnnotations = new Set(
-    normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations)
+    (masterTags.length > 0 ? masterTags : normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations))
       .map(t => String(t || '').trim())
       .filter(Boolean)
   );
+  const linkedAnnotationLookup = new Map();
+  if (Array.isArray(snapMeta.annotations_with_links)) {
+    for (const item of snapMeta.annotations_with_links) {
+      if (item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim()) {
+        linkedAnnotationLookup.set(item.name.trim().toLowerCase(), {
+          idea_id: item.idea_id || null,
+          url: item.url || null
+        });
+      }
+    }
+  }
 
-  const detailedAnnotations = finalVisualAnnotations.map(tag => ({
-    name: tag,
-    is_live: latestLiveAnnotations.size > 0 ? latestLiveAnnotations.has(tag) : true,
-    status: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'live' : 'historical',
-    label: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'Live Active' : 'Historical Crawl'
-  }));
+  const detailedAnnotations = finalVisualAnnotations.map(tag => {
+    const linked = linkedAnnotationLookup.get(String(tag || '').trim().toLowerCase()) || null;
+    const isLive = latestLiveAnnotations.size > 0 ? latestLiveAnnotations.has(tag) : true;
+    return {
+      name: tag,
+      is_live: isLive,
+      status: isLive ? 'live' : 'historical',
+      label: isLive ? 'Live Active' : 'Historical Crawl',
+      ...(linked?.idea_id ? { idea_id: linked.idea_id } : {}),
+      ...(linked?.url ? { url: linked.url } : {})
+    };
+  });
 
   const reactionsSum = Object.values(snapMeta.reactions || {}).reduce((acc, v) => acc + (Number(v) || 0), 0);
   const resolvedReactionCount = Math.max(

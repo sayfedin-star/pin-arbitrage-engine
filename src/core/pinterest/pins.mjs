@@ -257,12 +257,20 @@ export function formatPin(pin) {
     pin?.aggregatedStats ||
     {};
 
-  // Extract annotations
-  const withLinks =
-    pin?.pin_join?.annotationsWithLinksArray ||
-    pin?.pinJoin?.annotationsWithLinksArray ||
-    pin?.annotationsWithLinksArray ||
-    [];
+  // Extract annotations: prioritize pin_join.annotations_with_links (Object Map or Array) before visual_annotation
+  const linkedSources = [
+    pin?.pin_join?.annotations_with_links,
+    pin?.pinJoin?.annotations_with_links,
+    pin?.pin_join?.annotationsWithLinks,
+    pin?.pinJoin?.annotationsWithLinks,
+    pin?.pin_join?.annotationsWithLinksArray,
+    pin?.pinJoin?.annotationsWithLinksArray,
+    pin?.pin_join?.annotations_with_links_array,
+    pin?.pinJoin?.annotations_with_links_array,
+    pin?.annotations_with_links,
+    pin?.annotationsWithLinks,
+    pin?.annotationsWithLinksArray
+  ];
   const visual =
     pin?.pin_join?.visual_annotation ||
     pin?.visual_annotation ||
@@ -271,55 +279,100 @@ export function formatPin(pin) {
     [];
 
   const annotationsMap = new Map();
-  for (const item of Array.isArray(withLinks) ? withLinks : []) {
-    const rawName = typeof item?.name === 'string' ? item.name.trim() : '';
-    if (rawName) {
-      const lower = rawName.toLowerCase();
-      const ideaId = item.idea_id ?? item.ideaId ?? (String(item.url || '').match(/\/ideas\/[^/]+\/(\d+)/)?.[1] || null);
-      const url = item.url || null;
-      const existing = annotationsMap.get(lower);
-      if (!existing) {
-        annotationsMap.set(lower, { name: rawName, idea_id: ideaId, url });
-      } else {
-        if (!existing.idea_id && ideaId) existing.idea_id = ideaId;
-        if (!existing.url && url) existing.url = url;
+  let hasLinkedAnnotations = false;
+
+  const isCleanAnnotationName = (val) => {
+    if (typeof val !== 'string') return false;
+    const trimmed = val.trim();
+    if (trimmed.length < 2) return false;
+    if (/^\[object\s+object\]$/i.test(trimmed) || /^object\s+object$/i.test(trimmed)) return false;
+    if (/^not[\s_-]?given$/i.test(trimmed)) return false;
+    return true;
+  };
+
+  const upsertAnnotation = (rawName, rawUrl = null, rawIdeaId = null, fromLinked = false) => {
+    if (!isCleanAnnotationName(rawName)) return;
+    const cleanName = rawName.trim();
+    const lower = cleanName.toLowerCase();
+    const cleanUrl = (typeof rawUrl === 'string' && rawUrl.trim()) ? rawUrl.trim() : null;
+    const extractedIdeaId =
+      (rawIdeaId !== null && rawIdeaId !== undefined && String(rawIdeaId).trim())
+        ? String(rawIdeaId).trim()
+        : (cleanUrl ? (cleanUrl.match(/\/ideas\/[^/]+\/(\d+)/)?.[1] || null) : null);
+
+    if (fromLinked) hasLinkedAnnotations = true;
+
+    const existing = annotationsMap.get(lower);
+    if (!existing) {
+      annotationsMap.set(lower, { name: cleanName, idea_id: extractedIdeaId, url: cleanUrl });
+    } else {
+      if (!existing.idea_id && extractedIdeaId) existing.idea_id = extractedIdeaId;
+      if (!existing.url && cleanUrl) existing.url = cleanUrl;
+    }
+  };
+
+  const ingestLinkedSource = (source) => {
+    if (!source) return;
+    if (Array.isArray(source)) {
+      for (const item of source) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          upsertAnnotation(item, null, null, true);
+        } else if (typeof item === 'object') {
+          const candidateName = item.name ?? item.key ?? item.label ?? item.title ?? '';
+          const candidateUrl = item.url ?? item.link ?? null;
+          const candidateIdeaId = item.idea_id ?? item.ideaId ?? item.id ?? null;
+          upsertAnnotation(typeof candidateName === 'string' ? candidateName : '', candidateUrl, candidateIdeaId, true);
+        }
+      }
+      return;
+    }
+    if (typeof source === 'object') {
+      for (const [entryKey, item] of Object.entries(source)) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          const valStr = item.trim();
+          const keyIsUrl = /^(\/|https?:\/\/)/i.test(entryKey);
+          const valIsUrl = /^(\/|https?:\/\/)/i.test(valStr);
+          if (valIsUrl && !keyIsUrl && !/^\d+$/.test(entryKey.trim())) {
+            // Shape: { "Parmesan Italian Ditalini Soup": "/ideas/parmesan-italian-ditalini-soup/912345/" }
+            upsertAnnotation(entryKey, valStr, null, true);
+          } else if (!valIsUrl) {
+            upsertAnnotation(valStr, keyIsUrl ? entryKey : null, null, true);
+          }
+        } else if (typeof item === 'object') {
+          const fallbackName = (!/^\d+$/.test(entryKey.trim()) && !/^(\/|https?:\/\/)/i.test(entryKey.trim())) ? entryKey : '';
+          const candidateName = item.name ?? item.key ?? item.label ?? item.title ?? fallbackName;
+          const candidateUrl = item.url ?? item.link ?? null;
+          const candidateIdeaId = item.idea_id ?? item.ideaId ?? item.id ?? (/^\d+$/.test(entryKey.trim()) ? entryKey.trim() : null);
+          upsertAnnotation(typeof candidateName === 'string' ? candidateName : '', candidateUrl, candidateIdeaId, true);
+        }
       }
     }
+  };
+
+  for (const src of linkedSources) {
+    ingestLinkedSource(src);
   }
 
   for (const name of Array.isArray(visual) ? visual : []) {
-    if (typeof name === 'string' && name.trim()) {
-      const rawName = name.trim();
-      const lower = rawName.toLowerCase();
-      if (!annotationsMap.has(lower)) {
-        annotationsMap.set(lower, { name: rawName, idea_id: null, url: null });
-      }
+    if (typeof name === 'string') {
+      upsertAnnotation(name, null, null, false);
     }
   }
 
   if (annotationsMap.size === 0 && Array.isArray(pin?.annotations)) {
     for (const item of pin.annotations) {
-      if (typeof item === 'string' && item.trim()) {
-        const rawName = item.trim();
-        const lower = rawName.toLowerCase();
-        if (!annotationsMap.has(lower)) {
-          annotationsMap.set(lower, { name: rawName, idea_id: null, url: null });
-        }
-      } else if (typeof item === 'object' && item?.name) {
-        const rawName = String(item.name).trim();
-        const lower = rawName.toLowerCase();
-        if (!annotationsMap.has(lower)) {
-          annotationsMap.set(lower, {
-            name: rawName,
-            idea_id: item.idea_id ? String(item.idea_id).trim() : null,
-            url: item.url ? String(item.url).trim() : null
-          });
-        }
+      if (typeof item === 'string') {
+        upsertAnnotation(item, null, null, false);
+      } else if (item && typeof item === 'object' && typeof item.name === 'string') {
+        upsertAnnotation(item.name, item.url || null, item.idea_id || item.ideaId || null, Boolean(item.url || item.idea_id));
       }
     }
   }
 
   const annotations = Array.from(annotationsMap.values());
+  const annotationsWithLinks = annotations.filter(a => Boolean(a.url || a.idea_id));
 
   const hasExplicitRepinsField = Boolean(
     st.repins !== undefined && st.repins !== null ||
@@ -692,6 +745,8 @@ export function formatPin(pin) {
     reaction_count: parseCleanMetric(pin.total_reaction_count || pin.reaction_counts?.total || 0),
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,
+    annotations_with_links: annotationsWithLinks,
+    has_linked_annotations: hasLinkedAnnotations,
     tags: annotations.map(a => a.name),
     is_repin: Boolean(pin.is_repin ?? pin.isRepin ?? false),
     origin_pinner: (pin.originPinner || pin.origin_pinner) ? {

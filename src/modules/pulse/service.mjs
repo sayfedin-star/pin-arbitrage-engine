@@ -19,7 +19,8 @@
 
 import {
   isSyntheticGarbageTitle,
-  CORRUPTED_OBJECT_STRING_RE
+  CORRUPTED_OBJECT_STRING_RE,
+  isAggregatedClusterPin
 } from '../../domain/pin-intelligence.mjs';
 import {
   computeAnscombeInflectionScore
@@ -1143,11 +1144,17 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         ...(p.board_name ? { board_name: p.board_name } : {}),
         ...(!isPlaceholderColor(p.dominant_color) ? { dominant_color: p.dominant_color } : {}),
         save_count: p.save_count,
-        ...(p.repin_count > 0 ? { repin_count: p.repin_count } : {}),
+        ...(p.repin_count != null ? { repin_count: Number(p.repin_count) } : {}),
         daily_save_velocity: dailyVel,
         ...(winGain !== dailyVel ? { window_saves_gain: winGain } : {}),
         ...(p.delta_saves_24h > 0 && p.delta_saves_24h !== dailyVel ? { delta_saves_24h: p.delta_saves_24h } : {}),
         ...(p.delta_repins_24h > 0 ? { delta_repins_24h: p.delta_repins_24h } : {}),
+        ...(isAggregatedClusterPin({
+          daily_save_velocity: dailyVel,
+          delta_repins_24h: p.delta_repins_24h,
+          save_count: p.save_count,
+          repin_count: p.repin_count
+        }) ? { is_aggregated_cluster: true } : {}),
         ...(effective24hGain !== dailyVel ? { effective_24h_gain: effective24hGain } : {}),
         ...(p.pin_age_days != null ? { pin_age_days: p.pin_age_days } : {}),
         ...(p.is_fresh_14d ? { is_fresh_14d: true } : {}),
@@ -1185,9 +1192,16 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
         image_url: p.image_url || '',
         ...(p.domain ? { domain: p.domain } : {}),
         save_count: p.save_count,
+        ...(p.repin_count != null ? { repin_count: Number(p.repin_count) } : {}),
         daily_save_velocity: dailyVel,
         ...(winGain !== dailyVel ? { window_saves_gain: winGain } : {}),
         ...(p.delta_repins_24h > 0 ? { delta_repins_24h: p.delta_repins_24h } : {}),
+        ...(isAggregatedClusterPin({
+          daily_save_velocity: dailyVel,
+          delta_repins_24h: p.delta_repins_24h,
+          save_count: p.save_count,
+          repin_count: p.repin_count
+        }) ? { is_aggregated_cluster: true } : {}),
         ...(p.pin_age_days != null ? { pin_age_days: p.pin_age_days } : {}),
         ...(annStrings.length > 0 ? { visual_annotations: annStrings } : {})
       };

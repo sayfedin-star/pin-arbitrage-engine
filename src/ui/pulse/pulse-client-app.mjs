@@ -814,6 +814,21 @@ export function getPulseClientAppScript() {
           this.isDossierHydrating = false;
         },
 
+        isAggregatedClusterPin: function(pin) {
+          if (!pin || typeof pin !== 'object') return false;
+          if (pin.is_aggregated_cluster === true) return true;
+          var vel = Number(pin.daily_save_velocity != null ? pin.daily_save_velocity : (pin.delta_saves_24h || 0));
+          if (!isFinite(vel) || vel < 50) return false;
+          var deltaRepins = Math.max(0, Number(pin.delta_repins_24h || 0) || 0);
+          if ((deltaRepins / vel) >= 0.10) return false;
+          var saveCount = Number(pin.save_count || 0);
+          if (!isFinite(saveCount) || saveCount <= 0) return false;
+          if (pin.repin_count === null || pin.repin_count === undefined || pin.repin_count === '') return false;
+          var repinCount = Number(pin.repin_count);
+          if (!isFinite(repinCount) || repinCount < 0) return false;
+          return (repinCount / saveCount) < 0.25;
+        },
+
         copyText: async function(text, label) {
           if (!text) return;
           try {

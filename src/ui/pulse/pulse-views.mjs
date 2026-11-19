@@ -388,6 +388,16 @@ export function getPulseStudioViewsHtml() {
                     <div class="text-[9px] font-mono text-slate-400 uppercase" 
                          x-text="(selectedWindow && selectedWindow !== '24h') ? (selectedWindow.toUpperCase() + ' Saves') : 'Save Velocity'"></div>
                   </td>`,
+                  repinsHtml: `
+                  <!-- 24H Repins Delta + Subtle Aggregated Cluster Indicator -->
+                  <td class="py-2.5 px-3 text-right">
+                    <div class="font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400 text-xs"
+                         x-text="'+' + formatNumber(pin.delta_repins_24h || 0)"></div>
+                    <template x-if="isAggregatedClusterPin(pin)">
+                      <div class="text-[9px] font-mono text-amber-600 dark:text-amber-400/90 mt-0.5 leading-tight"
+                           title="Aggregated Cluster: Saves are aggregated across visually identical clones on Pinterest while repins reflect only this individual Pin ID">Aggregated Cluster</div>
+                    </template>
+                  </td>`,
                   ageHtml: `
                   <!-- Age (Rule 31 Compliant) -->
                   <td class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
@@ -615,11 +625,15 @@ export function getPulseStudioViewsHtml() {
                        :title="p.title"
                        x-text="p.title || 'Untitled Pin'"></a>
                     
-                    <div class="flex items-center gap-2 font-mono text-[11px] pt-0.5">
+                    <div class="flex items-center gap-2 font-mono text-[11px] pt-0.5 flex-wrap">
                       <span class="text-rose-600 dark:text-rose-400 font-bold" 
                             x-text="formatVelocity(p.window_saves_gain || p.daily_save_velocity || p.delta_saves_24h || 0)"></span>
                       <span class="text-purple-600 dark:text-purple-400 font-bold" 
                             x-text="'+' + formatNumber(p.delta_repins_24h || 0) + ' repins'"></span>
+                      <template x-if="isAggregatedClusterPin(p)">
+                        <span class="text-[9.5px] font-mono text-amber-600 dark:text-amber-400/90"
+                              title="Aggregated Cluster: Saves are aggregated across visually identical clones on Pinterest while repins reflect only this individual Pin ID">Aggregated Cluster</span>
+                      </template>
                       <span class="text-slate-400" x-text="(p.pin_age_days !== null && p.pin_age_days !== undefined && p.pin_age_days !== '') ? formatAge(p.pin_age_days) : '—'"></span>
                     </div>
 

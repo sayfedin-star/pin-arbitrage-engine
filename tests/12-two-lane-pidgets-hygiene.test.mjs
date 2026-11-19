@@ -4,22 +4,30 @@ import fs from 'node:fs';
 
 import {
   sanitizeVisualAnnotations,
-  normalizeAnnotationTag
+  normalizeAnnotationTag,
+  isAggregatedClusterPin
 } from '../src/domain/pin-intelligence.mjs';
 import {
   extractUsernameFromProfileUrl,
   fetchPinsBatchFromPidgets,
+  formatPin,
   PIDGETS_ZERO_COOKIE_HEADERS
 } from '../src/core/pinterest/pins.mjs';
-import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
+import {
+  ingestPinsBatch,
+  syncPinAcrossAllFourPillars
+} from '../src/modules/pins/repository.mjs';
 import { sanitizeDossierTrajectory } from '../src/lib/math.mjs';
 import {
   evaluateHydrationGuard,
   canSatisfyPinFromPidgets,
+  hasCompleteStructuralDna,
+  DEEP_DNA_RECHECK_WINDOW_MS,
   inspectPinsConcurrently
 } from '../scripts/keyword-velocity-crawler.mjs';
 import { refreshRollingWindowGainsBatch } from '../scripts/keyword-fleet.mjs';
 import { getPinDetailsBodyHtml } from '../src/ui/pin-details/page-template.mjs';
+import { getPulseStudioViewsHtml } from '../src/ui/pulse/pulse-views.mjs';
 
 test('Pkg 3: sanitizeVisualAnnotations & normalizeAnnotationTag reject [object Object] and extract object names safely', () => {
   assert.equal(normalizeAnnotationTag('[object Object]'), '');
@@ -271,7 +279,7 @@ test('Pkg 1 & 2: Two-Lane inspectPinsConcurrently serves complete pins via Pidge
   assert.deepEqual(deepFetchedIds.sort(), ['574771971217813409', 'e1_encoded_pin_abc']);
   assert.equal(byId.get('574771971217813409').save_count, 1562);
   assert.equal(byId.get('574771971217813409').is_deleted, false);
-  assert.deepEqual(byId.get('574771971217813409').visual_annotations, ['holiday nails', 'Winter Nails']);
+  assert.deepEqual(byId.get('574771971217813409').visual_annotations, ['Winter Nails', 'holiday nails']);
 });
 
 test('Pkg 4: refreshRollingWindowGainsBatch reconciles delta_repins_24h and daily_repin_velocity from pins_daily_metrics', async () => {
@@ -340,3 +348,285 @@ test('Pkg 5: sanitizeDossierTrajectory zeroes Day-1 baseline velocity even on mu
   const kwServiceSrc = fs.readFileSync('src/modules/keywords/service.mjs', 'utf8');
   assert.match(kwServiceSrc, /if\s*\(\s*!options\.skip_top_enrich\s*&&\s*typeof fetchPinsBatchFromPidgets === 'function'/);
 });
+
+test('Wave 7.1: formatPin prioritizes pin_join.annotations_with_links (Object Map & name->url Map) before visual_annotation', () => {
+  const formattedObjMap = formatPin({
+    id: '574771971217813409',
+    title: 'Italian Parmesan Pasta Soup',
+    aggregated_pin_data: { aggregated_stats: { saves: 1703 } },
+    repin_count: 1700,
+    pin_join: {
+      annotations_with_links: {
+        '912345601': {
+          name: 'Parmesan Italian Ditalini Soup',
+          url: '/ideas/parmesan-italian-ditalini-soup/912345601/'
+        },
+        '912345602': {
+          name: 'Easy Fast Soup Recipes',
+          url: '/ideas/easy-fast-soup-recipes/912345602/'
+        },
+        'bad': { name: '[object Object]', url: '/ideas/bad/1/' }
+      },
+      visual_annotation: ['Soup Recipe', 'Easy Fast Soup Recipes', 'Italian Soups']
+    }
+  });
+
+  assert.equal(formattedObjMap.has_linked_annotations, true);
+  assert.deepEqual(
+    formattedObjMap.tags,
+    ['Parmesan Italian Ditalini Soup', 'Easy Fast Soup Recipes', 'Soup Recipe', 'Italian Soups']
+  );
+  assert.deepEqual(formattedObjMap.annotations_with_links, [
+    {
+      name: 'Parmesan Italian Ditalini Soup',
+      idea_id: '912345601',
+      url: '/ideas/parmesan-italian-ditalini-soup/912345601/'
+    },
+    {
+      name: 'Easy Fast Soup Recipes',
+      idea_id: '912345602',
+      url: '/ideas/easy-fast-soup-recipes/912345602/'
+    }
+  ]);
+
+  // Also verify { "Annotation Name": "/ideas/.../12345/" } string-map shape
+  const formattedUrlMap = formatPin({
+    id: '951878071269307477',
+    title: 'Dump And Go Crockpot Meals',
+    aggregated_pin_data: { aggregated_stats: { saves: 9254 } },
+    pin_join: {
+      annotations_with_links: {
+        'Cheap Dump And Go Crockpot': '/ideas/cheap-dump-and-go-crockpot/94881122/',
+        'Cold Day Dinner Ideas Crockpot': '/ideas/cold-day-dinner-ideas-crockpot/94881123/'
+      },
+      visual_annotation: ['Crock Pot Ideas']
+    }
+  });
+
+  assert.equal(formattedUrlMap.has_linked_annotations, true);
+  assert.deepEqual(formattedUrlMap.tags.slice(0, 2), [
+    'Cheap Dump And Go Crockpot',
+    'Cold Day Dinner Ideas Crockpot'
+  ]);
+  assert.equal(formattedUrlMap.annotations_with_links[0].idea_id, '94881122');
+  assert.equal(formattedUrlMap.annotations_with_links[0].url, '/ideas/cheap-dump-and-go-crockpot/94881122/');
+});
+
+test('Wave 7.2: deep_dna_checked_at stops infinite Deep loop for 14d, stamps only on verified live deep fetch, and rechecks after 14d', async () => {
+  const nowMs = Date.UTC(2026, 10, 19, 16, 0, 0);
+  const fiveDaysAgoIso = new Date(nowMs - 5 * 24 * 60 * 60 * 1000).toISOString();
+  const fifteenDaysAgoIso = new Date(nowMs - 15 * 24 * 60 * 60 * 1000).toISOString();
+  const twoHoursAgoIso = new Date(nowMs - 2 * 3600 * 1000).toISOString();
+
+  assert.equal(DEEP_DNA_RECHECK_WINDOW_MS, 14 * 24 * 60 * 60 * 1000);
+
+  const annotationlessBase = {
+    pin_id: '777777777777777777',
+    created_at_pinterest: '2026-09-01T00:00:00Z',
+    image_signature: 'sig_no_anns',
+    visual_annotations: [],
+    save_count: 420,
+    repin_count: 410,
+    is_hydrated: true,
+    creation_method: 'organic_pin',
+    last_scraped_at: twoHoursAgoIso
+  };
+
+  // Never deep-checked -> must route to Deep
+  assert.equal(hasCompleteStructuralDna(annotationlessBase, nowMs), false);
+  assert.equal(evaluateHydrationGuard(annotationlessBase, nowMs, { force: false }).lane, 'deep');
+
+  // Deep-checked 5 days ago (< 14d) -> accepted by Pidgets 50x fast lane
+  const freshCheckedPin = {
+    ...annotationlessBase,
+    metadata: { deep_dna_checked_at: fiveDaysAgoIso }
+  };
+  assert.equal(hasCompleteStructuralDna(freshCheckedPin, nowMs), true);
+  assert.equal(evaluateHydrationGuard(freshCheckedPin, nowMs, { force: false }).lane, 'pidgets');
+  assert.equal(
+    canSatisfyPinFromPidgets(freshCheckedPin, {
+      pin_id: freshCheckedPin.pin_id,
+      save_count: 435,
+      has_explicit_saves: true,
+      is_missing: false
+    }, nowMs),
+    true
+  );
+
+  // Deep-checked 15 days ago (>= 14d) -> expires and routes back to Deep
+  const expiredCheckedPin = {
+    ...annotationlessBase,
+    metadata: { deep_dna_checked_at: fifteenDaysAgoIso }
+  };
+  assert.equal(hasCompleteStructuralDna(expiredCheckedPin, nowMs), false);
+  assert.equal(evaluateHydrationGuard(expiredCheckedPin, nowMs, { force: false }).lane, 'deep');
+
+  // Live deep scrape returning 0 annotations stamps deep_dna_checked_at; timeout/failure & partial fallback do NOT
+  const pinsToInspect = [
+    { ...annotationlessBase, pin_id: '777777777777777701', metadata: {} },
+    { ...annotationlessBase, pin_id: '777777777777777702', metadata: {} },
+    { ...annotationlessBase, pin_id: '777777777777777703', metadata: {} }
+  ];
+
+  const inspected = await inspectPinsConcurrently(pinsToInspect, null, 'DeepDnaTestWorker', {
+    skipJitter: true,
+    forceRefresh: true,
+    fetchPinsBatchFromPidgetsFn: async () => new Map(),
+    fetchPinHybridFn: async (pinId) => {
+      if (pinId === '777777777777777701') {
+        return {
+          ok: true,
+          pin: {
+            pin_id: pinId,
+            saves: 430,
+            save_count: 430,
+            has_explicit_saves: true,
+            repins: 418,
+            repin_count: 418,
+            has_explicit_repins: true,
+            created_at_pinterest: '2026-09-01T00:00:00Z',
+            image_signature: 'sig_no_anns',
+            annotations: []
+          }
+        };
+      }
+      if (pinId === '777777777777777702') {
+        return { ok: false, error: 'ETIMEDOUT timeout' };
+      }
+      return {
+        ok: true,
+        isPartialFallback: true,
+        pin: {
+          pin_id: pinId,
+          saves: 420,
+          save_count: 420,
+          has_explicit_saves: true,
+          annotations: []
+        }
+      };
+    },
+    fetchPinFromPinterestFn: async () => ({ ok: false, error: 'ETIMEDOUT timeout' })
+  });
+
+  const liveSuccess = inspected.find((p) => p.pin_id === '777777777777777701');
+  const failedPin = inspected.find((p) => p.pin_id === '777777777777777702');
+  const partialPin = inspected.find((p) => p.pin_id === '777777777777777703');
+
+  assert.ok(liveSuccess?.extra_meta?.deep_dna_checked_at, 'Verified live deep fetch must stamp deep_dna_checked_at');
+  assert.ok(!Number.isNaN(new Date(liveSuccess.extra_meta.deep_dna_checked_at).getTime()));
+  assert.equal(failedPin, undefined, 'Timed-out deep fetch must not return a stamped record');
+  assert.equal(partialPin?.extra_meta?.deep_dna_checked_at, null, 'Partial fallback deep fetch must NOT stamp deep_dna_checked_at');
+});
+
+test('Wave 7.3: Live Deep Sync overwrites visual_annotations with linked annotations and persists metadata', async () => {
+  const capturedPayloads = [];
+  const mockSql = async (strings, ...values) => {
+    for (const v of values) {
+      if (typeof v === 'string' && v.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(v);
+          if (Array.isArray(parsed)) capturedPayloads.push(parsed);
+        } catch (_) {}
+      }
+    }
+    return [];
+  };
+  mockSql.begin = async (fn) => fn(mockSql);
+
+  await syncPinAcrossAllFourPillars({
+    sql: mockSql,
+    pinId: '574771971217813409',
+    scrapedPin: {
+      pin_id: '574771971217813409',
+      title: 'Italian Parmesan Pasta Soup',
+      saves: 1703,
+      save_count: 1703,
+      has_explicit_saves: true,
+      repins: 1700,
+      repin_count: 1700,
+      has_explicit_repins: true,
+      has_linked_annotations: true,
+      annotations: [
+        { name: 'Parmesan Italian Ditalini Soup', idea_id: '912345601', url: '/ideas/parmesan-italian-ditalini-soup/912345601/' },
+        { name: 'Easy Fast Soup Recipes', idea_id: '912345602', url: '/ideas/easy-fast-soup-recipes/912345602/' }
+      ],
+      annotations_with_links: [
+        { name: 'Parmesan Italian Ditalini Soup', idea_id: '912345601', url: '/ideas/parmesan-italian-ditalini-soup/912345601/' },
+        { name: 'Easy Fast Soup Recipes', idea_id: '912345602', url: '/ideas/easy-fast-soup-recipes/912345602/' }
+      ]
+    }
+  });
+
+  const masterBatch = capturedPayloads.find((arr) => arr[0]?.pin_id === '574771971217813409' && Array.isArray(arr[0]?.visual_annotations));
+  assert.ok(masterBatch, 'Expected master batch upsert from Live Deep Sync');
+  assert.deepEqual(masterBatch[0].visual_annotations, ['Parmesan Italian Ditalini Soup', 'Easy Fast Soup Recipes']);
+  assert.equal(masterBatch[0].metadata.annotations_with_links.length, 2);
+  assert.equal(masterBatch[0].metadata.annotations_with_links[0].idea_id, '912345601');
+  assert.ok(masterBatch[0].metadata.deep_dna_checked_at);
+});
+
+test('Wave 7.4: isAggregatedClusterPin dual condition & workflows Node 24 / cache logging hygiene', () => {
+  // True: vel >= 50, delta_repins/vel < 0.10, repin_count/save_count < 0.25 (works regardless of domain)
+  assert.equal(isAggregatedClusterPin({
+    domain: 'uploaded by user',
+    daily_save_velocity: 1111,
+    delta_repins_24h: 29,
+    save_count: 4500,
+    repin_count: 180
+  }), true);
+  assert.equal(isAggregatedClusterPin({
+    domain: 'example.com',
+    daily_save_velocity: 120,
+    delta_repins_24h: 4,
+    save_count: 1000,
+    repin_count: 50
+  }), true);
+
+  // False: 1-day snapshot jitter where cumulative repin_count/save_count is healthy (>= 0.25)
+  assert.equal(isAggregatedClusterPin({
+    daily_save_velocity: 200,
+    delta_repins_24h: 5,
+    save_count: 5000,
+    repin_count: 4950
+  }), false);
+
+  // False: velocity < 50 or missing repin_count
+  assert.equal(isAggregatedClusterPin({
+    daily_save_velocity: 40,
+    delta_repins_24h: 0,
+    save_count: 500,
+    repin_count: 10
+  }), false);
+  assert.equal(isAggregatedClusterPin({
+    daily_save_velocity: 500,
+    delta_repins_24h: 0,
+    save_count: 5000,
+    repin_count: null
+  }), false);
+
+  const pulseViewsHtml = getPulseStudioViewsHtml();
+  assert.ok(pulseViewsHtml.includes('isAggregatedClusterPin(pin)'), 'Expected Aggregated Cluster check in Pulse table');
+  assert.ok(pulseViewsHtml.includes('Aggregated Cluster'), 'Expected Aggregated Cluster micro-label in Pulse views');
+
+  // Verify all 6 workflow files enable FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 and cache refresh logs HTTP status
+  for (const wf of [
+    '.github/workflows/ci.yml',
+    '.github/workflows/keyword-intelligence-velocity.yml',
+    '.github/workflows/crawler-pipeline.yml',
+    '.github/workflows/cluster-intelligence.yml',
+    '.github/workflows/account-related-pins.yml',
+    '.github/workflows/newborn-hunter.yml'
+  ]) {
+    const content = fs.readFileSync(wf, 'utf8');
+    assert.match(content, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/, `Expected Node 24 opt-in in ${wf}`);
+  }
+  for (const wf of [
+    '.github/workflows/keyword-intelligence-velocity.yml',
+    '.github/workflows/crawler-pipeline.yml'
+  ]) {
+    const content = fs.readFileSync(wf, 'utf8');
+    assert.match(content, /API_SECRET_KEY secret is not configured/, `Expected explicit missing-secret warning in ${wf}`);
+    assert.match(content, /returned HTTP \$\{HTTP_CODE\}/, `Expected HTTP code logging in ${wf}`);
+  }
+});
+

@@ -15,6 +15,7 @@ permissions:
 
 env:
   DATABASE_TOPOLOGY: unified_postgres
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   verify:

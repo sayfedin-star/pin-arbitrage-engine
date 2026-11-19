@@ -1007,15 +1007,37 @@ export async function syncPinAcrossAllFourPillars({
     return (!c || c.toLowerCase() === '#888888') ? null : c;
   })();
 
+  const rawLinkedAnnotations = Array.isArray(scrapedPin.annotations_with_links) && scrapedPin.annotations_with_links.length > 0
+    ? scrapedPin.annotations_with_links
+    : (Array.isArray(scrapedPin.annotations) ? scrapedPin.annotations.filter(a => a && typeof a === 'object' && (a.url || a.idea_id)) : []);
+  const cleanLinkedAnnotations = rawLinkedAnnotations
+    .map(a => ({
+      name: typeof a?.name === 'string' ? a.name.trim() : '',
+      idea_id: a?.idea_id ? String(a.idea_id).trim() : null,
+      url: typeof a?.url === 'string' && a.url.trim() ? a.url.trim() : null
+    }))
+    .filter(a => a.name.length >= 2 && !/^\[object\s+object\]$/i.test(a.name))
+    .slice(0, 15);
+
   const mappedAnnotations = sanitizeVisualAnnotations(
-    Array.isArray(scrapedPin.visual_annotations) && scrapedPin.visual_annotations.length > 0
-      ? scrapedPin.visual_annotations
-      : scrapedPin.annotations,
+    (scrapedPin.has_linked_annotations && Array.isArray(scrapedPin.annotations) && scrapedPin.annotations.length > 0)
+      ? scrapedPin.annotations
+      : (Array.isArray(scrapedPin.visual_annotations) && scrapedPin.visual_annotations.length > 0
+        ? scrapedPin.visual_annotations
+        : scrapedPin.annotations),
     { maxItems: 15 }
   );
   const syncAnnotations = mappedAnnotations.length > 0
     ? mappedAnnotations
     : sanitizeVisualAnnotations(scrapedPin.visual_style_tags, { maxItems: 15 });
+
+  if (syncAnnotations.length > 0) {
+    metaToStore.visual_annotations = syncAnnotations;
+  }
+  if (cleanLinkedAnnotations.length > 0) {
+    metaToStore.annotations_with_links = cleanLinkedAnnotations;
+  }
+  metaToStore.deep_dna_checked_at = new Date().toISOString();
 
   const executeFourPillarSync = async (tx) => {
     const targetRows = await tx`

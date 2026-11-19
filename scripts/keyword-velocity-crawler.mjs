@@ -146,6 +146,7 @@ const CIRCUIT_BREAKER_LIMIT = 25;
 let circuitBroken = false;
 
 export const PIDGETS_DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10-minute dedup window for Pidgets fast telemetry
+export const DEEP_DNA_RECHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000; // 14-day cooldown for pins confirmed annotationless on Pinterest
 
 function resolveForceRefreshFlag(options = {}) {
   if (options.force !== undefined) return Boolean(options.force);
@@ -166,7 +167,7 @@ function resolveForceDeepFlag(options = {}) {
   );
 }
 
-function hasCompleteStructuralDna(pin) {
+export function hasCompleteStructuralDna(pin, currentUtcTimestamp = Date.now()) {
   const meta = (pin?.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const currentMethod = String(pin?.creation_method || pin?.method || meta.creation_method || meta.method || '').trim();
   if (currentMethod === 'unhydrated_stub' || pin?.is_hydrated === false) {
@@ -174,11 +175,19 @@ function hasCompleteStructuralDna(pin) {
   }
   const cleanAnns = sanitizeVisualAnnotations(pin?.visual_annotations ?? meta.visual_annotations, { maxItems: 15 });
   const hasAnnotations = pin?.has_visual_annotations === true || cleanAnns.length > 0;
+  const rawCheckedAt = pin?.deep_dna_checked_at ?? meta?.deep_dna_checked_at ?? null;
+  const checkedMs = rawCheckedAt ? new Date(rawCheckedAt).getTime() : NaN;
+  const hasFreshDeepDnaCheck = (
+    Number.isFinite(checkedMs) &&
+    checkedMs > 0 &&
+    (currentUtcTimestamp - checkedMs) >= 0 &&
+    (currentUtcTimestamp - checkedMs) < DEEP_DNA_RECHECK_WINDOW_MS
+  );
   const imgSig = String(pin?.image_signature || meta.image_signature || '').trim();
   return Boolean(
     pin?.created_at_pinterest &&
     (imgSig || meta.has_treasures === true) &&
-    hasAnnotations
+    (hasAnnotations || hasFreshDeepDnaCheck)
   );
 }
 
@@ -215,7 +224,7 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now(), op
     return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'missing_save_count', reuseTelemetry: null };
   }
 
-  if (!hasCompleteStructuralDna(pin)) {
+  if (!hasCompleteStructuralDna(pin, currentUtcTimestamp)) {
     return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'missing_structural_dna', reuseTelemetry: null };
   }
 
@@ -252,7 +261,7 @@ export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now(), op
  * Any pin failing ANY condition falls back automatically to Stage 2 (`fetchPinHybrid`)
  * and is NEVER marked `is_deleted` from Pidgets alone.
  */
-export function canSatisfyPinFromPidgets(pin, pidgetsPin) {
+export function canSatisfyPinFromPidgets(pin, pidgetsPin, currentUtcTimestamp = Date.now()) {
   const pid = String(pin?.pin_id || '').trim();
   if (!/^\d{10,25}$/.test(pid)) return false;
   if (!pidgetsPin || typeof pidgetsPin !== 'object') return false;
@@ -267,7 +276,7 @@ export function canSatisfyPinFromPidgets(pin, pidgetsPin) {
   if (pidgetsSaves === 0 && (prevSaves ?? 0) > 0) return false;
   if (prevSaves != null && prevSaves > 0 && pidgetsSaves < prevSaves * 0.8) return false;
 
-  return hasCompleteStructuralDna(pin);
+  return hasCompleteStructuralDna(pin, currentUtcTimestamp);
 }
 
 function buildCachedCarryoverRecord(pin, kw, reuseTelemetry) {
@@ -661,7 +670,34 @@ async function inspectPin(pin, kw, options = {}) {
     { maxItems: 15 }
   );
   const cleanExistingAnnotations = sanitizeVisualAnnotations(pin.visual_annotations, { maxItems: 15 });
-  const finalAnnotations = sanitizeVisualAnnotations([...cleanExistingAnnotations, ...cleanNewAnnotations], { maxItems: 15 });
+  const finalAnnotations = (detail?.has_linked_annotations && cleanNewAnnotations.length > 0)
+    ? cleanNewAnnotations
+    : sanitizeVisualAnnotations([...cleanNewAnnotations, ...cleanExistingAnnotations], { maxItems: 15 });
+
+  const rawLinkedAnnotations = Array.isArray(detail?.annotations_with_links) && detail.annotations_with_links.length > 0
+    ? detail.annotations_with_links
+    : (Array.isArray(detail?.annotations) ? detail.annotations.filter(a => a && typeof a === 'object' && (a.url || a.idea_id)) : []);
+  const cleanLinkedAnnotations = rawLinkedAnnotations
+    .map(a => ({
+      name: typeof a?.name === 'string' ? a.name.trim() : '',
+      idea_id: a?.idea_id ? String(a.idea_id).trim() : null,
+      url: typeof a?.url === 'string' && a.url.trim() ? a.url.trim() : null
+    }))
+    .filter(a => a.name.length >= 2 && !/^\[object\s+object\]$/i.test(a.name))
+    .slice(0, 15);
+
+  const isVerifiedLiveDeepFetch = Boolean(
+    fetchRes?.ok === true &&
+    detail &&
+    !isDead &&
+    !fetchError &&
+    fetchRes?.isPartialFallback !== true &&
+    detail?.is_partial_fallback !== true &&
+    (hasExplicitDetailSaves || Boolean(createdAtPinterest) || Boolean(detail?.image_signature) || cleanNewAnnotations.length > 0)
+  );
+  const deepDnaCheckedAt = isVerifiedLiveDeepFetch
+    ? new Date().toISOString()
+    : (meta.deep_dna_checked_at || null);
 
   const rawBoardCount = detail?.board_pin_count != null ? Number(detail.board_pin_count) : (meta.board_pin_count != null ? Number(meta.board_pin_count) : null);
   const validBoardCount = (rawBoardCount != null && !isNaN(rawBoardCount) && rawBoardCount > 0) ? rawBoardCount : null;
@@ -690,6 +726,8 @@ async function inspectPin(pin, kw, options = {}) {
     seo_related_interests: Array.isArray(detail?.seo_related_interests) && detail.seo_related_interests.length > 0 ? detail.seo_related_interests : (meta.seo_related_interests || []),
     category_breadcrumbs: Array.isArray(detail?.category_breadcrumbs) && detail.category_breadcrumbs.length > 0 ? detail.category_breadcrumbs : (meta.category_breadcrumbs || []),
     visual_objects: Array.isArray(detail?.visual_objects) && detail.visual_objects.length > 0 ? detail.visual_objects : (meta.visual_objects || []),
+    annotations_with_links: cleanLinkedAnnotations.length > 0 ? cleanLinkedAnnotations : (meta.annotations_with_links || []),
+    deep_dna_checked_at: deepDnaCheckedAt,
     golden_set_interest: detail?.golden_set_interest || meta.golden_set_interest || null,
     is_repin: Boolean(detail?.is_repin ?? meta.is_repin ?? false),
     origin_pinner: detail?.origin_pinner || meta.origin_pinner || null,

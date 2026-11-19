@@ -869,7 +869,9 @@ export function buildRichPinMetadataPayload(pin = {}, existingMeta = {}) {
     'native_pin_stats',
     'story_pin_data',
     'carousel_data',
-    'shopping_flags'
+    'shopping_flags',
+    'deep_dna_checked_at',
+    'annotations_with_links'
   ];
 
   for (const key of treasureKeys) {
@@ -930,3 +932,35 @@ export function shouldSkipFreshPinEnrichment(masterRow, maxAgeHours = 18, nowMs 
   );
   return Boolean(imgSig.length > 0 || annotations.length > 0 || masterRow.has_visual_annotations === true);
 }
+
+/**
+ * Dual-condition detector for Pinterest Aggregated Cluster / Clone Saves:
+ * Flags surging pins whose save velocity is powered by visually identical clones across
+ * Pinterest's aggregated image cluster rather than organic repins of this single Pin ID.
+ *
+ * Requires ALL three signals to avoid false positives from single-day snapshot jitter:
+ * 1. daily_save_velocity >= 50
+ * 2. delta_repins_24h / daily_save_velocity < 0.10
+ * 3. save_count > 0 && repin_count / save_count < 0.25 (with explicit numeric repin_count)
+ */
+export function isAggregatedClusterPin(pin) {
+  if (!pin || typeof pin !== 'object') return false;
+  if (pin.is_aggregated_cluster === true) return true;
+
+  const vel = Number(pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0);
+  if (!Number.isFinite(vel) || vel < 50) return false;
+
+  const deltaRepins = Math.max(0, Number(pin.delta_repins_24h ?? 0) || 0);
+  if (deltaRepins / vel >= 0.10) return false;
+
+  const saveCount = Number(pin.save_count ?? pin.saves ?? 0);
+  if (!Number.isFinite(saveCount) || saveCount <= 0) return false;
+
+  const rawRepinCount = pin.repin_count ?? pin.repins;
+  if (rawRepinCount === null || rawRepinCount === undefined || rawRepinCount === '') return false;
+  const repinCount = Number(rawRepinCount);
+  if (!Number.isFinite(repinCount) || repinCount < 0) return false;
+
+  return (repinCount / saveCount) < 0.25;
+}
+

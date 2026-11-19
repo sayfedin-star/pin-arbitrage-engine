@@ -14,7 +14,7 @@ import {
   syncPinAcrossAllFourPillars
 } from '../modules/pins/repository.mjs';
 
-import { fetchPinFromPinterest, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
+import { fetchPinFromPinterest, fetchPinFromPinResource, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 import { ignoreAndRemoveSerpPin } from '../modules/keywords/service.mjs';
 import { detectHydrationJump, isRepinHydrationJump, calculateDailyVelocity } from '../lib/math.mjs';
 
@@ -540,6 +540,18 @@ export async function handlePinsRoutes({
           message: pinResult?.error || 'Failed to fetch live telemetry from Pinterest. Pin may be private or rate limited.',
           pin_id: pinId
         }, 502);
+      }
+      // If SSR HTML omitted pin_join.annotations_with_links, pull detailed PinResource (~90ms) so Live Deep Sync captures linked /ideas/ annotations
+      if (!pinResult.pin.has_linked_annotations && /^\d{10,25}$/.test(pinId)) {
+        try {
+          const resourcePin = await fetchPinFromPinResource(pinId);
+          if (resourcePin && Array.isArray(resourcePin.annotations) && resourcePin.annotations.length > 0 && (resourcePin.has_linked_annotations || !Array.isArray(pinResult.pin.annotations) || pinResult.pin.annotations.length === 0)) {
+            pinResult.pin.annotations = resourcePin.annotations;
+            pinResult.pin.tags = resourcePin.tags || resourcePin.annotations.map(a => a?.name).filter(Boolean);
+            pinResult.pin.annotations_with_links = resourcePin.annotations_with_links || [];
+            pinResult.pin.has_linked_annotations = Boolean(resourcePin.has_linked_annotations);
+          }
+        } catch (_) {}
       }
       const syncResult = await syncPinAcrossAllFourPillars({
         sql,
