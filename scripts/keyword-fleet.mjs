@@ -18,6 +18,7 @@ import {
   winsorize
 } from '../src/modules/keywords/service.mjs';
 import { calculateRollingGainsFromSnapshots } from '../src/lib/math.mjs';
+import { sanitizeVisualAnnotations } from '../src/domain/pin-intelligence.mjs';
 import {
   runFleetLifecycle,
   writeGitHubOutput,
@@ -449,7 +450,7 @@ export async function refreshRollingWindowGainsBatch(sql) {
   const nowUtc = new Date();
   const [pinRows, snapRows] = await Promise.all([
     sql`
-      SELECT pin_id, gains_5d, gains_7d, gains_10d, gains_15d
+      SELECT pin_id, gains_5d, gains_7d, gains_10d, gains_15d, delta_repins_24h, daily_repin_velocity
       FROM universal_master_pins
       WHERE is_hydrated = TRUE
         OR gains_5d IS NOT NULL
@@ -491,19 +492,31 @@ export async function refreshRollingWindowGainsBatch(sql) {
     const next7 = normalizeGain(computed.gains_7d);
     const next10 = normalizeGain(computed.gains_10d);
     const next15 = normalizeGain(computed.gains_15d);
+    const distinctSnapDates = new Set(snaps.map((s) => String(s.recorded_date || '').slice(0, 10)).filter(Boolean));
+    const hasMultiDaySnaps = distinctSnapDates.size >= 2;
+    const nextDeltaRepins24h = hasMultiDaySnaps
+      ? normalizeGain(computed.delta_repins_24h)
+      : normalizeGain(pin.delta_repins_24h);
+    const nextDailyRepinVel = hasMultiDaySnaps
+      ? normalizeGain(computed.daily_repin_velocity ?? computed.delta_repins_24h)
+      : normalizeGain(pin.daily_repin_velocity);
 
     if (
       normalizeGain(pin.gains_5d) !== next5 ||
       normalizeGain(pin.gains_7d) !== next7 ||
       normalizeGain(pin.gains_10d) !== next10 ||
-      normalizeGain(pin.gains_15d) !== next15
+      normalizeGain(pin.gains_15d) !== next15 ||
+      normalizeGain(pin.delta_repins_24h) !== nextDeltaRepins24h ||
+      normalizeGain(pin.daily_repin_velocity) !== nextDailyRepinVel
     ) {
       changed.push({
         pin_id: pid,
         gains_5d: next5,
         gains_7d: next7,
         gains_10d: next10,
-        gains_15d: next15
+        gains_15d: next15,
+        delta_repins_24h: nextDeltaRepins24h,
+        daily_repin_velocity: nextDailyRepinVel
       });
     }
   }
@@ -518,13 +531,17 @@ export async function refreshRollingWindowGainsBatch(sql) {
         gains_5d = u.gains_5d,
         gains_7d = u.gains_7d,
         gains_10d = u.gains_10d,
-        gains_15d = u.gains_15d
+        gains_15d = u.gains_15d,
+        delta_repins_24h = u.delta_repins_24h,
+        daily_repin_velocity = u.daily_repin_velocity
       FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS u(
         pin_id text,
         gains_5d int,
         gains_7d int,
         gains_10d int,
-        gains_15d int
+        gains_15d int,
+        delta_repins_24h int,
+        daily_repin_velocity numeric
       )
       WHERE ump.pin_id = u.pin_id
         AND (
@@ -532,6 +549,8 @@ export async function refreshRollingWindowGainsBatch(sql) {
           OR ump.gains_7d IS DISTINCT FROM u.gains_7d
           OR ump.gains_10d IS DISTINCT FROM u.gains_10d
           OR ump.gains_15d IS DISTINCT FROM u.gains_15d
+          OR ump.delta_repins_24h IS DISTINCT FROM u.delta_repins_24h
+          OR ump.daily_repin_velocity IS DISTINCT FROM u.daily_repin_velocity
         );
     `;
   }
@@ -782,8 +801,8 @@ export async function runKeywordFleetConsolidate({ sql, env = process.env }) {
 
     const tagCounts = new Map();
     for (const p of serpPins) {
-      const raw = Array.isArray(p.visual_annotations) ? p.visual_annotations : [];
-      const unique = new Set(raw.map(s => String(s || '').trim().toLowerCase()).filter(s => s.length >= 2));
+      const clean = sanitizeVisualAnnotations(p.visual_annotations, { maxItems: 15 });
+      const unique = new Set(clean.map(s => s.toLowerCase()));
       for (const t of unique) {
         tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
       }

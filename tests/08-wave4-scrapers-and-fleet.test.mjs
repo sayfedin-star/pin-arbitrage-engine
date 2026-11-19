@@ -171,9 +171,11 @@ test('Wave 4A.2 & 4A.3: formatPin preserves 10,000,001 (10M+) ceiling and classi
   assert.equal(providerPin.creation_method, 'tailwind');
 });
 
-test('Wave 4A.3 & 4B.1: evaluateHydrationGuard and processCreatorCatalogPin skip live re-scraping within 18h freshness gate', async () => {
+test('Wave 4A.3 & 4B.1: Two-Lane hydration guard separates 10m Pidgets dedup from 18h deep PinResource gate', async () => {
   const nowMs = Date.now();
+  const fiveMinAgoIso = new Date(nowMs - 5 * 60 * 1000).toISOString();
   const oneHourAgoIso = new Date(nowMs - 60 * 60 * 1000).toISOString();
+  const fiveHoursAgoIso = new Date(nowMs - 5 * 60 * 60 * 1000).toISOString();
 
   for (const creationMethod of ['pinterest_platform', 'organic_pin']) {
     const keywordPin = {
@@ -183,48 +185,90 @@ test('Wave 4A.3 & 4B.1: evaluateHydrationGuard and processCreatorCatalogPin skip
       daily_save_velocity: 18.5,
       created_at_pinterest: '2025-11-01T10:00:00Z',
       last_scraped_at: oneHourAgoIso,
-      crawled_at: oneHourAgoIso,
+      crawled_at: fiveMinAgoIso, // SERP touch must NEVER block Pidgets telemetry
       is_hydrated: true,
       creation_method: creationMethod,
       image_signature: '0892528dd65edc951b271ec3b26d3993',
       visual_annotations: ['dinner recipes', 'easy weeknight meals']
     };
 
+    // Deep PinResource SSOT gate (18h) remains intact
     assert.equal(shouldSkipFreshPinEnrichment(keywordPin, 18, nowMs), true);
-    const guard = evaluateHydrationGuard(keywordPin, nowMs);
-    assert.equal(guard.shouldFetch, false);
-    assert.equal(guard.reason, 'ssot_freshness_gate_18h');
-
-    // Also verify between 4h and 18h (e.g. 6 hours ago on same UTC day or within 18h window)
-    const fiveHoursAgoIso = new Date(nowMs - 5 * 60 * 60 * 1000).toISOString();
     assert.equal(
       shouldSkipFreshPinEnrichment({ ...keywordPin, last_scraped_at: fiveHoursAgoIso }, 18, nowMs),
       true
     );
 
-    // Creator 02:00 UTC catalog refresh must skip Pidgets + PinResource + HTML fetch
-    let pidgetsCalled = false;
-    const pidgetsMap = await prefetchBatchPidgets(
-      [{ ...keywordPin, ump_saves: 920, ump_repins: 140 }],
+    // Within 10m of last_scraped_at -> cached (unless force: true)
+    const freshDedupGuard = evaluateHydrationGuard(
+      { ...keywordPin, last_scraped_at: fiveMinAgoIso },
+      nowMs,
+      { force: false }
+    );
+    assert.equal(freshDedupGuard.shouldFetch, false);
+    assert.equal(freshDedupGuard.lane, 'cache');
+    assert.equal(freshDedupGuard.reason, 'pidgets_dedup_window_10m');
+
+    // Force bypasses 10m dedup window -> routes to Pidgets lane (not deep)
+    const forcedGuard = evaluateHydrationGuard(
+      { ...keywordPin, last_scraped_at: fiveMinAgoIso },
+      nowMs,
+      { force: true }
+    );
+    assert.equal(forcedGuard.shouldFetch, true);
+    assert.equal(forcedGuard.lane, 'pidgets');
+    assert.equal(forcedGuard.shouldFetchDeep, false);
+
+    // 1h old last_scraped_at (even with fresh 5m crawled_at) -> routes to Lane 1 Pidgets fast telemetry!
+    const pidgetsGuard = evaluateHydrationGuard(keywordPin, nowMs, { force: false });
+    assert.equal(pidgetsGuard.shouldFetch, true);
+    assert.equal(pidgetsGuard.lane, 'pidgets');
+    assert.equal(pidgetsGuard.shouldFetchDeep, false);
+    assert.equal(pidgetsGuard.reason, 'pidgets_fast_telemetry');
+
+    // Creator Pidgets pre-pass skips within 10m dedup window, runs at 1h, and keeps 0 PinResource/HTML calls
+    let pidgetsSkippedWithin10m = false;
+    const skippedMap = await prefetchBatchPidgets(
+      [{ ...keywordPin, last_scraped_at: fiveMinAgoIso, ump_saves: 920, ump_repins: 140 }],
       {
         useFreshnessGate: true,
         useUmpFields: true,
+        forceRefresh: false,
+        nowMs,
         batchPidgetsFn: async () => {
-          pidgetsCalled = true;
+          pidgetsSkippedWithin10m = true;
           return new Map();
         }
       }
     );
-    assert.equal(pidgetsCalled, false);
-    assert.equal(pidgetsMap.size, 0);
+    assert.equal(pidgetsSkippedWithin10m, false);
+    assert.equal(skippedMap.size, 0);
 
-    let liveFetchCalled = false;
+    let pidgetsCalledAt1h = false;
+    const pidgetsAt1hMap = await prefetchBatchPidgets(
+      [{ ...keywordPin, ump_saves: 920, ump_repins: 140 }],
+      {
+        useFreshnessGate: true,
+        useUmpFields: true,
+        forceRefresh: false,
+        nowMs,
+        batchPidgetsFn: async (ids) => {
+          pidgetsCalledAt1h = true;
+          return new Map([[ids[0], { pin_id: ids[0], saves: 960, save_count: 960, repins: 145, repin_count: 145, has_explicit_saves: true, has_explicit_repins: true, is_missing: false }]]);
+        }
+      }
+    );
+    assert.equal(pidgetsCalledAt1h, true);
+    assert.equal(pidgetsAt1hMap.size, 1);
+
+    let liveDeepFetchCalled = false;
     const collectors = {
       refreshedPins: [],
       metricSnapshots: [],
       masterPinsToSync: []
     };
-    const ok = await processCreatorCatalogPin(
+    // When Pidgets payload is provided for 1h-old pin, Creator updates saves with 0 PinResource/HTML calls
+    const okPidgets = await processCreatorCatalogPin(
       {
         ...keywordPin,
         ump_saves: 920,
@@ -237,26 +281,59 @@ test('Wave 4A.3 & 4B.1: evaluateHydrationGuard and processCreatorCatalogPin skip
         fallbackUsername: 'chefcreator',
         useFreshnessGate: true,
         useUmpFields: true,
+        forceRefresh: false,
+        nowMs,
+        pidgetsMap: pidgetsAt1hMap,
         fetchPinFromPinResourceFn: async () => {
-          liveFetchCalled = true;
+          liveDeepFetchCalled = true;
           return null;
         },
         fetchPinFromPinterestFn: async () => {
-          liveFetchCalled = true;
+          liveDeepFetchCalled = true;
           return { ok: false };
         }
       },
       collectors
     );
+    assert.equal(okPidgets, true);
+    assert.equal(liveDeepFetchCalled, false);
+    assert.equal(collectors.refreshedPins[0].saves, 960);
 
-    assert.equal(ok, true);
-    assert.equal(liveFetchCalled, false);
-    assert.equal(collectors.refreshedPins.length, 1);
-    assert.equal(collectors.refreshedPins[0].from_hydration_cache, true);
-    assert.equal(collectors.refreshedPins[0].saves, 920);
+    // Without Pidgets map on 1h-old complete pin, 18h deep freshness gate still protects PinResource/HTML
+    const cachedCollectors = { refreshedPins: [], metricSnapshots: [], masterPinsToSync: [] };
+    const okCached = await processCreatorCatalogPin(
+      {
+        ...keywordPin,
+        ump_saves: 920,
+        ump_repins: 140,
+        ump_comments: 3,
+        ump_shares: 7,
+        prev_velocity: 18.5
+      },
+      {
+        fallbackUsername: 'chefcreator',
+        useFreshnessGate: true,
+        useUmpFields: true,
+        forceRefresh: false,
+        nowMs,
+        fetchPinFromPinResourceFn: async () => {
+          liveDeepFetchCalled = true;
+          return null;
+        },
+        fetchPinFromPinterestFn: async () => {
+          liveDeepFetchCalled = true;
+          return { ok: false };
+        }
+      },
+      cachedCollectors
+    );
+    assert.equal(okCached, true);
+    assert.equal(liveDeepFetchCalled, false);
+    assert.equal(cachedCollectors.refreshedPins[0].from_hydration_cache, true);
+    assert.equal(cachedCollectors.refreshedPins[0].delta_repins, null);
   }
 
-  // Unhydrated stubs must still trigger live hydration even if recently touched
+  // Unhydrated stubs must still trigger Lane 2 deep hydration even if recently touched
   const stubGuard = evaluateHydrationGuard(
     {
       pin_id: '10101010101010',
@@ -264,11 +341,13 @@ test('Wave 4A.3 & 4B.1: evaluateHydrationGuard and processCreatorCatalogPin skip
       is_hydrated: false,
       creation_method: 'unhydrated_stub',
       created_at_pinterest: '2026-01-01T00:00:00Z',
-      last_scraped_at: oneHourAgoIso
+      last_scraped_at: fiveMinAgoIso
     },
-    nowMs
+    nowMs,
+    { force: false }
   );
   assert.equal(stubGuard.shouldFetch, true);
+  assert.equal(stubGuard.lane, 'deep');
 });
 
 test('Wave 4A.4: getStandardPinterestHeaders never leaks process.env.PINTEREST_COOKIE and savePinterestCookie never mutates process.env', async () => {

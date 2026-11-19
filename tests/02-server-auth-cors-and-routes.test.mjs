@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createFastifyApp } from '../src/server.mjs';
+import { createFastifyApp, startServer } from '../src/server.mjs';
 import {
   buildCanonicalCacheKey,
   getCachedOrFetch,
@@ -306,4 +306,26 @@ test('All UI studio routes return 200 with private no-store + Vary: Cookie on GE
     const postRes = await app.inject({ method: 'POST', url: route, payload: {} });
     assert.equal(postRes.statusCode, 405, `POST ${route} should return 405`);
   }
+});
+
+test('startServer boots cleanly in development without DATABASE_URL and refuses to boot in production without DATABASE_URL', async (t) => {
+  await assert.rejects(
+    () => startServer(0, '127.0.0.1', { NODE_ENV: 'production', ENVIRONMENT: 'production', DATABASE_URL: '' }),
+    /DATABASE_URL is not configured/
+  );
+
+  const server = await startServer(0, '127.0.0.1', { NODE_ENV: 'development', ENVIRONMENT: 'development', DATABASE_URL: '' });
+  t.after(async () => {
+    await server.fastify.close();
+  });
+
+  const healthRes = await server.fastify.inject({ method: 'GET', url: '/api/health' });
+  assert.equal(healthRes.statusCode, 200);
+  assert.equal(healthRes.json().status, 'healthy');
+  assert.equal(healthRes.json().database, 'disconnected');
+
+  const pageRes = await server.fastify.inject({ method: 'GET', url: '/' });
+  assert.equal(pageRes.statusCode, 200);
+  assert.equal(pageRes.headers['x-frame-options'], undefined);
+  assert.match(String(pageRes.headers['content-security-policy']), /frame-ancestors \*/);
 });

@@ -253,12 +253,11 @@ export function createFastifyApp(customEnv = {}) {
       });
   });
 
-  app.addHook('onSend', async (_request, reply, payload) => {
-    if (!reply.hasHeader('X-Content-Type-Options')) reply.header('X-Content-Type-Options', 'nosniff');
-    if (!reply.hasHeader('X-Frame-Options')) reply.header('X-Frame-Options', 'DENY');
-    if (!reply.hasHeader('Referrer-Policy')) reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    return payload;
-  });
+  const isProdMode = (
+    customEnv.ENVIRONMENT === 'production' ||
+    customEnv.NODE_ENV === 'production' ||
+    (!customEnv.ENVIRONMENT && !customEnv.NODE_ENV && (process.env?.NODE_ENV === 'production' || process.env?.ENVIRONMENT === 'production'))
+  );
 
   const isTestMode = (
     customEnv.ENVIRONMENT === 'test' ||
@@ -266,6 +265,16 @@ export function createFastifyApp(customEnv = {}) {
     Boolean(globalThis.__PAE_TEST_MODE__) ||
     (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
+
+  const effectiveEnvName = customEnv.ENVIRONMENT || customEnv.NODE_ENV || process.env?.ENVIRONMENT || process.env?.NODE_ENV || 'development';
+  const allowDevIframe = !isProdMode && effectiveEnvName !== 'test';
+
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (!reply.hasHeader('X-Content-Type-Options')) reply.header('X-Content-Type-Options', 'nosniff');
+    if (!allowDevIframe && !reply.hasHeader('X-Frame-Options')) reply.header('X-Frame-Options', 'DENY');
+    if (!reply.hasHeader('Referrer-Policy')) reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return payload;
+  });
 
   const resolvedDatabaseUrl = customEnv.DATABASE_URL !== undefined
     ? customEnv.DATABASE_URL
@@ -599,13 +608,23 @@ export function createFastifyApp(customEnv = {}) {
         const pathLower = normalizedPath.toLowerCase();
         const { searchParams } = url;
 
+        const pageHtmlHeaders = allowDevIframe
+          ? {
+              ...HTML_HEADERS,
+              'Content-Security-Policy': HTML_HEADERS['Content-Security-Policy'].replace("frame-ancestors 'none';", 'frame-ancestors *;')
+            }
+          : HTML_HEADERS;
+        if (allowDevIframe) {
+          delete pageHtmlHeaders['X-Frame-Options'];
+        }
+
         const pageResponse = await handlePagesRoutes({
           pathLower,
           normalizedPath,
           pathname: normalizedPath,
           method,
           searchParams,
-          HTML_HEADERS,
+          HTML_HEADERS: pageHtmlHeaders,
           RESERVED_KEYWORD_SLUGS,
           methodNotAllowedResponse,
           jsonResponse,
@@ -800,9 +819,17 @@ export async function startServer(
   customEnv = {}
 ) {
   const resolvedDsn = customEnv.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
-  const isTestEnv = (customEnv.NODE_ENV || process.env.NODE_ENV) === 'test';
-  if (!customEnv.SQL_CLIENT && !resolvedDsn && !isTestEnv) {
-    throw new Error('DATABASE_URL is not configured. Refusing to boot PAE Server without a PostgreSQL connection.');
+  const resolvedNodeEnv = customEnv.NODE_ENV || process.env.NODE_ENV || '';
+  const resolvedEnv = customEnv.ENVIRONMENT || process.env.ENVIRONMENT || '';
+  const isTestEnv = resolvedNodeEnv === 'test' || resolvedEnv === 'test';
+  const isProdEnv = resolvedNodeEnv === 'production' || resolvedEnv === 'production';
+  if (!customEnv.SQL_CLIENT && !resolvedDsn) {
+    if (isProdEnv) {
+      throw new Error('DATABASE_URL is not configured. Refusing to boot PAE Server without a PostgreSQL connection.');
+    }
+    if (!isTestEnv) {
+      console.warn('[PAE Server] Warning: DATABASE_URL is not configured. Booting in disconnected dev mode (configure DATABASE_URL in .env for PostgreSQL-backed APIs).');
+    }
   }
   const app = createFastifyApp(customEnv);
   await app.listen({ port: Number(port), host });
@@ -821,7 +848,7 @@ export async function startServer(
   const server = app.server;
   server.fastify = app;
 
-  if (!isTestEnv) {
+  if (!isTestEnv && process.env.NODE_ENV !== 'test') {
     registerGracefulShutdown(app, customEnv.SQL_CLIENT || getServerSqlClient(resolvedDsn));
   }
 

@@ -654,17 +654,14 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
   });
   const chronoDays = [...dailyTrajectory].reverse();
 
-  if (chronoDays[0] && chronoDays[0].is_hydration_jump === undefined) {
-    chronoDays[0].is_hydration_jump = false;
-  }
-  if (chronoDays.length === 1 && chronoDays[0]) {
-    const cSaves = Number(chronoDays[0].save_count || 0);
-    const cVel = Number(chronoDays[0].daily_save_velocity || 0);
-    if (cSaves > 0 && cVel >= cSaves) {
-      chronoDays[0].daily_save_velocity = 0;
-      chronoDays[0].window_24h_velocity = 0;
-      chronoDays[0].window_24h_delta = 0;
+  if (chronoDays[0]) {
+    if (chronoDays[0].is_hydration_jump === undefined) {
+      chronoDays[0].is_hydration_jump = false;
     }
+    chronoDays[0].is_baseline = true;
+    chronoDays[0].daily_save_velocity = 0;
+    chronoDays[0].window_24h_velocity = 0;
+    chronoDays[0].window_24h_delta = 0;
   }
 
   for (let i = 1; i < chronoDays.length; i++) {

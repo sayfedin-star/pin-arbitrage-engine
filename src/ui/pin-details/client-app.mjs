@@ -1240,22 +1240,23 @@ export function getPinDetailsClientAppScripts() {
           return 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-[#18181B] dark:text-slate-400 dark:border-[#27272A]';
         },
 
+        totalComments() {
+          const s = this.latestSnapshot();
+          return Number(s?.comment_count ?? this.dossier?.creative?.comment_count ?? 0);
+        },
+
         totalShares() {
           const s = this.latestSnapshot();
-          return Number(s?.share_count || this.dossier?.creative?.share_count || 0);
+          return Number(s?.share_count ?? this.dossier?.creative?.share_count ?? 0);
         },
 
         totalReactions() {
           const s = this.latestSnapshot();
-          return Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
+          return Number(s?.reaction_count ?? this.dossier?.creative?.reaction_count ?? 0);
         },
 
         totalEngagementScore() {
-          const s = this.latestSnapshot();
-          const snapC = Number(s?.comment_count || this.dossier?.creative?.comment_count || 0);
-          const snapR = Number(s?.reaction_count || this.dossier?.creative?.reaction_count || 0);
-          const snapSh = Number(s?.share_count || this.dossier?.creative?.share_count || 0);
-          return snapC + snapR + snapSh;
+          return this.totalComments() + this.totalReactions() + this.totalShares();
         },
 
         isCanonicalRoot() {

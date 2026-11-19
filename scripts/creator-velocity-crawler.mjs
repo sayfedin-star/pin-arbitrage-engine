@@ -55,7 +55,7 @@ import {
 import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
 import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
-import { shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
+import { shouldSkipFreshPinEnrichment, sanitizeVisualAnnotations } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 
 import {
@@ -168,8 +168,11 @@ export async function syncPinsToMasterCatalog(hubSql, enrichedPins, extraOptions
       comment_count: (p.comments != null || p.comment_count != null) ? Math.max(0, Number(p.comments ?? p.comment_count)) : null,
       share_count: (p.shares != null || p.share_count != null) ? Math.max(0, Number(p.shares ?? p.share_count)) : null,
       reaction_count: reactionCount,
+      visual_annotations: sanitizeVisualAnnotations(p.visual_annotations, { maxItems: 15 }),
       is_hydrated: Boolean(p.is_hydrated || (hasSaves && saveCount !== null)),
-      was_live_scraped: Boolean(p.is_hydrated || (hasSaves && saveCount !== null)),
+      was_live_scraped: p.was_live_scraped !== undefined
+        ? Boolean(p.was_live_scraped)
+        : Boolean(!p.from_hydration_cache && (p.is_hydrated || (hasSaves && saveCount !== null))),
       daily_save_velocity: vel,
       daily_repin_velocity: repinVel,
       delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null)
@@ -196,39 +199,55 @@ export async function syncPinsToMasterCatalog(hubSql, enrichedPins, extraOptions
   return totalSynced;
 }
 
+export const CREATOR_PIDGETS_DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10-minute dedup window for Pidgets fast telemetry
+
+function resolveCreatorForceRefresh(options = {}) {
+  if (options.forceRefresh !== undefined) return Boolean(options.forceRefresh);
+  return (
+    process.argv.includes('--force') ||
+    process.env.FORCE_REFRESH === 'true' ||
+    process.env.FORCE_REFRESH === '1' ||
+    process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+  );
+}
+
+function isWithinCreatorPidgetsDedupWindow(lastScrapedAt, nowMs = Date.now(), windowMs = CREATOR_PIDGETS_DEDUP_WINDOW_MS) {
+  if (!lastScrapedAt || windowMs <= 0) return false;
+  const ts = new Date(lastScrapedAt).getTime();
+  if (!Number.isFinite(ts)) return false;
+  const elapsed = nowMs - ts;
+  return elapsed >= 0 && elapsed < windowMs;
+}
+
 /**
  * Stage-1 50-pin Pidgets pre-pass for Phase 2 catalog slices.
- * Skips pins already protected by the 18h freshness gate or lacking existing visual_annotations
- * (which still need PinResource/SSR deep extraction).
+ * Uses the lightweight 10-minute Pidgets dedup window (separated from the 18h deep PinResource gate)
+ * and skips pins lacking clean visual_annotations (which still need PinResource/SSR deep extraction).
  */
 export async function prehydrateCreatorCatalogWithPidgets(slicePins, options = {}) {
   const {
     useFreshnessGate = true,
     useUmpFields = false,
-    batchPidgetsFn = fetchPinsBatchFromPidgets
+    batchPidgetsFn = fetchPinsBatchFromPidgets,
+    nowMs = Date.now(),
+    dedupWindowMs = CREATOR_PIDGETS_DEDUP_WINDOW_MS
   } = options;
+  const forceRefresh = resolveCreatorForceRefresh(options);
 
   const pidgetsIds = [];
   for (const p of (Array.isArray(slicePins) ? slicePins : [])) {
-    if (!p || !p.pin_id) continue;
+    const pid = String(p?.pin_id || '').trim();
+    if (!/^\d{10,25}$/.test(pid)) continue;
     const rawPrevSaves = useUmpFields ? (p.ump_saves ?? p.save_count) : (p.saves ?? p.save_count);
     const prevSaves = rawPrevSaves != null ? Math.max(0, Number(rawPrevSaves)) : null;
-    if (useFreshnessGate && prevSaves != null) {
-      const masterSnapshot = {
-        last_scraped_at: p.last_scraped_at,
-        save_count: prevSaves,
-        created_at_pinterest: p.created_at_pinterest,
-        is_hydrated: p.is_hydrated ?? true,
-        visual_annotations: p.visual_annotations,
-        image_signature: p.image_signature,
-        creation_method: p.creation_method,
-        metadata: p.ump_metadata
-      };
-      if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) continue;
+    if (useFreshnessGate && !forceRefresh && prevSaves != null) {
+      if (isWithinCreatorPidgetsDedupWindow(p.last_scraped_at, nowMs, dedupWindowMs)) {
+        continue;
+      }
     }
-    const hasExistingAnnotations = Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0;
-    if (hasExistingAnnotations) {
-      pidgetsIds.push(String(p.pin_id));
+    const cleanAnnotations = sanitizeVisualAnnotations(p.visual_annotations ?? p.ump_metadata?.visual_annotations, { maxItems: 15 });
+    if (cleanAnnotations.length > 0 && p.created_at_pinterest) {
+      pidgetsIds.push(pid);
     }
   }
 
@@ -254,8 +273,11 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     pidgetsMap = null,
     requireDeepFields = false,
     fetchPinFromPinResourceFn = null,
-    fetchPinFromPinterestFn = null
+    fetchPinFromPinterestFn = null,
+    nowMs = Date.now(),
+    dedupWindowMs = CREATOR_PIDGETS_DEDUP_WINDOW_MS
   } = options;
+  const forceRefresh = resolveCreatorForceRefresh(options);
   const { refreshedPins, metricSnapshots, masterPinsToSync } = collectors;
   const effectivePidgetsMap = pidgetsMap instanceof Map ? pidgetsMap : (collectors.pidgetsMap instanceof Map ? collectors.pidgetsMap : null);
 
@@ -269,41 +291,47 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     ? ((p.prev_velocity != null || p.ump_velocity != null) ? Number(p.prev_velocity ?? p.ump_velocity) : null)
     : (p.velocity != null ? Number(p.velocity) : null);
 
-  if (useFreshnessGate && prevSaves != null) {
-    const masterSnapshot = {
-      last_scraped_at: p.last_scraped_at,
-      save_count: prevSaves,
-      created_at_pinterest: p.created_at_pinterest,
-      is_hydrated: p.is_hydrated ?? true,
-      visual_annotations: p.visual_annotations,
-      image_signature: p.image_signature,
-      creation_method: p.creation_method,
-      metadata: p.ump_metadata
-    };
-    if (shouldSkipFreshPinEnrichment(masterSnapshot, 18)) {
+  const cleanExistingAnnotations = sanitizeVisualAnnotations(p.visual_annotations ?? p.ump_metadata?.visual_annotations, { maxItems: 15 });
+  const hasExistingAnnotations = cleanExistingAnnotations.length > 0;
+
+  const masterSnapshot = {
+    last_scraped_at: p.last_scraped_at,
+    save_count: prevSaves,
+    created_at_pinterest: p.created_at_pinterest,
+    is_hydrated: p.is_hydrated ?? true,
+    visual_annotations: cleanExistingAnnotations,
+    image_signature: p.image_signature,
+    creation_method: p.creation_method,
+    metadata: p.ump_metadata
+  };
+
+  // Lane 1 dedup guard: skip all network requests within 10-minute Pidgets dedup window (unless forced)
+  if (useFreshnessGate && !forceRefresh && prevSaves != null && !requireDeepFields && hasExistingAnnotations && p.created_at_pinterest) {
+    if (isWithinCreatorPidgetsDedupWindow(p.last_scraped_at, nowMs, dedupWindowMs)) {
       refreshedPins.push({
         pin_id: String(p.pin_id),
         saves: prevSaves,
         repins: prevRepins,
         comments: prevComments,
         share_count: Number(p.ump_shares ?? p.share_count ?? 0),
-        velocity: prevVelocity != null ? prevVelocity : 0,
-        delta_saves: prevVelocity != null ? prevVelocity : 0,
-        delta_repins: 0,
-        from_hydration_cache: true
+        velocity: null,
+        delta_saves: null,
+        delta_repins: null,
+        from_hydration_cache: true,
+        was_live_scraped: false
       });
       return true;
     }
   }
 
   const pidgetsPin = effectivePidgetsMap ? effectivePidgetsMap.get(String(p.pin_id)) : null;
-  const hasExistingAnnotations = Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0;
   const pidgetsSaves = (pidgetsPin && !pidgetsPin.is_missing && pidgetsPin.has_explicit_saves && pidgetsPin.saves != null)
     ? Math.max(0, Number(pidgetsPin.saves))
     : null;
   const canUsePidgets = Boolean(
     !requireDeepFields &&
     hasExistingAnnotations &&
+    p.created_at_pinterest &&
     pidgetsPin &&
     !pidgetsPin.is_missing &&
     pidgetsSaves !== null &&
@@ -311,8 +339,28 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     !(prevSaves != null && prevSaves > 0 && pidgetsSaves < prevSaves * 0.8)
   );
 
+  // Lane 2 deep freshness guard: if Pidgets was not used and pin is structurally complete within 18h
+  // (and not a Pidgets missing/cliff-drop fallback), preserve cache instead of hammering PinResource/HTML
+  if (!canUsePidgets && useFreshnessGate && !forceRefresh && prevSaves != null && !requireDeepFields && !pidgetsPin) {
+    if (shouldSkipFreshPinEnrichment(masterSnapshot, 18, nowMs)) {
+      refreshedPins.push({
+        pin_id: String(p.pin_id),
+        saves: prevSaves,
+        repins: prevRepins,
+        comments: prevComments,
+        share_count: Number(p.ump_shares ?? p.share_count ?? 0),
+        velocity: null,
+        delta_saves: null,
+        delta_repins: null,
+        from_hydration_cache: true,
+        was_live_scraped: false
+      });
+      return true;
+    }
+  }
+
   let fresh = canUsePidgets
-    ? { ...pidgetsPin, visual_annotations: p.visual_annotations }
+    ? { ...pidgetsPin, visual_annotations: cleanExistingAnnotations }
     : await (typeof fetchPinFromPinResourceFn === 'function' ? fetchPinFromPinResourceFn(p.pin_id) : fetchPinFromPinResource(p.pin_id)).catch(() => null);
   const rawSaves = fresh ? Math.max(0, Number(fresh.saves || fresh.save_count || 0)) : 0;
 
@@ -373,7 +421,10 @@ export async function processCreatorCatalogPin(p, options, collectors) {
       const c = String(fresh.dominant_color || (useUmpFields ? '' : (p.dominant_color || ''))).trim();
       return (!c || c.toLowerCase() === '#888888') ? null : c;
     })(),
-    visual_annotations: fresh.visual_annotations || fresh.annotations || (useUmpFields ? [] : (p.annotations || [])),
+    visual_annotations: sanitizeVisualAnnotations(
+      fresh.visual_annotations || fresh.annotations || (useUmpFields ? cleanExistingAnnotations : (p.annotations || cleanExistingAnnotations)),
+      { maxItems: 15 }
+    ),
     image_signature: fresh.image_signature || p.image_signature || null,
     creation_method: fresh.creation_method || fresh.method || p.creation_method || null,
     created_at_pinterest: p.created_at_pinterest || fresh.created_at || null,

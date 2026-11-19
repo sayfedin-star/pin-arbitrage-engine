@@ -26,6 +26,7 @@ import {
 import { isSyntheticPinTitle, derivePinTitle } from './folders-crossover.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from './folders-crud.mjs';
 import { calculateDailyVelocity } from '../../lib/math.mjs';
+import { sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
 import {
   insertNewPinsBatch,
@@ -796,12 +797,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         }
       }
 
-      const visualAnnotations = Array.isArray(item.pin_join?.visual_annotation)
-        ? item.pin_join.visual_annotation
-            .map(t => String(t || '').trim())
-            .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
-            .slice(0, 15)
-        : [];
+      const visualAnnotations = sanitizeVisualAnnotations(item.pin_join?.visual_annotation, { maxItems: 15 });
 
       const description = (item.grid_description || item.closeup_unified_description || item.description || '').slice(0, 500);
       const altText = (item.closeup_unified_description || item.description || '').slice(0, 500);
@@ -838,6 +834,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         repin_count: confirmedRepins,
         comment_count: confirmedComments,
         daily_save_velocity: velocity,
+        daily_repin_velocity: deltaRepins24h,
         delta_repins_24h: deltaRepins24h,
         created_at_pinterest: createdAt,
         creation_method: method,
@@ -879,8 +876,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     // Batch Pidgets SERP Pre-Enrichment (LND-801)
-    // Run fetchPinsBatchFromPidgets across 100% of SERP pins in chunks of 50
-    if (typeof fetchPinsBatchFromPidgets === 'function' && preparedPins.length > 0) {
+    // Skip when skip_top_enrich is true (Phase 1A fleet harvest), because Phase 1B runs unified 50x Pidgets telemetry
+    // and Phase 1A intentionally omits resavePinsMetricsBatch for existing SERP pins.
+    if (!options.skip_top_enrich && typeof fetchPinsBatchFromPidgets === 'function' && preparedPins.length > 0) {
       const allPinIds = preparedPins.map(p => p.pin_id).filter(Boolean);
       for (const chunk of chunkArray(allPinIds, 50)) {
         try {
@@ -930,7 +928,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
                   const baseDateStr = baseDateRaw instanceof Date && !isNaN(baseDateRaw) ? baseDateRaw.toISOString().slice(0, 10) : null;
                   const gapDays = baseDateStr ? Math.max(1, Math.round((new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime() - new Date(baseDateStr + 'T00:00:00Z').getTime()) / 86400000)) : 1;
-                  p.delta_repins_24h = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
+                  const computedRepinDelta = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
+                  p.delta_repins_24h = computedRepinDelta;
+                  p.daily_repin_velocity = computedRepinDelta;
                 }
                 const pIdxInPrepared = preparedPins.indexOf(p);
                 if (pIdxInPrepared !== -1) {

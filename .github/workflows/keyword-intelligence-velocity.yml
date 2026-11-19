@@ -44,6 +44,16 @@ on:
         required: false
         type: string
         default: ''
+      force_refresh:
+        description: 'Bypass 10-minute Pidgets dedup window on manual dispatch (default: true)'
+        required: false
+        type: boolean
+        default: true
+      force_deep_refresh:
+        description: 'Force Stage 2 deep structural PinResource/SSR re-extraction for all pins (default: false)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword != '' && format('kw-{0}', inputs.target_keyword) || (inputs.folder_id != '' && format('folder-{0}', inputs.folder_id) || (github.event_name == 'schedule' && 'cron' || 'dispatch-all')) }}
@@ -171,6 +181,8 @@ jobs:
           MAX_SERP_PINS: ${{ matrix.max_serp_pins }}
           MAX_CATALOG_INSPECT: ${{ matrix.max_catalog_inspect }}
           ENABLE_SERP_HARVEST: ${{ matrix.enable_serp_harvest }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && (inputs.force_refresh != false && 'true' || 'false') || 'false' }}
+          FORCE_DEEP_REFRESH: ${{ inputs.force_deep_refresh && 'true' || 'false' }}
           CONCURRENCY: '12'
           SLEEP_MS_MIN: '300'
           SLEEP_MS_MAX: '600'

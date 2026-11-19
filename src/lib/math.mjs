@@ -476,17 +476,14 @@ export function sanitizeDossierTrajectory(dossier) {
     return tA.localeCompare(tB);
   });
 
-  if (chrono[0] && chrono[0].is_hydration_jump === undefined) {
-    chrono[0].is_hydration_jump = false;
-  }
-  if (chrono.length === 1 && chrono[0]) {
-    const cSaves = Number(chrono[0].save_count || 0);
-    const cVel = Number(chrono[0].daily_save_velocity || 0);
-    if (cSaves > 0 && cVel >= cSaves) {
-      chrono[0].daily_save_velocity = 0;
-      chrono[0].window_24h_velocity = 0;
-      chrono[0].window_24h_delta = 0;
+  if (chrono[0]) {
+    if (chrono[0].is_hydration_jump === undefined) {
+      chrono[0].is_hydration_jump = false;
     }
+    chrono[0].is_baseline = true;
+    chrono[0].daily_save_velocity = 0;
+    chrono[0].window_24h_velocity = 0;
+    chrono[0].window_24h_delta = 0;
   }
 
   for (let i = 1; i < chrono.length; i++) {

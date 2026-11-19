@@ -293,12 +293,15 @@ export function normalizeWordLemma(word) {
  * @param {boolean} [options.lemmatize=false]
  * @returns {string}
  */
+export const CORRUPTED_OBJECT_STRING_RE = /^\[object\s+[^\]]+\]$/i;
+
 export function normalizeAnnotationTag(rawTag, { lemmatize = false } = {}) {
   if (!rawTag) return '';
   const str = typeof rawTag === 'string'
     ? rawTag
-    : (rawTag?.name || rawTag?.label || rawTag?.term || '');
+    : (rawTag?.name || rawTag?.label || rawTag?.display || rawTag?.tag || rawTag?.term || rawTag?.text || '');
   if (!str || typeof str !== 'string') return '';
+  if (CORRUPTED_OBJECT_STRING_RE.test(str.trim())) return '';
 
   const cacheKey = `${lemmatize ? '1' : '0'}:${str}`;
   const cached = ANNOTATION_TAG_CACHE.get(cacheKey);
@@ -311,7 +314,7 @@ export function normalizeAnnotationTag(rawTag, { lemmatize = false } = {}) {
     .trim()
     .toLowerCase();
 
-  if (!cleaned || cleaned.length < 2 || cleaned.length > 65 || /^\d+$/.test(cleaned) || ANNOTATION_STOPWORDS.has(cleaned)) {
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 65 || /^\d+$/.test(cleaned) || ANNOTATION_STOPWORDS.has(cleaned) || cleaned === 'object object') {
     if (ANNOTATION_TAG_CACHE.size < 30000) ANNOTATION_TAG_CACHE.set(cacheKey, '');
     return '';
   }
@@ -350,6 +353,82 @@ export function formatTagTitleCase(tag) {
     .split(/\s+/)
     .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '')
     .join(' ');
+}
+
+/**
+ * Canonical SSOT sanitizer for `visual_annotations` written to or read from `universal_master_pins`.
+ * - Accepts arrays of strings or objects (`{ name, label, display, tag, term, text }`), JSON strings, or `{ tags: [...] }`.
+ * - Rejects JS coercion artifacts (`[object Object]`, `[object ...]`), placeholders (`not-given`), and tags < 2 chars.
+ * - Case-insensitively deduplicates while preserving original display casing and ordering.
+ *
+ * @param {any} rawInput
+ * @param {object} [options]
+ * @param {number} [options.maxItems=15]
+ * @returns {string[]}
+ */
+export function sanitizeVisualAnnotations(rawInput, { maxItems = 15 } = {}) {
+  if (!rawInput) return [];
+
+  let list = [];
+  if (Array.isArray(rawInput)) {
+    list = rawInput;
+  } else if (typeof rawInput === 'string') {
+    const trimmed = rawInput.trim();
+    if (!trimmed || trimmed === '[]' || trimmed === '{}' || trimmed === 'null') return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (_) {
+        list = [];
+      }
+    } else if (!CORRUPTED_OBJECT_STRING_RE.test(trimmed)) {
+      list = trimmed.split(',').map((s) => s.trim());
+    }
+  } else if (typeof rawInput === 'object') {
+    if (Array.isArray(rawInput.tags)) {
+      list = rawInput.tags;
+    } else if (Array.isArray(rawInput.visual_annotations)) {
+      list = rawInput.visual_annotations;
+    } else if (Array.isArray(rawInput.annotations)) {
+      list = rawInput.annotations;
+    }
+  }
+
+  const seenLower = new Set();
+  const out = [];
+  const cap = Math.max(1, Number(maxItems) || 15);
+
+  for (const item of list) {
+    if (item == null) continue;
+    let text = '';
+    if (typeof item === 'string') {
+      text = item.trim();
+    } else if (typeof item === 'object') {
+      const candidate = item.name ?? item.label ?? item.display ?? item.tag ?? item.term ?? item.text ?? item.display_label ?? '';
+      if (typeof candidate === 'string') {
+        text = candidate.trim();
+      }
+    }
+    if (!text || text.length < 2) continue;
+    if (CORRUPTED_OBJECT_STRING_RE.test(text)) continue;
+    const lower = text.toLowerCase().replace(/\s+/g, ' ');
+    if (
+      lower.includes('not-given') ||
+      lower.includes('not given') ||
+      lower === 'object object' ||
+      lower === 'null' ||
+      lower === 'undefined'
+    ) {
+      continue;
+    }
+    if (seenLower.has(lower)) continue;
+    seenLower.add(lower);
+    out.push(text);
+    if (out.length >= cap) break;
+  }
+
+  return out;
 }
 
 /**

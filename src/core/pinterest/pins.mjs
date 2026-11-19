@@ -39,6 +39,37 @@ export const PINTEREST_JSON_API_HEADERS = {
   'Sec-Fetch-Site': 'cross-site'
 };
 
+export const PIDGETS_ZERO_COOKIE_HEADERS = {
+  'User-Agent': CANONICAL_FINGERPRINT.USER_AGENT,
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9'
+};
+
+const RESERVED_PINTEREST_PROFILE_SLUGS = new Set([
+  'pin', 'pins', 'ideas', 'search', 'today', 'explore', 'business',
+  'about', 'settings', 'login', 'logout', 'signup', 'resource', '_', 'categories'
+]);
+
+export function extractUsernameFromProfileUrl(profileUrl, explicitUsername = '') {
+  const cleanExplicit = String(explicitUsername || '').replace(/^@+/, '').trim().toLowerCase();
+  if (cleanExplicit && !RESERVED_PINTEREST_PROFILE_SLUGS.has(cleanExplicit)) {
+    return cleanExplicit;
+  }
+  const rawUrl = String(profileUrl || '').trim();
+  if (!rawUrl) return '';
+  try {
+    const pathname = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+      ? new URL(rawUrl).pathname
+      : rawUrl;
+    const firstSeg = pathname.split('/').filter(Boolean)[0] || '';
+    const cleanSeg = firstSeg.replace(/^@+/, '').trim().toLowerCase();
+    if (cleanSeg && /^[a-z0-9_.-]{2,64}$/i.test(cleanSeg) && !RESERVED_PINTEREST_PROFILE_SLUGS.has(cleanSeg)) {
+      return cleanSeg;
+    }
+  } catch (_) {}
+  return '';
+}
+
 export const MAX_METRIC_CAP = 10000000; // 10 Million
 export const PINTEREST_CEILING_VALUE = 10000001; // 10M+ unauthenticated ceiling indicator
 
@@ -1212,6 +1243,8 @@ export async function fetchPinFromPidgets(pinIds, options = {}) {
 export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
   const dispatcher = options.dispatcher || getDefaultDispatcher();
   const timeoutMs = options.timeoutMs || 8000;
+  const concurrency = Math.max(1, Math.min(8, Number(options.concurrency) || 5));
+  const interChunkDelayMs = options.sleepMs !== undefined ? Math.max(0, Number(options.sleepMs) || 0) : 50;
 
   const validIds = Array.from(new Set(
     (Array.isArray(pinIds) ? pinIds : [pinIds])
@@ -1227,136 +1260,175 @@ export async function fetchPinsBatchFromPidgets(pinIds = [], options = {}) {
     return resultsMap;
   }
 
+  const sanitizedCustomHeaders = {};
+  if (options.headers && typeof options.headers === 'object') {
+    for (const [k, v] of Object.entries(options.headers)) {
+      if (String(k).toLowerCase() === 'cookie') continue;
+      sanitizedCustomHeaders[k] = v;
+    }
+  }
+  const reqHeaders = {
+    ...PIDGETS_ZERO_COOKIE_HEADERS,
+    ...sanitizedCustomHeaders
+  };
+
   const chunkSize = 50;
+  const chunks = [];
   for (let i = 0; i < validIds.length; i += chunkSize) {
-    const slice = validIds.slice(i, i + chunkSize);
-    const endpoint = `https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${slice.join(',')}`;
+    chunks.push(validIds.slice(i, i + chunkSize));
+  }
 
-    try {
-      const reqHeaders = options.headers
-        ? { ...PINTEREST_JSON_API_HEADERS, ...options.headers }
-        : PINTEREST_JSON_API_HEADERS;
-      const res = await pinterestFetch(endpoint, {
-        headers: reqHeaders,
-        signal: AbortSignal.timeout(timeoutMs),
-        dispatcher
-      });
+  let nextChunkIdx = 0;
+  const workerCount = Math.min(concurrency, chunks.length);
 
-      if (!res.ok) {
-        if (res.body) await res.body.cancel().catch(() => {});
+  const runChunkWorker = async () => {
+    while (nextChunkIdx < chunks.length) {
+      const idx = nextChunkIdx++;
+      const slice = chunks[idx];
+      if (!slice || slice.length === 0) continue;
+
+      if (idx > 0 && interChunkDelayMs > 0) {
+        const jitterMs = interChunkDelayMs + Math.floor(Math.random() * interChunkDelayMs);
+        await sleep(jitterMs);
+      }
+
+      const endpoint = `https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${slice.join(',')}`;
+
+      try {
+        const res = await pinterestFetch(endpoint, {
+          headers: reqHeaders,
+          signal: AbortSignal.timeout(timeoutMs),
+          dispatcher
+        });
+
+        if (!res.ok) {
+          if (res.body) await res.body.cancel().catch(() => {});
+          for (const id of slice) {
+            if (!resultsMap.has(id)) {
+              resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false, status: res.status });
+            }
+          }
+          continue;
+        }
+
+        const json = await res.json();
+        const rawPins = json?.data?.pins || json?.pins || json?.data || [];
+        const pinList = Array.isArray(rawPins) ? rawPins : Object.values(rawPins);
+        const returnedIds = new Set();
+
+        for (const pin of pinList) {
+          if (!pin || !pin.id) continue;
+          const idStr = String(pin.id);
+          returnedIds.add(idStr);
+
+          const hasExplicitSaves = Boolean(
+            (pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined && pin.aggregated_pin_data?.aggregated_stats?.saves !== null) ||
+            (pin.aggregated_stats?.saves !== undefined && pin.aggregated_stats?.saves !== null) ||
+            (pin.save_count !== undefined && pin.save_count !== null)
+          );
+          const rawSaves = (
+            pin.aggregated_pin_data?.aggregated_stats?.saves ??
+            pin.aggregated_stats?.saves ??
+            pin.save_count ??
+            null
+          );
+          const parsedSaves = rawSaves !== null && Number.isFinite(Number(rawSaves)) ? Math.max(0, Number(rawSaves)) : null;
+          const saves = parsedSaves !== null ? parsedSaves : null;
+
+          const hasExplicitRepins = Boolean(pin.repin_count !== undefined && pin.repin_count !== null && Number.isFinite(Number(pin.repin_count)));
+          const repins = hasExplicitRepins ? Math.max(0, Number(pin.repin_count)) : null;
+
+          const rawComments = pin.comment_count ?? pin.aggregated_pin_data?.comment_count ?? null;
+          const comments = rawComments !== null && rawComments !== undefined && Number.isFinite(Number(rawComments))
+            ? Math.max(0, Number(rawComments))
+            : null;
+
+          const title = (
+            pin.title ||
+            pin.story_pin_data?.metadata?.pin_title ||
+            pin.rich_metadata?.title ||
+            ''
+          ).trim();
+
+          const link = pin.link || pin.rich_metadata?.url || '';
+          const domain = pin.domain || (link ? normalizeDomain('', link) : '') || '';
+
+          const standardImageUrl =
+            pin.images?.['736x']?.url ||
+            pin.story_pin_data?.pages?.[0]?.image?.images?.['736x']?.url ||
+            pin.images?.['564x']?.url ||
+            pin.images?.['236x']?.url ||
+            '';
+
+          const hdImageUrl = standardImageUrl
+            ? standardImageUrl.replace(/\/(236x|474x|564x|736x)\//, '/1200x/')
+            : '';
+
+          const resolvedPinnerUsername = extractUsernameFromProfileUrl(pin.pinner?.profile_url, pin.pinner?.username);
+          const pinner = pin.pinner ? {
+            id: String(pin.pinner.id || ''),
+            username: resolvedPinnerUsername,
+            full_name: pin.pinner.full_name || '',
+            profile_url: pin.pinner.profile_url || '',
+            follower_count: Number(pin.pinner.follower_count || 0),
+            pin_count: Number(pin.pinner.pin_count || 0),
+            about: pin.pinner.about || '',
+            image_small_url: pin.pinner.image_small_url || ''
+          } : null;
+
+          const board = pin.board ? {
+            id: String(pin.board.id || ''),
+            name: pin.board.name || '',
+            url: pin.board.url || '',
+            pin_count: Number(pin.board.pin_count || 0),
+            follower_count: Number(pin.board.follower_count || 0),
+            description: pin.board.description || ''
+          } : null;
+
+          resultsMap.set(idStr, {
+            pin_id: idStr,
+            id: idStr,
+            saves,
+            save_count: saves,
+            has_explicit_saves: Boolean(hasExplicitSaves && saves !== null),
+            repins,
+            repin_count: repins,
+            has_explicit_repins: repins !== null,
+            comments,
+            comment_count: comments,
+            title,
+            description: pin.description || '',
+            domain,
+            destination_url: link,
+            link,
+            dominant_color: pin.dominant_color || null,
+            image_url: standardImageUrl,
+            image_hd_url: hdImageUrl,
+            images: pin.images || {},
+            creator_username: resolvedPinnerUsername,
+            pinner,
+            creator: pinner,
+            board,
+            is_missing: false
+          });
+        }
+
         for (const id of slice) {
-          if (!resultsMap.has(id)) {
-            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false, status: res.status });
+          if (!returnedIds.has(id) && !resultsMap.has(id)) {
+            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
           }
         }
-        continue;
-      }
-
-      const json = await res.json();
-      const rawPins = json?.data?.pins || json?.pins || json?.data || [];
-      const pinList = Array.isArray(rawPins) ? rawPins : Object.values(rawPins);
-      const returnedIds = new Set();
-
-      for (const pin of pinList) {
-        if (!pin || !pin.id) continue;
-        const idStr = String(pin.id);
-        returnedIds.add(idStr);
-
-        const hasExplicitSaves = Boolean(
-          pin.aggregated_pin_data?.aggregated_stats?.saves !== undefined && pin.aggregated_pin_data?.aggregated_stats?.saves !== null ||
-          pin.aggregated_stats?.saves !== undefined && pin.aggregated_stats?.saves !== null ||
-          pin.save_count !== undefined && pin.save_count !== null
-        );
-        const rawSaves = (
-          pin.aggregated_pin_data?.aggregated_stats?.saves ??
-          pin.aggregated_stats?.saves ??
-          pin.save_count ??
-          null
-        );
-        const saves = rawSaves !== null ? Number(rawSaves) : (hasExplicitSaves ? 0 : null);
-
-        const hasExplicitRepins = Boolean(pin.repin_count !== undefined && pin.repin_count !== null);
-        const repins = hasExplicitRepins ? Number(pin.repin_count) : null;
-
-        const title = (
-          pin.title ||
-          pin.story_pin_data?.metadata?.pin_title ||
-          pin.rich_metadata?.title ||
-          ''
-        ).trim();
-
-        const link = pin.link || pin.rich_metadata?.url || '';
-        const domain = pin.domain || (link ? normalizeDomain('', link) : '') || '';
-
-        const standardImageUrl =
-          pin.images?.['736x']?.url ||
-          pin.story_pin_data?.pages?.[0]?.image?.images?.['736x']?.url ||
-          pin.images?.['564x']?.url ||
-          pin.images?.['236x']?.url ||
-          '';
-
-        const hdImageUrl = standardImageUrl
-          ? standardImageUrl.replace(/\/(236x|474x|564x|736x)\//, '/1200x/')
-          : '';
-
-        const pinner = pin.pinner ? {
-          id: String(pin.pinner.id || ''),
-          username: pin.pinner.username || '',
-          full_name: pin.pinner.full_name || '',
-          profile_url: pin.pinner.profile_url || '',
-          follower_count: Number(pin.pinner.follower_count || 0),
-          pin_count: Number(pin.pinner.pin_count || 0),
-          about: pin.pinner.about || '',
-          image_small_url: pin.pinner.image_small_url || ''
-        } : null;
-
-        const board = pin.board ? {
-          id: String(pin.board.id || ''),
-          name: pin.board.name || '',
-          url: pin.board.url || '',
-          pin_count: Number(pin.board.pin_count || 0),
-          follower_count: Number(pin.board.follower_count || 0),
-          description: pin.board.description || ''
-        } : null;
-
-        resultsMap.set(idStr, {
-          pin_id: idStr,
-          id: idStr,
-          saves,
-          save_count: saves,
-          has_explicit_saves: hasExplicitSaves || saves > 0,
-          repins,
-          repin_count: repins,
-          has_explicit_repins: repins !== null,
-          title,
-          description: pin.description || '',
-          domain,
-          destination_url: link,
-          link,
-          dominant_color: pin.dominant_color || null,
-          image_url: standardImageUrl,
-          image_hd_url: hdImageUrl,
-          images: pin.images || {},
-          pinner,
-          creator: pinner,
-          board,
-          is_missing: false
-        });
-      }
-
-      for (const id of slice) {
-        if (!returnedIds.has(id) && !resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
-        }
-      }
-    } catch (_) {
-      for (const id of slice) {
-        if (!resultsMap.has(id)) {
-          resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
+      } catch (_) {
+        for (const id of slice) {
+          if (!resultsMap.has(id)) {
+            resultsMap.set(id, { pin_id: id, id, is_missing: true, saves: null, save_count: null, repins: null, repin_count: null, has_explicit_saves: false, has_explicit_repins: false });
+          }
         }
       }
     }
-  }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runChunkWorker()));
 
   resultsMap.ok = true;
   resultsMap.pins = Array.from(resultsMap.values());

@@ -597,10 +597,10 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
           <div class="mt-2">
             <div class="text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white group-hover:text-sky-600 dark:group-hover:text-sky-100 transition-colors" x-text="formatNumber(totalEngagementScore())"></div>
-            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate">
-              <span x-text="formatNumber(totalReactions())"></span> reactions, 
-              <span x-text="dossier?.creative?.comment_count || 0"></span> comments, 
-              <span x-text="totalShares()"></span> shares<template x-if="totalReactions() > 0"><span>, <span x-text="totalReactions()"></span> reactions</span></template>
+            <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 leading-snug">
+              <span x-text="formatNumber(totalReactions())"></span> reactions ·
+              <span x-text="formatNumber(totalComments())"></span> comments ·
+              <span x-text="formatNumber(totalShares())"></span> shares
             </div>
           </div>
         </div>
@@ -828,7 +828,11 @@ export function getPinDetailsBodyHtml(safePinId) {
 
                     <!-- Velocity -->
                     <td class="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap">
-                      <span class="font-bold text-emerald-400" x-text="(day.daily_save_velocity ? ('+' + day.daily_save_velocity) : '+0') + '/d'"></span>
+                      <span
+                        class="font-bold"
+                        :class="day.is_baseline ? 'text-amber-500 dark:text-amber-400 text-[11px]' : 'text-emerald-400'"
+                        x-text="day.is_baseline ? 'Baseline' : ((day.daily_save_velocity ? ('+' + day.daily_save_velocity) : '+0') + '/d')"
+                      ></span>
                     </td>
 
                     <!-- Repins -->

@@ -37,7 +37,8 @@ import {
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinterest,
-  fetchPinHybrid
+  fetchPinHybrid,
+  fetchPinsBatchFromPidgets
 } from '../src/core/pinterest/index.mjs';
 import {
   insertNewPinsBatch,
@@ -45,7 +46,10 @@ import {
   ingestPinsBatch
 } from '../src/modules/pins/repository.mjs';
 import { calculateDailyVelocity, calculateRollingGainsFromSnapshots } from '../src/lib/math.mjs';
-import { buildRichPinMetadataPayload, shouldSkipFreshPinEnrichment } from '../src/domain/pin-intelligence.mjs';
+import {
+  buildRichPinMetadataPayload,
+  sanitizeVisualAnnotations
+} from '../src/domain/pin-intelligence.mjs';
 import { Semaphore } from '../src/utils.mjs';
 
 import {
@@ -141,181 +145,301 @@ let consecutiveErrors = 0;
 const CIRCUIT_BREAKER_LIMIT = 25;
 let circuitBroken = false;
 
-const HARD_COOLDOWN_MS = 4 * 60 * 60 * 1000;    // 4 Hours Hard Floor
-const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Cache
+export const PIDGETS_DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10-minute dedup window for Pidgets fast telemetry
 
-/**
- * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
- * Eliminates redundant live scrapes and 2.5s-4.0s jitter sleep delays by reusing
- * authentic telemetry if freshly enriched within 18h or within hard cooldown.
- */
-export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  const crawlTime = pin.crawled_at || pin.last_scraped_at || pin.metadata?.crawled_at || null;
-  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
-  const currentMethod = String(pin.creation_method || pin.method || meta.creation_method || meta.method || '').trim();
-  if (currentMethod === 'unhydrated_stub' || pin.is_hydrated === false) {
-    return { shouldFetch: true, reason: 'unhydrated_stub', reuseTelemetry: null };
-  }
-
-  const hasAnnotations = Boolean(
-    pin.has_visual_annotations === true ||
-    (Array.isArray(pin.visual_annotations) && pin.visual_annotations.length > 0) ||
-    (Array.isArray(meta.visual_annotations) && meta.visual_annotations.length > 0)
+function resolveForceRefreshFlag(options = {}) {
+  if (options.force !== undefined) return Boolean(options.force);
+  return (
+    process.argv.includes('--force') ||
+    process.env.FORCE_REFRESH === 'true' ||
+    process.env.FORCE_REFRESH === '1' ||
+    process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
   );
-  const imgSig = pin.image_signature || meta.image_signature || '';
-  const hasRichTreasures = Boolean(
-    meta.has_treasures === true ||
-    imgSig ||
-    hasAnnotations ||
-    meta.canonical_pin_id ||
-    meta.board_pin_count
+}
+
+function resolveForceDeepFlag(options = {}) {
+  if (options.forceDeep !== undefined) return Boolean(options.forceDeep);
+  return (
+    process.argv.includes('--force-deep') ||
+    process.env.FORCE_DEEP_REFRESH === 'true' ||
+    process.env.FORCE_DEEP_REFRESH === '1'
   );
-  const isDeepHydrated = Boolean(
-    pin.is_deep_hydrated === true ||
-    pin.is_deep_hydrated === 'true' ||
-    pin.is_hydrated === true ||
-    pin.is_hydrated === 'true' ||
-    meta.is_deep_hydrated === true ||
-    meta.is_deep_hydrated === 'true' ||
-    (pin.save_count != null && hasRichTreasures)
+}
+
+function hasCompleteStructuralDna(pin) {
+  const meta = (pin?.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const currentMethod = String(pin?.creation_method || pin?.method || meta.creation_method || meta.method || '').trim();
+  if (currentMethod === 'unhydrated_stub' || pin?.is_hydrated === false) {
+    return false;
+  }
+  const cleanAnns = sanitizeVisualAnnotations(pin?.visual_annotations ?? meta.visual_annotations, { maxItems: 15 });
+  const hasAnnotations = pin?.has_visual_annotations === true || cleanAnns.length > 0;
+  const imgSig = String(pin?.image_signature || meta.image_signature || '').trim();
+  return Boolean(
+    pin?.created_at_pinterest &&
+    (imgSig || meta.has_treasures === true) &&
+    hasAnnotations
   );
-  const isDisplaced = Boolean(pin.is_displaced);
-
-  const lastCrawlMs = crawlTime ? new Date(crawlTime).getTime() : NaN;
-  const elapsedMs = !isNaN(lastCrawlMs) ? (currentUtcTimestamp - lastCrawlMs) : Infinity;
-
-  // Self-Healing: Invalidate cache and fetch if original Pinterest creation date is missing
-  if (!pin.created_at_pinterest) {
-    return { shouldFetch: true, reason: 'missing_created_at_pinterest', reuseTelemetry: null };
-  }
-
-  // Displaced pins guard by crawlTime / updated_at cooldown
-  if (isDisplaced && !isNaN(lastCrawlMs) && pin.save_count != null && elapsedMs < HARD_COOLDOWN_MS) {
-    return {
-      shouldFetch: false,
-      reason: 'displaced_cooldown_active',
-      reuseTelemetry: {
-        save_count: pin.save_count != null ? Number(pin.save_count) : null,
-        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-        share_count: pin.share_count != null ? Number(pin.share_count) : null,
-        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
-      }
-    };
-  }
-
-  // Do not invalidate cache merely because save_count === 0 or creation_method === 'pinterest_platform'
-  // if the pin is verified hydrated (save_count != null and has image_signature or visual_annotations)
-  if (!crawlTime || isNaN(lastCrawlMs) || !isDeepHydrated || !hasRichTreasures || pin.save_count == null) {
-    return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
-  }
-
-  // Check 18h shared freshness gate
-  if (shouldSkipFreshPinEnrichment(pin, 18, currentUtcTimestamp)) {
-    return {
-      shouldFetch: false,
-      reason: 'ssot_freshness_gate_18h',
-      reuseTelemetry: {
-        save_count: pin.save_count != null ? Number(pin.save_count) : null,
-        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-        share_count: pin.share_count != null ? Number(pin.share_count) : null,
-        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
-      }
-    };
-  }
-
-  const lastCrawlDateStr = new Date(lastCrawlMs).toISOString().slice(0, 10);
-  const currentUtcDateStr = new Date(currentUtcTimestamp).toISOString().slice(0, 10);
-  const isSameCalendarDay = (lastCrawlDateStr === currentUtcDateStr);
-
-  // 1. Hard Cooldown: Under 4 hours, preserve known saves so pins_daily_metrics is never dropped
-  if (elapsedMs < HARD_COOLDOWN_MS) {
-    if (!isSameCalendarDay) {
-      return {
-        shouldFetch: false,
-        reason: 'hard_cooldown_cross_midnight_preserve_metrics',
-        reuseTelemetry: {
-          save_count: pin.save_count != null ? Number(pin.save_count) : null,
-          repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-          comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-          share_count: pin.share_count != null ? Number(pin.share_count) : null,
-          daily_save_velocity: 0
-        }
-      };
-    }
-    return {
-      shouldFetch: false,
-      reason: 'hard_cooldown_under_4h',
-      reuseTelemetry: {
-        save_count: pin.save_count != null ? Number(pin.save_count) : null,
-        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-        share_count: pin.share_count != null ? Number(pin.share_count) : null,
-        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
-      }
-    };
-  }
-
-  // 2. Same-Day Cache: If within same calendar day and under 18 hours
-  if (isSameCalendarDay && elapsedMs < MAX_SAME_DAY_TTL_MS) {
-    return {
-      shouldFetch: false,
-      reason: 'fresh_same_day_cache',
-      reuseTelemetry: {
-        save_count: pin.save_count != null ? Number(pin.save_count) : null,
-        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
-        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
-        share_count: pin.share_count != null ? Number(pin.share_count) : null,
-        daily_save_velocity: pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null
-      }
-    };
-  }
-
-  return { shouldFetch: true, reason: 'stale_or_new_day', reuseTelemetry: null };
 }
 
 /**
- * Deep Closeup Inspection for a single pin entity (In-Memory Enrichment, Zero DB writes)
+ * Two-Lane Hydration Guard:
+ * - Timestamp SSOT is strictly `last_scraped_at` (NEVER `keyword_serp_positions.crawled_at`).
+ * - Lane 1 (`pidgets`): Structurally complete pins refresh live saves/repins via 50x Pidgets
+ *   whenever older than the 10-minute dedup window (or immediately on `--force` / `workflow_dispatch`).
+ * - Lane 2 (`deep`): Missing structural DNA, unhydrated stubs, or `--force-deep` route to `fetchPinHybrid`.
  */
-async function inspectPin(pin, kw) {
+export function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now(), options = {}) {
+  const lastScrapedTs = pin?.last_scraped_at || pin?.metadata?.last_scraped_at || null;
+  const meta = (pin?.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const currentMethod = String(pin?.creation_method || pin?.method || meta.creation_method || meta.method || '').trim();
+  const isForce = resolveForceRefreshFlag(options);
+  const isForceDeep = resolveForceDeepFlag(options);
+  const dedupWindowMs = Number.isFinite(Number(options.dedupWindowMs))
+    ? Math.max(0, Number(options.dedupWindowMs))
+    : PIDGETS_DEDUP_WINDOW_MS;
+
+  if (isForceDeep) {
+    return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'force_deep_refresh', reuseTelemetry: null };
+  }
+
+  if (currentMethod === 'unhydrated_stub' || pin?.is_hydrated === false) {
+    return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'unhydrated_stub', reuseTelemetry: null };
+  }
+
+  if (!pin?.created_at_pinterest) {
+    return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'missing_created_at_pinterest', reuseTelemetry: null };
+  }
+
+  if (pin?.save_count == null) {
+    return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'missing_save_count', reuseTelemetry: null };
+  }
+
+  if (!hasCompleteStructuralDna(pin)) {
+    return { shouldFetch: true, lane: 'deep', shouldFetchDeep: true, reason: 'missing_structural_dna', reuseTelemetry: null };
+  }
+
+  const lastScrapedMs = lastScrapedTs ? new Date(lastScrapedTs).getTime() : NaN;
+  const elapsedMs = Number.isFinite(lastScrapedMs) ? (currentUtcTimestamp - lastScrapedMs) : Infinity;
+
+  if (!isForce && Number.isFinite(lastScrapedMs) && elapsedMs >= 0 && elapsedMs < dedupWindowMs) {
+    return {
+      shouldFetch: false,
+      lane: 'cache',
+      shouldFetchDeep: false,
+      reason: 'pidgets_dedup_window_10m',
+      reuseTelemetry: {
+        save_count: pin.save_count != null ? Number(pin.save_count) : null,
+        repin_count: pin.repin_count != null ? Number(pin.repin_count) : null,
+        comment_count: pin.comment_count != null ? Number(pin.comment_count) : null,
+        share_count: pin.share_count != null ? Number(pin.share_count) : null,
+        daily_save_velocity: null
+      }
+    };
+  }
+
+  return {
+    shouldFetch: true,
+    lane: 'pidgets',
+    shouldFetchDeep: false,
+    reason: isForce ? 'force_pidgets_refresh' : 'pidgets_fast_telemetry',
+    reuseTelemetry: null
+  };
+}
+
+/**
+ * Strict 5-point Stage-1 acceptance contract for zero-cookie Pidgets 50x fast telemetry.
+ * Any pin failing ANY condition falls back automatically to Stage 2 (`fetchPinHybrid`)
+ * and is NEVER marked `is_deleted` from Pidgets alone.
+ */
+export function canSatisfyPinFromPidgets(pin, pidgetsPin) {
+  const pid = String(pin?.pin_id || '').trim();
+  if (!/^\d{10,25}$/.test(pid)) return false;
+  if (!pidgetsPin || typeof pidgetsPin !== 'object') return false;
+  if (pidgetsPin.is_missing === true) return false;
+  if (pidgetsPin.has_explicit_saves !== true || pidgetsPin.save_count === null || pidgetsPin.save_count === undefined) {
+    return false;
+  }
+  const pidgetsSaves = Number(pidgetsPin.save_count);
+  if (!Number.isFinite(pidgetsSaves) || pidgetsSaves < 0) return false;
+
+  const prevSaves = pin?.save_count != null ? Number(pin.save_count) : null;
+  if (pidgetsSaves === 0 && (prevSaves ?? 0) > 0) return false;
+  if (prevSaves != null && prevSaves > 0 && pidgetsSaves < prevSaves * 0.8) return false;
+
+  return hasCompleteStructuralDna(pin);
+}
+
+function buildCachedCarryoverRecord(pin, kw, reuseTelemetry) {
+  const cleanAnnotations = sanitizeVisualAnnotations(pin.visual_annotations ?? pin.metadata?.visual_annotations, { maxItems: 15 });
+  const boardName = pin.board_name || pin.metadata?.board_name || '';
+  return {
+    pin_id: pin.pin_id,
+    creator_username: pin.creator_username || pin.metadata?.pinner?.username || '',
+    board_name: boardName,
+    board_slug: boardName ? boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : '',
+    title: pin.title,
+    domain: pin.domain,
+    destination_url: pin.destination_url,
+    image_url: pin.image_url,
+    description: pin.description || '',
+    alt_text: pin.alt_text || pin.metadata?.alt_text || '',
+    dominant_color: (pin.dominant_color && String(pin.dominant_color).toLowerCase() !== '#888888') ? pin.dominant_color : null,
+    visual_annotations: cleanAnnotations,
+    method: pin.creation_method || pin.method || 'pinterest_platform',
+    creation_method: pin.creation_method || pin.method || 'pinterest_platform',
+    created_at_pinterest: pin.created_at_pinterest || null,
+    created_at: pin.created_at_pinterest || null,
+    save_count: reuseTelemetry.save_count,
+    repin_count: reuseTelemetry.repin_count,
+    comment_count: reuseTelemetry.comment_count,
+    share_count: reuseTelemetry.share_count,
+    daily_save_velocity: null,
+    daily_repin_velocity: null,
+    delta_saves_24h: null,
+    delta_repins_24h: null,
+    rank_position: pin.rank_position,
+    catalog_rank: pin.catalog_rank || pin.rank_position,
+    last_known_rank: pin.last_known_rank,
+    is_displaced: Boolean(pin.is_displaced),
+    keyword_id: pin.keyword_id || kw?.id || null,
+    is_deleted: false,
+    from_hydration_cache: true,
+    was_live_scraped: false,
+    is_hydrated: Boolean(pin.is_hydrated || pin.is_deep_hydrated || (reuseTelemetry.save_count != null)),
+    extra_meta: (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : (pin.extra_meta || {})
+  };
+}
+
+/**
+ * Builds an enriched pin record directly from a verified Stage-1 Pidgets 50x payload
+ * while preserving all immutable structural DNA already stored in `universal_master_pins`.
+ */
+export function buildPidgetsEnrichedPin(pin, pidgetsPin, kw = null) {
+  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const authenticSaves = Math.max(0, Number(pidgetsPin.save_count));
+  const rawPidgetsRepins = (pidgetsPin.repin_count != null || pidgetsPin.repins != null)
+    ? Math.max(0, Number(pidgetsPin.repin_count ?? pidgetsPin.repins))
+    : null;
+  const authenticRepins = (
+    rawPidgetsRepins !== null &&
+    Number.isFinite(rawPidgetsRepins) &&
+    (rawPidgetsRepins > 0 || (pidgetsPin.has_explicit_repins === true && (pin.repin_count == null || Number(pin.repin_count) === 0)))
+  )
+    ? rawPidgetsRepins
+    : (pin.repin_count != null ? Number(pin.repin_count) : null);
+
+  const rawPidgetsComments = (pidgetsPin.comment_count != null || pidgetsPin.comments != null)
+    ? Math.max(0, Number(pidgetsPin.comment_count ?? pidgetsPin.comments))
+    : null;
+  const authenticComments = (rawPidgetsComments !== null && Number.isFinite(rawPidgetsComments) && rawPidgetsComments > 0)
+    ? rawPidgetsComments
+    : (pin.comment_count != null ? Number(pin.comment_count) : null);
+  const authenticShares = pin.share_count != null ? Number(pin.share_count) : null;
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const rawBaseDateObj = pin.baseline_day_date ? new Date(pin.baseline_day_date) : null;
+  const rawBaseDateIso = rawBaseDateObj && !isNaN(rawBaseDateObj.getTime()) ? rawBaseDateObj.toISOString().slice(0, 10) : null;
+  const hasExplicitBaseline = (
+    pin.baseline_day_saves != null &&
+    Number(pin.baseline_day_saves) > 0 &&
+    (!rawBaseDateIso || rawBaseDateIso < todayIso)
+  );
+  const baselineSaves = hasExplicitBaseline
+    ? Number(pin.baseline_day_saves)
+    : (pin.save_count != null ? Number(pin.save_count) : null);
+
+  let computedVelocity = (baselineSaves === null)
+    ? null
+    : ((baselineSaves <= 0) ? 0 : (pin.daily_save_velocity != null ? Number(pin.daily_save_velocity) : null));
+
+  if (baselineSaves === null || baselineSaves <= 0 || authenticSaves < baselineSaves) {
+    computedVelocity = 0;
+  } else {
+    const rawDelta = authenticSaves - baselineSaves;
+    const baseDateRaw = (hasExplicitBaseline ? pin.baseline_day_date : null) || pin.last_scraped_at || pin.metadata?.last_scraped_at || null;
+    if (rawDelta > 0 && baseDateRaw) {
+      const parsedBase = new Date(baseDateRaw);
+      const baseIso = !isNaN(parsedBase.getTime()) ? parsedBase.toISOString().slice(0, 10) : null;
+      const calcVel = calculateDailyVelocity({
+        currentSaves: authenticSaves,
+        baselineSaves,
+        currentRepins: authenticRepins,
+        baselineRepins: Number(pin.repin_count || 0),
+        currentDate: new Date(),
+        baselineDate: baseDateRaw,
+        createdAt: pin.created_at_pinterest || null,
+        wasDeepHydrated: true,
+        maxCap: 25000
+      });
+      computedVelocity = (!hasExplicitBaseline && baseIso === todayIso)
+        ? Math.max(Number(pin.daily_save_velocity || 0), calcVel)
+        : calcVel;
+    } else if (rawDelta === 0 && baseDateRaw) {
+      const parsedBase = new Date(baseDateRaw);
+      if (!isNaN(parsedBase.getTime()) && parsedBase.toISOString().slice(0, 10) < todayIso) {
+        computedVelocity = 0;
+      }
+    }
+  }
+
+  const cleanAnnotations = sanitizeVisualAnnotations(pin.visual_annotations ?? meta.visual_annotations, { maxItems: 15 });
+  const creator = pidgetsPin.creator_username || pidgetsPin.pinner?.username || pin.creator_username || meta.pinner?.username || '';
+  const board = pin.board_name || pidgetsPin.board_name || pidgetsPin.board?.name || meta.board_name || '';
+  const method = pin.creation_method || pin.method || meta.creation_method || meta.method || 'pinterest_platform';
+  const rawDominantColor = String(pidgetsPin.dominant_color || pin.dominant_color || '').trim();
+  const dominantColor = (!rawDominantColor || rawDominantColor.toLowerCase() === '#888888') ? null : rawDominantColor;
+
+  return {
+    pin_id: pin.pin_id,
+    creator_username: creator,
+    board_name: board,
+    board_slug: board ? board.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : '',
+    title: pidgetsPin.title || pin.title,
+    domain: pidgetsPin.domain || pin.domain,
+    destination_url: pidgetsPin.link || pin.destination_url,
+    image_url: pidgetsPin.image_url || pin.image_url,
+    description: pin.description || pidgetsPin.description || '',
+    alt_text: pin.alt_text || meta.alt_text || '',
+    dominant_color: dominantColor,
+    visual_annotations: cleanAnnotations,
+    method,
+    creation_method: method,
+    created_at_pinterest: pin.created_at_pinterest || null,
+    created_at: pin.created_at_pinterest || null,
+    save_count: authenticSaves,
+    has_explicit_saves: true,
+    repin_count: authenticRepins,
+    has_explicit_repins: Boolean(pidgetsPin.has_explicit_repins),
+    comment_count: authenticComments,
+    share_count: authenticShares,
+    daily_save_velocity: computedVelocity,
+    rank_position: pin.rank_position,
+    catalog_rank: pin.catalog_rank || pin.rank_position,
+    last_known_rank: pin.last_known_rank,
+    is_displaced: Boolean(pin.is_displaced),
+    keyword_id: pin.keyword_id || kw?.id || null,
+    is_deleted: false,
+    from_hydration_cache: false,
+    was_live_scraped: true,
+    is_hydrated: true,
+    enrichment_lane: 'pidgets',
+    extra_meta: meta
+  };
+}
+
+/**
+ * Deep Closeup Inspection for a single pin entity (Stage 2 fallback, In-Memory Enrichment, Zero DB writes)
+ */
+async function inspectPin(pin, kw, options = {}) {
   if (circuitBroken) return null;
 
-  // Hydration Guard Check: Zero network requests if pin was hydrated recently
-  const guard = evaluateHydrationGuard(pin);
-  if (!guard.shouldFetch && guard.reuseTelemetry) {
-    return {
-      pin_id: pin.pin_id,
-      creator_username: pin.creator_username || '',
-      board_name: pin.board_name || '',
-      board_slug: pin.board_name ? pin.board_name.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') : '',
-      title: pin.title,
-      domain: pin.domain,
-      destination_url: pin.destination_url,
-      image_url: pin.image_url,
-      description: pin.description || '',
-      alt_text: pin.alt_text || '',
-      dominant_color: (pin.dominant_color && String(pin.dominant_color).toLowerCase() !== '#888888') ? pin.dominant_color : null,
-      visual_annotations: pin.visual_annotations || [],
-      method: pin.creation_method || pin.method || 'pinterest_platform',
-      creation_method: pin.creation_method || pin.method || 'pinterest_platform',
-      created_at_pinterest: pin.created_at_pinterest || null,
-      created_at: pin.created_at_pinterest || null,
-      save_count: guard.reuseTelemetry.save_count,
-      repin_count: guard.reuseTelemetry.repin_count,
-      comment_count: guard.reuseTelemetry.comment_count,
-      share_count: guard.reuseTelemetry.share_count,
-      daily_save_velocity: guard.reuseTelemetry.daily_save_velocity,
-      rank_position: pin.rank_position,
-      catalog_rank: pin.catalog_rank || pin.rank_position,
-      last_known_rank: pin.last_known_rank,
-      is_displaced: Boolean(pin.is_displaced),
-      keyword_id: pin.keyword_id || kw?.id || null,
-      is_deleted: false,
-      from_hydration_cache: true,
-      is_hydrated: Boolean(pin.is_hydrated || pin.is_deep_hydrated || (guard.reuseTelemetry.save_count != null)),
-      extra_meta: (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : (pin.extra_meta || {})
-    };
+  // Hydration Guard Check: Zero network requests if pin is within 10-minute dedup window
+  if (!options.skipGuard) {
+    const guard = evaluateHydrationGuard(pin, options.nowMs ?? Date.now(), options);
+    if (!guard.shouldFetch && guard.reuseTelemetry) {
+      return buildCachedCarryoverRecord(pin, kw, guard.reuseTelemetry);
+    }
   }
 
   // Active Cooldown Loop & Circuit Breaker Check
@@ -336,10 +460,12 @@ async function inspectPin(pin, kw) {
     (pin.creation_method && pin.creation_method !== 'unhydrated_stub')
   );
 
-  // Use 3KB JSON PinResource fast path only if displaced OR (deep-hydrated AND already has visual annotations)
+  // Use 3KB JSON PinResource fast path only if displaced OR (deep-hydrated AND already has clean visual annotations)
   // [INVARIANT: ANNOTATIONS-COMPLETENESS]
-  const hasAnnotations = Array.isArray(pin.visual_annotations) && pin.visual_annotations.length > 0;
+  const hasAnnotations = sanitizeVisualAnnotations(pin.visual_annotations ?? meta.visual_annotations, { maxItems: 15 }).length > 0;
   const isTelemetryOnly = Boolean(pin.is_displaced || (wasDeepHydrated && hasAnnotations));
+  const hybridFn = typeof options.fetchPinHybridFn === 'function' ? options.fetchPinHybridFn : fetchPinHybrid;
+  const htmlFn = typeof options.fetchPinFromPinterestFn === 'function' ? options.fetchPinFromPinterestFn : fetchPinFromPinterest;
 
   let detail = null;
   let isDead = false;
@@ -347,23 +473,23 @@ async function inspectPin(pin, kw) {
   let fetchRes = null;
 
   try {
-    fetchRes = await fetchPinHybrid(pin.pin_id, { isTelemetryOnly });
+    fetchRes = await hybridFn(pin.pin_id, { isTelemetryOnly });
     const isConfirmedDead = fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404');
     const isRateLimited = fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429');
     if (!fetchRes?.ok && !isConfirmedDead && !isRateLimited) {
-      const retryJitter = 500 + Math.floor(Math.random() * 600);
-      await new Promise(r => setTimeout(r, retryJitter));
-      fetchRes = await fetchPinFromPinterest(pin.pin_id, '');
+      const retryJitter = options.skipJitter ? 0 : (500 + Math.floor(Math.random() * 600));
+      if (retryJitter > 0) await new Promise(r => setTimeout(r, retryJitter));
+      fetchRes = await htmlFn(pin.pin_id, '');
     }
   } catch (err) {
     fetchError = err;
     const isConfirmedDead = String(err.message || '').includes('404');
     const isRateLimited = String(err.message || '').includes('429');
     if (!isConfirmedDead && !isRateLimited) {
-      const retryJitter = 500 + Math.floor(Math.random() * 600);
-      await new Promise(r => setTimeout(r, retryJitter));
+      const retryJitter = options.skipJitter ? 0 : (500 + Math.floor(Math.random() * 600));
+      if (retryJitter > 0) await new Promise(r => setTimeout(r, retryJitter));
       try {
-        fetchRes = await fetchPinFromPinterest(pin.pin_id, '');
+        fetchRes = await htmlFn(pin.pin_id, '');
         fetchError = null;
       } catch (retryErr) {
         fetchError = retryErr;
@@ -401,11 +527,13 @@ async function inspectPin(pin, kw) {
   }
 
   // Adaptive Jitter: 300-600ms for lightweight 3KB PinResource JSON; 900-1400ms for full SSR HTML
-  const usedFastPath = Boolean(fetchRes?.fastPath);
-  const minJitter = usedFastPath ? SLEEP_MS_MIN : Math.max(900, SLEEP_MS_MIN);
-  const maxJitter = usedFastPath ? SLEEP_MS_MAX : Math.max(1400, SLEEP_MS_MAX);
-  const jitter = minJitter + Math.floor(Math.random() * Math.max(1, maxJitter - minJitter));
-  await new Promise(r => setTimeout(r, jitter));
+  if (!options.skipJitter) {
+    const usedFastPath = Boolean(fetchRes?.fastPath);
+    const minJitter = usedFastPath ? SLEEP_MS_MIN : Math.max(900, SLEEP_MS_MIN);
+    const maxJitter = usedFastPath ? SLEEP_MS_MAX : Math.max(1400, SLEEP_MS_MAX);
+    const jitter = minJitter + Math.floor(Math.random() * Math.max(1, maxJitter - minJitter));
+    await new Promise(r => setTimeout(r, jitter));
+  }
 
   if (consecutiveErrors >= CIRCUIT_BREAKER_LIMIT) {
     circuitBroken = true;
@@ -476,7 +604,7 @@ async function inspectPin(pin, kw) {
     computedVelocity = 0;
   } else if (detail && authenticSaves >= baselineSaves) {
     const rawDelta = authenticSaves - baselineSaves;
-    const baseDateRaw = (hasExplicitBaseline ? pin.baseline_day_date : null) || pin.crawled_at || pin.metadata?.crawled_at || pin.baseline_day_date || null;
+    const baseDateRaw = (hasExplicitBaseline ? pin.baseline_day_date : null) || pin.last_scraped_at || pin.metadata?.last_scraped_at || pin.baseline_day_date || null;
     if (rawDelta > 0 && baseDateRaw) {
       const parsedBase = new Date(baseDateRaw);
       const baseIso = !isNaN(parsedBase.getTime()) ? parsedBase.toISOString().slice(0, 10) : null;
@@ -508,9 +636,8 @@ async function inspectPin(pin, kw) {
       }
     } else if (rawDelta === 0 && baseDateRaw) {
       const parsedBase = new Date(baseDateRaw);
-      const parsedUpdated = pin.updated_at ? new Date(pin.updated_at) : null;
+      const parsedUpdated = pin.last_scraped_at ? new Date(pin.last_scraped_at) : null;
       const updatedToday = parsedUpdated && !isNaN(parsedUpdated.getTime()) && parsedUpdated.toISOString().slice(0, 10) === todayIso;
-      // Never zero out velocity if the pin was already updated today during Phase 1A SERP harvest!
       if (!updatedToday && !isNaN(parsedBase.getTime())) {
         const baseIso = parsedBase.toISOString().slice(0, 10);
         if (baseIso < todayIso) {
@@ -529,38 +656,12 @@ async function inspectPin(pin, kw) {
   const method = detail?.method || detail?.creation_method || pin.creation_method || pin.method || pin.metadata?.method || 'pinterest_platform';
   const createdAtPinterest = detail?.created_at_pinterest || detail?.created_at || pin.created_at_pinterest || pin.created_at || null;
 
-  let rawNewAnnotations = [];
-  if (detail?.annotations && Array.isArray(detail.annotations) && detail.annotations.length > 0) {
-    rawNewAnnotations = detail.annotations.map(a => typeof a === 'string' ? a : (a.name || a.label || ''));
-  } else if (detail?.tags && Array.isArray(detail.tags)) {
-    rawNewAnnotations = detail.tags;
-  } else if (detail?.pinJoin?.visualAnnotation) {
-    rawNewAnnotations = detail.pinJoin.visualAnnotation;
-  }
-
-  const cleanNewAnnotations = rawNewAnnotations
-    .map(s => String(s || '').trim())
-    .filter(s => s.length >= 2 && !s.toLowerCase().includes('not-given') && !s.toLowerCase().includes('not given'));
-
-  let rawExistingAnnotations = [];
-  if (Array.isArray(pin.visual_annotations)) {
-    rawExistingAnnotations = pin.visual_annotations;
-  } else if (typeof pin.visual_annotations === 'string' && pin.visual_annotations.trim()) {
-    try {
-      const parsed = JSON.parse(pin.visual_annotations);
-      rawExistingAnnotations = Array.isArray(parsed) ? parsed : [];
-    } catch (_) {
-      rawExistingAnnotations = [];
-    }
-  }
-  const cleanExistingAnnotations = rawExistingAnnotations
-    .map(s => String(s || '').trim())
-    .filter(s => s.length >= 2 && !s.toLowerCase().includes('not-given') && !s.toLowerCase().includes('not given'));
-
-  const mergedTagsSet = new Set();
-  for (const t of cleanExistingAnnotations) mergedTagsSet.add(t);
-  for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
-  const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
+  const cleanNewAnnotations = sanitizeVisualAnnotations(
+    detail?.annotations || detail?.visual_annotations || detail?.tags || detail?.pinJoin?.visualAnnotation,
+    { maxItems: 15 }
+  );
+  const cleanExistingAnnotations = sanitizeVisualAnnotations(pin.visual_annotations, { maxItems: 15 });
+  const finalAnnotations = sanitizeVisualAnnotations([...cleanExistingAnnotations, ...cleanNewAnnotations], { maxItems: 15 });
 
   const rawBoardCount = detail?.board_pin_count != null ? Number(detail.board_pin_count) : (meta.board_pin_count != null ? Number(meta.board_pin_count) : null);
   const validBoardCount = (rawBoardCount != null && !isNaN(rawBoardCount) && rawBoardCount > 0) ? rawBoardCount : null;
@@ -628,7 +729,9 @@ async function inspectPin(pin, kw) {
     keyword_id: pin.keyword_id || kw?.id || null,
     is_deleted: isDead,
     from_hydration_cache: false,
+    was_live_scraped: true,
     is_hydrated: Boolean(detail && (hasExplicitDetailSaves || (detailRepins !== null && detailRepins > 0)) && authenticSaves !== null),
+    enrichment_lane: 'deep',
     extra_meta: extraMeta
   };
 }
@@ -858,7 +961,9 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
     pin_id: String(p.pin_id),
     from_hydration_cache: Boolean(p.from_hydration_cache),
     scrape_failed: Boolean(p.scrape_failed),
-    was_live_scraped: p.was_live_scraped === true || (!p.from_hydration_cache && !p.scrape_failed)
+    was_live_scraped: p.was_live_scraped !== undefined
+      ? Boolean(p.was_live_scraped)
+      : (!p.from_hydration_cache && !p.scrape_failed)
   })));
 
   const rawKwIds = (isGlobalFleet || isFolder) ? (kw?.all_keyword_ids || [kw?.id]) : [kw?.id];
@@ -868,7 +973,7 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
   const dbSql = targetSql || sql?.noRetry || sql;
 
   if (validKwIds.length > 0) {
-    // Update keyword_serp_positions (vacuum opportunity score & crawled_at)
+    // Update keyword_serp_positions only for live-scraped rows or displaced vacuum scores (never touch cached active rows)
     await dbSql`
       UPDATE keyword_serp_positions ksp
       SET
@@ -888,12 +993,13 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
         was_live_scraped boolean
       )
       WHERE ksp.pin_id = u.pin_id
-        AND ksp.keyword_id = ANY(${validKwIds}::int[]);
+        AND ksp.keyword_id = ANY(${validKwIds}::int[])
+        AND (u.was_live_scraped = TRUE OR ksp.is_displaced = TRUE);
     `;
   }
 
   const liveScrapedIds = pinsChunk
-    .filter((p) => p && (p.was_live_scraped === true || (!p.from_hydration_cache && !p.scrape_failed)))
+    .filter((p) => p && (p.was_live_scraped !== undefined ? Boolean(p.was_live_scraped) : (!p.from_hydration_cache && !p.scrape_failed)))
     .map((p) => String(p.pin_id));
   if (liveScrapedIds.length > 0) {
     await markNewbornAnchorsCrawled(dbSql, liveScrapedIds);
@@ -980,7 +1086,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
       for (let i = 0; i < pinIds.length; i += 500) {
         const idChunk = pinIds.slice(i, i + 500);
         const chunkSnaps = await activeSql`
-          SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity
+          SELECT pin_id, recorded_date AS snapshot_date, save_count, repin_count, daily_save_velocity, daily_repin_velocity
           FROM pins_daily_metrics
           WHERE pin_id = ANY(${idChunk}::text[])
             AND recorded_date >= CURRENT_DATE - INTERVAL '16 days'
@@ -1010,6 +1116,21 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
     // 2. Compute authentic rolling deltas in-memory from distinct-date snapshots in pins_daily_metrics
     const todayUtcIso = new Date().toISOString().slice(0, 10);
     for (const sp of sortedPins) {
+      sp.visual_annotations = sanitizeVisualAnnotations(sp.visual_annotations, { maxItems: 15 });
+
+      // Never overwrite velocity/delta columns for cached carryover rows — let repository.mjs preserve existing DB values
+      if (sp.was_live_scraped === false || sp.from_hydration_cache === true) {
+        sp.daily_save_velocity = null;
+        sp.daily_repin_velocity = null;
+        sp.delta_saves_24h = null;
+        sp.delta_repins_24h = null;
+        sp.gains_5d = null;
+        sp.gains_7d = null;
+        sp.gains_10d = null;
+        sp.gains_15d = null;
+        continue;
+      }
+
       const allSnaps = pinSnapshotsMap.get(String(sp.pin_id)) || [];
       const priorDaySnaps = [];
       let todayPrevSnap = null;
@@ -1032,12 +1153,11 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
         };
         const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
         if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
-          if (sp.was_live_scraped !== false) {
-            sp.daily_save_velocity = Number(gains.daily_save_velocity);
-          } else {
-            sp.daily_save_velocity = Math.max(Number(sp.daily_save_velocity || 0), Number(gains.daily_save_velocity));
-          }
-        } else if (todayPrevSnap && sp.was_live_scraped !== false) {
+          sp.daily_save_velocity = Number(gains.daily_save_velocity);
+          sp.delta_saves_24h = gains.delta_saves_24h ?? Number(gains.daily_save_velocity);
+          sp.delta_repins_24h = gains.delta_repins_24h;
+          sp.daily_repin_velocity = gains.daily_repin_velocity ?? gains.delta_repins_24h ?? null;
+        } else if (todayPrevSnap) {
           const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
           if (prevTodaySaves > 0) {
             const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
@@ -1048,11 +1168,24 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
           } else {
             sp.daily_save_velocity = 0;
           }
+          const prevTodayRepins = Number(todayPrevSnap.repin_count || 0);
+          if (prevTodayRepins > 0 && sp.repin_count != null) {
+            const intradayRepinDelta = Math.max(0, Number(sp.repin_count || 0) - prevTodayRepins);
+            const prevTodayRepinVel = Number(todayPrevSnap.daily_repin_velocity || 0) < prevTodayRepins
+              ? Number(todayPrevSnap.daily_repin_velocity || 0)
+              : 0;
+            const resolvedRepinVel = Math.min(25000, Math.max(prevTodayRepinVel, intradayRepinDelta));
+            sp.delta_repins_24h = resolvedRepinVel;
+            sp.daily_repin_velocity = resolvedRepinVel;
+          } else {
+            sp.delta_repins_24h = gains.delta_repins_24h;
+            sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
+          }
         } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
           sp.daily_save_velocity = gains.daily_save_velocity ?? null;
+          sp.delta_repins_24h = gains.delta_repins_24h;
+          sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
         }
-        sp.delta_repins_24h = gains.delta_repins_24h;
-        sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
         sp.gains_5d = gains.gains_5d;
         sp.gains_7d = gains.gains_7d;
         sp.gains_10d = gains.gains_10d;
@@ -1175,7 +1308,7 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
       description: cp.description || '',
       alt_text: cp.metadata?.alt_text || '',
       dominant_color: (cp.dominant_color && String(cp.dominant_color).toLowerCase() !== '#888888') ? cp.dominant_color : null,
-      visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
+      visual_annotations: sanitizeVisualAnnotations(cp.visual_annotations, { maxItems: 15 }),
       created_at_pinterest: cp.created_at_pinterest || null,
       method: baseMethod,
       creation_method: baseMethod,
@@ -1193,7 +1326,10 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
       repin_count: cp.repin_count != null ? Number(cp.repin_count) : null,
       comment_count: cp.comment_count != null ? Number(cp.comment_count) : null,
       share_count: cp.share_count != null ? Number(cp.share_count) : null,
-      daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : null,
+      daily_save_velocity: null,
+      daily_repin_velocity: null,
+      delta_saves_24h: null,
+      delta_repins_24h: null,
       is_hydrated: Boolean(cp.is_hydrated || cp.is_deep_hydrated)
     };
 
@@ -1216,22 +1352,70 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
 }
 
 /**
- * Concurrently inspect an array of pins using Semaphore and batch flush to Hub
+ * Two-Lane Concurrent Pin Inspection:
+ * - Stage 1: Zero-cookie Pidgets 50x bulk pre-pass for all structurally complete pins.
+ * - Stage 2: Deep `fetchPinHybrid` fallback ONLY for missing DNA, `--force-deep`, or Pidgets fallback cases.
  */
-async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
+export async function inspectPinsConcurrently(pins, kw, label = 'Worker', options = {}) {
   if (!pins || pins.length === 0) return [];
   const sem = new Semaphore(CONCURRENCY);
   const enrichedPins = [];
   let completedCount = 0;
+  let pidgetsHitCount = 0;
+  let deepFallbackCount = 0;
+  let cacheHitCount = 0;
   const total = pins.length;
-  let jitPrewarmFired = false;
+  const nowMs = options.nowMs ?? Date.now();
+  const batchPidgetsFn = typeof options.batchPidgetsFn === 'function' ? options.batchPidgetsFn : fetchPinsBatchFromPidgets;
 
-  console.log(`  [*] ${label}: Inspecting ${total} pins with Concurrency: ${CONCURRENCY}, Hub Batch: ${BATCH_SIZE}...`);
+  // Evaluate Two-Lane routing up front
+  const pinDecisions = pins.map((p) => ({
+    pin: p,
+    guard: evaluateHydrationGuard(p, nowMs, options)
+  }));
 
-  const pool = pins.map((p) => sem.run(async () => {
+  const pidgetsCandidateIds = [];
+  for (const { pin, guard } of pinDecisions) {
+    const pid = String(pin?.pin_id || '').trim();
+    if (guard.lane === 'pidgets' && /^\d{10,25}$/.test(pid)) {
+      pidgetsCandidateIds.push(pid);
+    }
+  }
+
+  let pidgetsMap = new Map();
+  if (pidgetsCandidateIds.length > 0) {
+    try {
+      const batchRes = await batchPidgetsFn(pidgetsCandidateIds, { concurrency: 5 });
+      if (batchRes instanceof Map) {
+        pidgetsMap = batchRes;
+      }
+    } catch (pErr) {
+      console.warn(`  [!] ${label}: Stage-1 Pidgets 50x pre-pass warning (falling back to Stage 2): ${pErr.message}`);
+    }
+  }
+
+  console.log(`  [*] ${label}: Inspecting ${total} pins (Stage-1 Pidgets candidates: ${pidgetsCandidateIds.length}, Concurrency: ${CONCURRENCY}, Hub Batch: ${BATCH_SIZE})...`);
+
+  const pool = pinDecisions.map(({ pin: p, guard }) => sem.run(async () => {
     if (circuitBroken) return;
     try {
-      const enriched = await inspectPin(p, kw);
+      if (!guard.shouldFetch && guard.reuseTelemetry) {
+        cacheHitCount++;
+        enrichedPins.push(buildCachedCarryoverRecord(p, kw, guard.reuseTelemetry));
+        return;
+      }
+
+      if (guard.lane === 'pidgets') {
+        const pidgetsPin = pidgetsMap.get(String(p.pin_id));
+        if (canSatisfyPinFromPidgets(p, pidgetsPin)) {
+          pidgetsHitCount++;
+          enrichedPins.push(buildPidgetsEnrichedPin(p, pidgetsPin, kw));
+          return;
+        }
+      }
+
+      deepFallbackCount++;
+      const enriched = await inspectPin(p, kw, { ...options, skipGuard: true, nowMs });
       if (enriched) {
         enrichedPins.push(enriched);
       }
@@ -1240,7 +1424,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
     } finally {
       completedCount++;
       if (completedCount % 50 === 0 || completedCount === total) {
-        console.log(`  [Progress] ${label}: Inspected ${completedCount}/${total} pins (${Math.round((completedCount / total) * 100)}%)...`);
+        console.log(`  [Progress] ${label}: Inspected ${completedCount}/${total} pins (${Math.round((completedCount / total) * 100)}%) [Pidgets: ${pidgetsHitCount} | Deep: ${deepFallbackCount} | Cache: ${cacheHitCount}]...`);
       }
     }
   }));
@@ -1390,9 +1574,11 @@ async function run() {
       WITH folder_ksp AS (
         SELECT 
           ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
+          ump.creator_username, ump.board_name, ump.description, ump.alt_text, ump.dominant_color,
+          ump.comment_count, ump.share_count,
           ump.save_count, ump.repin_count, ump.daily_save_velocity,
           ump.created_at_pinterest, ump.creation_method,
-          ump.is_hydrated AS is_deep_hydrated,
+          ump.is_hydrated, ump.is_hydrated AS is_deep_hydrated,
           ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
           ksp.crawled_at, ksp.updated_at, ksp.is_displaced
         FROM keyword_serp_positions ksp
@@ -1422,9 +1608,11 @@ async function run() {
       )
       SELECT DISTINCT ON (f.pin_id)
         f.pin_id, f.keyword_id, f.rank_position, f.last_known_rank,
+        f.creator_username, f.board_name, f.description, f.alt_text, f.dominant_color,
+        f.comment_count, f.share_count,
         f.save_count, f.repin_count, f.daily_save_velocity,
         f.created_at_pinterest, f.creation_method,
-        f.is_deep_hydrated, f.last_scraped_at, f.visual_annotations, f.image_signature, f.metadata, f.title, f.domain, f.destination_url, f.image_url,
+        f.is_hydrated, f.is_deep_hydrated, f.last_scraped_at, f.visual_annotations, f.image_signature, f.metadata, f.title, f.domain, f.destination_url, f.image_url,
         f.crawled_at, f.updated_at, f.is_displaced,
         ap.folder_positions
       FROM folder_ksp f
@@ -1619,9 +1807,11 @@ async function run() {
     allPins = await withDbRetry(() => phase1bSqlB`
       SELECT 
         ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
+        ump.creator_username, ump.board_name, ump.description, ump.alt_text, ump.dominant_color,
+        ump.comment_count, ump.share_count,
         ump.save_count, ump.repin_count, ump.daily_save_velocity,
         ump.created_at_pinterest, ump.creation_method,
-        ump.is_hydrated AS is_deep_hydrated,
+        ump.is_hydrated, ump.is_hydrated AS is_deep_hydrated,
         ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
         ksp.crawled_at, ksp.updated_at, ksp.is_displaced
       FROM keyword_serp_positions ksp
@@ -1846,13 +2036,15 @@ async function run() {
           WITH global_ksp AS (
             SELECT 
               ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
+              ump.creator_username, ump.board_name, ump.description, ump.alt_text, ump.dominant_color,
+              ump.comment_count, ump.share_count,
               ump.save_count, ump.repin_count, ump.daily_save_velocity,
               ump.created_at_pinterest, ump.creation_method,
-              ump.is_hydrated AS is_deep_hydrated,
+              ump.is_hydrated, ump.is_hydrated AS is_deep_hydrated,
               ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
               ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
-              CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
-              CASE WHEN (ksp.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ksp.crawled_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
+              CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
+              CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
             FROM keyword_serp_positions ksp
             JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
             WHERE ksp.keyword_id = ANY(${allFleetKeywordIds})
@@ -1887,9 +2079,11 @@ async function run() {
           )
           SELECT DISTINCT ON (g.pin_id)
             g.pin_id, g.keyword_id, g.rank_position, g.last_known_rank,
+            g.creator_username, g.board_name, g.description, g.alt_text, g.dominant_color,
+            g.comment_count, g.share_count,
             g.save_count, g.repin_count, g.daily_save_velocity,
             g.created_at_pinterest, g.creation_method,
-            g.is_deep_hydrated, g.last_scraped_at, g.visual_annotations, g.image_signature, g.metadata, g.title, g.domain, g.destination_url, g.image_url,
+            g.is_hydrated, g.is_deep_hydrated, g.last_scraped_at, g.visual_annotations, g.image_signature, g.metadata, g.title, g.domain, g.destination_url, g.image_url,
             g.crawled_at, g.updated_at, g.is_displaced,
             g.baseline_day_saves, g.baseline_day_date,
             ap.folder_positions

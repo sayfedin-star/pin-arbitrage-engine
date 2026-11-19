@@ -13,7 +13,7 @@
  */
 
 import { calculateDailyVelocity, isMultiStageHydrationJump, isRepinHydrationJump, detectHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
-import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle } from '../../domain/pin-intelligence.mjs';
+import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle, sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { qualifyPin } from '../creators/competitors-crud.mjs';
 import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './dossier-reader.mjs';
 
@@ -184,11 +184,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             const rawAnns = Array.isArray(p.visual_annotations)
               ? p.visual_annotations
               : (Array.isArray(p.annotations) ? p.annotations : []);
-            const mapped = rawAnns
-              .map(a => (typeof a === 'string' ? a : (a?.name || a?.label || '')))
-              .filter(Boolean);
-            if (mapped.length > 0) return mapped;
-            return Array.isArray(p.visual_style_tags) ? p.visual_style_tags.filter(Boolean) : [];
+            const sanitized = sanitizeVisualAnnotations(rawAnns, { maxItems: 15 });
+            if (sanitized.length > 0) return sanitized;
+            return sanitizeVisualAnnotations(p.visual_style_tags, { maxItems: 15 });
           })(),
           created_at_pinterest: safeParseIsoTimestamp(p.created_at_pinterest || p.created_at),
           save_count: saveCount,
@@ -286,11 +284,17 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         if ((!existing.dominant_color || existing.dominant_color === '#888888') && incColor) {
           existing.dominant_color = incColor;
         }
-        const incAnnotations = Array.isArray(p.visual_annotations)
-          ? p.visual_annotations
-          : (Array.isArray(p.annotations) ? p.annotations : []);
-        if ((!existing.visual_annotations || existing.visual_annotations.length === 0) && incAnnotations.length > 0) {
-          existing.visual_annotations = incAnnotations;
+        const incAnnotations = sanitizeVisualAnnotations(
+          Array.isArray(p.visual_annotations)
+            ? p.visual_annotations
+            : (Array.isArray(p.annotations) ? p.annotations : []),
+          { maxItems: 15 }
+        );
+        if (incAnnotations.length > 0) {
+          existing.visual_annotations = sanitizeVisualAnnotations(
+            [...(Array.isArray(existing.visual_annotations) ? existing.visual_annotations : []), ...incAnnotations],
+            { maxItems: 15 }
+          );
         }
         if (!existing.created_at_pinterest && (p.created_at_pinterest || p.created_at)) {
           existing.created_at_pinterest = safeParseIsoTimestamp(p.created_at_pinterest || p.created_at);
@@ -316,6 +320,8 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         const serpKey = `${kwId}:${pid}`;
         const existingSerp = serpPositionDedupMap.get(serpKey);
         const incomingRank = p.rank_position != null ? Number(p.rank_position) : null;
+        const serpIsCached = Boolean(p.from_hydration_cache === true || p.scrape_failed === true || p.fromCache === true);
+        const serpWasLive = p.was_live_scraped !== undefined ? Boolean(p.was_live_scraped) : !serpIsCached;
         if (!existingSerp) {
           serpPositionDedupMap.set(serpKey, {
             pin_id: pid,
@@ -324,14 +330,20 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             is_displaced: Boolean(p.is_displaced),
             last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
             catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : incomingRank,
-            vacuum_opportunity_score: p.vacuum_opportunity_score != null ? Number(p.vacuum_opportunity_score) : null
+            vacuum_opportunity_score: p.vacuum_opportunity_score != null ? Number(p.vacuum_opportunity_score) : null,
+            was_live_scraped: serpWasLive,
+            is_cached_carryover: serpIsCached && !serpWasLive
           });
-        } else if (incomingRank != null && (existingSerp.rank_position == null || incomingRank < existingSerp.rank_position)) {
-          existingSerp.rank_position = incomingRank;
-          if (p.catalog_rank != null) existingSerp.catalog_rank = Number(p.catalog_rank);
-          if (p.is_displaced != null) existingSerp.is_displaced = Boolean(p.is_displaced);
-          if (p.last_known_rank != null) existingSerp.last_known_rank = Number(p.last_known_rank);
-          if (p.vacuum_opportunity_score != null) existingSerp.vacuum_opportunity_score = Number(p.vacuum_opportunity_score);
+        } else {
+          existingSerp.was_live_scraped = Boolean(existingSerp.was_live_scraped || serpWasLive);
+          existingSerp.is_cached_carryover = Boolean(existingSerp.is_cached_carryover && serpIsCached && !existingSerp.was_live_scraped);
+          if (incomingRank != null && (existingSerp.rank_position == null || incomingRank < existingSerp.rank_position)) {
+            existingSerp.rank_position = incomingRank;
+            if (p.catalog_rank != null) existingSerp.catalog_rank = Number(p.catalog_rank);
+            if (p.is_displaced != null) existingSerp.is_displaced = Boolean(p.is_displaced);
+            if (p.last_known_rank != null) existingSerp.last_known_rank = Number(p.last_known_rank);
+            if (p.vacuum_opportunity_score != null) existingSerp.vacuum_opportunity_score = Number(p.vacuum_opportunity_score);
+          }
         }
       }
 
@@ -431,6 +443,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         SELECT
           eb.*,
           CASE
+            WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::double precision
             WHEN eb.save_count IS NULL THEN NULL
             WHEN eb.is_save_jump THEN 0::double precision
             WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
@@ -447,6 +460,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ELSE NULL::double precision
           END AS effective_save_velocity,
           CASE
+            WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::double precision
             WHEN eb.repin_count IS NULL THEN NULL
             WHEN eb.is_repin_jump OR eb.is_save_jump THEN 0::double precision
             WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
@@ -463,6 +477,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ELSE NULL::double precision
           END AS effective_repin_velocity,
           CASE
+            WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::bigint
             WHEN eb.save_count IS NULL THEN NULL
             WHEN eb.is_save_jump THEN 0::bigint
             WHEN eb.delta_saves_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_saves_24h))
@@ -479,6 +494,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ELSE NULL::bigint
           END AS true_delta_saves_24h,
           CASE
+            WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::bigint
             WHEN eb.repin_count IS NULL THEN NULL
             WHEN eb.is_repin_jump OR eb.is_save_jump THEN 0::bigint
             WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_repins_24h::bigint))
@@ -742,11 +758,22 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           u.last_known_rank,
           u.vacuum_opportunity_score,
           NULL,
-          NOW(),
+          CASE
+            WHEN COALESCE(u.is_cached_carryover, FALSE) = TRUE
+             AND COALESCE(u.was_live_scraped, FALSE) = FALSE
+             AND k_ex.pin_id IS NOT NULL
+             AND k_ex.is_displaced IS NOT DISTINCT FROM COALESCE(u.is_displaced, FALSE)
+             AND k_ex.rank_position IS NOT DISTINCT FROM (CASE WHEN COALESCE(u.is_displaced, FALSE) THEN NULL ELSE u.rank_position END)
+            THEN k_ex.crawled_at
+            ELSE NOW()
+          END,
           NOW()
         FROM jsonb_to_recordset(${serpPayloadJson}::jsonb) AS u(
-          pin_id text, keyword_id int, rank_position int, is_displaced boolean, last_known_rank int, vacuum_opportunity_score double precision
+          pin_id text, keyword_id int, rank_position int, is_displaced boolean, last_known_rank int, vacuum_opportunity_score double precision,
+          was_live_scraped boolean, is_cached_carryover boolean
         )
+        LEFT JOIN keyword_serp_positions k_ex
+          ON k_ex.keyword_id = u.keyword_id AND k_ex.pin_id = u.pin_id
         WHERE u.keyword_id IS NOT NULL AND u.keyword_id > 0
           AND EXISTS (SELECT 1 FROM universal_master_pins ump WHERE ump.pin_id = u.pin_id)
         ORDER BY u.keyword_id ASC, u.pin_id ASC
@@ -764,8 +791,14 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           END,
           last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_serp_positions.last_known_rank),
           vacuum_opportunity_score = COALESCE(EXCLUDED.vacuum_opportunity_score, keyword_serp_positions.vacuum_opportunity_score),
-          crawled_at = NOW(),
-          updated_at = NOW();
+          crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_positions.crawled_at),
+          updated_at = NOW()
+        WHERE
+          EXCLUDED.crawled_at IS DISTINCT FROM keyword_serp_positions.crawled_at
+          OR EXCLUDED.is_displaced IS DISTINCT FROM keyword_serp_positions.is_displaced
+          OR (CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END) IS DISTINCT FROM keyword_serp_positions.rank_position
+          OR COALESCE(EXCLUDED.last_known_rank, keyword_serp_positions.last_known_rank) IS DISTINCT FROM keyword_serp_positions.last_known_rank
+          OR COALESCE(EXCLUDED.vacuum_opportunity_score, keyword_serp_positions.vacuum_opportunity_score) IS DISTINCT FROM keyword_serp_positions.vacuum_opportunity_score;
       `;
     }
 
@@ -974,12 +1007,15 @@ export async function syncPinAcrossAllFourPillars({
     return (!c || c.toLowerCase() === '#888888') ? null : c;
   })();
 
-  const mappedAnnotations = Array.isArray(scrapedPin.annotations)
-    ? scrapedPin.annotations.map(a => (typeof a === 'string' ? a : (a?.name || a?.label || ''))).filter(Boolean)
-    : [];
+  const mappedAnnotations = sanitizeVisualAnnotations(
+    Array.isArray(scrapedPin.visual_annotations) && scrapedPin.visual_annotations.length > 0
+      ? scrapedPin.visual_annotations
+      : scrapedPin.annotations,
+    { maxItems: 15 }
+  );
   const syncAnnotations = mappedAnnotations.length > 0
     ? mappedAnnotations
-    : (Array.isArray(scrapedPin.visual_style_tags) ? scrapedPin.visual_style_tags.filter(Boolean) : []);
+    : sanitizeVisualAnnotations(scrapedPin.visual_style_tags, { maxItems: 15 });
 
   const executeFourPillarSync = async (tx) => {
     const targetRows = await tx`
