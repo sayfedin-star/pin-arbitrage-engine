@@ -559,19 +559,28 @@ export function formatPin(pin) {
   const seoTitle = safeString(pin.seoTitle || pin.seo_title || '');
   const seoDescription = safeString(pin.seoDescription || pin.seo_description || '');
 
+  const hasNonEmptyObj = (val) => Boolean(val && typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length > 0);
+  const shoppingDataObj = hasNonEmptyObj(pin.shopping_data) ? pin.shopping_data : null;
+  const hasShoppingSignal = Boolean(
+    shoppingDataObj && (
+      Number(shoppingDataObj.price_value) > 0 ||
+      Boolean(shoppingDataObj.price) ||
+      hasNonEmptyObj(shoppingDataObj.buyable_product) ||
+      Boolean(shoppingDataObj.product_id || shoppingDataObj.item_id || shoppingDataObj.offer_id) ||
+      shoppingDataObj.is_product === true
+    )
+  );
   const isProduct = Boolean(
     pin.is_product ||
     pin.isProduct ||
-    pin.is_eligible_for_pdp ||
     pin.is_shoppable ||
     pin.is_retail_product ||
     pin.rich_metadata?.type === 'product' ||
     pin.rich_summary?.type === 'product' ||
-    Boolean(pin.buyable_product) ||
-    Boolean(pin.shopping_data) ||
-    Boolean(pin.product_metadata) ||
-    Boolean(pin.price_value) ||
-    Boolean(pin.price_currency)
+    hasNonEmptyObj(pin.buyable_product) ||
+    hasNonEmptyObj(pin.product_metadata) ||
+    Number(pin.price_value) > 0 ||
+    hasShoppingSignal
   );
 
   // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution in guest mode

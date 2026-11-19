@@ -104,13 +104,13 @@ export async function handleCreatorsRoutes(routeCtx) {
   if (pathname === '/api/creators/settings') {
     if (method === 'GET') {
       const settings = await getCreatorHubSettings(sql);
-      return jsonResponse({ success: true, settings }, 200, 30);
+      return jsonResponse({ success: true, settings }, 200, -1);
     }
     if (method === 'POST') {
       invalidateCreatorsCache();
       const body = await request.json().catch(() => ({}));
       const updated = await updateCreatorHubSettings(sql, body);
-      return jsonResponse({ success: true, settings: updated }, 200);
+      return jsonResponse({ success: true, settings: updated }, 200, -1);
     }
     return (typeof routeCtx.methodNotAllowedResponse === 'function'
       ? routeCtx.methodNotAllowedResponse('GET, POST')

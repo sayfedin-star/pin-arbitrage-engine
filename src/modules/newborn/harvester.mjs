@@ -10,7 +10,8 @@
  * Discovery and watchlist polling NEVER write to `universal_master_pins` or `competitor_profiles`.
  */
 
-import { sanitizeForJsonb } from '../../utils.mjs';
+import { Semaphore, sanitizeForJsonb } from '../../utils.mjs';
+import { redactSecrets } from '../../http/security-and-response.mjs';
 import { NewbornCookieRouter } from './cookie-router.mjs';
 import {
   resolveEffectiveNewbornSettings,
@@ -18,6 +19,7 @@ import {
   stampAutomationRunTimestamp
 } from './settings.mjs';
 import {
+  formatPinterestBoardUrl,
   mergeCandidatePinRecords,
   harvestGrowingTrendsSurface,
   harvestZeroQueryPopularSurface,
@@ -84,13 +86,19 @@ function computeNextConsecutiveDays(prevDays, prevDateVal, todayDateStr, qualifi
  * Atomically upserts staged Newborn candidates + daily staging snapshots into
  * `newborn_candidates` and `newborn_candidate_snapshots` (zero pollution of SSOT tables).
  */
-export async function upsertStagedCandidatesBatch(sql, candidates = [], { profileId = null, nowMs = Date.now(), isWatchlistPoll = false } = {}) {
+export async function upsertStagedCandidatesBatch(
+  sql,
+  candidates = [],
+  { profileId = null, runId = null, folderId = null, nowMs = Date.now(), isWatchlistPoll = false } = {}
+) {
   if (!sql || typeof sql !== 'function' || !Array.isArray(candidates) || candidates.length === 0) {
     return { upserted: 0, rows: [] };
   }
 
   const todayDate = toIsoDateUtc(nowMs);
   const nowIso = new Date(nowMs).toISOString();
+  const numericRunId = runId !== null && runId !== undefined && Number(runId) > 0 ? Number(runId) : null;
+  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
 
   // Deduplicate by pin_id before SQL
   const dedupMap = new Map();
@@ -195,7 +203,7 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
       is_repin: Boolean(c.is_repin),
       board_id: c.board_id || null,
       board_name: c.board_name || null,
-      board_url: c.board_url || null,
+      board_url: formatPinterestBoardUrl(c.board_url || ''),
       board_order_modified_at: c.board_order_modified_at || null,
       upload_provenance: c.upload_provenance || 'UNKNOWN',
       raw_creation_method: c.raw_creation_method || null,
@@ -227,9 +235,14 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
       watchlist_added_at: watchlistAddedAt,
       last_polled_at: isWatchlistPoll ? nowIso : null,
       profile_id: profileId != null ? Number(profileId) : null,
+      first_run_id: numericRunId,
+      last_run_id: numericRunId,
+      folder_id: numericFolderId,
       metadata: sanitizeForJsonb({
         disqualification_reasons: c.disqualification_reasons || [],
         qualified: c.qualified !== false,
+        root_pin_id: c.root_pin_id || c.canonical_pin_id || pid,
+        root_age_verified: c.root_age_verified !== false,
         board_pin_count: c.board_pin_count != null ? Math.round(Number(c.board_pin_count)) : (c.metadata?.board_pin_count ?? null),
         board_follower_count: c.board_follower_count != null ? Math.round(Number(c.board_follower_count)) : (c.metadata?.board_follower_count ?? null)
       }),
@@ -256,12 +269,26 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
 
   const candidatesJson = JSON.stringify(sanitizeForJsonb(preparedRecords));
   const snapshotsJson = JSON.stringify(sanitizeForJsonb(snapshotRecords));
+  const runCandidatesRecords = numericRunId !== null
+    ? preparedRecords.map((r) => ({
+        run_id: numericRunId,
+        pin_id: r.pin_id,
+        seed_query: r.seed_query || null,
+        surface: r.first_surface || 'pin_serp_capsules',
+        qualified_in_run: Boolean(r.qualified),
+        golden_score_in_run: Number(r.golden_score ?? 0)
+      }))
+    : [];
+  const runCandidatesJson = runCandidatesRecords.length > 0
+    ? JSON.stringify(sanitizeForJsonb(runCandidatesRecords))
+    : null;
   const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
 
   await runInTx(async (tx) => {
     await tx`
       INSERT INTO newborn_candidates (
-        pin_id, stage, first_surface, discovered_surfaces, seed_query,
+        pin_id, stage, qualified, first_run_id, last_run_id, folder_id,
+        first_surface, discovered_surfaces, seed_query,
         snowball_parent_pin_id, snowball_hop, title, description, alt_text,
         image_url, image_signature, dominant_color, destination_url, clean_domain, is_linkless,
         pinner_username, pinner_full_name, pinner_followers,
@@ -281,7 +308,8 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
         first_seen_at, last_seen_at, updated_at
       )
       SELECT
-        u.pin_id, u.stage, u.first_surface, u.discovered_surfaces, u.seed_query,
+        u.pin_id, u.stage, u.qualified, u.first_run_id, u.last_run_id, u.folder_id,
+        u.first_surface, u.discovered_surfaces, u.seed_query,
         u.snowball_parent_pin_id, u.snowball_hop, u.title, u.description, u.alt_text,
         u.image_url, u.image_signature, u.dominant_color, u.destination_url, u.clean_domain, u.is_linkless,
         u.pinner_username, u.pinner_full_name, u.pinner_followers,
@@ -302,7 +330,8 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
         u.profile_id, u.metadata,
         NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${candidatesJson}::jsonb) AS u(
-        pin_id text, stage text, first_surface text, discovered_surfaces jsonb, seed_query text,
+        pin_id text, stage text, qualified boolean, first_run_id bigint, last_run_id bigint, folder_id int,
+        first_surface text, discovered_surfaces jsonb, seed_query text,
         snowball_parent_pin_id text, snowball_hop int, title text, description text, alt_text text,
         image_url text, image_signature text, dominant_color text, destination_url text, clean_domain text, is_linkless boolean,
         pinner_username text, pinner_full_name text, pinner_followers int,
@@ -326,6 +355,10 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
           WHEN newborn_candidates.stage IN ('promoted', 'discarded') THEN newborn_candidates.stage
           ELSE EXCLUDED.stage
         END,
+        qualified = EXCLUDED.qualified,
+        first_run_id = COALESCE(newborn_candidates.first_run_id, EXCLUDED.first_run_id),
+        last_run_id = COALESCE(EXCLUDED.last_run_id, newborn_candidates.last_run_id),
+        folder_id = COALESCE(EXCLUDED.folder_id, newborn_candidates.folder_id),
         discovered_surfaces = EXCLUDED.discovered_surfaces,
         seed_query = COALESCE(EXCLUDED.seed_query, newborn_candidates.seed_query),
         snowball_parent_pin_id = COALESCE(newborn_candidates.snowball_parent_pin_id, EXCLUDED.snowball_parent_pin_id),
@@ -433,6 +466,36 @@ export async function upsertStagedCandidatesBatch(sql, candidates = [], { profil
         qualified = EXCLUDED.qualified,
         updated_at = NOW();
     `;
+
+    if (runCandidatesJson) {
+      await tx`
+        INSERT INTO newborn_run_candidates (
+          run_id, pin_id, seed_query, surface, qualified_in_run, golden_score_in_run, created_at
+        )
+        SELECT
+          r.run_id,
+          r.pin_id,
+          r.seed_query,
+          r.surface,
+          r.qualified_in_run,
+          r.golden_score_in_run,
+          NOW()
+        FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
+          run_id bigint,
+          pin_id text,
+          seed_query text,
+          surface text,
+          qualified_in_run boolean,
+          golden_score_in_run double precision
+        )
+        ORDER BY r.pin_id ASC
+        ON CONFLICT (run_id, pin_id) DO UPDATE SET
+          seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
+          surface = COALESCE(EXCLUDED.surface, newborn_run_candidates.surface),
+          qualified_in_run = EXCLUDED.qualified_in_run,
+          golden_score_in_run = EXCLUDED.golden_score_in_run;
+      `;
+    }
   });
 
   return { upserted: preparedRecords.length, rows: preparedRecords };
@@ -576,12 +639,15 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     seedPinIds = [],
     seedBoards = [],
     profileId = null,
+    folderId = null,
+    existingRunId = null,
     settingsOverrides = null,
     rawCookieOverride = null,
     routerOptions = {},
     runType = 'discovery',
     snowballOnly = false,
     nowMs = Date.now(),
+    onProgress = null,
     onAutoPromotePins = null,
     onAutoPromoteRookies = null
   } = options;
@@ -605,18 +671,36 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       .map((q) => String(q || '').trim().toLowerCase())
       .filter(Boolean)
   ));
+  const cleanSeedBoards = Array.isArray(seedBoards)
+    ? seedBoards.filter((sb) => sb && (sb.board_id || sb.clean_path || sb.url))
+    : [];
+  const cleanSeedPinIds = Array.from(new Set(
+    (Array.isArray(seedPinIds) ? seedPinIds : [seedPinIds])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  ));
+  const hasExplicitSeeds = cleanSeeds.length > 0 || cleanSeedBoards.length > 0 || cleanSeedPinIds.length > 0;
+  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
 
-  let runRowId = null;
-  if (sql && typeof sql === 'function') {
+  let runRowId = existingRunId !== null && existingRunId !== undefined && Number(existingRunId) > 0
+    ? Number(existingRunId)
+    : null;
+
+  if (sql && typeof sql === 'function' && runRowId === null) {
     try {
       const [insertedRun] = await sql`
         INSERT INTO newborn_runs (
-          run_type, status, profile_id, seed_queries, cookie_mode, started_at
+          run_type, status, progress_stage, progress_detail, progress_pct,
+          profile_id, folder_id, seed_queries, cookie_mode, started_at
         )
         VALUES (
           ${runType},
           'running',
+          'harvesting',
+          '1. Harvesting search & fresh boards...',
+          10,
           ${profile?.id ?? null},
+          ${numericFolderId},
           ${JSON.stringify(cleanSeeds)}::jsonb,
           ${router.effectiveMode},
           NOW()
@@ -627,6 +711,29 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     } catch (_) {}
   }
 
+  const reportProgress = async (stage, detail, pct, counters = null) => {
+    const clampedPct = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress({ stage, detail, pct: clampedPct, counters });
+      } catch (_) {}
+    }
+    if (sql && typeof sql === 'function' && runRowId !== null) {
+      await sql`
+        UPDATE newborn_runs
+        SET
+          progress_stage = ${stage},
+          progress_detail = ${detail},
+          progress_pct = ${clampedPct},
+          cookie_mode = ${router.effectiveMode},
+          candidates_discovered = COALESCE(${counters?.candidates_discovered ?? null}::int, candidates_discovered),
+          candidates_qualified = COALESCE(${counters?.candidates_qualified ?? null}::int, candidates_qualified),
+          golden_pins_count = COALESCE(${counters?.golden_pins_count ?? null}::int, golden_pins_count)
+        WHERE id = ${runRowId};
+      `.catch(() => {});
+    }
+  };
+
   const surfacesCfg = settings.discovery.surfaces;
   const surfacesExecuted = [];
   const candidateMap = new Map();
@@ -634,6 +741,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
   const discoveredCapsules = new Set();
   const discoveredTrends = [];
   const freshBoardsDiscovered = [];
+  const rootPinCache = new Map();
   let snowballHopsExecuted = 0;
 
   const ingestCandidate = (cand) => {
@@ -642,32 +750,39 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
   };
 
   try {
-    if (!snowballOnly) {
-      // Surface 1: Growing Trends (Zero-Cookie + x-new-site: "true")
-      if (surfacesCfg.growing_trends?.enabled) {
-        const trRes = await harvestGrowingTrendsSurface(router, {
-          country: settings.discovery.country,
-          l1Interest: settings.discovery.default_l1_interest || 'all',
-          limit: surfacesCfg.growing_trends.limit || 25
-        });
-        surfacesExecuted.push('growing_trends');
-        for (const t of (trRes.trends || [])) discoveredTrends.push(t);
-        for (const p of (trRes.pins || [])) ingestCandidate(p);
-        if (activeQueryPool.size === 0) {
-          for (const term of (trRes.terms || []).slice(0, 4)) activeQueryPool.add(term);
-        }
-      }
+    await reportProgress('harvesting', '1. Harvesting search & fresh boards...', 12);
 
-      // Surface 2: Zero-Query Popular / Ideas for You
-      if (surfacesCfg.zero_query_popular?.enabled) {
-        const zqRes = await harvestZeroQueryPopularSurface(router, {
-          country: settings.discovery.country
-        });
-        surfacesExecuted.push('zero_query_popular');
-        for (const p of (zqRes.pins || [])) ingestCandidate(p);
-        if (activeQueryPool.size < 4) {
-          for (const term of (zqRes.terms || []).slice(0, 4 - activeQueryPool.size)) {
-            activeQueryPool.add(term);
+    if (!snowballOnly) {
+      // CRITICAL ZERO-POLLUTION INVARIANT:
+      // Growing Trends & Zero-Query Popular belong strictly to unseeded autonomous sweeps
+      // or the user-triggered "Browse Rising Trends" picker. When a user hunts an explicit
+      // keyword, board URL, pin ID, or /ideas/ slug, NEVER invoke growing_trends or
+      // zero_query_popular and NEVER inject unrelated terms into activeQueryPool!
+      if (!hasExplicitSeeds) {
+        // Surface 1: Growing Trends (Zero-Cookie + x-new-site: "true")
+        if (surfacesCfg.growing_trends?.enabled) {
+          const trRes = await harvestGrowingTrendsSurface(router, {
+            country: settings.discovery.country,
+            l1Interest: settings.discovery.default_l1_interest || 'all',
+            limit: surfacesCfg.growing_trends.limit || 25
+          });
+          surfacesExecuted.push('growing_trends');
+          for (const t of (trRes.trends || [])) discoveredTrends.push(t);
+          for (const p of (trRes.pins || [])) ingestCandidate(p);
+          if (activeQueryPool.size === 0) {
+            for (const term of (trRes.terms || []).slice(0, 4)) activeQueryPool.add(term);
+          }
+        }
+
+        // Surface 2: Zero-Query Popular / Ideas for You (unseeded sweeps only)
+        if (surfacesCfg.zero_query_popular?.enabled) {
+          const zqRes = await harvestZeroQueryPopularSurface(router, {
+            country: settings.discovery.country
+          });
+          surfacesExecuted.push('zero_query_popular');
+          for (const p of (zqRes.pins || [])) ingestCandidate(p);
+          if (activeQueryPool.size === 0) {
+            for (const term of (zqRes.terms || []).slice(0, 4)) activeQueryPool.add(term);
           }
         }
       }
@@ -689,7 +804,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         }
       }
 
-      // Surface 4: Fresh Boards Search (Zero-Cookie, filtered by board_order_modified_at)
+      // Surface 4: Fresh Boards Search (Zero-Cookie, filtered by board_order_modified_at + semantic overlap)
       if (surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) {
         surfacesExecuted.push('fresh_boards');
         const seenBoardIds = new Set();
@@ -708,12 +823,10 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         }
       }
 
-      // Include any explicit seed boards passed from the Multi-Surface Hunt Bar
-      if (Array.isArray(seedBoards) && seedBoards.length > 0) {
-        for (const sb of seedBoards) {
-          if (sb && (sb.board_id || sb.clean_path || sb.url)) {
-            freshBoardsDiscovered.unshift(sb);
-          }
+      // Include any explicit seed boards passed from the Hunt Bar
+      if (cleanSeedBoards.length > 0) {
+        for (const sb of cleanSeedBoards) {
+          freshBoardsDiscovered.unshift(sb);
         }
       }
 
@@ -744,7 +857,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         }
       }
 
-      // Surface 7: `/ideas/` Taxonomy Feeds (InterestResource `is_interest` gate -> BestPinsFeedAltResource / SSR __PWS_INITIAL_PROPS__)
+      // Surface 7: `/ideas/` Taxonomy Feeds (InterestResource `is_interest` gate -> BestPinsFeedAltResource / SSR)
       if (surfacesCfg.ideas_feeds?.enabled) {
         const interestTerms = Array.from(new Set([
           ...queriesToRun,
@@ -763,10 +876,11 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    // Helper: run 50x Pidgets pre-triage + zero-cookie PinResource hydration on a set of pin IDs
+    // Parallelized 50x Pidgets pre-triage + Semaphore(6) Zero-Cookie PinResource/get root hydration
     let remainingPinHydrations = settings.discovery.hydration.max_pin_hydrations_per_run;
+    const pinHydrateSem = new Semaphore(6);
 
-    const enrichAndScoreIds = async (targetIds) => {
+    const enrichAndScoreIds = async (targetIds, progressLabelPrefix = '2. Verifying root creation dates on Pinterest') => {
       if (targetIds.length === 0) return;
 
       if (settings.discovery.hydration.enable_pidgets_pretriage) {
@@ -776,22 +890,43 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         }
       }
 
-      // Prioritize candidates with the highest preliminary repin/save signal or missing created_at/annotations
+      // Prioritize candidates with the highest preliminary engagement signal that still need PinResource root hydration
       const orderedForHydration = targetIds
         .map((pid) => candidateMap.get(pid))
         .filter(Boolean)
-        .filter((c) => !c.created_at_pinterest || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0 || c.save_count === null)
-        .sort((a, b) => Number(b.repin_count ?? 0) - Number(a.repin_count ?? 0))
+        .filter((c) => !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0 || c.save_count === null)
+        .sort((a, b) => Math.max(Number(b.save_count ?? 0), Number(b.repin_count ?? 0)) - Math.max(Number(a.save_count ?? 0), Number(a.repin_count ?? 0)))
         .slice(0, Math.max(0, remainingPinHydrations));
 
-      for (const cand of orderedForHydration) {
-        if (remainingPinHydrations <= 0) break;
-        remainingPinHydrations--;
-        const hyd = await hydratePinZeroCookie(cand.pin_id, router);
-        if (hyd.ok && hyd.pin) {
-          ingestCandidate(hyd.pin);
-        }
-      }
+      remainingPinHydrations = Math.max(0, remainingPinHydrations - orderedForHydration.length);
+
+      await reportProgress(
+        'hydrating_pins',
+        `${progressLabelPrefix} (0/${orderedForHydration.length} pins)...`,
+        38,
+        { candidates_discovered: candidateMap.size }
+      );
+
+      let hydratedDone = 0;
+      const reportEvery = Math.max(8, Math.ceil(orderedForHydration.length / 4));
+      await Promise.all(
+        orderedForHydration.map((cand) => pinHydrateSem.run(async () => {
+          const hyd = await hydratePinZeroCookie(cand.pin_id, router, { rootPinCache, nowMs });
+          if (hyd.ok && hyd.pin) {
+            ingestCandidate(hyd.pin);
+          }
+          hydratedDone++;
+          if (hydratedDone % reportEvery === 0 || hydratedDone === orderedForHydration.length) {
+            const pct = 38 + Math.round((hydratedDone / Math.max(1, orderedForHydration.length)) * 30);
+            await reportProgress(
+              'hydrating_pins',
+              `${progressLabelPrefix} (${hydratedDone}/${orderedForHydration.length} pins)...`,
+              pct,
+              { candidates_discovered: candidateMap.size }
+            );
+          }
+        }))
+      );
 
       for (const pid of targetIds) {
         const cur = candidateMap.get(pid);
@@ -816,9 +951,9 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
       const expandedSeeds = new Set();
       let currentFrontier = Array.from(new Set([
-        ...(Array.isArray(seedPinIds) ? seedPinIds.map((id) => String(id || '').trim()).filter(Boolean) : []),
+        ...cleanSeedPinIds,
         ...Array.from(candidateMap.values())
-          .filter((c) => c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore)
+          .filter((c) => c.qualified === true && c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore)
           .sort((a, b) => (b.golden_score || 0) - (a.golden_score || 0))
           .slice(0, seedCap)
           .map((c) => c.pin_id)
@@ -826,6 +961,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
       if (currentFrontier.length > 0) {
         surfacesExecuted.push('related_pin_snowball');
+        await reportProgress('snowballing', `Expanding related newborn pins from ${currentFrontier.length} top seeds...`, 72);
       }
 
       for (let hop = 1; hop <= maxHops && currentFrontier.length > 0; hop++) {
@@ -863,21 +999,27 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         snowballHopsExecuted = hop;
 
         if (newSnowballIds.length > 0) {
-          await enrichAndScoreIds(newSnowballIds);
+          await enrichAndScoreIds(newSnowballIds, `2b. Verifying root dates for related pins (hop ${hop})`);
         }
 
         currentFrontier = newSnowballIds
           .map((id) => candidateMap.get(id))
-          .filter((c) => c && c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore && !expandedSeeds.has(c.pin_id))
+          .filter((c) => c && c.qualified === true && c.is_golden_pin && Number(c.golden_score || 0) >= minSeedGoldenScore && !expandedSeeds.has(c.pin_id))
           .sort((a, b) => (b.golden_score || 0) - (a.golden_score || 0))
           .slice(0, seedCap)
           .map((c) => c.pin_id);
       }
     }
 
-    // Zero-Cookie Creator Hydration (`UserResource/get`) & Rookie Account Radar
+    // Preliminary score pass to identify verified qualified candidates BEFORE UserResource hydration
+    const preScoredCandidates = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
+    for (const c of preScoredCandidates) candidateMap.set(c.pin_id, c);
+
+    // Zero-Cookie Creator Hydration (`UserResource/get`) parallelized with Semaphore(4)
     const creatorBuckets = new Map();
-    for (const cand of candidateMap.values()) {
+    for (const cand of preScoredCandidates) {
+      // Only spend UserResource hydration budget on candidates with verified root dates in window
+      if (!cand.created_at_pinterest || cand.root_age_verified === false || cand.qualified !== true) continue;
       const uname = cand.effective_creator_username;
       if (!uname) continue;
       if (!creatorBuckets.has(uname)) creatorBuckets.set(uname, []);
@@ -893,36 +1035,69 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       .slice(0, settings.discovery.hydration.max_user_hydrations_per_run)
       .map(([uname]) => uname);
 
+    await reportProgress(
+      'hydrating_creators',
+      `3. Ranking verified newborn winners & inspecting ${prioritizedCreators.length} creators...`,
+      84
+    );
+
+    const userHydrateSem = new Semaphore(4);
     const hydratedUsersMap = new Map();
-    for (const uname of prioritizedCreators) {
-      const uRes = await hydrateUserZeroCookie(uname, router);
-      if (uRes.ok && uRes.user) {
-        hydratedUsersMap.set(uname, uRes.user);
-        for (const cand of (creatorBuckets.get(uname) || [])) {
-          if (cand.origin_creator_username === uname) {
-            cand.origin_creator_followers = uRes.user.follower_count;
-          } else if (cand.pinner_username === uname) {
-            cand.pinner_followers = uRes.user.follower_count;
+    await Promise.all(
+      prioritizedCreators.map((uname) => userHydrateSem.run(async () => {
+        const uRes = await hydrateUserZeroCookie(uname, router);
+        if (uRes.ok && uRes.user) {
+          hydratedUsersMap.set(uname, uRes.user);
+          for (const cand of (creatorBuckets.get(uname) || [])) {
+            if (cand.origin_creator_username === uname) {
+              cand.origin_creator_followers = uRes.user.follower_count;
+            } else if (cand.pinner_username === uname) {
+              cand.pinner_followers = uRes.user.follower_count;
+            }
+            cand.effective_creator_followers = uRes.user.follower_count;
+            cand.creator_monthly_reach = uRes.user.monthly_reach;
+            cand.creator_profile_views = uRes.user.profile_views;
+            cand.creator_pin_count = uRes.user.pin_count;
           }
-          cand.effective_creator_followers = uRes.user.follower_count;
-          cand.creator_monthly_reach = uRes.user.monthly_reach;
-          cand.creator_profile_views = uRes.user.profile_views;
-          cand.creator_pin_count = uRes.user.pin_count;
         }
-      }
+      }))
+    );
+
+    // Final re-scoring + HARD GATE BEFORE PERSISTENCE:
+    // Discard in memory any candidate that lacks a verified root `created_at_pinterest`,
+    // falls outside `[min_age_days, max_age_days]`, or fails qualification (`qualified !== true`).
+    // Unqualified / stale / unverified repin clones are NEVER written to `newborn_candidates`!
+    const minAge = Number(settings.qualification?.min_age_days ?? 0);
+    const maxAge = Number(settings.qualification?.max_age_days ?? 30);
+    const allEvaluated = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
+    const verifiedQualified = allEvaluated.filter((c) => {
+      if (!c || c.qualified !== true) return false;
+      if (!c.created_at_pinterest) return false;
+      if (c.root_age_verified === false || c.repin_root_unverified === true) return false;
+      const age = c.age_days != null ? Number(c.age_days) : NaN;
+      if (!Number.isFinite(age) || age < minAge || age > maxAge) return false;
+      return true;
+    });
+
+    const discardedInMemoryCount = Math.max(0, allEvaluated.length - verifiedQualified.length);
+
+    for (const cand of verifiedQualified) {
+      cand.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(cand, verifiedQualified);
     }
 
-    // Final re-scoring + Crossover Blueprint synthesis across the cohort
-    const allCandidates = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
-    for (const cand of allCandidates) {
-      cand.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(cand, allCandidates);
-      candidateMap.set(cand.pin_id, cand);
+    // Build Rookie Creator records strictly from verified qualified newborn winners
+    const verifiedByCreator = new Map();
+    for (const c of verifiedQualified) {
+      const uname = c.effective_creator_username;
+      if (!uname) continue;
+      if (!verifiedByCreator.has(uname)) verifiedByCreator.set(uname, []);
+      verifiedByCreator.get(uname).push(c);
     }
 
-    // Build Rookie Creator records
     const rookieRecords = [];
     for (const [uname, userProfile] of hydratedUsersMap.entries()) {
-      const cands = (creatorBuckets.get(uname) || []).map((c) => candidateMap.get(c.pin_id)).filter(Boolean);
+      const cands = verifiedByCreator.get(uname) || [];
+      if (cands.length === 0) continue;
       const scoredRookie = scoreRookieCreator(userProfile, cands, settings);
       if (scoredRookie.is_qualified_rookie || scoredRookie.golden_pins_count > 0) {
         rookieRecords.push(scoredRookie);
@@ -932,7 +1107,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     // Determine autonomous watchlist staging before DB upsert when auto_track_enabled is ON
     let autoWatchlistedCount = 0;
     if (settings.automation.auto_track_enabled) {
-      for (const cand of candidateMap.values()) {
+      for (const cand of verifiedQualified) {
         const ruleCheck = evaluatePinAutoRules(cand, settings);
         if (ruleCheck.meets_watchlist && settings.automation.pin_promotion_rules.destinations.stage_to_watchlist) {
           cand.stage = 'watchlist';
@@ -947,14 +1122,27 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    // Persist strictly to Newborn staging tables
-    let persistedCandidates = Array.from(candidateMap.values());
+    await reportProgress(
+      'persisting',
+      `3. Saving ${verifiedQualified.length} verified newborn winners...`,
+      94,
+      {
+        candidates_discovered: allEvaluated.length,
+        candidates_qualified: verifiedQualified.length,
+        golden_pins_count: verifiedQualified.filter((c) => c.is_golden_pin).length
+      }
+    );
+
+    // Persist ONLY verified qualified candidates strictly to Newborn staging + run-scoped junction table
+    let persistedCandidates = verifiedQualified;
     let persistedRookies = rookieRecords;
 
     if (sql && typeof sql === 'function') {
       if (persistedCandidates.length > 0) {
         const upRes = await upsertStagedCandidatesBatch(sql, persistedCandidates, {
           profileId: profile?.id ?? null,
+          runId: runRowId,
+          folderId: numericFolderId,
           nowMs
         });
         persistedCandidates = upRes.rows;
@@ -965,7 +1153,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    // Trigger immediate auto-promotion if `auto_track_enabled` AND `min_consecutive_days` is already satisfied (e.g. 1 day or multi-day carryover)
+    // Trigger immediate auto-promotion if `auto_track_enabled` AND `min_consecutive_days` is already satisfied
     let autoPromotedCount = 0;
     if (settings.automation.auto_track_enabled) {
       const promotablePinIds = persistedCandidates
@@ -989,7 +1177,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     }
 
-    const qualifiedCount = persistedCandidates.filter((c) => c.qualified !== false).length;
+    const qualifiedCount = persistedCandidates.length;
     const goldenPinsCount = persistedCandidates.filter((c) => c.is_golden_pin).length;
     const crossoverMatrix = buildNewbornCrossoverMatrix(persistedCandidates, { limit: 20 });
     const routerTelemetry = router.getRedactedTelemetry();
@@ -1001,9 +1189,13 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           UPDATE newborn_runs
           SET
             status = 'completed',
+            progress_stage = 'completed',
+            progress_detail = ${`Found ${qualifiedCount} verified newborn pin${qualifiedCount === 1 ? '' : 's'} (scanned ${allEvaluated.length}, discarded ${discardedInMemoryCount} unverified/stale).`},
+            progress_pct = 100,
+            error_message = NULL,
             surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
             cookie_mode = ${router.effectiveMode},
-            candidates_discovered = ${persistedCandidates.length},
+            candidates_discovered = ${allEvaluated.length},
             candidates_qualified = ${qualifiedCount},
             golden_pins_count = ${goldenPinsCount},
             rookie_creators_count = ${persistedRookies.length},
@@ -1013,7 +1205,9 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             telemetry = ${JSON.stringify(sanitizeForJsonb({
               router: routerTelemetry,
               fresh_boards_found: freshBoardsDiscovered.length,
-              growing_trends_found: discoveredTrends.length
+              growing_trends_found: discoveredTrends.length,
+              total_scanned_count: allEvaluated.length,
+              discarded_in_memory_count: discardedInMemoryCount
             }))}::jsonb,
             completed_at = NOW()
           WHERE id = ${runRowId};
@@ -1030,7 +1224,9 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       surfaces_executed: surfacesExecuted,
       snowball_hops_executed: snowballHopsExecuted,
       stats: {
-        candidates_discovered: persistedCandidates.length,
+        candidates_scanned: allEvaluated.length,
+        candidates_discarded_in_memory: discardedInMemoryCount,
+        candidates_discovered: allEvaluated.length,
         candidates_qualified: qualifiedCount,
         golden_pins_count: goldenPinsCount,
         rookie_creators_count: persistedRookies.length,
@@ -1046,16 +1242,20 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       crossover_matrix: crossoverMatrix
     };
   } catch (err) {
+    const safeErrMsg = redactSecrets(err?.message || 'Unknown harvest error').slice(0, 1000);
     if (sql && typeof sql === 'function' && runRowId !== null) {
       await sql`
         UPDATE newborn_runs
         SET
           status = 'failed',
+          progress_stage = 'failed',
+          progress_detail = ${safeErrMsg},
+          error_message = ${safeErrMsg},
           surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
           cookie_mode = ${router.effectiveMode},
           telemetry = ${JSON.stringify(sanitizeForJsonb({
             router: router.getRedactedTelemetry(),
-            error: err?.message || 'Unknown harvest error'
+            error: safeErrMsg
           }))}::jsonb,
           completed_at = NOW()
         WHERE id = ${runRowId};

@@ -260,6 +260,9 @@ export function getPinDetailsClientAppScripts() {
         getBackUrl() {
           const safeReturn = this.sanitizeReturnUrl(this.originReturnUrl);
           if (safeReturn) return safeReturn;
+          if (this.originSource === 'newborn') {
+            return this.originFolderId ? ('/folders/' + encodeURIComponent(this.originFolderId) + '/newborn') : '/newborn';
+          }
           if (this.originSource === 'pulse') {
             return this.originFolderId ? ('/folders/' + encodeURIComponent(this.originFolderId) + '/pulse') : '/pulse';
           }
@@ -281,6 +284,9 @@ export function getPinDetailsClientAppScripts() {
         },
 
         getBackButtonLabel() {
+          if (this.originSource === 'newborn') {
+            return 'Newborn Hunter';
+          }
           if (this.originSource === 'pulse') {
             return '24h Pulse Radar';
           }
@@ -300,6 +306,9 @@ export function getPinDetailsClientAppScripts() {
         },
 
         getBackButtonTitle() {
+          if (this.originSource === 'newborn') {
+            return 'Back to Newborn Pin Hunter';
+          }
           if (this.originSource === 'pulse') {
             return 'Back to 24h Pulse & Crossover Studio';
           }
@@ -341,12 +350,17 @@ export function getPinDetailsClientAppScripts() {
             const fidParam = params.get('folder_id') || '';
             const fNameParam = params.get('folder') || '';
             const domainParam = params.get('domain') || '';
+            const sourceParam = (params.get('source') || '').trim().toLowerCase();
             const returnUrlParam = params.get('return_url') || '';
 
+            if (sourceParam === 'newborn' || sourceParam === 'pulse') {
+              this.originSource = sourceParam;
+              hasUrlContext = true;
+            }
             if (creatorParam) {
               this.originCreator = creatorParam.replace(/^@+/, '').trim();
               this.originBoard = boardParam.trim();
-              this.originSource = 'creator';
+              if (!this.originSource) this.originSource = 'creator';
               hasUrlContext = true;
             }
             if (kwParam) {
@@ -421,6 +435,11 @@ export function getPinDetailsClientAppScripts() {
                     this.originSource = 'domain';
                     this.originDomain = saved.domain || '';
                     this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '';
+                  } else if (saved.source === 'newborn') {
+                    this.originSource = 'newborn';
+                    this.originFolderId = saved.folderId || null;
+                    this.originFolderName = saved.folderName || '';
+                    this.originReturnUrl = this.originReturnUrl || safeSavedReturn || '/newborn';
                   } else if (saved.source === 'pulse') {
                     this.originSource = 'pulse';
                     this.originFolderId = saved.folderId || null;
@@ -445,14 +464,22 @@ export function getPinDetailsClientAppScripts() {
             try {
               const refUrl = new URL(document.referrer);
               if (typeof window !== 'undefined' && refUrl.origin === window.location.origin) {
-                if (refUrl.pathname.startsWith('/pulse') || refUrl.pathname.startsWith('/24h')) {
+                if (refUrl.pathname.startsWith('/newborn')) {
+                  this.originSource = 'newborn';
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const qFolderId = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
+                  if (qFolderId) this.originFolderId = qFolderId;
+                } else if (refUrl.pathname.startsWith('/pulse') || refUrl.pathname.startsWith('/24h')) {
                   this.originSource = 'pulse';
                   this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
                   const qFolderId = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
                   if (qFolderId) this.originFolderId = qFolderId;
                 } else if (refUrl.pathname.startsWith('/folders')) {
                   const fSegs = refUrl.pathname.split('/').filter(Boolean);
-                  if (fSegs.length >= 3 && fSegs[2] === 'pulse') {
+                  if (fSegs.length >= 3 && fSegs[2] === 'newborn') {
+                    this.originSource = 'newborn';
+                    this.originFolderId = fSegs[1];
+                  } else if (fSegs.length >= 3 && fSegs[2] === 'pulse') {
                     this.originSource = 'pulse';
                     this.originFolderId = fSegs[1];
                   } else {

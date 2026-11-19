@@ -64,6 +64,100 @@ export function extractUsernameFromProfileUrl(profileUrl = '', explicitUsername 
 }
 
 /**
+ * Normalizes any Pinterest board URL or relative `/user/slug/` path into a full external
+ * `https://www.pinterest.com/...` URL so UI links never resolve against our own origin.
+ */
+export function formatPinterestBoardUrl(rawUrl = '', ownerUsername = '', boardSlug = '') {
+  const clean = safeString(rawUrl || '').trim();
+  if (clean) {
+    if (/^https?:\/\//i.test(clean)) return clean;
+    if (clean.startsWith('//')) return `https:${clean}`;
+    const prefixed = clean.startsWith('/') ? clean : `/${clean}`;
+    return `https://www.pinterest.com${prefixed.endsWith('/') ? prefixed : `${prefixed}/`}`;
+  }
+  const owner = extractUsernameFromProfileUrl('', ownerUsername);
+  const slug = safeString(boardSlug || '').trim().replace(/^\/+|\/+$/g, '');
+  if (owner && slug) {
+    return `https://www.pinterest.com/${owner}/${slug}/`;
+  }
+  return null;
+}
+
+const BOARD_MATCH_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'your', 'you', 'are', 'was',
+  'were', 'have', 'has', 'had', 'not', 'but', 'all', 'can', 'out', 'about', 'into',
+  'pin', 'pins', 'board', 'boards', 'pinterest', 'ideas', 'idea', 'inspo', 'inspiration',
+  'best', 'cute', 'easy', 'simple', 'diy', 'aesthetic', 'my', 'of', 'in', 'on', 'to', 'at'
+]);
+
+const BOARD_GENERIC_HEAD_WORDS = new Set([
+  'party', 'parties', 'food', 'foods', 'recipe', 'recipes', 'outfit', 'outfits',
+  'decor', 'decoration', 'decorations', 'style', 'design', 'designs', 'home', 'room',
+  'nail', 'nails', 'hair', 'hairstyle', 'hairstyles', 'makeup', 'fashion', 'art',
+  'craft', 'crafts', 'gift', 'gifts', 'photo', 'photos', 'pose', 'poses', 'wallpaper',
+  'theme', 'themes', 'aesthetic', 'vibe', 'vibes', 'stuff', 'things', 'life'
+]);
+
+function stemTokenLight(token) {
+  if (!token || token.length < 4) return token;
+  if (token.endsWith('ies') && token.length >= 5) return `${token.slice(0, -3)}y`;
+  if (token.endsWith('es') && token.length >= 5 && /(ch|sh|x|s|z)es$/.test(token)) return token.slice(0, -2);
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length >= 4) return token.slice(0, -1);
+  return token;
+}
+
+function tokenizeForSemanticOverlap(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[-_/]+/g, ' ')
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+/**
+ * Verifies semantic token overlap between a candidate board's name/slug and the target seed query
+ * so unrelated trending boards (e.g. "Sims 4" or "Winter Outfits" on a "graduation party foods" hunt)
+ * are never expanded via `board_feed` or `board_more_ideas`.
+ */
+export function boardMatchesSeedQuery(boardName = '', boardSlug = '', seedQuery = '') {
+  const rawQueryTokens = tokenizeForSemanticOverlap(seedQuery);
+  if (rawQueryTokens.length === 0) return true;
+
+  const boardTokens = tokenizeForSemanticOverlap(`${boardName || ''} ${boardSlug || ''}`);
+  if (boardTokens.length === 0) return false;
+
+  const boardStems = new Set(boardTokens.map(stemTokenLight));
+  const meaningfulQueryTokens = Array.from(new Set(
+    rawQueryTokens.filter((t) => !BOARD_MATCH_STOP_WORDS.has(t))
+  ));
+  const targetTokens = meaningfulQueryTokens.length > 0
+    ? meaningfulQueryTokens
+    : Array.from(new Set(rawQueryTokens));
+
+  const matchedTokens = [];
+  for (const qt of targetTokens) {
+    const qStem = stemTokenLight(qt);
+    const matched = boardTokens.some((bt) => {
+      const bStem = stemTokenLight(bt);
+      if (bt === qt || bStem === qStem) return true;
+      if (qt.length >= 4 && bt.length >= 4 && (bt.startsWith(qt) || qt.startsWith(bt))) return true;
+      return false;
+    }) || boardStems.has(qStem);
+    if (matched) matchedTokens.push(qt);
+  }
+
+  if (matchedTokens.length === 0) return false;
+  if (targetTokens.length <= 2) return true;
+
+  // For 3+ meaningful seed words (e.g. "graduation party foods"), require either >= 2 matching words
+  // OR a match on a specific (non-generic) anchor word like "graduation".
+  if (matchedTokens.length >= 2) return true;
+  return matchedTokens.some((tok) => !BOARD_GENERIC_HEAD_WORDS.has(tok) && !BOARD_GENERIC_HEAD_WORDS.has(stemTokenLight(tok)));
+}
+
+/**
  * Extracts `{ owner_username, board_slug, clean_path }` from a Pinterest board URL.
  */
 export function parseBoardPath(boardUrl = '', fallbackOwner = '') {
@@ -306,9 +400,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
   const boardId = safeString(boardObj.id || boardObj.entityId || context.board_id || formatted?.board_id || '') || null;
   const boardName = safeString(boardObj.name || context.board_name || formatted?.board_name || '') || null;
   const boardUrlRaw = safeString(boardObj.url || context.board_url || formatted?.board_url || '');
-  const boardUrl = boardUrlRaw
-    ? (boardUrlRaw.startsWith('http') ? boardUrlRaw : `https://www.pinterest.com${boardUrlRaw.startsWith('/') ? '' : '/'}${boardUrlRaw}`)
-    : null;
+  const boardUrl = formatPinterestBoardUrl(boardUrlRaw);
 
   const rawBoardPins = boardObj.pin_count ?? boardObj.pinCount ?? context.board_pin_count ?? null;
   const boardPinCount = rawBoardPins !== null && rawBoardPins !== undefined
@@ -334,6 +426,53 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
       ? parseCleanMetric(rawPin.repin_count, null, { preserveCeiling: true })
       : null
   );
+
+  // Preserve missing secondary engagement signals as `null` rather than fake 0/0/0
+  const rawCommentCount =
+    rawPin.comment_count ??
+    rawPin.total_comment_count ??
+    rawPin.comments_count ??
+    rawPin.aggregated_pin_data?.comment_count ??
+    null;
+  const commentCount = (rawCommentCount !== null && rawCommentCount !== undefined && rawCommentCount !== '')
+    ? parseCleanMetric(rawCommentCount, null, { preserveCeiling: true })
+    : null;
+
+  const rawShareCount =
+    rawPin.share_count ??
+    rawPin.shares ??
+    rawPin.total_share_count ??
+    rawPin.aggregated_pin_data?.share_count ??
+    null;
+  const shareCount = (rawShareCount !== null && rawShareCount !== undefined && rawShareCount !== '')
+    ? parseCleanMetric(rawShareCount, null, { preserveCeiling: true })
+    : null;
+
+  const rawReactionCount =
+    rawPin.total_reaction_count ??
+    rawPin.reaction_counts?.total ??
+    rawPin.reaction_count ??
+    rawPin.aggregated_pin_data?.reaction_count ??
+    null;
+  const reactionCount = (rawReactionCount !== null && rawReactionCount !== undefined && rawReactionCount !== '')
+    ? parseCleanMetric(rawReactionCount, null, { preserveCeiling: true })
+    : null;
+
+  const explicitCanonicalRaw = String(
+    rawPin.pin_join?.canonical_pin?.id ??
+    rawPin.pin_join?.canonical_pin?.entity_id ??
+    rawPin.pinJoin?.canonicalPin?.entityId ??
+    rawPin.origin_pin?.id ??
+    rawPin.originPin?.id ??
+    rawPin.canonical_pin_id ??
+    rawPin.canonical_pin?.id ??
+    rawPin.aggregated_pin_data?.canonical_pin_id ??
+    ''
+  ).trim();
+  const canonicalPinId = isValidPinId(explicitCanonicalRaw) ? explicitCanonicalRaw : null;
+
+  const aggPinDataIdRaw = String(rawPin.aggregated_pin_data?.id ?? '').trim();
+  const aggregatedPinDataId = isValidPinId(aggPinDataIdRaw) ? aggPinDataIdRaw : null;
 
   const rawCreationMethod = safeString(
     rawPin.insertion_source ||
@@ -368,6 +507,10 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
 
   return {
     pin_id: rawId,
+    canonical_pin_id: canonicalPinId,
+    aggregated_pin_data_id: aggregatedPinDataId,
+    root_pin_id: canonicalPinId || rawId,
+    root_age_verified: context.root_age_verified ?? null,
     first_surface: surfaceId,
     discovered_surfaces: [surfaceId],
     seed_query: context.seed_query || null,
@@ -409,10 +552,10 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     has_explicit_saves: saveCount !== null,
     repin_count: repinCount,
     has_explicit_repins: repinCount !== null,
-    comment_count: formatted?.comment_count ?? null,
-    share_count: formatted?.share_count ?? null,
-    reaction_count: formatted?.reaction_count ?? null,
-    is_hydrated: Boolean(context.is_hydrated || saveCount !== null),
+    comment_count: commentCount,
+    share_count: shareCount,
+    reaction_count: reactionCount,
+    is_hydrated: Boolean(context.is_hydrated),
     visual_annotations: detailedAnnotations,
     guided_capsules: Array.isArray(context.guided_capsules) ? context.guided_capsules : []
   };
@@ -487,9 +630,30 @@ export function mergeCandidatePinRecords(base, incoming) {
     ? incoming.raw_creation_method
     : (base.raw_creation_method || incoming.raw_creation_method || null);
 
+  const incomingVerified = incoming.root_age_verified;
+  const baseVerified = base.root_age_verified;
+  const resolvedRootVerified = incomingVerified !== undefined && incomingVerified !== null
+    ? incomingVerified
+    : (baseVerified ?? null);
+
+  let resolvedCreatedAt = incoming.created_at_pinterest || base.created_at_pinterest || null;
+  let resolvedAgeDays = incoming.age_days ?? base.age_days ?? null;
+  if (resolvedRootVerified === false) {
+    // Repin clone whose true root creation date could not be verified — NEVER keep fake repin timestamp!
+    resolvedCreatedAt = null;
+    resolvedAgeDays = null;
+  } else if (incomingVerified === true && incoming.created_at_pinterest) {
+    resolvedCreatedAt = incoming.created_at_pinterest;
+    resolvedAgeDays = incoming.age_days ?? base.age_days ?? null;
+  }
+
   return {
     ...base,
     ...incoming,
+    canonical_pin_id: incoming.canonical_pin_id || base.canonical_pin_id || null,
+    aggregated_pin_data_id: incoming.aggregated_pin_data_id || base.aggregated_pin_data_id || null,
+    root_pin_id: incoming.root_pin_id || base.root_pin_id || incoming.pin_id || base.pin_id,
+    root_age_verified: resolvedRootVerified,
     first_surface: base.first_surface || incoming.first_surface,
     discovered_surfaces: surfaces,
     seed_query: base.seed_query || incoming.seed_query || null,
@@ -523,7 +687,7 @@ export function mergeCandidatePinRecords(base, incoming) {
     is_repin: Boolean(base.is_repin || incoming.is_repin || (originUsername && pinnerUsername && originUsername !== pinnerUsername)),
     board_id: incoming.board_id || base.board_id || null,
     board_name: incoming.board_name || base.board_name || null,
-    board_url: incoming.board_url || base.board_url || null,
+    board_url: formatPinterestBoardUrl(incoming.board_url || base.board_url || ''),
     board_pin_count: pickMaxNullable(base.board_pin_count, incoming.board_pin_count),
     board_follower_count: pickMaxNullable(base.board_follower_count, incoming.board_follower_count),
     board_order_modified_at: incoming.board_order_modified_at || base.board_order_modified_at || null,
@@ -533,8 +697,8 @@ export function mergeCandidatePinRecords(base, incoming) {
     is_carousel: Boolean(base.is_carousel || incoming.is_carousel),
     is_product: Boolean(base.is_product || incoming.is_product),
     is_idea_pin: Boolean(base.is_idea_pin || incoming.is_idea_pin),
-    created_at_pinterest: incoming.created_at_pinterest || base.created_at_pinterest || null,
-    age_days: incoming.age_days ?? base.age_days ?? null,
+    created_at_pinterest: resolvedCreatedAt,
+    age_days: resolvedAgeDays,
     save_count: saveCount,
     has_explicit_saves: saveCount !== null,
     repin_count: repinCount,
@@ -542,7 +706,7 @@ export function mergeCandidatePinRecords(base, incoming) {
     comment_count: pickMaxNullable(base.comment_count, incoming.comment_count),
     share_count: pickMaxNullable(base.share_count, incoming.share_count),
     reaction_count: pickMaxNullable(base.reaction_count, incoming.reaction_count),
-    is_hydrated: Boolean(base.is_hydrated || incoming.is_hydrated || saveCount !== null),
+    is_hydrated: Boolean(base.is_hydrated || incoming.is_hydrated),
     visual_annotations: Array.from(annMap.values()),
     guided_capsules: Array.from(capMap.values())
   };
@@ -947,14 +1111,19 @@ export async function harvestFreshBoardsSurface(router, query, { maxPages = 1, m
 
       const rawUrl = safeString(item.url || '');
       const parsedPath = parseBoardPath(rawUrl, item.owner?.username || '');
-      const fullUrl = rawUrl
-        ? (rawUrl.startsWith('http') ? rawUrl : `https://www.pinterest.com${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`)
-        : (parsedPath.owner_username && parsedPath.board_slug ? `https://www.pinterest.com/${parsedPath.owner_username}/${parsedPath.board_slug}/` : '');
+      const boardName = safeString(item.name || 'Untitled Board');
+
+      // Require semantic token overlap between board name/slug and seed query to prevent cross-topic pollution
+      if (!boardMatchesSeedQuery(boardName, parsedPath.board_slug || '', cleanQuery)) {
+        continue;
+      }
+
+      const fullUrl = formatPinterestBoardUrl(rawUrl, parsedPath.owner_username || '', parsedPath.board_slug || '') || '';
 
       if (!freshBoardsMap.has(boardId)) {
         freshBoardsMap.set(boardId, {
           board_id: boardId,
-          name: safeString(item.name || 'Untitled Board'),
+          name: boardName,
           url: fullUrl,
           clean_path: parsedPath.clean_path,
           owner_username: parsedPath.owner_username || null,
@@ -1303,6 +1472,42 @@ export async function harvestIdeasHubSurface(router, termOrInterest, { maxPages 
 }
 
 /**
+ * Recursively unwraps nested module/pin containers from `RelatedModulesResource/get`
+ * (handles both flat pin arrays and 2026 nested `{ type: 'module', pins/items/objects/results/data }` wrappers).
+ */
+export function extractPinsFromRelatedModulesPayload(payload) {
+  const pins = [];
+  const seen = new Set();
+
+  const visit = (node, depth = 0) => {
+    if (!node || depth > 8) return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    if (typeof node !== 'object') return;
+
+    const rawId = String(node.id ?? node.pin_id ?? node.entityId ?? '').trim();
+    const isDirectPin = isValidPinId(rawId) && (
+      node.type === 'pin' ||
+      (!node.type && (node.images || node.imageSpec_736x || node.pinner || node.repin_count !== undefined || node.aggregated_pin_data))
+    );
+    if (isDirectPin && !seen.has(rawId)) {
+      seen.add(rawId);
+      pins.push(node);
+    }
+
+    const nestedKeys = ['pins', 'items', 'objects', 'results', 'data', 'carousel_items', 'related_pins', 'module', 'pin', 'object'];
+    for (const k of nestedKeys) {
+      if (node[k]) visit(node[k], depth + 1);
+    }
+  };
+
+  visit(payload, 0);
+  return pins;
+}
+
+/**
  * SURFACE 8: Related Pin Snowball (`RelatedModulesResource/get`, Zone 1 `_auth=1`).
  * Gracefully skips when no cookie is configured or on `HTTP 412 Login required` without tripping circuit breaker.
  */
@@ -1323,11 +1528,13 @@ export async function harvestRelatedPinSnowballSurface(router, seedPinId, { maxP
   let skippedAuthOnly = false;
 
   for (let page = 1; page <= maxP; page++) {
+    const isAuth = Boolean(router?.canUseAuthSession);
     const opts = {
       pin_id: cleanSeedId,
       context_pin_ids: [],
       search_query: '',
-      field_set_key: 'unauth_react',
+      field_set_key: isAuth ? 'react_grid_pin' : 'unauth_react',
+      ...(isAuth ? { add_vase: true, is_related_modules: true } : {}),
       page_size: pSize,
       ...(bookmark ? { bookmarks: [bookmark] } : {})
     };
@@ -1346,8 +1553,8 @@ export async function harvestRelatedPinSnowballSurface(router, seedPinId, { maxP
     if (!res.ok || !res.data) break;
     pagesFetched++;
 
-    const rr = res.data?.resource_response?.data || res.data?.data || [];
-    const list = Array.isArray(rr) ? rr : (rr.results || rr.items || rr.pins || []);
+    const rr = res.data?.resource_response?.data ?? res.data?.data ?? [];
+    const list = extractPinsFromRelatedModulesPayload(rr);
     for (const raw of list) {
       const norm = normalizeSurfaceCandidatePin(raw, {
         surface: 'related_pin_snowball',
@@ -1450,9 +1657,7 @@ export async function pretriageCandidatesWithPidgets(pinIds, router) {
           : null,
         board_id: safeString(p.board?.id || '') || null,
         board_name: safeString(p.board?.name || '') || null,
-        board_url: p.board?.url
-          ? (p.board.url.startsWith('http') ? p.board.url : `https://www.pinterest.com${p.board.url}`)
-          : null,
+        board_url: formatPinterestBoardUrl(p.board?.url || ''),
         board_pin_count: p.board?.pin_count !== undefined && p.board?.pin_count !== null
           ? parseCleanMetric(p.board.pin_count, null, { preserveCeiling: true, cap: 0 })
           : null,
@@ -1464,7 +1669,8 @@ export async function pretriageCandidatesWithPidgets(pinIds, router) {
         repin_count: repinCount,
         has_explicit_repins: repinCount !== null,
         is_video: Boolean(p.is_video || p.videos),
-        is_hydrated: saveCount !== null
+        // CRITICAL: Pidgets lacks `created_at` and root canonical check — NEVER mark is_hydrated = true!
+        is_hydrated: false
       });
     }
   }
@@ -1475,9 +1681,11 @@ export async function pretriageCandidatesWithPidgets(pinIds, router) {
 /**
  * Strict Zero-Cookie `PinResource/get` Hydrator (`hydratePinZeroCookie`).
  * NEVER sends `_auth=1` — preserves `pin_join.visual_annotation` & `annotations_with_links`,
- * authentic `created_at`, upload provenance, and `pinner` vs `origin_pinner` separation.
+ * authentic root `created_at` (defeating the Child Repin fake-age trap by hydrating
+ * `canonical_pin_id` whenever `is_repin === true` or canonical differs from `pin_id`),
+ * upload provenance, and `pinner` vs `origin_pinner` separation.
  */
-export async function hydratePinZeroCookie(pinId, router) {
+export async function hydratePinZeroCookie(pinId, router, { _depth = 0, rootPinCache = null, nowMs = Date.now() } = {}) {
   const cleanId = String(pinId || '').trim();
   if (!isValidPinId(cleanId)) return { ok: false, pin_id: cleanId, pin: null, error: 'invalid_pin_id' };
 
@@ -1525,15 +1733,90 @@ export async function hydratePinZeroCookie(pinId, router) {
 
   const normalized = normalizeSurfaceCandidatePin(
     { ...rawPin, id: cleanId },
-    { surface: 'pin_resource', is_hydrated: false }
+    { surface: 'pin_resource', is_hydrated: true }
   );
 
   if (!normalized) {
     return { ok: false, status: 422, pin_id: cleanId, pin: null, error: 'invalid_pin_payload' };
   }
 
-  // Mark hydrated when PinResource returned full entity telemetry (explicit saves or created_at + repins)
-  normalized.is_hydrated = Boolean(normalized.save_count !== null || normalized.created_at_pinterest !== null);
+  // Defeat the Child Repin Fake-Age Trap:
+  // If `canonical_pin_id` differs from `cleanId` OR `is_repin === true`, resolve and hydrate the
+  // true root pin via `PinResource/get` so `created_at_pinterest` & `age_days` reflect the original
+  // creation date (never the recent repin date!). Discard unverifiable repins by clearing created_at.
+  if (_depth === 0) {
+    const explicitCanonical = (normalized.canonical_pin_id && normalized.canonical_pin_id !== cleanId)
+      ? normalized.canonical_pin_id
+      : null;
+    const repinFallbackCanonical = (!explicitCanonical && normalized.is_repin && normalized.aggregated_pin_data_id && normalized.aggregated_pin_data_id !== cleanId)
+      ? normalized.aggregated_pin_data_id
+      : null;
+    const rootTargetId = explicitCanonical || repinFallbackCanonical;
+
+    if (rootTargetId) {
+      let rootRes = rootPinCache?.get?.(rootTargetId) || null;
+      if (!rootRes) {
+        rootRes = await hydratePinZeroCookie(rootTargetId, router, {
+          _depth: 1,
+          rootPinCache,
+          nowMs
+        });
+        if (rootPinCache && typeof rootPinCache.set === 'function') {
+          rootPinCache.set(rootTargetId, rootRes);
+        }
+      }
+
+      const rootPin = rootRes?.ok ? rootRes.pin : null;
+      if (rootPin && rootPin.created_at_pinterest) {
+        const childMs = normalized.created_at_pinterest ? Date.parse(normalized.created_at_pinterest) : NaN;
+        const rootMs = Date.parse(rootPin.created_at_pinterest);
+        const trueCreatedMs = Number.isFinite(childMs) && Number.isFinite(rootMs)
+          ? Math.min(childMs, rootMs)
+          : rootMs;
+        if (Number.isFinite(trueCreatedMs)) {
+          normalized.created_at_pinterest = new Date(trueCreatedMs).toISOString();
+          normalized.age_days = Math.max(0.05, Math.round(((nowMs - trueCreatedMs) / 86_400_000) * 10) / 10);
+          normalized.root_pin_id = rootTargetId;
+          normalized.canonical_pin_id = rootTargetId;
+          normalized.root_age_verified = true;
+          normalized.is_repin = true;
+          if (!normalized.origin_creator_username && (rootPin.origin_creator_username || rootPin.pinner_username)) {
+            normalized.origin_creator_username = rootPin.origin_creator_username || rootPin.pinner_username;
+            normalized.origin_creator_full_name = rootPin.origin_creator_full_name || rootPin.pinner_full_name || normalized.origin_creator_full_name;
+            normalized.origin_creator_followers = rootPin.origin_creator_followers ?? rootPin.pinner_followers ?? normalized.origin_creator_followers;
+            normalized.effective_creator_username = normalized.origin_creator_username;
+            normalized.effective_creator_followers = normalized.origin_creator_followers ?? normalized.effective_creator_followers;
+          }
+        } else {
+          normalized.root_age_verified = false;
+          normalized.created_at_pinterest = null;
+          normalized.age_days = null;
+          normalized.repin_root_unverified = true;
+        }
+      } else {
+        // Root creation date could NOT be verified — invalidate fake child repin timestamp!
+        normalized.root_age_verified = false;
+        normalized.created_at_pinterest = null;
+        normalized.age_days = null;
+        normalized.repin_root_unverified = true;
+      }
+    } else if (normalized.is_repin) {
+      // Child repin with no canonical root pin ID — cannot verify original root creation date!
+      normalized.root_age_verified = false;
+      normalized.created_at_pinterest = null;
+      normalized.age_days = null;
+      normalized.repin_root_unverified = true;
+    } else {
+      normalized.root_pin_id = cleanId;
+      normalized.root_age_verified = Boolean(normalized.created_at_pinterest);
+    }
+  } else {
+    normalized.root_pin_id = cleanId;
+    normalized.root_age_verified = Boolean(normalized.created_at_pinterest);
+  }
+
+  // Mark hydrated after PinResource/get completed
+  normalized.is_hydrated = true;
 
   return {
     ok: true,

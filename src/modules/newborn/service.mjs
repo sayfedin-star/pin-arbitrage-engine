@@ -11,11 +11,14 @@
  *   `getNewbornCandidateDossier`, `listNewbornRookies`, `getNewbornCrossoverReport`, etc.)
  */
 
-import { escapeSqlWildcards, sanitizeForJsonb } from '../../utils.mjs';
+import { Semaphore, escapeSqlWildcards, sanitizeForJsonb } from '../../utils.mjs';
 import {
   invalidateEdgeCache,
-  isValidPinId
+  isValidPinId,
+  redactSecrets,
+  tripPinterestCircuitBreaker
 } from '../../http/security-and-response.mjs';
+import { CircuitBreakerOpenError } from '../../core/pinterest/client.mjs';
 import { ingestPinsBatch } from '../pins/repository.mjs';
 import { addKeyword } from '../keywords/settings.mjs';
 import { invalidateFolderCache } from '../keywords/folders-crossover.mjs';
@@ -48,6 +51,7 @@ import {
 } from './settings.mjs';
 import { NewbornCookieRouter } from './cookie-router.mjs';
 import {
+  formatPinterestBoardUrl,
   parseSmartHuntInput,
   mergeCandidatePinRecords,
   harvestGrowingTrendsSurface,
@@ -97,6 +101,7 @@ function normalizeCandidateForMasterIngest(cand) {
   const annotations = Array.isArray(cand.visual_annotations)
     ? cand.visual_annotations.map((a) => (typeof a === 'string' ? a : (a?.name || ''))).filter(Boolean)
     : [];
+  const hasSaves = cand.save_count !== null && cand.save_count !== undefined;
 
   return {
     pin_id: String(cand.pin_id),
@@ -113,16 +118,19 @@ function normalizeCandidateForMasterIngest(cand) {
     dominant_color: cand.dominant_color || '#888888',
     visual_annotations: annotations,
     created_at_pinterest: cand.created_at_pinterest || null,
-    save_count: cand.save_count != null ? Number(cand.save_count) : null,
-    has_explicit_saves: cand.save_count != null,
+    save_count: hasSaves ? Number(cand.save_count) : null,
+    has_explicit_saves: hasSaves,
     repin_count: cand.repin_count != null ? Number(cand.repin_count) : null,
     has_explicit_repins: cand.repin_count != null,
     comment_count: cand.comment_count != null ? Number(cand.comment_count) : null,
     share_count: cand.share_count != null ? Number(cand.share_count) : null,
     reaction_count: cand.reaction_count != null ? Number(cand.reaction_count) : null,
-    is_hydrated: Boolean(cand.is_hydrated || cand.save_count != null),
-    daily_save_velocity: cand.save_per_day != null ? Number(cand.save_per_day) : null,
-    daily_repin_velocity: cand.repin_per_day != null ? Number(cand.repin_per_day) : null,
+    // Strictly preserve [INVARIANT: UNHYDRATED-SAVES-NULL] & [INVARIANT: ANTI-HYDRATION-SPIKE]:
+    // Never mark hydrated without explicit save_count, and NEVER inject lifetime save_per_day
+    // into Day-1 daily_save_velocity (keep Day-1 velocity at 0 until 01:00 UTC Day-2 delta!).
+    is_hydrated: hasSaves,
+    daily_save_velocity: 0,
+    daily_repin_velocity: 0,
     is_product: Boolean(cand.is_product),
     is_video: Boolean(cand.is_video),
     creation_method: cand.raw_creation_method || cand.upload_provenance?.toLowerCase() || 'pinterest_platform',
@@ -131,6 +139,8 @@ function normalizeCandidateForMasterIngest(cand) {
     metadata: {
       newborn_promoted: true,
       newborn_golden_score: Number(cand.golden_score || 0),
+      newborn_lifetime_save_per_day: cand.save_per_day != null ? Number(cand.save_per_day) : null,
+      newborn_lifetime_repin_per_day: cand.repin_per_day != null ? Number(cand.repin_per_day) : null,
       upload_provenance: cand.upload_provenance || 'UNKNOWN',
       origin_creator_username: cand.origin_creator_username || null,
       pinner_username: cand.pinner_username || null
@@ -139,9 +149,10 @@ function normalizeCandidateForMasterIngest(cand) {
 }
 
 /**
- * Promotes staged Newborn candidate pins into selected SSOT destinations:
+ * Promotes staged Newborn candidate pins into selected SSOT destinations inside a single
+ * atomic PostgreSQL transaction (`sql.begin()`):
  * - `universal_master_pins` + `pins_daily_metrics` + `newborn_daily_anchors` (01:00 UTC Daily Velocity Continuity!)
- * - Optional Campaign Folder (`keyword_folders` / `keyword_folder_items` / `keyword_serp_positions`)
+ * - Optional Campaign Folder (`keyword_folders` / `keyword_folder_items` / `keyword_serp_positions` with NULL rank)
  * - Optional Tracked Keyword (`tracked_keywords` from top visual annotation / crossover keyword)
  * - Optional Discovery Cluster Seeds (`cluster_seeds`)
  *
@@ -202,136 +213,141 @@ export async function promoteNewbornCandidates(sql, options = {}) {
   let anchorsCreated = 0;
   const createdKeywords = [];
   let clusterSeedsCreated = 0;
+  const promotedIds = candidateRows.map((c) => String(c.pin_id)).sort((a, b) => a.localeCompare(b));
 
-  // 1. Ingest into universal_master_pins + pins_daily_metrics + newborn_daily_anchors
-  if (promoteToDailySsot || numericFolderId !== null || promoteKeyword) {
-    const masterBatch = candidateRows.map(normalizeCandidateForMasterIngest);
-    await ingestPinsBatch(sql, masterBatch, { pillar: 'newborn' });
-    appliedDestinations.push('daily_ssot');
+  const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
 
-    const anchorRecords = candidateRows.map((c) => ({
-      pin_id: String(c.pin_id),
-      source: String(source || 'manual').slice(0, 32),
-      is_active: true,
-      folder_id: numericFolderId,
-      seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null,
-      notes: String(notes || '').slice(0, 500)
-    }));
+  await runInTx(async (tx) => {
+    // 1. Ingest into universal_master_pins + pins_daily_metrics + newborn_daily_anchors
+    if (promoteToDailySsot || numericFolderId !== null || promoteKeyword) {
+      const masterBatch = candidateRows.map(normalizeCandidateForMasterIngest);
+      await ingestPinsBatch(tx, masterBatch, { pillar: 'newborn', inTransaction: true });
+      appliedDestinations.push('daily_ssot');
 
-    const anchorsJson = JSON.stringify(sanitizeForJsonb(anchorRecords));
-    await sql`
-      INSERT INTO newborn_daily_anchors (
-        pin_id, source, is_active, folder_id, seed_query, notes, promoted_at, updated_at
-      )
-      SELECT
-        u.pin_id,
-        u.source,
-        u.is_active,
-        u.folder_id,
-        u.seed_query,
-        u.notes,
-        NOW(),
-        NOW()
-      FROM jsonb_to_recordset(${anchorsJson}::jsonb) AS u(
-        pin_id text,
-        source text,
-        is_active boolean,
-        folder_id int,
-        seed_query text,
-        notes text
-      )
-      ORDER BY u.pin_id ASC
-      ON CONFLICT (pin_id) DO UPDATE SET
-        is_active = TRUE,
-        source = EXCLUDED.source,
-        folder_id = COALESCE(EXCLUDED.folder_id, newborn_daily_anchors.folder_id),
-        seed_query = COALESCE(EXCLUDED.seed_query, newborn_daily_anchors.seed_query),
-        notes = CASE WHEN EXCLUDED.notes <> '' THEN EXCLUDED.notes ELSE newborn_daily_anchors.notes END,
-        updated_at = NOW();
-    `;
-    anchorsCreated = anchorRecords.length;
-  }
+      const anchorRecords = candidateRows.map((c) => ({
+        pin_id: String(c.pin_id),
+        source: String(source || 'manual').slice(0, 32),
+        is_active: true,
+        folder_id: numericFolderId,
+        seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null,
+        notes: String(notes || '').slice(0, 500)
+      }));
 
-  // 2. Optional Keyword + Campaign Folder linking
-  if (promoteKeyword || numericFolderId !== null) {
-    const keywordToPinsMap = new Map();
-    for (const c of candidateRows) {
-      const derivedKw = explicitKeyword ||
-        c.crossover_blueprint?.primary_keyword ||
-        (Array.isArray(c.visual_annotations) && c.visual_annotations[0]
-          ? String(typeof c.visual_annotations[0] === 'string' ? c.visual_annotations[0] : (c.visual_annotations[0]?.name || '')).trim().toLowerCase()
-          : '') ||
-        String(c.seed_query || '').trim().toLowerCase();
-
-      if (derivedKw && (promoteKeyword || numericFolderId !== null)) {
-        if (!keywordToPinsMap.has(derivedKw)) keywordToPinsMap.set(derivedKw, []);
-        keywordToPinsMap.get(derivedKw).push(c);
-      }
+      const anchorsJson = JSON.stringify(sanitizeForJsonb(anchorRecords));
+      await tx`
+        INSERT INTO newborn_daily_anchors (
+          pin_id, source, is_active, folder_id, seed_query, notes, promoted_at, updated_at
+        )
+        SELECT
+          u.pin_id,
+          u.source,
+          u.is_active,
+          u.folder_id,
+          u.seed_query,
+          u.notes,
+          NOW(),
+          NOW()
+        FROM jsonb_to_recordset(${anchorsJson}::jsonb) AS u(
+          pin_id text,
+          source text,
+          is_active boolean,
+          folder_id int,
+          seed_query text,
+          notes text
+        )
+        ORDER BY u.pin_id ASC
+        ON CONFLICT (pin_id) DO UPDATE SET
+          is_active = TRUE,
+          source = EXCLUDED.source,
+          folder_id = COALESCE(EXCLUDED.folder_id, newborn_daily_anchors.folder_id),
+          seed_query = COALESCE(EXCLUDED.seed_query, newborn_daily_anchors.seed_query),
+          notes = CASE WHEN EXCLUDED.notes <> '' THEN EXCLUDED.notes ELSE newborn_daily_anchors.notes END,
+          updated_at = NOW();
+      `;
+      anchorsCreated = anchorRecords.length;
     }
 
-    for (const [kwTerm, pinsForKw] of keywordToPinsMap.entries()) {
-      const kwRow = await addKeyword(sql, { keyword: kwTerm, category: 'Newborn Breakout' });
-      if (kwRow && kwRow.id) {
-        createdKeywords.push({ id: Number(kwRow.id), keyword: kwRow.keyword || kwTerm });
+    // 2. Optional Keyword + Campaign Folder linking
+    if (promoteKeyword || numericFolderId !== null) {
+      const keywordToPinsMap = new Map();
+      for (const c of candidateRows) {
+        const derivedKw = explicitKeyword ||
+          c.crossover_blueprint?.primary_keyword ||
+          (Array.isArray(c.visual_annotations) && c.visual_annotations[0]
+            ? String(typeof c.visual_annotations[0] === 'string' ? c.visual_annotations[0] : (c.visual_annotations[0]?.name || '')).trim().toLowerCase()
+            : '') ||
+          String(c.seed_query || '').trim().toLowerCase();
 
-        if (numericFolderId !== null) {
-          await sql`
-            INSERT INTO keyword_folder_items (folder_id, keyword_id, notes, added_at)
-            VALUES (${numericFolderId}, ${Number(kwRow.id)}, 'Promoted from Newborn Studio', NOW())
-            ON CONFLICT (folder_id, keyword_id) DO NOTHING;
+        if (derivedKw && (promoteKeyword || numericFolderId !== null)) {
+          if (!keywordToPinsMap.has(derivedKw)) keywordToPinsMap.set(derivedKw, []);
+          keywordToPinsMap.get(derivedKw).push(c);
+        }
+      }
+
+      for (const [kwTerm, pinsForKw] of keywordToPinsMap.entries()) {
+        const kwRow = await addKeyword(tx, { keyword: kwTerm, category: 'Newborn Breakout' });
+        if (kwRow && kwRow.id) {
+          createdKeywords.push({ id: Number(kwRow.id), keyword: kwRow.keyword || kwTerm });
+
+          if (numericFolderId !== null) {
+            await tx`
+              INSERT INTO keyword_folder_items (folder_id, keyword_id, notes, added_at)
+              VALUES (${numericFolderId}, ${Number(kwRow.id)}, 'Promoted from Newborn Studio', NOW())
+              ON CONFLICT (folder_id, keyword_id) DO NOTHING;
+            `;
+          }
+
+          // NEVER fabricate fake SERP rank positions (1, 2, 3) for non-SERP promoted pins!
+          // Use rank_position = NULL, is_displaced = TRUE, last_known_rank = NULL until a real SERP crawl ranks them.
+          const serpRows = pinsForKw
+            .map((c) => ({ pin_id: String(c.pin_id) }))
+            .sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+          await tx`
+            INSERT INTO keyword_serp_positions (
+              keyword_id, pin_id, rank_position, is_displaced, last_known_rank, crawled_at, updated_at
+            )
+            SELECT
+              ${Number(kwRow.id)},
+              s.pin_id,
+              NULL::int,
+              TRUE,
+              NULL::int,
+              NOW(),
+              NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(serpRows)}::jsonb) AS s(pin_id text)
+            ORDER BY s.pin_id ASC
+            ON CONFLICT (keyword_id, pin_id) DO NOTHING;
           `;
         }
-
-        const serpRows = pinsForKw.map((c, idx) => ({
-          pin_id: String(c.pin_id),
-          rank_position: idx + 1
-        }));
-        await sql`
-          INSERT INTO keyword_serp_positions (
-            keyword_id, pin_id, rank_position, is_displaced, last_known_rank, crawled_at, updated_at
-          )
-          SELECT
-            ${Number(kwRow.id)},
-            s.pin_id,
-            s.rank_position,
-            FALSE,
-            s.rank_position,
-            NOW(),
-            NOW()
-          FROM jsonb_to_recordset(${JSON.stringify(serpRows)}::jsonb) AS s(pin_id text, rank_position int)
-          ORDER BY s.pin_id ASC
-          ON CONFLICT (keyword_id, pin_id) DO NOTHING;
-        `;
       }
+
+      if (promoteKeyword && createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
+      if (numericFolderId !== null) appliedDestinations.push(`campaign_folder:${numericFolderId}`);
     }
 
-    if (promoteKeyword && createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
-    if (numericFolderId !== null) appliedDestinations.push(`campaign_folder:${numericFolderId}`);
-  }
+    // 3. Optional /discovery Cluster Seeds promotion
+    if (promoteClusterSeeds) {
+      const seedsPayload = candidateRows.map((c) => ({
+        pin_id: String(c.pin_id),
+        label: String(c.title || c.crossover_blueprint?.primary_keyword || `Newborn ${c.pin_id}`).slice(0, 250),
+        is_competitor: true
+      }));
+      const createdSeeds = await bulkCreateClusterSeedsService(tx, seedsPayload);
+      clusterSeedsCreated = Array.isArray(createdSeeds) ? createdSeeds.length : seedsPayload.length;
+      appliedDestinations.push('cluster_seeds');
+    }
 
-  // 3. Optional /discovery Cluster Seeds promotion
-  if (promoteClusterSeeds) {
-    const seedsPayload = candidateRows.map((c) => ({
-      pin_id: String(c.pin_id),
-      label: String(c.title || c.crossover_blueprint?.primary_keyword || `Newborn ${c.pin_id}`).slice(0, 250),
-      is_competitor: true
-    }));
-    const createdSeeds = await bulkCreateClusterSeedsService(sql, seedsPayload);
-    clusterSeedsCreated = Array.isArray(createdSeeds) ? createdSeeds.length : seedsPayload.length;
-    appliedDestinations.push('cluster_seeds');
-  }
-
-  // 4. Mark staging rows as promoted
-  const promotedIds = candidateRows.map((c) => String(c.pin_id));
-  await sql`
-    UPDATE newborn_candidates
-    SET
-      stage = 'promoted',
-      promoted_at = COALESCE(promoted_at, NOW()),
-      promoted_destinations = ${JSON.stringify(appliedDestinations)}::jsonb,
-      updated_at = NOW()
-    WHERE pin_id = ANY(${promotedIds}::text[]);
-  `;
+    // 4. Mark staging rows as promoted (sorted pin_ids for deterministic lock order)
+    await tx`
+      UPDATE newborn_candidates
+      SET
+        stage = 'promoted',
+        promoted_at = COALESCE(promoted_at, NOW()),
+        promoted_destinations = ${JSON.stringify(appliedDestinations)}::jsonb,
+        updated_at = NOW()
+      WHERE pin_id = ANY(${promotedIds}::text[]);
+    `;
+  });
 
   // 5. Real Cache Invalidations
   const edgePrefixes = ['newborn', 'pins', 'api:overview'];
@@ -358,8 +374,9 @@ export async function promoteNewbornCandidates(sql, options = {}) {
 }
 
 /**
- * Promotes staged Rookie Creators from `newborn_rookie_accounts` into `/accounts` (`competitor_profiles`),
- * recording an opening `competitor_history_snapshots` row and optionally linking to a Campaign Folder.
+ * Promotes staged Rookie Creators from `newborn_rookie_accounts` into `/accounts` (`competitor_profiles`)
+ * inside a single atomic transaction (`sql.begin()`), recording an opening `competitor_history_snapshots`
+ * row and optionally linking to a Campaign Folder.
  */
 export async function promoteNewbornRookies(sql, options = {}) {
   const {
@@ -395,89 +412,92 @@ export async function promoteNewbornRookies(sql, options = {}) {
   const mode = trackingMode === 'full' ? 'full' : 'pulse_only';
   const numericFolderId = folderId !== null && folderId !== '' && Number(folderId) > 0 ? Number(folderId) : null;
   const promotedCompetitors = [];
+  const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
 
-  for (const r of rookieRows) {
-    const [comp] = await sql`
-      INSERT INTO competitor_profiles (
-        username, display_name, avatar_url, website_url,
-        monthly_reach, profile_views, total_pins, total_boards, follower_count,
-        tracking_mode, source_folder_id, tags, is_active, last_synced_at, created_at, updated_at
-      )
-      VALUES (
-        ${r.username},
-        ${r.display_name || r.username},
-        ${r.avatar_url || null},
-        ${r.website_url || null},
-        ${Number(r.monthly_reach ?? 0)},
-        ${Number(r.profile_views ?? 0)},
-        ${Number(r.pin_count ?? 0)},
-        ${Number(r.board_count ?? 0)},
-        ${Number(r.follower_count ?? 0)},
-        ${mode},
-        ${numericFolderId},
-        ARRAY['newborn_rookie']::text[],
-        TRUE,
-        NOW(),
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT (username) DO UPDATE SET
-        display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), competitor_profiles.display_name),
-        avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
-        website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
-        monthly_reach = GREATEST(COALESCE(competitor_profiles.monthly_reach, 0), EXCLUDED.monthly_reach),
-        profile_views = GREATEST(COALESCE(competitor_profiles.profile_views, 0), EXCLUDED.profile_views),
-        follower_count = GREATEST(COALESCE(competitor_profiles.follower_count, 0), EXCLUDED.follower_count),
-        is_active = TRUE,
-        updated_at = NOW()
-      RETURNING id, username, tracking_mode;
-    `;
-
-    if (comp?.id) {
-      promotedCompetitors.push({
-        competitor_id: Number(comp.id),
-        username: comp.username,
-        tracking_mode: comp.tracking_mode
-      });
-
-      await sql`
-        INSERT INTO competitor_history_snapshots (
-          competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date
+  await runInTx(async (tx) => {
+    for (const r of rookieRows) {
+      const [comp] = await tx`
+        INSERT INTO competitor_profiles (
+          username, display_name, avatar_url, website_url,
+          monthly_reach, profile_views, total_pins, total_boards, follower_count,
+          tracking_mode, source_folder_id, tags, is_active, last_synced_at, created_at, updated_at
         )
         VALUES (
-          ${Number(comp.id)},
+          ${r.username},
+          ${r.display_name || r.username},
+          ${r.avatar_url || null},
+          ${r.website_url || null},
           ${Number(r.monthly_reach ?? 0)},
           ${Number(r.profile_views ?? 0)},
-          ${Number(r.follower_count ?? 0)},
           ${Number(r.pin_count ?? 0)},
           ${Number(r.board_count ?? 0)},
-          (NOW() AT TIME ZONE 'UTC')::date
+          ${Number(r.follower_count ?? 0)},
+          ${mode},
+          ${numericFolderId},
+          ARRAY['newborn_rookie']::text[],
+          TRUE,
+          NOW(),
+          NOW(),
+          NOW()
         )
-        ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
-          monthly_reach = GREATEST(competitor_history_snapshots.monthly_reach, EXCLUDED.monthly_reach),
-          profile_views = GREATEST(competitor_history_snapshots.profile_views, EXCLUDED.profile_views),
-          follower_count = GREATEST(competitor_history_snapshots.follower_count, EXCLUDED.follower_count);
+        ON CONFLICT (username) DO UPDATE SET
+          display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), competitor_profiles.display_name),
+          avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
+          website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
+          monthly_reach = GREATEST(COALESCE(competitor_profiles.monthly_reach, 0), EXCLUDED.monthly_reach),
+          profile_views = GREATEST(COALESCE(competitor_profiles.profile_views, 0), EXCLUDED.profile_views),
+          follower_count = GREATEST(COALESCE(competitor_profiles.follower_count, 0), EXCLUDED.follower_count),
+          is_active = TRUE,
+          updated_at = NOW()
+        RETURNING id, username, tracking_mode;
       `;
 
-      if (numericFolderId !== null) {
-        await sql`
-          INSERT INTO folder_competitor_items (folder_id, competitor_id, source, added_at)
-          VALUES (${numericFolderId}, ${Number(comp.id)}, ${String(source || 'newborn').slice(0, 32)}, NOW())
-          ON CONFLICT (folder_id, competitor_id) DO NOTHING;
+      if (comp?.id) {
+        promotedCompetitors.push({
+          competitor_id: Number(comp.id),
+          username: comp.username,
+          tracking_mode: comp.tracking_mode
+        });
+
+        await tx`
+          INSERT INTO competitor_history_snapshots (
+            competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date
+          )
+          VALUES (
+            ${Number(comp.id)},
+            ${Number(r.monthly_reach ?? 0)},
+            ${Number(r.profile_views ?? 0)},
+            ${Number(r.follower_count ?? 0)},
+            ${Number(r.pin_count ?? 0)},
+            ${Number(r.board_count ?? 0)},
+            (NOW() AT TIME ZONE 'UTC')::date
+          )
+          ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
+            monthly_reach = GREATEST(competitor_history_snapshots.monthly_reach, EXCLUDED.monthly_reach),
+            profile_views = GREATEST(competitor_history_snapshots.profile_views, EXCLUDED.profile_views),
+            follower_count = GREATEST(competitor_history_snapshots.follower_count, EXCLUDED.follower_count);
+        `;
+
+        if (numericFolderId !== null) {
+          await tx`
+            INSERT INTO folder_competitor_items (folder_id, competitor_id, source, added_at)
+            VALUES (${numericFolderId}, ${Number(comp.id)}, ${String(source || 'newborn').slice(0, 32)}, NOW())
+            ON CONFLICT (folder_id, competitor_id) DO NOTHING;
+          `;
+        }
+
+        await tx`
+          UPDATE newborn_rookie_accounts
+          SET
+            stage = 'promoted',
+            promoted_competitor_id = ${Number(comp.id)},
+            promoted_at = COALESCE(promoted_at, NOW()),
+            updated_at = NOW()
+          WHERE username = ${r.username};
         `;
       }
-
-      await sql`
-        UPDATE newborn_rookie_accounts
-        SET
-          stage = 'promoted',
-          promoted_competitor_id = ${Number(comp.id)},
-          promoted_at = COALESCE(promoted_at, NOW()),
-          updated_at = NOW()
-        WHERE username = ${r.username};
-      `;
     }
-  }
+  });
 
   const edgePrefixes = ['newborn', 'creators'];
   if (numericFolderId !== null) {
@@ -562,13 +582,15 @@ export async function runNewbornSnowball(sql, options = {}) {
 }
 
 /**
- * Polls staged `watchlist` pins & rookie accounts via strict zero-cookie hydrators,
- * records daily staging snapshots, advances `consecutive_qualifying_days`, and
- * auto-promotes winners meeting `promote_thresholds`.
+ * Polls staged `watchlist` pins & rookie accounts via strict zero-cookie hydrators
+ * (parallelized with Semaphore(6) / Semaphore(4)), records daily staging snapshots,
+ * advances `consecutive_qualifying_days`, and auto-promotes winners meeting `promote_thresholds`.
  */
 export async function pollNewbornWatchlist(sql, options = {}) {
   const {
     profileId = null,
+    folderId = null,
+    existingRunId = null,
     settingsOverrides = null,
     rawCookieOverride = null,
     routerOptions = {},
@@ -596,177 +618,234 @@ export async function pollNewbornWatchlist(sql, options = {}) {
 
   const wTotal = Math.max(1, Number(workerTotal) || 1);
   const wIdx = Math.max(0, Math.min(wTotal - 1, Number(workerIndex) || 0));
+  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
 
-  const watchlistPins = wTotal === 20
-    ? await sql`
-        SELECT *
-        FROM newborn_candidates
-        WHERE stage = 'watchlist'
-          AND (ABS(hashtext(pin_id::text)::bigint) % 20) = ${wIdx}
-        ORDER BY pin_id ASC;
-      `
-    : (wTotal > 1
-        ? await sql`
-            SELECT *
-            FROM newborn_candidates
-            WHERE stage = 'watchlist'
-              AND (ABS(hashtext(pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
-            ORDER BY pin_id ASC;
-          `
-        : await sql`
-            SELECT *
-            FROM newborn_candidates
-            WHERE stage = 'watchlist'
-            ORDER BY pin_id ASC;
-          `);
+  let runRowId = existingRunId !== null && existingRunId !== undefined && Number(existingRunId) > 0
+    ? Number(existingRunId)
+    : null;
 
-  const watchlistRookies = wIdx === 0
-    ? await sql`
-        SELECT *
-        FROM newborn_rookie_accounts
-        WHERE stage = 'watchlist'
-        ORDER BY username ASC;
-      `
-    : [];
-
-  let runRowId = null;
-  try {
-    const [rRow] = await sql`
-      INSERT INTO newborn_runs (run_type, status, profile_id, cookie_mode, started_at)
-      VALUES ('watchlist_poll', 'running', ${profile?.id ?? null}, 'zero_cookie', NOW())
-      RETURNING id;
-    `;
-    runRowId = rRow?.id ? Number(rRow.id) : null;
-  } catch (_) {}
-
-  const pinIds = (watchlistPins || []).map((p) => String(p.pin_id));
-  const pidgetsMap = pinIds.length > 0
-    ? await pretriageCandidatesWithPidgets(pinIds, router)
-    : new Map();
-
-  const refreshedCandidates = [];
-  for (const row of (watchlistPins || [])) {
-    let merged = { ...row };
-    const pInfo = pidgetsMap.get(String(row.pin_id));
-    if (pInfo) {
-      merged = mergeCandidatePinRecords(merged, pInfo);
-    }
-
-    const hyd = await hydratePinZeroCookie(String(row.pin_id), router);
-    if (hyd.ok && hyd.pin) {
-      merged = mergeCandidatePinRecords(merged, hyd.pin);
-    }
-
-    const scored = scoreNewbornCandidate(merged, settings, { nowMs });
-    scored.stage = 'watchlist';
-    scored.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(scored, watchlistPins);
-    refreshedCandidates.push(scored);
+  if (runRowId === null) {
+    try {
+      const [rRow] = await sql`
+        INSERT INTO newborn_runs (
+          run_type, status, progress_stage, progress_detail, progress_pct,
+          profile_id, folder_id, cookie_mode, started_at
+        )
+        VALUES (
+          'watchlist_poll', 'running', 'hydrating_pins', 'Polling watchlist pins on Pinterest...', 15,
+          ${profile?.id ?? null}, ${numericFolderId}, 'zero_cookie', NOW()
+        )
+        RETURNING id;
+      `;
+      runRowId = rRow?.id ? Number(rRow.id) : null;
+    } catch (_) {}
   }
 
-  let persistedPins = [];
-  if (refreshedCandidates.length > 0) {
-    const upRes = await upsertStagedCandidatesBatch(sql, refreshedCandidates, {
-      profileId: profile?.id ?? null,
-      nowMs,
-      isWatchlistPoll: true
-    });
-    persistedPins = upRes.rows;
-  }
-
-  const refreshedRookies = [];
-  for (const rkRow of (watchlistRookies || [])) {
-    const uRes = await hydrateUserZeroCookie(rkRow.username, router);
-    if (uRes.ok && uRes.user) {
-      const assocPins = persistedPins.filter((p) => p.effective_creator_username === rkRow.username);
-      const scoredRk = scoreRookieCreator(uRes.user, assocPins, settings);
-      scoredRk.stage = 'watchlist';
-      scoredRk.golden_pins_count = Math.max(Number(rkRow.golden_pins_count || 0), scoredRk.golden_pins_count);
-      refreshedRookies.push(scoredRk);
-    }
-  }
-
-  let persistedRookies = [];
-  if (refreshedRookies.length > 0) {
-    const rkUpRes = await upsertStagedRookiesBatch(sql, refreshedRookies, {
-      nowMs,
-      isWatchlistPoll: true
-    });
-    persistedRookies = rkUpRes.rows;
-  }
-
-  const shouldAutoPromote = autoPromote !== null
-    ? Boolean(autoPromote)
-    : Boolean(settings.automation.auto_track_enabled);
-
-  let promotedPinsResult = { promoted_count: 0, pin_ids: [] };
-  let promotedRookiesResult = { promoted_count: 0, competitors: [] };
-
-  if (shouldAutoPromote) {
-    const winningPinIds = persistedPins
-      .filter((c) => evaluatePinAutoRules(c, settings).meets_promotion)
-      .map((c) => c.pin_id);
-
-    if (winningPinIds.length > 0) {
-      promotedPinsResult = await promoteNewbornCandidates(sql, {
-        pinIds: winningPinIds,
-        destinations: settings.automation.pin_promotion_rules.destinations,
-        source: 'watchlist_auto_rule',
-        env,
-        ctx
-      });
-    }
-
-    const winningRookies = persistedRookies
-      .filter((r) => evaluateRookieAutoRules(r, settings).meets_promotion)
-      .map((r) => r.username);
-
-    if (winningRookies.length > 0) {
-      const rRules = settings.automation.rookie_promotion_rules;
-      promotedRookiesResult = await promoteNewbornRookies(sql, {
-        usernames: winningRookies,
-        trackingMode: rRules.destination_tracking_mode,
-        folderId: rRules.destination_folder_id,
-        source: 'watchlist_auto_rule',
-        env,
-        ctx
-      });
-    }
-  }
-
-  await stampAutomationRunTimestamp(sql, 'watchlist_poll', new Date(nowMs).toISOString()).catch(() => {});
-
-  const totalAutoPromoted = Number(promotedPinsResult.promoted_count || 0) + Number(promotedRookiesResult.promoted_count || 0);
-  if (runRowId !== null) {
+  const updateRunProgress = async (stage, detail, pct) => {
+    if (runRowId === null) return;
     await sql`
       UPDATE newborn_runs
-      SET
-        status = 'completed',
-        candidates_discovered = ${persistedPins.length},
-        candidates_qualified = ${persistedPins.filter((c) => c.qualified !== false).length},
-        golden_pins_count = ${persistedPins.filter((c) => c.is_golden_pin).length},
-        rookie_creators_count = ${persistedRookies.length},
-        auto_promoted_count = ${totalAutoPromoted},
-        telemetry = ${JSON.stringify(sanitizeForJsonb({
-          router: router.getRedactedTelemetry(),
-          promoted_pin_ids: promotedPinsResult.pin_ids || []
-        }))}::jsonb,
-        completed_at = NOW()
+      SET progress_stage = ${stage}, progress_detail = ${detail}, progress_pct = ${Math.max(0, Math.min(100, Math.round(pct)))}
       WHERE id = ${runRowId};
     `.catch(() => {});
-  }
-
-  await invalidateEdgeCache('newborn');
-
-  return {
-    ok: true,
-    run_id: runRowId,
-    polled_pins_count: persistedPins.length,
-    polled_rookies_count: persistedRookies.length,
-    auto_promoted_pins: promotedPinsResult.pin_ids || [],
-    auto_promoted_rookies: (promotedRookiesResult.competitors || []).map((c) => c.username),
-    candidates: persistedPins,
-    rookies: persistedRookies
   };
+
+  try {
+    await updateRunProgress('hydrating_pins', 'Loading watchlisted pins & creators...', 15);
+
+    const watchlistPins = wTotal === 20
+      ? await sql`
+          SELECT *
+          FROM newborn_candidates
+          WHERE stage = 'watchlist'
+            AND (ABS(hashtext(pin_id::text)::bigint) % 20) = ${wIdx}
+          ORDER BY pin_id ASC;
+        `
+      : (wTotal > 1
+          ? await sql`
+              SELECT *
+              FROM newborn_candidates
+              WHERE stage = 'watchlist'
+                AND (ABS(hashtext(pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+              ORDER BY pin_id ASC;
+            `
+          : await sql`
+              SELECT *
+              FROM newborn_candidates
+              WHERE stage = 'watchlist'
+              ORDER BY pin_id ASC;
+            `);
+
+    const watchlistRookies = wIdx === 0
+      ? await sql`
+          SELECT *
+          FROM newborn_rookie_accounts
+          WHERE stage = 'watchlist'
+          ORDER BY username ASC;
+        `
+      : [];
+
+    const pinIds = (watchlistPins || []).map((p) => String(p.pin_id));
+    const pidgetsMap = pinIds.length > 0
+      ? await pretriageCandidatesWithPidgets(pinIds, router)
+      : new Map();
+
+    await updateRunProgress('hydrating_pins', `Refreshing ${pinIds.length} watchlisted pin${pinIds.length === 1 ? '' : 's'} on Pinterest...`, 40);
+
+    const pinSem = new Semaphore(6);
+    const rootPinCache = new Map();
+    const refreshedCandidates = await Promise.all(
+      (watchlistPins || []).map((row) => pinSem.run(async () => {
+        let merged = { ...row };
+        const pInfo = pidgetsMap.get(String(row.pin_id));
+        if (pInfo) {
+          merged = mergeCandidatePinRecords(merged, pInfo);
+        }
+
+        const hyd = await hydratePinZeroCookie(String(row.pin_id), router, { rootPinCache, nowMs });
+        if (hyd.ok && hyd.pin) {
+          merged = mergeCandidatePinRecords(merged, hyd.pin);
+        }
+
+        const scored = scoreNewbornCandidate(merged, settings, { nowMs });
+        scored.stage = 'watchlist';
+        scored.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(scored, watchlistPins);
+        return scored;
+      }))
+    );
+
+    let persistedPins = [];
+    if (refreshedCandidates.length > 0) {
+      const upRes = await upsertStagedCandidatesBatch(sql, refreshedCandidates, {
+        profileId: profile?.id ?? null,
+        runId: runRowId,
+        folderId: numericFolderId,
+        nowMs,
+        isWatchlistPoll: true
+      });
+      persistedPins = upRes.rows;
+    }
+
+    await updateRunProgress('hydrating_creators', `Refreshing ${(watchlistRookies || []).length} watchlisted creator${(watchlistRookies || []).length === 1 ? '' : 's'}...`, 78);
+
+    const userSem = new Semaphore(4);
+    const refreshedRookiesRaw = await Promise.all(
+      (watchlistRookies || []).map((rkRow) => userSem.run(async () => {
+        const uRes = await hydrateUserZeroCookie(rkRow.username, router);
+        if (uRes.ok && uRes.user) {
+          const assocPins = persistedPins.filter((p) => p.effective_creator_username === rkRow.username);
+          const scoredRk = scoreRookieCreator(uRes.user, assocPins, settings);
+          scoredRk.stage = 'watchlist';
+          scoredRk.golden_pins_count = Math.max(Number(rkRow.golden_pins_count || 0), scoredRk.golden_pins_count);
+          return scoredRk;
+        }
+        return null;
+      }))
+    );
+    const refreshedRookies = refreshedRookiesRaw.filter(Boolean);
+
+    let persistedRookies = [];
+    if (refreshedRookies.length > 0) {
+      const rkUpRes = await upsertStagedRookiesBatch(sql, refreshedRookies, {
+        nowMs,
+        isWatchlistPoll: true
+      });
+      persistedRookies = rkUpRes.rows;
+    }
+
+    const shouldAutoPromote = autoPromote !== null
+      ? Boolean(autoPromote)
+      : Boolean(settings.automation.auto_track_enabled);
+
+    let promotedPinsResult = { promoted_count: 0, pin_ids: [] };
+    let promotedRookiesResult = { promoted_count: 0, competitors: [] };
+
+    if (shouldAutoPromote) {
+      const winningPinIds = persistedPins
+        .filter((c) => evaluatePinAutoRules(c, settings).meets_promotion)
+        .map((c) => c.pin_id);
+
+      if (winningPinIds.length > 0) {
+        promotedPinsResult = await promoteNewbornCandidates(sql, {
+          pinIds: winningPinIds,
+          destinations: settings.automation.pin_promotion_rules.destinations,
+          source: 'watchlist_auto_rule',
+          env,
+          ctx
+        });
+      }
+
+      const winningRookies = persistedRookies
+        .filter((r) => evaluateRookieAutoRules(r, settings).meets_promotion)
+        .map((r) => r.username);
+
+      if (winningRookies.length > 0) {
+        const rRules = settings.automation.rookie_promotion_rules;
+        promotedRookiesResult = await promoteNewbornRookies(sql, {
+          usernames: winningRookies,
+          trackingMode: rRules.destination_tracking_mode,
+          folderId: rRules.destination_folder_id,
+          source: 'watchlist_auto_rule',
+          env,
+          ctx
+        });
+      }
+    }
+
+    await stampAutomationRunTimestamp(sql, 'watchlist_poll', new Date(nowMs).toISOString()).catch(() => {});
+
+    const totalAutoPromoted = Number(promotedPinsResult.promoted_count || 0) + Number(promotedRookiesResult.promoted_count || 0);
+    if (runRowId !== null) {
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = 'completed',
+          progress_stage = 'completed',
+          progress_detail = ${`Polled ${persistedPins.length} watchlisted pin${persistedPins.length === 1 ? '' : 's'} (${totalAutoPromoted} auto-promoted).`},
+          progress_pct = 100,
+          error_message = NULL,
+          candidates_discovered = ${persistedPins.length},
+          candidates_qualified = ${persistedPins.filter((c) => c.qualified !== false).length},
+          golden_pins_count = ${persistedPins.filter((c) => c.is_golden_pin).length},
+          rookie_creators_count = ${persistedRookies.length},
+          auto_promoted_count = ${totalAutoPromoted},
+          telemetry = ${JSON.stringify(sanitizeForJsonb({
+            router: router.getRedactedTelemetry(),
+            promoted_pin_ids: promotedPinsResult.pin_ids || []
+          }))}::jsonb,
+          completed_at = NOW()
+        WHERE id = ${runRowId};
+      `.catch(() => {});
+    }
+
+    await invalidateEdgeCache('newborn');
+
+    return {
+      ok: true,
+      run_id: runRowId,
+      polled_pins_count: persistedPins.length,
+      polled_rookies_count: persistedRookies.length,
+      auto_promoted_pins: promotedPinsResult.pin_ids || [],
+      auto_promoted_rookies: (promotedRookiesResult.competitors || []).map((c) => c.username),
+      candidates: persistedPins,
+      rookies: persistedRookies
+    };
+  } catch (err) {
+    const safeErrMsg = redactSecrets(err?.message || 'Watchlist poll failed').slice(0, 1000);
+    if (runRowId !== null) {
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = 'failed',
+          progress_stage = 'failed',
+          progress_detail = ${safeErrMsg},
+          error_message = ${safeErrMsg},
+          completed_at = NOW()
+        WHERE id = ${runRowId};
+      `.catch(() => {});
+    }
+    throw err;
+  }
 }
 
 /**
@@ -781,6 +860,8 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     forceWatchlist = false,
     seedQueries = [],
     profileId = null,
+    folderId = null,
+    existingRunId = null,
     routerOptions = {},
     env = null,
     ctx = null
@@ -788,8 +869,23 @@ export async function runNewbornAutoCycle(sql, options = {}) {
 
   const { settings } = await resolveEffectiveNewbornSettings(sql, { profileId });
   const schedule = evaluateAutomationSchedule(settings, new Date(nowMs));
+  const numericRunId = existingRunId !== null && existingRunId !== undefined && Number(existingRunId) > 0
+    ? Number(existingRunId)
+    : null;
 
   if (!force && !forceDiscovery && !forceWatchlist && !schedule.auto_track_enabled) {
+    if (numericRunId !== null && sql && typeof sql === 'function') {
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = 'completed',
+          progress_stage = 'completed',
+          progress_detail = 'Skipped — Auto-Track automation is currently disabled.',
+          progress_pct = 100,
+          completed_at = NOW()
+        WHERE id = ${numericRunId};
+      `.catch(() => {});
+    }
     return {
       ok: true,
       executed: false,
@@ -806,9 +902,14 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     discovery: null
   };
 
-  if (force || forceWatchlist || schedule.watchlist_poll_due) {
+  const runDisc = Boolean(force || forceDiscovery || schedule.discovery_due);
+  const runWatch = Boolean(force || forceWatchlist || schedule.watchlist_poll_due);
+
+  if (runWatch) {
     results.watchlist_poll = await pollNewbornWatchlist(sql, {
       profileId,
+      folderId,
+      existingRunId: !runDisc ? numericRunId : null,
       routerOptions,
       nowMs,
       env,
@@ -817,10 +918,12 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     results.executed = true;
   }
 
-  if (force || forceDiscovery || schedule.discovery_due) {
+  if (runDisc) {
     results.discovery = await runNewbornDiscovery(sql, {
       seedQueries,
       profileId,
+      folderId,
+      existingRunId: numericRunId,
       routerOptions,
       runType: 'auto_cycle',
       nowMs,
@@ -834,9 +937,329 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     results.reason = schedule.cooldown_active
       ? 'cooldown_active'
       : (!schedule.in_target_window ? 'outside_target_utc_window' : 'interval_not_elapsed');
+    if (numericRunId !== null && sql && typeof sql === 'function') {
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = 'completed',
+          progress_stage = 'completed',
+          progress_detail = ${`Skipped (${results.reason}).`},
+          progress_pct = 100,
+          completed_at = NOW()
+        WHERE id = ${numericRunId};
+      `.catch(() => {});
+    }
   }
 
   return results;
+}
+
+// ============================================================================
+// BOUNDED ASYNC RUN QUEUE + SINGLE-FLIGHT DEDUPLICATION (SUB-50ms HTTP 202)
+// ============================================================================
+
+class NewbornRunQueue {
+  constructor(concurrency = 2, maxPending = 30) {
+    this.concurrency = Math.max(1, Number(concurrency) || 2);
+    this.maxPending = Math.max(1, Number(maxPending) || 30);
+    this.running = 0;
+    this.queue = [];
+  }
+
+  get isSaturated() {
+    return this.queue.length >= this.maxPending;
+  }
+
+  add(taskFn) {
+    if (this.queue.length >= this.maxPending) {
+      const err = new Error(`Newborn worker queue saturated (pending=${this.queue.length}, maxPending=${this.maxPending})`);
+      err.code = 'QUEUE_SATURATED';
+      err.status = 503;
+      err.statusCode = 503;
+      return Promise.reject(err);
+    }
+    return new Promise((resolve, reject) => {
+      this.queue.push({ fn: taskFn, resolve, reject });
+      this._drain();
+    });
+  }
+
+  _drain() {
+    while (this.running < this.concurrency && this.queue.length > 0) {
+      const item = this.queue.shift();
+      this.running++;
+      Promise.resolve()
+        .then(() => item.fn())
+        .then(item.resolve, item.reject)
+        .finally(() => {
+          this.running--;
+          this._drain();
+        });
+    }
+  }
+}
+
+export const newbornBackgroundQueue = new NewbornRunQueue(2, 30);
+const inflightNewbornRuns = new Map();
+
+export function clearNewbornInflightRunsForTest() {
+  inflightNewbornRuns.clear();
+}
+
+export function buildNewbornDedupeKey(runType, { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null } = {}) {
+  const cleanQueries = Array.from(new Set(
+    (Array.isArray(seedQueries) ? seedQueries : [seedQueries])
+      .map((q) => String(q || '').trim().toLowerCase())
+      .filter(Boolean)
+  )).sort();
+  const cleanPins = Array.from(new Set(
+    (Array.isArray(seedPinIds) ? seedPinIds : [seedPinIds])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  )).sort();
+  const cleanBoards = Array.from(new Set(
+    (Array.isArray(seedBoards) ? seedBoards : [])
+      .map((b) => String(b?.board_id || b?.clean_path || b?.url || '').trim().toLowerCase())
+      .filter(Boolean)
+  )).sort();
+  const normalizedSeeds = JSON.stringify({ q: cleanQueries, p: cleanPins, b: cleanBoards });
+  const fid = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : 'global';
+  return `${String(runType || 'discovery').toLowerCase()}|${normalizedSeeds}|${fid}`;
+}
+
+/**
+ * Fetches a single Newborn run by ID for `GET /api/newborn/runs/:id` live progress polling.
+ */
+export async function getNewbornRunById(sql, runId) {
+  if (!sql || typeof sql !== 'function') return null;
+  const numericId = Number(runId);
+  if (!Number.isInteger(numericId) || numericId <= 0) return null;
+  const rows = await sql`
+    SELECT *
+    FROM newborn_runs
+    WHERE id = ${numericId}
+    LIMIT 1;
+  `;
+  return rows?.[0] || null;
+}
+
+/**
+ * Validates input, deduplicates in-flight hunts on `(run_type, normalized_seeds, folder_id)`,
+ * creates a `newborn_runs` row (`status = 'running'`, `progress_stage = 'queued'`, `progress_pct = 0`),
+ * enqueues background execution on `newbornBackgroundQueue` with guaranteed `try/catch/finally`
+ * terminal status finalization, and resolves in `< 50ms` for HTTP 202 Accepted!
+ */
+export async function enqueueNewbornRun(sql, options = {}) {
+  if (!sql || typeof sql !== 'function') {
+    const err = new Error('Database client is required to enqueue a Newborn run.');
+    err.status = 503;
+    throw err;
+  }
+
+  const {
+    runType = 'discovery',
+    seedQueries = [],
+    seedPinIds = [],
+    seedBoards = [],
+    profileId = null,
+    folderId = null,
+    settingsOverrides = null,
+    workerIndex = 0,
+    workerTotal = 1,
+    autoPromote = null,
+    force = false,
+    forceDiscovery = false,
+    forceWatchlist = false,
+    routerOptions = {},
+    env = null,
+    ctx = null,
+    workerExecutor = null
+  } = options;
+
+  const cleanSeeds = Array.from(new Set(
+    (Array.isArray(seedQueries) ? seedQueries : [seedQueries])
+      .map((q) => String(q || '').trim().toLowerCase())
+      .filter(Boolean)
+  ));
+  const cleanPinIds = Array.from(new Set(
+    (Array.isArray(seedPinIds) ? seedPinIds : [seedPinIds])
+      .map((id) => String(id || '').trim())
+      .filter(isValidPinId)
+  ));
+  const cleanBoards = Array.isArray(seedBoards)
+    ? seedBoards.filter((b) => b && (b.board_id || b.clean_path || b.url))
+    : [];
+  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
+
+  const dedupeKey = buildNewbornDedupeKey(runType, {
+    seedQueries: cleanSeeds,
+    seedPinIds: cleanPinIds,
+    seedBoards: cleanBoards,
+    folderId: numericFolderId
+  });
+
+  // Single-flight deduplication on (run_type, normalized_seeds, folder_id)
+  const existingInflight = inflightNewbornRuns.get(dedupeKey);
+  if (existingInflight) {
+    const currentRow = await getNewbornRunById(sql, existingInflight.runId).catch(() => null);
+    if (currentRow && currentRow.status === 'running') {
+      return {
+        ok: true,
+        queued: true,
+        deduplicated: true,
+        run_id: existingInflight.runId,
+        run: currentRow
+      };
+    }
+    inflightNewbornRuns.delete(dedupeKey);
+  }
+
+  if (newbornBackgroundQueue.isSaturated) {
+    const err = new Error('Newborn background hunt queue is currently full. Please retry in a few seconds.');
+    err.status = 503;
+    err.code = 'QUEUE_SATURATED';
+    throw err;
+  }
+
+  // Resolve numeric profile ID quickly if slug/ID passed
+  let resolvedProfileId = null;
+  if (profileId !== null && profileId !== undefined && profileId !== '') {
+    const prof = await getNewbornRuleProfile(sql, profileId).catch(() => null);
+    resolvedProfileId = prof?.id ?? null;
+  }
+
+  const displaySeedList = [
+    ...cleanSeeds,
+    ...cleanBoards.map((b) => b.url || b.clean_path || b.board_id).filter(Boolean),
+    ...cleanPinIds.map((id) => `pin:${id}`)
+  ];
+
+  const [insertedRun] = await sql`
+    INSERT INTO newborn_runs (
+      run_type, status, progress_stage, progress_detail, progress_pct,
+      profile_id, folder_id, seed_queries, cookie_mode, started_at
+    )
+    VALUES (
+      ${runType},
+      'running',
+      'queued',
+      'Queued — starting Newborn hunt...',
+      0,
+      ${resolvedProfileId},
+      ${numericFolderId},
+      ${JSON.stringify(displaySeedList)}::jsonb,
+      'pending',
+      NOW()
+    )
+    RETURNING *;
+  `;
+
+  const runRowId = Number(insertedRun.id);
+  inflightNewbornRuns.set(dedupeKey, { runId: runRowId, startedAt: Date.now() });
+
+  const executeBackgroundTask = async () => {
+    let finishedCleanly = false;
+    try {
+      if (typeof workerExecutor === 'function') {
+        await workerExecutor({ runId: runRowId, sql, options });
+      } else if (runType === 'snowball') {
+        await runNewbornSnowball(sql, {
+          seedPinIds: cleanPinIds,
+          profileId: resolvedProfileId,
+          folderId: numericFolderId,
+          existingRunId: runRowId,
+          settingsOverrides,
+          routerOptions,
+          env,
+          ctx
+        });
+      } else if (runType === 'watchlist_poll') {
+        await pollNewbornWatchlist(sql, {
+          profileId: resolvedProfileId,
+          folderId: numericFolderId,
+          existingRunId: runRowId,
+          workerIndex,
+          workerTotal,
+          autoPromote,
+          routerOptions,
+          env,
+          ctx
+        });
+      } else if (runType === 'auto_cycle') {
+        await runNewbornAutoCycle(sql, {
+          force,
+          forceDiscovery,
+          forceWatchlist,
+          seedQueries: cleanSeeds,
+          profileId: resolvedProfileId,
+          folderId: numericFolderId,
+          existingRunId: runRowId,
+          routerOptions,
+          env,
+          ctx
+        });
+      } else {
+        await runNewbornDiscovery(sql, {
+          seedQueries: cleanSeeds,
+          seedPinIds: cleanPinIds,
+          seedBoards: cleanBoards,
+          profileId: resolvedProfileId,
+          folderId: numericFolderId,
+          existingRunId: runRowId,
+          settingsOverrides,
+          routerOptions,
+          env,
+          ctx
+        });
+      }
+      finishedCleanly = true;
+    } catch (err) {
+      const safeErrMsg = redactSecrets(err?.message || 'Background Newborn run failed').slice(0, 1000);
+      if (err instanceof CircuitBreakerOpenError || err?.name === 'CircuitBreakerOpenError') {
+        await tripPinterestCircuitBreaker(env, 'Newborn CircuitBreakerOpenError', 300).catch(() => {});
+      }
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = 'failed',
+          progress_stage = 'failed',
+          progress_detail = ${safeErrMsg},
+          error_message = ${safeErrMsg},
+          completed_at = COALESCE(completed_at, NOW())
+        WHERE id = ${runRowId};
+      `.catch(() => {});
+    } finally {
+      inflightNewbornRuns.delete(dedupeKey);
+      // Guarantee terminal status even if an unexpected early return left status = 'running'
+      await sql`
+        UPDATE newborn_runs
+        SET
+          status = ${finishedCleanly ? 'completed' : 'failed'},
+          progress_stage = ${finishedCleanly ? 'completed' : 'failed'},
+          progress_pct = CASE WHEN ${finishedCleanly} THEN 100 ELSE progress_pct END,
+          error_message = CASE
+            WHEN ${finishedCleanly} THEN error_message
+            ELSE COALESCE(error_message, 'Run terminated unexpectedly')
+          END,
+          completed_at = COALESCE(completed_at, NOW())
+        WHERE id = ${runRowId}
+          AND status = 'running';
+      `.catch(() => {});
+      await invalidateEdgeCache('newborn').catch(() => {});
+    }
+  };
+
+  // Fire-and-forget on bounded queue (non-blocking HTTP 202 response!)
+  const bgPromise = newbornBackgroundQueue.add(executeBackgroundTask);
+  bgPromise.catch(() => {});
+
+  return {
+    ok: true,
+    queued: true,
+    deduplicated: false,
+    run_id: runRowId,
+    run: insertedRun
+  };
 }
 
 /**
@@ -865,12 +1288,14 @@ export async function getNewbornOverview(sql, env = {}) {
       FROM newborn_candidates;
     `,
     sql`
-      SELECT id, run_type, status, cookie_mode, candidates_discovered, candidates_qualified,
+      SELECT id, run_type, status, progress_stage, progress_detail, progress_pct, error_message,
+             folder_id, seed_queries, surfaces_used, cookie_mode,
+             candidates_discovered, candidates_qualified,
              golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
              snowball_hops_executed, started_at, completed_at
       FROM newborn_runs
       ORDER BY started_at DESC
-      LIMIT 8;
+      LIMIT 12;
     `,
     sql`
       SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_per_day, visual_annotations
@@ -913,17 +1338,25 @@ export async function getNewbornOverview(sql, env = {}) {
 }
 
 /**
- * Queries staged `newborn_candidates` with wildcard-escaped search, multi-facet filters, and deterministic sorting.
+ * Queries staged `newborn_candidates` with strict optional `run_id` isolation (`newborn_run_candidates`),
+ * wildcard-escaped search, multi-facet filters, and deterministic sorting.
  */
 export async function listNewbornCandidates(sql, filters = {}) {
   const stage = filters.stage && ['discovered', 'watchlist', 'promoted', 'discarded'].includes(String(filters.stage).toLowerCase())
     ? String(filters.stage).toLowerCase()
+    : null;
+  const runId = filters.run_id != null && filters.run_id !== '' && Number(filters.run_id) > 0
+    ? Number(filters.run_id)
+    : null;
+  const folderId = filters.folder_id != null && filters.folder_id !== '' && Number(filters.folder_id) > 0
+    ? Number(filters.folder_id)
     : null;
   const surface = filters.surface ? String(filters.surface).trim().toLowerCase() : null;
   const provenance = filters.provenance ? String(filters.provenance).trim().toUpperCase() : null;
   const goldenOnly = filters.golden_only === true || filters.golden_only === 'true';
   const rookieOnly = filters.rookie_only === true || filters.rookie_only === 'true';
   const linklessOnly = filters.linkless_only === true || filters.linkless_only === 'true';
+  const qualifiedOnly = filters.qualified_only === true || filters.qualified_only === 'true';
   const minGoldenScore = filters.min_golden_score != null && filters.min_golden_score !== ''
     ? Number(filters.min_golden_score)
     : null;
@@ -941,6 +1374,8 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const whereCond = sql`
     (${stage}::text IS NULL OR nc.stage = ${stage})
     AND (${stage !== null}::boolean = TRUE OR nc.stage <> 'discarded')
+    AND (${folderId}::int IS NULL OR nc.folder_id = ${folderId})
+    AND (${qualifiedOnly}::boolean = FALSE OR nc.qualified = TRUE)
     AND (${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})
     AND (${provenance}::text IS NULL OR nc.upload_provenance = ${provenance})
     AND (${goldenOnly}::boolean = FALSE OR nc.is_golden_pin = TRUE)
@@ -959,51 +1394,62 @@ export async function listNewbornCandidates(sql, filters = {}) {
     )
   `;
 
+  const runJoin = runId !== null
+    ? sql`JOIN newborn_run_candidates nrc ON nrc.pin_id = nc.pin_id AND nrc.run_id = ${runId}`
+    : sql``;
+
   const [rows, countRows] = await Promise.all([
     sort === 'repin_velocity' || sort === 'repin_per_day'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.repin_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+          ORDER BY nc.repin_per_day DESC NULLS LAST, nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'save_velocity' || sort === 'save_per_day'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
+      : sort === 'saves' || sort === 'save_count'
+      ? sql`
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          WHERE ${whereCond}
+          ORDER BY nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+          LIMIT ${limit} OFFSET ${offset};
+        `
       : sort === 'repins' || sort === 'repin_count'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'fresh' || sort === 'age_days'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.age_days ASC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'recent'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sql`
-          SELECT nc.* FROM newborn_candidates nc
+          SELECT nc.* FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
-          ORDER BY nc.golden_score DESC, nc.repin_per_day DESC NULLS LAST, nc.pin_id ASC
+          ORDER BY nc.golden_score DESC, nc.save_per_day DESC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `,
     sql`
       SELECT COUNT(*)::int AS total
-      FROM newborn_candidates nc
+      FROM newborn_candidates nc ${runJoin}
       WHERE ${whereCond};
     `
   ]);
@@ -1013,6 +1459,7 @@ export async function listNewbornCandidates(sql, filters = {}) {
     const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
     return {
       ...row,
+      board_url: formatPinterestBoardUrl(row.board_url || ''),
       board_pin_count: row.board_pin_count ?? meta.board_pin_count ?? null,
       board_follower_count: row.board_follower_count ?? meta.board_follower_count ?? null
     };
@@ -1022,6 +1469,7 @@ export async function listNewbornCandidates(sql, filters = {}) {
     total: Number(countRows?.[0]?.total || 0),
     limit,
     offset,
+    run_id: runId,
     candidates: (rows || []).map(enrichBoardMeta)
   };
 }
@@ -1061,6 +1509,7 @@ export async function getNewbornCandidateDossier(sql, pinId) {
   return {
     candidate: {
       ...rawCand,
+      board_url: formatPinterestBoardUrl(rawCand.board_url || ''),
       board_pin_count: rawCand.board_pin_count ?? candMeta.board_pin_count ?? null,
       board_follower_count: rawCand.board_follower_count ?? candMeta.board_follower_count ?? null
     },
@@ -1086,7 +1535,7 @@ export async function updateNewbornCandidateStage(sql, pinIds, nextStage) {
     (Array.isArray(pinIds) ? pinIds : [pinIds])
       .map((id) => String(id || '').trim())
       .filter(isValidPinId)
-  ));
+  )).sort((a, b) => a.localeCompare(b));
   if (cleanIds.length === 0) return { updated: 0, pin_ids: [] };
 
   const updated = await sql`
@@ -1118,7 +1567,7 @@ export async function deleteNewbornCandidate(sql, pinIds) {
     (Array.isArray(pinIds) ? pinIds : [pinIds])
       .map((id) => String(id || '').trim())
       .filter(isValidPinId)
-  ));
+  )).sort((a, b) => a.localeCompare(b));
   if (cleanIds.length === 0) return { deleted: 0 };
 
   const res = await sql`
@@ -1131,11 +1580,14 @@ export async function deleteNewbornCandidate(sql, pinIds) {
 }
 
 /**
- * Lists Rookie / Rising Accounts from `newborn_rookie_accounts`.
+ * Lists Rookie / Rising Accounts from `newborn_rookie_accounts` (optionally scoped to `run_id`).
  */
 export async function listNewbornRookies(sql, filters = {}) {
   const stage = filters.stage && ['discovered', 'watchlist', 'promoted', 'discarded'].includes(String(filters.stage).toLowerCase())
     ? String(filters.stage).toLowerCase()
+    : null;
+  const runId = filters.run_id != null && filters.run_id !== '' && Number(filters.run_id) > 0
+    ? Number(filters.run_id)
     : null;
   const rawSearch = String(filters.search || filters.q || '').trim().toLowerCase();
   const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
@@ -1145,6 +1597,16 @@ export async function listNewbornRookies(sql, filters = {}) {
   const whereCond = sql`
     (${stage}::text IS NULL OR nra.stage = ${stage})
     AND (${stage !== null}::boolean = TRUE OR nra.stage <> 'discarded')
+    AND (
+      ${runId}::bigint IS NULL
+      OR EXISTS (
+        SELECT 1
+        FROM newborn_run_candidates nrc
+        JOIN newborn_candidates nc ON nc.pin_id = nrc.pin_id
+        WHERE nrc.run_id = ${runId}
+          AND LOWER(COALESCE(nc.effective_creator_username, '')) = LOWER(nra.username)
+      )
+    )
     AND (
       ${searchPattern}::text IS NULL
       OR LOWER(nra.username) LIKE ${searchPattern} ESCAPE '\\'
@@ -1172,6 +1634,7 @@ export async function listNewbornRookies(sql, filters = {}) {
     total: Number(countRows?.[0]?.total || 0),
     limit,
     offset,
+    run_id: runId,
     rookies: rows || []
   };
 }
@@ -1179,14 +1642,23 @@ export async function listNewbornRookies(sql, filters = {}) {
 /**
  * Lists recent execution runs from `newborn_runs`.
  */
-export async function listNewbornRuns(sql, { limit = 30 } = {}) {
+export async function listNewbornRuns(sql, { limit = 30, folderId = null } = {}) {
   const clamped = Math.min(100, Math.max(1, Number(limit) || 30));
-  const rows = await sql`
-    SELECT *
-    FROM newborn_runs
-    ORDER BY started_at DESC
-    LIMIT ${clamped};
-  `;
+  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
+  const rows = numericFolderId !== null
+    ? await sql`
+        SELECT *
+        FROM newborn_runs
+        WHERE folder_id = ${numericFolderId}
+        ORDER BY started_at DESC
+        LIMIT ${clamped};
+      `
+    : await sql`
+        SELECT *
+        FROM newborn_runs
+        ORDER BY started_at DESC
+        LIMIT ${clamped};
+      `;
   return rows || [];
 }
 
@@ -1218,22 +1690,41 @@ export async function listNewbornDailyAnchors(sql, { activeOnly = true, limit = 
 }
 
 /**
- * Builds the Annotation + Board-Title Crossover matrix across staged Newborn candidates.
+ * Builds the Annotation + Board-Title Crossover matrix across staged Newborn candidates
+ * (optionally strictly scoped to `runId` via `newborn_run_candidates`).
  */
-export async function getNewbornCrossoverReport(sql, { stage = null, goldenOnly = false, limit = 30 } = {}) {
+export async function getNewbornCrossoverReport(sql, { runId = null, stage = null, goldenOnly = false, limit = 30 } = {}) {
   const cleanStage = stage && ['discovered', 'watchlist', 'promoted'].includes(String(stage).toLowerCase())
     ? String(stage).toLowerCase()
     : null;
-  const rows = await sql`
-    SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_per_day, visual_annotations
-    FROM newborn_candidates
-    WHERE (${cleanStage}::text IS NULL OR stage = ${cleanStage})
-      AND stage <> 'discarded'
-      AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
-    ORDER BY golden_score DESC
-    LIMIT 1000;
-  `;
+  const numericRunId = runId != null && runId !== '' && Number(runId) > 0 ? Number(runId) : null;
+
+  const rows = numericRunId !== null
+    ? await sql`
+        SELECT nc.pin_id, nc.title, nc.board_name, nc.is_golden_pin, nc.is_linkless,
+               nc.golden_score, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
+        FROM newborn_run_candidates nrc
+        JOIN newborn_candidates nc ON nc.pin_id = nrc.pin_id
+        WHERE nrc.run_id = ${numericRunId}
+          AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
+          AND nc.stage <> 'discarded'
+          AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
+        ORDER BY nc.golden_score DESC
+        LIMIT 1000;
+      `
+    : await sql`
+        SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
+               golden_score, repin_per_day, save_per_day, visual_annotations
+        FROM newborn_candidates
+        WHERE (${cleanStage}::text IS NULL OR stage = ${cleanStage})
+          AND stage <> 'discarded'
+          AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
+        ORDER BY golden_score DESC
+        LIMIT 1000;
+      `;
+
   return {
+    run_id: numericRunId,
     analyzed_pins: (rows || []).length,
     clusters: buildNewbornCrossoverMatrix(rows || [], { limit })
   };

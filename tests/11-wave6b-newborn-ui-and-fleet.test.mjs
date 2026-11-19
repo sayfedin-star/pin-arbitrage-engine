@@ -86,26 +86,35 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   const newbornNavLinks = collectNodes(globalTree, (n) => n.tag === 'a' && n.attrs.href === '/newborn');
   assert.ok(newbornNavLinks.length >= 2, 'App sidebar (mobile + desktop) must link to /newborn');
 
-  assert.ok(globalHtml.includes('Total audience'), 'Rookie Radar must use official "Total audience" label');
-  assert.ok(globalHtml.includes('Impressions'), 'Rookie Radar must use official "Impressions" label');
-  assert.ok(globalHtml.includes('Creator Hub'), 'Rookie Radar must reference "Creator Hub"');
-  assert.ok(globalHtml.includes('Origin Creator vs Pinner'), 'Candidates grid must separate Origin Creator and Pinner');
-  assert.ok(globalHtml.includes('Linkless Goldmine'), 'Candidates grid must expose Linkless Goldmine arbitrage signal');
+  assert.ok(globalHtml.includes('Newborn Pin Hunter'), 'Header must display simplified "Newborn Pin Hunter" title');
+  assert.ok(globalHtml.includes('Settings &amp; Automation'), 'Header must offer single Settings & Automation slide-over button');
+  assert.ok(globalHtml.includes('Browse Rising Trends'), 'Hero Hunt Bar must expose collapsible Browse Rising Trends picker');
+  assert.ok(globalHtml.includes('This Hunt'), '3-View workspace must render This Hunt tab');
+  assert.ok(globalHtml.includes('Watchlist'), '3-View workspace must render Watchlist tab');
+  assert.ok(globalHtml.includes('Past Hunts'), '3-View workspace must render Past Hunts tab');
+  assert.ok(globalHtml.includes('Total audience'), 'Rising Creators must use official "Total audience" label');
+  assert.ok(globalHtml.includes('Impressions'), 'Rising Creators must use official "Impressions" label');
+  assert.ok(globalHtml.includes('Creator Hub'), 'Rising Creators must reference "Creator Hub"');
+  assert.ok(globalHtml.includes('Origin Creator'), 'Pin Dossier/Cards must attribute Origin Creator');
+  assert.ok(globalHtml.includes('Linkless Goldmine'), 'Cards must expose Linkless Goldmine arbitrage signal');
+  assert.ok(globalHtml.includes('Find Related Newborns'), 'Cards must expose Find Related Newborns action');
+  assert.ok(globalHtml.includes('Track / Promote'), 'Cards must expose Track / Promote action');
 
   // Zero UI emojis inside global <main> studio rooms
   const mainMatch = globalHtml.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
   assert.ok(mainMatch, 'Expected <main> block in global Newborn HTML');
   assert.equal(/\p{Extended_Pictographic}/u.test(mainMatch[1]), false, 'Global Newborn <main> must contain zero UI emojis');
 
-  // Folder-scoped mode renders shared Campaign Workspace Header with active Newborn tab
+  // Folder-scoped mode renders shared Campaign Workspace Header with active Newborn tab and safe Settings link
   const folderTree = parseHtmlElementTree(folderHtml);
   const folderNewbornLinks = collectNodes(
     folderTree,
     (n) => n.tag === 'a' && n.attrs.href === '/folders/42/newborn'
   );
   assert.equal(folderNewbornLinks.length, 1, 'Folder-scoped view must render /folders/42/newborn tab');
-  assert.ok(folderHtml.includes("newbornStudioApp('42', 'candidates')"));
+  assert.ok(folderHtml.includes("newbornStudioApp('42', 'hunt')"));
   assert.ok(settingsHtml.includes("newbornStudioApp('', 'settings')"));
+  assert.ok(folderHtml.includes("typeof syncFolderSettingsFromActive === 'function'"), 'Folder header Settings action must not hijack non-folder rooms');
 });
 
 test('Wave 6B.2: /newborn & /folders/:id/newborn HTTP routes, offline Launchpad API, smart seed parser & board context hydration', async (t) => {
@@ -243,7 +252,7 @@ test('Wave 6B.2: /newborn & /folders/:id/newborn HTTP routes, offline Launchpad 
   assert.equal(dossierData.candidate.board_follower_count, 1890);
 });
 
-test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, profiles, redacted cookie vault, hunt, snowball, promote & CSV safety', async (t) => {
+test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.5s run polling, exact backend JSON contracts, redacted cookie vault, profiles, promote & timer hygiene', async (t) => {
   const noopSql = async () => [];
   noopSql.end = async () => {};
   const shellApp = createFastifyApp({
@@ -263,6 +272,7 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
   const rootClasses = new Set();
   const bodyClasses = new Set();
   const apiRequests = [];
+  const runPollCounts = new Map();
 
   function makeMockElement(tag) {
     return {
@@ -327,31 +337,27 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
   const mockCandidatesPayload = [
     {
       pin_id: '901000200030004001',
-      title: '=CMD|\' /C calc\'!A0 Viral Balcony Bench',
+      title: 'Viral Graduation Fruit Skewers',
       stage: 'discovered',
       is_golden_pin: true,
       is_linkless: true,
       is_repin: false,
       golden_score: 91.2,
       age_days: 5.0,
-      repin_per_day: 18.4,
-      save_count: null,
-      repin_count: 92,
-      share_count: 4,
-      comment_count: 2,
-      reaction_count: 11,
+      save_count: 92,
+      save_per_day: 18.4,
+      repin_count: 0,
+      repin_per_day: 0,
+      share_count: null,
+      comment_count: null,
+      reaction_count: null,
       origin_creator_username: 'rookiewoodworker',
       pinner_username: 'rookiewoodworker',
+      effective_creator_username: 'rookiewoodworker',
       clean_domain: null,
-      board_name: 'Small Space DIY',
-      board_pin_count: 42,
-      board_follower_count: 510,
-      upload_provenance: 'SHARE_EXTENSION_IOS',
-      crossover_blueprint: {
-        primary_keyword: 'balcony bench diy',
-        recommended_board_name: 'Small Balcony Seating',
-        recommended_pin_title: 'Easy DIY Balcony Bench'
-      }
+      board_name: 'Graduation Party Food Ideas',
+      board_url: 'https://www.pinterest.com/rookiewoodworker/graduation-party-food-ideas/',
+      upload_provenance: 'SHARE_EXTENSION_IOS'
     }
   ];
 
@@ -370,8 +376,12 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
     },
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
+    addEventListener() {},
+    removeEventListener() {},
     document: mockDocument,
-    location: { search: '?search=balcony', href: '/folders/42/newborn?search=balcony' },
+    location: { search: '?search=graduation+party+foods', href: '/folders/42/newborn?search=graduation+party+foods' },
     dispatchEvent() {},
     localStorage: {
       getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
@@ -394,55 +404,92 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
         return jsonRes({
           success: true,
           settings: {
-            discovery: { country: 'US', default_l1_interest: 'gardening', max_board_age_days: 30 },
-            qualification: { age_window_preset: '30d', max_age_days: 30, min_repin_count: 5 },
-            automation: { auto_track_enabled: false, schedule: { cadence: 'every_6h' } }
+            discovery: { country: 'US', default_l1_interest: 'all', max_board_age_days: 30, surfaces: { pin_serp_capsules: { enabled: true } } },
+            qualification: {
+              age_window_preset: '30d', min_age_days: 0, max_age_days: 30,
+              min_repin_count: 0, min_save_count: 15, min_repin_per_day: 0, min_save_per_day: 2.0,
+              max_creator_followers: 25000, enforce_max_followers_filter: false,
+              provenance: { allowed_sources: ['SHARE_EXTENSION_IOS', 'UPLOADED'], excluded_sources: [], ai_disclosure_policy: 'exclude', exclude_products: true, exclude_videos: false },
+              linkless_vacuum: { mode: 'boost', linkless_vacuum_only: false, score_boost: 12 }
+            },
+            automation: { auto_track_enabled: false, schedule: { cadence: 'every_6h', cooldown_minutes: 60 } }
           },
-          schedule: { auto_track_enabled: false, cadence: 'every_6h' },
-          cookie_status: { has_cookie: false, source: 'none', zone_routing_mode: 'guest_only' },
-          profiles: [{ id: 1, slug: 'default-golden-breakout', name: 'Default Golden Breakout', is_default: true }]
+          schedule: { auto_track_enabled: false, cadence: 'every_6h', discovery_due: false, watchlist_poll_due: false },
+          cookie_status: { has_cookie: false, source: 'none', preview: '', mode: 'guest_only' },
+          surfaces_catalog: [{ id: 'pin_serp_capsules', label: 'Pin SERP + Guided Capsules', endpoint: 'BaseSearchResource/get' }],
+          l1_interests_catalog: OFFICIAL_L1_INTERESTS,
+          supported_countries: [{ code: 'US', label: 'United States (US)' }],
+          profiles: [{ id: 1, slug: 'default-golden-breakout', name: 'Default Golden Breakout', is_default: true, qualification_config: { max_age_days: 30, min_save_per_day: 2 } }]
         });
       }
-      if (String(url) === '/api/newborn/settings' && method === 'PUT') {
+      if (String(url) === '/api/newborn/settings' && method === 'PATCH') {
         return jsonRes({
           success: true,
-          settings: bodyObj.settings,
-          schedule: { auto_track_enabled: Boolean(bodyObj.settings?.automation?.auto_track_enabled), cadence: 'every_3h' }
+          settings: bodyObj,
+          schedule: { auto_track_enabled: Boolean(bodyObj?.automation?.auto_track_enabled), cadence: 'every_6h', discovery_due: false, watchlist_poll_due: true }
         });
       }
       if (String(url) === '/api/newborn/settings/reset' && method === 'POST') {
         return jsonRes({
           success: true,
-          settings: { qualification: { age_window_preset: '30d', max_age_days: 30 } },
-          schedule: { auto_track_enabled: false, cadence: 'every_6h' }
+          settings: {
+            discovery: { country: 'US', surfaces: { pin_serp_capsules: { enabled: true } } },
+            qualification: { age_window_preset: '30d', min_age_days: 0, max_age_days: 30, min_save_count: 15, min_save_per_day: 2.0, provenance: { exclude_products: true, exclude_videos: false, ai_disclosure_policy: 'exclude' }, linkless_vacuum: { mode: 'boost' } },
+            automation: { auto_track_enabled: false, schedule: { cadence: 'every_6h', cooldown_minutes: 60 } }
+          },
+          schedule: { auto_track_enabled: false, cadence: 'every_6h', discovery_due: false, watchlist_poll_due: false }
         });
       }
       if (String(url) === '/api/newborn/overview') {
         return jsonRes({
           success: true,
           counts: { total_candidates: 1, golden_pins_count: 1, linkless_vacuum_count: 1, watchlist_count: 0, active_daily_anchors_count: 0 },
-          cookie_status: { has_cookie: false, source: 'none', zone_routing_mode: 'guest_only' },
-          automation_schedule: { auto_track_enabled: false, cadence: 'every_6h' },
-          recent_runs: [{ id: 7, run_type: 'discovery', status: 'completed', cookie_mode: 'guest_only', candidates_discovered: 12, golden_pins_count: 3, rookie_creators_count: 1, snowball_hops_executed: 1 }]
+          cookie_status: { has_cookie: false, source: 'none', preview: '', mode: 'guest_only' },
+          automation_schedule: { auto_track_enabled: false, cadence: 'every_6h', discovery_due: false, watchlist_poll_due: false },
+          recent_runs: [{ id: 7, run_type: 'discovery', status: 'completed', progress_stage: 'completed', progress_pct: 100, seed_queries: ['graduation party foods'], candidates_discovered: 12, candidates_qualified: 3, golden_pins_count: 1 }]
+        });
+      }
+      if (String(url).startsWith('/api/newborn/runs?')) {
+        return jsonRes({
+          success: true,
+          runs: [{ id: 7, run_type: 'discovery', status: 'completed', progress_stage: 'completed', progress_pct: 100, seed_queries: ['graduation party foods'], candidates_discovered: 12, candidates_qualified: 3, golden_pins_count: 1 }]
+        });
+      }
+      if (String(url).startsWith('/api/newborn/runs/')) {
+        const rid = Number(String(url).split('/').pop());
+        const count = (runPollCounts.get(rid) || 0) + 1;
+        runPollCounts.set(rid, count);
+        return jsonRes({
+          success: true,
+          run: {
+            id: rid,
+            run_type: rid === 19 ? 'snowball' : (rid === 20 ? 'watchlist_poll' : 'discovery'),
+            status: 'completed',
+            progress_stage: 'completed',
+            progress_detail: 'Found 1 verified newborn pin.',
+            progress_pct: 100,
+            candidates_discovered: 12,
+            candidates_qualified: 1,
+            golden_pins_count: 1
+          }
         });
       }
       if (String(url).startsWith('/api/newborn/candidates?')) {
         return jsonRes({ success: true, total: 1, candidates: mockCandidatesPayload });
       }
-      if (String(url) === '/api/newborn/profiles' && method === 'POST') {
+      if (String(url).startsWith('/api/newborn/crossover')) {
+        return jsonRes({ success: true, analyzed_pins: 1, clusters: [{ annotation: 'graduation party foods', pin_count: 1, top_board_names: [{ name: 'Graduation Party Food Ideas' }] }] });
+      }
+      if (String(url).startsWith('/api/newborn/rookies')) {
+        return jsonRes({ success: true, total: 1, rookies: [{ username: 'rookiewoodworker', follower_count: 640, monthly_reach: 10000001, profile_views: 500000, rookie_score: 88, stage: 'discovered' }] });
+      }
+      if (String(url) === '/api/newborn/rules' && method === 'POST') {
         return jsonRes({
           success: true,
-          profile: { id: 9, slug: 'patio-14d', name: bodyObj.name, is_default: false }
+          profile: { id: 9, slug: 'patio-14d', name: bodyObj.name, is_default: false, qualification_config: bodyObj.qualification_config }
         }, 201);
       }
-      if (String(url) === '/api/newborn/profiles/patio-14d' && method === 'GET') {
-        return jsonRes({
-          success: true,
-          profile: { id: 9, slug: 'patio-14d', name: 'Patio 14d Rockets' },
-          effective_settings: { qualification: { age_window_preset: '14d', max_age_days: 14, min_repin_count: 12 } }
-        });
-      }
-      if (String(url) === '/api/newborn/profiles/9' && method === 'DELETE') {
+      if (String(url) === '/api/newborn/rules/9' && method === 'DELETE') {
         return jsonRes({ success: true, deleted: true });
       }
       if (String(url) === '/api/newborn/cookie' && method === 'POST') {
@@ -450,8 +497,8 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
           success: true,
           has_cookie: true,
           source: 'newborn_pinterest_cookie',
-          redacted_preview: '[CONFIGURED]',
-          zone_routing_mode: 'two_zone_authenticated_plus_zero_cookie'
+          preview: '[CONFIGURED]',
+          mode: 'two_zone_authenticated_plus_zero_cookie'
         });
       }
       if (String(url) === '/api/newborn/cookie' && method === 'DELETE') {
@@ -459,34 +506,50 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
           success: true,
           has_cookie: false,
           source: 'none',
-          redacted_preview: null,
-          zone_routing_mode: 'guest_only'
+          preview: '',
+          mode: 'guest_only'
         });
       }
       if (String(url) === '/api/newborn/discover' && method === 'POST') {
         return jsonRes({
           success: true,
+          queued: true,
+          deduplicated: false,
           run_id: 18,
-          cookie_mode: 'two_zone_authenticated_plus_zero_cookie',
-          candidates_discovered: 19,
-          golden_pins_count: 4,
-          rookie_creators_count: 2,
-          snowball_hops_executed: 2
-        });
+          run: { id: 18, run_type: 'discovery', status: 'running', progress_stage: 'queued', progress_pct: 0, seed_queries: [bodyObj.query] }
+        }, 202);
       }
       if (String(url) === '/api/newborn/snowball' && method === 'POST') {
-        return jsonRes({ success: true, candidates_discovered: 8, golden_pins_count: 2 });
+        return jsonRes({
+          success: true,
+          queued: true,
+          deduplicated: false,
+          run_id: 19,
+          run: { id: 19, run_type: 'snowball', status: 'running', progress_stage: 'queued', progress_pct: 0 }
+        }, 202);
       }
       if (String(url) === '/api/newborn/watchlist/poll' && method === 'POST') {
-        return jsonRes({ success: true, polled_count: 5, auto_promoted_count: 1 });
+        return jsonRes({
+          success: true,
+          queued: true,
+          deduplicated: false,
+          run_id: 20,
+          run: { id: 20, run_type: 'watchlist_poll', status: 'running', progress_stage: 'queued', progress_pct: 0 }
+        }, 202);
       }
       if (String(url) === '/api/newborn/auto-run' && method === 'POST') {
-        return jsonRes({ success: true, executed: true });
+        return jsonRes({
+          success: true,
+          queued: true,
+          deduplicated: false,
+          run_id: 21,
+          run: { id: 21, run_type: 'auto_cycle', status: 'running', progress_stage: 'queued', progress_pct: 0 }
+        }, 202);
       }
       if (String(url) === '/api/newborn/promote' && method === 'POST') {
         return jsonRes({
           success: true,
-          pins: { ok: true, promoted_count: bodyObj.pin_ids.length, anchors_created: bodyObj.pin_ids.length },
+          pins: bodyObj.pin_ids?.length ? { ok: true, promoted_count: bodyObj.pin_ids.length, anchors_created: bodyObj.pin_ids.length } : null,
           rookies: bodyObj.usernames?.length ? { ok: true, promoted_count: bodyObj.usernames.length } : null
         });
       }
@@ -498,7 +561,6 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
 
   // Execute /pae-shell.js and newborn-client-app.mjs inside VM
   new vm.Script(shellHttpRes.body, { filename: 'pae-shell.js' }).runInNewContext(sandbox);
-  // Auto-confirm dialogs during headless automation tests
   sandbox.PAE.confirm = async () => true;
 
   const clientScriptRaw = getNewbornClientAppScript()
@@ -506,92 +568,107 @@ test('Wave 6B.3: newbornStudioApp VM execution — Control Center settings, prof
     .replace(/<\/script>[\s]*$/i, '');
   new vm.Script(clientScriptRaw, { filename: 'newborn-client-app.js' }).runInNewContext(sandbox);
 
-  const studio = sandbox.newbornStudioApp('42', 'candidates');
+  const studio = sandbox.newbornStudioApp('42', 'hunt');
   await studio.init();
 
-  // Verify URL ?search= hydration + folder scope + initial candidates load
+  // 1. Verify URL ?search= hydration, folder scope, run-scoped candidate loading, and zero currentRoom conflict
   assert.equal(studio.scopedFolderId, '42');
   assert.equal(studio.activeFolder?.name, 'Outdoor Living');
-  assert.equal(studio.huntQueryInput, 'balcony');
+  assert.equal(studio.huntInput, 'graduation party foods');
+  assert.equal(studio.activeView, 'hunt');
+  assert.equal(studio.activeRunId, 7);
   assert.equal(studio.candidates.length, 1);
-  assert.equal(studio.selectedProfileSlug, 'default-golden-breakout');
+  assert.equal('currentRoom' in studio, false, 'Must not declare currentRoom to avoid folder header hijack');
+  assert.ok(apiRequests.some((r) => r.url.includes('/api/newborn/candidates?') && r.url.includes('run_id=7')), 'This Hunt must scope candidates to activeRunId');
 
-  // Verify theme toggling mutates document.documentElement ONLY, never document.body
+  // 2. Verify theme toggling mutates document.documentElement ONLY, never document.body
   studio.toggleTheme();
   assert.equal(studio.isDark, true);
   assert.equal(rootClasses.has('dark'), true);
   assert.equal(bodyClasses.has('dark'), false);
   assert.equal(storageMap.get('pa_theme'), 'dark');
 
-  // Verify Settings preset, provenance toggle, save & reset
+  // 3. Verify Settings Slide-Over preset, save (PATCH), & reset
+  studio.openSettingsDrawer('filters');
+  assert.equal(studio.settingsDrawerOpen, true);
   studio.applyAgePreset('14d');
   assert.equal(studio.settingsDraft.qualification.max_age_days, 14);
-  studio.toggleAllowedProvenance('VIDEO');
-  assert.equal(studio.settingsDraft.qualification.provenance.allowed_sources.includes('VIDEO'), false);
   studio.settingsDraft.automation.auto_track_enabled = true;
-  studio.settingsDraft.automation.pin_promotion_rules.destinations.promote_to_campaign_folder_id = '42';
-  await studio.saveGlobalSettings();
+  await studio.saveSettings();
 
-  const putSettingsCall = apiRequests.find((r) => r.url === '/api/newborn/settings' && r.method === 'PUT');
-  assert.ok(putSettingsCall);
-  assert.equal(putSettingsCall.body.settings.qualification.max_age_days, 14);
-  assert.equal(putSettingsCall.body.settings.automation.pin_promotion_rules.destinations.promote_to_campaign_folder_id, 42);
+  const patchSettingsCall = apiRequests.find((r) => r.url === '/api/newborn/settings' && r.method === 'PATCH');
+  assert.ok(patchSettingsCall);
+  assert.equal(patchSettingsCall.body.qualification.max_age_days, 14);
+  assert.equal(studio.scheduleStatus.watchlist_poll_due, true, 'Must use exact watchlist_poll_due key');
+  assert.equal(studio.settingsDrawerOpen, false);
 
   await studio.resetSettingsToDefaults();
   assert.equal(studio.settingsDraft.qualification.max_age_days, 30);
 
-  // Verify Rule Profile create -> load -> delete
+  // 4. Verify Rule Profile CRUD uses EXACT backend keys (surfaces_config, qualification_config, automation_config)
   studio.openProfileModal(null);
   studio.profileForm.name = 'Patio 14d Rockets';
-  await studio.submitProfileModal();
-  assert.equal(studio.selectedProfileSlug, 'patio-14d');
+  studio.profileForm.maxAgeDays = 14;
+  studio.profileForm.minSavePerDay = 3.5;
+  await studio.saveProfile();
+  const createRuleCall = apiRequests.find((r) => r.url === '/api/newborn/rules' && r.method === 'POST');
+  assert.ok(createRuleCall);
+  assert.ok('surfaces_config' in createRuleCall.body && 'qualification_config' in createRuleCall.body && 'automation_config' in createRuleCall.body);
+  assert.equal(createRuleCall.body.qualification_config.max_age_days, 14);
+  assert.equal(createRuleCall.body.qualification_config.min_save_per_day, 3.5);
+  await studio.deleteProfile({ id: 9, slug: 'patio-14d', name: 'Patio 14d Rockets', is_default: false });
 
-  await studio.loadProfileIntoDraft('patio-14d');
-  assert.equal(studio.settingsDraft.qualification.min_repin_count, 12);
-
-  await studio.deleteRuleProfile({ id: 9, slug: 'patio-14d', name: 'Patio 14d Rockets' });
-  assert.equal(studio.selectedProfileSlug, 'default-golden-breakout');
-
-  // Verify Redacted Cookie Vault save & clear (raw token immediately wiped from client input)
-  studio.cookieDraftInput = 'super_secret_pinterest_sess_token_999';
-  await studio.saveCookieToVault();
-  assert.equal(studio.cookieDraftInput, '', 'Raw cookie input must be wiped immediately after save');
+  // 5. Verify Redacted Cookie Vault uses exact `preview` key & wipes raw input immediately
+  studio.cookieInput = 'super_secret_pinterest_sess_token_999';
+  await studio.saveCookie();
+  assert.equal(studio.cookieInput, '', 'Raw cookie input must be wiped immediately after save');
   assert.equal(studio.cookieStatus.has_cookie, true);
+  assert.equal(studio.cookieStatus.preview, '[CONFIGURED]');
   assert.equal(JSON.stringify(studio.cookieStatus).includes('super_secret_pinterest_sess_token_999'), false);
-
-  await studio.clearCookieFromVault();
+  await studio.clearCookie();
   assert.equal(studio.cookieStatus.has_cookie, false);
 
-  // Verify 1-click Hunt, Snowball, Watchlist Poll, Auto-Cycle & Multi-Pillar Promotion
-  await studio.huntSingleSeed('cottagecore patio');
-  assert.equal(studio.latestRunSummary.id, 18);
+  // 6. Verify HTTP 202 Focused Hunt + live run polling -> clean timer stop on completion
+  await studio.selectTrendAndHunt('graduation party foods');
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(studio.activeRunId, 18);
+  assert.equal(studio.activeRun.status, 'completed');
+  assert.equal(studio.pollTimerId, null, 'Poll timer must stop cleanly when run reaches terminal status');
+  assert.equal(studio.isPollingRun, false);
 
-  await studio.triggerSnowballOnSelectedOrTop();
-  const snowballCall = apiRequests.find((r) => r.url === '/api/newborn/snowball');
+  // 7. Verify Snowball, Watchlist Poll, Hunt Insights & Promote Modal
+  await studio.snowballPins(['901000200030004001']);
+  await new Promise((r) => setTimeout(r, 30));
+  const snowballCall = apiRequests.find((r) => r.url === '/api/newborn/snowball' && r.method === 'POST');
   assert.deepEqual(snowballCall.body.seed_pin_ids, ['901000200030004001']);
 
   await studio.pollWatchlistNow();
-  await studio.runAutoCycleNow();
+  await new Promise((r) => setTimeout(r, 30));
 
-  studio.openPromoteModal(studio.candidates);
-  studio.promoteForm.alsoPromoteCreators = true;
-  await studio.submitPromoteModal();
-  const promoteCall = apiRequests.find((r) => r.url === '/api/newborn/promote');
+  await studio.toggleHuntInsights();
+  assert.equal(studio.crossoverClusters.length, 1);
+  assert.equal(studio.rookies.length, 1);
+
+  studio.openPromoteModal(['901000200030004001']);
+  studio.promoteForm.promoteClusterSeeds = true;
+  await studio.submitPromotePins();
+  const promoteCall = apiRequests.find((r) => r.url === '/api/newborn/promote' && r.method === 'POST');
   assert.ok(promoteCall);
   assert.deepEqual(promoteCall.body.pin_ids, ['901000200030004001']);
-  assert.deepEqual(promoteCall.body.usernames, ['rookiewoodworker']);
   assert.equal(promoteCall.body.destinations.promote_to_daily_ssot, true);
   assert.equal(promoteCall.body.destinations.promote_to_campaign_folder_id, 42);
   assert.equal(promoteCall.body.destinations.promote_to_cluster_seeds, true);
 
-  // Verify 10M+ ceiling, null save formatting, safeUrl, and CSV formula-injection neutralization
-  assert.equal(studio.formatCeilingMetric(10000001, true), '10M+');
-  assert.equal(studio.formatCeilingMetric(null, true), '—');
-  assert.equal(studio.formatNullableInt(null), '—');
-  assert.equal(studio.safeHref('javascript:alert(1)'), '#');
+  // 8. Verify external board URL normalization, human-readable upload source, 10M+ ceiling & /pin/:id back-link
+  assert.equal(studio.formatBoardUrl('/curatorjane/urban-balcony-ideas/'), 'https://www.pinterest.com/curatorjane/urban-balcony-ideas/');
+  assert.equal(studio.formatProvenanceLabel('SHARE_EXTENSION_IOS'), 'iOS App');
+  assert.equal(studio.formatProvenanceLabel('UPLOADED'), 'Web Upload');
+  assert.equal(studio.formatReach(10000001), '10M+');
+  assert.equal(studio.formatNullableCount(null), '—');
+  assert.ok(studio.buildPinDetailsHref('901000200030004001').includes('source=newborn'));
 
-  const csv = studio.exportCandidatesCsv();
-  assert.ok(csv.includes('"\'=CMD|\' /C calc\'!A0 Viral Balcony Bench"'), 'CSV export must neutralize leading = formula injection');
+  studio.destroy();
+  assert.equal(studio.pollTimerId, null);
 });
 
 test('Wave 6B.4: Autonomous Newborn Fleet CLI (scripts/newborn-fleet.mjs) — Dispatch, Sharded Workers, Consolidate & Lease Cleanup', async () => {

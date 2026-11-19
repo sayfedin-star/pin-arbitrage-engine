@@ -39,14 +39,12 @@ import {
   deleteNewbornCandidate,
   listNewbornRookies,
   listNewbornRuns,
+  getNewbornRunById,
   listNewbornDailyAnchors,
   getNewbornCrossoverReport,
   getNewbornLaunchpadFeed,
   refreshNewbornLaunchpadFeed,
-  runNewbornDiscovery,
-  runNewbornSnowball,
-  pollNewbornWatchlist,
-  runNewbornAutoCycle,
+  enqueueNewbornRun,
   promoteNewbornCandidates,
   promoteNewbornRookies
 } from '../modules/newborn/service.mjs';
@@ -270,14 +268,13 @@ export async function handleNewbornRoutes({
     return methodNotAllowedResponse('GET, POST, PUT, DELETE, OPTIONS');
   }
 
-  // 4. /api/newborn/overview (GET)
+  // 4. /api/newborn/overview (GET) — strictly no-store (live run counts + cookie status)
   if (pathname === '/api/newborn/overview' || pathname === '/api/newborn') {
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    const cacheKey = buildCanonicalCacheKey('newborn:overview', searchParams);
-    const payload = await getCachedOrFetch(cacheKey, () => getNewbornOverview(sql, env), 10);
-    return jsonResponse(payload, 200, 10);
+    const payload = await getNewbornOverview(sql, env);
+    return jsonResponse(payload, 200, -1);
   }
 
   // 5. /api/newborn/candidates (GET)
@@ -286,12 +283,15 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const filters = {
+      run_id: searchParams.get('run_id') || null,
+      folder_id: searchParams.get('folder_id') || null,
       stage: searchParams.get('stage') || null,
       surface: searchParams.get('surface') || null,
       provenance: searchParams.get('provenance') || null,
       golden_only: searchParams.get('golden_only') || searchParams.get('golden') || null,
       rookie_only: searchParams.get('rookie_only') || searchParams.get('rookie') || null,
       linkless_only: searchParams.get('linkless_only') || searchParams.get('linkless') || null,
+      qualified_only: searchParams.get('qualified_only') || null,
       min_golden_score: searchParams.get('min_golden_score') || null,
       max_age_days: searchParams.get('max_age_days') || null,
       search: searchParams.get('search') || searchParams.get('q') || '',
@@ -300,8 +300,8 @@ export async function handleNewbornRoutes({
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
     const cacheKey = buildCanonicalCacheKey('newborn:candidates', searchParams);
-    const data = await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10);
-    return jsonResponse({ success: true, ...data }, 200, 10);
+    const data = await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10_000);
+    return jsonResponse({ success: true, ...data }, 200, filters.run_id ? -1 : 10);
   }
 
   // 5B. /api/newborn/candidates/stage (POST bulk stage transition)
@@ -352,14 +352,15 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const filters = {
+      run_id: searchParams.get('run_id') || null,
       stage: searchParams.get('stage') || null,
       search: searchParams.get('search') || searchParams.get('q') || '',
       limit: clampLimit(searchParams.get('limit'), 50, 200),
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
     const cacheKey = buildCanonicalCacheKey('newborn:rookies', searchParams);
-    const data = await getCachedOrFetch(cacheKey, () => listNewbornRookies(sql, filters), 10);
-    return jsonResponse({ success: true, ...data }, 200, 10);
+    const data = await getCachedOrFetch(cacheKey, () => listNewbornRookies(sql, filters), 10_000);
+    return jsonResponse({ success: true, ...data }, 200, filters.run_id ? -1 : 10);
   }
 
   // 7. /api/newborn/crossover (GET)
@@ -367,26 +368,53 @@ export async function handleNewbornRoutes({
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
+    const runId = searchParams.get('run_id') || null;
     const stage = searchParams.get('stage') || null;
     const goldenOnly = searchParams.get('golden_only') === 'true';
     const limit = clampLimit(searchParams.get('limit'), 30, 100);
     const cacheKey = buildCanonicalCacheKey('newborn:crossover', searchParams);
     const report = await getCachedOrFetch(
       cacheKey,
-      () => getNewbornCrossoverReport(sql, { stage, goldenOnly, limit }),
-      15
+      () => getNewbornCrossoverReport(sql, { runId, stage, goldenOnly, limit }),
+      15_000
     );
-    return jsonResponse({ success: true, ...report }, 200, 15);
+    return jsonResponse({ success: true, ...report }, 200, runId ? -1 : 15);
   }
 
-  // 8. /api/newborn/runs (GET)
+  // 8. /api/newborn/runs (GET) — strictly no-store
   if (pathname === '/api/newborn/runs') {
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const limit = clampLimit(searchParams.get('limit'), 30, 100);
-    const runs = await listNewbornRuns(sql, { limit });
+    const folderId = searchParams.get('folder_id') || null;
+    const runs = await listNewbornRuns(sql, { limit, folderId });
     return jsonResponse({ success: true, runs }, 200, -1);
+  }
+
+  // 8B. /api/newborn/runs/:id (GET) — live 1.5s progress polling, strictly no-store
+  const runDetailMatch = pathname.match(/^\/api\/newborn\/runs\/([^/]+)$/);
+  if (runDetailMatch) {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const rawRunId = decodeURIComponent(runDetailMatch[1]).trim();
+    if (!/^\d+$/.test(rawRunId)) {
+      return jsonResponse({
+        success: false,
+        error: 'BAD_REQUEST',
+        message: `Invalid run ID "${rawRunId}". Expected a positive integer.`
+      }, 400, -1);
+    }
+    const run = await getNewbornRunById(sql, Number(rawRunId));
+    if (!run) {
+      return jsonResponse({
+        success: false,
+        error: 'NOT_FOUND',
+        message: `Newborn run #${rawRunId} not found.`
+      }, 404, -1);
+    }
+    return jsonResponse({ success: true, run }, 200, -1);
   }
 
   // 9. /api/newborn/anchors (GET)
@@ -413,7 +441,7 @@ export async function handleNewbornRoutes({
     const feed = await getCachedOrFetch(
       cacheKey,
       () => getNewbornLaunchpadFeed(sql, { country, trendType, l1Interest }),
-      15
+      15_000
     );
     return jsonResponse({ success: true, ...feed }, 200, -1);
   }
@@ -497,59 +525,77 @@ export async function handleNewbornRoutes({
           }
         }
 
-        const result = await runNewbornDiscovery(sql, {
+        const queued = await enqueueNewbornRun(sql, {
+          runType: 'discovery',
           seedQueries: parsedQueries,
           seedPinIds: parsedPinIds,
           seedBoards: parsedBoards,
           profileId: body?.profile_id ?? body?.profile ?? null,
+          folderId: body?.folder_id ?? null,
           settingsOverrides: body?.settings_overrides ?? body?.overrides ?? null,
-          routerOptions: { env },
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...result }, 200, -1);
+        return jsonResponse({ success: true, ...queued }, 202, -1);
       }
 
       if (pathname === '/api/newborn/snowball') {
-        const seedPinIds = body?.seed_pin_ids || body?.pin_ids || (body?.pin_id ? [body.pin_id] : []);
-        const result = await runNewbornSnowball(sql, {
+        const rawPinIds = body?.seed_pin_ids || body?.pin_ids || (body?.pin_id ? [body.pin_id] : []);
+        const seedPinIds = (Array.isArray(rawPinIds) ? rawPinIds : [rawPinIds])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean);
+        const queued = await enqueueNewbornRun(sql, {
+          runType: 'snowball',
           seedPinIds,
           profileId: body?.profile_id ?? body?.profile ?? null,
+          folderId: body?.folder_id ?? null,
           settingsOverrides: body?.settings_overrides ?? body?.overrides ?? null,
-          routerOptions: { env },
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...result }, 200, -1);
+        return jsonResponse({ success: true, ...queued }, 202, -1);
       }
 
       if (pathname === '/api/newborn/watchlist/poll') {
-        const result = await pollNewbornWatchlist(sql, {
+        const queued = await enqueueNewbornRun(sql, {
+          runType: 'watchlist_poll',
           profileId: body?.profile_id ?? null,
+          folderId: body?.folder_id ?? null,
           workerIndex: body?.worker_index ?? 0,
           workerTotal: body?.worker_total ?? 1,
           autoPromote: body?.auto_promote ?? null,
-          routerOptions: { env },
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...result }, 200, -1);
+        return jsonResponse({ success: true, ...queued }, 202, -1);
       }
 
       if (pathname === '/api/newborn/auto-run') {
-        const result = await runNewbornAutoCycle(sql, {
+        const queued = await enqueueNewbornRun(sql, {
+          runType: 'auto_cycle',
           force: Boolean(body?.force),
           forceDiscovery: Boolean(body?.force_discovery),
           forceWatchlist: Boolean(body?.force_watchlist),
           seedQueries: body?.seed_queries || [],
           profileId: body?.profile_id ?? null,
-          routerOptions: { env },
+          folderId: body?.folder_id ?? null,
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...result }, 200, -1);
+        return jsonResponse({ success: true, ...queued }, 202, -1);
       }
     } catch (err) {
+      if (err?.status === 503 || err?.code === 'QUEUE_SATURATED') {
+        return jsonResponse({
+          success: false,
+          error: err.code || 'SERVICE_UNAVAILABLE',
+          message: redactSecrets(err.message || 'Newborn queue is busy. Please retry shortly.')
+        }, 503, -1);
+      }
       if (err instanceof CircuitBreakerOpenError || err?.name === 'CircuitBreakerOpenError') {
         if (typeof tripPinterestCircuitBreaker === 'function') {
           await tripPinterestCircuitBreaker(env, 'Newborn CircuitBreakerOpenError', 300).catch(() => {});
@@ -581,34 +627,33 @@ export async function handleNewbornRoutes({
       }, 400, -1);
     }
 
-    const [pinsResult, rookiesResult] = await Promise.all([
-      Array.isArray(pinIds) && pinIds.length > 0
-        ? promoteNewbornCandidates(sql, {
-            pinIds,
-            destinations: body?.destinations || {
-              promote_to_daily_ssot: body?.promote_to_daily_ssot !== false,
-              promote_to_campaign_folder_id: body?.folder_id ?? body?.promote_to_campaign_folder_id ?? null,
-              promote_top_annotation_as_keyword: Boolean(body?.promote_top_annotation_as_keyword || body?.keyword),
-              keyword: body?.keyword || null,
-              promote_to_cluster_seeds: Boolean(body?.promote_to_cluster_seeds)
-            },
-            source: body?.source || 'manual',
-            notes: body?.notes || '',
-            env,
-            ctx
-          })
-        : Promise.resolve(null),
-      Array.isArray(usernames) && usernames.length > 0
-        ? promoteNewbornRookies(sql, {
-            usernames,
-            trackingMode: body?.tracking_mode || 'pulse_only',
-            folderId: body?.folder_id ?? null,
-            source: body?.source || 'manual',
-            env,
-            ctx
-          })
-        : Promise.resolve(null)
-    ]);
+    const pinsResult = (Array.isArray(pinIds) && pinIds.length > 0)
+      ? await promoteNewbornCandidates(sql, {
+          pinIds,
+          destinations: body?.destinations || {
+            promote_to_daily_ssot: body?.promote_to_daily_ssot !== false,
+            promote_to_campaign_folder_id: body?.folder_id ?? body?.promote_to_campaign_folder_id ?? null,
+            promote_top_annotation_as_keyword: Boolean(body?.promote_top_annotation_as_keyword || body?.keyword),
+            keyword: body?.keyword || null,
+            promote_to_cluster_seeds: Boolean(body?.promote_to_cluster_seeds)
+          },
+          source: body?.source || 'manual',
+          notes: body?.notes || '',
+          env,
+          ctx
+        })
+      : null;
+
+    const rookiesResult = (Array.isArray(usernames) && usernames.length > 0)
+      ? await promoteNewbornRookies(sql, {
+          usernames,
+          trackingMode: body?.tracking_mode || 'pulse_only',
+          folderId: body?.folder_id ?? null,
+          source: body?.source || 'manual',
+          env,
+          ctx
+        })
+      : null;
 
     if (pinsResult?.status === 404 && !rookiesResult) {
       return jsonResponse({

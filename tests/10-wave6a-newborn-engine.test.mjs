@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -6,8 +8,12 @@ import {
   getStandardPinterestHeaders,
   PinterestCircuitBreaker
 } from '../src/core/pinterest/client.mjs';
-import { PINTEREST_CEILING_VALUE } from '../src/core/pinterest/pins.mjs';
-import { RESERVED_KEYWORD_SLUGS } from '../src/http/security-and-response.mjs';
+import { PINTEREST_CEILING_VALUE, formatPin } from '../src/core/pinterest/pins.mjs';
+import {
+  RESERVED_KEYWORD_SLUGS,
+  buildCanonicalCacheKey,
+  redactSecrets
+} from '../src/http/security-and-response.mjs';
 import {
   RESERVED_PINTEREST_PATHS,
   normalizePinterestUsername
@@ -19,7 +25,8 @@ import {
   formatAuthSessionCookie,
   resolveUrlCookieZone,
   extractPwsInitialProps,
-  collectPinsFromSsrTree
+  collectPinsFromSsrTree,
+  fetchRelatedModulesWithZoneA
 } from '../src/modules/newborn/cookie-router.mjs';
 import {
   DEFAULT_NEWBORN_SETTINGS,
@@ -40,6 +47,9 @@ import {
 } from '../src/modules/newborn/settings.mjs';
 import {
   extractUsernameFromProfileUrl,
+  formatPinterestBoardUrl,
+  boardMatchesSeedQuery,
+  extractPinsFromRelatedModulesPayload,
   harvestGrowingTrendsSurface,
   harvestZeroQueryPopularSurface,
   harvestPinSerpWithCapsulesSurface,
@@ -63,7 +73,9 @@ import {
 import {
   runNewbornDiscovery,
   pollNewbornWatchlist,
-  promoteNewbornCandidates
+  promoteNewbornCandidates,
+  enqueueNewbornRun,
+  clearNewbornInflightRunsForTest
 } from '../src/modules/newborn/service.mjs';
 import { runKeywordFleetDispatch } from '../scripts/keyword-fleet.mjs';
 import {
@@ -99,6 +111,7 @@ function createStatefulNewbornSqlMock() {
     nextProfileId: 2,
     runs: new Map(),
     nextRunId: 1,
+    runCandidates: new Map(),
     candidates: new Map(),
     candidateSnapshots: new Map(),
     rookies: new Map(),
@@ -126,13 +139,26 @@ function createStatefulNewbornSqlMock() {
     const query = Array.isArray(strings) ? strings.join(' ') : String(strings);
     const q = query.replace(/\s+/g, ' ').trim();
 
-    // app_settings
+    // app_settings (with faithful PostgreSQL ON CONFLICT jsonb_set support)
     if (/INSERT INTO app_settings/i.test(q)) {
       const key = String(values[0]);
       const val = typeof values[1] === 'string' ? JSON.parse(values[1]) : values[1];
       const now = new Date().toISOString();
+      if (/jsonb_set\(/i.test(q) && state.appSettings.has(key)) {
+        const existing = state.appSettings.get(key);
+        const cloned = JSON.parse(JSON.stringify(existing.value || {}));
+        const pathArr = Array.isArray(values[2]) ? values[2] : [];
+        const leafVal = values[3];
+        if (pathArr.length === 3) {
+          cloned[pathArr[0]] = cloned[pathArr[0]] || {};
+          cloned[pathArr[0]][pathArr[1]] = cloned[pathArr[0]][pathArr[1]] || {};
+          cloned[pathArr[0]][pathArr[1]][pathArr[2]] = leafVal;
+        }
+        state.appSettings.set(key, { key, value: cloned, updated_at: now });
+        return [{ value: cloned, updated_at: now }];
+      }
       state.appSettings.set(key, { key, value: val, updated_at: now });
-      return [{ updated_at: now }];
+      return [{ value: val, updated_at: now }];
     }
     if (/DELETE FROM app_settings/i.test(q)) {
       const key = String(values[0]);
@@ -218,24 +244,73 @@ function createStatefulNewbornSqlMock() {
     // newborn_runs
     if (/INSERT INTO newborn_runs/i.test(q)) {
       const id = state.nextRunId++;
+      const hasSeedQueries = q.includes('seed_queries');
       const row = {
         id,
         run_type: values[0] || 'discovery',
         status: 'running',
+        progress_stage: 'queued',
+        progress_detail: 'Queued — starting Newborn hunt...',
+        progress_pct: 0,
+        error_message: null,
         profile_id: values[1] ?? null,
-        started_at: new Date().toISOString()
+        folder_id: values[2] ?? null,
+        seed_queries: hasSeedQueries ? parseJsonArg(values[3]) : [],
+        cookie_mode: values[values.length - 1] || 'pending',
+        candidates_discovered: 0,
+        candidates_qualified: 0,
+        golden_pins_count: 0,
+        rookie_creators_count: 0,
+        started_at: new Date().toISOString(),
+        completed_at: null
       };
       state.runs.set(id, row);
-      return [{ id }];
+      return [row];
     }
     if (/UPDATE newborn_runs/i.test(q)) {
       const id = Number(values[values.length - 1]);
       const prev = state.runs.get(id) || { id };
-      state.runs.set(id, { ...prev, status: 'completed', completed_at: new Date().toISOString() });
+      if (/status = 'failed'/i.test(q)) {
+        state.runs.set(id, {
+          ...prev,
+          status: 'failed',
+          progress_stage: 'failed',
+          error_message: typeof values[0] === 'string' ? values[0] : prev.error_message,
+          completed_at: new Date().toISOString()
+        });
+      } else if (/status = 'completed'/i.test(q)) {
+        state.runs.set(id, {
+          ...prev,
+          status: 'completed',
+          progress_stage: 'completed',
+          progress_pct: 100,
+          completed_at: new Date().toISOString()
+        });
+      } else if (/progress_stage =/i.test(q)) {
+        state.runs.set(id, {
+          ...prev,
+          progress_stage: values[0] || prev.progress_stage,
+          progress_detail: values[1] || prev.progress_detail,
+          progress_pct: Number(values[2] ?? prev.progress_pct ?? 0)
+        });
+      }
       return [];
     }
     if (/FROM newborn_runs/i.test(q)) {
+      if (q.includes('WHERE id =')) {
+        const found = state.runs.get(Number(values[0]));
+        return found ? [found] : [];
+      }
       return Array.from(state.runs.values()).reverse();
+    }
+
+    // newborn_run_candidates
+    if (/INSERT INTO newborn_run_candidates/i.test(q)) {
+      const rows = parseJsonArg(values[0]);
+      for (const r of rows) {
+        state.runCandidates.set(`${r.run_id}:${r.pin_id}`, { ...r });
+      }
+      return [];
     }
 
     // newborn_candidates
@@ -474,8 +549,14 @@ function createStatefulNewbornSqlMock() {
     if (/INSERT INTO keyword_serp_positions/i.test(q)) {
       const kid = Number(values[0]);
       const rows = parseJsonArg(values[1]);
+      const isNullDisplaced = /NULL::int,\s*TRUE,\s*NULL::int/i.test(q);
       for (const r of rows) {
-        state.serpPositions.set(`${kid}:${r.pin_id}`, { keyword_id: kid, pin_id: r.pin_id, rank_position: r.rank_position });
+        state.serpPositions.set(`${kid}:${r.pin_id}`, {
+          keyword_id: kid,
+          pin_id: r.pin_id,
+          rank_position: isNullDisplaced ? null : (r.rank_position ?? null),
+          is_displaced: isNullDisplaced
+        });
       }
       return [];
     }
@@ -826,6 +907,23 @@ test('Wave 6A.2: All 8 surface harvesters, __PWS_INITIAL_PROPS__ SSR parser, Pid
     if (url.includes('PinResource/get')) {
       // Sending _auth=1 to PinResource strips pin_join on real Pinterest — assert strict zero-cookie!
       assert.equal(cookieHeader, '');
+      if (url.includes('22220000000001')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '22220000000001',
+              title: 'DIY Cedar Balcony Planter (Root Original)',
+              created_at: threeDaysAgoIso,
+              repin_count: 42,
+              aggregated_pin_data: { aggregated_stats: { saves: 68 } },
+              insertion_source: 'share_extension_ios',
+              is_repin: false,
+              pinner: { username: 'rookie_patio_builder', full_name: 'Rookie Patio Builder', follower_count: 640 },
+              board: { id: '555500001111', name: 'Cottagecore Patio Ideas' }
+            }
+          }
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({
         resource_response: {
           data: {
@@ -840,6 +938,7 @@ test('Wave 6A.2: All 8 surface harvesters, __PWS_INITIAL_PROPS__ SSR parser, Pid
             origin_pinner: { username: 'rookie_patio_builder', full_name: 'Rookie Patio Builder', follower_count: 640 },
             board: { id: '555500001111', name: 'Cottagecore Patio Ideas' },
             pin_join: {
+              canonical_pin: { id: '22220000000001' },
               visual_annotation: ['cottagecore patio', 'cedar planter box'],
               annotations_with_links: [
                 { name: 'small patio garden', url: '/ideas/small-patio-garden/900111222/' }
@@ -1531,4 +1630,335 @@ test('Wave 6A.6: Fastify /api/newborn/* routes enforce auth fail-closed, Cache-C
     headers: authHeaders
   });
   assert.equal(method405.statusCode, 405);
+});
+
+test('Wave 6C.1: Async HTTP 202 Accepted + GET /api/newborn/runs/:id + single-flight dedupe + URLSearchParams cache key + quoted cookie redaction + /api/creators/settings no-store', async (t) => {
+  clearNewbornInflightRunsForTest();
+  const sql = createStatefulNewbornSqlMock();
+  const app = createFastifyApp({
+    NODE_ENV: 'production',
+    ENVIRONMENT: 'production',
+    API_SECRET_KEY: 'wave6c-secret-key',
+    DATABASE_URL: '',
+    SQL_CLIENT: sql,
+    NEWBORN_FETCH_IMPL: async () => new Response(JSON.stringify({ resource_response: { data: { results: [] } } }), { status: 200 })
+  });
+  t.after(async () => {
+    clearNewbornInflightRunsForTest();
+    await app.close();
+  });
+
+  // 1. Quoted _pinterest_sess redaction
+  const leaked = 'Cookie: _pinterest_sess="TWc9PSZsuper_secret_quoted_token_999"; _auth=1';
+  const redacted = redactSecrets(leaked);
+  assert.equal(redacted.includes('super_secret_quoted_token_999'), false);
+  assert.ok(redacted.includes('_pinterest_sess=[REDACTED_COOKIE]'));
+
+  // 2. buildCanonicalCacheKey differentiates URLSearchParams instances cleanly
+  const keyA = buildCanonicalCacheKey('newborn:candidates', new URLSearchParams('stage=watchlist&sort=golden_score'));
+  const keyB = buildCanonicalCacheKey('newborn:candidates', new URLSearchParams('stage=discovered&sort=fresh'));
+  assert.notEqual(keyA, keyB);
+  assert.ok(keyA.includes('stage=watchlist'));
+  assert.ok(keyB.includes('stage=discovered'));
+
+  // 3. GET /api/creators/settings emits private, no-store (never public max-age=30)
+  const creatorSettingsRes = await app.inject({ method: 'GET', url: '/api/creators/settings' });
+  assert.equal(creatorSettingsRes.statusCode, 200);
+  const csCache = String(creatorSettingsRes.headers['cache-control'] || '').toLowerCase();
+  assert.ok(csCache.includes('no-store') && csCache.includes('private'));
+
+  // 4. GET /api/newborn/overview emits no-store
+  const ovRes = await app.inject({ method: 'GET', url: '/api/newborn/overview' });
+  assert.equal(ovRes.statusCode, 200);
+  assert.ok(String(ovRes.headers['cache-control'] || '').includes('no-store'));
+
+  // 5. enqueueNewbornRun single-flight deduplication on (run_type, normalized_seeds, folder_id)
+  let releaseWorker;
+  const workerBlocker = new Promise((resolve) => { releaseWorker = resolve; });
+  let workerInvocations = 0;
+
+  const firstEnq = await enqueueNewbornRun(sql, {
+    runType: 'discovery',
+    seedQueries: ['graduation party foods'],
+    folderId: 9,
+    workerExecutor: async ({ runId }) => {
+      workerInvocations++;
+      await workerBlocker;
+      await sql`UPDATE newborn_runs SET status = 'completed', progress_stage = 'completed', progress_pct = 100 WHERE id = ${runId};`;
+    }
+  });
+  assert.equal(firstEnq.queued, true);
+  assert.equal(firstEnq.deduplicated, false);
+  assert.ok(firstEnq.run_id > 0);
+
+  const secondEnq = await enqueueNewbornRun(sql, {
+    runType: 'discovery',
+    seedQueries: ['GRADUATION PARTY FOODS'],
+    folderId: 9,
+    workerExecutor: async () => { workerInvocations++; }
+  });
+  assert.equal(secondEnq.deduplicated, true);
+  assert.equal(secondEnq.run_id, firstEnq.run_id);
+
+  // 6. GET /api/newborn/runs/:id returns live running state, 404 on unknown, 400 on invalid
+  const pollRunning = await app.inject({ method: 'GET', url: `/api/newborn/runs/${firstEnq.run_id}` });
+  assert.equal(pollRunning.statusCode, 200);
+  assert.ok(String(pollRunning.headers['cache-control'] || '').includes('no-store'));
+  assert.equal(pollRunning.json().run.status, 'running');
+
+  const poll404 = await app.inject({ method: 'GET', url: '/api/newborn/runs/999999' });
+  assert.equal(poll404.statusCode, 404);
+  const poll400 = await app.inject({ method: 'GET', url: '/api/newborn/runs/not-a-number' });
+  assert.equal(poll400.statusCode, 400);
+
+  releaseWorker();
+  await new Promise((r) => setTimeout(r, 30));
+
+  const pollCompleted = await app.inject({ method: 'GET', url: `/api/newborn/runs/${firstEnq.run_id}` });
+  assert.equal(pollCompleted.statusCode, 200);
+  assert.equal(pollCompleted.json().run.status, 'completed');
+  assert.equal(workerInvocations, 1);
+
+  // 7. HTTP POST /api/newborn/discover returns HTTP 202 Accepted in < 100ms with no-store
+  const authHeaders = { 'x-api-key': 'wave6c-secret-key' };
+  const t0 = Date.now();
+  const disc202 = await app.inject({
+    method: 'POST',
+    url: '/api/newborn/discover',
+    headers: authHeaders,
+    payload: { query: 'graduation party foods', folder_id: 9 }
+  });
+  const elapsedMs = Date.now() - t0;
+  assert.equal(disc202.statusCode, 202);
+  assert.ok(elapsedMs < 500, `Expected fast 202 Accepted, took ${elapsedMs}ms`);
+  assert.ok(String(disc202.headers['cache-control'] || '').includes('no-store'));
+  assert.equal(disc202.json().queued, true);
+  assert.ok(disc202.json().run_id > 0);
+});
+
+test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, semantic board overlap, strict SSR pin filter, 2026 saves-primary math, isProduct fix, SSOT hygiene & 004 migration', async () => {
+  const nowMs = Date.parse('2026-04-15T12:00:00Z');
+  const threeDaysAgo = '2026-04-12T12:00:00Z';
+  const ancient2022 = '2022-05-10T12:00:00Z';
+
+  // 1. formatPin isProduct fix: is_eligible_for_pdp + empty shopping_data: {} MUST NOT mark recipes as commercial products
+  const normalRecipePin = formatPin({
+    id: '77770000111122',
+    title: 'Graduation Fruit Skewers',
+    is_eligible_for_pdp: true,
+    shopping_data: {},
+    buyable_product: {},
+    price_value: 0
+  });
+  assert.equal(normalRecipePin.is_product, false);
+
+  const realProductPin = formatPin({
+    id: '77770000111123',
+    title: 'Ceramic Serving Platter',
+    price_value: 29.99,
+    shopping_data: { price_value: 29.99 }
+  });
+  assert.equal(realProductPin.is_product, true);
+
+  // 2. 2026 Saves-primary qualification & null secondary metrics (repin_count = 0, save_count = 45, age_days = 5)
+  const pin2026 = scoreNewbornCandidate({
+    pin_id: '77770000111124',
+    created_at_pinterest: '2026-04-10T12:00:00Z',
+    repin_count: 0,
+    save_count: 45,
+    share_count: null,
+    comment_count: null,
+    reaction_count: null,
+    is_hydrated: true,
+    root_age_verified: true
+  }, DEFAULT_NEWBORN_SETTINGS, { nowMs });
+  assert.equal(pin2026.qualified, true);
+  assert.equal(pin2026.share_count, null);
+  assert.equal(pin2026.comment_count, null);
+  assert.equal(pin2026.reaction_count, null);
+
+  // 3. Semantic board overlap & strict SSR node.type === 'pin' filter + nested RelatedModules unwrap
+  assert.equal(boardMatchesSeedQuery('Graduation Party Food Ideas', 'graduation-party-food', 'graduation party foods'), true);
+  assert.equal(boardMatchesSeedQuery('Sims 4 Modern Builds', 'sims-4-modern-builds', 'graduation party foods'), false);
+  assert.equal(boardMatchesSeedQuery('Winter Outfit Inspo', 'winter-outfits', 'graduation party foods'), false);
+  assert.equal(formatPinterestBoardUrl('/curatorjane/urban-balcony-ideas/'), 'https://www.pinterest.com/curatorjane/urban-balcony-ideas/');
+
+  const ssrShelfPins = collectPinsFromSsrTree({
+    shelves: [
+      { id: '99990000111122', type: 'module', title: 'Explore featured boards', images: { '736x': { url: 'x.jpg' } } },
+      { id: '99990000111123', type: 'pin', title: 'Real Pin', images: { '736x': { url: 'https://i.pinimg.com/736x/a.jpg' } } }
+    ]
+  });
+  assert.equal(ssrShelfPins.length, 1);
+  assert.equal(ssrShelfPins[0].id, '99990000111123');
+
+  const unwrappedRelated = extractPinsFromRelatedModulesPayload([
+    {
+      type: 'module',
+      pins: [
+        { id: '88880000111122', type: 'pin', title: 'Nested Related Pin', images: { '736x': { url: 'https://i.pinimg.com/736x/b.jpg' } } }
+      ]
+    }
+  ]);
+  assert.equal(unwrappedRelated.length, 1);
+  assert.equal(unwrappedRelated[0].id, '88880000111122');
+
+  // 4. fetchRelatedModulesWithZoneA records 429 failures on PinterestCircuitBreaker
+  const cb429 = new PinterestCircuitBreaker({ failureThreshold: 1, cooldownMs: 60_000 });
+  const rateRes = await fetchRelatedModulesWithZoneA('https://www.pinterest.com/resource/RelatedModulesResource/get/', {
+    pinId: '88880000111122',
+    rawCookie: '',
+    breaker: cb429,
+    fetchImpl: async () => new Response('Too Many Requests', { status: 429 })
+  });
+  assert.equal(rateRes.ok, false);
+  assert.equal(rateRes.status, 429);
+  assert.equal(cb429.getState().state, 'OPEN');
+
+  // 5. Child Repin Fake-Age Trap + Hard Gate Before Persistence + Zero Cross-Topic Pollution
+  const sql = createStatefulNewbornSqlMock();
+  const urlsHit = [];
+  const mockFetch = async (url) => {
+    urlsHit.push(url);
+    if (url.includes('BaseSearchResource/get') && url.includes('pins')) {
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: {
+            results: [
+              // Authentic 3-day-old newborn pin (2026 repin_count=0, saves=42)
+              { id: '66000000000001', type: 'pin', title: 'Graduation Dessert Shooters', images: { '736x': { url: 'https://i.pinimg.com/736x/1.jpg' } } },
+              // Child repin clone created 3 days ago pointing to a 2022 root pin!
+              { id: '66000000000002', type: 'pin', title: 'Old 2022 Repin Clone', images: { '736x': { url: 'https://i.pinimg.com/736x/2.jpg' } } },
+              // Child repin with unverifiable/missing root pin
+              { id: '66000000000003', type: 'pin', title: 'Unverifiable Repin Clone', images: { '736x': { url: 'https://i.pinimg.com/736x/3.jpg' } } }
+            ]
+          }
+        }
+      }), { status: 200 });
+    }
+    if (url.includes('BaseSearchResource/get') && url.includes('boards')) {
+      return new Response(JSON.stringify({ resource_response: { data: { results: [] } } }), { status: 200 });
+    }
+    if (url.includes('widgets.pinterest.com/v3/pidgets/pins/info/')) {
+      return new Response(JSON.stringify({
+        data: [
+          { id: '66000000000001', aggregated_pin_data: { aggregated_stats: { saves: 42 } } },
+          { id: '66000000000002', aggregated_pin_data: { aggregated_stats: { saves: 500 } } },
+          { id: '66000000000003', aggregated_pin_data: { aggregated_stats: { saves: 300 } } }
+        ]
+      }), { status: 200 });
+    }
+    if (url.includes('PinResource/get')) {
+      if (url.includes('66000000000001')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '66000000000001',
+              title: 'Graduation Dessert Shooters',
+              created_at: threeDaysAgo,
+              repin_count: 0,
+              aggregated_pin_data: { aggregated_stats: { saves: 42 } },
+              insertion_source: 'share_extension_ios',
+              is_repin: false,
+              pinner: { username: 'gradchef', follower_count: 500 },
+              board: { id: '101', name: 'Graduation Party Food Ideas', url: '/gradchef/graduation-party-food-ideas/' },
+              pin_join: { visual_annotation: ['graduation party foods'] }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('66000000000002')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '66000000000002',
+              title: 'Old 2022 Repin Clone',
+              created_at: threeDaysAgo,
+              repin_count: 0,
+              aggregated_pin_data: { aggregated_stats: { saves: 500 } },
+              is_repin: true,
+              pin_join: { canonical_pin: { id: '66000000009999' } }
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('66000000009999')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '66000000009999',
+              title: 'Original 2022 Pin',
+              created_at: ancient2022,
+              is_repin: false
+            }
+          }
+        }), { status: 200 });
+      }
+      if (url.includes('66000000000003')) {
+        return new Response(JSON.stringify({
+          resource_response: {
+            data: {
+              id: '66000000000003',
+              title: 'Unverifiable Repin Clone',
+              created_at: threeDaysAgo,
+              aggregated_pin_data: { aggregated_stats: { saves: 300 } },
+              is_repin: true
+            }
+          }
+        }), { status: 200 });
+      }
+    }
+    if (url.includes('UserResource/get')) {
+      return new Response(JSON.stringify({
+        resource_response: { data: { username: 'gradchef', follower_count: 500, profile_reach: 120000, profile_views: 180000 } }
+      }), { status: 200 });
+    }
+    return new Response('{}', { status: 404 });
+  };
+
+  // Verify Pidgets pre-triage NEVER sets is_hydrated = true even when saves are returned
+  const router = new NewbornCookieRouter({ rawCookie: '', fetchImpl: mockFetch });
+  const pidgetsPre = await pretriageCandidatesWithPidgets(['66000000000001'], router);
+  assert.equal(pidgetsPre.get('66000000000001').is_hydrated, false);
+
+  const huntRes = await runNewbornDiscovery(sql, {
+    seedQueries: ['graduation party foods'],
+    routerOptions: { fetchImpl: mockFetch },
+    nowMs
+  });
+
+  // Zero cross-topic pollution: trends & SearchTabResource NEVER called on explicit seed hunt
+  assert.equal(urlsHit.some((u) => u.includes('trends.pinterest.com') || u.includes('SearchTabResource')), false);
+
+  // Hard Gate Before Persistence: ONLY the verified 3-day-old original pin survived!
+  assert.equal(huntRes.candidates.length, 1);
+  assert.equal(huntRes.candidates[0].pin_id, '66000000000001');
+  assert.equal(sql.state.candidates.size, 1);
+  assert.equal(sql.state.candidates.has('66000000000002'), false, '2022 child repin clone must be discarded before DB write');
+  assert.equal(sql.state.candidates.has('66000000000003'), false, 'Unverifiable child repin must be discarded before DB write');
+  assert.equal(sql.state.runCandidates.size, 1);
+
+  // 6. SSOT Promotion Hygiene: Day-1 daily_save_velocity = 0, rank_position = NULL, is_displaced = true
+  const promoRes = await promoteNewbornCandidates(sql, {
+    pinIds: ['66000000000001'],
+    destinations: { promote_to_daily_ssot: true, promote_top_annotation_as_keyword: true }
+  });
+  assert.equal(promoRes.ok, true);
+  const masterPin = sql.state.masterPins.get('66000000000001');
+  assert.equal(masterPin.daily_save_velocity, 0, 'Must preserve Day-1 anti-hydration-spike velocity 0');
+  assert.equal(masterPin.is_hydrated, true);
+  const serpPos = Array.from(sql.state.serpPositions.values())[0];
+  assert.equal(serpPos.rank_position, null, 'Must never fabricate fake rank_position 1,2,3');
+  assert.equal(serpPos.is_displaced, true);
+
+  // 7. Additive Migration 004 & Workflow InstaBox sleep gate verification
+  const mig004 = fs.readFileSync(path.resolve('scripts/migrations/004_newborn_scoping_and_hygiene.sql'), 'utf8');
+  const mig004NoComments = mig004.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(/\bCONCURRENTLY\b/i.test(mig004NoComments), false, 'Migration 004 must be strictly transactional (no CONCURRENTLY)');
+  assert.ok(mig004.includes('CREATE TABLE IF NOT EXISTS public.newborn_run_candidates'));
+  assert.ok(mig004.includes('DROP INDEX IF EXISTS public.idx_nc_stage_golden'));
+
+  const workflowYml = fs.readFileSync(path.resolve('.github/workflows/newborn-hunter.yml'), 'utf8');
+  assert.ok(workflowYml.includes("vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'"));
+  assert.ok(workflowYml.includes("needs.hunter-fleet.result == 'success'"));
 });

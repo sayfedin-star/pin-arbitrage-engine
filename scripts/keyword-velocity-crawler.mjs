@@ -651,11 +651,20 @@ export async function fetchStandaloneNewbornAnchorsForWorker(targetSql, { worker
           NULL::int AS keyword_id,
           NULL::int AS rank_position,
           NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
           ump.save_count,
           ump.repin_count,
           ump.daily_save_velocity,
+          ump.daily_repin_velocity,
           ump.created_at_pinterest,
           ump.creation_method,
+          ump.is_hydrated,
           ump.is_hydrated AS is_deep_hydrated,
           ump.last_scraped_at,
           ump.visual_annotations,
@@ -689,17 +698,80 @@ export async function fetchStandaloneNewbornAnchorsForWorker(targetSql, { worker
         ORDER BY nda.pin_id ASC;
       `;
     }
+    if (wTotal > 1) {
+      return await targetSql`
+        SELECT
+          nda.pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          ump.is_hydrated,
+          ump.is_hydrated AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(nda.last_crawled_at, nda.promoted_at) AS crawled_at,
+          nda.updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_newborn_anchor,
+          CASE
+            WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+             AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+             AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM newborn_daily_anchors nda
+        JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
+        WHERE nda.is_active = TRUE
+          AND (ABS(hashtext(nda.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+        ORDER BY nda.pin_id ASC;
+      `;
+    }
     return await targetSql`
       SELECT
         nda.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS rank_position,
         NULL::int AS last_known_rank,
+        ump.creator_username,
+        ump.board_name,
+        ump.description,
+        ump.alt_text,
+        ump.dominant_color,
+        ump.comment_count,
+        ump.share_count,
         ump.save_count,
         ump.repin_count,
         ump.daily_save_velocity,
+        ump.daily_repin_velocity,
         ump.created_at_pinterest,
         ump.creation_method,
+        ump.is_hydrated,
         ump.is_hydrated AS is_deep_hydrated,
         ump.last_scraped_at,
         ump.visual_annotations,
@@ -713,17 +785,33 @@ export async function fetchStandaloneNewbornAnchorsForWorker(targetSql, { worker
         nda.updated_at,
         FALSE AS is_displaced,
         TRUE AS is_newborn_anchor,
-        NULL::bigint AS baseline_day_saves,
-        NULL::date AS baseline_day_date,
+        CASE
+          WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+           AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN ump.save_count
+          ELSE NULL
+        END AS baseline_day_saves,
+        CASE
+          WHEN COALESCE(nda.last_crawled_at, nda.promoted_at) IS NOT NULL
+           AND (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN (COALESCE(nda.last_crawled_at, nda.promoted_at) AT TIME ZONE 'UTC')::date
+          ELSE NULL
+        END AS baseline_day_date,
         '[]'::jsonb AS folder_positions
       FROM newborn_daily_anchors nda
       JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
       WHERE nda.is_active = TRUE
-        AND (ABS(hashtext(nda.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
       ORDER BY nda.pin_id ASC;
     `;
-  } catch (_) {
-    return [];
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') {
+      return [];
+    }
+    console.error('[keyword-velocity-crawler] fetchStandaloneNewbornAnchorsForWorker SQL error:', err?.message || err);
+    if (classifyFatalSerpSqlError(err)) {
+      throw err;
+    }
+    throw err;
   }
 }
 
@@ -732,7 +820,8 @@ export async function fetchStandaloneNewbornAnchorsForWorker(targetSql, { worker
  */
 export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
   if (!targetSql || typeof targetSql !== 'function') return 0;
-  const cleanIds = Array.from(new Set((pinIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const cleanIds = Array.from(new Set((pinIds || []).map((id) => String(id || '').trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
   if (cleanIds.length === 0) return 0;
   try {
     const updated = await targetSql`
@@ -744,8 +833,15 @@ export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
       RETURNING pin_id;
     `;
     return Array.isArray(updated) ? updated.length : 0;
-  } catch (_) {
-    return 0;
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') {
+      return 0;
+    }
+    console.error('[keyword-velocity-crawler] markNewbornAnchorsCrawled SQL error:', err?.message || err);
+    if (classifyFatalSerpSqlError(err)) {
+      throw err;
+    }
+    throw err;
   }
 }
 

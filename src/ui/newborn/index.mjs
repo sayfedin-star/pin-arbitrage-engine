@@ -1,14 +1,13 @@
 /**
  * src/ui/newborn/index.mjs
  *
- * SSR Studio Entrypoint for `/newborn` & Folder-Scoped `/folders/:id/newborn`:
- * - Unified Light-Mode Bento SaaS shell (`:root` default, `.dark` on `document.documentElement` only)
- * - Trends & Zero-Query Launchpad + Multi-Surface Hunt Bar
- * - Golden Newborn Candidates Grid (Pinner vs Origin Creator, Provenance, Linkless Goldmine, Snowball, Multi-Pillar Promote)
- * - Rookie / Rising Accounts Radar (`Total audience`, `Impressions`, `10M+` ceiling, Leverage Ratio)
- * - Semantic Crossover & Board Blueprints
- * - Watchlist, `01:00 UTC` Daily Anchors & Execution Run Diagnostics
- * - Full-Power Settings, Named Rule Profiles & Redacted Zone-A Cookie Control Center
+ * SSR Studio Entrypoint for `/newborn`, `/newborn/settings` & `/folders/:id/newborn`:
+ * Radically simplified 3-Second Studio UI:
+ * - Light-Mode Bento SaaS shell (`:root` default, `.dark` on `document.documentElement` only)
+ * - Clean Header + Focused Hero Hunt Bar + Collapsible Rising Trends Picker
+ * - Instant HTTP 202 Live Progress Strip (`GET /api/newborn/runs/:id` every 1.5s)
+ * - Clean 3-View Results Workspace (`This Hunt` | `Watchlist` | `Past Hunts`)
+ * - Full-Power Slide-Over Settings Drawer (Age presets, Rule Profiles, Cookie Vault, Surfaces & Auto-Track)
  */
 
 import { renderAppSidebar } from '../app-sidebar.mjs';
@@ -19,20 +18,22 @@ import { getNewbornCandidatesAndRookiesHtml } from './newborn-candidates-and-roo
 import { getNewbornSettingsAndModalsHtml } from './newborn-settings-and-modals.mjs';
 import { getNewbornClientAppScript } from './newborn-client-app.mjs';
 
-const VALID_INITIAL_ROOMS = new Set([
-  'launchpad',
+const VALID_INITIAL_MODES = new Set([
+  'hunt',
   'candidates',
-  'rookies',
-  'crossover',
   'watchlist',
-  'settings'
+  'history',
+  'settings',
+  'launchpad',
+  'rookies',
+  'crossover'
 ]);
 
 export function getNewbornPageHtml(folderId = '', initialRoom = '') {
   const rawFolderId = String(folderId || '').trim();
   const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
-  const rawRoom = String(initialRoom || '').trim().toLowerCase();
-  const safeInitialRoom = VALID_INITIAL_ROOMS.has(rawRoom) ? rawRoom : 'candidates';
+  const rawMode = String(initialRoom || '').trim().toLowerCase();
+  const safeInitialMode = VALID_INITIAL_MODES.has(rawMode) ? rawMode : 'hunt';
 
   const tailwindScriptHtml = `  <script>
     if (typeof tailwind !== 'undefined') {
@@ -62,23 +63,23 @@ export function getNewbornPageHtml(folderId = '', initialRoom = '') {
 <html lang="en">
 <head>
 ${renderSharedDocumentHead({
-  title: 'Newborn Breakout Hunter &amp; Automation Studio | Pinterest Arbitrage',
+  title: 'Newborn Pin Hunter | Pinterest Arbitrage',
   referrerPolicy: 'same-origin',
   tailwindScriptHtml,
   includeThemeScript: true,
   defaultTheme: 'light'
 })}
 </head>
-<body x-cloak class="bg-[#F8FAFC] dark:bg-[#09090B] text-[#0F172A] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="newbornStudioApp('${safeFolderId}', '${safeInitialRoom}')" @keydown.escape.window="handleEscapeKey()">
+<body x-cloak class="bg-[#F8FAFC] dark:bg-[#09090B] text-[#0F172A] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-150 motion-reduce:transition-none" x-data="newbornStudioApp('${safeFolderId}', '${safeInitialMode}')" @keydown.escape.window="handleEscapeKey()">
 
   ${renderAppSidebar({
     activeNav: safeFolderId ? 'folders' : 'newborn',
-    refreshHandler: 'refreshActiveRoom(true)',
-    refreshLoadingExpr: 'isLoading || isHunting'
+    refreshHandler: 'refreshWorkspace(true)',
+    refreshLoadingExpr: 'isLoading || isPollingRun'
   })}
 
   <!-- Primary Workspace Container -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
     ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'newborn', folderId: safeFolderId }) : ''}
 
@@ -86,11 +87,9 @@ ${getNewbornHeaderAndLaunchpadHtml()}
 
 ${getNewbornCandidatesAndRookiesHtml()}
 
-${getNewbornSettingsAndModalsHtml({ includeModals: false })}
-
   </main>
 
-${getNewbornSettingsAndModalsHtml({ includeSettingsRoom: false, includeModals: true })}
+${getNewbornSettingsAndModalsHtml()}
 
 ${getNewbornClientAppScript()}
 </body>

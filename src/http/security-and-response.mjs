@@ -34,7 +34,7 @@ export function redactSecrets(str) {
     .replace(/(Bearer\s+)[A-Za-z0-9_.-]{12,}/gi, '$1[REDACTED_TOKEN]')
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
-    .replace(/(_pinterest_sess=)[^;\s"']+/gi, '$1[REDACTED_COOKIE]')
+    .replace(/(_pinterest_sess=)(?:"[^"]*"|'[^']*'|[^;\s"']+)/gi, '$1[REDACTED_COOKIE]')
     .replace(/([?&](?:password|token|secret|apiKey|api_key)=)[^&\s"']+/gi, '$1[REDACTED]')
     .replace(/\b((?:password|passwd|pwd|api_secret_key|instabox_api_key)\s*[=:]\s*)[^\s,;'"&]+/gi, '$1[REDACTED]');
 }
@@ -642,7 +642,10 @@ const isEdgePayloadCacheable = (fresh) => Boolean(
 );
 
 export function buildCanonicalCacheKey(prefix, params = {}) {
-  const sortedEntries = Object.entries(params)
+  const normalizedParams = (params instanceof URLSearchParams || (params && typeof params.entries === 'function' && typeof params.get === 'function'))
+    ? Object.fromEntries(params.entries())
+    : (params && typeof params === 'object' ? params : {});
+  const sortedEntries = Object.entries(normalizedParams)
     .filter(([_, v]) => v !== undefined && v !== null && v !== '')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => {
@@ -678,7 +681,13 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
   });
 }
 
-export async function invalidateEdgeCache(prefix = '') {
-  edgeCache.invalidate(prefix);
+export async function invalidateEdgeCache(...prefixes) {
+  if (!prefixes || prefixes.length === 0) {
+    edgeCache.invalidate('');
+    return Promise.resolve();
+  }
+  for (const prefix of prefixes) {
+    edgeCache.invalidate(typeof prefix === 'string' ? prefix : '');
+  }
   return Promise.resolve();
 }

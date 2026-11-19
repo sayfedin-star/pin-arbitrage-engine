@@ -542,21 +542,21 @@ export function collectPinsFromSsrTree(rootNode, maxPins = 200) {
 
     const rawId = node.id ?? node.entityId ?? node.pin_id ?? null;
     const idStr = rawId !== null && rawId !== undefined ? String(rawId).trim() : '';
+    const hasValidPinStructure = Boolean(
+      (node.images && typeof node.images === 'object') ||
+      node.imageSpec_736x ||
+      node.image_large_url ||
+      node.repin_count !== undefined ||
+      node.aggregated_pin_data ||
+      node.pinner ||
+      node.pin_join ||
+      node.created_at
+    );
     const looksLikePin = Boolean(
       /^\d{10,25}$/.test(idStr) &&
-      node.type !== 'board' &&
-      node.type !== 'user' &&
-      node.type !== 'interest' &&
+      node.type === 'pin' &&
       !node.is_promoted &&
-      (
-        node.type === 'pin' ||
-        node.images ||
-        node.imageSpec_736x ||
-        node.repin_count !== undefined ||
-        node.aggregated_pin_data ||
-        node.pinner ||
-        node.pin_join
-      )
+      hasValidPinStructure
     );
 
     if (looksLikePin && !collected.has(idStr)) {
@@ -628,8 +628,15 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
     dispatcher = undefined,
     timeoutMs = 8000,
     signal: externalSignal = null,
-    extraHeaders = {}
+    extraHeaders = {},
+    circuitBreaker = undefined,
+    breaker = undefined,
+    skipCircuitBreaker = false
   } = options;
+
+  const activeBreaker = circuitBreaker !== undefined
+    ? circuitBreaker
+    : (breaker !== undefined ? breaker : globalPinterestCircuitBreaker);
 
   let resolvedCookie = '';
   if (typeof rawCookie === 'string') {
@@ -647,13 +654,39 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
 
   const effectiveDispatcher = dispatcher !== undefined ? dispatcher : getDefaultDispatcher();
   const execOnce = async (reqHeaders) => {
+    if (externalSignal?.aborted) {
+      throw externalSignal.reason || new DOMException('The operation was aborted.', 'AbortError');
+    }
+    if (!skipCircuitBreaker && activeBreaker && typeof activeBreaker.canExecute === 'function' && !activeBreaker.canExecute()) {
+      throw new CircuitBreakerOpenError();
+    }
     const signal = buildTimeoutSignal(timeoutMs, externalSignal);
-    return await fetchImpl(url, {
-      method: 'GET',
-      headers: reqHeaders,
-      signal,
-      ...(effectiveDispatcher ? { dispatcher: effectiveDispatcher } : {})
-    });
+    try {
+      const res = await fetchImpl(url, {
+        method: 'GET',
+        headers: reqHeaders,
+        signal,
+        ...(effectiveDispatcher ? { dispatcher: effectiveDispatcher } : {})
+      });
+      // CRITICAL: HTTP 412/401 are cookie-auth signals, NEVER IP-ban rate limits.
+      if (res.status === 412 || res.status === 401) {
+        activeBreaker?.releaseProbe?.();
+      } else if (res.status === 429 || res.status === 403) {
+        activeBreaker?.recordFailure?.(res.status);
+      } else if (res.ok || res.status === 404) {
+        activeBreaker?.recordSuccess?.();
+      } else {
+        activeBreaker?.releaseProbe?.();
+      }
+      return res;
+    } catch (err) {
+      if (externalSignal?.aborted) {
+        activeBreaker?.releaseProbe?.();
+        throw err;
+      }
+      activeBreaker?.recordFailure?.(null, err);
+      throw err;
+    }
   };
 
   const firstRes = await execOnce(headers);

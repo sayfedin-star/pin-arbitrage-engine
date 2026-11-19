@@ -68,7 +68,19 @@ export function getPinDetailsBodyHtml(safePinId) {
             </template>
           </div>
         </template>
-        <template x-if="!isCreatorContext() && originSource !== 'folder' && originSource !== 'domain' && originSource !== 'pulse'">
+        <template x-if="!isCreatorContext() && originSource === 'newborn'">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-slate-600">/</span>
+            <a :href="sanitizeReturnUrl(originReturnUrl) || '/newborn'" class="text-rose-500 hover:underline font-medium truncate">Newborn Hunter</a>
+            <template x-if="originFolderId">
+              <span class="flex items-center gap-1.5 truncate">
+                <span class="text-slate-600">/</span>
+                <a :href="'/folders/' + encodeURIComponent(originFolderId) + '/newborn'" class="text-indigo-500 hover:underline truncate" x-text="originFolderName || ('Folder #' + originFolderId)"></a>
+              </span>
+            </template>
+          </div>
+        </template>
+        <template x-if="!isCreatorContext() && originSource !== 'folder' && originSource !== 'domain' && originSource !== 'pulse' && originSource !== 'newborn'">
           <div class="flex items-center gap-1.5 truncate">
             <span class="text-slate-600">/</span>
             <a href="/keywords" class="text-slate-400 hover:text-white">Keywords Radar</a>

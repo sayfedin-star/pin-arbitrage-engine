@@ -228,9 +228,9 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     age_window_preset: '30d',
     min_age_days: 0,
     max_age_days: 30,
-    min_repin_count: 5,
-    min_save_count: 10,
-    min_repin_per_day: 1.5,
+    min_repin_count: 0,
+    min_save_count: 15,
+    min_repin_per_day: 0,
     min_save_per_day: 2.0,
     min_shares: 0,
     min_comments: 0,
@@ -263,16 +263,18 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     },
     pin_promotion_rules: {
       watchlist_thresholds: {
-        min_repins: 5,
-        min_saves: 0,
-        min_repin_per_day: 1.5,
+        min_repins: 0,
+        min_saves: 15,
+        min_repin_per_day: 0,
+        min_save_per_day: 2.0,
         max_age_days: 30,
         min_golden_score: 55
       },
       promote_thresholds: {
-        min_repins: 25,
+        min_repins: 0,
         min_saves: 40,
-        min_repin_per_day: 4.0,
+        min_repin_per_day: 0,
+        min_save_per_day: 4.0,
         max_age_days: 30,
         min_golden_score: 75,
         min_consecutive_days: 2
@@ -574,9 +576,9 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       age_window_preset: agePreset,
       min_age_days: minAgeDays,
       max_age_days: maxAgeDays,
-      min_repin_count: clampInt(patchQual.min_repin_count, baseQual.min_repin_count ?? 5, 0, 10000000),
-      min_save_count: clampInt(patchQual.min_save_count, baseQual.min_save_count ?? 10, 0, 10000000),
-      min_repin_per_day: clampNum(patchQual.min_repin_per_day, baseQual.min_repin_per_day ?? 1.5, 0, 100000),
+      min_repin_count: clampInt(patchQual.min_repin_count, baseQual.min_repin_count ?? 0, 0, 10000000),
+      min_save_count: clampInt(patchQual.min_save_count, baseQual.min_save_count ?? 15, 0, 10000000),
+      min_repin_per_day: clampNum(patchQual.min_repin_per_day, baseQual.min_repin_per_day ?? 0, 0, 100000),
       min_save_per_day: clampNum(patchQual.min_save_per_day, baseQual.min_save_per_day ?? 2.0, 0, 100000),
       min_shares: clampInt(patchQual.min_shares, baseQual.min_shares ?? 0, 0, 1000000),
       min_comments: clampInt(patchQual.min_comments, baseQual.min_comments ?? 0, 0, 1000000),
@@ -623,16 +625,18 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       },
       pin_promotion_rules: {
         watchlist_thresholds: {
-          min_repins: clampInt(patchWatchThresh.min_repins, baseWatchThresh.min_repins ?? 5, 0, 10000000),
-          min_saves: clampInt(patchWatchThresh.min_saves, baseWatchThresh.min_saves ?? 0, 0, 10000000),
-          min_repin_per_day: clampNum(patchWatchThresh.min_repin_per_day, baseWatchThresh.min_repin_per_day ?? 1.5, 0, 100000),
+          min_repins: clampInt(patchWatchThresh.min_repins, baseWatchThresh.min_repins ?? 0, 0, 10000000),
+          min_saves: clampInt(patchWatchThresh.min_saves, baseWatchThresh.min_saves ?? 15, 0, 10000000),
+          min_repin_per_day: clampNum(patchWatchThresh.min_repin_per_day, baseWatchThresh.min_repin_per_day ?? 0, 0, 100000),
+          min_save_per_day: clampNum(patchWatchThresh.min_save_per_day, baseWatchThresh.min_save_per_day ?? 2.0, 0, 100000),
           max_age_days: clampNum(patchWatchThresh.max_age_days, baseWatchThresh.max_age_days ?? 30, 0.5, 3650),
           min_golden_score: clampNum(patchWatchThresh.min_golden_score, baseWatchThresh.min_golden_score ?? 55, 0, 100)
         },
         promote_thresholds: {
-          min_repins: clampInt(patchPromoThresh.min_repins, basePromoThresh.min_repins ?? 25, 0, 10000000),
+          min_repins: clampInt(patchPromoThresh.min_repins, basePromoThresh.min_repins ?? 0, 0, 10000000),
           min_saves: clampInt(patchPromoThresh.min_saves, basePromoThresh.min_saves ?? 40, 0, 10000000),
-          min_repin_per_day: clampNum(patchPromoThresh.min_repin_per_day, basePromoThresh.min_repin_per_day ?? 4.0, 0, 100000),
+          min_repin_per_day: clampNum(patchPromoThresh.min_repin_per_day, basePromoThresh.min_repin_per_day ?? 0, 0, 100000),
+          min_save_per_day: clampNum(patchPromoThresh.min_save_per_day, basePromoThresh.min_save_per_day ?? 4.0, 0, 100000),
           max_age_days: clampNum(patchPromoThresh.max_age_days, basePromoThresh.max_age_days ?? 30, 0.5, 3650),
           min_golden_score: clampNum(patchPromoThresh.min_golden_score, basePromoThresh.min_golden_score ?? 75, 0, 100),
           min_consecutive_days: clampInt(patchPromoThresh.min_consecutive_days, basePromoThresh.min_consecutive_days ?? 2, 1, 30)
@@ -849,18 +853,53 @@ export async function resetNewbornSettings(sql) {
 }
 
 /**
- * Stamps last_discovery_run_at or last_watchlist_poll_at in app_settings.
+ * Atomically stamps `last_discovery_run_at` or `last_watchlist_poll_at` in `app_settings`
+ * using PostgreSQL `jsonb_set` (zero read-modify-write race across concurrent workers).
  */
 export async function stampAutomationRunTimestamp(sql, runKind = 'discovery', timestampIso = new Date().toISOString()) {
   if (!sql || typeof sql !== 'function') return null;
   const field = runKind === 'watchlist_poll' ? 'last_watchlist_poll_at' : 'last_discovery_run_at';
-  return await patchNewbornSettings(sql, {
+  const cleanIso = cleanIsoOrNull(timestampIso, new Date().toISOString());
+  const initialDoc = normalizeNewbornSettings({
     automation: {
       schedule: {
-        [field]: timestampIso
+        [field]: cleanIso
       }
     }
   });
+  const jsonPath = ['automation', 'schedule', field];
+
+  const [saved] = await sql`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (${NEWBORN_SETTINGS_KEY}, ${JSON.stringify(sanitizeForJsonb(initialDoc))}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET
+      value = jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            COALESCE(app_settings.value, '{}'::jsonb),
+            ARRAY['automation']::text[],
+            COALESCE(app_settings.value->'automation', '{}'::jsonb),
+            true
+          ),
+          ARRAY['automation', 'schedule']::text[],
+          COALESCE(app_settings.value->'automation'->'schedule', '{}'::jsonb),
+          true
+        ),
+        ${jsonPath}::text[],
+        to_jsonb(${cleanIso}::text),
+        true
+      ),
+      updated_at = NOW()
+    RETURNING value, updated_at;
+  `;
+
+  const parsedVal = saved?.value
+    ? (typeof saved.value === 'string' ? JSON.parse(saved.value) : saved.value)
+    : initialDoc;
+  return {
+    ...normalizeNewbornSettings(parsedVal, DEFAULT_NEWBORN_SETTINGS),
+    updated_at: saved?.updated_at ? new Date(saved.updated_at).toISOString() : cleanIso
+  };
 }
 
 function slugifyRuleProfileName(raw) {

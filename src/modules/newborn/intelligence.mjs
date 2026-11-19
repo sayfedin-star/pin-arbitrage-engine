@@ -138,9 +138,14 @@ export function computeCandidateMetrics(candidate = {}, nowMs = Date.now()) {
     effectiveFollowers = Number(candidate.effective_creator_followers);
   }
 
-  const primaryVolume = Math.max(saveCount ?? 0, repinCount ?? 0);
+  const primaryVolume = (saveCount !== null || repinCount !== null)
+    ? Math.max(saveCount ?? 0, repinCount ?? 0)
+    : null;
+  const primaryVelocity = (savePerDay !== null || repinPerDay !== null)
+    ? Math.max(savePerDay ?? 0, repinPerDay ?? 0)
+    : null;
   const outlierRatio = (effectiveFollowers !== null && Number.isFinite(effectiveFollowers))
-    ? round2(primaryVolume / Math.max(50, effectiveFollowers))
+    ? round2((primaryVolume ?? 0) / Math.max(50, effectiveFollowers))
     : null;
 
   return {
@@ -149,6 +154,8 @@ export function computeCandidateMetrics(candidate = {}, nowMs = Date.now()) {
     save_count: saveCount,
     repin_per_day: repinPerDay,
     save_per_day: savePerDay,
+    primary_engagement: primaryVolume,
+    primary_velocity: primaryVelocity,
     effective_creator_username: effectiveUsername,
     effective_creator_followers: effectiveFollowers,
     is_repin: Boolean(candidate.is_repin || (originUsername && pinnerUsername && originUsername !== pinnerUsername)),
@@ -169,49 +176,54 @@ export function evaluateCandidateQualification(candidate = {}, rawSettings = DEF
   const metrics = computeCandidateMetrics(candidate, nowMs);
   const reasons = [];
 
-  // 1. Age window enforcement
-  if (metrics.age_days !== null) {
-    if (metrics.age_days < qual.min_age_days || metrics.age_days > qual.max_age_days) {
-      reasons.push('age_out_of_window');
-    }
-  } else if (candidate.is_hydrated) {
+  // 1. Strict Root Creation Date & Age Window enforcement
+  if (candidate.root_age_verified === false || candidate.repin_root_unverified === true) {
+    reasons.push('unverified_repin_root_age');
+  }
+  if (metrics.age_days === null) {
     reasons.push('missing_creation_date');
+  } else if (metrics.age_days < qual.min_age_days || metrics.age_days > qual.max_age_days) {
+    reasons.push('age_out_of_window');
   }
 
-  // 2. Engagement & velocity thresholds
-  if (qual.min_repin_count > 0 && (metrics.repin_count ?? 0) < qual.min_repin_count) {
+  // 2. Engagement & velocity thresholds — Pinterest 2026 primary signal is MAX(save_count, repin_count)
+  //    and MAX(save_per_day, repin_per_day) because repin_count is frequently 0 while saves is populated.
+  const effectiveEngagement = metrics.primary_engagement ?? 0;
+  const effectiveVelocity = metrics.primary_velocity ?? 0;
+
+  if (qual.min_repin_count > 0 && effectiveEngagement < qual.min_repin_count) {
     reasons.push('below_min_repins');
   }
 
-  // Respect [INVARIANT: UNHYDRATED-SAVES-NULL]: enforce min_save_count when save_count is explicitly hydrated
-  if (qual.min_save_count > 0 && metrics.save_count !== null && metrics.save_count < qual.min_save_count) {
+  if (qual.min_save_count > 0 && effectiveEngagement < qual.min_save_count) {
     reasons.push('below_min_saves');
   }
 
-  if (qual.min_repin_per_day > 0 && metrics.age_days !== null && (metrics.repin_per_day ?? 0) < qual.min_repin_per_day) {
+  if (qual.min_repin_per_day > 0 && metrics.age_days !== null && effectiveVelocity < qual.min_repin_per_day) {
     reasons.push('below_min_repin_velocity');
   }
 
-  if (qual.min_save_per_day > 0 && metrics.save_count !== null && metrics.age_days !== null && (metrics.save_per_day ?? 0) < qual.min_save_per_day) {
+  if (qual.min_save_per_day > 0 && metrics.age_days !== null && effectiveVelocity < qual.min_save_per_day) {
     reasons.push('below_min_save_velocity');
   }
 
-  if (qual.min_shares > 0 && Number(candidate.share_count ?? 0) < qual.min_shares) {
+  if (qual.min_shares > 0 && (candidate.share_count == null || Number(candidate.share_count) < qual.min_shares)) {
     reasons.push('below_min_shares');
   }
-  if (qual.min_comments > 0 && Number(candidate.comment_count ?? 0) < qual.min_comments) {
+  if (qual.min_comments > 0 && (candidate.comment_count == null || Number(candidate.comment_count) < qual.min_comments)) {
     reasons.push('below_min_comments');
   }
-  if (qual.min_reactions > 0 && Number(candidate.reaction_count ?? 0) < qual.min_reactions) {
+  if (qual.min_reactions > 0 && (candidate.reaction_count == null || Number(candidate.reaction_count) < qual.min_reactions)) {
     reasons.push('below_min_reactions');
   }
 
   // 3. Creator follower cap & Rookie Outlier detection
+  const rookieVelFloor = Math.max(1, qual.min_save_per_day ?? 0, qual.min_repin_per_day ?? 0);
   const isRookieOutlier = Boolean(
     metrics.effective_creator_followers !== null &&
     metrics.effective_creator_followers <= qual.max_creator_followers &&
     (
-      (metrics.repin_per_day ?? 0) >= Math.max(1, qual.min_repin_per_day) ||
+      effectiveVelocity >= rookieVelFloor ||
       (metrics.outlier_ratio ?? 0) >= 0.05
     )
   );
@@ -274,8 +286,8 @@ export function scoreNewbornCandidate(candidate = {}, rawSettings = DEFAULT_NEWB
   const qual = settings.qualification;
   const vacuumCfg = qual.linkless_vacuum || DEFAULT_NEWBORN_SETTINGS.qualification.linkless_vacuum;
 
-  // 1. Velocity Intensity (0..38)
-  const effectiveVel = Math.max(metrics.repin_per_day ?? 0, (metrics.save_per_day ?? 0) * 0.85);
+  // 1. Velocity Intensity (0..38) — primary velocity is MAX(save_per_day, repin_per_day)
+  const effectiveVel = Math.max(metrics.save_per_day ?? 0, metrics.repin_per_day ?? 0);
   const velocityScore = Math.min(38, Math.log1p(Math.max(0, effectiveVel)) * 12.5);
 
   // 2. Newborn Freshness Bonus (0..22)
@@ -362,32 +374,43 @@ export function evaluatePinAutoRules(scoredCandidate = {}, rawSettings = DEFAULT
   const watchT = auto.pin_promotion_rules.watchlist_thresholds;
   const promoT = auto.pin_promotion_rules.promote_thresholds;
 
-  const repins = Number(scoredCandidate.repin_count ?? 0);
+  const repins = scoredCandidate.repin_count !== null && scoredCandidate.repin_count !== undefined
+    ? Number(scoredCandidate.repin_count)
+    : 0;
   const saves = scoredCandidate.save_count !== null && scoredCandidate.save_count !== undefined
     ? Number(scoredCandidate.save_count)
     : null;
+  const effectiveEngagement = Math.max(saves ?? 0, repins);
   const repinVel = Number(scoredCandidate.repin_per_day ?? 0);
+  const saveVel = Number(scoredCandidate.save_per_day ?? 0);
+  const effectiveVel = Math.max(saveVel, repinVel);
   const ageDays = scoredCandidate.age_days !== null && scoredCandidate.age_days !== undefined
     ? Number(scoredCandidate.age_days)
     : null;
   const goldenScore = Number(scoredCandidate.golden_score ?? 0);
   const consecutiveDays = Math.max(0, Number(scoredCandidate.consecutive_qualifying_days ?? 0));
 
+  const watchMinEng = Math.max(Number(watchT.min_saves ?? 0), Number(watchT.min_repins ?? 0));
+  const watchMinVel = Math.max(Number(watchT.min_save_per_day ?? 0), Number(watchT.min_repin_per_day ?? 0));
+
   const meetsWatchlist = Boolean(
     scoredCandidate.qualified !== false &&
-    repins >= watchT.min_repins &&
-    (watchT.min_saves <= 0 || (saves !== null ? saves >= watchT.min_saves : repins >= watchT.min_saves)) &&
-    repinVel >= watchT.min_repin_per_day &&
-    (ageDays === null || ageDays <= watchT.max_age_days) &&
+    ageDays !== null &&
+    ageDays <= watchT.max_age_days &&
+    effectiveEngagement >= watchMinEng &&
+    effectiveVel >= watchMinVel &&
     goldenScore >= watchT.min_golden_score
   );
 
+  const promoMinEng = Math.max(Number(promoT.min_saves ?? 0), Number(promoT.min_repins ?? 0));
+  const promoMinVel = Math.max(Number(promoT.min_save_per_day ?? 0), Number(promoT.min_repin_per_day ?? 0));
+
   const meetsPromotionMetrics = Boolean(
     scoredCandidate.qualified !== false &&
-    repins >= promoT.min_repins &&
-    (promoT.min_saves <= 0 || (saves !== null && saves >= promoT.min_saves)) &&
-    repinVel >= promoT.min_repin_per_day &&
-    (ageDays !== null && ageDays <= promoT.max_age_days) &&
+    ageDays !== null &&
+    ageDays <= promoT.max_age_days &&
+    effectiveEngagement >= promoMinEng &&
+    effectiveVel >= promoMinVel &&
     goldenScore >= promoT.min_golden_score
   );
 

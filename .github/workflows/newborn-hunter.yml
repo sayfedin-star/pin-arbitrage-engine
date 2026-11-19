@@ -38,7 +38,7 @@ on:
         default: true
 
 concurrency:
-  group: newborn-hunter-${{ github.workflow }}-${{ github.ref }}-${{ inputs.mode || 'cron' }}-${{ inputs.query || 'all' }}
+  group: newborn-hunter-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -51,9 +51,12 @@ env:
 jobs:
   # ============================================================================
   # STAGE 0: Schedule Evaluator, 410m Max-Run Guard & Dynamic Shard Dispatcher
+  # Strictly gated on workflow_dispatch OR vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'
+  # BEFORE setup-instabox-db runs so sleeping InstaBox is NEVER woken unconditionally!
   # ============================================================================
   dispatch:
     name: Stage 0 - Newborn Schedule & Shard Dispatcher
+    if: github.event_name == 'workflow_dispatch' || vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -159,7 +162,7 @@ jobs:
   consolidate:
     name: Stage 2 - Newborn Telemetry Consolidation
     needs: [dispatch, hunter-fleet]
-    if: always() && needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0'
+    if: needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0' && needs.hunter-fleet.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
