@@ -281,6 +281,9 @@ if git -c safe.directory="${APP_DIR}" fetch origin main --quiet 2>/dev/null; the
   REMOTE_SHA=$(git -c safe.directory="${APP_DIR}" rev-parse origin/main 2>/dev/null || echo "${OLD_SHA}")
   if [ "${MODE}" = "--force" ] || ( [ "${OLD_SHA}" != "${REMOTE_SHA}" ] && ! git -c safe.directory="${APP_DIR}" merge-base --is-ancestor "${REMOTE_SHA}" "${OLD_SHA}" 2>/dev/null ); then
     echo "[instabox-boot-sync] 🔄 Updating ${APP_DIR} from ${OLD_SHA} -> ${REMOTE_SHA}..."
+    git -c safe.directory="${APP_DIR}" reset --hard HEAD
+    git -c safe.directory="${APP_DIR}" clean -fd -e .env -e '.env.*' -e '*.env'
+    git -c safe.directory="${APP_DIR}" checkout -f -B main origin/main
     git -c safe.directory="${APP_DIR}" reset --hard origin/main
     chmod +x "${APP_DIR}/scripts/instabox-boot-sync.sh" 2>/dev/null || true
     enforce_env_permissions

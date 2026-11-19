@@ -140,7 +140,7 @@ jobs:
             echo "⚠️ Warning: /exec readiness probe did not return 200; proceeding to dispatch deploy command with full error reporting..."
           fi
 
-          DEPLOY_CMD="git -c safe.directory=/data/app fetch origin main && git -c safe.directory=/data/app checkout -B main origin/main && (npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund) && node scripts/migrate.mjs && (bash scripts/instabox-boot-sync.sh --install-hook || true) && sudo systemctl restart pae-server"
+          DEPLOY_CMD="git -c safe.directory=/data/app fetch origin main && git -c safe.directory=/data/app reset --hard HEAD && git -c safe.directory=/data/app clean -fd -e .env -e '.env.*' -e '*.env' && git -c safe.directory=/data/app checkout -f -B main origin/main && git -c safe.directory=/data/app reset --hard origin/main && (npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund) && node scripts/migrate.mjs && (bash scripts/instabox-boot-sync.sh --install-hook || true) && sudo systemctl restart pae-server"
           DEPLOY_PAYLOAD=$(jq -nc --arg cmd "${DEPLOY_CMD}" '{cmd: $cmd, cwd: "/data/app", timeoutSeconds: 300}')
 
           echo "Executing deployment, boot-hook installation, and migration command in /data/app..."
