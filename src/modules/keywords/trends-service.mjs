@@ -6,6 +6,7 @@
 
 import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest/index.mjs';
 import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
+import { tripPinterestCircuitBreaker } from '../../http/security-and-response.mjs';
 
 const TRENDS_CACHE_MAX = 300;
 const TRENDS_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
@@ -14,6 +15,15 @@ const trendsCache = new TtlSingleflightCache({ maxEntries: TRENDS_CACHE_MAX, def
 const INTEREST_CACHE_MAX = 500;
 const INTEREST_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
 const interestCache = new TtlSingleflightCache({ maxEntries: INTEREST_CACHE_MAX, defaultTtlMs: INTEREST_TTL_MS });
+
+const INTEREST_NEGATIVE_CACHE_MAX = 800;
+const INTEREST_NEGATIVE_TTL_MS = 20 * 60 * 1000; // 20 Minutes Negative Cache for unindexed terms
+const interestNegativeCache = new TtlSingleflightCache({
+  maxEntries: INTEREST_NEGATIVE_CACHE_MAX,
+  defaultTtlMs: INTEREST_NEGATIVE_TTL_MS
+});
+
+const DEFAULT_INTEREST_TIMEOUT_MS = 3500;
 
 const VELOCITY_CACHE_MAX = 500;
 const VELOCITY_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
@@ -24,21 +34,78 @@ const RELATED_INTERESTS_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
 const relatedInterestsCache = new TtlSingleflightCache({ maxEntries: RELATED_INTERESTS_CACHE_MAX, defaultTtlMs: RELATED_INTERESTS_TTL_MS });
 
 /**
+ * Clears in-memory InterestResource positive and negative caches (for deterministic offline tests).
+ */
+export function clearInterestVolumeCaches() {
+  interestCache.clear();
+  interestNegativeCache.clear();
+}
+
+/**
+ * Normalizes an interest / annotation term into a clean Pinterest /ideas/ slug.
+ * Strips apostrophes (e.g. "Men's Fashion" -> "mens-fashion") while preserving
+ * non-English Unicode letters and numbers.
+ */
+export function slugifyInterestTerm(term) {
+  return String(term || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/['’ʼ`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+    .trim()
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildCombinedAbortSignal(timeoutMs, externalSignal) {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (!externalSignal) return timeoutSignal;
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([timeoutSignal, externalSignal]);
+  }
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(externalSignal.reason || timeoutSignal.reason);
+  if (externalSignal.aborted || timeoutSignal.aborted) {
+    onAbort();
+    return controller.signal;
+  }
+  externalSignal.addEventListener('abort', onAbort, { once: true });
+  timeoutSignal.addEventListener('abort', onAbort, { once: true });
+  return controller.signal;
+}
+
+/**
  * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
  * Direct access to Pinterest's InterestResource via slug or ID.
  */
 export async function fetchPinterestInterestVolume(term, options = {}) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm) return null;
-  const slug = cleanTerm.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
+  const slug = slugifyInterestTerm(cleanTerm);
   if (!slug) return null;
-  const forceRefresh = Boolean(options?.force);
+  const forceRefresh = Boolean(options?.force || options?.refresh);
+
+  if (forceRefresh) {
+    interestNegativeCache.delete(slug);
+  } else if (interestNegativeCache.has(slug)) {
+    return null;
+  }
+
+  const externalSignal = options?.signal || null;
+  if (externalSignal?.aborted) return null;
+
+  const timeoutMs = Math.max(500, Math.min(15000, Number(options?.timeoutMs) || DEFAULT_INTEREST_TIMEOUT_MS));
+  const fetchImpl = typeof options?.fetchImpl === 'function' ? options.fetchImpl : pinterestFetch;
+  const env = options?.env || null;
 
   return await interestCache.getOrFetch(
     slug,
     async () => {
+      if (externalSignal?.aborted) return null;
+      const encodedSlug = encodeURIComponent(slug);
       const headers = getStandardPinterestHeaders({
-        referer: `https://www.pinterest.com/ideas/${slug}/`,
+        referer: `https://www.pinterest.com/ideas/${encodedSlug}/`,
         extraHeaders: {
           'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js'
         }
@@ -48,16 +115,38 @@ export async function fetchPinterestInterestVolume(term, options = {}) {
         options: { interest: slug, field_set_key: 'ideas_hub' },
         context: {}
       }));
-      const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
+      const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${encodedSlug}%2F&data=${dataParam}`;
 
       let res;
       try {
-        res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(7000) });
+        res = await fetchImpl(url, {
+          headers,
+          signal: buildCombinedAbortSignal(timeoutMs, externalSignal)
+        });
+
+        if (res.status === 429 || res.status === 403) {
+          await tripPinterestCircuitBreaker(
+            env,
+            `HTTP ${res.status} Rate Limit in InterestResource (${slug})`,
+            900
+          ).catch(() => {});
+          return null;
+        }
+
+        if (res.status === 404) {
+          interestNegativeCache.set(slug, true, { ttlMs: INTEREST_NEGATIVE_TTL_MS });
+          return null;
+        }
+
         if (!res.ok) return null;
         const json = await res.json();
         const data = json?.resource_response?.data;
-        if (!data) return null;
+        if (!data) {
+          interestNegativeCache.set(slug, true, { ttlMs: INTEREST_NEGATIVE_TTL_MS });
+          return null;
+        }
 
+        interestNegativeCache.delete(slug);
         const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
         const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
 
@@ -76,7 +165,7 @@ export async function fetchPinterestInterestVolume(term, options = {}) {
             name: r.name || r.key,
             key: r.key || r.name,
             id: String(r.id || r.origin_interest_id || ''),
-            url: r.url || `/ideas/${(r.key || r.name).replace(/\s+/g, '-')}/${r.id || ''}/`
+            url: r.url || `/ideas/${encodeURIComponent(slugifyInterestTerm(r.key || r.name) || (r.key || r.name).replace(/\s+/g, '-'))}/${r.id || ''}/`
           })),
           ideas_pivots: rawPivots.map(p => {
             const pivotUrl = p.pivot_url || '';

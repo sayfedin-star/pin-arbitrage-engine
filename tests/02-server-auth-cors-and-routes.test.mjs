@@ -329,3 +329,26 @@ test('startServer boots cleanly in development without DATABASE_URL and refuses 
   assert.equal(pageRes.headers['x-frame-options'], undefined);
   assert.match(String(pageRes.headers['content-security-policy']), /frame-ancestors \*/);
 });
+
+test('allowDevIframe is fail-closed when NODE_ENV and ENVIRONMENT are unset', async (t) => {
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevEnvironment = process.env.ENVIRONMENT;
+  delete process.env.NODE_ENV;
+  delete process.env.ENVIRONMENT;
+
+  let server;
+  t.after(async () => {
+    if (prevNodeEnv !== undefined) process.env.NODE_ENV = prevNodeEnv;
+    else delete process.env.NODE_ENV;
+    if (prevEnvironment !== undefined) process.env.ENVIRONMENT = prevEnvironment;
+    else delete process.env.ENVIRONMENT;
+    if (server?.fastify) await server.fastify.close();
+  });
+
+  server = await startServer(0, '127.0.0.1', { DATABASE_URL: '' });
+  const pageRes = await server.fastify.inject({ method: 'GET', url: '/' });
+  assert.equal(pageRes.statusCode, 200);
+  assert.equal(pageRes.headers['x-frame-options'], 'DENY');
+  assert.match(String(pageRes.headers['content-security-policy']), /frame-ancestors 'none'/);
+});
+

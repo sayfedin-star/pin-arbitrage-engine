@@ -22,7 +22,8 @@ import { savePinterestCookie } from '../src/modules/keywords/settings.mjs';
 import { evaluateHydrationGuard } from '../scripts/keyword-velocity-crawler.mjs';
 import {
   prefetchBatchPidgets,
-  processCreatorCatalogPin
+  processCreatorCatalogPin,
+  buildCreatorPhase2FreshnessClause
 } from '../scripts/creator-velocity-crawler.mjs';
 import {
   parsePinCandidate,
@@ -295,9 +296,57 @@ test('Wave 4A.3 & 4B.1: Two-Lane hydration guard separates 10m Pidgets dedup fro
       },
       collectors
     );
-    assert.equal(okPidgets, true);
+    assert.equal(okPidgets.refreshed, true);
+    assert.equal(okPidgets.usedPidgets, true);
+    assert.equal(okPidgets.fromCache, false);
     assert.equal(liveDeepFetchCalled, false);
     assert.equal(collectors.refreshedPins[0].saves, 960);
+
+    // When Pidgets returns cliff-drop saves (<80% of prevSaves), processCreatorCatalogPin falls back to live deep fetch and reports usedPidgets: false
+    let fallbackHtmlCalled = false;
+    const cliffCollectors = { refreshedPins: [], metricSnapshots: [], masterPinsToSync: [] };
+    const cliffPidgetsMap = new Map([
+      [keywordPin.pin_id, { pin_id: keywordPin.pin_id, saves: 100, save_count: 100, repins: 20, repin_count: 20, has_explicit_saves: true, has_explicit_repins: true, is_missing: false }]
+    ]);
+    const cliffRes = await processCreatorCatalogPin(
+      {
+        ...keywordPin,
+        ump_saves: 920,
+        ump_repins: 140,
+        ump_comments: 3,
+        ump_shares: 7,
+        prev_velocity: 18.5
+      },
+      {
+        fallbackUsername: 'chefcreator',
+        useFreshnessGate: true,
+        useUmpFields: true,
+        forceRefresh: false,
+        nowMs,
+        pidgetsMap: cliffPidgetsMap,
+        fetchPinFromPinResourceFn: async () => null,
+        fetchPinFromPinterestFn: async () => {
+          fallbackHtmlCalled = true;
+          return {
+            ok: true,
+            pin: {
+              pin_id: keywordPin.pin_id,
+              saves: 955,
+              save_count: 955,
+              repins: 145,
+              repin_count: 145,
+              has_explicit_saves: true,
+              has_explicit_repins: true
+            }
+          };
+        }
+      },
+      cliffCollectors
+    );
+    assert.equal(fallbackHtmlCalled, true);
+    assert.equal(cliffRes.refreshed, true);
+    assert.equal(cliffRes.usedPidgets, false, 'Fallback to live HTML must report usedPidgets: false so caller applies cooldown');
+    assert.equal(cliffRes.fromCache, false);
 
     // Without Pidgets map on 1h-old complete pin, 18h deep freshness gate still protects PinResource/HTML
     const cachedCollectors = { refreshedPins: [], metricSnapshots: [], masterPinsToSync: [] };
@@ -327,10 +376,21 @@ test('Wave 4A.3 & 4B.1: Two-Lane hydration guard separates 10m Pidgets dedup fro
       },
       cachedCollectors
     );
-    assert.equal(okCached, true);
+    assert.equal(okCached.refreshed, true);
+    assert.equal(okCached.usedPidgets, false);
+    assert.equal(okCached.fromCache, true);
     assert.equal(liveDeepFetchCalled, false);
     assert.equal(cachedCollectors.refreshedPins[0].from_hydration_cache, true);
     assert.equal(cachedCollectors.refreshedPins[0].delta_repins, null);
+
+    // Verify Mode A Phase 2 SQL freshness predicate aligns with 10m Pidgets dedup window and honors FORCE_REFRESH
+    const renderTag = (strings, ...values) => strings.reduce((acc, s, i) => acc + s + (i < values.length ? String(values[i]) : ''), '');
+    const defaultPhase2Sql = buildCreatorPhase2FreshnessClause(renderTag, { forceRefresh: false });
+    assert.match(defaultPhase2Sql, /MAKE_INTERVAL\(mins => 10\)/);
+    assert.match(defaultPhase2Sql, /MAKE_INTERVAL\(hours => 18\)/);
+    assert.match(defaultPhase2Sql, /jsonb_array_length\(p\.visual_annotations\) > 0/);
+    const forcedPhase2Sql = buildCreatorPhase2FreshnessClause(renderTag, { forceRefresh: true });
+    assert.equal(forcedPhase2Sql.trim(), 'TRUE');
   }
 
   // Unhydrated stubs must still trigger Lane 2 deep hydration even if recently touched

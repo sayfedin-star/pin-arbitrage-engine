@@ -5,8 +5,20 @@ import vm from 'node:vm';
 import { createFastifyApp } from '../src/server.mjs';
 import {
   extractStoredPinAnnotations,
-  resolveAnnotationsIntel
+  resolveAnnotationsIntel,
+  buildIdeasLink,
+  slugifyAnnotationTerm
 } from '../src/modules/pins/annotations-intel.mjs';
+import {
+  fetchPinterestInterestVolume,
+  slugifyInterestTerm,
+  clearInterestVolumeCaches
+} from '../src/modules/keywords/trends-service.mjs';
+import {
+  checkPinterestCircuitBreaker,
+  tripPinterestCircuitBreaker,
+  resetPinterestCircuitBreaker
+} from '../src/http/security-and-response.mjs';
 import { getPinDetailPageHtml } from '../src/ui/pin-details/index.mjs';
 
 test('Annotations Intel Service: deduplicates visual_annotations + annotations_with_links, rejects [object Object], and caps at 15', () => {
@@ -357,3 +369,167 @@ test('Pin Details SSR HTML & Alpine controller render collapsible Annotations In
   assert.equal(fetchCalls.length, 2);
   assert.ok(fetchCalls[1].startsWith('/api/pins/574771971217813409/annotations-intel?refresh=true'));
 });
+
+test('Annotations Intel Phase 1 Hardening: overall deadline returns partial:true, negative cache avoids re-fetching, 429 trips circuit breaker, and URLs/slugs avoid double encoding', async (t) => {
+  t.after(() => {
+    resetPinterestCircuitBreaker();
+    clearInterestVolumeCaches();
+  });
+
+  // 1. Slugification & buildIdeasLink URL hygiene (apostrophes, Unicode, no double percent-encoding)
+  assert.equal(slugifyAnnotationTerm("Men's Streetwear & Jackets"), 'mens-streetwear-jackets');
+  assert.equal(slugifyInterestTerm("Women’s Autumn Outfits"), 'womens-autumn-outfits');
+  assert.equal(slugifyAnnotationTerm('وصفات رمضان السريعة'), 'وصفات-رمضان-السريعة');
+  assert.equal(slugifyAnnotationTerm('Café Crème'), 'café-crème');
+  assert.equal(
+    buildIdeasLink({ urlName: 'caf%C3%A9-cr%C3%A8me', annotationId: '904440111', term: 'Café Crème' }),
+    'https://www.pinterest.com/ideas/caf%C3%A9-cr%C3%A8me/904440111/'
+  );
+  assert.equal(
+    buildIdeasLink({ fallbackUrl: '/ideas/caf%C3%A9-cr%C3%A8me/904440111/', term: 'Café Crème' }),
+    'https://www.pinterest.com/ideas/caf%C3%A9-cr%C3%A8me/904440111/'
+  );
+
+  // 2. Overall deadline timeout aborts slow lookups cleanly and returns partial: true with fetched results
+  const startedAt = Date.now();
+  const partialRes = await resolveAnnotationsIntel({
+    annotations: [
+      { name: 'Fast Soup', idea_id: '1001', url: null },
+      { name: 'Slow Hanging Tag', idea_id: '1002', url: null },
+      { name: 'Another Slow Tag', idea_id: '1003', url: null }
+    ],
+    concurrency: 2,
+    overallTimeoutMs: 120,
+    perRequestTimeoutMs: 120,
+    fetchInterestFn: async (term, { signal }) => {
+      if (term === 'Fast Soup') {
+        await new Promise((r) => setTimeout(r, 15));
+        return { success: true, id: '1001', url_name: 'fast-soup', internal_search_count: 55000, seo_breadcrumbs: ['Food'] };
+      }
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2500);
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        }
+      });
+      return null;
+    }
+  });
+  const elapsedMs = Date.now() - startedAt;
+  assert.ok(elapsedMs < 800, `Expected overall deadline to cap execution cleanly, took ${elapsedMs}ms`);
+  assert.equal(partialRes.partial, true);
+  assert.equal(partialRes.annotations.length, 1);
+  assert.equal(partialRes.annotations[0].annotation, 'Fast Soup');
+  assert.equal(partialRes.annotations[0].search_volume, 55000);
+
+  // 3. Negative cache (404 / unindexed) prevents duplicate upstream requests unless force:true
+  clearInterestVolumeCaches();
+  let unindexedCalls = 0;
+  const mockNotFoundFetch = async () => {
+    unindexedCalls++;
+    return { ok: false, status: 404, bodyUsed: true };
+  };
+  const miss1 = await fetchPinterestInterestVolume('Totally Unindexed Micro Tag', { fetchImpl: mockNotFoundFetch });
+  const miss2 = await fetchPinterestInterestVolume('Totally Unindexed Micro Tag', { fetchImpl: mockNotFoundFetch });
+  assert.equal(miss1, null);
+  assert.equal(miss2, null);
+  assert.equal(unindexedCalls, 1, 'Second lookup for 404 term must be served from negative cache');
+
+  await fetchPinterestInterestVolume('Totally Unindexed Micro Tag', { force: true, fetchImpl: mockNotFoundFetch });
+  assert.equal(unindexedCalls, 2, 'force:true must bypass negative cache');
+
+  // 4. HTTP 429 in InterestResource trips the global Pinterest circuit breaker
+  resetPinterestCircuitBreaker();
+  clearInterestVolumeCaches();
+  const rateLimited = await fetchPinterestInterestVolume('Rate Limited Term', {
+    fetchImpl: async () => ({ ok: false, status: 429, bodyUsed: true })
+  });
+  assert.equal(rateLimited, null);
+  const cbState = await checkPinterestCircuitBreaker({});
+  assert.equal(cbState?.active, true, '429 from InterestResource must trip Pinterest circuit breaker');
+
+  // 5. GET /api/pins/:pin_id/annotations-intel enforces circuit breaker ALWAYS (even without ?refresh=true)
+  const app = createFastifyApp({
+    NODE_ENV: 'test',
+    DATABASE_URL: '',
+    API_SECRET_KEY: 'test-cb-secret',
+    SQL_CLIENT: async () => []
+  });
+  await app.ready();
+  t.after(async () => {
+    await app.close();
+  });
+
+  await tripPinterestCircuitBreaker({}, 'Simulated 429 Rate Limit', 120);
+  const blockedRes = await app.inject({
+    method: 'GET',
+    url: '/api/pins/574771971217813409/annotations-intel',
+    headers: { 'x-api-key': 'test-cb-secret' }
+  });
+  assert.equal(blockedRes.statusCode, 429);
+  assert.equal(blockedRes.headers['x-circuit-breaker'], 'OPEN');
+  assert.equal(blockedRes.json().error, 'PINTEREST_RATE_LIMITED');
+});
+
+test('Pin Details Historical Snapshot Audit Log starts collapsed by default (expandedDays = {}) while manual toggle/expand/collapse work via getDayRowKey', async () => {
+  const html = getPinDetailPageHtml('574771971217813409');
+  const scriptMatches = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  const appScriptTag = scriptMatches.find((s) => s.includes('function pinDetailApp('));
+  assert.ok(appScriptTag, 'Expected pinDetailApp script tag');
+  const scriptCode = appScriptTag.replace(/^<script\b[^>]*>/i, '').replace(/<\/script>$/i, '');
+
+  const sandbox = {
+    console,
+    Date,
+    URL,
+    URLSearchParams,
+    encodeURIComponent,
+    decodeURIComponent,
+    setTimeout,
+    clearTimeout,
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        pin_id: '574771971217813409',
+        creative: { title: 'Test Pin', visual_annotations: ['Soup'] },
+        daily_trajectory: [
+          { snapshot_date: '2026-11-19', recorded_at: '2026-11-19T14:00:00Z', save_count: 1500, repin_count: 1400, daily_save_velocity: 100 },
+          { snapshot_date: '2026-11-18', recorded_at: '2026-11-18T14:00:00Z', save_count: 1400, repin_count: 1310, daily_save_velocity: 0 }
+        ],
+        ranking_keywords: [],
+        folder_context: []
+      })
+    })
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(scriptCode, sandbox);
+
+  const controller = sandbox.pinDetailApp('574771971217813409');
+  await controller.loadDossier(false, true);
+
+  const days = controller.filteredDays();
+  assert.equal(days.length, 2);
+  assert.equal(Object.keys(controller.expandedDays).length, 0, 'Historical Snapshot Audit Log must start collapsed by default');
+  assert.equal(controller.isDayExpanded(controller.getDayRowKey(days[0])), false);
+  assert.equal(controller.isDayExpanded(controller.getDayRowKey(days[1])), false);
+
+  // Manual toggle via getDayRowKey works
+  const key0 = controller.getDayRowKey(days[0]);
+  controller.toggleDayExpanded(key0);
+  assert.equal(controller.isDayExpanded(key0), true);
+  assert.equal(controller.isDayExpanded(controller.getDayRowKey(days[1])), false);
+
+  // expandAllDays & collapseAllDays work cleanly
+  controller.expandAllDays();
+  assert.equal(controller.isDayExpanded(controller.getDayRowKey(days[0])), true);
+  assert.equal(controller.isDayExpanded(controller.getDayRowKey(days[1])), true);
+
+  controller.collapseAllDays();
+  assert.equal(Object.keys(controller.expandedDays).length, 0);
+});
+

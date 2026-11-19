@@ -177,10 +177,13 @@ export async function apiRoutesPlugin(app, options = {}) {
           }
 
           // 2. Pinterest Rate-Limit Circuit Breaker Gate
-          const isLiveScrapeGet = method === 'GET' && searchParams.get('refresh') === 'true' && (
-            pathname === '/api/creators/board-detail' ||
-            pathname === '/api/creators/pin-detail' ||
-            pathname.startsWith('/api/pins/')
+          const isAnnotationsIntelGet = method === 'GET' && /^\/api\/pins\/[^/]+\/annotations-intel$/.test(pathname);
+          const isLiveScrapeGet = isAnnotationsIntelGet || (
+            method === 'GET' && searchParams.get('refresh') === 'true' && (
+              pathname === '/api/creators/board-detail' ||
+              pathname === '/api/creators/pin-detail' ||
+              pathname.startsWith('/api/pins/')
+            )
           );
           const isCrawlerEndpoint =
             pathname === '/api/crawl' ||

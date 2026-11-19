@@ -25,7 +25,7 @@ import {
 } from '../../core/pinterest/index.mjs';
 import { isSyntheticPinTitle, derivePinTitle } from './folders-crossover.mjs';
 import { autoDiscoverFolderCreatorsForKeyword } from './folders-crud.mjs';
-import { calculateDailyVelocity } from '../../lib/math.mjs';
+import { calculateDailyVelocity, isRepinHydrationJump } from '../../lib/math.mjs';
 import { sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
 import {
@@ -928,7 +928,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
                   const baseDateStr = baseDateRaw instanceof Date && !isNaN(baseDateRaw) ? baseDateRaw.toISOString().slice(0, 10) : null;
                   const gapDays = baseDateStr ? Math.max(1, Math.round((new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime() - new Date(baseDateStr + 'T00:00:00Z').getTime()) / 86400000)) : 1;
-                  const computedRepinDelta = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
+                  const repinJump = isRepinHydrationJump(
+                    { save_count: baseSavesNum, repin_count: baseRepinsNum },
+                    { save_count: p.save_count, repin_count: p.repin_count }
+                  );
+                  const computedRepinDelta = repinJump ? 0 : Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
                   p.delta_repins_24h = computedRepinDelta;
                   p.daily_repin_velocity = computedRepinDelta;
                 }
@@ -1070,7 +1074,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (baseRepinsNum > 0 && p.repin_count >= baseRepinsNum) {
                 const baseDateStr = baseDateRaw instanceof Date && !isNaN(baseDateRaw) ? baseDateRaw.toISOString().slice(0, 10) : null;
                 const gapDays = baseDateStr ? Math.max(1, Math.round((new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime() - new Date(baseDateStr + 'T00:00:00Z').getTime()) / 86400000)) : 1;
-                p.delta_repins_24h = Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
+                const repinJump = isRepinHydrationJump(
+                  { save_count: baseSavesNum, repin_count: baseRepinsNum },
+                  { save_count: p.save_count, repin_count: p.repin_count }
+                );
+                const computedRepinDelta = repinJump ? 0 : Math.round(Math.max(0, p.repin_count - baseRepinsNum) / gapDays);
+                p.delta_repins_24h = computedRepinDelta;
+                p.daily_repin_velocity = computedRepinDelta;
               }
               const pIdxInPrepared = preparedPins.indexOf(p);
               if (pIdxInPrepared !== -1) {

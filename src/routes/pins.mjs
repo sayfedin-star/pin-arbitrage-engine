@@ -606,6 +606,9 @@ export async function handlePinsRoutes({
         force,
         concurrency: 4,
         maxItems: 15,
+        overallTimeoutMs: 10500,
+        perRequestTimeoutMs: 3500,
+        env,
         ...(typeof env?.FETCH_INTEREST_VOLUME === 'function' ? { fetchInterestFn: env.FETCH_INTEREST_VOLUME } : {})
       });
       if (!result.found) {

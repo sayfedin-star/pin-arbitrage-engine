@@ -37,6 +37,7 @@ import {
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinterest,
+  fetchPinFromPinResource,
   fetchPinHybrid,
   fetchPinsBatchFromPidgets
 } from '../src/core/pinterest/index.mjs';
@@ -511,8 +512,58 @@ async function inspectPin(pin, kw, options = {}) {
     return msg.includes('timeout') || msg.includes('etimedout') || msg.includes('econnreset') || msg.includes('aborterror');
   };
 
+  let pinResourceChecked = false;
+
   if (fetchRes?.ok && fetchRes.pin) {
     detail = fetchRes.pin;
+    pinResourceChecked = Boolean(
+      fetchRes.fastPath === true ||
+      fetchRes.pinResourceChecked === true ||
+      detail.pin_resource_checked === true ||
+      detail.source === 'pin_resource_fast_path'
+    );
+    const hasLinkedInDetail = Boolean(
+      detail.has_linked_annotations ||
+      (Array.isArray(detail.annotations_with_links) && detail.annotations_with_links.length > 0) ||
+      (Array.isArray(detail.annotations) && detail.annotations.some(a => a && typeof a === 'object' && (a.url || a.idea_id)))
+    );
+    // Parity with Live Deep Sync: if SSR HTML omitted annotations_with_links and PinResource/get has not been checked yet,
+    // query PinResource/get (~90ms) so linked /ideas/ annotations are verified before stamping 14-day deep_dna_checked_at.
+    const resourceFn = typeof options.fetchPinFromPinResourceFn === 'function'
+      ? options.fetchPinFromPinResourceFn
+      : (typeof options.fetchPinHybridFn === 'function' ? null : fetchPinFromPinResource);
+    if (!hasLinkedInDetail && !pinResourceChecked && resourceFn && /^\d{10,25}$/.test(String(pin.pin_id || ''))) {
+      try {
+        const rawResource = await resourceFn(pin.pin_id);
+        const resourcePin = rawResource && typeof rawResource === 'object'
+          ? (rawResource.ok === true && rawResource.pin ? rawResource.pin : (rawResource.ok === false ? null : rawResource))
+          : null;
+        if (resourcePin && typeof resourcePin === 'object') {
+          pinResourceChecked = true;
+          if (
+            Array.isArray(resourcePin.annotations) &&
+            resourcePin.annotations.length > 0 &&
+            (resourcePin.has_linked_annotations || !Array.isArray(detail.annotations) || detail.annotations.length === 0)
+          ) {
+            detail = {
+              ...detail,
+              annotations: resourcePin.annotations,
+              tags: resourcePin.tags || detail.tags,
+              annotations_with_links: resourcePin.annotations_with_links || detail.annotations_with_links || [],
+              has_linked_annotations: Boolean(resourcePin.has_linked_annotations || (Array.isArray(resourcePin.annotations_with_links) && resourcePin.annotations_with_links.length > 0))
+            };
+          } else if (Array.isArray(resourcePin.annotations_with_links) && resourcePin.annotations_with_links.length > 0) {
+            detail = {
+              ...detail,
+              annotations_with_links: resourcePin.annotations_with_links,
+              has_linked_annotations: true
+            };
+          }
+        }
+      } catch (_) {
+        // Fail-safe: leave pinResourceChecked = false so deep_dna_checked_at is NOT stamped for 14 days
+      }
+    }
     consecutiveErrors = 0;
   } else if (fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404') || String(fetchError?.message || '').includes('404')) {
     isDead = true;
@@ -695,7 +746,8 @@ async function inspectPin(pin, kw, options = {}) {
     detail?.is_partial_fallback !== true &&
     (hasExplicitDetailSaves || Boolean(createdAtPinterest) || Boolean(detail?.image_signature) || cleanNewAnnotations.length > 0)
   );
-  const deepDnaCheckedAt = isVerifiedLiveDeepFetch
+  const hasVerifiedDeepDnaCheck = cleanLinkedAnnotations.length > 0 || pinResourceChecked;
+  const deepDnaCheckedAt = (isVerifiedLiveDeepFetch && hasVerifiedDeepDnaCheck)
     ? new Date().toISOString()
     : (meta.deep_dna_checked_at || null);
 
@@ -1011,7 +1063,8 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
   const dbSql = targetSql || sql?.noRetry || sql;
 
   if (validKwIds.length > 0) {
-    // Update keyword_serp_positions only for live-scraped rows or displaced vacuum scores (never touch cached active rows)
+    // Update keyword_serp_positions only for live-scraped rows or displaced rows whose vacuum_opportunity_score actually changes
+    // (prevents no-op updated_at churn on cached is_displaced = TRUE rows).
     await dbSql`
       UPDATE keyword_serp_positions ksp
       SET
@@ -1032,7 +1085,20 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
       )
       WHERE ksp.pin_id = u.pin_id
         AND ksp.keyword_id = ANY(${validKwIds}::int[])
-        AND (u.was_live_scraped = TRUE OR ksp.is_displaced = TRUE);
+        AND (
+          u.was_live_scraped = TRUE
+          OR (
+            ksp.is_displaced = TRUE
+            AND ksp.vacuum_opportunity_score IS DISTINCT FROM (
+              CASE 
+                WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 5 THEN 85
+                WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 15 THEN 75
+                WHEN COALESCE(ksp.last_known_rank, ksp.rank_position, 100) <= 50 THEN 60
+                ELSE 45
+              END
+            )
+          )
+        );
     `;
   }
 
@@ -1618,7 +1684,9 @@ async function run() {
           ump.created_at_pinterest, ump.creation_method,
           ump.is_hydrated, ump.is_hydrated AS is_deep_hydrated,
           ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
-          ksp.crawled_at, ksp.updated_at, ksp.is_displaced
+          ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
+          CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
+          CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
         FROM keyword_serp_positions ksp
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksp.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -1652,6 +1720,7 @@ async function run() {
         f.created_at_pinterest, f.creation_method,
         f.is_hydrated, f.is_deep_hydrated, f.last_scraped_at, f.visual_annotations, f.image_signature, f.metadata, f.title, f.domain, f.destination_url, f.image_url,
         f.crawled_at, f.updated_at, f.is_displaced,
+        f.baseline_day_saves, f.baseline_day_date,
         ap.folder_positions
       FROM folder_ksp f
       JOIN aggregated_positions ap ON ap.pin_id = f.pin_id
@@ -1851,7 +1920,9 @@ async function run() {
         ump.created_at_pinterest, ump.creation_method,
         ump.is_hydrated, ump.is_hydrated AS is_deep_hydrated,
         ump.last_scraped_at, ump.visual_annotations, ump.image_signature, ump.metadata, ump.title, COALESCE(ump.clean_domain, ump.domain, '') AS domain, ump.destination_url, ump.image_url,
-        ksp.crawled_at, ksp.updated_at, ksp.is_displaced
+        ksp.crawled_at, ksp.updated_at, ksp.is_displaced,
+        CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN ump.save_count ELSE NULL END AS baseline_day_saves,
+        CASE WHEN ump.last_scraped_at IS NOT NULL AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date ELSE NULL END AS baseline_day_date
       FROM keyword_serp_positions ksp
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE ksp.keyword_id = ${kwRow.id} AND ksp.pin_id IS NOT NULL AND ksp.pin_id <> ''

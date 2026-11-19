@@ -7,10 +7,22 @@
  * InterestResource lookup with bounded concurrency.
  */
 
-import { fetchPinterestInterestVolume } from '../keywords/trends-service.mjs';
+import { fetchPinterestInterestVolume, slugifyInterestTerm } from '../keywords/trends-service.mjs';
 
 const MAX_ANNOTATIONS_CAP = 15;
 const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_OVERALL_TIMEOUT_MS = 10500; // Safely below wake-shield 15s timeout ceiling
+const DEFAULT_PER_REQUEST_TIMEOUT_MS = 3500;
+
+function safeDecodeUriSegment(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return '';
+  try {
+    return decodeURIComponent(str);
+  } catch (_) {
+    return str;
+  }
+}
 
 function normalizeMetadataObject(raw) {
   if (!raw) return {};
@@ -43,16 +55,11 @@ export function extractSlugFromIdeaUrl(url) {
   if (!url || typeof url !== 'string') return null;
   const match = url.match(/\/ideas\/([^/?#]+)(?:\/|$|\?)/i);
   if (!match || !match[1] || /^\d+$/.test(match[1])) return null;
-  return match[1].trim().toLowerCase();
+  return safeDecodeUriSegment(match[1]).toLowerCase();
 }
 
 export function slugifyAnnotationTerm(term) {
-  return String(term || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/gi, ' ')
-    .trim()
-    .replace(/[\s_]+/g, '-');
+  return slugifyInterestTerm(term);
 }
 
 function parseLinkedAnnotationsSource(rawLinked) {
@@ -187,13 +194,22 @@ export function formatFeedUpdateTime(rawTime) {
   });
 }
 
-function buildIdeasLink({ urlName, annotationId, fallbackUrl, term }) {
-  const cleanUrlName = String(urlName || '').trim() || extractSlugFromIdeaUrl(fallbackUrl) || slugifyAnnotationTerm(term);
+export function buildIdeasLink({ urlName, annotationId, fallbackUrl, term }) {
+  const decodedUrlName = safeDecodeUriSegment(urlName);
+  const cleanUrlName = decodedUrlName || extractSlugFromIdeaUrl(fallbackUrl) || slugifyAnnotationTerm(term);
   if (cleanUrlName && annotationId) {
-    return `https://www.pinterest.com/ideas/${encodeURIComponent(cleanUrlName)}/${encodeURIComponent(annotationId)}/`;
+    return `https://www.pinterest.com/ideas/${encodeURIComponent(cleanUrlName)}/${encodeURIComponent(String(annotationId).trim())}/`;
   }
   if (fallbackUrl && typeof fallbackUrl === 'string') {
     const trimmed = fallbackUrl.trim();
+    const ideasMatch = trimmed.match(/^(?:https?:\/\/(?:www\.)?pinterest\.com)?\/ideas\/([^/?#]+)(?:\/(\d{4,25}))?\/?/i);
+    if (ideasMatch) {
+      const seg = encodeURIComponent(safeDecodeUriSegment(ideasMatch[1]));
+      const idSeg = ideasMatch[2] || (annotationId ? String(annotationId).trim() : null);
+      return idSeg
+        ? `https://www.pinterest.com/ideas/${seg}/${encodeURIComponent(idSeg)}/`
+        : `https://www.pinterest.com/ideas/${seg}/`;
+    }
     if (/^https?:\/\/(?:www\.)?pinterest\.com\//i.test(trimmed)) {
       return trimmed;
     }
@@ -207,15 +223,50 @@ function buildIdeasLink({ urlName, annotationId, fallbackUrl, term }) {
   return `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(String(term || ''))}`;
 }
 
+async function runWithDeadlineSignal(promiseFn, signal) {
+  if (signal?.aborted) {
+    return { aborted: true, value: null };
+  }
+  return await new Promise((resolve) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ aborted: true, value: null });
+    };
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    Promise.resolve()
+      .then(() => promiseFn())
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve({ aborted: false, value });
+      })
+      .catch(() => {
+        if (settled) return;
+        settled = true;
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve({ aborted: Boolean(signal?.aborted), value: null });
+      });
+  });
+}
+
 /**
  * Resolves InterestResource intelligence for a list of annotation descriptors
- * with bounded concurrency and sorts descending by `search_volume`.
+ * with bounded concurrency and an overall deadline budget (returning partial:true if exceeded),
+ * sorting results descending by `search_volume`.
  */
 export async function resolveAnnotationsIntel({
   annotations = [],
   fetchInterestFn = fetchPinterestInterestVolume,
   concurrency = DEFAULT_CONCURRENCY,
-  force = false
+  force = false,
+  overallTimeoutMs = DEFAULT_OVERALL_TIMEOUT_MS,
+  perRequestTimeoutMs = DEFAULT_PER_REQUEST_TIMEOUT_MS,
+  env = null
 } = {}) {
   const list = Array.isArray(annotations) ? annotations.slice(0, MAX_ANNOTATIONS_CAP) : [];
   if (list.length === 0) {
@@ -223,25 +274,45 @@ export async function resolveAnnotationsIntel({
       annotations: [],
       total_search_volume: 0,
       checked_count: 0,
-      resolved_count: 0
+      resolved_count: 0,
+      partial: false
     };
   }
+
+  const deadlineMs = Math.max(50, Math.min(14000, Number(overallTimeoutMs) || DEFAULT_OVERALL_TIMEOUT_MS));
+  const requestTimeoutMs = Math.max(50, Math.min(deadlineMs, Number(perRequestTimeoutMs) || DEFAULT_PER_REQUEST_TIMEOUT_MS));
+  const deadlineController = new AbortController();
+  let timedOut = false;
+  const deadlineTimer = setTimeout(() => {
+    timedOut = true;
+    deadlineController.abort(new Error(`Annotations intel overall timeout (${deadlineMs}ms)`));
+  }, deadlineMs);
+  if (typeof deadlineTimer.unref === 'function') deadlineTimer.unref();
 
   const workerCount = Math.max(1, Math.min(Number(concurrency) || DEFAULT_CONCURRENCY, list.length));
   const results = new Array(list.length);
   let cursor = 0;
 
   const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < list.length) {
+    while (cursor < list.length && !deadlineController.signal.aborted) {
       const idx = cursor++;
       const item = list[idx];
-      let details = null;
-      try {
-        details = await fetchInterestFn(item.name, { force: Boolean(force) });
-      } catch (_) {
-        details = null;
+      const outcome = await runWithDeadlineSignal(
+        () => fetchInterestFn(item.name, {
+          force: Boolean(force),
+          signal: deadlineController.signal,
+          timeoutMs: requestTimeoutMs,
+          env
+        }),
+        deadlineController.signal
+      );
+
+      if (outcome.aborted) {
+        timedOut = true;
+        break;
       }
 
+      const details = outcome.value;
       const rawVolume = Number(details?.internal_search_count);
       const searchVolume = Number.isFinite(rawVolume) && rawVolume > 0 ? Math.round(rawVolume) : 0;
 
@@ -282,9 +353,16 @@ export async function resolveAnnotationsIntel({
     }
   });
 
-  await Promise.all(workers);
+  try {
+    await Promise.all(workers);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
 
-  results.sort((a, b) => {
+  const completed = results.filter(Boolean);
+  const isPartial = Boolean(timedOut || completed.length < list.length);
+
+  completed.sort((a, b) => {
     if (b.search_volume !== a.search_volume) {
       return b.search_volume - a.search_volume;
     }
@@ -296,7 +374,7 @@ export async function resolveAnnotationsIntel({
 
   let totalSearchVolume = 0;
   let resolvedCount = 0;
-  const cleanRows = results.map(({ _order, ...row }) => {
+  const cleanRows = completed.map(({ _order, ...row }) => {
     totalSearchVolume += row.search_volume;
     if (row.resolved) resolvedCount++;
     return row;
@@ -306,7 +384,8 @@ export async function resolveAnnotationsIntel({
     annotations: cleanRows,
     total_search_volume: totalSearchVolume,
     checked_count: cleanRows.length,
-    resolved_count: resolvedCount
+    resolved_count: resolvedCount,
+    partial: isPartial
   };
 }
 
@@ -320,6 +399,9 @@ export async function fetchPinAnnotationsIntel({
   force = false,
   concurrency = DEFAULT_CONCURRENCY,
   maxItems = MAX_ANNOTATIONS_CAP,
+  overallTimeoutMs = DEFAULT_OVERALL_TIMEOUT_MS,
+  perRequestTimeoutMs = DEFAULT_PER_REQUEST_TIMEOUT_MS,
+  env = null,
   fetchInterestFn = fetchPinterestInterestVolume
 }) {
   const cleanPinId = String(pinId || '').trim();
@@ -346,7 +428,10 @@ export async function fetchPinAnnotationsIntel({
     annotations: extracted.items,
     fetchInterestFn,
     concurrency,
-    force
+    force,
+    overallTimeoutMs,
+    perRequestTimeoutMs,
+    env
   });
 
   return {
@@ -354,6 +439,7 @@ export async function fetchPinAnnotationsIntel({
     payload: {
       success: true,
       pin_id: cleanPinId,
+      partial: Boolean(resolved.partial),
       annotations: resolved.annotations,
       total_search_volume: resolved.total_search_volume,
       checked_count: resolved.checked_count,

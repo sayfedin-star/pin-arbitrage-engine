@@ -267,8 +267,14 @@ export function createFastifyApp(customEnv = {}) {
     (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.ENVIRONMENT === 'test'))
   );
 
-  const effectiveEnvName = customEnv.ENVIRONMENT || customEnv.NODE_ENV || process.env?.ENVIRONMENT || process.env?.NODE_ENV || 'development';
-  const allowDevIframe = !isProdMode && effectiveEnvName !== 'test';
+  const rawEnvName = String(
+    customEnv.ENVIRONMENT ||
+    customEnv.NODE_ENV ||
+    process.env?.ENVIRONMENT ||
+    process.env?.NODE_ENV ||
+    ''
+  ).trim().toLowerCase();
+  const allowDevIframe = !isProdMode && (rawEnvName === 'development' || rawEnvName === 'dev');
 
   app.addHook('onSend', async (_request, reply, payload) => {
     if (!reply.hasHeader('X-Content-Type-Options')) reply.header('X-Content-Type-Options', 'nosniff');

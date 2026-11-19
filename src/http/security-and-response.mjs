@@ -168,6 +168,10 @@ export async function tripPinterestCircuitBreaker(_env, reason = 'HTTP 429/403 R
   l0PinterestCircuit = { triggered_at: now, cooldown_seconds: cooldownSeconds, reason };
 }
 
+export function resetPinterestCircuitBreaker() {
+  l0PinterestCircuit = { triggered_at: 0, cooldown_seconds: 0, reason: '' };
+}
+
 export function clampLimit(val, fallback = 50, max = 1000) {
   const n = parseInt(val, 10);
   if (isNaN(n) || n <= 0) return fallback;

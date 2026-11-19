@@ -603,10 +603,6 @@ export function getPinDetailsClientAppScripts() {
               this.dossier = data;
               this.isDbBusy = Boolean(data?.is_degraded);
               this.rebuildDateMapCache();
-              const days = this.filteredDays();
-              if (days.length > 0 && Object.keys(this.expandedDays).length === 0) {
-                this.expandedDays = { [days[0].snapshot_date]: true };
-              }
 
               // Non-Disruptive Background Healing
               const isIncompleteFallback = Boolean(data?.is_degraded);

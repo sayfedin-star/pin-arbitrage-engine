@@ -821,10 +821,16 @@ export function getPulseClientAppScript() {
           if (!isFinite(vel) || vel < 50) return false;
           var deltaRepins = Math.max(0, Number(pin.delta_repins_24h || 0) || 0);
           if ((deltaRepins / vel) >= 0.10) return false;
-          var saveCount = Number(pin.save_count || 0);
+          var rawSaveCount = (pin.save_count !== undefined && pin.save_count !== null && pin.save_count !== '')
+            ? pin.save_count
+            : pin.saves;
+          var saveCount = Number(rawSaveCount || 0);
           if (!isFinite(saveCount) || saveCount <= 0) return false;
-          if (pin.repin_count === null || pin.repin_count === undefined || pin.repin_count === '') return false;
-          var repinCount = Number(pin.repin_count);
+          var rawRepinCount = (pin.repin_count !== undefined && pin.repin_count !== null && pin.repin_count !== '')
+            ? pin.repin_count
+            : pin.repins;
+          if (rawRepinCount === null || rawRepinCount === undefined || rawRepinCount === '') return false;
+          var repinCount = Number(rawRepinCount);
           if (!isFinite(repinCount) || repinCount < 0) return false;
           return (repinCount / saveCount) < 0.25;
         },

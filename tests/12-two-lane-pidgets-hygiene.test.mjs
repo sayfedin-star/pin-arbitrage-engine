@@ -461,19 +461,23 @@ test('Wave 7.2: deep_dna_checked_at stops infinite Deep loop for 14d, stamps onl
   assert.equal(hasCompleteStructuralDna(expiredCheckedPin, nowMs), false);
   assert.equal(evaluateHydrationGuard(expiredCheckedPin, nowMs, { force: false }).lane, 'deep');
 
-  // Live deep scrape returning 0 annotations stamps deep_dna_checked_at; timeout/failure & partial fallback do NOT
+  // Live deep scrape stamps deep_dna_checked_at ONLY when annotations_with_links exist OR PinResource/get was verified;
+  // SSR-only HTML without linked annotations & failed PinResource, timeout/failure, and partial fallback must NOT stamp it.
   const pinsToInspect = [
     { ...annotationlessBase, pin_id: '777777777777777701', metadata: {} },
     { ...annotationlessBase, pin_id: '777777777777777702', metadata: {} },
-    { ...annotationlessBase, pin_id: '777777777777777703', metadata: {} }
+    { ...annotationlessBase, pin_id: '777777777777777703', metadata: {} },
+    { ...annotationlessBase, pin_id: '777777777777777704', metadata: {} },
+    { ...annotationlessBase, pin_id: '777777777777777705', metadata: {} }
   ];
 
+  const pinResourceCalls = [];
   const inspected = await inspectPinsConcurrently(pinsToInspect, null, 'DeepDnaTestWorker', {
     skipJitter: true,
     forceRefresh: true,
     fetchPinsBatchFromPidgetsFn: async () => new Map(),
     fetchPinHybridFn: async (pinId) => {
-      if (pinId === '777777777777777701') {
+      if (pinId === '777777777777777701' || pinId === '777777777777777704') {
         return {
           ok: true,
           pin: {
@@ -487,6 +491,25 @@ test('Wave 7.2: deep_dna_checked_at stops infinite Deep loop for 14d, stamps onl
             created_at_pinterest: '2026-09-01T00:00:00Z',
             image_signature: 'sig_no_anns',
             annotations: []
+          }
+        };
+      }
+      if (pinId === '777777777777777705') {
+        return {
+          ok: true,
+          pin: {
+            pin_id: pinId,
+            saves: 435,
+            save_count: 435,
+            has_explicit_saves: true,
+            repins: 420,
+            repin_count: 420,
+            has_explicit_repins: true,
+            created_at_pinterest: '2026-09-01T00:00:00Z',
+            image_signature: 'sig_linked',
+            has_linked_annotations: true,
+            annotations: [{ name: 'Easy Soup', idea_id: '912345601', url: '/ideas/easy-soup/912345601/' }],
+            annotations_with_links: [{ name: 'Easy Soup', idea_id: '912345601', url: '/ideas/easy-soup/912345601/' }]
           }
         };
       }
@@ -505,15 +528,29 @@ test('Wave 7.2: deep_dna_checked_at stops infinite Deep loop for 14d, stamps onl
         }
       };
     },
+    fetchPinFromPinResourceFn: async (pinId) => {
+      pinResourceCalls.push(pinId);
+      if (pinId === '777777777777777701') {
+        // Verified PinResource/get lookup returning genuinely 0 annotations
+        return { pin_id: pinId, annotations: [], annotations_with_links: [] };
+      }
+      // Pin 777777777777777704 fails PinResource/get -> must NOT stamp deep_dna_checked_at
+      return null;
+    },
     fetchPinFromPinterestFn: async () => ({ ok: false, error: 'ETIMEDOUT timeout' })
   });
 
-  const liveSuccess = inspected.find((p) => p.pin_id === '777777777777777701');
+  const verifiedResourcePin = inspected.find((p) => p.pin_id === '777777777777777701');
   const failedPin = inspected.find((p) => p.pin_id === '777777777777777702');
   const partialPin = inspected.find((p) => p.pin_id === '777777777777777703');
+  const ssrOnlyUnverifiedPin = inspected.find((p) => p.pin_id === '777777777777777704');
+  const linkedPin = inspected.find((p) => p.pin_id === '777777777777777705');
 
-  assert.ok(liveSuccess?.extra_meta?.deep_dna_checked_at, 'Verified live deep fetch must stamp deep_dna_checked_at');
-  assert.ok(!Number.isNaN(new Date(liveSuccess.extra_meta.deep_dna_checked_at).getTime()));
+  assert.ok(verifiedResourcePin?.extra_meta?.deep_dna_checked_at, 'Verified PinResource/get check must stamp deep_dna_checked_at');
+  assert.ok(!Number.isNaN(new Date(verifiedResourcePin.extra_meta.deep_dna_checked_at).getTime()));
+  assert.ok(linkedPin?.extra_meta?.deep_dna_checked_at, 'Pin with annotations_with_links must stamp deep_dna_checked_at');
+  assert.ok(!pinResourceCalls.includes('777777777777777705'), 'Pin already containing annotations_with_links must skip extra PinResource call');
+  assert.equal(ssrOnlyUnverifiedPin?.extra_meta?.deep_dna_checked_at, null, 'SSR-only HTML without linked annotations & failed PinResource must NOT stamp deep_dna_checked_at');
   assert.equal(failedPin, undefined, 'Timed-out deep fetch must not return a stamped record');
   assert.equal(partialPin?.extra_meta?.deep_dna_checked_at, null, 'Partial fallback deep fetch must NOT stamp deep_dna_checked_at');
 });
@@ -565,7 +602,7 @@ test('Wave 7.3: Live Deep Sync overwrites visual_annotations with linked annotat
   assert.ok(masterBatch[0].metadata.deep_dna_checked_at);
 });
 
-test('Wave 7.4: isAggregatedClusterPin dual condition & workflows Node 24 / cache logging hygiene', () => {
+test('Wave 7.4: isAggregatedClusterPin dual condition, Pulse UI parity, crawler SQL hygiene & topToEnrich repin velocity sync', () => {
   // True: vel >= 50, delta_repins/vel < 0.10, repin_count/save_count < 0.25 (works regardless of domain)
   assert.equal(isAggregatedClusterPin({
     domain: 'uploaded by user',
@@ -608,6 +645,26 @@ test('Wave 7.4: isAggregatedClusterPin dual condition & workflows Node 24 / cach
   assert.ok(pulseViewsHtml.includes('isAggregatedClusterPin(pin)'), 'Expected Aggregated Cluster check in Pulse table');
   assert.ok(pulseViewsHtml.includes('Aggregated Cluster'), 'Expected Aggregated Cluster micro-label in Pulse views');
 
+  // Verify Pulse client-app unifies save_count ?? saves and repin_count ?? repins
+  const pulseClientSrc = fs.readFileSync('src/ui/pulse/pulse-client-app.mjs', 'utf8');
+  assert.match(pulseClientSrc, /pin\.saves/, 'Pulse client isAggregatedClusterPin must fall back to pin.saves');
+  assert.match(pulseClientSrc, /pin\.repins/, 'Pulse client isAggregatedClusterPin must fall back to pin.repins');
+
+  // Verify keyword-velocity-crawler Mode A/B/C all select baseline_day_saves & baseline_day_date and guard displaced updated_at
+  const kwCrawlerSrc = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
+  const baselineSavesMatches = kwCrawlerSrc.match(/AS baseline_day_saves/g) || [];
+  const baselineDateMatches = kwCrawlerSrc.match(/AS baseline_day_date/g) || [];
+  assert.ok(baselineSavesMatches.length >= 3, `Expected baseline_day_saves in Mode A, Mode B, and Mode C (found ${baselineSavesMatches.length})`);
+  assert.ok(baselineDateMatches.length >= 3, `Expected baseline_day_date in Mode A, Mode B, and Mode C (found ${baselineDateMatches.length})`);
+  assert.match(kwCrawlerSrc, /ksp\.vacuum_opportunity_score IS DISTINCT FROM/, 'flushBatchToHub must avoid no-op updated_at churn on cached displaced rows');
+
+  // Verify src/modules/keywords/service.mjs topToEnrich syncs daily_repin_velocity with isRepinHydrationJump guard
+  const kwServiceSrc = fs.readFileSync('src/modules/keywords/service.mjs', 'utf8');
+  const repinJumpGuards = kwServiceSrc.match(/isRepinHydrationJump\(/g) || [];
+  const repinVelSyncs = kwServiceSrc.match(/p\.daily_repin_velocity = computedRepinDelta;/g) || [];
+  assert.ok(repinJumpGuards.length >= 2, 'Both Pidgets pre-enrich and topToEnrich must guard against repin hydration jumps');
+  assert.ok(repinVelSyncs.length >= 2, 'Both Pidgets pre-enrich and topToEnrich must sync daily_repin_velocity alongside delta_repins_24h');
+
   // Verify all 6 workflow files enable FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 and cache refresh logs HTTP status
   for (const wf of [
     '.github/workflows/ci.yml',
@@ -629,4 +686,5 @@ test('Wave 7.4: isAggregatedClusterPin dual condition & workflows Node 24 / cach
     assert.match(content, /returned HTTP \$\{HTTP_CODE\}/, `Expected HTTP code logging in ${wf}`);
   }
 });
+
 
