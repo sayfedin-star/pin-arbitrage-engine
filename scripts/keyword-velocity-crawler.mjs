@@ -1042,7 +1042,7 @@ export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
  * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
  * Supports single-keyword, folder cluster, global fleet cross-keyword fan-out, and standalone Newborn anchors.
  */
-async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
+export async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
   if (!pinsChunk || pinsChunk.length === 0) return;
   const isFolder = Boolean(kw?.folder_id);
   const isGlobalFleet = Boolean(kw?.is_global_fleet && Array.isArray(kw?.all_keyword_ids) && kw.all_keyword_ids.length > 0);
@@ -1056,7 +1056,20 @@ async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
       : (!p.from_hydration_cache && !p.scrape_failed)
   })));
 
-  const rawKwIds = (isGlobalFleet || isFolder) ? (kw?.all_keyword_ids || [kw?.id]) : [kw?.id];
+  const derivedPinKwIds = [];
+  if (isFolder || isGlobalFleet) {
+    for (const p of pinsChunk) {
+      if (p?.keyword_id != null) derivedPinKwIds.push(p.keyword_id);
+      if (Array.isArray(p?.folder_positions)) {
+        for (const fp of p.folder_positions) {
+          if (fp?.keyword_id != null) derivedPinKwIds.push(fp.keyword_id);
+        }
+      }
+    }
+  }
+  const rawKwIds = (isGlobalFleet || isFolder)
+    ? [...(Array.isArray(kw?.all_keyword_ids) ? kw.all_keyword_ids : []), kw?.id, ...derivedPinKwIds]
+    : [kw?.id];
   const validKwIds = Array.from(new Set(
     (rawKwIds || []).map((id) => Number(id)).filter((n) => Number.isInteger(n) && n > 0)
   ));
@@ -1759,15 +1772,36 @@ async function run() {
       await closeCrawlerDb(0);
     }
 
+    const folderKeywordIdSet = new Set([...allKeywordIdsInput, ...keywordIdsInput]);
+    for (const p of myPins) {
+      if (Number.isInteger(Number(p.keyword_id)) && Number(p.keyword_id) > 0) {
+        folderKeywordIdSet.add(Number(p.keyword_id));
+      }
+      if (Array.isArray(p.folder_positions)) {
+        for (const fp of p.folder_positions) {
+          if (Number.isInteger(Number(fp?.keyword_id)) && Number(fp.keyword_id) > 0) {
+            folderKeywordIdSet.add(Number(fp.keyword_id));
+          }
+        }
+      }
+    }
+    const folderKeywordIds = Array.from(folderKeywordIdSet);
+    const folderContext = {
+      folder_id: fid,
+      keyword: folderRow.name,
+      all_keyword_ids: folderKeywordIds,
+      id: folderKeywordIds[0] || null
+    };
+
     const enrichedList = await inspectPinsConcurrently(
       myPins,
-      { folder_id: fid, keyword: folderRow.name },
+      folderContext,
       `Folder Slice ${workerIndex + 1}/${workerTotal}`
     );
 
     const unifiedDbSynced = await flushToUnifiedPostgres(
       buildUnifiedSyncList(myPins, enrichedList),
-      { folder_id: fid, keyword: folderRow.name }
+      folderContext
     );
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed to Unified PostgreSQL.`);
 

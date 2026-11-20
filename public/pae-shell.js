@@ -22,12 +22,33 @@
     var origFetch = win.fetch.bind(win);
     win.fetch = async function paeAuthFetch(input, init) {
       var urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-      var isApiCall = urlStr.indexOf('/api/') === 0 || urlStr.indexOf('/api/') !== -1;
+      var isSameOriginApiCall = false;
+      if (urlStr) {
+        var trimmedUrl = String(urlStr).trim();
+        if (trimmedUrl.indexOf('/api/') === 0 && trimmedUrl.indexOf('//') !== 0) {
+          isSameOriginApiCall = true;
+        } else if (
+          typeof URL === 'function' &&
+          typeof win.location === 'object' &&
+          win.location &&
+          win.location.origin &&
+          win.location.origin !== 'null'
+        ) {
+          try {
+            var parsedUrl = new URL(trimmedUrl, win.location.origin);
+            if (parsedUrl.origin === win.location.origin && parsedUrl.pathname.indexOf('/api/') === 0) {
+              isSameOriginApiCall = true;
+            }
+          } catch (_) {
+            isSameOriginApiCall = false;
+          }
+        }
+      }
       var savedKey = '';
       try {
         savedKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('pae_admin_api_key') || '') : '';
       } catch (_) {}
-      if (isApiCall && savedKey) {
+      if (isSameOriginApiCall && savedKey) {
         init = Object.assign({}, init);
         var headers = new Headers(init.headers || (typeof input === 'object' && input && input.headers ? input.headers : undefined));
         if (!headers.has('x-api-key') && !headers.has('Authorization')) {

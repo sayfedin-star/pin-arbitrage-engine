@@ -1198,7 +1198,9 @@ export function getKeywordsClientAppScript() {
         },
 
         init() {
-          this.darkMode = typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
+          this.darkMode = typeof localStorage !== 'undefined'
+            ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark'
+            : false;
           this.isDark = this.darkMode;
           this.applyTheme();
           this.fetchSettings();
@@ -1629,7 +1631,10 @@ export function getKeywordsClientAppScript() {
             try {
               const autoParam = allowCreate ? '&auto_create=true' : '';
               const res = await window.apiFetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam));
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                throw new Error(data.error || data.message || ('HTTP ' + res.status));
+              }
               if (data.success && data.keyword) {
                 this.selectedKeyword = data.keyword;
                 this.selectedKeywordDetails = data;
@@ -2931,18 +2936,26 @@ export function getKeywordsClientAppScript() {
           const inFolder = this.isKeywordInFolder(folderId);
           try {
             if (inFolder) {
-              await window.apiFetch(this.getApiUrl('/api/folders/items'), {
+              const res = await window.apiFetch(this.getApiUrl('/api/folders/items'), {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
               });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || err.message || ('HTTP ' + res.status));
+              }
               this.showToast('Removed from folder', 'info');
             } else {
-              await window.apiFetch(this.getApiUrl('/api/folders/items'), {
+              const res = await window.apiFetch(this.getApiUrl('/api/folders/items'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
               });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || err.message || ('HTTP ' + res.status));
+              }
               this.showToast('Added to folder!', 'success');
             }
             await this.fetchCurrentKeywordFolders();

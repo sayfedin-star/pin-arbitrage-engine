@@ -47,7 +47,7 @@ ${renderSharedDocumentHead({
   defaultTheme: 'light'
 })}
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="pulseStudioApp('${safeFolderId}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal();">
+<body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="pulseStudioApp('${safeFolderId}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">

@@ -357,6 +357,8 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
   if (!rawBoard) throw new Error('board is required');
 
   const forceRefresh = options?.forceRefresh === true || options?.refresh === true;
+  const readOnly = options?.readOnly === true;
+  const allowScrape = !readOnly && (options?.allowScrape === true || forceRefresh);
 
   // 1. Look up competitor profile
   let competitorId = null;
@@ -414,7 +416,35 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
     };
   }
 
-  // 3. Live fetch from Pinterest unauthenticated board page
+  // [INVARIANT: READ-ONLY-GET-SAFE] Never perform live Pinterest scraping or DB writes unless explicitly allowed
+  if (!allowScrape) {
+    if (existingBoard) {
+      return {
+        board_id: existingBoard.board_id,
+        name: existingBoard.name,
+        url: existingBoard.url,
+        pin_count: Number(existingBoard.pin_count || 0),
+        follower_count: Number(existingBoard.follower_count || 0),
+        image_cover_url: existingBoard.image_cover_url || existingMeta.image_cover_url || null,
+        description: existingBoard.description || existingMeta.description || '',
+        board_vase: existingVase,
+        last_pinned_at: existingBoard.last_pinned_at,
+        created_at: existingBoard.created_at
+      };
+    }
+    return {
+      board_id: null,
+      name: rawBoard,
+      url: `https://www.pinterest.com/${cleanUsername}/${encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-'))}/`,
+      pin_count: 0,
+      follower_count: 0,
+      image_cover_url: null,
+      description: '',
+      board_vase: []
+    };
+  }
+
+  // 3. Live fetch from Pinterest unauthenticated board page (authorized sync/refresh only)
   let scraped = null;
   try {
     const sRes = await fetchBoardDetailUnauth(cleanUsername, rawBoard);

@@ -3,8 +3,8 @@ run-name: "Related Pins Crawler [${{ inputs.mode || 'seed_deep' }}]${{ inputs.ta
 
 on:
   schedule:
-    # Daily deep crawl of queued cluster_seeds at 03:00 UTC (seed_deep mode)
-    - cron: '0 3 * * *'
+    # Daily deep crawl of queued cluster_seeds at 04:15 UTC (offset from newborn-hunter 30 */3 * * *)
+    - cron: '15 4 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -75,6 +75,9 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
       - name: Check Cluster Seeds Count
         id: seed_check
@@ -92,8 +95,12 @@ jobs:
           SEED_COUNT=$(node --input-type=module -e "
             import { createSqlClient } from './src/db/client.mjs';
             const sql = createSqlClient(process.env.DATABASE_URL, { max: 1 });
-            const rows = await sql\`SELECT COUNT(*)::int AS cnt FROM cluster_seeds\`;
-            console.log(rows[0]?.cnt || 0);
+            try {
+              const rows = await sql\`SELECT COUNT(*)::int AS cnt FROM cluster_seeds\`;
+              console.log(rows[0]?.cnt || 0);
+            } finally {
+              await sql.end({ timeout: 2 }).catch(() => {});
+            }
             process.exit(0);
           ")
           echo "Detected $SEED_COUNT rows in cluster_seeds."
@@ -141,13 +148,17 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           skip-wakeup: 'true'
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
       - name: Execute Deep Related Pins Engine (seed_deep)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          NEWBORN_PINTEREST_COOKIE: ${{ secrets.NEWBORN_PINTEREST_COOKIE }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
           MAX_PAGES: ${{ inputs.max_pages || '60' }}
@@ -186,12 +197,16 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
       - name: Execute Quick Account Related Pins Harvester (account_quick)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          NEWBORN_PINTEREST_COOKIE: ${{ secrets.NEWBORN_PINTEREST_COOKIE }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_PIN_IDS: ${{ inputs.pin_ids }}

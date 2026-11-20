@@ -265,7 +265,7 @@ test('Quota settings propagation, crawlKeywordSERP target=10 displacement, and /
       searchParams: new URLSearchParams({ url: 'https://example.com/100%_recipe_idea' }),
       sql: urlSaveMock.sql,
       ctx: {},
-      safeWaitUntil: (_ctx, p) => bgTasks.push(p),
+      safeWaitUntil: (_ctx, p) => bgTasks.push(typeof p === 'function' ? p() : p),
       jsonResponse: (data, status = 200) => ({ status, body: data }),
       methodNotAllowedResponse: () => ({ status: 405 })
     });

@@ -143,9 +143,9 @@ export async function searchMultiEntityAutocomplete(sql, {
                 AND ksp.rank_position >= 1
             ) AS active_pin_count
           FROM tracked_keywords tk
-          WHERE LOWER(tk.keyword) LIKE ${norm.matchPattern} ESCAPE '\'
+          WHERE LOWER(tk.keyword) LIKE ${norm.matchPattern} ESCAPE '\\'
           ORDER BY
-            CASE WHEN LOWER(tk.keyword) LIKE ${norm.prefixPattern} ESCAPE '\' THEN 0 ELSE 1 END,
+            CASE WHEN LOWER(tk.keyword) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
             tk.is_active DESC,
             tk.avg_daily_velocity DESC NULLS LAST,
             tk.keyword ASC
@@ -167,14 +167,14 @@ export async function searchMultiEntityAutocomplete(sql, {
           FROM competitor_profiles cp
           WHERE COALESCE(cp.account_type, 'competitor') <> 'system'
             AND (
-              LOWER(cp.username) LIKE ${norm.creatorMatchPattern} ESCAPE '\'
-              OR LOWER(COALESCE(cp.display_name, '')) LIKE ${norm.creatorMatchPattern} ESCAPE '\'
+              LOWER(cp.username) LIKE ${norm.creatorMatchPattern} ESCAPE '\\'
+              OR LOWER(COALESCE(cp.display_name, '')) LIKE ${norm.creatorMatchPattern} ESCAPE '\\'
             )
           ORDER BY
             CASE
               WHEN LOWER(cp.username) = ${norm.creatorLower} THEN 0
-              WHEN LOWER(cp.username) LIKE ${norm.creatorPrefixPattern} ESCAPE '\' THEN 1
-              WHEN LOWER(COALESCE(cp.display_name, '')) LIKE ${norm.creatorPrefixPattern} ESCAPE '\' THEN 2
+              WHEN LOWER(cp.username) LIKE ${norm.creatorPrefixPattern} ESCAPE '\\' THEN 1
+              WHEN LOWER(COALESCE(cp.display_name, '')) LIKE ${norm.creatorPrefixPattern} ESCAPE '\\' THEN 2
               ELSE 3
             END,
             cp.monthly_reach DESC NULLS LAST,
@@ -199,9 +199,9 @@ export async function searchMultiEntityAutocomplete(sql, {
             ) AS keyword_count
           FROM keyword_folders kf
           WHERE kf.project_id = ${projectId}
-            AND LOWER(kf.name) LIKE ${norm.matchPattern} ESCAPE '\'
+            AND LOWER(kf.name) LIKE ${norm.matchPattern} ESCAPE '\\'
           ORDER BY
-            CASE WHEN LOWER(kf.name) LIKE ${norm.prefixPattern} ESCAPE '\' THEN 0 ELSE 1 END,
+            CASE WHEN LOWER(kf.name) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
             kf.updated_at DESC NULLS LAST,
             kf.name ASC
           LIMIT ${lim};
@@ -221,9 +221,9 @@ export async function searchMultiEntityAutocomplete(sql, {
           FROM domain_intelligence_rollup r
           WHERE r.total_pins > 0
             AND r.domain <> 'Uploaded by user'
-            AND LOWER(r.domain) LIKE ${norm.matchPattern} ESCAPE '\'
+            AND LOWER(r.domain) LIKE ${norm.matchPattern} ESCAPE '\\'
           ORDER BY
-            CASE WHEN LOWER(r.domain) LIKE ${norm.prefixPattern} ESCAPE '\' THEN 0 ELSE 1 END,
+            CASE WHEN LOWER(r.domain) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
             r.total_saves DESC NULLS LAST,
             r.total_pins DESC,
             r.domain ASC

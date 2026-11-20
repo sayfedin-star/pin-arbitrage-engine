@@ -141,6 +141,7 @@ async function healCreatorSequencesAndCeilings(sql, { includeSnapshots = false }
           END
         FROM competitor_profiles cp
         WHERE chs.competitor_id = cp.id
+          AND chs.recorded_date >= CURRENT_DATE - 7
           AND (
             (chs.monthly_reach = 0 AND cp.monthly_reach > 0)
             OR (chs.profile_views = 0 AND cp.profile_views > 0)

@@ -10,6 +10,7 @@ import {
   createSqlClient
 } from '../src/db/client.mjs';
 import {
+  calculateChecksum,
   getAppliedMigrations,
   findAppliedMigration,
   getMigrationFiles,
@@ -168,7 +169,7 @@ test('migrate.mjs getAppliedMigrations fails closed on DB error, counts unique v
 
   // 2. Accurate unique version count (no name: double counting) + alias lookup
   const mockAppliedRows = [
-    { version: '001', name: 'core_registry', checksum: 'abc', applied_at: '2026-01-01T00:00:00Z' },
+    { version: '001', name: 'core_registry', checksum: calculateChecksum('SELECT 1;'), applied_at: '2026-01-01T00:00:00Z' },
     { version: '060', name: 'clean_slate_4_table_ssot', checksum: 'def', applied_at: '2026-06-01T00:00:00Z' },
     { version: '066', name: 'db_hygiene_and_pulse_indexes', checksum: 'ghi', applied_at: '2026-11-01T00:00:00Z' }
   ];

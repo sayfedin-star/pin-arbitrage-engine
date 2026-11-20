@@ -113,6 +113,7 @@ export function getPulseClientAppScript() {
           try {
             if (!this.scopedFolderId) return;
             const res = await window.apiFetch('/api/folders');
+            if (!res.ok) return;
             const data = await res.json();
             if (data && Array.isArray(data.folders)) {
               this.foldersList = data.folders;
@@ -325,6 +326,9 @@ export function getPulseClientAppScript() {
 
             var data = await res.json();
             if (seq !== this._pulseReqSeq) return;
+            if (data && data.success === false) {
+              throw new Error(data.message || data.error || 'Pulse telemetry request failed');
+            }
 
             this.kpis = data.kpis || {};
             this.breakout_pins = {

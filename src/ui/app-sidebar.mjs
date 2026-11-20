@@ -1389,12 +1389,20 @@ export function renderAppSidebar({
         if (typeof window !== 'undefined') {
           window.addEventListener('load', refreshAppSidebarIcons);
           window.addEventListener('keydown', function(e) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')) {
+              var activeEl = document.activeElement;
+              var tag = activeEl && activeEl.tagName ? String(activeEl.tagName).toUpperCase() : '';
+              if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (activeEl && activeEl.isContentEditable)) {
+                return;
+              }
               e.preventDefault();
-              if (window.Alpine) {
+              if (window.Alpine && typeof window.Alpine.$data === 'function') {
                 var el = document.querySelector('[x-data]');
-                if (el && el.__x && typeof el.__x.$data.toggleSidebar === 'function') {
-                  el.__x.$data.toggleSidebar();
+                if (el) {
+                  var data = window.Alpine.$data(el);
+                  if (data && typeof data.toggleSidebar === 'function') {
+                    data.toggleSidebar();
+                  }
                 }
               }
             }

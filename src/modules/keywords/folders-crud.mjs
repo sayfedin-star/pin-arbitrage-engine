@@ -1154,13 +1154,13 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
     if (backgroundTargets.length > 0 && ctx && typeof ctx.waitUntil === 'function') {
       safeWaitUntil(
         ctx,
-        (async () => {
+        async () => {
           for (const username of backgroundTargets) {
             try {
               await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
             } catch (_) {}
           }
-        })(),
+        },
         'bulk_pulse_track_sync'
       );
     }

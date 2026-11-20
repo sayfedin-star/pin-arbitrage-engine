@@ -12,6 +12,7 @@
  */
 
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
 import {
   CANONICAL_FINGERPRINT,
@@ -47,7 +48,19 @@ function getSql() {
   return _sql;
 }
 
-const sql = (strings, ...values) => getSql()(strings, ...values);
+const retryContextStorage = new AsyncLocalStorage();
+const noRetrySql = (strings, ...values) => {
+  const client = getSql();
+  return (client.noRetry || client)(strings, ...values);
+};
+const sql = (strings, ...values) => {
+  const client = getSql();
+  if (retryContextStorage.getStore()?.useNoRetry && client.noRetry) {
+    return client.noRetry(strings, ...values);
+  }
+  return client(strings, ...values);
+};
+sql.noRetry = noRetrySql;
 
 // Jitter delay between requests: 2500ms - 4000ms per fail-safe standards
 const jitterDelay = () => randomJitterMs ? randomJitterMs(2500, 4000) : (2500 + Math.floor(Math.random() * 1500));
@@ -109,13 +122,18 @@ export function buildClusterSeedRelatedHeaders(pinId, rawCookie = '') {
 
 /**
  * Resilient database query wrapper: delegates transient PG connection retries to canonical withDbRetry
+ * while forcing inner `sql` calls onto `sql.noRetry` to eliminate 3 × 5 retry amplification storms.
  */
-export async function sqlWithRetry(queryFn, maxRetries = 3) {
-  return withDbRetry(queryFn, {
-    maxRetries: Math.max(0, maxRetries - 1),
-    baseDelayMs: 500,
-    maxDelayMs: 2000
-  });
+export async function sqlWithRetry(queryFn, maxRetries = 3, options = {}) {
+  const retrySql = options.sqlClient ? (options.sqlClient.noRetry || options.sqlClient) : noRetrySql;
+  return retryContextStorage.run({ useNoRetry: true }, () =>
+    withDbRetry(() => queryFn(retrySql), {
+      maxRetries: Math.max(0, maxRetries - 1),
+      baseDelayMs: options.baseDelayMs ?? 500,
+      maxDelayMs: options.maxDelayMs ?? 2000,
+      ...(typeof options.sleepFn === 'function' ? { sleepFn: options.sleepFn } : {})
+    })
+  );
 }
 
 /**
@@ -1009,7 +1027,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
           save_rate = x.save_rate,
           daily_velocity = x.daily_velocity
         FROM jsonb_to_recordset(${JSON.stringify(enrichedBatch)}::jsonb) AS x(
-          seed_pin_id text, candidate_pin_id text, repins int, saves bigint, save_rate numeric, daily_velocity numeric
+          seed_pin_id text, candidate_pin_id text, repins bigint, saves bigint, save_rate numeric, daily_velocity numeric
         )
         WHERE cgn.seed_pin_id = x.seed_pin_id 
           AND cgn.candidate_pin_id = x.candidate_pin_id;
@@ -1364,7 +1382,8 @@ async function crawlSeed(seed) {
     authoritativeCandidateCounts.fresh_candidate_count
   )) || totalCandidates;
 
-  await sqlWithRetry(() => sql`
+  // Non-idempotent snapshot INSERT: execute once without retry to prevent duplicate metric rows
+  await noRetrySql`
     INSERT INTO cluster_arbitrage_metrics (
       seed_pin_id, total_candidates, recgpt_count, navboost_count,
       randomwalk_count, two_tower_count, fresh_candidate_count, product_count,
@@ -1385,7 +1404,7 @@ async function crawlSeed(seed) {
       ${utilitySnapshot ? JSON.stringify(utilitySnapshot) : null},
       NOW()
     );
-  `);
+  `;
 
   await sqlWithRetry(() => pruneClusterArbitrageMetrics(sql, pinId, 90));
 

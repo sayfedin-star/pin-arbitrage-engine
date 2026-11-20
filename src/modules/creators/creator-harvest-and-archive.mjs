@@ -154,7 +154,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
       *,
       COUNT(*) OVER()::int AS total_count
     FROM aggregated
-    WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern})
+    WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern} ESCAPE '\\')
       AND (
         ${filter_type} = 'all' OR
         (${filter_type} = 'articles_only' AND is_product = FALSE) OR
@@ -771,7 +771,8 @@ export async function getPinArchiveOverview(sql) {
  * Get topic clusters extracted from AI annotations in Postgres
  */
 export async function getTopicClusters(sql, { minPins = 1, search = '', account = '', limit = 50, offset = 0 } = {}) {
-  const searchPattern = search ? escapeSqlWildcards(search.trim()) : null;
+  const rawSearch = search ? String(search).trim() : '';
+  const searchParam = rawSearch || null;
   const cleanAccount = account ? account.toLowerCase().replace(/^@/, '').trim() : null;
   const minNum = Math.max(1, isNaN(Number(minPins)) ? 1 : Number(minPins));
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
@@ -787,7 +788,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
         avg_velocity::numeric AS avg_velocity
       FROM pa_topic_clusters_page(
         ${minNum},
-        ${searchPattern},
+        ${searchParam},
         ${lim},
         ${off},
         ${cleanAccount}
@@ -806,9 +807,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
   } catch (_) {
     // Fallback inline CTE if stored procedure is not yet compiled or in local test environment
     const cleanAcctNorm = cleanAccount ? cleanAccount.replace(/^@+/, '').trim().toLowerCase() : null;
-    const escapedSearch = searchPattern
-      ? '%' + String(searchPattern).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
-      : null;
+    const escapedSearch = searchParam ? ('%' + escapeSqlWildcards(searchParam) + '%') : null;
     const rows = await sql`
       WITH extracted AS (
         SELECT

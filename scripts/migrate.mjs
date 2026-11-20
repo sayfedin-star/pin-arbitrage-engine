@@ -62,10 +62,12 @@ export function splitSqlStatements(sqlText) {
   const statements = [];
   let current = '';
   let inSingleQuote = false;
+  let inEscapeString = false;
+  let inDoubleQuote = false;
   let inDollarQuote = false;
   let dollarTag = '';
   let inLineComment = false;
-  let inBlockComment = false;
+  let blockCommentDepth = 0;
 
   const len = sqlText.length;
   for (let i = 0; i < len; i++) {
@@ -80,13 +82,20 @@ export function splitSqlStatements(sqlText) {
       continue;
     }
 
-    if (inBlockComment) {
-      current += char;
-      if (char === '*' && nextChar === '/') {
-        current += '/';
+    if (blockCommentDepth > 0) {
+      if (char === '/' && nextChar === '*') {
+        blockCommentDepth++;
+        current += '/*';
         i++;
-        inBlockComment = false;
+        continue;
       }
+      if (char === '*' && nextChar === '/') {
+        blockCommentDepth--;
+        current += '*/';
+        i++;
+        continue;
+      }
+      current += char;
       continue;
     }
 
@@ -104,18 +113,32 @@ export function splitSqlStatements(sqlText) {
 
     if (inSingleQuote) {
       current += char;
-      if (char === "'" && nextChar === "'") {
-        current += "'";
+      if (inEscapeString && char === '\\' && i + 1 < len) {
+        current += nextChar;
         i++;
         continue;
       }
-      if (char === '\\' && nextChar === "'") {
+      if (char === "'" && nextChar === "'") {
         current += "'";
         i++;
         continue;
       }
       if (char === "'") {
         inSingleQuote = false;
+        inEscapeString = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      current += char;
+      if (char === '"' && nextChar === '"') {
+        current += '"';
+        i++;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = false;
       }
       continue;
     }
@@ -128,14 +151,15 @@ export function splitSqlStatements(sqlText) {
     }
 
     if (char === '/' && nextChar === '*') {
-      inBlockComment = true;
+      blockCommentDepth = 1;
       current += '/*';
       i++;
       continue;
     }
 
     if (char === '$') {
-      const match = sqlText.slice(i).match(/^(\$[A-Za-z0-9_]*\$)/);
+      // Valid PostgreSQL dollar-quote tags: $$ or $ident$ where ident starts with [A-Za-z_] (never $1$)
+      const match = sqlText.slice(i).match(/^(\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$)/);
       if (match) {
         dollarTag = match[1];
         inDollarQuote = true;
@@ -146,7 +170,16 @@ export function splitSqlStatements(sqlText) {
     }
 
     if (char === "'") {
+      const prev = i > 0 ? sqlText[i - 1] : '';
+      const prev2 = i > 1 ? sqlText[i - 2] : '';
+      inEscapeString = (prev === 'E' || prev === 'e') && !/[A-Za-z0-9_$]/.test(prev2);
       inSingleQuote = true;
+      current += char;
+      continue;
+    }
+
+    if (char === '"') {
+      inDoubleQuote = true;
       current += char;
       continue;
     }
@@ -337,6 +370,14 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
 
 export const discoverMigrations = getMigrationFiles;
 
+const MIGRATION_CLIENT_OPTIONS = Object.freeze({
+  max: 1,
+  connection: {
+    statement_timeout: 300000,
+    lock_timeout: 30000
+  }
+});
+
 /**
  * Executes a single migration file against the database endpoint with cold-start retries.
  */
@@ -350,11 +391,16 @@ export async function applyMigration(sql, migration, { dryRun = false, maxRetrie
   }
 
   const statements = splitSqlStatements(content);
+  const hasConcurrently = statements.some((stmt) => {
+    const clean = stmt.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '');
+    return /\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX|REFRESH\s+MATERIALIZED\s+VIEW|DROP\s+INDEX)\s+CONCURRENTLY\b/i.test(clean);
+  });
+  const useTransaction = !hasConcurrently && typeof sql.begin === 'function' && typeof sql.unsafe === 'function';
   console.log(`  [*] Applying migration ${migration.version}: ${migration.filename} (${statements.length} statements)...`);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      if (typeof sql.begin === 'function' && typeof sql.unsafe === 'function') {
+      if (useTransaction) {
         await sql.begin(async (tx) => {
           for (const stmt of statements) {
             const cleanToken = stmt
@@ -364,6 +410,14 @@ export async function applyMigration(sql, migration, { dryRun = false, maxRetrie
             if (/^(BEGIN|COMMIT)(\s+TRANSACTION)?$/i.test(cleanToken)) continue;
             await tx.unsafe(stmt);
           }
+          await tx`
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (${migration.version}, ${migration.name}, ${checksum}, NOW())
+            ON CONFLICT (version) DO UPDATE SET
+              name = EXCLUDED.name,
+              checksum = EXCLUDED.checksum,
+              applied_at = NOW();
+          `;
         });
       } else {
         for (const stmt of statements) {
@@ -373,21 +427,20 @@ export async function applyMigration(sql, migration, { dryRun = false, maxRetrie
             await sql(stmt);
           }
         }
+        await sql`
+          INSERT INTO schema_migrations (version, name, checksum, applied_at)
+          VALUES (${migration.version}, ${migration.name}, ${checksum}, NOW())
+          ON CONFLICT (version) DO UPDATE SET
+            name = EXCLUDED.name,
+            checksum = EXCLUDED.checksum,
+            applied_at = NOW();
+        `;
       }
-
-      await sql`
-        INSERT INTO schema_migrations (version, name, checksum, applied_at)
-        VALUES (${migration.version}, ${migration.name}, ${checksum}, NOW())
-        ON CONFLICT (version) DO UPDATE SET
-          name = EXCLUDED.name,
-          checksum = EXCLUDED.checksum,
-          applied_at = NOW();
-      `;
 
       console.log(`  ✓ [PASS] Migration ${migration.version} successfully applied.`);
       return { success: true, version: migration.version, checksum, statementsCount: statements.length };
     } catch (err) {
-      const isTransient = /cold start|timeout|fetch failed|connection reset|ECONNRESET/i.test(err.message);
+      const isTransient = !err?.__paeEnteredTxCallback && /cold start|timeout|fetch failed|connection reset|ECONNRESET/i.test(err.message);
       if (attempt < maxRetries && isTransient) {
         const backoffMs = 1000 * Math.pow(2, attempt - 1);
         console.warn(`  [~] Transient database cold start (Attempt ${attempt}/${maxRetries}). Retrying in ${backoffMs}ms...`);
@@ -408,6 +461,7 @@ export async function runMigrations({
   migrationsDir = path.join(__dirname, 'migrations'),
   dryRun = false,
   force = false,
+  allowOffline = false,
   upToVersion = null,
   singleFile = null,
   sqlClient = null
@@ -418,19 +472,22 @@ export async function runMigrations({
 
   let sql = null;
   try {
-    sql = sqlClient || createSqlClient(dbUrl);
+    sql = sqlClient || createSqlClient(dbUrl, MIGRATION_CLIENT_OPTIONS);
 
     let applied;
     try {
       applied = await getAppliedMigrations(sql);
     } catch (connErr) {
-      if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(connErr.message)) {
+      const isOfflineErr =
+        /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(String(connErr?.message || '')) ||
+        /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(String(connErr?.code || ''));
+      if (isOfflineErr && allowOffline) {
         console.warn('================================================================================');
         console.warn('🏛️  PIN ARBITRAGE ENGINE: CANONICAL MIGRATION RUNNER');
         console.warn('================================================================================');
         console.warn(`[!] Target Database:     ${String(dbUrl || '').replace(/:[^:@]+@/, ':***@')}`);
         console.warn(`[!] Status:              Database is offline or unreachable (${connErr.message}).`);
-        console.warn('    Schema migrations will be applied when the database container boots up.');
+        console.warn('    Proceeding gracefully because --allow-offline was explicitly specified.');
         console.warn('================================================================================\n');
         return { applied: 0, skipped: 0, total: 0, offline: true };
       }
@@ -484,6 +541,13 @@ export async function runMigrations({
       const appliedEntry = findAppliedMigration(applied, mig);
       const isApplied = Boolean(appliedEntry);
       if (isApplied && !force) {
+        if (appliedEntry.checksum && appliedEntry.checksum !== mig.checksum) {
+          throw new Error(
+            `Checksum mismatch for applied migration ${mig.version} (${mig.filename}): ` +
+            `database recorded ${appliedEntry.checksum}, disk file has ${mig.checksum}. ` +
+            `Refusing to proceed without --force.`
+          );
+        }
         console.log(`  - [SKIPPED] Migration ${mig.version} (${mig.filename}) already applied at ${appliedEntry.applied_at}`);
         results.skipped++;
         results.details.push({ version: mig.version, status: 'skipped' });
@@ -521,7 +585,7 @@ export async function listMigrations({
 
   let sql = null;
   try {
-    sql = sqlClient || createSqlClient(dbUrl);
+    sql = sqlClient || createSqlClient(dbUrl, MIGRATION_CLIENT_OPTIONS);
     const applied = await getAppliedMigrations(sql);
     const allFiles = getMigrationFiles(migrationsDir);
 
@@ -552,6 +616,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const force = args.includes('--force');
+  const allowOffline = args.includes('--allow-offline');
   const isList = args.includes('--list') || args.includes('--status');
 
   const upToArg = args.find(a => a.startsWith('--up-to='));
@@ -571,7 +636,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
         process.exit(1);
       });
   } else {
-    runMigrations({ dbUrl, dryRun, force, upToVersion, singleFile })
+    runMigrations({ dbUrl, dryRun, force, allowOffline, upToVersion, singleFile })
       .then(() => process.exit(0))
       .catch(err => {
         console.error('[-] Fatal error running migrations:', err.message);

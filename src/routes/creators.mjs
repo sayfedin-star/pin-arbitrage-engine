@@ -53,6 +53,7 @@ import {
 } from '../modules/creators/creator-analytics.mjs';
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
+import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 import { deletePinSnapshotByTarget } from './pins.mjs';
 
 /**
@@ -180,7 +181,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
-        safeWaitUntil?.(ctx, tripPinterestCircuitBreaker(env, `Rate limit in quick-pulse: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil?.(ctx, () => tripPinterestCircuitBreaker(env, `Rate limit in quick-pulse: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
     } finally {
@@ -198,7 +199,7 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
-        safeWaitUntil?.(ctx, tripPinterestCircuitBreaker(env, `Rate limit in deep-harvest: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil?.(ctx, () => tripPinterestCircuitBreaker(env, `Rate limit in deep-harvest: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
     } finally {
@@ -219,10 +220,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
-        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Rate Limit in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil(ctx, () => tripPinterestCircuitBreaker(env, 'HTTP 429 Rate Limit in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
         return jsonResponse({ error: 'PINTEREST_RATE_LIMITED', message: err.message }, 429);
       } else if (err.message && (err.message.includes('403') || err.message.includes('access denied'))) {
-        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 403 Forbidden in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil(ctx, () => tripPinterestCircuitBreaker(env, 'HTTP 403 Forbidden in /api/creators/sync', 900), 'tripPinterestCircuitBreaker');
         return jsonResponse({ error: 'PINTEREST_ACCESS_DENIED', message: err.message }, 403);
       }
       throw err;
@@ -379,7 +380,11 @@ export async function handleCreatorsRoutes(routeCtx) {
     const board = body.board || body.board_name || body.slug || searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const boardData = await getOrSyncBoardDetail(sql, username, board, { forceRefresh: true });
+      const boardData = await getOrSyncBoardDetail(sql, username, board, {
+        forceRefresh: true,
+        allowScrape: true,
+        readOnly: false
+      });
       return jsonResponse({ success: true, board: boardData }, 200, 0);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -388,14 +393,20 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/creators/board-detail (Read-only)
+  // GET /api/creators/board-detail ([INVARIANT: READ-ONLY-GET-SAFE]: never scrape or mutate DB on unauthenticated GET)
   if (method === 'GET' && pathname === '/api/creators/board-detail') {
     const username = searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
-    const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
+    const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug') || searchParams.get('board_slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const boardData = await getOrSyncBoardDetail(sql, username, board, { forceRefresh: false });
-      return jsonResponse({ success: true, board: boardData }, 200, 60);
+      const wantsRefresh = searchParams.get('refresh') === 'true';
+      const isAuthed = wantsRefresh && Boolean(verifyApiAuthentication(request, env)?.authorized);
+      const boardData = await getOrSyncBoardDetail(sql, username, board, {
+        forceRefresh: isAuthed,
+        allowScrape: isAuthed,
+        readOnly: !isAuthed
+      });
+      return jsonResponse({ success: true, board: boardData }, 200, isAuthed ? 0 : 60);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
     }
@@ -783,7 +794,11 @@ export async function handleCreatorsRoutes(routeCtx) {
           throw degradedErr;
         }
         return { overview, competitors };
-      }, 8000, 30000, { forceRefresh: searchParams.get('refresh') === 'true' || searchParams.has('_t') });
+      }, 8000, 30000, {
+        forceRefresh: Boolean(verifyApiAuthentication(request, env)?.authorized) && (
+          searchParams.get('refresh') === 'true' || searchParams.has('_t')
+        )
+      });
 
       return jsonResponse({ success: true, ...data }, 200, 0);
     } catch (err) {

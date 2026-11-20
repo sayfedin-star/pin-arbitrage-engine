@@ -818,7 +818,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL)
       AND ksp.is_displaced = FALSE
       AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
-      AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
+      AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern} ESCAPE '\\')
       AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
       AND (${qualified_only} = FALSE OR (COALESCE(ump.save_count, 0) >= 100 OR COALESCE(ump.daily_save_velocity, 0) >= 3.5))
       AND (${isHighVelocity} = FALSE OR COALESCE(ump.daily_save_velocity, 0) >= 10)
@@ -889,7 +889,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
           OR ump.clean_domain ILIKE '%pin.it%'
         )
         AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
-        AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
+        AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(ump.title, '')) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern} ESCAPE '\\')
         AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
         AND (${qualified_only} = FALSE OR (COALESCE(ump.save_count, 0) >= 100 OR COALESCE(ump.daily_save_velocity, 0) >= 3.5))
         AND (${isHighVelocity} = FALSE OR COALESCE(ump.daily_save_velocity, 0) >= 10)
@@ -1081,7 +1081,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ) ksp ON TRUE
     WHERE (${ranked_only} = FALSE OR ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE))
       AND (${minSavesNum} = 0 OR ep.save_count >= ${minSavesNum})
-      AND (${searchPattern}::text IS NULL OR LOWER(ep.title) LIKE ${searchPattern} OR LOWER(ep.description) LIKE ${searchPattern} OR LOWER(ep.curator_username) LIKE ${searchPattern})
+      AND (${searchPattern}::text IS NULL OR LOWER(ep.title) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(ep.description) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(ep.curator_username) LIKE ${searchPattern} ESCAPE '\\')
       AND (${cleanBoardSlug}::text IS NULL OR ep.board_slug = ${cleanBoardSlug})
       AND (${qualified_only} = FALSE OR (ep.save_count >= 100 OR ep.repin_count >= 100 OR ep.velocity >= 3.5))
       AND (${isHighVelocity} = FALSE OR ep.velocity >= 10)
@@ -1110,7 +1110,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       WHERE cbp.competitor_id = ${numericId}
         AND (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL AND ksp.is_displaced = FALSE))
         AND (${minSavesNum} = 0 OR COALESCE(ump.save_count, 0) >= ${minSavesNum})
-        AND (${searchPattern}::text IS NULL OR LOWER(ump.title) LIKE ${searchPattern} OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern})
+        AND (${searchPattern}::text IS NULL OR LOWER(ump.title) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(ump.description, '')) LIKE ${searchPattern} ESCAPE '\\')
         AND (${cleanBoardSlug}::text IS NULL OR ump.board_slug = ${cleanBoardSlug})
         AND (${qualified_only} = FALSE OR (COALESCE(ump.save_count, 0) >= 100 OR COALESCE(ump.daily_save_velocity, 0) >= 3.5))
         AND (${isHighVelocity} = FALSE OR COALESCE(ump.daily_save_velocity, 0) >= 10)
@@ -1320,26 +1320,26 @@ export async function listArchivedPins(sql, {
       WHERE (COALESCE(save_count, 0) >= ${minNum})
         AND (${maxNum}::bigint IS NULL OR COALESCE(save_count, 0) <= ${maxNum})
         AND (${searchPattern}::text IS NULL OR (
-          COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
-          COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
-          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} OR
-          COALESCE(pin_id, '') LIKE ${searchPattern}
+          COALESCE(LOWER(title), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(description), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(pin_id, '') LIKE ${searchPattern} ESCAPE '\\'
         ))
-        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
+        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern} ESCAPE '\\')
         AND (${topicPattern}::text IS NULL OR (
-          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
-          COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
+          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(title), '') LIKE ${topicPattern} ESCAPE '\\' OR
           EXISTS (
             SELECT 1
             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(visual_annotations) = 'array' THEN visual_annotations ELSE '[]'::jsonb END) AS elem
             WHERE (
-              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern})
+              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern} ESCAPE '\\')
               OR
-              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern})
+              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern} ESCAPE '\\')
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern} ESCAPE '\\')
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND COALESCE(daily_save_velocity, 0) < 0.5) OR
@@ -1374,26 +1374,26 @@ export async function listArchivedPins(sql, {
       WHERE (COALESCE(save_count, 0) >= ${minNum})
         AND (${maxNum}::bigint IS NULL OR COALESCE(save_count, 0) <= ${maxNum})
         AND (${searchPattern}::text IS NULL OR (
-          COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
-          COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
-          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} OR
-          COALESCE(pin_id, '') LIKE ${searchPattern}
+          COALESCE(LOWER(title), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(description), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} ESCAPE '\\' OR
+          COALESCE(pin_id, '') LIKE ${searchPattern} ESCAPE '\\'
         ))
-        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
+        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern} ESCAPE '\\')
         AND (${topicPattern}::text IS NULL OR (
-          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
-          COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
+          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} ESCAPE '\\' OR
+          COALESCE(LOWER(title), '') LIKE ${topicPattern} ESCAPE '\\' OR
           EXISTS (
             SELECT 1
             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(visual_annotations) = 'array' THEN visual_annotations ELSE '[]'::jsonb END) AS elem
             WHERE (
-              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern})
+              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern} ESCAPE '\\')
               OR
-              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern})
+              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern} ESCAPE '\\')
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR LOWER(COALESCE(creator_username, '')) LIKE ${accountPattern} ESCAPE '\\')
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND COALESCE(daily_save_velocity, 0) < 0.5) OR

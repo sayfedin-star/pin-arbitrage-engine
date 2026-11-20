@@ -96,7 +96,7 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Number(searchParams.get('page') || 1),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
-      const queryParams = { ...cacheParams, allowBackgroundRefresh: canMutateInBackground };
+      const queryParams = { ...cacheParams, allowBackgroundRefresh: canMutateInBackground, ctx };
       const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
       const SIX_HOURS_MS = 21600000;
       const ONE_HOUR_MS = 3600000;
@@ -111,7 +111,7 @@ export async function handleDomainsRoutes(routeCtx) {
         if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
           safeWaitUntil(
             ctx,
-            enrichMissingDomainsBatch(sql, data.missing_age_domains, 4).catch(() => {}),
+            () => enrichMissingDomainsBatch(sql, data.missing_age_domains, 4),
             'bg_enrich_domain_ages'
           );
         }
@@ -119,7 +119,7 @@ export async function handleDomainsRoutes(routeCtx) {
         if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
           safeWaitUntil(
             ctx,
-            enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4).catch(() => {}),
+            () => enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4),
             'bg_enrich_domain_ads'
           );
         }
@@ -159,7 +159,7 @@ export async function handleDomainsRoutes(routeCtx) {
 
         // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Only dispatch DB rollup micro-sync when authenticated & unscoped
         if (canMutateInBackground && freshDossier?.success && !folderId) {
-          safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
+          safeWaitUntil(ctx, () => syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
         }
 
         return freshDossier;
@@ -174,7 +174,7 @@ export async function handleDomainsRoutes(routeCtx) {
       if (canMutateInBackground && (dossier?.needs_age_enrichment || dossier?.needs_ad_enrichment)) {
         safeWaitUntil(
           ctx,
-          (async () => {
+          async () => {
             const tasks = [];
             if (dossier.needs_age_enrichment) {
               tasks.push(fetchAndCacheDomainAge(sql, cleanDomain).catch(() => {}));
@@ -187,7 +187,7 @@ export async function handleDomainsRoutes(routeCtx) {
             if (typeof invalidateEdgeCache === 'function') {
               invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
             }
-          })(),
+          },
           'bg_dossier_enrichment'
         );
       }

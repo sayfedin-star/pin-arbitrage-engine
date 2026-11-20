@@ -133,20 +133,97 @@ function stripSqlCommentsAndLiterals(sqlText) {
   return out;
 }
 
-export function isReadOnlyQuery(queryInput) {
-  let text = '';
-  if (typeof queryInput === 'string') {
-    text = queryInput;
-  } else if (Array.isArray(queryInput)) {
-    text = queryInput.join(' ');
-  } else if (queryInput && typeof queryInput === 'object') {
-    if (Array.isArray(queryInput.strings)) {
-      text = queryInput.strings.join(' ');
-    } else if (Array.isArray(queryInput.raw)) {
-      text = queryInput.raw.join(' ');
+function isSafeSqlParameterValue(val) {
+  if (val === null || val === undefined) return true;
+  const t = typeof val;
+  if (t === 'string' || t === 'number' || t === 'boolean' || t === 'bigint') return true;
+  if (val instanceof Date || Buffer.isBuffer(val) || ArrayBuffer.isView(val)) return true;
+  if (val.constructor?.name === 'Parameter') return true;
+  return false;
+}
+
+function expandSqlFragment(input, values = [], seen = new Set(), depth = 0) {
+  if (depth > 12) return null; // Conservatively treat deeply nested/recursive SQL as non-read-only
+
+  let parts = null;
+  let nestedValues = values;
+
+  if (typeof input === 'string') {
+    parts = [input];
+  } else if (Array.isArray(input)) {
+    parts = input;
+  } else if (input && typeof input === 'object') {
+    if (seen.has(input)) return null;
+    seen.add(input);
+    if (Array.isArray(input.strings)) {
+      parts = input.strings;
+      if (nestedValues.length === 0) {
+        if (Array.isArray(input.args)) nestedValues = input.args;
+        else if (Array.isArray(input.values)) nestedValues = input.values;
+      }
+    } else if (Array.isArray(input.raw)) {
+      parts = input.raw;
+    } else {
+      return null;
     }
+  } else {
+    return null;
   }
 
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    out += String(parts[i] ?? '');
+    if (i < nestedValues.length) {
+      const v = nestedValues[i];
+      if (isSafeSqlParameterValue(v)) {
+        out += ' ';
+      } else if (Array.isArray(v)) {
+        // Plain array of primitives/JSON params (e.g. ANY(${ids})) vs array of nested SQL fragments
+        let hasFragment = false;
+        const expandedItems = [];
+        for (const item of v) {
+          if (isSafeSqlParameterValue(item)) continue;
+          if (item && typeof item === 'object' && (
+            Array.isArray(item.strings) || Array.isArray(item.raw) ||
+            typeof item.then === 'function' || item.constructor?.name === 'Builder'
+          )) {
+            hasFragment = true;
+            const sub = expandSqlFragment(item, [], seen, depth + 1);
+            if (sub === null) return null;
+            expandedItems.push(sub);
+          }
+        }
+        out += hasFragment ? ` ${expandedItems.join(' ')} ` : ' ';
+      } else if (v && typeof v === 'object') {
+        const isNestedFragment =
+          Array.isArray(v.strings) ||
+          Array.isArray(v.raw) ||
+          typeof v.then === 'function' ||
+          v.constructor?.name === 'Builder' ||
+          v.__paeRetryWrapped === true ||
+          v.__sqlFrag === true;
+        if (isNestedFragment) {
+          if (v.constructor?.name === 'Builder') {
+            return null; // Conservatively reject opaque postgres.js sql(...) builders
+          }
+          const sub = expandSqlFragment(v, [], seen, depth + 1);
+          if (sub === null) return null;
+          out += ` ${sub} `;
+        } else {
+          // Plain JSON object bound parameter
+          out += ' ';
+        }
+      } else {
+        // Functions or other unexpected interpolated values -> conservative reject
+        return null;
+      }
+    }
+  }
+  return out;
+}
+
+export function isReadOnlyQuery(queryInput, interpolatedValues = []) {
+  const text = expandSqlFragment(queryInput, Array.isArray(interpolatedValues) ? interpolatedValues : []);
   if (!text || typeof text !== 'string') {
     return false;
   }
@@ -281,14 +358,51 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
   const origBegin = typeof pgClient.begin === 'function' ? pgClient.begin.bind(pgClient) : null;
   const origUnsafe = typeof pgClient.unsafe === 'function' ? pgClient.unsafe.bind(pgClient) : null;
 
-  // Expose an unwrapped noRetry sibling so callers inside explicit `withDbRetry(...)` never double-stack retries
-  const noRetryTransaction = origBegin
-    ? async (queriesOrFn) => executeAtomicTransaction(origBegin, queriesOrFn)
+  // Guarded begin helper: marks errors with __paeEnteredTxCallback = true once the transaction callback starts
+  // so outer `withDbRetry` loops (including callers using `sql.noRetry.begin`) NEVER replay committed writes.
+  const runGuardedBeginOnce = async (...args) => {
+    let enteredCallback = false;
+    const cbIdx = args.findLastIndex((a) => typeof a === 'function');
+    const wrappedArgs = cbIdx === -1
+      ? args
+      : args.map((arg, idx) => {
+          if (idx !== cbIdx) return arg;
+          return async (...cbArgs) => {
+            enteredCallback = true;
+            return await arg(...cbArgs);
+          };
+        });
+
+    activeQueryCount++;
+    totalQueryCount++;
+    try {
+      return await origBegin(...wrappedArgs);
+    } catch (err) {
+      if (enteredCallback) {
+        const nonRetryableErr = err && typeof err === 'object' ? err : new Error(String(err));
+        Object.defineProperty(nonRetryableErr, '__paeEnteredTxCallback', {
+          value: true,
+          enumerable: false,
+          configurable: true
+        });
+        throw nonRetryableErr;
+      }
+      throw err;
+    } finally {
+      activeQueryCount = Math.max(0, activeQueryCount - 1);
+    }
+  };
+
+  // Expose an unwrapped noRetry sibling so callers inside explicit `withDbRetry(...)` never double-stack retries,
+  // while still preserving the non-retryable transaction callback guard.
+  const noRetryBegin = origBegin ? (...args) => runGuardedBeginOnce(...args) : null;
+  const noRetryTransaction = noRetryBegin
+    ? async (queriesOrFn) => executeAtomicTransaction(noRetryBegin, queriesOrFn)
     : undefined;
 
   const noRetryClient = new Proxy(pgClient, {
     get(target, prop, receiver) {
-      if (prop === 'begin' && origBegin) return origBegin;
+      if (prop === 'begin' && noRetryBegin) return noRetryBegin;
       if (prop === 'unsafe' && origUnsafe) return origUnsafe;
       if (prop === 'transaction' && noRetryTransaction) return noRetryTransaction;
       if (prop === 'noRetry') return noRetryClient;
@@ -301,38 +415,7 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
 
   if (origBegin) {
     pgClient.begin = async (...args) => {
-      let enteredCallback = false;
-      const cbIdx = args.findLastIndex((a) => typeof a === 'function');
-      const wrappedArgs = cbIdx === -1
-        ? args
-        : args.map((arg, idx) => {
-            if (idx !== cbIdx) return arg;
-            return async (...cbArgs) => {
-              enteredCallback = true;
-              return await arg(...cbArgs);
-            };
-          });
-
-      return await withDbRetry(async () => {
-        activeQueryCount++;
-        totalQueryCount++;
-        try {
-          return await origBegin(...wrappedArgs);
-        } catch (err) {
-          if (enteredCallback) {
-            const nonRetryableErr = err && typeof err === 'object' ? err : new Error(String(err));
-            Object.defineProperty(nonRetryableErr, '__paeEnteredTxCallback', {
-              value: true,
-              enumerable: false,
-              configurable: true
-            });
-            throw nonRetryableErr;
-          }
-          throw err;
-        } finally {
-          activeQueryCount = Math.max(0, activeQueryCount - 1);
-        }
-      }, retryOptions);
+      return await withDbRetry(() => runGuardedBeginOnce(...args), retryOptions);
     };
   }
 
@@ -364,7 +447,7 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
       const result = invoke();
       const isTemplateCall = Array.isArray(args[0]) && Object.hasOwn(args[0], 'raw');
       if (isTemplateCall && result && typeof result.then === 'function') {
-        const isReadOnly = isReadOnlyQuery(args[0]);
+        const isReadOnly = isReadOnlyQuery(args[0], args.slice(1));
         return wrapPendingQueryRetry(result, invoke, { ...retryOptions, isReadOnly });
       }
       return result;
@@ -502,11 +585,14 @@ export function createSqlClient(dsn, options = {}) {
 
   const isCi = typeof process !== 'undefined' && Boolean(process.env?.GITHUB_ACTIONS);
   const defaultMax = isCi ? 3 : 15;
-  const requestedMax = Number(
-    options.max ||
-    (typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : 0) ||
-    defaultMax
-  );
+  const parseSafePoolMax = (raw, fallback) => {
+    if (raw === undefined || raw === null || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  };
+  const requestedMax = options.max !== undefined
+    ? parseSafePoolMax(options.max, defaultMax)
+    : parseSafePoolMax(typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : undefined, defaultMax);
   // Cap GITHUB_ACTIONS pool size to 3-4 connections
   const maxConnections = isCi ? Math.max(1, Math.min(requestedMax, 4)) : Math.max(1, requestedMax);
   const defaultStatementTimeoutMs = isCi ? 45000 : 15000;
@@ -597,7 +683,9 @@ export function getPoolStats(client = null) {
   if (!targetClient) {
     return { active: 0, idle: 0, max: 0, total_executed: totalQueryCount };
   }
-  const max = targetClient.options?.max ?? Number(process.env.PG_POOL_MAX || 15);
+  const envMax = Number(process.env.PG_POOL_MAX);
+  const fallbackMax = Number.isFinite(envMax) && envMax > 0 ? Math.floor(envMax) : 15;
+  const max = targetClient.options?.max ?? fallbackMax;
   const active = Math.max(0, activeQueryCount);
   const idle = Math.max(0, max - active);
   return {

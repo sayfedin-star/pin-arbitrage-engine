@@ -394,13 +394,11 @@ export function getPinDetailsBodyHtml(safePinId) {
         <div class="pt-2 space-y-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Related Pins Semantic Radar</div>
           <a 
-            :href="'/api/keywords/visual-search?pin_id=' + encodeURIComponent(pinId)" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            class="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+            :href="'/newborn?search=' + encodeURIComponent(pinId)" 
+            class="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           >
             <span>Launch Related Radar</span>
-            <span class="text-slate-500">↗</span>
+            <span class="text-slate-500" aria-hidden="true">↗</span>
           </a>
         </div>
       </div>

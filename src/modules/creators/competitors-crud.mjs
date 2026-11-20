@@ -147,7 +147,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
           FROM competitor_profiles
           WHERE COALESCE(account_type, 'competitor') <> 'system'
             AND account_type = ${account_type}
-            AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
+            AND (LOWER(username) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern} ESCAPE '\\')
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
         `;
@@ -181,7 +181,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
             follower_count, activity_status, last_synced_at, updated_at, created_at
           FROM competitor_profiles
           WHERE COALESCE(account_type, 'competitor') <> 'system'
-            AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
+            AND (LOWER(username) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern} ESCAPE '\\')
           ORDER BY monthly_reach DESC
           LIMIT ${lim} OFFSET ${off};
         `;

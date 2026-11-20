@@ -83,6 +83,9 @@ export function getDashboardCreatorsFleetMethods() {
           if (!this.competitors || this.competitors.length === 0) return;
           this.isLoading = true;
           this.showToast('Starting full sync for ' + this.competitors.length + ' profiles...');
+          let syncedCount = 0;
+          let failedCount = 0;
+          let pausedByRateLimit = false;
           try {
             for (let i = 0; i < this.competitors.length; i++) {
               const c = this.competitors[i];
@@ -94,10 +97,18 @@ export function getDashboardCreatorsFleetMethods() {
                   body: JSON.stringify({ username: c.username })
                 });
                 if (res.status === 429 || res.status === 503) {
+                  pausedByRateLimit = true;
                   this.showToast('⚠️ Rate limit (429) or circuit breaker tripped. Pausing batch sync to protect account.');
                   break;
                 }
+                if (res.ok) {
+                  syncedCount++;
+                } else {
+                  failedCount++;
+                  console.warn('[syncAllCompetitors] Non-OK status ' + res.status + ' for @' + c.username);
+                }
               } catch (fetchErr) {
+                failedCount++;
                 console.warn('[syncAllCompetitors] Sync failed for @' + c.username, fetchErr);
               }
               if (i < this.competitors.length - 1) {
@@ -106,7 +117,15 @@ export function getDashboardCreatorsFleetMethods() {
               }
             }
             await this.fetchCompetitors();
-            this.showToast('All competitor profiles updated successfully!');
+            if (!pausedByRateLimit) {
+              if (failedCount === 0 && syncedCount > 0) {
+                this.showToast('All competitor profiles updated successfully!');
+              } else if (syncedCount > 0) {
+                this.showToast('Synced ' + syncedCount + ' profiles (' + failedCount + ' failed).');
+              } else {
+                this.showToast('Failed to sync competitor profiles (' + failedCount + ' errors).');
+              }
+            }
           } finally {
             this.isLoading = false;
           }
@@ -562,20 +581,33 @@ export function getDashboardCreatorsFleetMethods() {
           const count = this.selectedCompetitorIds.length;
           this.showToast('⚡ Bulk Pulsing ' + count + ' creators (syncing impressions & audience)...');
           let successCount = 0;
+          let failedCount = 0;
           for (let i = 0; i < count; i++) {
             const cid = this.selectedCompetitorIds[i];
             const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
             if (!comp) continue;
             try {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
+              const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: cid })
               });
-              successCount++;
-            } catch (_) {}
+              if (res && res.ok) {
+                successCount++;
+              } else {
+                failedCount++;
+              }
+            } catch (_) {
+              failedCount++;
+            }
           }
-          this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
+          if (failedCount === 0 && successCount > 0) {
+            this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
+          } else if (successCount > 0) {
+            this.showToast('⚠️ Bulk Pulse partially completed (' + successCount + '/' + count + ' updated, ' + failedCount + ' failed).');
+          } else {
+            this.showToast('❌ Bulk Pulse failed for all ' + count + ' selected creators.');
+          }
           this._clientCache?.creators?.clear();
           this._clientCache?.boards?.clear();
           await this.fetchCompetitors();
@@ -697,6 +729,8 @@ export function getDashboardCreatorsFleetMethods() {
           if (!this.selectedCompetitorIds.length) return;
           const selectedSet = new Set(this.selectedCompetitorIds.map(Number));
           const count = this.selectedCompetitorIds.length;
+          const previousCompetitors = [...(this.competitors || [])];
+          const previousActiveCreator = this.activeCreator ? { ...this.activeCreator } : null;
 
           // 1. Instant optimistic reactive update across array
           this.competitors = (this.competitors || []).map(comp => {
@@ -708,20 +742,46 @@ export function getDashboardCreatorsFleetMethods() {
           if (this.activeCreator && selectedSet.has(Number(this.activeCreator.id))) {
             this.activeCreator = { ...this.activeCreator, is_active: activeStatus };
           }
-          this.showToast(activeStatus ? ('▶ Resumed ingestion for ' + count + ' profiles.') : ('⏸ Paused ingestion for ' + count + ' profiles.'));
 
-          // 2. Persist to backend in background
+          // 2. Persist to backend and verify res.ok before displaying success feedback
+          let updatedCount = 0;
+          let failedCount = 0;
+          let lastError = '';
           try {
             for (const cid of this.selectedCompetitorIds) {
-              await window.apiFetch(this.getApiUrl('/api/creators/status'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: cid, is_active: activeStatus })
-              }).catch(() => {});
+              try {
+                const res = await window.apiFetch(this.getApiUrl('/api/creators/status'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: cid, is_active: activeStatus })
+                });
+                if (res && res.ok) {
+                  updatedCount++;
+                } else {
+                  failedCount++;
+                  const err = await res?.json?.().catch(() => ({})) || {};
+                  lastError = err.error || err.message || ('HTTP ' + (res?.status || 500));
+                }
+              } catch (reqErr) {
+                failedCount++;
+                lastError = reqErr.message || 'Network error';
+              }
+            }
+            if (failedCount === 0) {
+              this.showToast(activeStatus ? ('▶ Resumed ingestion for ' + updatedCount + ' profiles.') : ('⏸ Paused ingestion for ' + updatedCount + ' profiles.'));
+            } else if (updatedCount > 0) {
+              this.showToast('Updated ' + updatedCount + '/' + count + ' profiles (' + failedCount + ' failed: ' + lastError + ')');
+            } else {
+              this.competitors = previousCompetitors;
+              if (previousActiveCreator) this.activeCreator = previousActiveCreator;
+              this.showToast('Failed to update status for selected profiles: ' + (lastError || 'Request rejected'));
             }
             await this.fetchCompetitors();
           } catch (e) {
+            this.competitors = previousCompetitors;
+            if (previousActiveCreator) this.activeCreator = previousActiveCreator;
             console.error('bulkToggleSelectedStatus error:', e);
+            this.showToast('Error updating profile status: ' + (e.message || 'Network error'));
           }
         },
 
@@ -798,11 +858,17 @@ export function getDashboardCreatorsDossierMethods() {
         async deleteSnapshotAction(snapshotId) {
           if (!confirm('Are you sure you want to delete this snapshot?')) return;
           try {
-            await window.apiFetch(this.getApiUrl('/api/creators/snapshot?id=' + snapshotId), { method: 'DELETE' });
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/snapshot?id=' + snapshotId), { method: 'DELETE' });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              this.showToast('Failed to delete snapshot: ' + (err.error || err.message || ('HTTP ' + res.status)));
+              return;
+            }
             this.activeCreatorSnapshots = this.activeCreatorSnapshots.filter(s => String(s.id) !== String(snapshotId));
             this.showToast('Snapshot deleted successfully.');
           } catch (e) {
             console.error('Delete snapshot error:', e);
+            this.showToast('Failed to delete snapshot: ' + (e.message || 'Network error'));
           }
         },
 

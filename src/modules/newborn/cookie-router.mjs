@@ -299,7 +299,7 @@ export class NewbornCookieRouter {
       // NEVER IP-ban rate limits. Release HALF_OPEN probe cleanly without recording a failure!
       if (res.status === 412 || res.status === 401) {
         this.circuitBreaker?.releaseProbe?.();
-      } else if (res.status === 429 || res.status === 403) {
+      } else if (res.status === 429 || res.status === 403 || res.status >= 500) {
         this.circuitBreaker?.recordFailure?.(res.status);
       } else if (res.ok || res.status === 404) {
         this.circuitBreaker?.recordSuccess?.();
@@ -677,7 +677,7 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
       // CRITICAL: HTTP 412/401 are cookie-auth signals, NEVER IP-ban rate limits.
       if (res.status === 412 || res.status === 401) {
         activeBreaker?.releaseProbe?.();
-      } else if (res.status === 429 || res.status === 403) {
+      } else if (res.status === 429 || res.status === 403 || res.status >= 500) {
         activeBreaker?.recordFailure?.(res.status);
       } else if (res.ok || res.status === 404) {
         activeBreaker?.recordSuccess?.();

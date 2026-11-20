@@ -700,21 +700,12 @@ export async function handlePinsRoutes({
         dossier.last_resaved_at = dossier.creative.last_resaved_at || dossier.creative.updated_at || null;
       }
 
-      // Cache poisoning guard: If dossier failed, has 0 snapshots, or is degraded, invalidate cache
-      if (
-        !dossier?.success ||
-        (!dossier?.daily_trajectory?.length && !dossier?.snapshots?.length) ||
-        dossier?.is_degraded
-      ) {
-        invalidateEdgeCache(dossierCacheKey);
-      }
-
-      // [INVARIANT: SCALE-TO-ZERO & NO-BACKGROUND-HOVER-SCRAPE]
-      // Background live Pinterest scrape (bgEnrichPromise) is strictly removed from simple GET reads.
-      // Live scraping & DB writes are isolated to explicit POST /api/pins/:id/sync or refresh=true.
+      // [INVARIANT: SCALE-TO-ZERO & NO-BACKGROUND-HOVER-SCRAPE & NO-UNAUTH-CACHE-MUTATION]
+      // Background live Pinterest scrape and unauthenticated cache invalidation on 404/miss are strictly prohibited on GET.
+      // Because GET bypasses edge cache (bypassEdgeCache: true), 404s never poison the edge cache.
+      // Live scraping & DB writes are isolated to explicit authenticated POST /api/pins/:id/sync or ?refresh=true.
 
       if (!dossier || !dossier.pin_id || !dossier.success) {
-        invalidateEdgeCache(dossierCacheKey);
         const isUnavailable = dossier?.error === 'DB_UNAVAILABLE' || dossier?.circuit_broken || dossier?.is_degraded;
         return jsonResponse({
           success: false,

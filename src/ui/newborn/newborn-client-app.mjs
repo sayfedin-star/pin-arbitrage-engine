@@ -142,6 +142,10 @@ export function getNewbornClientAppScript() {
         isPollingRun: false,
         showRunCompleteBanner: false,
         pollTimerId: null,
+        _pollInFlight: false,
+        _pollConsecutiveFailures: 0,
+        _pollTargetRunId: null,
+        _visibilityBound: null,
         _teardownBound: null,
 
         // Core Data Collections
@@ -346,7 +350,8 @@ export function getNewbornClientAppScript() {
         },
 
         async apiJson(url, options = {}) {
-          const res = await fetch(url, {
+          const fetcher = (typeof window !== 'undefined' && (window.safeApiFetch || window.apiFetch)) || fetch;
+          const res = await fetcher(url, {
             ...options,
             headers: this.getAuthHeaders(options.headers || {})
           });
@@ -1155,7 +1160,14 @@ export function getNewbornClientAppScript() {
             clearInterval(this.pollTimerId);
             this.pollTimerId = null;
           }
+          if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function' && this._visibilityBound) {
+            document.removeEventListener('visibilitychange', this._visibilityBound);
+            this._visibilityBound = null;
+          }
           this.isPollingRun = false;
+          this._pollInFlight = false;
+          this._pollConsecutiveFailures = 0;
+          this._pollTargetRunId = null;
         },
 
         startPollingRun(runId) {
@@ -1163,15 +1175,36 @@ export function getNewbornClientAppScript() {
           const targetId = Number(runId);
           if (!Number.isInteger(targetId) || targetId <= 0) return;
           this.isPollingRun = true;
+          this._pollTargetRunId = targetId;
+          this._pollConsecutiveFailures = 0;
+          this._pollInFlight = false;
+
+          if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+            this._visibilityBound = () => {
+              if (!document.hidden && this.isPollingRun && this._pollTargetRunId === targetId) {
+                this.pollRunOnce(targetId);
+              }
+            };
+            document.addEventListener('visibilitychange', this._visibilityBound);
+          }
+
           this.pollTimerId = setInterval(() => {
+            if (typeof document !== 'undefined' && document.hidden) return;
             this.pollRunOnce(targetId);
           }, 1500);
-          this.pollRunOnce(targetId);
+
+          if (typeof document === 'undefined' || !document.hidden) {
+            this.pollRunOnce(targetId);
+          }
         },
 
         async pollRunOnce(runId) {
+          if (this._pollInFlight) return;
+          if (typeof document !== 'undefined' && document.hidden) return;
+          this._pollInFlight = true;
           try {
             const { data } = await this.apiJson('/api/newborn/runs/' + encodeURIComponent(runId));
+            this._pollConsecutiveFailures = 0;
             const run = data?.run;
             if (!run) return;
             this.activeRun = run;
@@ -1200,7 +1233,15 @@ export function getNewbornClientAppScript() {
               }
               this.refreshIcons();
             }
-          } catch (_) {}
+          } catch (err) {
+            this._pollConsecutiveFailures = (this._pollConsecutiveFailures || 0) + 1;
+            if (this._pollConsecutiveFailures >= 5) {
+              this.stopPollingRun();
+              this.toast('Stopped polling Hunt #' + runId + ' after 5 consecutive errors: ' + (err?.message || 'Network error'), 'error');
+            }
+          } finally {
+            this._pollInFlight = false;
+          }
         },
 
         togglePinSelection(pinId) {

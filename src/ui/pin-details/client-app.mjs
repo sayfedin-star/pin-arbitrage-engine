@@ -36,7 +36,7 @@ export function getPinDetailsClientAppScripts() {
         // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 2: Pin Dossier Timeframe & SERP Badge
         chartTimeframe: '7d',
         chartMetric: 'saves',
-        isDark: true,
+        isDark: (typeof localStorage !== 'undefined') ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark' : false,
         hoveredChartPoint: null,
         realWidth: 0,
         realHeight: 0,
@@ -732,20 +732,17 @@ export function getPinDetailsClientAppScripts() {
         },
 
         initTheme() {
-          if (typeof localStorage !== 'undefined') {
-            const saved = localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme');
-            if (saved === 'light') {
-              this.isDark = false;
-              if (typeof document !== 'undefined') {
-                document.documentElement.classList.remove('dark');
-                document.documentElement.classList.add('light');
-              }
+          const saved = typeof localStorage !== 'undefined'
+            ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme'))
+            : null;
+          this.isDark = saved === 'dark';
+          if (typeof document !== 'undefined' && document.documentElement) {
+            if (this.isDark) {
+              document.documentElement.classList.add('dark');
+              document.documentElement.classList.remove('light');
             } else {
-              this.isDark = true;
-              if (typeof document !== 'undefined') {
-                document.documentElement.classList.add('dark');
-                document.documentElement.classList.remove('light');
-              }
+              document.documentElement.classList.remove('dark');
+              document.documentElement.classList.add('light');
             }
           }
         },

@@ -151,6 +151,7 @@ jobs:
           NEWBORN_MODE: ${{ matrix.mode }}
           NEWBORN_PROFILE: ${{ matrix.profile || '' }}
           NEWBORN_QUERY: ${{ matrix.query || '' }}
+          NEWBORN_BOARDS: ${{ matrix.boards || '' }}
           NEWBORN_PIN_IDS: ${{ matrix.pin_ids || '' }}
           NEWBORN_FORCE: ${{ matrix.force || 'false' }}
           WORKER_INDEX: ${{ matrix.worker_index }}

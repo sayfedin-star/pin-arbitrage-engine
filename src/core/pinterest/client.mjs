@@ -337,7 +337,7 @@ export async function pinterestFetch(url, init = {}) {
 
   try {
     const response = await fetch(url, fetchOpts);
-    if (response.status === 429 || response.status === 403) {
+    if (response.status === 429 || response.status === 403 || response.status >= 500) {
       circuitBreaker?.recordFailure(response.status);
     } else if (response.ok || response.status === 404) {
       circuitBreaker?.recordSuccess();

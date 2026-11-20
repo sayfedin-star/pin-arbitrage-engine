@@ -14,8 +14,10 @@ import {
   ECOMMERCE_AND_SOCIAL_DOMAINS
 } from './domain-constants.mjs';
 import { escapeSqlLike } from './whois-age-service.mjs';
+import { safeWaitUntil } from '../../http/security-and-response.mjs';
 
 const ROLLUP_EXCLUDED_INTERNAL = ['pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost'];
+let rollupRefreshInflight = null;
 
 /**
  * Pure parameterized SQL fragment container (`__sqlFrag`) that flattens cleanly into
@@ -281,11 +283,11 @@ export function buildDomainAggregationCtes({
             ARRAY[
               MIN(dp.username) FILTER (
                 WHERE dp.username IS NOT NULL AND dp.username <> ''
-                  AND dp.username NOT LIKE 'preview_%'
+                  AND dp.username NOT LIKE 'preview\\_%' ESCAPE '\\'
                   AND (
                     REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
-                    OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
-                    OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                    OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(REPLACE(REPLACE(REPLACE(dp.username, '_', ''), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
+                    OR REPLACE(dp.username, '_', '') LIKE '%' || REPLACE(REPLACE(REPLACE(SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
                   )
               )
             ],
@@ -293,20 +295,20 @@ export function buildDomainAggregationCtes({
           ) || COALESCE(
             (ARRAY_AGG(DISTINCT dp.username) FILTER (
               WHERE dp.is_serp_ranked = TRUE AND dp.username IS NOT NULL AND dp.username <> ''
-                AND dp.username NOT LIKE 'preview_%'
+                AND dp.username NOT LIKE 'preview\\_%' ESCAPE '\\'
                 AND NOT (
                   REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
-                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
-                  OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(REPLACE(REPLACE(REPLACE(dp.username, '_', ''), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
+                  OR REPLACE(dp.username, '_', '') LIKE '%' || REPLACE(REPLACE(REPLACE(SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
                 )
             ))[1:5],
             (ARRAY_AGG(DISTINCT dp.username) FILTER (
               WHERE dp.username IS NOT NULL AND dp.username <> ''
-                AND dp.username NOT LIKE 'preview_%'
+                AND dp.username NOT LIKE 'preview\\_%' ESCAPE '\\'
                 AND NOT (
                   REPLACE(dp.username, '_', '') = SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1)
-                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(dp.username, '_', '') || '%'
-                  OR REPLACE(dp.username, '_', '') LIKE '%' || SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) || '%'
+                  OR SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1) LIKE '%' || REPLACE(REPLACE(REPLACE(REPLACE(dp.username, '_', ''), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
+                  OR REPLACE(dp.username, '_', '') LIKE '%' || REPLACE(REPLACE(REPLACE(SPLIT_PART(REPLACE(dp.clean_domain, '-', ''), '.', 1), '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'
                 )
             ))[1:5],
             ARRAY[]::text[]
@@ -607,14 +609,19 @@ export async function listDomainsIntelligence(sql, {
  * Refreshes or populates the domain_intelligence_rollup cache table using the shared aggregation CTEs.
  */
 export async function refreshDomainIntelligenceRollup(sql) {
-  const referenceTime = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
-  try {
-    const aggCtes = buildDomainAggregationCtes({
-      referenceTime,
-      forRollupRefresh: true
-    });
+  if (rollupRefreshInflight) {
+    return rollupRefreshInflight;
+  }
 
-    const upsertTail = sqlFrag`
+  const runRefresh = async () => {
+    const referenceTime = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    try {
+      const aggCtes = buildDomainAggregationCtes({
+        referenceTime,
+        forRollupRefresh: true
+      });
+
+      const upsertTail = sqlFrag`
       INSERT INTO domain_intelligence_rollup (
         domain, total_pins, unique_urls, pins_per_url, active_serp_pins,
         top3_pins, top10_pins, rank_11_50_pins, displaced_pins, best_rank, avg_rank,
@@ -700,10 +707,22 @@ export async function refreshDomainIntelligenceRollup(sql) {
         domain_intelligence_rollup.arbitrage_score IS DISTINCT FROM EXCLUDED.arbitrage_score;
     `;
 
-    const res = await execComposedSql(sql, ['', ' ', ''], aggCtes, upsertTail);
+      // Use a scoped 120s statement_timeout inside sql.begin() so heavy rollup upserts
+      // do not abort under Fastify's default 15s statement_timeout.
+      const runScoped = async (timeoutMs, fn) => {
+        if (typeof sql.begin === 'function') {
+          return await sql.begin(async (tx) => {
+            await tx`SET LOCAL statement_timeout = ${String(timeoutMs)};`;
+            return await fn(tx);
+          });
+        }
+        return await fn(sql);
+      };
 
-    // Prune stale zero-pin ghost domains absent from universal_master_pins and folder_pinned_domains
-    await sql`
+      const res = await runScoped(120000, (execSql) => execComposedSql(execSql, ['', ' ', ''], aggCtes, upsertTail));
+
+      // Prune stale zero-pin ghost domains absent from universal_master_pins and folder_pinned_domains
+      await runScoped(60000, (execSql) => execSql`
       DELETE FROM domain_intelligence_rollup dir
       WHERE NOT EXISTS (
         SELECT 1 FROM universal_master_pins ump
@@ -714,15 +733,21 @@ export async function refreshDomainIntelligenceRollup(sql) {
         SELECT 1 FROM folder_pinned_domains fpd
         WHERE fpd.domain = dir.domain
       );
-    `.catch((pruneErr) => {
-      console.warn('[refreshDomainIntelligenceRollup] Ghost domain prune warning:', pruneErr?.message || pruneErr);
-    });
+    `).catch((pruneErr) => {
+        console.warn('[refreshDomainIntelligenceRollup] Ghost domain prune warning:', pruneErr?.message || pruneErr);
+      });
 
-    return { success: true, count: res?.length || 0 };
-  } catch (err) {
-    console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, err.message);
-    return { success: false, error: err.message };
-  }
+      return { success: true, count: res?.length || 0 };
+    } catch (err) {
+      console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  rollupRefreshInflight = runRefresh().finally(() => {
+    rollupRefreshInflight = null;
+  });
+  return rollupRefreshInflight;
 }
 
 /**
@@ -896,7 +921,11 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
       const [countCheck] = await sql`SELECT 1 FROM domain_intelligence_rollup LIMIT 1;`;
       if (!countCheck) {
         if (allowBackgroundRefresh) {
-          refreshDomainIntelligenceRollup(sql).catch(() => {});
+          safeWaitUntil(
+            () => refreshDomainIntelligenceRollup(sql),
+            options.ctx || null,
+            'refresh_domain_intelligence_rollup_empty'
+          );
         }
         return await listDomainsIntelligence(sql, options);
       }
@@ -905,7 +934,11 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
     } catch (fastErr) {
       console.warn(`[listDomainsIntelligenceFast] Rollup query fallback:`, fastErr.message);
       if (allowBackgroundRefresh) {
-        refreshDomainIntelligenceRollup(sql).catch(() => {});
+        safeWaitUntil(
+          () => refreshDomainIntelligenceRollup(sql),
+          options.ctx || null,
+          'refresh_domain_intelligence_rollup_fallback'
+        );
       }
     }
   }

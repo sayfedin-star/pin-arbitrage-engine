@@ -532,10 +532,11 @@ export function getDiscoveryClientAppScript() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: this.newFolderName.trim() })
               });
-              const cData = await createRes.json();
-              if (cData.folder?.id) {
-                targetFid = cData.folder.id;
+              const cData = await createRes.json().catch(() => ({}));
+              if (!createRes.ok || !cData.folder?.id) {
+                throw new Error(cData.error || cData.message || ('Failed to create folder (HTTP ' + createRes.status + ')'));
               }
+              targetFid = cData.folder.id;
             }
 
             const res = await window.apiFetch('/api/keywords/bulk-import', {

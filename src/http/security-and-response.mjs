@@ -108,18 +108,21 @@ export function registerDefaultBackgroundQueue(queue) {
 
 export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task') {
   let effectiveCtx = null;
-  let effectivePromise = null;
+  let effectiveTask = null;
 
-  if (promiseOrCtx && typeof promiseOrCtx.then === 'function') {
-    effectivePromise = promiseOrCtx;
+  const isTaskLike = (val) =>
+    typeof val === 'function' || (val && typeof val.then === 'function');
+
+  if (isTaskLike(promiseOrCtx)) {
+    effectiveTask = promiseOrCtx;
     if (explicitPromiseOrCtx && typeof explicitPromiseOrCtx.waitUntil === 'function') {
       effectiveCtx = explicitPromiseOrCtx;
     }
   } else if (promiseOrCtx && typeof promiseOrCtx.waitUntil === 'function') {
     effectiveCtx = promiseOrCtx;
-    effectivePromise = explicitPromiseOrCtx;
+    effectiveTask = explicitPromiseOrCtx;
   } else {
-    effectivePromise = explicitPromiseOrCtx;
+    effectiveTask = explicitPromiseOrCtx;
   }
 
   if (!effectiveCtx) {
@@ -130,19 +133,43 @@ export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskNam
     }
   }
 
-  if (!effectivePromise || typeof effectivePromise.then !== 'function') return;
-  effectivePromise.catch(err => {
-    console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
-  });
+  if (!isTaskLike(effectiveTask)) return;
+
+  const isLazyThunk = typeof effectiveTask === 'function';
+  const runLoggedThunk = () =>
+    Promise.resolve()
+      .then(() => effectiveTask())
+      .catch((err) => {
+        console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
+      });
+
+  if (!isLazyThunk) {
+    effectiveTask.catch((err) => {
+      console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
+    });
+  }
 
   if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
     try {
-      effectiveCtx.waitUntil(effectivePromise);
+      // Pass lazy thunks through to thunk-capable ctx.waitUntil (e.g. Fastify AsyncTaskQueue);
+      // invoke eagerly only for external/Cloudflare waitUntil implementations that expect a Promise.
+      if (isLazyThunk) {
+        if (effectiveCtx.__supportsThunkWaitUntil === true) {
+          effectiveCtx.waitUntil(runLoggedThunk);
+        } else {
+          effectiveCtx.waitUntil(runLoggedThunk());
+        }
+      } else {
+        effectiveCtx.waitUntil(effectiveTask);
+      }
     } catch {
       // Request context may have already closed
     }
   } else if (defaultBackgroundQueue && typeof defaultBackgroundQueue.add === 'function') {
-    defaultBackgroundQueue.add(() => effectivePromise).catch(() => {});
+    defaultBackgroundQueue.add(isLazyThunk ? runLoggedThunk : () => effectiveTask).catch(() => {});
+  } else if (isLazyThunk) {
+    // No queue or ctx registered (e.g. standalone unit call): execute safely with error logging
+    runLoggedThunk();
   }
 }
 

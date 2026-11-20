@@ -632,7 +632,8 @@ async function run() {
       `;
       if (!row) {
         console.error(`[-] FATAL: Account @${targetAccount} not found in database.`);
-        process.exit(1);
+        await closeCrawlerDb(1);
+        return;
       }
       targetId = row.id;
       targetAccount = row.username;
@@ -899,11 +900,10 @@ async function run() {
     }
 
     if (myAccountIds.length === 0 && accountIdsInput.length === 0) {
-      console.log('[!] No active creators to sweep. Exiting cleanly.');
-      await closeCrawlerDb(0);
+      console.log(`[Phase 1] Worker #${workerIndex + 1}/${workerTotal} has 0 assigned creator accounts; proceeding directly to Phase 2 global master pins slice.`);
+    } else {
+      console.log(`[Phase 1] Assigned ${myAccountIds.length} creator accounts to Worker #${workerIndex + 1}/${workerTotal}...`);
     }
-
-    console.log(`[Phase 1] Assigned ${myAccountIds.length} creator accounts to Worker #${workerIndex + 1}/${workerTotal}...`);
 
     let myAccounts = [];
     if (myAccountIds.length > 0) {

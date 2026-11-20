@@ -104,6 +104,7 @@ export function parseNewbornFleetArgs(argv = process.argv.slice(2), env = proces
   const profileId = String(flags.profile ?? flags['profile-id'] ?? env?.NEWBORN_PROFILE ?? '').trim() || null;
   const rawQuery = String(flags.query ?? flags.queries ?? env?.NEWBORN_QUERY ?? '').trim();
   const rawPins = String(flags.pins ?? flags['pin-ids'] ?? env?.NEWBORN_PIN_IDS ?? '').trim();
+  const rawBoards = String(flags.boards ?? flags['board-urls'] ?? env?.NEWBORN_BOARDS ?? '').trim();
   const force = parseBoolFlag(flags.force ?? env?.NEWBORN_FORCE, false);
 
   const rawShards = flags.shards ?? flags['worker-total'] ?? env?.NEWBORN_SHARDS ?? '';
@@ -121,16 +122,52 @@ export function parseNewbornFleetArgs(argv = process.argv.slice(2), env = proces
   const seedQueries = [];
   const seedPinIds = [...explicitPinIds];
   const seedBoards = [];
+  const seenBoardKeys = new Set();
+
+  const pushUniqueBoard = (boardObj) => {
+    if (!boardObj || typeof boardObj !== 'object') return;
+    const key = String(boardObj.clean_path || boardObj.url || boardObj.board_id || '').trim().toLowerCase();
+    if (!key || seenBoardKeys.has(key)) return;
+    seenBoardKeys.add(key);
+    seedBoards.push(boardObj);
+  };
 
   for (const item of seedInputs) {
     const parsed = parseSmartHuntInput(item);
     if (!parsed) continue;
     if (parsed.kind === 'pin') seedPinIds.push(parsed.pinId);
     else if (parsed.kind === 'board') {
-      seedBoards.push(parsed.board);
+      pushUniqueBoard(parsed.board);
       if (parsed.query) seedQueries.push(parsed.query);
     } else if (parsed.query) {
       seedQueries.push(parsed.query);
+    }
+  }
+
+  if (rawBoards) {
+    let parsedBoardsJson = null;
+    if (rawBoards.startsWith('[')) {
+      try {
+        const arr = JSON.parse(rawBoards);
+        if (Array.isArray(arr)) parsedBoardsJson = arr;
+      } catch (_) {}
+    }
+    if (parsedBoardsJson) {
+      for (const entry of parsedBoardsJson) {
+        if (typeof entry === 'string') {
+          const parsed = parseSmartHuntInput(entry);
+          if (parsed?.kind === 'board') pushUniqueBoard(parsed.board);
+        } else if (entry && typeof entry === 'object' && (entry.clean_path || entry.url || entry.board_id)) {
+          pushUniqueBoard(entry);
+        }
+      }
+    } else {
+      for (const item of splitCsvInputs(rawBoards)) {
+        const parsed = parseSmartHuntInput(item);
+        if (parsed?.kind === 'board') {
+          pushUniqueBoard(parsed.board);
+        }
+      }
     }
   }
 
@@ -229,20 +266,28 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
         }
         if (runDisc) {
           const queries = parsedArgs.seedQueries || [];
-          const discShards = queries.length > 1
-            ? Math.min(parsedArgs.shards || queries.length, queries.length, DEFAULT_FLEET_WORKER_TOTAL)
+          const boards = parsedArgs.seedBoards || [];
+          const totalItems = Math.max(queries.length, boards.length);
+          const discShards = totalItems > 1
+            ? Math.min(parsedArgs.shards || totalItems, totalItems, DEFAULT_FLEET_WORKER_TOTAL)
             : 1;
           for (let w = 0; w < discShards; w++) {
             const sliceQueries = queries.length > 1
               ? queries.filter((_, idx) => idx % discShards === w)
-              : queries;
+              : (w === 0 ? queries : []);
+            const sliceBoards = boards.length > 1
+              ? boards.filter((_, idx) => idx % discShards === w)
+              : (w === 0 ? boards : []);
             matrixTasks.push({
               mode: 'discovery',
               label: sliceQueries.length > 0
                 ? `Discovery: ${sliceQueries[0]}${sliceQueries.length > 1 ? ` (+${sliceQueries.length - 1})` : ''}`
-                : '8-Surface Autonomous Discovery',
+                : (sliceBoards.length > 0
+                  ? `Board Discovery: ${sliceBoards[0].clean_path || sliceBoards[0].url || 'board'}${sliceBoards.length > 1 ? ` (+${sliceBoards.length - 1})` : ''}`
+                  : '8-Surface Autonomous Discovery'),
               profile: parsedArgs.profileId || '',
               query: sliceQueries.join(','),
+              boards: sliceBoards.length > 0 ? JSON.stringify(sliceBoards) : '',
               pin_ids: w === 0 ? (parsedArgs.seedPinIds || []).join(',') : '',
               worker_index: w,
               worker_slot: w + 1,
@@ -261,6 +306,7 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
         label: `Watchlist Poll #${w + 1}/${pollShards}`,
         profile: parsedArgs.profileId || '',
         query: '',
+        boards: '',
         pin_ids: '',
         worker_index: w,
         worker_slot: w + 1,
@@ -274,6 +320,7 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
       label: 'Multi-Hop Golden Pin Snowball',
       profile: parsedArgs.profileId || '',
       query: '',
+      boards: '',
       pin_ids: (parsedArgs.seedPinIds || []).join(','),
       worker_index: 0,
       worker_slot: 1,
@@ -283,20 +330,28 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
   } else {
     // discovery
     const queries = parsedArgs.seedQueries || [];
-    const discShards = queries.length > 1
-      ? Math.min(parsedArgs.shards || queries.length, queries.length, DEFAULT_FLEET_WORKER_TOTAL)
+    const boards = parsedArgs.seedBoards || [];
+    const totalItems = Math.max(queries.length, boards.length);
+    const discShards = totalItems > 1
+      ? Math.min(parsedArgs.shards || totalItems, totalItems, DEFAULT_FLEET_WORKER_TOTAL)
       : 1;
     for (let w = 0; w < discShards; w++) {
       const sliceQueries = queries.length > 1
         ? queries.filter((_, idx) => idx % discShards === w)
-        : queries;
+        : (w === 0 ? queries : []);
+      const sliceBoards = boards.length > 1
+        ? boards.filter((_, idx) => idx % discShards === w)
+        : (w === 0 ? boards : []);
       matrixTasks.push({
         mode: 'discovery',
         label: sliceQueries.length > 0
           ? `Discovery: ${sliceQueries[0]}${sliceQueries.length > 1 ? ` (+${sliceQueries.length - 1})` : ''}`
-          : '8-Surface Discovery Sweep',
+          : (sliceBoards.length > 0
+            ? `Board Discovery: ${sliceBoards[0].clean_path || sliceBoards[0].url || 'board'}${sliceBoards.length > 1 ? ` (+${sliceBoards.length - 1})` : ''}`
+            : '8-Surface Discovery Sweep'),
         profile: parsedArgs.profileId || '',
         query: sliceQueries.join(','),
+        boards: sliceBoards.length > 0 ? JSON.stringify(sliceBoards) : '',
         pin_ids: w === 0 ? (parsedArgs.seedPinIds || []).join(',') : '',
         worker_index: w,
         worker_slot: w + 1,
@@ -377,14 +432,12 @@ export async function runNewbornFleetWorker({
   }
 
   if (mode === 'discovery') {
-    const shardedQueries = workerTotal > 1 && seedQueries.length > 1
-      ? seedQueries.filter((_, idx) => idx % workerTotal === workerIndex)
-      : seedQueries;
-
+    // Stage 0 `runNewbornFleetDispatch` already slices queries, boards, and pins per shard.
+    // Do NOT apply a second modulo pass here, which would drop queries across shards.
     return await runNewbornDiscovery(sql, {
-      seedQueries: shardedQueries,
-      seedPinIds: workerIndex === 0 ? seedPinIds : [],
-      seedBoards: workerIndex === 0 ? seedBoards : [],
+      seedQueries,
+      seedPinIds,
+      seedBoards,
       profileId,
       routerOptions: effectiveRouterOpts,
       nowMs,

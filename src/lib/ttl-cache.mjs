@@ -19,10 +19,20 @@ export class TtlSingleflightCache {
    * @param {number} [options.defaultTtlMs=60000]
    * @param {number} [options.defaultStaleMs=0]
    */
-  constructor({ maxEntries = 512, defaultTtlMs = 60_000, defaultStaleMs = 0, defaultSwrMs, nowFn = Date.now } = {}) {
+  constructor({
+    maxEntries = 512,
+    defaultTtlMs = 60_000,
+    defaultStaleMs = 0,
+    defaultSwrMs,
+    maxPrefixEpochs = 512,
+    maxKeyEpochs = 1024,
+    nowFn = Date.now
+  } = {}) {
     this.maxEntries = Math.max(1, Number(maxEntries) || 512);
     this.defaultTtlMs = Math.max(1, Number(defaultTtlMs) || 60_000);
     this.defaultStaleMs = Math.max(0, Number(defaultSwrMs ?? defaultStaleMs) || 0);
+    this.maxPrefixEpochs = Math.max(1, Number(maxPrefixEpochs) || 512);
+    this.maxKeyEpochs = Math.max(1, Number(maxKeyEpochs) || 1024);
     this.nowFn = typeof nowFn === 'function' ? nowFn : Date.now;
 
     this.store = new Map();
@@ -31,6 +41,7 @@ export class TtlSingleflightCache {
 
     this.epoch = 0;
     this.globalClearEpoch = 0;
+    this.minEvictedEpoch = 0;
     this.prefixEpochs = new Map();
     this.keyEpochs = new Map();
   }
@@ -58,22 +69,53 @@ export class TtlSingleflightCache {
   isWriteValid(key, startEpoch) {
     const k = this._normKey(key);
     if (this.globalClearEpoch > startEpoch) return false;
+    if (this.minEvictedEpoch > startEpoch) return false;
     const keyEp = this.keyEpochs.get(k);
-    if (keyEp !== undefined && keyEp > startEpoch) return false;
-    for (const [pfx, ep] of this.prefixEpochs.entries()) {
-      if (ep > startEpoch && k.startsWith(pfx)) return false;
+    if (keyEp !== undefined) {
+      // Refresh LRU recency for active exact-key tombstones
+      this.keyEpochs.delete(k);
+      this.keyEpochs.set(k, keyEp);
+      if (keyEp > startEpoch) return false;
     }
-    return true;
+    let matchedPrefix = null;
+    let matchedPrefixEpoch = 0;
+    let invalidated = false;
+    for (const [pfx, ep] of this.prefixEpochs.entries()) {
+      if (k.startsWith(pfx)) {
+        matchedPrefix = pfx;
+        matchedPrefixEpoch = ep;
+        if (ep > startEpoch) {
+          invalidated = true;
+          break;
+        }
+      }
+    }
+    if (matchedPrefix !== null) {
+      // Refresh LRU recency outside iteration so hot prefixes are not evicted by cold keys
+      this.prefixEpochs.delete(matchedPrefix);
+      this.prefixEpochs.set(matchedPrefix, matchedPrefixEpoch);
+    }
+    return !invalidated;
   }
 
   _pruneEpochMapsIfNeeded() {
-    if (this.prefixEpochs.size > 512) {
+    while (this.prefixEpochs.size > this.maxPrefixEpochs) {
       const oldest = this.prefixEpochs.keys().next().value;
-      if (oldest !== undefined) this.prefixEpochs.delete(oldest);
+      if (oldest === undefined) break;
+      const evictedEpoch = this.prefixEpochs.get(oldest) || 0;
+      if (evictedEpoch > this.minEvictedEpoch) {
+        this.minEvictedEpoch = evictedEpoch;
+      }
+      this.prefixEpochs.delete(oldest);
     }
-    if (this.keyEpochs.size > 1024) {
+    while (this.keyEpochs.size > this.maxKeyEpochs) {
       const oldest = this.keyEpochs.keys().next().value;
-      if (oldest !== undefined) this.keyEpochs.delete(oldest);
+      if (oldest === undefined) break;
+      const evictedEpoch = this.keyEpochs.get(oldest) || 0;
+      if (evictedEpoch > this.minEvictedEpoch) {
+        this.minEvictedEpoch = evictedEpoch;
+      }
+      this.keyEpochs.delete(oldest);
     }
   }
 
@@ -134,8 +176,10 @@ export class TtlSingleflightCache {
 
   delete(key) {
     const k = this._normKey(key);
+    const nextEpoch = ++this.epoch;
+    this.keyEpochs.delete(k);
+    this.keyEpochs.set(k, nextEpoch);
     this._pruneEpochMapsIfNeeded();
-    this.keyEpochs.set(k, ++this.epoch);
     this.inflight.delete(k);
     this.swrInflight.delete(k);
     return this.store.delete(k);
@@ -153,6 +197,7 @@ export class TtlSingleflightCache {
     const nextEpoch = ++this.epoch;
     if (!prefix) {
       this.globalClearEpoch = nextEpoch;
+      this.minEvictedEpoch = 0;
       this.prefixEpochs.clear();
       this.keyEpochs.clear();
       this.store.clear();
@@ -162,8 +207,9 @@ export class TtlSingleflightCache {
     }
 
     const pfx = String(prefix);
-    this._pruneEpochMapsIfNeeded();
+    this.prefixEpochs.delete(pfx);
     this.prefixEpochs.set(pfx, nextEpoch);
+    this._pruneEpochMapsIfNeeded();
     for (const k of this.store.keys()) {
       if (k.startsWith(pfx)) {
         this.store.delete(k);

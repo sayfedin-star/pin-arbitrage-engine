@@ -22,6 +22,7 @@ import Fastify from 'fastify';
 import { createSqlClient, getSqlClient, getPoolStats, drainSqlClient } from './db/client.mjs';
 import { apiRoutesPlugin } from './plugins/api-routes.mjs';
 import { handlePagesRoutes } from './routes/pages.mjs';
+import { newbornBackgroundQueue } from './modules/newborn/service.mjs';
 import {
   HTML_HEADERS,
   RESERVED_KEYWORD_SLUGS,
@@ -318,6 +319,13 @@ export function createFastifyApp(customEnv = {}) {
     } catch (qErr) {
       console.warn('[server.mjs onClose task queue drain warning]:', qErr?.message || qErr);
     }
+    try {
+      if (newbornBackgroundQueue && typeof newbornBackgroundQueue.drain === 'function') {
+        await newbornBackgroundQueue.drain(4000);
+      }
+    } catch (nbErr) {
+      console.warn('[server.mjs onClose newborn queue drain warning]:', nbErr?.message || nbErr);
+    }
     if (env.SQL_CLIENT && typeof env.SQL_CLIENT.end === 'function') {
       try {
         await env.SQL_CLIENT.end({ timeout: 5 });
@@ -333,12 +341,16 @@ export function createFastifyApp(customEnv = {}) {
     }
   });
 
-  // Non-blocking background task queue context
+  // Non-blocking background task queue context (supports lazy thunks for true AsyncTaskQueue concurrency control)
   const ctx = {
+    __supportsThunkWaitUntil: true,
     waitUntil(p) {
       const store = requestContextStorage?.getStore?.();
       if (store?.customCtx && store.customCtx !== ctx && typeof store.customCtx.waitUntil === 'function') {
-        return store.customCtx.waitUntil(p);
+        const forwarded = typeof p === 'function'
+          ? (store.customCtx.__supportsThunkWaitUntil === true ? p : Promise.resolve().then(() => p()))
+          : p;
+        return store.customCtx.waitUntil(forwarded);
       }
       if (p) {
         taskQueue.add(typeof p === 'function' ? p : () => p).catch((err) => {

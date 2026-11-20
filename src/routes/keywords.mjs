@@ -217,7 +217,7 @@ export async function handleKeywordsRoutes({
       if (fetchRes && fetchRes.ok) {
         if (sql && count > 0) {
           const escapedCleanUrl = escapeSqlWildcards(cleanUrl);
-          safeWaitUntil(ctx, (async () => {
+          safeWaitUntil(ctx, async () => {
             await sql`
               UPDATE universal_master_pins
               SET url_global_saves = GREATEST(COALESCE(url_global_saves, 0), ${count}::bigint)
@@ -228,8 +228,8 @@ export async function handleKeywordsRoutes({
                   OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
                   OR LEFT(destination_url, 1024) LIKE ${escapedCleanUrl.slice(0, 1000) + '?%'} ESCAPE '\\'
                 );
-            `.catch(() => {});
-          })(), 'write_back_single_url_global_saves');
+            `;
+          }, 'write_back_single_url_global_saves');
         }
         return jsonResponse({
           ok: true,
@@ -320,7 +320,7 @@ export async function handleKeywordsRoutes({
 
     // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
     if (sql && writeBackEntries.length > 0) {
-      safeWaitUntil(ctx, (async () => {
+      safeWaitUntil(ctx, async () => {
         const validEntries = writeBackEntries
           .filter(e => e.count > 0 && e.url)
           .map(e => ({ url: e.url, escaped_url: escapeSqlWildcards(e.url), count: e.count }));
@@ -367,8 +367,8 @@ export async function handleKeywordsRoutes({
           SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), dm.max_count)
           FROM dedup_matches dm
           WHERE ump.pin_id = dm.pin_id;
-        `.catch(() => {});
-      })(), 'write_back_batch_global_saves');
+        `;
+      }, 'write_back_batch_global_saves');
     }
 
     return jsonResponse({
@@ -499,7 +499,7 @@ export async function handleKeywordsRoutes({
       const enableSerpHarvestInput = body.enable_serp_harvest !== undefined
         ? String(body.enable_serp_harvest)
         : 'false';
-      const dispatchPromise = dispatchGitHubWorkflow(env, {
+      safeWaitUntil(ctx, () => dispatchGitHubWorkflow(env, {
         workflowFile: 'keyword-intelligence-velocity.yml',
         timeoutMs: 10000,
         inputs: {
@@ -508,13 +508,12 @@ export async function handleKeywordsRoutes({
           max_pins: maxPinsInput,
           enable_serp_harvest: enableSerpHarvestInput
         }
-      }).catch(() => {});
-      safeWaitUntil(ctx, dispatchPromise, 'github_workflow_dispatch');
+      }), 'github_workflow_dispatch');
     }
 
     if (res?.status === 429 || res?.status === 403 || (res?.error && typeof res.error === 'string' && (res.error.includes('429') || res.error.includes('403')))) {
       if (tripPinterestCircuitBreaker) {
-        safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, `HTTP ${res?.status || 429} Rate Limit/Block in /api/keywords/sync`, 900), 'tripPinterestCircuitBreaker');
+        safeWaitUntil(ctx, () => tripPinterestCircuitBreaker(env, `HTTP ${res?.status || 429} Rate Limit/Block in /api/keywords/sync`, 900), 'tripPinterestCircuitBreaker');
       }
     }
 

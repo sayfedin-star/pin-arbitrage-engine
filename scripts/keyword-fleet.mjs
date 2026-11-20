@@ -632,7 +632,7 @@ export async function runKeywordFleetConsolidate({ sql, env = process.env }) {
         UPDATE tracked_keywords tk
         SET avg_daily_velocity = u.avg_daily_velocity,
             updated_at = NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(folderVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity int)
+        FROM jsonb_to_recordset(${JSON.stringify(folderVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity numeric)
         WHERE tk.id = u.id;
       `;
     }
@@ -906,7 +906,7 @@ export async function runKeywordFleetConsolidate({ sql, env = process.env }) {
         UPDATE tracked_keywords tk
         SET avg_daily_velocity = u.avg_daily_velocity,
             updated_at = NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(kwVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity int)
+        FROM jsonb_to_recordset(${JSON.stringify(kwVelUpdates)}::jsonb) AS u(id int, avg_daily_velocity numeric)
         WHERE tk.id = u.id;
       `;
     }
