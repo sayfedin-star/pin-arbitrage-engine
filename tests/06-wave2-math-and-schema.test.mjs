@@ -547,3 +547,115 @@ test('app_settings qualification rules, single-table domain services, null age_d
     'Canonical 001:baseline_schema row must match on subsequent idempotent runs'
   );
 });
+
+test('calculateRollingGainsFromSnapshots returns consistent object shape and integer delta_saves_24h on fractional multi-day gaps', () => {
+  const emptyRes = calculateRollingGainsFromSnapshots([]);
+  assert.equal(emptyRes.daily_save_velocity, null);
+  assert.equal(emptyRes.delta_saves_24h, null);
+  assert.equal(emptyRes.daily_repin_velocity, null);
+  assert.equal(emptyRes.delta_repins_24h, null);
+
+  const singleRes = calculateRollingGainsFromSnapshots([
+    { recorded_date: '2026-11-20', save_count: 100, repin_count: 20 }
+  ]);
+  assert.equal(singleRes.daily_save_velocity, null);
+  assert.equal(singleRes.delta_saves_24h, null);
+  assert.equal(singleRes.daily_repin_velocity, null);
+  assert.equal(singleRes.delta_repins_24h, 0);
+
+  // 5 saves over 2 days = 2.5 daily_save_velocity -> integer delta_saves_24h = 3
+  // 3 repins over 2 days = 1.5 daily_repin_velocity -> integer delta_repins_24h = 2
+  const fractionalGap = calculateRollingGainsFromSnapshots([
+    { recorded_date: '2026-11-20', save_count: 105, repin_count: 23 },
+    { recorded_date: '2026-11-18', save_count: 100, repin_count: 20 }
+  ], '2026-11-20T12:00:00Z');
+  assert.equal(fractionalGap.daily_save_velocity, 2.5);
+  assert.equal(fractionalGap.delta_saves_24h, 3);
+  assert.equal(Number.isInteger(fractionalGap.delta_saves_24h), true);
+  assert.equal(fractionalGap.daily_repin_velocity, 1.5);
+  assert.equal(fractionalGap.delta_repins_24h, 2);
+  assert.equal(Number.isInteger(fractionalGap.delta_repins_24h), true);
+});
+
+test('ingestPinsBatch coerces fractional delta/gains fields to integers for bigint recordset columns across insert and dedup paths', async () => {
+  const capturedCalls = [];
+  const mockSql = (strings, ...values) => {
+    const call = buildTaggedSqlCall(strings, values);
+    capturedCalls.push(call);
+    if (call.text.includes('INSERT INTO universal_master_pins')) {
+      return Promise.resolve([{ pin_id: '777000111222333444', is_insert: true }]);
+    }
+    return Promise.resolve([]);
+  };
+
+  await ingestPinsBatch(mockSql, [
+    {
+      pin_id: '777000111222333444',
+      title: 'Fractional Velocity Regression Pin',
+      save_count: 105,
+      repin_count: 23,
+      daily_save_velocity: 2.5,
+      daily_repin_velocity: 1.5,
+      delta_saves_24h: 2.5,
+      delta_repins_24h: '1.5',
+      gains_5d: 12.4,
+      gains_7d: '18.6',
+      gains_10d: 25.5,
+      gains_15d: 'not-a-number',
+      was_live_scraped: true
+    },
+    {
+      pin_id: '777000111222333444',
+      title: 'Fractional Velocity Regression Pin',
+      save_count: 106,
+      repin_count: 24,
+      daily_save_velocity: 3.25,
+      daily_repin_velocity: 2.25,
+      delta_saves_24h: 3.6,
+      delta_repins_24h: 2.4,
+      gains_5d: 14.5,
+      gains_7d: 19.2,
+      gains_10d: 25.1,
+      gains_15d: 40.7,
+      was_live_scraped: true
+    },
+    {
+      pin_id: '777000111222333445',
+      title: 'Negative Delta Clamping Pin',
+      save_count: 50,
+      repin_count: 10,
+      daily_save_velocity: 0.5,
+      delta_saves_24h: -2.7,
+      delta_repins_24h: -1.2,
+      was_live_scraped: true
+    }
+  ], { pillar: 'keyword' });
+
+  const umpCall = capturedCalls.find((c) => c.text.includes('INSERT INTO universal_master_pins'));
+  assert.ok(umpCall, 'Expected universal_master_pins batch upsert call');
+  assert.ok(
+    umpCall.text.includes('eb.daily_save_velocity::numeric'),
+    'SQL fallback must explicitly cast eb.daily_save_velocity::numeric before ROUND for consistent half-away-from-zero rounding'
+  );
+
+  const payload = JSON.parse(umpCall.values[0]);
+  const dedupPin = payload.find((r) => r.pin_id === '777000111222333444');
+  assert.ok(dedupPin);
+  assert.equal(dedupPin.daily_save_velocity, 3.25);
+  assert.equal(dedupPin.daily_repin_velocity, 2.25);
+  assert.equal(dedupPin.delta_saves_24h, 4);
+  assert.equal(dedupPin.delta_repins_24h, 2);
+  assert.equal(dedupPin.gains_5d, 15);
+  assert.equal(dedupPin.gains_7d, 19);
+  assert.equal(dedupPin.gains_10d, 26);
+  assert.equal(dedupPin.gains_15d, 41);
+  for (const col of ['delta_saves_24h', 'delta_repins_24h', 'gains_5d', 'gains_7d', 'gains_10d', 'gains_15d']) {
+    assert.equal(Number.isInteger(dedupPin[col]), true, `${col} must serialize as an integer for PostgreSQL bigint`);
+  }
+
+  const clampedPin = payload.find((r) => r.pin_id === '777000111222333445');
+  assert.ok(clampedPin);
+  assert.equal(clampedPin.delta_saves_24h, 0);
+  assert.equal(clampedPin.delta_repins_24h, 0);
+});
+

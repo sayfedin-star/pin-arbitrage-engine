@@ -691,7 +691,7 @@ export function getDashboardModalsHtml() {
 
   <!-- Crawl Controller & Workflow Dispatcher Modal -->
   <div x-show="isCrawlModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isCrawlModalOpen = false">
-    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Cluster Intelligence Crawler Dispatcher" @click.away="isCrawlModalOpen = false">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Related Pins Crawler Dispatcher" @click.away="isCrawlModalOpen = false">
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
@@ -700,7 +700,7 @@ export function getDashboardModalsHtml() {
             <i data-lucide="zap" class="w-4 h-4"></i>
           </div>
           <div>
-            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Cluster Intelligence Crawler Dispatcher</h3>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Related Pins Crawler Dispatcher</h3>
             <p class="text-[11px] text-slate-500">Execute targeted crawls locally or at scale via GitHub Actions Workflow</p>
           </div>
         </div>
@@ -795,7 +795,7 @@ export function getDashboardModalsHtml() {
                   <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">20 Parallel Runners</span>
                 </div>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Partitioning (20 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
+                  Dispatches <code class="text-purple-600">related-pins-crawler.yml</code> (<code class="text-purple-600">mode: seed_deep</code>) via <strong>Parallel Matrix Partitioning (20 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
                 </p>
               </div>
             </label>
@@ -858,7 +858,7 @@ export function getDashboardModalsHtml() {
                       }"></span>
                 <div>
                   <div class="font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
-                    <span x-text="run.displayTitle || 'Cluster Intelligence'"></span>
+                    <span x-text="run.displayTitle || 'Related Pins Crawler'"></span>
                     <span class="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase"
                           :class="run.event === 'workflow_dispatch' ? 'bg-purple-500/10 text-purple-600' : 'bg-slate-500/10 text-slate-600'"
                           x-text="run.event"></span>
@@ -925,7 +925,7 @@ export function getDashboardModalsHtml() {
             <div>
               <span class="font-bold text-rose-900 dark:text-rose-300">Comprehensive Purge from PostgreSQL Database</span>
               <p class="text-[11px] text-rose-800/80 dark:text-rose-400/80 mt-0.5 leading-relaxed">
-                Permanently purges all harvested candidates (<code class="text-[10px]">candidate_graph_nodes</code>), discovery capsules (<code class="text-[10px]">seed_guided_search_capsules</code>), and analytical metrics (<code class="text-[10px]">cluster_arbitrage_metrics</code>) associated with these seeds from PostgreSQL.
+                Permanently purges discovery capsules (<code class="text-[10px]">seed_guided_search_capsules</code>), analytical metrics (<code class="text-[10px]">cluster_arbitrage_metrics</code>), and orphaned graph candidates (<code class="text-[10px]">candidate_graph_nodes</code> — preserved automatically if still tracked in competitor seeds).
               </p>
             </div>
           </label>

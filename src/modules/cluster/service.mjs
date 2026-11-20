@@ -9,10 +9,15 @@
  * - Discovery typeahead and Pinterest trend acceleration
  */
 
-import { escapeSqlWildcards, getCulinaryColorName, formatAge, chunkArray, normalizeCleanDomain } from '../../utils.mjs';
+import { escapeSqlWildcards, getCulinaryColorName, formatAge, normalizeCleanDomain } from '../../utils.mjs';
 import { computeCrossPillarConvictionScore } from '../../lib/math.mjs';
 import { fetchKeywordTypeahead } from '../keywords/service.mjs';
 import { fetchPinterestBatchVelocity, fetchPinterestInterestVolume } from '../keywords/trends-service.mjs';
+import {
+  extractCreatorAndLinkMeta,
+  upsertCandidateGraphEdges,
+  pruneOrphanCandidateGraphNodes
+} from '../related-pins/graph-writer.mjs';
 
 export { computeCrossPillarConvictionScore };
 
@@ -27,14 +32,24 @@ export async function getClusterOverviewService(targetSql) {
       (SELECT COUNT(*) FROM cluster_seeds) AS total_seeds,
       (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NOT NULL) AS indexed_seeds,
       (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NULL) AS queued_seeds,
-      (SELECT COUNT(*) FROM candidate_graph_nodes) AS total_candidates,
-      (SELECT COUNT(*) FROM candidate_graph_nodes WHERE is_product = true) AS total_products,
+      (
+        SELECT COUNT(*)
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+      ) AS total_candidates,
+      (
+        SELECT COUNT(*)
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        WHERE cgn.is_product = true
+      ) AS total_products,
       (SELECT COALESCE(ROUND(AVG(commercial_gap_ratio)::numeric, 2), 0) FROM cluster_arbitrage_metrics) AS avg_commercial_gap,
       (SELECT COUNT(*) FROM (
-          SELECT candidate_pin_id 
-          FROM candidate_graph_nodes 
-          GROUP BY candidate_pin_id 
-          HAVING COUNT(DISTINCT seed_pin_id) >= 2
+          SELECT cgn.candidate_pin_id 
+          FROM candidate_graph_nodes cgn
+          INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+          GROUP BY cgn.candidate_pin_id 
+          HAVING COUNT(DISTINCT cgn.seed_pin_id) >= 2
       ) sub) AS intersecting_hubs_count;
   `;
 
@@ -152,31 +167,39 @@ export async function bulkCreateClusterSeedsService(targetSql, uniqueSeeds) {
 }
 
 /**
- * 5. Bulk Delete Cluster Seeds (with optional graph cascade)
+ * 5. Bulk Delete Cluster Seeds (with orphan-safe graph edge pruning)
  */
 export async function bulkDeleteClusterSeedsService(targetSql, { pinIds, purgeDatabase }) {
   if (purgeDatabase) {
     await Promise.all([
-      targetSql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`,
       targetSql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`,
       targetSql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`
     ]);
   }
-  return await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
+  const deleted = await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
+  if (purgeDatabase) {
+    // Only purge candidate_graph_nodes edges not still referenced by competitor_seed_pins
+    await pruneOrphanCandidateGraphNodes(targetSql, pinIds);
+  }
+  return deleted;
 }
 
 /**
- * 6. Delete a Single Cluster Seed (with optional graph cascade)
+ * 6. Delete a Single Cluster Seed (with orphan-safe graph edge pruning)
  */
 export async function deleteClusterSeedService(targetSql, { pinId, purgeData }) {
   if (purgeData) {
     await Promise.all([
-      targetSql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`,
       targetSql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`,
       targetSql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`
     ]);
   }
-  return await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+  const deleted = await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+  if (purgeData) {
+    // Only purge candidate_graph_nodes edges not still referenced by competitor_seed_pins
+    await pruneOrphanCandidateGraphNodes(targetSql, [pinId]);
+  }
+  return deleted;
 }
 
 /**
@@ -192,21 +215,22 @@ export async function deleteCandidatesService(targetSql, { candIds, seedPinId })
 /**
  * 8. Fetch and Enrich Candidate Graph Nodes
  */
-export async function getCandidatesService(targetSql, { seedPinId, limit, offset, query, sort }) {
+export async function getCandidatesService(targetSql, { seedPinId, limit, offset, query, sort, scope = 'cluster' }) {
   let rows;
   const cleanQuery = (query && typeof query === 'string' && query.trim()) ? escapeSqlWildcards(query.toLowerCase().trim()) : null;
+  const includeAllScopes = scope === 'all';
   if (seedPinId && cleanQuery) {
     const qPattern = `%${cleanQuery}%`;
     rows = sort === 'velocity' ? await targetSql`
       SELECT * FROM candidate_graph_nodes
       WHERE seed_pin_id = ${seedPinId}
-        AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
+        AND (LOWER(title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR candidate_pin_id LIKE ${qPattern} ESCAPE '\\')
       ORDER BY daily_velocity DESC NULLS LAST, saves DESC
       LIMIT ${limit} OFFSET ${offset};
     ` : await targetSql`
       SELECT * FROM candidate_graph_nodes
       WHERE seed_pin_id = ${seedPinId}
-        AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
+        AND (LOWER(title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR candidate_pin_id LIKE ${qPattern} ESCAPE '\\')
       ORDER BY saves DESC NULLS LAST, daily_velocity DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
@@ -222,27 +246,58 @@ export async function getCandidatesService(targetSql, { seedPinId, limit, offset
       ORDER BY saves DESC NULLS LAST, daily_velocity DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
-  } else if (cleanQuery) {
+  } else if (cleanQuery && includeAllScopes) {
     const qPattern = `%${cleanQuery}%`;
     rows = sort === 'velocity' ? await targetSql`
       SELECT * FROM candidate_graph_nodes
-      WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
+      WHERE LOWER(title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR candidate_pin_id LIKE ${qPattern} ESCAPE '\\'
       ORDER BY daily_velocity DESC NULLS LAST, saves DESC
       LIMIT ${limit} OFFSET ${offset};
     ` : await targetSql`
       SELECT * FROM candidate_graph_nodes
-      WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
+      WHERE LOWER(title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR candidate_pin_id LIKE ${qPattern} ESCAPE '\\'
+      ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+      LIMIT ${limit} OFFSET ${offset};
+    `;
+  } else if (cleanQuery) {
+    const qPattern = `%${cleanQuery}%`;
+    rows = sort === 'velocity' ? await targetSql`
+      SELECT cgn.*
+      FROM candidate_graph_nodes cgn
+      INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+      WHERE LOWER(cgn.title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(cgn.domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(cgn.ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR cgn.candidate_pin_id LIKE ${qPattern} ESCAPE '\\'
+      ORDER BY cgn.daily_velocity DESC NULLS LAST, cgn.saves DESC
+      LIMIT ${limit} OFFSET ${offset};
+    ` : await targetSql`
+      SELECT cgn.*
+      FROM candidate_graph_nodes cgn
+      INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+      WHERE LOWER(cgn.title) LIKE ${qPattern} ESCAPE '\\' OR LOWER(cgn.domain) LIKE ${qPattern} ESCAPE '\\' OR LOWER(COALESCE(cgn.ocr_text, '')) LIKE ${qPattern} ESCAPE '\\' OR cgn.candidate_pin_id LIKE ${qPattern} ESCAPE '\\'
+      ORDER BY cgn.saves DESC NULLS LAST, cgn.daily_velocity DESC
+      LIMIT ${limit} OFFSET ${offset};
+    `;
+  } else if (includeAllScopes) {
+    rows = sort === 'velocity' ? await targetSql`
+      SELECT * FROM candidate_graph_nodes
+      ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+      LIMIT ${limit} OFFSET ${offset};
+    ` : await targetSql`
+      SELECT * FROM candidate_graph_nodes
       ORDER BY saves DESC NULLS LAST, daily_velocity DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
   } else {
     rows = sort === 'velocity' ? await targetSql`
-      SELECT * FROM candidate_graph_nodes
-      ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+      SELECT cgn.*
+      FROM candidate_graph_nodes cgn
+      INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+      ORDER BY cgn.daily_velocity DESC NULLS LAST, cgn.saves DESC
       LIMIT ${limit} OFFSET ${offset};
     ` : await targetSql`
-      SELECT * FROM candidate_graph_nodes
-      ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+      SELECT cgn.*
+      FROM candidate_graph_nodes cgn
+      INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+      ORDER BY cgn.saves DESC NULLS LAST, cgn.daily_velocity DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
   }
@@ -392,30 +447,63 @@ export async function getRecgptPlaybookService(targetSql, { seedPinId }) {
       sessionFinisher = f[0] || null;
     }
   } else {
-    // Global explorer fallbacks only when no specific seed is requested
+    // Global Cluster Hub explorer fallbacks strictly scoped to active cluster_seeds
     if (!dinnerAnchor) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        WHERE cgn.sequence_role = 'DINNER_ANCHOR'
+        ORDER BY cgn.saves DESC LIMIT 1;
+      `;
       dinnerAnchor = f[0] || null;
     }
     if (!navboostSide) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        WHERE cgn.sequence_role = 'NAVBOOST_CO_VISITOR'
+        ORDER BY cgn.saves DESC LIMIT 1;
+      `;
       navboostSide = f[0] || null;
     }
     if (!sessionFinisher) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        WHERE cgn.sequence_role = 'SESSION_FINISHER'
+        ORDER BY cgn.saves DESC LIMIT 1;
+      `;
       sessionFinisher = f[0] || null;
     }
 
     if (!dinnerAnchor) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        ORDER BY cgn.saves DESC LIMIT 1;
+      `;
       dinnerAnchor = f[0] || null;
     }
     if (!navboostSide) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        ORDER BY cgn.saves DESC OFFSET 1 LIMIT 1;
+      `;
       navboostSide = f[0] || null;
     }
     if (!sessionFinisher) {
-      const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
+      const f = await targetSql`
+        SELECT cgn.*
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        ORDER BY cgn.saves DESC OFFSET 2 LIMIT 1;
+      `;
       sessionFinisher = f[0] || null;
     }
   }
@@ -604,6 +692,7 @@ export async function getIntersectionsService(targetSql, { minOverlap = 2, limit
         MAX(c.saves) AS total_saves,
         ARRAY_AGG(DISTINCT c.seed_pin_id) AS originating_seeds
     FROM candidate_graph_nodes c
+    INNER JOIN cluster_seeds cs ON cs.pin_id = c.seed_pin_id
     GROUP BY c.candidate_pin_id
     HAVING COUNT(DISTINCT c.seed_pin_id) >= ${minOverlap}
     ORDER BY pixie_multihit_score DESC
@@ -796,9 +885,10 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
       const candidatePinId = String(p.id || p.pin_id || '').trim();
       if (!candidatePinId || candidatePinId === seedPinId || candidatePinId.startsWith('-') || !/^\d+$/.test(candidatePinId)) continue;
 
+      const creatorLinkMeta = extractCreatorAndLinkMeta(p);
       const title = (p.title || p.grid_title || p.auto_alt_text || p.description || '').slice(0, 255).trim() || `Pin ${candidatePinId}`;
       const rawDomain = p.domain || p.link_domain?.id || p.link || '';
-      const cleanDomain = normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
+      const cleanDomain = creatorLinkMeta.clean_domain || normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
       const domain = cleanDomain || p.domain || p.link_domain?.id || 'Uploaded by user';
       const rawColor = (p.dominant_color && typeof p.dominant_color === 'string') ? p.dominant_color.trim() : '';
       const dominantColor = (rawColor && rawColor.toLowerCase() !== '#888888') ? rawColor : null;
@@ -827,6 +917,9 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
         save_rate: saveRate,
         domain,
         clean_domain: cleanDomain,
+        destination_url: creatorLinkMeta.destination_url,
+        creator_username: creatorLinkMeta.creator_username,
+        creator_name: creatorLinkMeta.creator_name,
         is_product: isProduct,
         ocr_text: ocrText,
         pin_created_at: pinCreatedAt,
@@ -846,74 +939,11 @@ export async function importRawJsonClusterDataService(targetSql, { seedPinId, pa
   }
 
   if (rawCandidates.length > 0) {
-    const dedupCandMap = new Map();
-    for (const node of rawCandidates) {
-      if (node?.candidate_pin_id) dedupCandMap.set(`${node.seed_pin_id}_${node.candidate_pin_id}`, node);
-    }
-    const uniqueCandidates = Array.from(dedupCandMap.values());
-    const candChunkSize = 250;
-    for (const chunk of chunkArray(uniqueCandidates, candChunkSize)) {
-      await targetSql`
-        INSERT INTO candidate_graph_nodes (
-          seed_pin_id, candidate_pin_id, title,
-          dominant_color, aspect_ratio, saves,
-          repins, save_rate, domain,
-          is_product, ocr_text, extracted_at,
-          pin_created_at, age_days, daily_velocity,
-          provenance_engine, individual_prod_score,
-          recgpt_transition_score, sequence_role,
-          is_recgpt_candidate, visual_entropy_score,
-          image_url, is_video, ingestion_method
-        )
-        SELECT
-          u.seed_pin_id, u.candidate_pin_id, u.title,
-          u.dominant_color,
-          CASE
-            WHEN TRIM(COALESCE(u.aspect_ratio, '')) ~ '^[+-]?(\d+(\.\d+)?|\.\d+)$'
-            THEN TRIM(u.aspect_ratio)::numeric
-            ELSE NULL::numeric
-          END AS aspect_ratio,
-          u.saves,
-          u.repins, u.save_rate, u.domain,
-          u.is_product, u.ocr_text, NOW(),
-          NULLIF(TRIM(u.pin_created_at), '')::timestamptz, u.age_days, u.daily_velocity,
-          u.provenance_engine, u.individual_prod_score,
-          u.recgpt_transition_score, u.sequence_role,
-          u.is_recgpt_candidate, u.visual_entropy_score,
-          u.image_url, u.is_video, u.ingestion_method
-        FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS u(
-          seed_pin_id text, candidate_pin_id text, title text,
-          dominant_color text, aspect_ratio text, saves int,
-          repins int, save_rate numeric, domain text,
-          is_product boolean, ocr_text text,
-          pin_created_at text, age_days int, daily_velocity numeric,
-          provenance_engine text, individual_prod_score numeric,
-          recgpt_transition_score numeric, sequence_role text,
-          is_recgpt_candidate boolean, visual_entropy_score numeric,
-          image_url text, is_video boolean, ingestion_method text
-        )
-        ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
-          title = EXCLUDED.title,
-          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), candidate_graph_nodes.dominant_color),
-          aspect_ratio = EXCLUDED.aspect_ratio,
-          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END,
-          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
-          save_rate = EXCLUDED.save_rate,
-          domain = EXCLUDED.domain,
-          is_product = EXCLUDED.is_product,
-          ocr_text = COALESCE(NULLIF(EXCLUDED.ocr_text, ''), candidate_graph_nodes.ocr_text),
-          extracted_at = NOW(),
-          pin_created_at = COALESCE(EXCLUDED.pin_created_at, candidate_graph_nodes.pin_created_at),
-          age_days = EXCLUDED.age_days,
-          daily_velocity = COALESCE(EXCLUDED.daily_velocity, candidate_graph_nodes.daily_velocity, 0),
-          provenance_engine = EXCLUDED.provenance_engine,
-          individual_prod_score = EXCLUDED.individual_prod_score,
-          recgpt_transition_score = EXCLUDED.recgpt_transition_score,
-          image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), candidate_graph_nodes.image_url),
-          is_video = EXCLUDED.is_video,
-          ingestion_method = EXCLUDED.ingestion_method;
-      `;
-    }
+    await upsertCandidateGraphEdges(targetSql, rawCandidates, {
+      mode: 'deep',
+      chunkSize: 250,
+      defaultSeedPinId: seedPinId
+    });
   }
 
   if (authoritativeCounts) {
@@ -1077,9 +1107,9 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
           cgn.candidate_pin_id AS pin_id,
           COALESCE(NULLIF(ump.title, ''), NULLIF(cgn.title, ''), '') AS title,
           COALESCE(NULLIF(ump.clean_domain, ''), NULLIF(cgn.domain, ''), '') AS clean_domain,
-          COALESCE(ump.destination_url, '') AS destination_url,
+          COALESCE(NULLIF(ump.destination_url, ''), NULLIF(cgn.destination_url, ''), '') AS destination_url,
           COALESCE(NULLIF(ump.image_url, ''), NULLIF(cgn.image_url, ''), '') AS image_url,
-          COALESCE(ump.creator_username, '') AS creator_username,
+          COALESCE(NULLIF(ump.creator_username, ''), NULLIF(cgn.creator_username, ''), '') AS creator_username,
           COALESCE(ump.board_name, '') AS board_name,
           COALESCE(ump.save_count, cgn.saves, 0)::bigint AS save_count,
           COALESCE(ump.repin_count, cgn.repins, 0)::bigint AS repin_count,
@@ -1119,9 +1149,9 @@ export async function getCrossPillarArbitrageTargets(sql, options = {}) {
           cgn.candidate_pin_id,
           ump.title, cgn.title,
           ump.clean_domain, cgn.domain,
-          ump.destination_url,
+          ump.destination_url, cgn.destination_url,
           ump.image_url, cgn.image_url,
-          ump.creator_username,
+          ump.creator_username, cgn.creator_username,
           ump.board_name,
           ump.save_count, cgn.saves,
           ump.repin_count, cgn.repins,

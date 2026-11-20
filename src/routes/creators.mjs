@@ -697,20 +697,25 @@ export async function handleCreatorsRoutes(routeCtx) {
     const body = await request.json().catch(() => ({}));
     const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
+    const maxPages = String(body.max_pages || body.max_pages_per_seed || '2').trim() || '2';
     const dRes = await dispatchGitHubWorkflow(env, {
-      workflowFile: 'account-related-pins.yml',
+      workflowFile: 'related-pins-crawler.yml',
       inputs: {
+        mode: 'account_quick',
         target_account: username,
         pin_ids: String(body.pin_ids || body.pins || '').trim(),
-        max_pages_per_seed: String(body.max_pages_per_seed || '2')
+        max_pages: maxPages
       }
     });
 
     if (dRes.ok) {
       return jsonResponse({
         success: true,
+        workflow: 'related-pins-crawler.yml',
+        mode: 'account_quick',
         target_account: username,
-        message: `Account Related Pins Harvester workflow dispatched successfully on GitHub Actions for @${username}!`
+        max_pages: maxPages,
+        message: `Related Pins Crawler (account_quick) dispatched successfully on GitHub Actions for @${username}!`
       });
     }
     return jsonResponse({ success: false, error: dRes.error }, dRes.status);

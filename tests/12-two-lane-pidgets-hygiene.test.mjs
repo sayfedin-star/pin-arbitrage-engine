@@ -319,6 +319,48 @@ test('Pkg 4: refreshRollingWindowGainsBatch reconciles delta_repins_24h and dail
   assert.equal(updates[0].daily_repin_velocity, 772);
 });
 
+test('Pkg 4b: refreshRollingWindowGainsBatch uses bigint recordset columns and rounds fractional repin deltas safely', async () => {
+  const updates = [];
+  const updateSqlTexts = [];
+  let callIdx = 0;
+  const mockSql = async (strings, ...values) => {
+    callIdx++;
+    if (callIdx === 1) {
+      return [{
+        pin_id: '329888741477749728',
+        gains_5d: null,
+        gains_7d: null,
+        gains_10d: null,
+        gains_15d: null,
+        delta_repins_24h: '2.5',
+        daily_repin_velocity: 'not-a-number'
+      }];
+    }
+    if (callIdx === 2) {
+      return [
+        { pin_id: '329888741477749728', recorded_date: '2026-11-20', save_count: 105, repin_count: 23, daily_save_velocity: 2.5 },
+        { pin_id: '329888741477749728', recorded_date: '2026-11-18', save_count: 100, repin_count: 20, daily_save_velocity: 0 }
+      ];
+    }
+    updateSqlTexts.push(strings.join(' '));
+    for (const v of values) {
+      if (typeof v === 'string' && v.startsWith('[')) {
+        updates.push(...JSON.parse(v));
+      }
+    }
+    return [];
+  };
+
+  const count = await refreshRollingWindowGainsBatch(mockSql);
+  assert.equal(count, 1);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].delta_repins_24h, 2);
+  assert.equal(Number.isInteger(updates[0].delta_repins_24h), true);
+  assert.equal(updates[0].daily_repin_velocity, 1.5);
+  assert.ok(updateSqlTexts[0].includes('gains_5d bigint'), 'refreshRollingWindowGainsBatch must cast gains_5d as bigint');
+  assert.ok(updateSqlTexts[0].includes('delta_repins_24h bigint'), 'refreshRollingWindowGainsBatch must cast delta_repins_24h as bigint');
+});
+
 test('Pkg 5: sanitizeDossierTrajectory zeroes Day-1 baseline velocity even on multi-day series and Pin Details UI removes duplicate reactions', () => {
   const dossier = sanitizeDossierTrajectory({
     daily_trajectory: [
@@ -665,13 +707,12 @@ test('Wave 7.4: isAggregatedClusterPin dual condition, Pulse UI parity, crawler 
   assert.ok(repinJumpGuards.length >= 2, 'Both Pidgets pre-enrich and topToEnrich must guard against repin hydration jumps');
   assert.ok(repinVelSyncs.length >= 2, 'Both Pidgets pre-enrich and topToEnrich must sync daily_repin_velocity alongside delta_repins_24h');
 
-  // Verify all 6 workflow files enable FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 and cache refresh logs HTTP status
+  // Verify all 5 workflow files enable FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 and cache refresh logs HTTP status
   for (const wf of [
     '.github/workflows/ci.yml',
     '.github/workflows/keyword-intelligence-velocity.yml',
     '.github/workflows/crawler-pipeline.yml',
-    '.github/workflows/cluster-intelligence.yml',
-    '.github/workflows/account-related-pins.yml',
+    '.github/workflows/related-pins-crawler.yml',
     '.github/workflows/newborn-hunter.yml'
   ]) {
     const content = fs.readFileSync(wf, 'utf8');

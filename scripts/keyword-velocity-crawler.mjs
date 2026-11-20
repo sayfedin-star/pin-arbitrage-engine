@@ -1258,8 +1258,12 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
         const gains = calculateRollingGainsFromSnapshots([currentSnap, ...priorDaySnaps]);
         if (priorDaySnaps.length > 0 && gains.daily_save_velocity != null) {
           sp.daily_save_velocity = Number(gains.daily_save_velocity);
-          sp.delta_saves_24h = gains.delta_saves_24h ?? Number(gains.daily_save_velocity);
-          sp.delta_repins_24h = gains.delta_repins_24h;
+          sp.delta_saves_24h = gains.delta_saves_24h != null
+            ? Math.round(Number(gains.delta_saves_24h))
+            : Math.round(Number(gains.daily_save_velocity));
+          sp.delta_repins_24h = gains.delta_repins_24h != null
+            ? Math.round(Number(gains.delta_repins_24h))
+            : null;
           sp.daily_repin_velocity = gains.daily_repin_velocity ?? gains.delta_repins_24h ?? null;
         } else if (todayPrevSnap) {
           const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
@@ -1269,8 +1273,10 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
               ? Number(todayPrevSnap.daily_save_velocity || 0)
               : 0;
             sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
+            sp.delta_saves_24h = Math.round(sp.daily_save_velocity);
           } else {
             sp.daily_save_velocity = 0;
+            sp.delta_saves_24h = 0;
           }
           const prevTodayRepins = Number(todayPrevSnap.repin_count || 0);
           if (prevTodayRepins > 0 && sp.repin_count != null) {
@@ -1279,15 +1285,16 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
               ? Number(todayPrevSnap.daily_repin_velocity || 0)
               : 0;
             const resolvedRepinVel = Math.min(25000, Math.max(prevTodayRepinVel, intradayRepinDelta));
-            sp.delta_repins_24h = resolvedRepinVel;
-            sp.daily_repin_velocity = resolvedRepinVel;
+            sp.delta_repins_24h = Math.round(resolvedRepinVel);
+            sp.daily_repin_velocity = Math.round(resolvedRepinVel * 100) / 100;
           } else {
-            sp.delta_repins_24h = gains.delta_repins_24h;
+            sp.delta_repins_24h = gains.delta_repins_24h != null ? Math.round(Number(gains.delta_repins_24h)) : null;
             sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
           }
         } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
           sp.daily_save_velocity = gains.daily_save_velocity ?? null;
-          sp.delta_repins_24h = gains.delta_repins_24h;
+          sp.delta_saves_24h = gains.delta_saves_24h != null ? Math.round(Number(gains.delta_saves_24h)) : null;
+          sp.delta_repins_24h = gains.delta_repins_24h != null ? Math.round(Number(gains.delta_repins_24h)) : null;
           sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
         }
         sp.gains_5d = gains.gains_5d;

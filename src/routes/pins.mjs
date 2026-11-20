@@ -650,7 +650,6 @@ export async function handlePinsRoutes({
           await tx`DELETE FROM competitor_board_pins WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM keyword_ignored_pins WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`;
-          await tx`DELETE FROM competitor_related_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`;
           await tx`DELETE FROM competitor_seed_pins WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
         });

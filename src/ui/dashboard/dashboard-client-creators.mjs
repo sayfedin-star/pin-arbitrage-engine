@@ -1142,7 +1142,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.showToast('✅ Discovered ' + data.discovered_count + ' related pins without cookies!');
+              this.showToast('✅ Discovered ' + data.discovered_count + ' related pins into unified graph!');
               await this.fetchCreatorRelatedGraph();
             } else {
               this.showToast('Live scrape failed: ' + (data.error || data.message || 'Unknown error'));
@@ -1158,7 +1158,7 @@ export function getDashboardCreatorsDossierMethods() {
         async dispatchRelatedWorkflowAction() {
           if (!this.activeCreator) return;
           const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
-          if (!confirm('Dispatch dedicated GitHub Actions Harvester for @' + handle + '? This will crawl all account seeds in parallel without cookies.')) return;
+          if (!confirm('Dispatch Related Pins Crawler (account_quick) on GitHub Actions for @' + handle + '? This will crawl all registered account seeds into the unified related-pins graph.')) return;
           this.isHarvestingRelated = true;
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/dispatch-workflow'), {
@@ -1166,12 +1166,12 @@ export function getDashboardCreatorsDossierMethods() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 username: handle,
-                max_pages_per_seed: '2'
+                max_pages: '2'
               })
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              this.showToast('🚀 Dispatched GitHub Actions Harvester for @' + handle + '!');
+              this.showToast('🚀 Dispatched Related Pins Crawler (account_quick) for @' + handle + '!');
             } else {
               this.showToast('Dispatch failed: ' + (data.error || data.message || 'Check GITHUB_TOKEN'));
             }

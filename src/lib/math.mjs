@@ -603,12 +603,13 @@ const CRC32_TABLE = (() => {
  *
  * @param {Array<object>} snapshots - Ordered or unordered snapshot array (`recorded_date` or `snapshot_date`)
  * @param {Date|string|null} [refDate=null] - Optional reference date (defaults to latest snapshot date)
- * @returns {object} { daily_save_velocity, daily_repin_velocity, delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
+ * @returns {object} { daily_save_velocity, delta_saves_24h, daily_repin_velocity, delta_repins_24h, gains_5d, gains_7d, gains_10d, gains_15d }
  */
 export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
   if (!Array.isArray(snapshots) || snapshots.length === 0) {
     return {
       daily_save_velocity: null,
+      delta_saves_24h: null,
       daily_repin_velocity: null,
       delta_repins_24h: null,
       gains_5d: null,
@@ -652,6 +653,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
   if (sorted.length < 2) {
     return {
       daily_save_velocity: null,
+      delta_saves_24h: null,
       daily_repin_velocity: null,
       delta_repins_24h: 0,
       gains_5d: null,
@@ -683,6 +685,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
 
   const isFresh = refDate == null || stalenessDays <= 2;
   let daily_save_velocity = 0;
+  let delta_saves_24h = 0;
   let daily_repin_velocity = 0;
   let delta_repins_24h = 0;
 
@@ -696,6 +699,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
     const isRepinJump = isJump || isRepinHydrationJump(prior, latest);
 
     if (prevSaves !== null && prevSaves > 0 && currentSaves >= prevSaves && !isJump) {
+      delta_saves_24h = Math.min(25000, Math.round((currentSaves - prevSaves) / daysDiff));
       daily_save_velocity = Math.min(25000, Math.round(((currentSaves - prevSaves) / daysDiff) * 100) / 100);
     }
 
@@ -746,6 +750,7 @@ export function calculateRollingGainsFromSnapshots(snapshots, refDate = null) {
 
   return {
     daily_save_velocity,
+    delta_saves_24h,
     daily_repin_velocity,
     delta_repins_24h,
     gains_5d: getGainsForWindow(5),

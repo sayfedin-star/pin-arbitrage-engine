@@ -91,12 +91,16 @@ function cleanString(val) {
   return '';
 }
 
-import { formatPinterestCookie, normalizeCleanDomain, chunkArray } from '../src/utils.mjs';
+import { formatPinterestCookie, normalizeCleanDomain } from '../src/utils.mjs';
 import {
   buildZoneARelatedModulesHeaders,
   stripAllCookiesFromHeaders
 } from '../src/modules/newborn/cookie-router.mjs';
 import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
+import {
+  extractCreatorAndLinkMeta,
+  upsertCandidateGraphEdges
+} from '../src/modules/related-pins/graph-writer.mjs';
 export { formatPinterestCookie };
 
 export function buildClusterSeedRelatedHeaders(pinId, rawCookie = '') {
@@ -438,8 +442,9 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     }
   }
 
+  const creatorLinkMeta = extractCreatorAndLinkMeta(pin);
   const rawDomain = cleanString(pin.domain) || cleanString(pin.link_domain?.id) || cleanString(pin.link);
-  const cleanDomain = normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
+  const cleanDomain = creatorLinkMeta.clean_domain || normalizeCleanDomain(rawDomain, { strictFqdn: true }) || null;
   const domain = cleanDomain || rawDomain || 'Uploaded by user';
 
   // Pre-classification check: reject non-culinary candidates only if cluster is culinary
@@ -676,6 +681,9 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     save_rate: saveRate,
     domain,
     clean_domain: cleanDomain,
+    destination_url: creatorLinkMeta.destination_url,
+    creator_username: creatorLinkMeta.creator_username,
+    creator_name: creatorLinkMeta.creator_name,
     is_product: isProduct,
     ocr_text: ocrText,
     pin_created_at: pinCreatedAt,
@@ -1317,121 +1325,15 @@ async function crawlSeed(seed) {
   }
   console.log(`---------------------------------------------------\n`);
 
-  // Persistence to Unified PostgreSQL via Parallel Batch Upserts with sqlWithRetry
+  // Persistence to Unified PostgreSQL via Shared Non-Destructive Deep Graph Writer
   if (allCandidates.length > 0) {
-    // Enforce strictly deterministic sort by candidate_pin_id ASC to eliminate row-level lock contention and deadlocks
-    allCandidates.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
-    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Unified PostgreSQL (parallel resilient batch mode, deterministically sorted)...`);
-
-    // Batch upsert in chunks of 50 to respect query payload sizes
-    const chunkSize = 50;
-    for (const chunk of chunkArray(allCandidates, chunkSize)) {
-      const chunkPayload = JSON.stringify(chunk.map((node) => {
-        const cleanDom = node.clean_domain || normalizeCleanDomain(node.domain, { strictFqdn: true }) || null;
-        return {
-          seed_pin_id: String(node.seed_pin_id || pinId),
-          candidate_pin_id: String(node.candidate_pin_id),
-          title: node.title || '',
-          dominant_color: (node.dominant_color && String(node.dominant_color).toLowerCase() !== '#888888') ? node.dominant_color : null,
-          aspect_ratio: Number(node.aspect_ratio) || 0.56,
-          saves: node.saves != null ? Number(node.saves) : null,
-          repins: Number(node.repins) || 0,
-          save_rate: Number(node.save_rate) || 0,
-          domain: cleanDom || node.domain || '',
-          clean_domain: cleanDom,
-          is_product: Boolean(node.is_product),
-          ocr_text: node.ocr_text || '',
-          pin_created_at: node.pin_created_at || null,
-          age_days: Number(node.age_days) || 180,
-          daily_velocity: Number(node.daily_velocity) || 0,
-          provenance_engine: node.provenance_engine || 'P2P_TWO_TOWER',
-          individual_prod_score: Number(node.individual_prod_score) || 0,
-          recgpt_transition_score: Number(node.recgpt_transition_score) || 0,
-          sequence_role: node.sequence_role || 'DIRECT_MATCH',
-          is_recgpt_candidate: Boolean(node.is_recgpt_candidate),
-          visual_entropy_score: Number(node.visual_entropy_score) || 0,
-          image_url: node.image_url || '',
-          is_video: Boolean(node.is_video),
-          ingestion_method: node.ingestion_method || 'uploaded'
-        };
-      }));
-
-      await sqlWithRetry(() => sql`
-        INSERT INTO candidate_graph_nodes (
-          seed_pin_id, candidate_pin_id, title, dominant_color, aspect_ratio,
-          saves, repins, save_rate, domain, is_product, ocr_text, extracted_at,
-          pin_created_at, age_days, daily_velocity, provenance_engine,
-          individual_prod_score, recgpt_transition_score, sequence_role,
-          is_recgpt_candidate, visual_entropy_score,
-          image_url, is_video, ingestion_method
-        )
-        SELECT
-          x.seed_pin_id, x.candidate_pin_id, x.title, x.dominant_color, x.aspect_ratio,
-          x.saves, x.repins, x.save_rate, x.domain, x.is_product, x.ocr_text, NOW(),
-          NULLIF(TRIM(x.pin_created_at), '')::timestamptz, x.age_days, x.daily_velocity, x.provenance_engine,
-          x.individual_prod_score, x.recgpt_transition_score, x.sequence_role,
-          x.is_recgpt_candidate, x.visual_entropy_score,
-          x.image_url, x.is_video, x.ingestion_method
-        FROM (
-          SELECT *
-          FROM jsonb_to_recordset(${chunkPayload}::jsonb) AS raw(
-            seed_pin_id text,
-            candidate_pin_id text,
-            title text,
-            dominant_color text,
-            aspect_ratio numeric,
-            saves bigint,
-            repins bigint,
-            save_rate numeric,
-            domain text,
-            is_product boolean,
-            ocr_text text,
-            pin_created_at text,
-            age_days numeric,
-            daily_velocity numeric,
-            provenance_engine text,
-            individual_prod_score numeric,
-            recgpt_transition_score numeric,
-            sequence_role text,
-            is_recgpt_candidate boolean,
-            visual_entropy_score numeric,
-            image_url text,
-            is_video boolean,
-            ingestion_method text
-          )
-          ORDER BY raw.candidate_pin_id ASC
-        ) x
-        ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
-          title = EXCLUDED.title,
-          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), candidate_graph_nodes.dominant_color),
-          aspect_ratio = EXCLUDED.aspect_ratio,
-          saves = CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END,
-          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
-          save_rate = CASE
-            WHEN EXCLUDED.repins > 0 AND (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END) > 0
-              THEN ROUND((EXCLUDED.repins::numeric / (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END)::numeric) * 100, 2)
-            WHEN candidate_graph_nodes.repins > 0 AND (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END) > 0
-              THEN ROUND((candidate_graph_nodes.repins::numeric / (CASE WHEN EXCLUDED.saves > 0 THEN EXCLUDED.saves ELSE candidate_graph_nodes.saves END)::numeric) * 100, 2)
-            ELSE candidate_graph_nodes.save_rate
-          END,
-          domain = EXCLUDED.domain,
-          is_product = EXCLUDED.is_product,
-          ocr_text = EXCLUDED.ocr_text,
-          extracted_at = NOW(),
-          pin_created_at = EXCLUDED.pin_created_at,
-          age_days = EXCLUDED.age_days,
-          daily_velocity = EXCLUDED.daily_velocity,
-          provenance_engine = EXCLUDED.provenance_engine,
-          individual_prod_score = EXCLUDED.individual_prod_score,
-          recgpt_transition_score = EXCLUDED.recgpt_transition_score,
-          sequence_role = EXCLUDED.sequence_role,
-          is_recgpt_candidate = EXCLUDED.is_recgpt_candidate,
-          visual_entropy_score = EXCLUDED.visual_entropy_score,
-          image_url = EXCLUDED.image_url,
-          is_video = EXCLUDED.is_video,
-          ingestion_method = EXCLUDED.ingestion_method;
-      `);
-    }
+    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Unified PostgreSQL (deterministically sorted deep merge)...`);
+    await upsertCandidateGraphEdges(sql, allCandidates, {
+      mode: 'deep',
+      chunkSize: 50,
+      defaultSeedPinId: pinId,
+      queryWrapper: sqlWithRetry
+    });
     console.log(`[+] Successfully stored candidate nodes in Unified PostgreSQL.`);
 
     // Phase 2: Automated Deep Metrics Enrichment via PinResource (Strict Zero-Cookie Zone 2)
@@ -1699,12 +1601,13 @@ async function main() {
     const effectiveShardTot = (shardTot !== null && !isNaN(shardTot) && shardTot > 0) ? shardTot : 20;
     try {
       const seedsNeedingEnrichment = await sqlWithRetry(() => sql`
-        SELECT seed_pin_id 
-        FROM candidate_graph_nodes 
-        WHERE (repins = 0 OR repins IS NULL OR saves IS NULL)
-          AND (${shardIdx}::int IS NULL OR (ABS(hashtext(seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
-        GROUP BY seed_pin_id
-        ORDER BY COUNT(*) DESC, seed_pin_id ASC;
+        SELECT cgn.seed_pin_id 
+        FROM candidate_graph_nodes cgn
+        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        WHERE (cgn.repins = 0 OR cgn.repins IS NULL OR cgn.saves IS NULL)
+          AND (${shardIdx}::int IS NULL OR (ABS(hashtext(cgn.seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
+        GROUP BY cgn.seed_pin_id
+        ORDER BY COUNT(*) DESC, cgn.seed_pin_id ASC;
       `);
       if (seedsNeedingEnrichment.length > 0) {
         const enrichmentSlice = seedsNeedingEnrichment;

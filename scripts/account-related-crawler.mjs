@@ -7,7 +7,7 @@
  * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Unified PostgreSQL.
  */
 
-import { sanitizeForJsonb, normalizeCleanDomain } from '../src/utils.mjs';
+import { sanitizeForJsonb } from '../src/utils.mjs';
 import {
   randomJitterMs,
   sleep,
@@ -18,6 +18,10 @@ import {
   fetchRelatedModulesWithZoneA
 } from '../src/modules/newborn/cookie-router.mjs';
 import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
+import {
+  extractCreatorAndLinkMeta,
+  upsertCandidateGraphEdges
+} from '../src/modules/related-pins/graph-writer.mjs';
 
 import {
   runFleetLifecycle
@@ -131,8 +135,8 @@ export async function crawlSeedPin(competitorId, seedPinId, targetUsername, opti
       break;
     }
 
-    // Extract valid pins & deduplicate via Map to prevent cardinality violations on batch upsert
-    const candidateMap = new Map();
+    // Extract valid pins & upsert into unified candidate_graph_nodes via shared graph writer
+    const rawEdges = [];
     for (const item of items) {
       const isPin = item?.type === 'pin' || (item?.id && /^\d+$/.test(String(item.id)));
       if (!isPin) continue;
@@ -142,23 +146,20 @@ export async function crawlSeedPin(competitorId, seedPinId, targetUsername, opti
 
       const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
       const rawSaves = item.aggregated_pin_data?.aggregated_stats?.saves ?? item.save_count;
-      const saves = rawSaves != null ? Math.max(0, Number(rawSaves)) : null;
+      const saves = (rawSaves !== null && rawSaves !== undefined && String(rawSaves).trim() !== '' && Number.isFinite(Number(rawSaves)))
+        ? Math.max(0, Math.round(Number(rawSaves)))
+        : null;
       const rawRepins = item.repin_count;
-      const repins = rawRepins != null ? Math.max(0, Number(rawRepins)) : null;
-      const creator = item.pinner?.username || item.origin_pinner?.username || '';
-      const creatorName = item.pinner?.full_name || '';
-      const rawDomain = item.domain || item.link_domain?.id || item.link_domain || '';
-      const link = item.link || '';
-      const cleanDomain = normalizeCleanDomain(rawDomain || link, { strictFqdn: true }) || null;
-      const domain = cleanDomain || (typeof rawDomain === 'string' ? rawDomain : '');
+      const repins = (rawRepins !== null && rawRepins !== undefined && String(rawRepins).trim() !== '' && Number.isFinite(Number(rawRepins)))
+        ? Math.max(0, Math.round(Number(rawRepins)))
+        : null;
+      const meta = extractCreatorAndLinkMeta(item);
       const img = item.images?.['236x']?.url || item.images?.['736x']?.url || item.images?.orig?.url || '';
       const rawColor = typeof item.dominant_color === 'string' ? item.dominant_color.trim() : '';
       const dominantColor = (rawColor && rawColor.toLowerCase() !== '#888888') ? rawColor : null;
       const isProduct = Boolean(item.is_product || item.commerce_product);
-      const isSameAccount = creator.toLowerCase() === targetUsername.toLowerCase();
 
-      const candidateObj = {
-        competitor_id: competitorId,
+      rawEdges.push({
         seed_pin_id: String(seedPinId),
         candidate_pin_id: candId,
         title: title.slice(0, 500),
@@ -166,64 +167,25 @@ export async function crawlSeedPin(competitorId, seedPinId, targetUsername, opti
         dominant_color: dominantColor,
         saves,
         repins,
-        domain: domain.slice(0, 255),
-        clean_domain: cleanDomain,
-        destination_url: link,
+        domain: meta.domain,
+        clean_domain: meta.clean_domain,
+        destination_url: meta.destination_url,
         is_product: isProduct,
-        is_same_account: isSameAccount,
-        creator_username: creator.slice(0, 100),
-        creator_name: creatorName.slice(0, 255),
+        creator_username: meta.creator_username,
+        creator_name: meta.creator_name,
         provenance_engine: 'P2P_TWO_TOWER'
-      };
-
-      if (candidateMap.has(candId)) {
-        const existing = candidateMap.get(candId);
-        if (saves !== null && (existing.saves === null || saves > existing.saves)) {
-          candidateMap.set(candId, candidateObj);
-        }
-      } else {
-        candidateMap.set(candId, candidateObj);
-      }
+      });
     }
 
-    const candidateRows = Array.from(candidateMap.values());
+    if (rawEdges.length > 0) {
+      const { upsertedCount } = await upsertCandidateGraphEdges(dbSql, rawEdges, {
+        mode: 'quick',
+        chunkSize: 100,
+        defaultSeedPinId: String(seedPinId)
+      });
 
-    if (candidateRows.length > 0) {
-      // Monotonic ORDER BY candidate_pin_id to strictly eliminate deadlocks
-      candidateRows.sort((a, b) => a.candidate_pin_id.localeCompare(b.candidate_pin_id));
-
-      // Batch insert into competitor_related_nodes
-      await dbSql`
-        INSERT INTO competitor_related_nodes (
-          competitor_id, seed_pin_id, candidate_pin_id, title, image_url,
-          dominant_color, saves, repins, domain, destination_url,
-          is_product, is_same_account, creator_username, creator_name,
-          provenance_engine, discovered_at
-        )
-        SELECT
-          x.competitor_id, x.seed_pin_id, x.candidate_pin_id, x.title, x.image_url,
-          x.dominant_color, x.saves, x.repins, x.domain, x.destination_url,
-          x.is_product, x.is_same_account, x.creator_username, x.creator_name,
-          x.provenance_engine, NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(candidateRows))}::jsonb) AS x(
-          competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
-          dominant_color varchar, saves bigint, repins bigint, domain text, destination_url text,
-          is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
-          provenance_engine varchar
-        )
-        ORDER BY x.candidate_pin_id ASC
-        ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
-          saves = COALESCE(EXCLUDED.saves, competitor_related_nodes.saves),
-          repins = COALESCE(EXCLUDED.repins, competitor_related_nodes.repins),
-          title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
-          image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
-          domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,
-          destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_related_nodes.destination_url END,
-          is_same_account = EXCLUDED.is_same_account;
-      `;
-
-      totalDiscoveredForSeed += candidateRows.length;
-      console.log(`    [+] Page ${page}: Upserted ${candidateRows.length} related nodes into Unified PostgreSQL.`);
+      totalDiscoveredForSeed += upsertedCount;
+      console.log(`    [+] Page ${page}: Upserted ${upsertedCount} related nodes into candidate_graph_nodes.`);
     }
 
     if (!bookmark) break;
@@ -390,13 +352,21 @@ async function main() {
   const [retentionRow] = await sql`
     SELECT 
       COUNT(*)::int AS total_nodes,
-      COUNT(DISTINCT crn.candidate_pin_id)::int AS unique_candidates,
-      COUNT(*) FILTER (WHERE crn.is_same_account = true)::int AS self_nodes,
-      COUNT(*) FILTER (WHERE crn.is_same_account = false)::int AS rival_nodes
-    FROM competitor_related_nodes crn
-    INNER JOIN competitor_seed_pins csp 
-      ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
-    WHERE crn.competitor_id = ${competitorId};
+      COUNT(DISTINCT cgn.candidate_pin_id)::int AS unique_candidates,
+      COUNT(*) FILTER (
+        WHERE BTRIM(COALESCE(cgn.creator_username, '')) <> ''
+          AND LOWER(LTRIM(BTRIM(cgn.creator_username), '@')) = LOWER(LTRIM(BTRIM(COALESCE(cp.username, '')), '@'))
+      )::int AS self_nodes,
+      COUNT(*) FILTER (
+        WHERE NOT (
+          BTRIM(COALESCE(cgn.creator_username, '')) <> ''
+          AND LOWER(LTRIM(BTRIM(cgn.creator_username), '@')) = LOWER(LTRIM(BTRIM(COALESCE(cp.username, '')), '@'))
+        )
+      )::int AS rival_nodes
+    FROM competitor_seed_pins csp
+    INNER JOIN competitor_profiles cp ON cp.id = csp.competitor_id
+    INNER JOIN candidate_graph_nodes cgn ON cgn.seed_pin_id = csp.pin_id
+    WHERE csp.competitor_id = ${competitorId};
   `;
 
   const totalNodes = Number(retentionRow?.total_nodes || 0);
@@ -415,13 +385,12 @@ async function main() {
   const [intersectionsRow] = await sql`
     SELECT COUNT(*)::int AS multi_hit_hubs
     FROM (
-      SELECT crn.candidate_pin_id
-      FROM competitor_related_nodes crn
-      INNER JOIN competitor_seed_pins csp 
-        ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
-      WHERE crn.competitor_id = ${competitorId}
-      GROUP BY crn.candidate_pin_id
-      HAVING COUNT(DISTINCT crn.seed_pin_id) >= 2
+      SELECT cgn.candidate_pin_id
+      FROM competitor_seed_pins csp
+      INNER JOIN candidate_graph_nodes cgn ON cgn.seed_pin_id = csp.pin_id
+      WHERE csp.competitor_id = ${competitorId}
+      GROUP BY cgn.candidate_pin_id
+      HAVING COUNT(DISTINCT cgn.seed_pin_id) >= 2
     ) sub;
   `;
   const multiHitHubs = Number(intersectionsRow?.multi_hit_hubs || 0);

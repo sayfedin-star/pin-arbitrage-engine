@@ -175,9 +175,12 @@ export async function syncPinsToMasterCatalog(hubSql, enrichedPins, extraOptions
         : Boolean(!p.from_hydration_cache && (p.is_hydrated || (hasSaves && saveCount !== null))),
       daily_save_velocity: vel,
       daily_repin_velocity: repinVel,
-      delta_repins_24h: (p.delta_repins_24h != null || p.delta_repins != null)
-        ? Math.max(0, Number(p.delta_repins_24h ?? p.delta_repins))
-        : null
+      delta_repins_24h: (() => {
+        const raw = p.delta_repins_24h ?? p.delta_repins;
+        if (raw == null || raw === '') return null;
+        const num = Number(raw);
+        return Number.isFinite(num) ? Math.max(0, Math.round(num)) : null;
+      })()
     });
   }
 

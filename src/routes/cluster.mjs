@@ -386,17 +386,19 @@ export async function handleClusterRoutes({
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const query = (searchParams.get('q') || '').trim();
     const sort = (searchParams.get('sort') || 'saves').toLowerCase();
+    const scope = (searchParams.get('scope') || 'cluster').toLowerCase() === 'all' ? 'all' : 'cluster';
 
     const cacheKey = buildCanonicalCacheKey('candidates', {
       seed_pin_id: seedPinId,
       limit,
       offset,
       q: query,
-      sort
+      sort,
+      scope
     });
 
     const enriched = await getCachedOrFetch(cacheKey, async () => {
-      return await getCandidatesService(sql, { seedPinId, limit, offset, query, sort });
+      return await getCandidatesService(sql, { seedPinId, limit, offset, query, sort, scope });
     }, 8000, 30000);
 
     return jsonResponse(enriched, 200, 8);
@@ -405,6 +407,10 @@ export async function handleClusterRoutes({
   // 4. GET /api/workflow/runs (Node.js GitHub API integration)
   if (method === 'GET' && pathname === '/api/workflow/runs') {
     const { authHeader, repo } = resolveGitHubAuth(env);
+    const modeFilterRaw = String(searchParams.get('mode') || '').trim().toLowerCase();
+    const modeFilter = (modeFilterRaw === 'seed_deep' || modeFilterRaw === 'account_quick') ? modeFilterRaw : '';
+    const limit = clampLimit(searchParams.get('limit'), 15, 30);
+    const perPage = modeFilter ? 30 : limit;
     try {
       const headers = {
         'User-Agent': 'PAE-Fastify-Engine',
@@ -413,23 +419,31 @@ export async function handleClusterRoutes({
       if (authHeader) {
         headers['Authorization'] = authHeader;
       }
-      const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, {
+      const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/related-pins-crawler.yml/runs?per_page=${perPage}`, {
         headers,
         signal: AbortSignal.timeout(10000)
       });
       if (res.ok) {
         const data = await res.json();
-        const formatted = (data.workflow_runs || []).map(r => ({
-          databaseId: r.id,
-          status: r.status,
-          conclusion: r.conclusion,
-          createdAt: r.created_at,
-          url: r.html_url,
-          event: r.event,
-          displayTitle: r.display_title || r.name,
-          headBranch: r.head_branch
-        }));
-        return jsonResponse(formatted);
+        const formatted = (data.workflow_runs || []).map(r => {
+          const displayTitle = r.display_title || r.name || 'Related Pins Crawler';
+          const inferredMode = /\[account_quick\]/i.test(displayTitle)
+            ? 'account_quick'
+            : (/\[seed_deep\]/i.test(displayTitle) || r.event === 'schedule' ? 'seed_deep' : 'seed_deep');
+          return {
+            databaseId: r.id,
+            status: r.status,
+            conclusion: r.conclusion,
+            createdAt: r.created_at,
+            url: r.html_url,
+            event: r.event,
+            mode: inferredMode,
+            displayTitle,
+            headBranch: r.head_branch
+          };
+        });
+        const filtered = modeFilter ? formatted.filter(r => r.mode === modeFilter) : formatted;
+        return jsonResponse(filtered.slice(0, limit));
       }
       if (res?.body) await res.body.cancel().catch(() => {});
       return jsonResponse([]);
@@ -456,8 +470,9 @@ export async function handleClusterRoutes({
     const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
 
     const dRes = await dispatchGitHubWorkflow(env, {
-      workflowFile: 'cluster-intelligence.yml',
+      workflowFile: 'related-pins-crawler.yml',
       inputs: {
+        mode: 'seed_deep',
         seed_pin_id: target,
         max_pages: maxPages
       }
@@ -466,9 +481,11 @@ export async function handleClusterRoutes({
     if (dRes.ok) {
       return jsonResponse({
         success: true,
+        workflow: 'related-pins-crawler.yml',
+        mode: 'seed_deep',
         seed_pin_id: target || 'all_queued',
         max_pages: maxPages,
-        message: 'Workflow dispatched successfully to GitHub Actions.'
+        message: 'Related Pins Crawler (seed_deep) dispatched successfully to GitHub Actions.'
       });
     }
     return jsonResponse({ success: false, error: dRes.error }, dRes.status);
@@ -542,7 +559,7 @@ export async function handleClusterRoutes({
   if (method === 'POST' && pathname === '/api/crawl') {
     return jsonResponse({
       status: 'info',
-      message: 'Background crawls are executed serverlessly via GitHub Actions. Please trigger the GitHub Actions workflow cluster-intelligence.yml or run locally with npm run crawl.',
+      message: 'Background crawls are executed serverlessly via GitHub Actions. Please trigger the GitHub Actions workflow related-pins-crawler.yml (mode: seed_deep) or run locally with npm run crawl.',
       action_url: 'https://github.com/sayfedin-star/pin-arbitrage-engine/actions'
     });
   }

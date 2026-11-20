@@ -480,7 +480,16 @@ export async function refreshRollingWindowGainsBatch(sql) {
     bucket.push(row);
   }
 
-  const normalizeGain = (val) => (val === null || val === undefined ? null : Number(val));
+  const normalizeIntGain = (val) => {
+    if (val === null || val === undefined || val === '') return null;
+    const num = Number(val);
+    return Number.isFinite(num) ? Math.round(num) : null;
+  };
+  const normalizeFloatGain = (val) => {
+    if (val === null || val === undefined || val === '') return null;
+    const num = Number(val);
+    return Number.isFinite(num) ? num : null;
+  };
   const changed = [];
 
   for (const pin of pinRows) {
@@ -488,26 +497,26 @@ export async function refreshRollingWindowGainsBatch(sql) {
     if (!pid) continue;
     const snaps = snapsByPin.get(pid) || [];
     const computed = calculateRollingGainsFromSnapshots(snaps, nowUtc);
-    const next5 = normalizeGain(computed.gains_5d);
-    const next7 = normalizeGain(computed.gains_7d);
-    const next10 = normalizeGain(computed.gains_10d);
-    const next15 = normalizeGain(computed.gains_15d);
+    const next5 = normalizeIntGain(computed.gains_5d);
+    const next7 = normalizeIntGain(computed.gains_7d);
+    const next10 = normalizeIntGain(computed.gains_10d);
+    const next15 = normalizeIntGain(computed.gains_15d);
     const distinctSnapDates = new Set(snaps.map((s) => String(s.recorded_date || '').slice(0, 10)).filter(Boolean));
     const hasMultiDaySnaps = distinctSnapDates.size >= 2;
     const nextDeltaRepins24h = hasMultiDaySnaps
-      ? normalizeGain(computed.delta_repins_24h)
-      : normalizeGain(pin.delta_repins_24h);
+      ? normalizeIntGain(computed.delta_repins_24h)
+      : normalizeIntGain(pin.delta_repins_24h);
     const nextDailyRepinVel = hasMultiDaySnaps
-      ? normalizeGain(computed.daily_repin_velocity ?? computed.delta_repins_24h)
-      : normalizeGain(pin.daily_repin_velocity);
+      ? normalizeFloatGain(computed.daily_repin_velocity ?? computed.delta_repins_24h)
+      : normalizeFloatGain(pin.daily_repin_velocity);
 
     if (
-      normalizeGain(pin.gains_5d) !== next5 ||
-      normalizeGain(pin.gains_7d) !== next7 ||
-      normalizeGain(pin.gains_10d) !== next10 ||
-      normalizeGain(pin.gains_15d) !== next15 ||
-      normalizeGain(pin.delta_repins_24h) !== nextDeltaRepins24h ||
-      normalizeGain(pin.daily_repin_velocity) !== nextDailyRepinVel
+      normalizeIntGain(pin.gains_5d) !== next5 ||
+      normalizeIntGain(pin.gains_7d) !== next7 ||
+      normalizeIntGain(pin.gains_10d) !== next10 ||
+      normalizeIntGain(pin.gains_15d) !== next15 ||
+      normalizeIntGain(pin.delta_repins_24h) !== nextDeltaRepins24h ||
+      normalizeFloatGain(pin.daily_repin_velocity) !== nextDailyRepinVel
     ) {
       changed.push({
         pin_id: pid,
@@ -536,11 +545,11 @@ export async function refreshRollingWindowGainsBatch(sql) {
         daily_repin_velocity = u.daily_repin_velocity
       FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS u(
         pin_id text,
-        gains_5d int,
-        gains_7d int,
-        gains_10d int,
-        gains_15d int,
-        delta_repins_24h int,
+        gains_5d bigint,
+        gains_7d bigint,
+        gains_10d bigint,
+        gains_15d bigint,
+        delta_repins_24h bigint,
         daily_repin_velocity numeric
       )
       WHERE ump.pin_id = u.pin_id

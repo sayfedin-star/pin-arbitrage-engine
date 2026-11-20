@@ -1,24 +1,43 @@
-name: Cluster Intelligence & Arbitrage Pipeline
+name: Related Pins Crawler
+run-name: "Related Pins Crawler [${{ inputs.mode || 'seed_deep' }}]${{ inputs.target_account && format(' (@{0})', inputs.target_account) || (inputs.seed_pin_id && format(' (seed {0})', inputs.seed_pin_id) || '') }}"
 
 on:
   schedule:
-    # Run daily at 03:00 UTC
+    # Daily deep crawl of queued cluster_seeds at 03:00 UTC (seed_deep mode)
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Execution mode: seed_deep (20-shard cluster deep crawl) | account_quick (single-runner competitor overlap)'
+        required: true
+        type: choice
+        default: seed_deep
+        options:
+          - seed_deep
+          - account_quick
       seed_pin_id:
-        description: 'Target Seed Pin ID to crawl immediately (leave empty to sweep all queued seeds)'
+        description: '[seed_deep] Target Seed Pin ID(s), comma-separated (leave empty to sweep all queued cluster_seeds)'
+        required: false
+        type: string
+        default: ''
+      target_account:
+        description: '[account_quick] Target competitor handle to crawl related pins for (e.g. freshmancook)'
+        required: false
+        type: string
+        default: ''
+      pin_ids:
+        description: '[account_quick] Specific Pin IDs, comma-separated (leave empty to crawl all registered competitor seeds)'
         required: false
         type: string
         default: ''
       max_pages:
-        description: 'Maximum pagination depth per seed (default: 60)'
+        description: 'Max pagination depth per seed (defaults: 60 for seed_deep, 2 for account_quick)'
         required: false
         type: string
-        default: '60'
+        default: ''
 
 concurrency:
-  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}
+  group: related-pins-${{ inputs.mode || 'seed_deep' }}-${{ inputs.mode == 'account_quick' && (inputs.target_account || 'all') || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -32,6 +51,7 @@ env:
 jobs:
   check-seeds:
     name: Stage 0 - Verify Active Cluster Seeds
+    if: github.event_name == 'schedule' || inputs.mode == 'seed_deep'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -65,7 +85,7 @@ jobs:
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
         run: |
           if [ -n "$TARGET_PIN_ID" ]; then
-            echo "Target Seed Pin ID specified ($TARGET_PIN_ID). Proceeding with crawl."
+            echo "Target Seed Pin ID specified ($TARGET_PIN_ID). Proceeding with seed_deep crawl."
             echo "has_seeds=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -84,8 +104,8 @@ jobs:
             echo "has_seeds=false" >> "$GITHUB_OUTPUT"
           fi
 
-  crawl-and-synthesize:
-    name: Crawl Shard ${{ matrix.shard }}/20
+  crawl-seed-deep:
+    name: Deep Crawl Shard ${{ matrix.shard }}/20
     needs: [check-seeds]
     if: needs.check-seeds.outputs.has_seeds == 'true'
     runs-on: ubuntu-latest
@@ -123,7 +143,7 @@ jobs:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
           skip-wakeup: 'true'
 
-      - name: Execute Cluster Intelligence Engine
+      - name: Execute Deep Related Pins Engine (seed_deep)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
@@ -134,3 +154,46 @@ jobs:
           SHARD_NUMBER: ${{ matrix.shard }}
           SHARD_TOTAL: 20
         run: node scripts/cluster-intelligence.mjs
+
+  crawl-account-quick:
+    name: Quick Account Overlap Crawl (@${{ inputs.target_account || 'all' }})
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'account_quick'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Check Runner Egress IP
+        run: |
+          echo "=== GitHub Actions Runner Egress IP (account_quick) ==="
+          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo ""
+          echo "======================================================"
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Setup InstaBox DB Tunnel
+        uses: ./.github/actions/setup-instabox-db
+        with:
+          instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+
+      - name: Execute Quick Account Related Pins Harvester (account_quick)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          TARGET_ACCOUNT: ${{ inputs.target_account }}
+          TARGET_PIN_IDS: ${{ inputs.pin_ids }}
+          MAX_PAGES: ${{ inputs.max_pages || '2' }}
+        run: node scripts/account-related-crawler.mjs

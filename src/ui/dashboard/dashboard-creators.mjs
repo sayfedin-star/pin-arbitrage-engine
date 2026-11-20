@@ -1823,7 +1823,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
                 <div class="flex items-center gap-2">
                   <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 font-bold text-sm">🕸️</span>
                   <h3 class="text-base font-extrabold text-slate-900 dark:text-white">Related Pins Radar (Account Intersections)</h3>
-                  <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums bg-amber-500/10 border border-amber-500/20 text-amber-600 font-bold">100% Zero-Cookie</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums bg-amber-500/10 border border-amber-500/20 text-amber-600 font-bold">Zone-A + Guest Fallback</span>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Pixie Graph Co-Occurrence Radar for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>. Identifies overlapping related pins across multiple seeds, traffic retention, and competitor leakage.

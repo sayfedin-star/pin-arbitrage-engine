@@ -6,6 +6,7 @@
 import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
 import { fetchUserResource } from '../../core/pinterest/index.mjs';
 import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
+import { pruneOrphanCandidateGraphNodes } from '../related-pins/graph-writer.mjs';
 
 export const GLOBAL_QUALIFICATION_RULES_KEY = 'pin_qualification_rules';
 
@@ -726,8 +727,8 @@ export async function deleteCompetitorSnapshot(sql, snapshotId) {
 /**
  * Delete a competitor profile and cascade cleanup across all child tables
  * (competitor_board_pins, competitor_boards, competitor_history_snapshots,
- * competitor_seed_pins, competitor_related_nodes, folder_competitor_items),
- * plus stray empty-username rows.
+ * competitor_seed_pins, folder_competitor_items), orphan-safe pruning
+ * unreferenced candidate_graph_nodes edges, plus stray empty-username rows.
  */
 export async function deleteCompetitor(sql, idOrUsername) {
   if (!sql) throw new Error('Database client is required');
@@ -761,8 +762,14 @@ export async function deleteCompetitor(sql, idOrUsername) {
       await tx`DELETE FROM competitor_board_pins WHERE competitor_id = ${targetId};`;
       await tx`DELETE FROM competitor_boards WHERE competitor_id = ${targetId};`;
       await tx`DELETE FROM competitor_history_snapshots WHERE competitor_id = ${targetId};`;
-      await tx`DELETE FROM competitor_related_nodes WHERE competitor_id = ${targetId};`;
-      await tx`DELETE FROM competitor_seed_pins WHERE competitor_id = ${targetId};`;
+      const deletedSeeds = await tx`
+        DELETE FROM competitor_seed_pins
+        WHERE competitor_id = ${targetId}
+        RETURNING pin_id;
+      `;
+      if (Array.isArray(deletedSeeds) && deletedSeeds.length > 0) {
+        await pruneOrphanCandidateGraphNodes(tx, deletedSeeds.map(r => r.pin_id));
+      }
       await tx`DELETE FROM folder_competitor_items WHERE competitor_id = ${targetId};`;
     }
 
@@ -977,10 +984,10 @@ export async function getCompetitorSeeds(sql, competitorId) {
       csp.save_count,
       csp.created_at,
       csp.last_crawled_at,
-      COUNT(crn.id)::int AS related_count
+      COUNT(cgn.id)::int AS related_count
     FROM competitor_seed_pins csp
-    LEFT JOIN competitor_related_nodes crn 
-      ON crn.competitor_id = csp.competitor_id AND crn.seed_pin_id = csp.pin_id
+    LEFT JOIN candidate_graph_nodes cgn
+      ON cgn.seed_pin_id = csp.pin_id
     WHERE csp.competitor_id = ${numericId}
     GROUP BY csp.id
     ORDER BY csp.created_at DESC;
@@ -1060,7 +1067,7 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
 
 
 /**
- * Delete a seed pin (or multiple seed pins) and all associated related nodes.
+ * Delete a seed pin (or multiple seed pins) and orphan-safely prune associated graph edges.
  */
 export async function deleteCompetitorSeed(sql, competitorId, pinId) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
@@ -1070,15 +1077,12 @@ export async function deleteCompetitorSeed(sql, competitorId, pinId) {
     : String(pinId || '').split(/[\s,]+/).map(p => p.trim().replace(/\D+/g, '')).filter(Boolean);
   if (pins.length === 0) throw new Error('Valid pinId is required.');
 
-  // Explicitly purge related nodes (also handled automatically via fk_crn_seed_pins ON DELETE CASCADE)
-  await sql`
-    DELETE FROM competitor_related_nodes 
-    WHERE competitor_id = ${numericId} AND seed_pin_id = ANY(${pins});
-  `;
   await sql`
     DELETE FROM competitor_seed_pins 
     WHERE competitor_id = ${numericId} AND pin_id = ANY(${pins});
   `;
+  // Only delete candidate_graph_nodes edges if no cluster_seeds or remaining competitor_seed_pins reference them
+  await pruneOrphanCandidateGraphNodes(sql, pins);
 
   return { ok: true, deleted_pin_ids: pins, deleted_pin_id: pins[0] };
 }

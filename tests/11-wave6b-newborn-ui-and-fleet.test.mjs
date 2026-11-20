@@ -936,7 +936,7 @@ test('Wave 6B.5: Zone-A RelatedModulesResource upgrade & automatic HTTP 412 zero
     if (q.includes('SELECT id FROM competitor_profiles')) return [{ id: 15 }];
     if (q.includes('SELECT id, username FROM competitor_profiles')) return [{ id: 15, username: 'decorqueen' }];
     if (q.includes('FROM competitor_board_pins')) return [{ title: 'Seed Pin', image_url: '', board_name: 'Patio', save_count: 50 }];
-    if (q.includes('INSERT INTO competitor_related_nodes')) {
+    if (q.includes('INSERT INTO candidate_graph_nodes')) {
       persistedBatches.push(JSON.parse(values[0]));
       return [];
     }
@@ -998,6 +998,6 @@ test('Wave 6B.5: Zone-A RelatedModulesResource upgrade & automatic HTTP 412 zero
   assert.equal(liveHarvestRes.ok, true);
   assert.equal(liveHarvestRes.discovered_count, 2);
   assert.equal(liveHarvestRes.used_auth_cookie, true);
-  assert.equal(persistedBatches[1].filter((r) => r.is_same_account).length, 1);
-  assert.equal(persistedBatches[1].filter((r) => !r.is_same_account).length, 1);
+  assert.equal(persistedBatches[1].filter((r) => r.creator_username === 'decorqueen').length, 1);
+  assert.equal(persistedBatches[1].filter((r) => r.creator_username !== 'decorqueen').length, 1);
 });

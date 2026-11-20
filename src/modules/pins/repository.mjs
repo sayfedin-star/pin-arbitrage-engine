@@ -36,6 +36,15 @@ function parseStrictFiniteMetric(raw, { nonNegative = false } = {}) {
   return nonNegative ? Math.max(0, num) : num;
 }
 
+function parseStrictBigIntMetric(raw, { nonNegative = false } = {}) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  const rounded = Math.round(num);
+  return nonNegative ? Math.max(0, rounded) : rounded;
+}
+
 function safeParseIsoTimestamp(val) {
   if (!val) return null;
   const dt = new Date(val);
@@ -199,12 +208,12 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             ? parseStrictFiniteMetric(p.daily_save_velocity)
             : ((saveCount !== null && velNum !== null && velNum > 0) ? velNum : null),
           daily_repin_velocity: repinCount !== null ? parseStrictFiniteMetric(p.daily_repin_velocity) : null,
-          delta_saves_24h: parseStrictFiniteMetric(p.delta_saves_24h),
-          delta_repins_24h: parseStrictFiniteMetric(p.delta_repins_24h),
-          gains_5d: parseStrictFiniteMetric(p.gains_5d),
-          gains_7d: parseStrictFiniteMetric(p.gains_7d),
-          gains_10d: parseStrictFiniteMetric(p.gains_10d),
-          gains_15d: parseStrictFiniteMetric(p.gains_15d),
+          delta_saves_24h: parseStrictBigIntMetric(p.delta_saves_24h, { nonNegative: true }),
+          delta_repins_24h: parseStrictBigIntMetric(p.delta_repins_24h, { nonNegative: true }),
+          gains_5d: parseStrictBigIntMetric(p.gains_5d),
+          gains_7d: parseStrictBigIntMetric(p.gains_7d),
+          gains_10d: parseStrictBigIntMetric(p.gains_10d),
+          gains_15d: parseStrictBigIntMetric(p.gains_15d),
           is_product: Boolean(p.is_product || richMeta.is_product),
           is_video: Boolean(p.is_video || richMeta.is_video),
           creation_method: String(p.creation_method || richMeta.creation_method || 'pinterest_platform'),
@@ -252,7 +261,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           existing.daily_repin_velocity = existing.daily_repin_velocity != null ? Math.max(Number(existing.daily_repin_velocity), incRepinVel) : incRepinVel;
         }
         for (const dk of ['delta_saves_24h', 'delta_repins_24h', 'gains_5d', 'gains_7d', 'gains_10d', 'gains_15d']) {
-          const parsedDk = parseStrictFiniteMetric(p[dk]);
+          const parsedDk = parseStrictBigIntMetric(p[dk], {
+            nonNegative: dk === 'delta_saves_24h' || dk === 'delta_repins_24h'
+          });
           if (parsedDk !== null) {
             existing[dk] = existing[dk] != null ? Math.max(Number(existing[dk]), parsedDk) : parsedDk;
           }
@@ -481,7 +492,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             WHEN eb.save_count IS NULL THEN NULL
             WHEN eb.is_save_jump THEN 0::bigint
             WHEN eb.delta_saves_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_saves_24h))
-            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity))::bigint)
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity::numeric))::bigint)
             WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
              AND (eb.recorded_date - eb.prev_recorded_date) >= 1 THEN
               LEAST(
