@@ -31,7 +31,9 @@ export function getNewbornHeaderAndLaunchpadHtml() {
           </button>
         </div>
         <p class="text-xs sm:text-sm text-slate-500 dark:text-[#A1A1AA] mt-1">
-          Deep-scroll Pinterest for young Golden Pins using verified root Age, Re-pins, Pin Annotations, and official Idea Page volume.
+          Deep-scroll Pinterest for young Golden Pins using
+          <span x-text="settingsDraft?.qualification?.resolve_root_pin ? 'verified Root Age' : 'direct Pin Age'"></span>,
+          Re-pins, Pin Annotations, and Keyword Clusters.
         </p>
       </div>
 
@@ -90,6 +92,13 @@ export function getNewbornHeaderAndLaunchpadHtml() {
         </div>
 
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+          <button type="button"
+                  @click="openClusterExplorerFromHero()"
+                  class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/80 dark:hover:bg-indigo-950/50 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+            <i data-lucide="compass" class="w-3.5 h-3.5" aria-hidden="true"></i>
+            <span>Cluster Explorer</span>
+          </button>
+
           <button type="button"
                   @click="toggleTrendsDrawer()"
                   :aria-expanded="showTrendsDrawer ? 'true' : 'false'"
@@ -240,12 +249,24 @@ export function getNewbornHeaderAndLaunchpadHtml() {
         </div>
       </div>
 
-      <!-- Row 3: User-Controlled Extraction Paths & Deep-Scroll Counts -->
+      <!-- Row 3: User-Controlled Extraction Paths & Flexible Numeric Deep-Scroll Targets -->
       <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/80 space-y-2.5">
-        <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
           <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Extraction Paths &amp; Deep-Scroll Targets</span>
-          <span class="text-[11px] text-slate-400 font-mono tabular-nums"
-                x-text="'Est. scroll budget: ' + formatNullableCount(estimateScrollBudget()) + ' pins'"></span>
+          <div class="flex items-center gap-3 flex-wrap text-[11px] font-mono tabular-nums">
+            <span :class="estimateScrollBudget() > 5000 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-[#A1A1AA]'"
+                  x-text="'Est. scroll budget: ' + formatNullableCount(estimateScrollBudget()) + ' pins'"></span>
+            <label class="inline-flex items-center gap-1.5 text-slate-500 dark:text-[#A1A1AA]" title="Max PinResource/get hydrations per hunt (5 to 5,000)">
+              <span class="font-sans text-[11px]">Hydration cap:</span>
+              <input type="number"
+                     min="5"
+                     max="5000"
+                     step="50"
+                     x-model.number="huntFilters.maxPinHydrations"
+                     aria-label="Max Pin Hydrations per hunt"
+                     class="w-16 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+            </label>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2.5">
@@ -257,50 +278,52 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <input type="checkbox" x-model="huntPaths.search.enabled" class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
             </label>
             <div class="flex items-center gap-1.5">
-              <select x-model.number="huntPaths.search.target_pins"
-                      :disabled="!huntPaths.search.enabled"
-                      aria-label="Search scroll pins target"
-                      class="flex-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-                <option value="100">100 pins</option>
-                <option value="500">500 pins</option>
-                <option value="1000">1,000 pins</option>
-                <option value="2000">2,000 pins</option>
-                <option value="5000">5,000 pins</option>
-              </select>
+              <input type="number"
+                     min="25"
+                     max="10000"
+                     step="25"
+                     x-model.number="huntPaths.search.target_pins"
+                     :disabled="!huntPaths.search.enabled"
+                     aria-label="Search scroll pins target"
+                     class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              <span class="text-[10px] text-slate-400 shrink-0">pins</span>
             </div>
+            <div class="text-[10px] text-slate-400">Range: 25–10,000</div>
           </div>
 
-          <!-- Path 2: Boards Fan-out -->
+          <!-- Path 2: Boards Fan-out (Find more ideas ONLY) -->
           <div class="p-2.5 rounded-xl border transition-colors space-y-2"
                :class="huntPaths.boards.enabled ? 'border-rose-200 dark:border-rose-900/60 bg-rose-50/30 dark:bg-rose-950/15' : 'border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-[#121215] opacity-75'">
             <label class="flex items-center justify-between gap-2 cursor-pointer">
               <span class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA]">Boards</span>
               <input type="checkbox" x-model="huntPaths.boards.enabled" class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
             </label>
-            <div class="grid grid-cols-2 gap-1">
-              <select x-model.number="huntPaths.boards.max_boards"
-                      :disabled="!huntPaths.boards.enabled"
-                      aria-label="Matching boards to scan"
-                      class="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-                <option value="5">5 bds</option>
-                <option value="10">10 bds</option>
-                <option value="25">25 bds</option>
-                <option value="50">50 bds</option>
-              </select>
-              <select x-model.number="huntPaths.boards.target_pins_per_board"
-                      :disabled="!huntPaths.boards.enabled"
-                      aria-label="Pins per board"
-                      class="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-                <option value="50">50/bd</option>
-                <option value="100">100/bd</option>
-                <option value="200">200/bd</option>
-                <option value="500">500/bd</option>
-              </select>
+            <div class="grid grid-cols-2 gap-1.5">
+              <label class="space-y-0.5">
+                <span class="block text-[9px] uppercase tracking-wider text-slate-400">Boards (1-50)</span>
+                <input type="number"
+                       min="1"
+                       max="50"
+                       step="1"
+                       x-model.number="huntPaths.boards.max_boards"
+                       :disabled="!huntPaths.boards.enabled"
+                       aria-label="Matching boards to scan"
+                       class="w-full px-1.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              </label>
+              <label class="space-y-0.5">
+                <span class="block text-[9px] uppercase tracking-wider text-slate-400">Pins/bd</span>
+                <input type="number"
+                       min="25"
+                       max="1000"
+                       step="25"
+                       x-model.number="huntPaths.boards.target_pins_per_board"
+                       :disabled="!huntPaths.boards.enabled"
+                       aria-label="Pins per board via Find more ideas"
+                       class="w-full px-1.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              </label>
             </div>
-            <label class="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-[#A1A1AA] cursor-pointer">
-              <input type="checkbox" x-model="huntPaths.boards.find_more_ideas" :disabled="!huntPaths.boards.enabled" class="rounded text-rose-600 focus:ring-rose-500" />
-              <span>Find more ideas</span>
-            </label>
+            <div class="text-[10px] text-rose-600 dark:text-rose-400 font-medium"
+                 x-text="'Find more ideas only · ' + Math.max(1, Math.ceil((Number(huntPaths.boards.target_pins_per_board) || 100) / 25)) + ' pg/bd'"></div>
           </div>
 
           <!-- Path 3: Idea Page -->
@@ -310,16 +333,18 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <span class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA]">Idea Page</span>
               <input type="checkbox" x-model="huntPaths.idea_page.enabled" class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
             </label>
-            <select x-model.number="huntPaths.idea_page.target_pins"
-                    :disabled="!huntPaths.idea_page.enabled"
-                    aria-label="Idea Page scroll pins target"
-                    class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-              <option value="100">100 pins</option>
-              <option value="250">250 pins</option>
-              <option value="500">500 pins</option>
-              <option value="1000">1,000 pins</option>
-              <option value="2000">2,000 pins</option>
-            </select>
+            <div class="flex items-center gap-1.5">
+              <input type="number"
+                     min="25"
+                     max="5000"
+                     step="25"
+                     x-model.number="huntPaths.idea_page.target_pins"
+                     :disabled="!huntPaths.idea_page.enabled"
+                     aria-label="Idea Page scroll pins target"
+                     class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              <span class="text-[10px] text-slate-400 shrink-0">pins</span>
+            </div>
+            <div class="text-[10px] text-slate-400">Range: 25–5,000</div>
           </div>
 
           <!-- Path 4: Home Feed -->
@@ -329,16 +354,18 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <span class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA]">Home Feed</span>
               <input type="checkbox" x-model="huntPaths.home_feed.enabled" class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
             </label>
-            <select x-model.number="huntPaths.home_feed.target_pins"
-                    :disabled="!huntPaths.home_feed.enabled"
-                    aria-label="Home Feed scroll pins target"
-                    class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-              <option value="100">100 pins</option>
-              <option value="250">250 pins</option>
-              <option value="500">500 pins</option>
-              <option value="1000">1,000 pins</option>
-              <option value="2000">2,000 pins</option>
-            </select>
+            <div class="flex items-center gap-1.5">
+              <input type="number"
+                     min="25"
+                     max="5000"
+                     step="25"
+                     x-model.number="huntPaths.home_feed.target_pins"
+                     :disabled="!huntPaths.home_feed.enabled"
+                     aria-label="Home Feed scroll pins target"
+                     class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              <span class="text-[10px] text-slate-400 shrink-0">pins</span>
+            </div>
+            <div class="text-[10px] text-slate-400">Range: 25–5,000</div>
           </div>
 
           <!-- Path 5: Related Pins Depth (for 1-click / bulk Scroll Related) -->
@@ -347,13 +374,17 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <span class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA]">Related Pins</span>
               <span class="text-[10px] text-slate-400">On-click</span>
             </div>
-            <select x-model.number="huntPaths.related.target_pins"
-                    aria-label="Related Pins scroll depth"
-                    class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA]">
-              <option value="200">200 pins</option>
-              <option value="500">500 pins</option>
-              <option value="1000">1,000 pins</option>
-            </select>
+            <div class="flex items-center gap-1.5">
+              <input type="number"
+                     min="25"
+                     max="2000"
+                     step="25"
+                     x-model.number="huntPaths.related.target_pins"
+                     aria-label="Related Pins scroll depth"
+                     class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              <span class="text-[10px] text-slate-400 shrink-0">pins</span>
+            </div>
+            <div class="text-[10px] text-slate-400">Range: 25–2,000</div>
           </div>
         </div>
       </div>
@@ -528,7 +559,7 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <div class="flex items-center gap-1.5"
                    :class="getProgressStepIndex(activeRun.progress_stage) >= 3 ? 'text-slate-900 dark:text-[#FAFAFA]' : 'text-slate-400'">
                 <span class="w-1.5 h-1.5 rounded-full" :class="getProgressStepIndex(activeRun.progress_stage) >= 3 ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-700'"></span>
-                <span>3. Verifying root Age &amp; Annotations</span>
+                <span x-text="settingsDraft?.qualification?.resolve_root_pin ? '3. Verifying Root Age & Annotations' : '3. Verifying Pin Age & Annotations'"></span>
               </div>
             </div>
           </div>

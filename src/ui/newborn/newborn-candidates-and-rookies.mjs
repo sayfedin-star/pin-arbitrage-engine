@@ -35,6 +35,22 @@ export function getNewbornCandidatesAndRookiesHtml() {
 
         <button type="button"
                 role="tab"
+                id="tab-newborn-cluster"
+                :aria-selected="activeView === 'cluster' ? 'true' : 'false'"
+                aria-controls="panel-newborn-cluster"
+                @click="switchView('cluster')"
+                class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                :class="activeView === 'cluster' ? 'bg-white dark:bg-[#27272A] text-slate-900 dark:text-[#FAFAFA] shadow-xs' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA]'">
+          <i data-lucide="compass" class="w-3.5 h-3.5 text-indigo-500" aria-hidden="true"></i>
+          <span>Cluster Explorer</span>
+          <template x-if="activeCluster">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
+                  x-text="activeCluster.keyword_count || (activeCluster.keywords || []).length"></span>
+          </template>
+        </button>
+
+        <button type="button"
+                role="tab"
                 id="tab-newborn-watchlist"
                 :aria-selected="activeView === 'watchlist' ? 'true' : 'false'"
                 aria-controls="panel-newborn-watchlist"
@@ -186,6 +202,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
                       aria-label="Sort Golden Pins"
                       class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
                 <option value="repins">Sort: Re-pins (High -&gt; Low)</option>
+                <option value="cluster_hits">Sort: Cluster Hits (2x+)</option>
                 <option value="fresh">Sort: Age (Youngest)</option>
                 <option value="repin_per_day">Sort: Re-pins / day</option>
                 <option value="saves">Sort: Saves</option>
@@ -275,7 +292,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
                            class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
                   </th>
                   <th class="py-3 px-3 font-semibold min-w-[260px]">Pin &amp; Destination</th>
-                  <th class="py-3 px-3 font-semibold whitespace-nowrap">Root Age</th>
+                  <th class="py-3 px-3 font-semibold whitespace-nowrap" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</th>
                   <th class="py-3 px-3 font-semibold whitespace-nowrap">Re-pins</th>
                   <th class="py-3 px-3 font-semibold min-w-[210px]">Pin Annotations</th>
                   <th class="py-3 px-3 font-semibold whitespace-nowrap">Discovery Source</th>
@@ -347,10 +364,10 @@ export function getNewbornCandidatesAndRookiesHtml() {
                       </div>
                     </td>
 
-                    <!-- True Root Age (Rule 31) -->
+                    <!-- Pin Age (Direct by default; Root Age if legacy unwrap enabled) -->
                     <td class="py-3 px-3 whitespace-nowrap">
                       <span class="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-900 dark:bg-[#27272A] text-white text-xs font-mono tabular-nums font-bold"
-                            :title="pin.created_at_pinterest ? ('Verified root created UTC: ' + pin.created_at_pinterest) : 'Verified root age'"
+                            :title="pin.created_at_pinterest ? ((settingsDraft?.qualification?.resolve_root_pin ? 'Verified root created UTC: ' : 'Pin created UTC: ') + pin.created_at_pinterest) : 'Pin age'"
                             x-text="formatRootAge(pin.age_days)"></span>
                       <div class="text-[10px] font-mono tabular-nums text-slate-400 mt-1"
                            x-text="formatUtcDateOnly(pin.created_at_pinterest)"></div>
@@ -384,10 +401,17 @@ export function getNewbornCandidatesAndRookiesHtml() {
                       </div>
                     </td>
 
-                    <!-- Discovery Source -->
+                    <!-- Discovery Source + Cluster Hit Overlap Badge -->
                     <td class="py-3 px-3 whitespace-nowrap">
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[11px] font-semibold"
-                            x-text="formatSurfaceLabel(pin.first_surface)"></span>
+                      <div class="flex items-center gap-1 flex-wrap">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[11px] font-semibold"
+                              x-text="formatSurfaceLabel(pin.first_surface)"></span>
+                        <template x-if="(pin.cluster_hit_count || (pin.matched_queries ? pin.matched_queries.length : 0)) >= 2">
+                          <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-bold"
+                                :title="'Matched cluster keywords: ' + (pin.matched_queries || []).join(', ')"
+                                x-text="'Cluster Hit ' + (pin.cluster_hit_count || pin.matched_queries.length) + 'x'"></span>
+                        </template>
+                      </div>
                       <template x-if="pin.board_name && formatBoardUrl(pin.board_url)">
                         <a :href="formatBoardUrl(pin.board_url)"
                            target="_blank"
@@ -544,7 +568,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
                 <thead>
                   <tr class="border-b border-slate-200 dark:border-[#27272A] text-[11px] uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
                     <th class="py-3 px-4 font-semibold">Pin</th>
-                    <th class="py-3 px-4 font-semibold">Root Age</th>
+                    <th class="py-3 px-4 font-semibold" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</th>
                     <th class="py-3 px-4 font-semibold">Re-pins / +Day</th>
                     <th class="py-3 px-4 font-semibold">Streak</th>
                     <th class="py-3 px-4 font-semibold text-right">Actions</th>

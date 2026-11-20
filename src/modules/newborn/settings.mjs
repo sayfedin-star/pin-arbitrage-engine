@@ -55,11 +55,11 @@ export const SURFACES_CATALOG = Object.freeze([
   },
   {
     id: 'board_feed',
-    label: 'Fresh Board Pin Feeds',
+    label: 'Fresh Board Pin Feeds (Legacy)',
     endpoint: 'BoardFeedResource/get + widgets.pinterest.com/v3/pidgets/boards/',
     cookie_zone: 'auth_session',
     guest_fallback_supported: true,
-    default_enabled: true,
+    default_enabled: false,
     default_max_pages: 2
   },
   {
@@ -69,7 +69,7 @@ export const SURFACES_CATALOG = Object.freeze([
     cookie_zone: 'auth_session',
     guest_fallback_supported: false,
     default_enabled: true,
-    default_max_pages: 2
+    default_max_pages: 4
   },
   {
     id: 'ideas_feeds',
@@ -221,14 +221,15 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     country: 'US',
     default_l1_interest: 'all',
     max_board_age_days: 90,
+    max_queries_per_run: 25,
     surfaces: {
       growing_trends: { enabled: true, max_pages: 1, limit: 25 },
       zero_query_popular: { enabled: true, max_pages: 1 },
       pin_serp_capsules: { enabled: true, max_pages: 10, page_size: 50, target_pins: 500 },
       fresh_boards: { enabled: true, max_pages: 2, max_boards_to_expand: 10, max_boards: 10, target_pins_per_board: 100 },
-      board_feed: { enabled: true, max_pages: 2, page_size: 100, target_pins_per_board: 100 },
-      board_more_ideas: { enabled: true, max_pages: 2, page_size: 25 },
-      ideas_feeds: { enabled: true, max_pages: 5, page_size: 50, target_pins: 250, max_interests_per_run: 1 },
+      board_feed: { enabled: false, max_pages: 2, page_size: 100, target_pins_per_board: 100 },
+      board_more_ideas: { enabled: true, max_pages: 4, page_size: 25, target_pins_per_board: 100 },
+      ideas_feeds: { enabled: true, max_pages: 5, page_size: 50, target_pins: 250, max_interests_per_run: 3 },
       home_feed: { enabled: false, max_pages: 5, page_size: 50, target_pins: 250 },
       related_pin_snowball: { enabled: false, max_pages: 10, page_size: 30, target_pins: 300 }
     },
@@ -256,6 +257,7 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     min_shares: 0,
     min_comments: 0,
     min_reactions: 0,
+    resolve_root_pin: false,
     max_creator_followers: 25000,
     enforce_max_followers_filter: false,
     provenance: {
@@ -413,10 +415,10 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
   }
 
   const SURFACE_TARGET_PIN_CAPS = {
-    pin_serp_capsules: { min: 50, max: 5000 },
-    ideas_feeds: { min: 50, max: 2000 },
-    home_feed: { min: 50, max: 2000 },
-    related_pin_snowball: { min: 50, max: 1000 }
+    pin_serp_capsules: { min: 25, max: 10000 },
+    ideas_feeds: { min: 25, max: 5000 },
+    home_feed: { min: 25, max: 5000 },
+    related_pin_snowball: { min: 25, max: 2000 }
   };
 
   const normalizedSurfaces = {};
@@ -427,7 +429,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     const pSurf = mappedPatchSurfaces[id] || {};
     const entry = {
       enabled: cleanBool(pSurf.enabled, cleanBool(curSurf.enabled, defSurf.enabled)),
-      max_pages: clampInt(pSurf.max_pages ?? pSurf.pages ?? pSurf.depth, curSurf.max_pages ?? defSurf.max_pages, 1, 100)
+      max_pages: clampInt(pSurf.max_pages ?? pSurf.pages ?? pSurf.depth, curSurf.max_pages ?? defSurf.max_pages, 1, 200)
     };
     if (defSurf.limit !== undefined) {
       entry.limit = clampInt(pSurf.limit, curSurf.limit ?? defSurf.limit, 5, 200);
@@ -436,7 +438,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       entry.page_size = clampInt(pSurf.page_size, curSurf.page_size ?? defSurf.page_size, 10, 100);
     }
     if (defSurf.target_pins !== undefined) {
-      const cap = SURFACE_TARGET_PIN_CAPS[id] || { min: 50, max: 2000 };
+      const cap = SURFACE_TARGET_PIN_CAPS[id] || { min: 25, max: 5000 };
       entry.target_pins = clampInt(
         pSurf.target_pins ?? pSurf.scroll_target ?? pSurf.max_pins,
         curSurf.target_pins ?? defSurf.target_pins,
@@ -473,7 +475,35 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     normalizedSurfaces[id] = entry;
   }
 
-  // Keep fresh_boards.target_pins_per_board & board_feed.target_pins_per_board synchronized
+  // Keep fresh_boards.target_pins_per_board & board_more_ideas.target_pins_per_board synchronized
+  // (with max_pages = Math.ceil(target_pins_per_board / 25) for board_more_ideas!)
+  if (
+    mappedPatchSurfaces.fresh_boards?.target_pins_per_board !== undefined &&
+    mappedPatchSurfaces.board_more_ideas?.target_pins_per_board === undefined &&
+    normalizedSurfaces.board_more_ideas
+  ) {
+    normalizedSurfaces.board_more_ideas.target_pins_per_board = normalizedSurfaces.fresh_boards.target_pins_per_board;
+    normalizedSurfaces.board_more_ideas.max_pages = Math.max(
+      1,
+      Math.min(40, Math.ceil(normalizedSurfaces.fresh_boards.target_pins_per_board / 25))
+    );
+  } else if (
+    mappedPatchSurfaces.board_more_ideas?.target_pins_per_board !== undefined &&
+    mappedPatchSurfaces.fresh_boards?.target_pins_per_board === undefined &&
+    normalizedSurfaces.fresh_boards
+  ) {
+    normalizedSurfaces.fresh_boards.target_pins_per_board = normalizedSurfaces.board_more_ideas.target_pins_per_board;
+  }
+  if (
+    normalizedSurfaces.board_more_ideas &&
+    mappedPatchSurfaces.board_more_ideas?.max_pages === undefined
+  ) {
+    const derivedMoreIdeasPages = Math.max(
+      1,
+      Math.min(40, Math.ceil((normalizedSurfaces.board_more_ideas.target_pins_per_board || 100) / 25))
+    );
+    normalizedSurfaces.board_more_ideas.max_pages = derivedMoreIdeasPages;
+  }
   if (
     mappedPatchSurfaces.fresh_boards?.target_pins_per_board !== undefined &&
     mappedPatchSurfaces.board_feed?.target_pins_per_board === undefined &&
@@ -484,12 +514,6 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       normalizedSurfaces.board_feed.max_pages,
       Math.min(20, Math.ceil(normalizedSurfaces.fresh_boards.target_pins_per_board / 100))
     );
-  } else if (
-    mappedPatchSurfaces.board_feed?.target_pins_per_board !== undefined &&
-    mappedPatchSurfaces.fresh_boards?.target_pins_per_board === undefined &&
-    normalizedSurfaces.fresh_boards
-  ) {
-    normalizedSurfaces.fresh_boards.target_pins_per_board = normalizedSurfaces.board_feed.target_pins_per_board;
   }
 
   const baseSnow = baseDisc.snowball || DEFAULT_NEWBORN_SETTINGS.discovery.snowball;
@@ -612,6 +636,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       country,
       default_l1_interest: defaultL1Interest,
       max_board_age_days: clampInt(patchDisc.max_board_age_days, baseDisc.max_board_age_days ?? 90, 1, 365),
+      max_queries_per_run: clampInt(patchDisc.max_queries_per_run, baseDisc.max_queries_per_run ?? 25, 1, 50),
       surfaces: normalizedSurfaces,
       snowball: {
         enabled: cleanBool(patchSnow.enabled, cleanBool(baseSnow.enabled, false)),
@@ -628,7 +653,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
           patchHyd.max_pin_hydrations_per_run,
           baseHyd.max_pin_hydrations_per_run ?? 500,
           5,
-          2000
+          5000
         ),
         auto_fetch_accounts: cleanBool(
           patchHyd.auto_fetch_accounts,
@@ -653,6 +678,10 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       min_shares: clampInt(patchQual.min_shares, baseQual.min_shares ?? 0, 0, 1000000),
       min_comments: clampInt(patchQual.min_comments, baseQual.min_comments ?? 0, 0, 1000000),
       min_reactions: clampInt(patchQual.min_reactions, baseQual.min_reactions ?? 0, 0, 1000000),
+      resolve_root_pin: cleanBool(
+        patchQual.resolve_root_pin ?? patchQual.strict_root_age,
+        cleanBool(baseQual.resolve_root_pin ?? baseQual.strict_root_age, false)
+      ),
       max_creator_followers: clampInt(patchQual.max_creator_followers, baseQual.max_creator_followers ?? 25000, 0, 10000000),
       enforce_max_followers_filter: cleanBool(
         patchQual.enforce_max_followers_filter,

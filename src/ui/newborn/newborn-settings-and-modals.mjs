@@ -55,7 +55,8 @@ export function getNewbornSettingsAndModalsHtml() {
               <div class="space-y-5">
                 <!-- Age Presets -->
                 <div class="space-y-2">
-                  <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Default Root Pin Age Window</label>
+                  <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]"
+                         x-text="settingsDraft.qualification.resolve_root_pin ? 'Default Root Pin Age Window' : 'Default Pin Age Window'">Default Pin Age Window</label>
                   <div class="grid grid-cols-6 gap-2">
                     <template x-for="preset in ['7d', '14d', '30d', '60d', '90d', 'custom']" :key="preset">
                       <button type="button"
@@ -89,7 +90,7 @@ export function getNewbornSettingsAndModalsHtml() {
                   </label>
                   <label class="block space-y-1">
                     <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Max Pin Hydrations / Hunt</span>
-                    <input type="number" min="20" max="2000" step="50" x-model.number="settingsDraft.discovery.hydration.max_pin_hydrations_per_run" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
+                    <input type="number" min="5" max="5000" step="50" x-model.number="settingsDraft.discovery.hydration.max_pin_hydrations_per_run" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono tabular-nums" />
                   </label>
                   <label class="block space-y-1">
                     <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">No Link / Linkless Mode</span>
@@ -101,8 +102,15 @@ export function getNewbornSettingsAndModalsHtml() {
                   </label>
                 </div>
 
-                <!-- Content Hygiene Toggles -->
+                <!-- Content Hygiene & Legacy Root Unwrap Toggles -->
                 <div class="space-y-2.5 p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
+                  <label class="flex items-start justify-between gap-3 pb-2.5 border-b border-slate-200/70 dark:border-[#27272A] cursor-pointer">
+                    <div>
+                      <div class="text-xs font-semibold text-slate-800 dark:text-[#FAFAFA]">Resolve Root Pin (Legacy — Unwrap Re-pins)</div>
+                      <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] mt-0.5">OFF by default for higher speed &amp; yield: filters directly on each pin's own created date &amp; Re-pins without extra root PinResource calls.</div>
+                    </div>
+                    <input type="checkbox" x-model="settingsDraft.qualification.resolve_root_pin" class="mt-0.5 rounded text-rose-600 focus:ring-rose-500 shrink-0" />
+                  </label>
                   <label class="flex items-center justify-between gap-3 cursor-pointer">
                     <span class="text-xs font-medium text-slate-700 dark:text-[#E4E4E7]">Exclude Commercial Shopping Products</span>
                     <input type="checkbox" x-model="settingsDraft.qualification.provenance.exclude_products" class="rounded text-rose-600 focus:ring-rose-500" />
@@ -319,10 +327,10 @@ export function getNewbornSettingsAndModalsHtml() {
                   <img :src="dossierData.candidate.image_url" :alt="dossierData.candidate.title || 'Golden Pin image'" width="480" height="360" loading="lazy" class="w-full max-h-72 object-cover rounded-xl bg-slate-100 dark:bg-[#18181B]" />
                 </template>
 
-                <!-- Primary Signal KPIs: True Root Age, Re-pins, Saves -->
+                <!-- Primary Signal KPIs: Pin Age, Re-pins, Saves -->
                 <div class="grid grid-cols-3 gap-2 text-center">
                   <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
-                    <div class="text-[10px] uppercase text-slate-500">Root Age</div>
+                    <div class="text-[10px] uppercase text-slate-500" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</div>
                     <div class="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA]" x-text="formatRootAge(dossierData.candidate.age_days)"></div>
                   </div>
                   <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A]">
@@ -336,9 +344,9 @@ export function getNewbornSettingsAndModalsHtml() {
                   </div>
                 </div>
 
-                <!-- Root Metadata & Opt-In Account Reach -->
+                <!-- Metadata & Opt-In Account Reach -->
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] space-y-2 text-xs">
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Root Created (UTC)</span><span class="font-mono tabular-nums" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Created (UTC)' : 'Pin Created (UTC)'">Pin Created (UTC)</span><span class="font-mono tabular-nums" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Source</span><span class="font-semibold" x-text="formatSurfaceLabel(dossierData.candidate.first_surface)"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link / Linkless' : (dossierData.candidate.clean_domain || '—')"></span></div>
                   <div class="pt-2 border-t border-slate-200/70 dark:border-[#27272A] flex items-center justify-between gap-2">

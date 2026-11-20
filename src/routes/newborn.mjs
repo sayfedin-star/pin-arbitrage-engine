@@ -45,6 +45,10 @@ import {
   getNewbornLaunchpadFeed,
   refreshNewbornLaunchpadFeed,
   getNewbornIdeaPageIntelligence,
+  buildNewbornKeywordCluster,
+  enrichClusterRemainingVolumes,
+  listNewbornKeywordClusters,
+  getNewbornKeywordClusterById,
   fetchNewbornCandidateAccounts,
   enqueueNewbornRun,
   promoteNewbornCandidates,
@@ -57,7 +61,10 @@ export const NEWBORN_CRAWLER_PATHS = new Set([
   '/api/newborn/watchlist/poll',
   '/api/newborn/auto-run',
   '/api/newborn/launchpad',
-  '/api/newborn/candidates/fetch-accounts'
+  '/api/newborn/candidates/fetch-accounts',
+  '/api/newborn/cluster/build',
+  '/api/newborn/cluster/enrich',
+  '/api/newborn/cluster/hunt'
 ]);
 
 function deepMergePlain(base, extra) {
@@ -85,9 +92,9 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
   const maxAge = f.max_age_days ?? body?.max_age_days;
   const minRepins = f.min_repin_count ?? f.min_repins ?? body?.min_repin_count ?? body?.min_repins;
   const minSaves = f.min_save_count ?? f.min_saves ?? body?.min_save_count ?? body?.min_saves;
-  const strictRootAge = f.strict_root_age ?? body?.strict_root_age;
+  const resolveRootPin = f.resolve_root_pin ?? body?.resolve_root_pin ?? f.strict_root_age ?? body?.strict_root_age;
 
-  if (maxAge !== undefined || minRepins !== undefined || minSaves !== undefined || strictRootAge !== undefined) {
+  if (maxAge !== undefined || minRepins !== undefined || minSaves !== undefined || resolveRootPin !== undefined) {
     patch.qualification = {};
     if (maxAge !== undefined && maxAge !== null && maxAge !== '') {
       patch.qualification.max_age_days = Math.max(1, Math.min(365, Number(maxAge) || 30));
@@ -98,9 +105,19 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
     if (minSaves !== undefined && minSaves !== null && minSaves !== '') {
       patch.qualification.min_save_count = Math.max(0, Math.min(100000, Number(minSaves) || 0));
     }
-    if (strictRootAge !== undefined) {
-      patch.qualification.strict_root_age = Boolean(strictRootAge);
+    if (resolveRootPin !== undefined) {
+      patch.qualification.resolve_root_pin = Boolean(resolveRootPin);
     }
+  }
+
+  const maxHydrations = body?.max_pin_hydrations_per_run ?? body?.max_pin_hydrations ?? body?.hydration?.max_pin_hydrations_per_run;
+  if (maxHydrations !== undefined && maxHydrations !== null && maxHydrations !== '') {
+    patch.discovery = {
+      ...(patch.discovery || {}),
+      hydration: {
+        max_pin_hydrations_per_run: Math.max(5, Math.min(5000, Math.round(Number(maxHydrations) || 500)))
+      }
+    };
   }
 
   const p = (body?.paths && typeof body.paths === 'object') ? body.paths : null;
@@ -108,60 +125,63 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
     const surfaces = {};
     if (p.search !== undefined) {
       const sObj = typeof p.search === 'boolean' ? { enabled: p.search } : (p.search || {});
-      const targetPins = Math.max(50, Math.min(5000, Number(sObj.target_pins ?? sObj.limit ?? 500) || 500));
+      const targetPins = Math.max(25, Math.min(10000, Math.round(Number(sObj.target_pins ?? sObj.limit ?? 500) || 500)));
       surfaces.pin_serp_capsules = {
         enabled: sObj.enabled !== false,
         target_pins: targetPins,
-        max_pages: Math.max(1, Math.min(100, Math.ceil(targetPins / 50)))
+        max_pages: Math.max(1, Math.min(200, Math.ceil(targetPins / 50)))
       };
     }
     if (p.boards !== undefined) {
       const bObj = typeof p.boards === 'boolean' ? { enabled: p.boards } : (p.boards || {});
       const enabled = bObj.enabled !== false;
-      const maxBoards = Math.max(1, Math.min(50, Number(bObj.max_boards ?? bObj.count ?? 10) || 10));
-      const pinsPerBoard = Math.max(25, Math.min(1000, Number(bObj.target_pins_per_board ?? bObj.pins_per_board ?? 100) || 100));
+      const maxBoards = Math.max(1, Math.min(50, Math.round(Number(bObj.max_boards ?? bObj.count ?? 10) || 10)));
+      const pinsPerBoard = Math.max(25, Math.min(1000, Math.round(Number(bObj.target_pins_per_board ?? bObj.pins_per_board ?? 100) || 100)));
       surfaces.fresh_boards = {
         enabled,
         max_boards: maxBoards,
         max_boards_to_expand: maxBoards,
         target_pins_per_board: pinsPerBoard
       };
+      // Wave 6E: Disable `board_feed` completely on Boards path — extract pins ONLY from `board_more_ideas` ("Find more ideas")!
       surfaces.board_feed = {
-        enabled,
+        enabled: false,
         page_size: 100,
         target_pins_per_board: pinsPerBoard,
         max_pages: Math.max(1, Math.min(20, Math.ceil(pinsPerBoard / 100)))
       };
       surfaces.board_more_ideas = {
-        enabled: Boolean(enabled && bObj.find_more_ideas !== false),
-        max_boards: Math.min(20, maxBoards)
+        enabled: Boolean(enabled),
+        page_size: 25,
+        target_pins_per_board: pinsPerBoard,
+        max_pages: Math.max(1, Math.min(40, Math.ceil(pinsPerBoard / 25)))
       };
     }
     if (p.idea_page !== undefined) {
       const iObj = typeof p.idea_page === 'boolean' ? { enabled: p.idea_page } : (p.idea_page || {});
-      const targetPins = Math.max(50, Math.min(2000, Number(iObj.target_pins ?? iObj.limit ?? 250) || 250));
+      const targetPins = Math.max(25, Math.min(5000, Math.round(Number(iObj.target_pins ?? iObj.limit ?? 250) || 250)));
       surfaces.ideas_feeds = {
         enabled: iObj.enabled !== false,
         target_pins: targetPins,
-        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 50)))
+        max_pages: Math.max(1, Math.min(100, Math.ceil(targetPins / 50)))
       };
     }
     if (p.home_feed !== undefined) {
       const hObj = typeof p.home_feed === 'boolean' ? { enabled: p.home_feed } : (p.home_feed || {});
-      const targetPins = Math.max(50, Math.min(2000, Number(hObj.target_pins ?? hObj.limit ?? 250) || 250));
+      const targetPins = Math.max(25, Math.min(5000, Math.round(Number(hObj.target_pins ?? hObj.limit ?? 250) || 250)));
       surfaces.home_feed = {
         enabled: hObj.enabled === true,
         target_pins: targetPins,
-        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 50)))
+        max_pages: Math.max(1, Math.min(100, Math.ceil(targetPins / 50)))
       };
     }
     if (p.related !== undefined) {
       const rObj = typeof p.related === 'boolean' ? { enabled: p.related } : (p.related || {});
-      const targetPins = Math.max(50, Math.min(1000, Number(rObj.target_pins ?? rObj.limit ?? 200) || 200));
+      const targetPins = Math.max(25, Math.min(2000, Math.round(Number(rObj.target_pins ?? rObj.limit ?? 200) || 200)));
       surfaces.related_pin_snowball = {
         enabled: Boolean(rObj.enabled),
         target_pins: targetPins,
-        max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 25)))
+        max_pages: Math.max(1, Math.min(80, Math.ceil(targetPins / 25)))
       };
     }
     // Keep Trend/Zero-Query seed expansion off when user picks explicit Hunt Card paths unless explicitly toggled
@@ -182,13 +202,13 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
   }
 
   if (isSnowball && (body?.target_pins !== undefined || body?.max_hops !== undefined)) {
-    const targetPins = Math.max(50, Math.min(1000, Number(body?.target_pins ?? 200) || 200));
+    const targetPins = Math.max(25, Math.min(2000, Math.round(Number(body?.target_pins ?? 200) || 200)));
     patch.discovery = deepMergePlain(patch.discovery || {}, {
       surfaces: {
         related_pin_snowball: {
           enabled: true,
           target_pins: targetPins,
-          max_pages: Math.max(1, Math.min(40, Math.ceil(targetPins / 25)))
+          max_pages: Math.max(1, Math.min(80, Math.ceil(targetPins / 25)))
         }
       },
       ...(body?.max_hops !== undefined ? { snowball: { enabled: true, max_hops: Math.max(1, Math.min(3, Number(body.max_hops) || 1)) } } : {})
@@ -673,7 +693,33 @@ export async function handleNewbornRoutes({
     }, 200, -1);
   }
 
-  // 10. Live Harvesting, Snowball, Watchlist Polling, Launchpad Refresh & Auto-Run Endpoints (POST)
+  // 9D. Wave 6E Keyword Cluster Read Endpoints (`GET /api/newborn/clusters`, `GET /api/newborn/clusters/:id`)
+  if (pathname === '/api/newborn/clusters') {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const limit = clampLimit(searchParams.get('limit'), 20, 100);
+    const clusters = await listNewbornKeywordClusters(sql, { limit });
+    return jsonResponse({ success: true, clusters }, 200, -1);
+  }
+
+  const clusterByIdMatch = pathname.match(/^\/api\/newborn\/clusters\/(\d+)$/);
+  if (clusterByIdMatch) {
+    if (method !== 'GET') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    const cluster = await getNewbornKeywordClusterById(sql, Number(clusterByIdMatch[1]));
+    if (!cluster) {
+      return jsonResponse({
+        success: false,
+        error: 'NOT_FOUND',
+        message: `Keyword cluster #${clusterByIdMatch[1]} not found.`
+      }, 404, -1);
+    }
+    return jsonResponse({ success: true, cluster }, 200, -1);
+  }
+
+  // 10. Live Harvesting, Cluster Explorer, Snowball, Watchlist Polling, Launchpad Refresh & Auto-Run Endpoints (POST)
   if (NEWBORN_CRAWLER_PATHS.has(pathname)) {
     if (method !== 'POST') {
       return methodNotAllowedResponse('POST, OPTIONS');
@@ -695,6 +741,82 @@ export async function handleNewbornRoutes({
           }, result.status || 400, -1);
         }
         return jsonResponse({ success: true, ...result }, 200, -1);
+      }
+
+      if (pathname === '/api/newborn/cluster/build') {
+        const cluster = await buildNewbornKeywordCluster(sql, {
+          seedKeyword: body?.seed_keyword ?? body?.keyword ?? body?.query,
+          country: body?.country || 'US',
+          l1Interest: body?.l1_interest ?? body?.interest ?? 'all',
+          includeTerms: body?.include_terms ?? body?.includeTerms ?? [],
+          excludeTerms: body?.exclude_terms ?? body?.excludeTerms ?? [],
+          enrichLimit: body?.enrich_limit ?? body?.enrichLimit ?? 20,
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+          env
+        });
+        return jsonResponse({ success: true, cluster }, 200, -1);
+      }
+
+      if (pathname === '/api/newborn/cluster/enrich') {
+        const clusterId = Number(body?.cluster_id ?? body?.id);
+        if (!Number.isFinite(clusterId) || clusterId <= 0) {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'Provide a valid numeric "cluster_id" to enrich remaining volumes.'
+          }, 400, -1);
+        }
+        const cluster = await enrichClusterRemainingVolumes(sql, clusterId, {
+          batchLimit: body?.batch_limit ?? body?.limit ?? 25,
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+          env
+        });
+        return jsonResponse({ success: true, cluster }, 200, -1);
+      }
+
+      if (pathname === '/api/newborn/cluster/hunt') {
+        const clusterId = body?.cluster_id != null && Number(body.cluster_id) > 0 ? Number(body.cluster_id) : null;
+        const rawSelected = Array.isArray(body?.keywords)
+          ? body.keywords
+          : (Array.isArray(body?.seed_queries) ? body.seed_queries : []);
+        const selectedKeywords = Array.from(new Set(
+          rawSelected
+            .map((k) => String(typeof k === 'string' ? k : (k?.keyword || k?.term || '')).trim().toLowerCase())
+            .filter(Boolean)
+        )).slice(0, 25);
+
+        if (selectedKeywords.length === 0) {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'Select at least 1 keyword (up to 25) to launch a Cluster Newborn Hunt.'
+          }, 400, -1);
+        }
+
+        const baseOverrides = buildHuntOverridesFromBody(body, { isSnowball: false }) || {};
+        const clusterOverrides = deepMergePlain(baseOverrides, {
+          discovery: {
+            max_queries_per_run: Math.max(selectedKeywords.length, 25)
+          }
+        });
+
+        const queued = await enqueueNewbornRun(sql, {
+          runType: 'discovery',
+          seedQueries: selectedKeywords,
+          profileId: body?.profile_id ?? body?.profile ?? null,
+          folderId: body?.folder_id ?? null,
+          clusterId,
+          settingsOverrides: clusterOverrides,
+          routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
+          env,
+          ctx
+        });
+        return jsonResponse({
+          success: true,
+          cluster_id: clusterId,
+          selected_keywords_count: selectedKeywords.length,
+          ...queued
+        }, 202, -1);
       }
 
       if (pathname === '/api/newborn/launchpad') {

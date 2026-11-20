@@ -1955,6 +1955,7 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
 
   const huntRes = await runNewbornDiscovery(sql, {
     seedQueries: ['graduation party foods'],
+    settingsOverrides: { qualification: { resolve_root_pin: true } },
     routerOptions: { fetchImpl: mockFetch },
     nowMs
   });
@@ -2361,11 +2362,12 @@ test('Wave 6D.1: Pure Deep-Scroll Re-pin Hunter — Min Re-pins gate, Min Saves 
     seedQueries: ['Meal prep for the week'],
     rawCookieOverride: 'TWc9PSZtest_wave6d_cookie',
     settingsOverrides: {
-      qualification: { max_age_days: 30, min_repin_count: 20, min_save_count: 0 },
+      qualification: { max_age_days: 30, min_repin_count: 20, min_save_count: 0, resolve_root_pin: true },
       discovery: {
         surfaces: {
           pin_serp_capsules: { enabled: true, target_pins: 100, max_pages: 2 },
           fresh_boards: { enabled: true, max_boards: 5, target_pins_per_board: 50 },
+          board_feed: { enabled: true, max_pages: 2, target_pins_per_board: 50 },
           board_more_ideas: { enabled: false },
           ideas_feeds: { enabled: false },
           home_feed: { enabled: false },

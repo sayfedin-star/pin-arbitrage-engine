@@ -536,6 +536,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     first_surface: surfaceId,
     discovered_surfaces: [surfaceId],
     seed_query: context.seed_query || null,
+    matched_queries: context.seed_query ? [String(context.seed_query).trim().toLowerCase()] : [],
     snowball_parent_pin_id: context.snowball_parent_pin_id || null,
     snowball_hop: Number.isFinite(Number(context.snowball_hop)) ? Number(context.snowball_hop) : 0,
     title: formatted?.title || safeString(rawPin.title || rawPin.grid_title || ''),
@@ -680,6 +681,12 @@ export function mergeCandidatePinRecords(base, incoming) {
     first_surface: base.first_surface || incoming.first_surface,
     discovered_surfaces: surfaces,
     seed_query: base.seed_query || incoming.seed_query || null,
+    matched_queries: Array.from(new Set([
+      ...(Array.isArray(base.matched_queries) ? base.matched_queries : []),
+      ...(base.seed_query ? [base.seed_query] : []),
+      ...(Array.isArray(incoming.matched_queries) ? incoming.matched_queries : []),
+      ...(incoming.seed_query ? [incoming.seed_query] : [])
+    ].map((q) => String(q || '').trim().toLowerCase()).filter(Boolean))),
     snowball_parent_pin_id: base.snowball_parent_pin_id || incoming.snowball_parent_pin_id || null,
     snowball_hop: Math.min(
       base.snowball_hop ?? 0,
@@ -941,24 +948,110 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
  * SURFACE 1: Growing / Seasonal / Monthly / Yearly Trends + 90-Day Prediction Metrics
  * (`trends.pinterest.com`, strict zero-cookie + `x-new-site: "true"` + `/latest_available_date/`).
  */
+const TRENDS_PRESET_CODES = Object.freeze({
+  monthly: '1',
+  yearly: '2',
+  growing: '3',
+  seasonal: '4'
+});
+
+const TRENDS_L1_INTEREST_IDS = Object.freeze({
+  animals: '925056443165',
+  architecture: '918105274631',
+  art: '961238559656',
+  beauty: '935541271955',
+  design: '902065567321',
+  'diy-and-crafts': '934876475639',
+  diy_and_crafts: '934876475639',
+  diyandcrafts: '934876475639',
+  education: '922134410098',
+  electronics: '960887632144',
+  entertainment: '953061268473',
+  'event-planning': '941870572865',
+  event_planning: '941870572865',
+  eventplanning: '941870572865',
+  finance: '913207199297',
+  'food-and-drink': '918530398158',
+  'food-and-drinks': '918530398158',
+  food_and_drink: '918530398158',
+  food_and_drinks: '918530398158',
+  foodanddrink: '918530398158',
+  gardening: '909983286710',
+  'lawn-and-garden': '909983286710',
+  lawn_and_garden: '909983286710',
+  lawnandgarden: '909983286710',
+  health: '898620064290',
+  'home-decor': '935249274030',
+  home_decor: '935249274030',
+  homedecor: '935249274030',
+  'mens-fashion': '924581335376',
+  mens_fashion: '924581335376',
+  parenting: '920236059316',
+  quotes: '948192800438',
+  sport: '919812032692',
+  sports: '919812032692',
+  travel: '908182459161',
+  vehicles: '918093243960',
+  wedding: '903260720461',
+  weddings: '903260720461',
+  fashion: '948967005229',
+  'womens-fashion': '948967005229',
+  womens_fashion: '948967005229'
+});
+
+export function resolveTrendsL1InterestId(rawInterest) {
+  const clean = String(rawInterest || '').trim().toLowerCase();
+  if (!clean || clean === 'all') return null;
+  if (/^\d{6,20}$/.test(clean)) return clean;
+  return TRENDS_L1_INTEREST_IDS[clean] || null;
+}
+
 export async function harvestGrowingTrendsSurface(
   router,
-  { country = 'US', trendType = 'growing', l1Interest = 'all', limit = 25, fetch90dForecast = true } = {}
+  {
+    country = 'US',
+    trendType = 'growing',
+    l1Interest = 'all',
+    limit = 25,
+    fetch90dForecast = true,
+    includeTerms = [],
+    excludeTerms = [],
+    endDate = null,
+    age = null,
+    gender = null,
+    moments = null
+  } = {}
 ) {
   const cleanCountry = /^[A-Z]{2}$/.test(String(country || '').toUpperCase()) ? String(country).toUpperCase() : 'US';
   const cleanTrendType = ['growing', 'seasonal', 'monthly', 'yearly'].includes(String(trendType || '').toLowerCase())
     ? String(trendType).toLowerCase()
     : 'growing';
+  const presetCode = TRENDS_PRESET_CODES[cleanTrendType] || '3';
+  const seasonalParam = cleanTrendType === 'seasonal' ? '&isSeasonal=true' : '';
   const cleanInterest = String(l1Interest || 'all').trim().toLowerCase();
-  const interestParam = cleanInterest && cleanInterest !== 'all'
-    ? `&interests=${encodeURIComponent(cleanInterest)}`
+  const resolvedL1Id = resolveTrendsL1InterestId(cleanInterest);
+  const interestParam = resolvedL1Id
+    ? `&l1interests=${encodeURIComponent(resolvedL1Id)}`
     : '';
   const clampedLimit = Math.max(5, Math.min(100, Number(limit) || 25));
 
-  // Resolve latest available date first to handle Pinterest Trends' 2–4 day data lag (prevents HTTP 400 / 0 trends!)
-  const latestDate = await resolveTrendsLatestAvailableDate(router);
+  const includeList = (Array.isArray(includeTerms) ? includeTerms : String(includeTerms || '').split(','))
+    .map((t) => String(t || '').trim().toLowerCase())
+    .filter(Boolean);
+  const excludeList = (Array.isArray(excludeTerms) ? excludeTerms : String(excludeTerms || '').split(','))
+    .map((t) => String(t || '').trim().toLowerCase())
+    .filter(Boolean);
 
-  const listUrl = `https://trends.pinterest.com/top_trends_filtered/?country=${cleanCountry}&trendType=${cleanTrendType}${interestParam}&endDate=${encodeURIComponent(latestDate)}&limit=${clampedLimit}`;
+  const includeParam = includeList.length > 0 ? `&keywordsToInclude=${encodeURIComponent(includeList.join(','))}` : '';
+  const excludeParam = excludeList.length > 0 ? `&keywordsToExclude=${encodeURIComponent(excludeList.join(','))}` : '';
+  const ageParam = age ? `&ageBuckets=${encodeURIComponent(String(age).trim())}` : '';
+  const genderParam = gender ? `&gender=${encodeURIComponent(String(gender).trim())}` : '';
+  const momentsParam = moments ? `&moments=${encodeURIComponent(String(moments).trim())}` : '';
+
+  // Resolve latest available date first to handle Pinterest Trends' 2–4 day data lag (prevents HTTP 400 / 0 trends!)
+  const latestDate = endDate || await resolveTrendsLatestAvailableDate(router);
+
+  const listUrl = `https://trends.pinterest.com/top_trends_filtered/?country=${cleanCountry}&trendsPreset=${presetCode}&rankingMethod=${presetCode}${seasonalParam}${interestParam}${includeParam}${excludeParam}${ageParam}${genderParam}${momentsParam}&endDate=${encodeURIComponent(latestDate)}&numTermsToReturn=${clampedLimit}`;
   const res = await router.requestJson(listUrl, {
     endpointKey: 'trends_api',
     referer: 'https://trends.pinterest.com/',
@@ -1000,9 +1093,29 @@ export async function harvestGrowingTrendsSurface(
     const term = safeString(item.term || item.keyword || item.query || item.name || '').toLowerCase();
     if (!term) continue;
 
+    // Defensive local post-filter in case upstream Trends ignores includeTerms/excludeTerms
+    if (includeList.length > 0 && !includeList.some((inc) => term.includes(inc))) {
+      continue;
+    }
+    if (excludeList.length > 0 && excludeList.some((exc) => term.includes(exc))) {
+      continue;
+    }
+
     const weeklyPct = parseGrowthPct(item.wow_change, item.weekly_change ?? item.perc_change_weekly ?? item.growth_weekly);
     const monthlyPct = parseGrowthPct(item.mom_change, item.monthly_change ?? item.perc_change_monthly ?? item.growth_monthly);
     const yearlyPct = parseGrowthPct(item.yoy_change, item.yearly_change ?? item.perc_change_yearly ?? item.growth_yearly);
+    const seasonalityScore = item.seasonality_score !== undefined && item.seasonality_score !== null
+      ? Number(item.seasonality_score)
+      : null;
+    const predictedPeakDate = safeString(item.predicted_peak_date || item.peak_date || item.peakDate || '') || null;
+    const hasPrediction = Boolean(
+      item.hasPrediction ??
+      item.has_prediction ??
+      item.isPredicted ??
+      item.predicted_peak_date ??
+      item.peak_date ??
+      (Number.isFinite(seasonalityScore) && seasonalityScore >= 0.825)
+    );
 
     trends.push({
       term,
@@ -1016,8 +1129,9 @@ export async function harvestGrowingTrendsSurface(
       yearly_growth_pct: yearlyPct,
       seasonality_score: item.seasonality_score !== undefined ? Number(item.seasonality_score) : null,
       search_count: item.searchCount !== undefined ? Number(item.searchCount) : (item.normalizedCount !== undefined ? Number(item.normalizedCount) : null),
+      has_prediction: hasPrediction,
       predicted_90d_growth: null,
-      predicted_peak_date: safeString(item.predicted_peak_date || item.peak_date || '') || null,
+      predicted_peak_date: predictedPeakDate,
       is_predicted_peak_rising: false
     });
 
@@ -1164,7 +1278,7 @@ export async function harvestZeroQueryPopularSurface(router, { country = 'US' } 
   // Graceful guest fallback when SearchTabResource requires auth or returns empty
   const cleanCountry = /^[A-Z]{2}$/.test(String(country || '').toUpperCase()) ? String(country).toUpperCase() : 'US';
   const latestDate = await resolveTrendsLatestAvailableDate(router);
-  const fallbackUrl = `https://trends.pinterest.com/top_trends_filtered/?country=${cleanCountry}&trendType=monthly&endDate=${encodeURIComponent(latestDate)}&limit=15`;
+  const fallbackUrl = `https://trends.pinterest.com/top_trends_filtered/?country=${cleanCountry}&trendsPreset=1&rankingMethod=1&endDate=${encodeURIComponent(latestDate)}&numTermsToReturn=15`;
   const fbRes = await router.requestJson(fallbackUrl, {
     endpointKey: 'trends_api',
     referer: 'https://trends.pinterest.com/',
@@ -1209,10 +1323,10 @@ export async function harvestPinSerpWithCapsulesSurface(
 
   const pSize = Math.max(10, Math.min(100, Number(pageSize) || 50));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
-    ? Math.max(10, Math.min(5000, Math.round(Number(targetPins))))
+    ? Math.max(10, Math.min(10000, Math.round(Number(targetPins))))
     : null;
   const derivedPages = pinTarget ? Math.ceil(pinTarget / Math.max(25, pSize)) + 2 : (Number(maxPages) || 2);
-  const maxP = Math.max(1, Math.min(100, derivedPages));
+  const maxP = Math.max(1, Math.min(200, derivedPages));
   const encodedQ = encodeURIComponent(cleanQuery);
   const sourceUrl = `/search/pins/?q=${encodedQ}`;
 
@@ -1570,7 +1684,11 @@ export async function harvestBoardFeedSurface(
  * SURFACE 6: Board "Find more ideas" (`BoardFeedResource/get` via `/<user>/<slug>/more_ideas/` with `add_vase: true`).
  * Requires `_auth=1`; gracefully skips on missing/expired cookie without tripping circuit breaker.
  */
-export async function harvestBoardMoreIdeasSurface(router, board = {}, { maxPages = 2, pageSize = 25 } = {}) {
+export async function harvestBoardMoreIdeasSurface(
+  router,
+  board = {},
+  { maxPages = 4, pageSize = 25, targetPins = null } = {}
+) {
   const boardId = String(board.board_id || board.id || '').trim();
   const parsedPath = parseBoardPath(board.url || board.clean_path || '', board.owner_username || '');
   if (!boardId || !parsedPath.owner_username || !parsedPath.board_slug) {
@@ -1578,8 +1696,12 @@ export async function harvestBoardMoreIdeasSurface(router, board = {}, { maxPage
   }
 
   const moreIdeasSourceUrl = `/${parsedPath.owner_username}/${parsedPath.board_slug}/more_ideas/`;
-  const maxP = Math.max(1, Math.min(15, Number(maxPages) || 2));
   const pSize = Math.max(10, Math.min(50, Number(pageSize) || 25));
+  const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
+    ? Math.max(25, Math.min(1000, Math.round(Number(targetPins))))
+    : null;
+  const derivedPages = pinTarget ? Math.ceil(pinTarget / Math.max(10, pSize)) : (Number(maxPages) || 4);
+  const maxP = Math.max(1, Math.min(40, derivedPages));
 
   const pinsMap = new Map();
   let bookmark = null;
@@ -1588,6 +1710,7 @@ export async function harvestBoardMoreIdeasSurface(router, board = {}, { maxPage
   let skippedAuthOnly = false;
 
   for (let page = 1; page <= maxP; page++) {
+    if (pinTarget !== null && pinsMap.size >= pinTarget) break;
     const opts = {
       board_id: boardId,
       board_url: parsedPath.clean_path,
@@ -1615,6 +1738,7 @@ export async function harvestBoardMoreIdeasSurface(router, board = {}, { maxPage
     const rr = res.data?.resource_response?.data || res.data?.data || [];
     const list = Array.isArray(rr) ? rr : (rr.items || rr.pins || rr.results || []);
     for (const raw of list) {
+      if (pinTarget !== null && pinsMap.size >= pinTarget) break;
       const norm = normalizeSurfaceCandidatePin(raw, {
         surface: 'board_more_ideas',
         seed_query: board.seed_query || board.name || null,
@@ -1630,6 +1754,7 @@ export async function harvestBoardMoreIdeasSurface(router, board = {}, { maxPage
       }
     }
 
+    if (pinTarget !== null && pinsMap.size >= pinTarget) break;
     bookmark = extractBookmark(res.data);
     if (!bookmark || bookmark === lastBookmark) break;
     lastBookmark = bookmark;
@@ -2177,7 +2302,11 @@ export async function pretriageCandidatesWithPidgets(
  * `canonical_pin_id` whenever `is_repin === true` or canonical differs from `pin_id`),
  * upload provenance, and `pinner` vs `origin_pinner` separation.
  */
-export async function hydratePinZeroCookie(pinId, router, { _depth = 0, rootPinCache = null, nowMs = Date.now() } = {}) {
+export async function hydratePinZeroCookie(
+  pinId,
+  router,
+  { _depth = 0, rootPinCache = null, nowMs = Date.now(), resolveRootPin = false } = {}
+) {
   const cleanId = String(pinId || '').trim();
   if (!isValidPinId(cleanId)) return { ok: false, pin_id: cleanId, pin: null, error: 'invalid_pin_id' };
 
@@ -2232,14 +2361,10 @@ export async function hydratePinZeroCookie(pinId, router, { _depth = 0, rootPinC
     return { ok: false, status: 422, pin_id: cleanId, pin: null, error: 'invalid_pin_payload' };
   }
 
-  // Defeat the Child Repin Fake-Age Trap WITHOUT corrupting authentic original pins (`is_repin === false`):
-  // - Empirically, `pin_join.canonical_pin` on an original upload (`is_repin === false`) can point to an
-  //   older visually-similar pin from a DIFFERENT creator/domain!
-  // - Therefore, ONLY unwrap & hydrate a root pin when `is_repin === true` OR an explicit `origin_pin_id`
-  //   differs from `cleanId`!
-  // - When unwrapping a board/feed repin to its verified root pin, preserve the root's true `created_at_pinterest`,
-  //   upgrade `repin_count` / `save_count` to MAX(child, root), and merge intact `pin_join` annotations!
-  if (_depth === 0) {
+  // Wave 6E Direct Age Mode (default `resolveRootPin === false`):
+  // Trust the pin's own `created_at_pinterest` and `repin_count` directly without extra `PinResource/get`
+  // root-unwrapping calls. Opt-in legacy root unwrapping runs ONLY when `resolveRootPin === true`.
+  if (_depth === 0 && resolveRootPin === true) {
     const explicitOrigin = (normalized.origin_pin_id && normalized.origin_pin_id !== cleanId)
       ? normalized.origin_pin_id
       : null;
@@ -2258,7 +2383,8 @@ export async function hydratePinZeroCookie(pinId, router, { _depth = 0, rootPinC
         rootRes = await hydratePinZeroCookie(rootTargetId, router, {
           _depth: 1,
           rootPinCache,
-          nowMs
+          nowMs,
+          resolveRootPin: false
         });
         if (rootPinCache && typeof rootPinCache.set === 'function') {
           rootPinCache.set(rootTargetId, rootRes);
@@ -2343,6 +2469,7 @@ export async function hydratePinZeroCookie(pinId, router, { _depth = 0, rootPinC
   } else {
     normalized.root_pin_id = cleanId;
     normalized.root_age_verified = Boolean(normalized.created_at_pinterest);
+    normalized.repin_root_unverified = false;
   }
 
   // Mark hydrated after PinResource/get completed

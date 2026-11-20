@@ -74,6 +74,12 @@ import {
   upsertStagedRookiesBatch,
   executeNewbornHarvestPipeline
 } from './harvester.mjs';
+import {
+  buildNewbornKeywordCluster,
+  enrichClusterRemainingVolumes,
+  listNewbornKeywordClusters,
+  getNewbornKeywordClusterById
+} from './cluster-builder.mjs';
 
 export {
   SURFACES_CATALOG,
@@ -83,6 +89,10 @@ export {
   SUPPORTED_TREND_COUNTRIES,
   parseSmartHuntInput,
   resolveIdeaPageIntelligence,
+  buildNewbornKeywordCluster,
+  enrichClusterRemainingVolumes,
+  listNewbornKeywordClusters,
+  getNewbornKeywordClusterById,
   getNewbornSettings,
   updateNewbornSettings,
   patchNewbornSettings,
@@ -704,7 +714,11 @@ export async function pollNewbornWatchlist(sql, options = {}) {
           merged = mergeCandidatePinRecords(merged, pInfo);
         }
 
-        const hyd = await hydratePinZeroCookie(String(row.pin_id), router, { rootPinCache, nowMs });
+        const hyd = await hydratePinZeroCookie(String(row.pin_id), router, {
+          rootPinCache,
+          nowMs,
+          resolveRootPin: Boolean(settings.qualification?.resolve_root_pin === true)
+        });
         if (hyd.ok && hyd.pin) {
           merged = mergeCandidatePinRecords(merged, hyd.pin);
         }
@@ -1070,6 +1084,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
     seedBoards = [],
     profileId = null,
     folderId = null,
+    clusterId = null,
     settingsOverrides = null,
     workerIndex = 0,
     workerTotal = 1,
@@ -1097,12 +1112,14 @@ export async function enqueueNewbornRun(sql, options = {}) {
     ? seedBoards.filter((b) => b && (b.board_id || b.clean_path || b.url))
     : [];
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
+  const numericClusterId = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? Number(clusterId) : null;
 
   const dedupeKey = buildNewbornDedupeKey(runType, {
     seedQueries: cleanSeeds,
     seedPinIds: cleanPinIds,
     seedBoards: cleanBoards,
     folderId: numericFolderId,
+    clusterId: numericClusterId,
     settingsOverrides
   });
 
@@ -1116,6 +1133,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
         queued: true,
         deduplicated: true,
         run_id: existingInflight.runId,
+        cluster_id: numericClusterId,
         run: currentRow
       };
     }
@@ -1145,7 +1163,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
   const [insertedRun] = await sql`
     INSERT INTO newborn_runs (
       run_type, status, progress_stage, progress_detail, progress_pct,
-      profile_id, folder_id, seed_queries, cookie_mode, started_at
+      profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
     )
     VALUES (
       ${runType},
@@ -1155,6 +1173,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
       0,
       ${resolvedProfileId},
       ${numericFolderId},
+      ${numericClusterId},
       ${JSON.stringify(displaySeedList)}::jsonb,
       'pending',
       NOW()
@@ -1163,6 +1182,13 @@ export async function enqueueNewbornRun(sql, options = {}) {
   `;
 
   const runRowId = Number(insertedRun.id);
+  if (numericClusterId !== null) {
+    await sql`
+      UPDATE newborn_keyword_clusters
+      SET last_run_id = ${runRowId}, updated_at = NOW()
+      WHERE id = ${numericClusterId};
+    `.catch(() => {});
+  }
   inflightNewbornRuns.set(dedupeKey, { runId: runRowId, startedAt: Date.now() });
 
   const executeBackgroundTask = async () => {
@@ -1213,6 +1239,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
           seedBoards: cleanBoards,
           profileId: resolvedProfileId,
           folderId: numericFolderId,
+          clusterId: numericClusterId,
           existingRunId: runRowId,
           settingsOverrides,
           routerOptions,
@@ -1423,59 +1450,76 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const runJoin = runId !== null
     ? sql`JOIN newborn_run_candidates nrc ON nrc.pin_id = nc.pin_id AND nrc.run_id = ${runId}`
     : sql``;
+  const selectCols = runId !== null
+    ? sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries`
+    : sql`nc.*`;
 
   const [rows, countRows] = await Promise.all([
-    sort === 'repin_velocity' || sort === 'repin_per_day'
+    sort === 'cluster_hits' || sort === 'cluster_overlap'
+      ? (runId !== null
+          ? sql`
+              SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+              WHERE ${whereCond}
+              ORDER BY jsonb_array_length(COALESCE(nrc.matched_queries, '[]'::jsonb)) DESC, nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+              LIMIT ${limit} OFFSET ${offset};
+            `
+          : sql`
+              SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+              WHERE ${whereCond}
+              ORDER BY nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+              LIMIT ${limit} OFFSET ${offset};
+            `)
+      : sort === 'repin_velocity' || sort === 'repin_per_day'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.repin_per_day DESC NULLS LAST, nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'save_velocity' || sort === 'save_per_day'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'saves' || sort === 'save_count'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'repins' || sort === 'repin_count'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'fresh' || sort === 'age_days'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.age_days ASC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'recent'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sort === 'golden_score'
       ? sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.golden_score DESC, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
       : sql`
-          SELECT nc.* FROM newborn_candidates nc ${runJoin}
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
           WHERE ${whereCond}
           ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
@@ -1490,8 +1534,15 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const enrichBoardMeta = (row) => {
     if (!row || typeof row !== 'object') return row;
     const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata : {};
+    const matchedQueries = Array.isArray(row.run_matched_queries) && row.run_matched_queries.length > 0
+      ? row.run_matched_queries
+      : (Array.isArray(row.matched_queries) && row.matched_queries.length > 0
+          ? row.matched_queries
+          : (row.seed_query ? [String(row.seed_query).trim().toLowerCase()] : []));
     return {
       ...row,
+      matched_queries: matchedQueries,
+      cluster_hit_count: matchedQueries.length,
       board_url: formatPinterestBoardUrl(row.board_url || ''),
       board_pin_count: row.board_pin_count ?? meta.board_pin_count ?? null,
       board_follower_count: row.board_follower_count ?? meta.board_follower_count ?? null
@@ -2031,7 +2082,11 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       if (existingUsername) {
         return { ...row, _resolved_username: existingUsername };
       }
-      const hyd = await hydratePinZeroCookie(String(row.pin_id), router, { rootPinCache, nowMs });
+      const hyd = await hydratePinZeroCookie(String(row.pin_id), router, {
+        rootPinCache,
+        nowMs,
+        resolveRootPin: Boolean(settings.qualification?.resolve_root_pin === true)
+      });
       if (hyd.ok && hyd.pin) {
         const merged = mergeCandidatePinRecords(row, hyd.pin);
         const foundUser = normalizePinterestUsername(

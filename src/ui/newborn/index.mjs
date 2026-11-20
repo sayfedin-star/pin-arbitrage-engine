@@ -15,11 +15,13 @@ import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs'
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 import { getNewbornHeaderAndLaunchpadHtml } from './newborn-header-and-launchpad.mjs';
 import { getNewbornCandidatesAndRookiesHtml } from './newborn-candidates-and-rookies.mjs';
+import { getNewbornClusterExplorerHtml } from './newborn-cluster-explorer.mjs';
 import { getNewbornSettingsAndModalsHtml } from './newborn-settings-and-modals.mjs';
 import { getNewbornClientAppScript } from './newborn-client-app.mjs';
 
 const VALID_INITIAL_MODES = new Set([
   'hunt',
+  'cluster',
   'candidates',
   'watchlist',
   'history',
@@ -86,6 +88,8 @@ ${renderSharedDocumentHead({
 ${getNewbornHeaderAndLaunchpadHtml()}
 
 ${getNewbornCandidatesAndRookiesHtml()}
+
+${getNewbornClusterExplorerHtml()}
 
   </main>
 

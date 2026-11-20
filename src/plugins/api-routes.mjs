@@ -268,7 +268,8 @@ export async function apiRoutesPlugin(app, options = {}) {
                 pathname === '/api/newborn/settings' ||
                 pathname === '/api/newborn/cookie' ||
                 pathname === '/api/newborn/launchpad' ||
-                pathname === '/api/newborn/idea-intelligence'
+                pathname === '/api/newborn/idea-intelligence' ||
+                pathname === '/api/newborn/clusters'
               )) ||
               pathname.startsWith('/api/boards') ||
               pathname.endsWith('/latest-pins');

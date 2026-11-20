@@ -250,6 +250,10 @@ export async function upsertStagedCandidatesBatch(
       }),
       board_pin_count: c.board_pin_count != null ? Math.round(Number(c.board_pin_count)) : (c.metadata?.board_pin_count ?? null),
       board_follower_count: c.board_follower_count != null ? Math.round(Number(c.board_follower_count)) : (c.metadata?.board_follower_count ?? null),
+      matched_queries: Array.from(new Set([
+        ...(Array.isArray(c.matched_queries) ? c.matched_queries : []),
+        ...(c.seed_query ? [c.seed_query] : [])
+      ].map((q) => String(q || '').trim().toLowerCase()).filter(Boolean))),
       qualified: c.qualified !== false
     };
 
@@ -276,6 +280,7 @@ export async function upsertStagedCandidatesBatch(
         run_id: numericRunId,
         pin_id: r.pin_id,
         seed_query: r.seed_query || null,
+        matched_queries: Array.isArray(r.matched_queries) ? r.matched_queries : [],
         surface: r.first_surface || 'pin_serp_capsules',
         qualified_in_run: Boolean(r.qualified),
         golden_score_in_run: Number(r.golden_score ?? 0)
@@ -472,12 +477,13 @@ export async function upsertStagedCandidatesBatch(
     if (runCandidatesJson) {
       await tx`
         INSERT INTO newborn_run_candidates (
-          run_id, pin_id, seed_query, surface, qualified_in_run, golden_score_in_run, created_at
+          run_id, pin_id, seed_query, matched_queries, surface, qualified_in_run, golden_score_in_run, created_at
         )
         SELECT
           r.run_id,
           r.pin_id,
           r.seed_query,
+          COALESCE(r.matched_queries, '[]'::jsonb),
           r.surface,
           r.qualified_in_run,
           r.golden_score_in_run,
@@ -486,6 +492,7 @@ export async function upsertStagedCandidatesBatch(
           run_id bigint,
           pin_id text,
           seed_query text,
+          matched_queries jsonb,
           surface text,
           qualified_in_run boolean,
           golden_score_in_run double precision
@@ -493,6 +500,10 @@ export async function upsertStagedCandidatesBatch(
         ORDER BY r.pin_id ASC
         ON CONFLICT (run_id, pin_id) DO UPDATE SET
           seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
+          matched_queries = CASE
+            WHEN jsonb_array_length(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) > 0 THEN EXCLUDED.matched_queries
+            ELSE newborn_run_candidates.matched_queries
+          END,
           surface = COALESCE(EXCLUDED.surface, newborn_run_candidates.surface),
           qualified_in_run = EXCLUDED.qualified_in_run,
           golden_score_in_run = EXCLUDED.golden_score_in_run;
@@ -642,6 +653,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     seedBoards = [],
     profileId = null,
     folderId = null,
+    clusterId = null,
     existingRunId = null,
     settingsOverrides = null,
     rawCookieOverride = null,
@@ -658,6 +670,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     profileId,
     overrides: settingsOverrides
   });
+
+  const resolveRootPin = Boolean(settings.qualification?.resolve_root_pin === true);
 
   const resolvedCookie = rawCookieOverride !== null && rawCookieOverride !== undefined
     ? { rawCookie: String(rawCookieOverride).trim(), source: 'override' }
@@ -683,6 +697,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
   ));
   const hasExplicitSeeds = cleanSeeds.length > 0 || cleanSeedBoards.length > 0 || cleanSeedPinIds.length > 0;
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
+  const numericClusterId = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? Number(clusterId) : null;
 
   let runRowId = existingRunId !== null && existingRunId !== undefined && Number(existingRunId) > 0
     ? Number(existingRunId)
@@ -693,7 +708,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       const [insertedRun] = await sql`
         INSERT INTO newborn_runs (
           run_type, status, progress_stage, progress_detail, progress_pct,
-          profile_id, folder_id, seed_queries, cookie_mode, started_at
+          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
         )
         VALUES (
           ${runType},
@@ -703,6 +718,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           10,
           ${profile?.id ?? null},
           ${numericFolderId},
+          ${numericClusterId},
           ${JSON.stringify(cleanSeeds)}::jsonb,
           ${router.effectiveMode},
           NOW()
@@ -770,9 +786,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
   const ingestCandidate = (cand) => {
     if (!cand || !cand.pin_id) return;
-    // Unwrap board/feed repin to its explicit origin_pin_id immediately if already exposed,
-    // preserving board/surface provenance so Pidgets checks the root pin's real Re-pin count!
-    if (cand.is_repin && cand.origin_pin_id && cand.origin_pin_id !== cand.pin_id && !cand.is_hydrated) {
+    // Unwrap board/feed repin to its explicit origin_pin_id ONLY when legacy `resolve_root_pin === true`
+    if (resolveRootPin && cand.is_repin && cand.origin_pin_id && cand.origin_pin_id !== cand.pin_id && !cand.is_hydrated) {
       const unwrapped = {
         ...cand,
         pin_id: cand.origin_pin_id,
@@ -837,10 +852,11 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         }
       }
 
-      const queriesToRun = Array.from(activeQueryPool).slice(0, 8);
+      const maxQueriesLimit = Math.max(1, Math.min(50, Number(settings.discovery?.max_queries_per_run) || 25));
+      const queriesToRun = Array.from(activeQueryPool).slice(0, maxQueriesLimit);
       const pathTasks = [];
 
-      // Path 1: Search (`BaseSearchResource/get`, `scope: "pins"`, up to 5,000 pins)
+      // Path 1: Search (`BaseSearchResource/get`, `scope: "pins"`, up to 10,000 pins)
       if (surfacesCfg.pin_serp_capsules?.enabled && queriesToRun.length > 0) {
         surfacesExecuted.push('pin_serp_capsules');
         pathTasks.push((async () => {
@@ -869,17 +885,20 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         })());
       }
 
-      // Path 2: Matching Boards -> Parallel Board Fan-out (`Semaphore(5)`) + Optional Board "Find more ideas"
+      // Path 2: Matching Boards -> Fair multi-query fan-out -> Primary "Find more ideas" (`board_more_ideas`)
       if ((surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) || cleanSeedBoards.length > 0) {
         pathTasks.push((async () => {
           const maxBoardsLimit = Math.max(1, Math.min(50, Number(surfacesCfg.fresh_boards?.max_boards_to_expand) || 10));
+          const perQueryBoardCap = queriesToRun.length > 1
+            ? Math.max(2, Math.ceil(maxBoardsLimit / queriesToRun.length))
+            : maxBoardsLimit;
           if (surfacesCfg.fresh_boards?.enabled && queriesToRun.length > 0) {
             surfacesExecuted.push('fresh_boards');
             const seenBoardIds = new Set();
             for (const q of queriesToRun) {
               const bRes = await harvestFreshBoardsSurface(router, q, {
                 maxPages: surfacesCfg.fresh_boards.max_pages,
-                maxBoards: maxBoardsLimit,
+                maxBoards: perQueryBoardCap,
                 maxBoardAgeDays: settings.discovery.max_board_age_days,
                 nowMs
               });
@@ -902,7 +921,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           if (boardsToExpand.length === 0) return;
 
           const boardSem = new Semaphore(5);
-          if (surfacesCfg.board_feed?.enabled) {
+          // Legacy `board_feed` is OFF by default in Wave 6E; runs only when explicitly opted-in
+          if (surfacesCfg.board_feed?.enabled === true) {
             surfacesExecuted.push('board_feed');
             await Promise.all(
               boardsToExpand.map((board) => boardSem.run(async () => {
@@ -927,30 +947,55 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             );
           }
 
+          // Wave 6E Primary Boards Path: "Find more ideas" (`board_more_ideas`) driven by `max_boards` + `target_pins_per_board`
           if (surfacesCfg.board_more_ideas?.enabled && router.canUseAuthSession) {
             surfacesExecuted.push('board_more_ideas');
+            const moreIdeasTargetPins = Number(
+              surfacesCfg.board_more_ideas.target_pins_per_board ??
+              surfacesCfg.fresh_boards?.target_pins_per_board ??
+              100
+            ) || 100;
+            const moreIdeasPageSize = Math.max(10, Math.min(50, Number(surfacesCfg.board_more_ideas.page_size) || 25));
+            const moreIdeasMaxPages = Math.max(1, Math.min(40, Math.ceil(moreIdeasTargetPins / 25)));
             let authSkippedMoreIdeas = false;
             await Promise.all(
-              boardsToExpand.slice(0, Math.min(15, boardsToExpand.length)).map((board) => boardSem.run(async () => {
+              boardsToExpand.map((board) => boardSem.run(async () => {
                 if (authSkippedMoreIdeas) return;
                 const bmiRes = await harvestBoardMoreIdeasSurface(router, board, {
-                  maxPages: surfacesCfg.board_more_ideas.max_pages,
-                  pageSize: surfacesCfg.board_more_ideas.page_size || 25
+                  maxPages: moreIdeasMaxPages,
+                  pageSize: moreIdeasPageSize,
+                  targetPins: moreIdeasTargetPins
                 });
+                if (!surfacesCfg.board_feed?.enabled) {
+                  funnel.boards_scanned++;
+                }
                 funnel.pages_scrolled += Number(bmiRes.pages_fetched || 0);
                 for (const p of (bmiRes.pins || [])) ingestCandidate(p);
                 if (bmiRes.skipped_auth_only) authSkippedMoreIdeas = true;
+                if (!surfacesCfg.board_feed?.enabled && (funnel.boards_scanned % 3 === 0 || funnel.boards_scanned === boardsToExpand.length)) {
+                  funnel.scrolled_pins = candidateMap.size;
+                  await reportProgress(
+                    'harvesting',
+                    `1. Scanned Find more ideas on ${funnel.boards_scanned}/${boardsToExpand.length} boards (${candidateMap.size} total pins scrolled)…`,
+                    24,
+                    { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+                  );
+                }
               }))
             );
           }
         })());
       }
 
-      // Path 3: Official Idea Page Feed (`/ideas/<slug>/<id>/` via `BestPinsFeedAltResource/get` + SSR fallback, up to 2,000 pins)
+      // Path 3: Official Idea Page Feed (`/ideas/<slug>/<id>/` via `BestPinsFeedAltResource/get` + SSR fallback)
       if (surfacesCfg.ideas_feeds?.enabled && queriesToRun.length > 0) {
         surfacesExecuted.push('ideas_feeds');
         pathTasks.push((async () => {
-          const interestTerms = queriesToRun.slice(0, Math.max(1, Number(surfacesCfg.ideas_feeds.max_interests_per_run) || 1));
+          const configuredInterestsCap = Math.max(1, Number(surfacesCfg.ideas_feeds.max_interests_per_run) || 3);
+          const effectiveInterestsCap = queriesToRun.length > 1
+            ? Math.min(queriesToRun.length, Math.max(configuredInterestsCap, Math.min(queriesToRun.length, 10)))
+            : configuredInterestsCap;
+          const interestTerms = queriesToRun.slice(0, effectiveInterestsCap);
           for (let i = 0; i < interestTerms.length; i++) {
             const term = interestTerms[i];
             const idRes = await harvestIdeasHubSurface(router, term, {
@@ -1021,19 +1066,20 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
 
       // Gate candidates by Min Re-pins (primary) and Min Saves (ONLY when > 0) before hydrating via PinResource/get.
-      // CRITICAL: Zero-Cookie Pidgets does NOT expose `is_repin` and reports copy-local `repin_count = 0` on board repins
-      // while reporting global cluster saves in `aggregated_pin_data.aggregated_stats.saves` (`save_count`).
-      // Therefore, during pre-triage ONLY, rescue any unhydrated board/repin candidate with `save_count >= minRepinsGate`
-      // so `PinResource/get` can unwrap its true root pin; strict `root.repin_count >= minRepinsGate` is then enforced post-hydration!
+      // Wave 6E Direct Age Mode (`resolveRootPin === false`):
+      // Enforce direct `repin_count >= minRepinsGate` strictly (disable `repin_count = 0` rescue via saves)
+      // so PinResource budget is never wasted on zero-repin copies.
+      // Only when legacy `resolveRootPin === true` do we rescue unhydrated repins via cluster saves.
       const matchingPreGate = targetIds
         .map((pid) => candidateMap.get(pid))
         .filter(Boolean)
         .filter((c) => {
           const repinsVal = c.repin_count !== null && c.repin_count !== undefined ? Number(c.repin_count) : null;
           const savesVal = c.save_count !== null && c.save_count !== undefined ? Number(c.save_count) : null;
-          const isBoardOrigin = Array.isArray(c.discovery_surfaces) &&
-            (c.discovery_surfaces.includes('board_feed') || c.discovery_surfaces.includes('board_more_ideas'));
+          const isBoardOrigin = Array.isArray(c.discovered_surfaces) &&
+            (c.discovered_surfaces.includes('board_feed') || c.discovered_surfaces.includes('board_more_ideas'));
           const rescueRepinCandidate = Boolean(
+            resolveRootPin &&
             (c.is_repin || isBoardOrigin || (!c.is_hydrated && repinsVal === 0)) &&
             savesVal !== null &&
             savesVal >= minRepinsGate
@@ -1081,12 +1127,11 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
       await Promise.all(
         orderedForHydration.map((cand) => pinHydrateSem.run(async () => {
-          const hyd = await hydratePinZeroCookie(cand.pin_id, router, { rootPinCache, nowMs });
+          const hyd = await hydratePinZeroCookie(cand.pin_id, router, { rootPinCache, nowMs, resolveRootPin });
           if (hyd.ok && hyd.pin) {
             const existingCand = candidateMap.get(cand.pin_id) || cand;
-            // If this board/feed pin was a repin whose true root pin was cleanly verified,
-            // unwrap & deduplicate directly onto the root pin ID so board gems never duplicate or lose provenance!
-            if (hyd.pin.is_repin && hyd.pin.root_pin_id && hyd.pin.root_pin_id !== cand.pin_id && hyd.pin.root_age_verified === true) {
+            // Unwrap & deduplicate onto root pin ID ONLY when legacy `resolveRootPin === true`
+            if (resolveRootPin && hyd.pin.is_repin && hyd.pin.root_pin_id && hyd.pin.root_pin_id !== cand.pin_id && hyd.pin.root_age_verified === true) {
               const rootId = hyd.pin.root_pin_id;
               const mergedRoot = mergeCandidatePinRecords(
                 candidateMap.get(rootId),
@@ -1412,6 +1457,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       router: routerTelemetry,
       funnel: { ...funnel, verified_winners: qualifiedCount },
       idea_page: runIdeaPage,
+      cluster_id: numericClusterId,
       fresh_boards_found: freshBoardsDiscovered.length,
       growing_trends_found: discoveredTrends.length,
       total_scanned_count: funnel.scrolled_pins,
@@ -1419,7 +1465,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       applied_filters: {
         max_age_days: maxAge,
         min_repin_count: minRepinsGate,
-        min_save_count: minSavesGate
+        min_save_count: minSavesGate,
+        resolve_root_pin: resolveRootPin
       }
     });
 
@@ -1453,7 +1500,9 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     return {
       ok: true,
       run_id: runRowId,
+      cluster_id: numericClusterId,
       run_type: runType,
+      resolve_root_pin: resolveRootPin,
       profile: profile ? { id: profile.id, slug: profile.slug, name: profile.name } : null,
       cookie_mode: router.effectiveMode,
       surfaces_executed: surfacesExecuted,
