@@ -54,7 +54,7 @@ import {
 import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../core/pinterest/index.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
-import { deletePinSnapshotByTarget } from './pins.mjs';
+import { deletePinSnapshotByTarget } from '../modules/pins/snapshot-service.mjs';
 
 /**
  * Fast URI discriminator for Creators & Boards routes
