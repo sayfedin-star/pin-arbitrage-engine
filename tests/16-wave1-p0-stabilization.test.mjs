@@ -309,9 +309,28 @@ test('Wave 1.3: cluster-intelligence sqlWithRetry routes via noRetry and refresh
   assert.equal(r1.success, true);
   assert.equal(r2.success, true);
   assert.equal(beginCount, 2, 'Concurrent callers must coalesce into 1 upsert tx + 1 prune tx (not 4)');
+  assert.equal(
+    txQueries.some((e) => typeof e === 'object' && /\bSET\s+LOCAL\b.*\$\d+/i.test(e.q)),
+    false,
+    'Must NEVER emit parameterized `SET LOCAL ... $1` (PostgreSQL utility statements reject bind parameters)'
+  );
   assert.ok(
-    txQueries.some((e) => typeof e === 'object' && e.q.includes('SET LOCAL statement_timeout') && e.values.includes('120000')),
-    'Rollup upsert must set scoped 120s statement_timeout'
+    txQueries.some(
+      (e) =>
+        typeof e === 'object' &&
+        /SELECT\s+set_config\(\s*'statement_timeout'\s*,\s*\$1\s*,\s*true\s*\)/i.test(e.q) &&
+        e.values.includes('120000')
+    ),
+    'Rollup upsert must set scoped 120s statement_timeout via set_config(..., true)'
+  );
+  assert.ok(
+    txQueries.some(
+      (e) =>
+        typeof e === 'object' &&
+        /SELECT\s+set_config\(\s*'statement_timeout'\s*,\s*\$1\s*,\s*true\s*\)/i.test(e.q) &&
+        e.values.includes('60000')
+    ),
+    'Ghost domain prune must set scoped 60s statement_timeout via set_config(..., true)'
   );
 });
 

@@ -707,12 +707,13 @@ export async function refreshDomainIntelligenceRollup(sql) {
         domain_intelligence_rollup.arbitrage_score IS DISTINCT FROM EXCLUDED.arbitrage_score;
     `;
 
-      // Use a scoped 120s statement_timeout inside sql.begin() so heavy rollup upserts
-      // do not abort under Fastify's default 15s statement_timeout.
+      // Use a scoped statement_timeout via set_config(..., true) inside sql.begin()
+      // (PostgreSQL utility statements like `SET LOCAL` reject bind parameters `$1`)
+      // so heavy rollup upserts do not abort under Fastify's default 15s statement_timeout.
       const runScoped = async (timeoutMs, fn) => {
         if (typeof sql.begin === 'function') {
           return await sql.begin(async (tx) => {
-            await tx`SET LOCAL statement_timeout = ${String(timeoutMs)};`;
+            await tx`SELECT set_config('statement_timeout', ${String(timeoutMs)}, true);`;
             return await fn(tx);
           });
         }
