@@ -85,7 +85,7 @@ export function renderDashboardDossierDrawers() {
       },
       {
         label: 'Velocity',
-        valueExpr: "Number(selectedHub.daily_velocity || 0) > 0 ? ('🔥 ' + selectedHub.daily_velocity + '/d') : 'Stagnant'",
+        valueExpr: "Number(selectedHub.daily_velocity || 0) > 0 ? (selectedHub.daily_velocity + '/d') : 'Stagnant'",
         valueClass: 'font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums block'
       }
     ]
@@ -128,7 +128,7 @@ export function renderDashboardDossierDrawers() {
                 <template x-if="selectedCandidate?.ingestion_method && selectedCandidate?.ingestion_method !== 'uploaded'">
                   <span class="inline-flex items-center gap-1.5">
                     <span>•</span>
-                    <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="selectedCandidate.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : selectedCandidate.ingestion_method)"></span>
+                    <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="selectedCandidate.ingestion_method === 'csv_importer' ? 'CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? 'Scheduled' : selectedCandidate.ingestion_method)"></span>
                   </span>
                 </template>
               </div>
@@ -193,7 +193,7 @@ export function renderDashboardDossierDrawers() {
                 <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.anchor?.save_rate || candidateTrajectory.anchor?.avg_save_rate || 94.2) + '%'"></strong></span>
                 <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.anchor?.recgpt_transition_score || 98.5)"></strong></span>
                 <template x-if="candidateTrajectory.anchor?.daily_velocity">
-                  <span>Velocity: <strong class="text-rose-600 dark:text-rose-400" x-text="'⚡ ' + candidateTrajectory.anchor?.daily_velocity + '/d'"></strong></span>
+                  <span class="inline-flex items-center gap-1">Velocity: <strong class="text-rose-600 dark:text-rose-400 inline-flex items-center gap-0.5"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="candidateTrajectory.anchor?.daily_velocity + '/d'"></span></strong></span>
                 </template>
               </div>
               <button @click="copyPromptForPairing(candidateTrajectory.anchor?.title || 'Dinner Anchor')" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
@@ -228,7 +228,7 @@ export function renderDashboardDossierDrawers() {
                 <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.co_visitor?.save_rate || candidateTrajectory.co_visitor?.avg_save_rate || 88.7) + '%'"></strong></span>
                 <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.co_visitor?.recgpt_transition_score || 92.1)"></strong></span>
                 <template x-if="candidateTrajectory.co_visitor?.daily_velocity">
-                  <span>Velocity: <strong class="text-sky-600 dark:text-sky-400" x-text="'⚡ ' + candidateTrajectory.co_visitor?.daily_velocity + '/d'"></strong></span>
+                  <span class="inline-flex items-center gap-1">Velocity: <strong class="text-sky-600 dark:text-sky-400 inline-flex items-center gap-0.5"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="candidateTrajectory.co_visitor?.daily_velocity + '/d'"></span></strong></span>
                 </template>
               </div>
               <button @click="copyPromptForPairing(candidateTrajectory.co_visitor?.title || 'Navboost Side')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
@@ -263,7 +263,7 @@ export function renderDashboardDossierDrawers() {
                 <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.finisher?.save_rate || candidateTrajectory.finisher?.avg_save_rate || 96.8) + '%'"></strong></span>
                 <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.finisher?.recgpt_transition_score || 97.4)"></strong></span>
                 <template x-if="candidateTrajectory.finisher?.daily_velocity">
-                  <span>Velocity: <strong class="text-amber-600 dark:text-amber-400" x-text="'⚡ ' + candidateTrajectory.finisher?.daily_velocity + '/d'"></strong></span>
+                  <span class="inline-flex items-center gap-1">Velocity: <strong class="text-amber-600 dark:text-amber-400 inline-flex items-center gap-0.5"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="candidateTrajectory.finisher?.daily_velocity + '/d'"></span></strong></span>
                 </template>
               </div>
               <button @click="copyPromptForPairing(candidateTrajectory.finisher?.title || 'Session Finisher')" class="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
@@ -332,8 +332,8 @@ export function renderDashboardDossierDrawers() {
                   }" x-text="selectedHub.format_type"></span>
 
                   <template x-if="selectedHub.is_vacuum_target">
-                    <span class="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                      🎯 Vacuum Target
+                    <span class="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1">
+                      <i data-lucide="target" class="w-3 h-3 shrink-0"></i><span>Vacuum Target</span>
                     </span>
                   </template>
                 </div>

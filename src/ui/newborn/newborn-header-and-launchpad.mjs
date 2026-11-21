@@ -527,10 +527,10 @@ export function getNewbornHeaderAndLaunchpadHtml() {
           <div class="flex items-start gap-3 min-w-0">
             <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
                  :class="activeRun.status === 'failed' ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : ((activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial') ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : (activeRun.status === 'cancelled' ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]' : (isRunActiveStatus(activeRun.status) ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400')))">
-              <i :data-lucide="activeRun.status === 'failed' || activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial' ? 'alert-triangle' : (activeRun.status === 'cancelled' ? 'slash' : (isRunActiveStatus(activeRun.status) ? 'loader-2' : 'check-circle-2'))"
-                 class="w-4 h-4"
-                 :class="isRunActiveStatus(activeRun.status) ? 'animate-spin' : ''"
-                 aria-hidden="true"></i>
+              <span x-show="activeRun.status === 'failed' || activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial'" class="inline-flex items-center justify-center"><i data-lucide="alert-triangle" class="w-4 h-4" aria-hidden="true"></i></span>
+              <span x-show="activeRun.status === 'cancelled'" class="inline-flex items-center justify-center"><i data-lucide="slash" class="w-4 h-4" aria-hidden="true"></i></span>
+              <span x-show="isRunActiveStatus(activeRun.status)" class="inline-flex items-center justify-center"><i data-lucide="loader-2" class="w-4 h-4 animate-spin" aria-hidden="true"></i></span>
+              <span x-show="!isRunActiveStatus(activeRun.status) && activeRun.status !== 'failed' && activeRun.status !== 'partial_rate_limited' && activeRun.status !== 'partial' && activeRun.status !== 'cancelled'" class="inline-flex items-center justify-center"><i data-lucide="check-circle-2" class="w-4 h-4" aria-hidden="true"></i></span>
             </div>
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">

@@ -104,7 +104,7 @@ export function getDashboardCreatorsFleetMethods() {
                 });
                 if (res.status === 429 || res.status === 503) {
                   pausedByRateLimit = true;
-                  this.showToast('⚠️ Rate limit (429) or circuit breaker tripped. Pausing batch sync to protect account.');
+                  this.showToast('Rate limit (429) or circuit breaker tripped. Pausing batch sync to protect account.');
                   break;
                 }
                 if (res.ok) {
@@ -308,7 +308,7 @@ export function getDashboardCreatorsFleetMethods() {
             });
             if (res.ok) {
               const data = await res.json();
-              this.showToast('⚡ Auto-tracked ' + (data.tracked_count || 0) + ' creators with 24h lightweight pulse!', 'success');
+              this.showToast('Auto-tracked ' + (data.tracked_count || 0) + ' creators with 24h lightweight pulse!', 'success');
               await this.loadFolderCreators(this.scopedFolderId);
             } else {
               const err = await res.json().catch(() => ({}));
@@ -421,7 +421,7 @@ export function getDashboardCreatorsFleetMethods() {
           const compId = competitor.id;
           const username = (competitor.username || '').replace(/^@+/, '').trim();
           this.pulsingCreatorId = compId;
-          this.showToast('⚡ Quick Pulsing @' + username + ' (syncing impressions, total audience & boards)...');
+          this.showToast('Quick Pulsing @' + username + ' (syncing impressions, total audience & boards)...');
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
               method: 'POST',
@@ -430,7 +430,7 @@ export function getDashboardCreatorsFleetMethods() {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              this.showToast('⚡ Quick Pulse complete for @' + username + '!');
+              this.showToast('Quick Pulse complete for @' + username + '!');
               this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
@@ -438,10 +438,10 @@ export function getDashboardCreatorsFleetMethods() {
                 await this.openCreatorDossier(this.activeCreator);
               }
             } else {
-              this.showToast('❌ Quick pulse failed: ' + (data?.error || res.statusText || 'Server error'));
+              this.showToast('Quick pulse failed: ' + (data?.error || res.statusText || 'Server error'));
             }
           } catch (e) {
-            this.showToast('❌ Quick pulse network error: ' + e.message);
+            this.showToast('Quick pulse network error: ' + e.message);
           } finally {
             this.pulsingCreatorId = null;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -453,7 +453,7 @@ export function getDashboardCreatorsFleetMethods() {
           const compId = competitor.id;
           const username = (competitor.username || '').replace(/^@+/, '').trim();
           this.harvestingCreatorId = compId;
-          this.showToast('🌊 Deep Harvesting @' + username + ' (profile sync + pin refresh & qualification)...');
+          this.showToast('Deep Harvesting @' + username + ' (profile sync + pin refresh & qualification)...');
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/deep-harvest'), {
               method: 'POST',
@@ -463,7 +463,7 @@ export function getDashboardCreatorsFleetMethods() {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               const promoted = data.qualified_promotions ?? data.promoted_count ?? data.qualified_count ?? 0;
-              this.showToast('🌊 Deep Harvest complete for @' + username + ' (' + promoted + ' pins qualified into PinArchive)!');
+              this.showToast('Deep Harvest complete for @' + username + ' (' + promoted + ' pins qualified into PinArchive)!');
               this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
@@ -471,10 +471,10 @@ export function getDashboardCreatorsFleetMethods() {
                 await this.openCreatorDossier(this.activeCreator);
               }
             } else {
-              this.showToast('❌ Deep harvest failed: ' + (data?.error || res.statusText || 'Server error'));
+              this.showToast('Deep harvest failed: ' + (data?.error || res.statusText || 'Server error'));
             }
           } catch (e) {
-            this.showToast('❌ Deep harvest network error: ' + e.message);
+            this.showToast('Deep harvest network error: ' + e.message);
           } finally {
             this.harvestingCreatorId = null;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -486,7 +486,7 @@ export function getDashboardCreatorsFleetMethods() {
           const compId = competitor.id;
           const username = (competitor.username || '').replace(/^@+/, '').trim();
           this.fastRefreshingCompetitorId = compId;
-          this.showToast('⚡ Fast refreshing archived pins for @' + username + ' directly from Pinterest...');
+          this.showToast('Fast refreshing archived pins for @' + username + ' directly from Pinterest...');
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/fast-refresh'), {
               method: 'POST',
@@ -496,17 +496,17 @@ export function getDashboardCreatorsFleetMethods() {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               const refreshed = data.refreshed_count ?? data.refreshed_pins_count ?? data.total_refreshed ?? 0;
-              this.showToast('⚡ Fast refresh complete for @' + username + ': ' + refreshed + ' archived pins updated with live metrics!');
+              this.showToast('Fast refresh complete for @' + username + ': ' + refreshed + ' archived pins updated with live metrics!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
-                await this.fetchCreatorPins(this.activeCreator);
+                await this.fetchCreatorWinningPins(this.activeCreator);
                 await this.fetchCreatorAllPins();
               }
             } else {
-              this.showToast('❌ Fast refresh failed: ' + (data?.error || res.statusText || 'Server error'));
+              this.showToast('Fast refresh failed: ' + (data?.error || res.statusText || 'Server error'));
             }
           } catch (e) {
-            this.showToast('❌ Fast refresh network error: ' + e.message);
+            this.showToast('Fast refresh network error: ' + e.message);
           } finally {
             this.fastRefreshingCompetitorId = null;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -518,7 +518,7 @@ export function getDashboardCreatorsFleetMethods() {
           const compId = competitor.id;
           const username = (competitor.username || '').replace(/^@+/, '').trim();
           this.discoveringCatalogCompetitorId = compId;
-          this.showToast('📋 Starting Full Catalog Discovery for @' + username + ' (crawling all pages to end of feed)...');
+          this.showToast('Starting Full Catalog Discovery for @' + username + ' (crawling all pages to end of feed)...');
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/sync-pins'), {
               method: 'POST',
@@ -535,18 +535,18 @@ export function getDashboardCreatorsFleetMethods() {
               const fetched = data.total_fetched ?? data.crawled ?? data.pinsFetched ?? 0;
               const qualified = data.qualified ?? data.qualified_archived ?? data.qualifiedIngested ?? 0;
               const pages = data.pages_crawled ?? data.pagesCrawled ?? 0;
-              this.showToast('📋 Full Catalog Discovered: ' + fetched + ' pins retrieved across ' + pages + ' pages (' + qualified + ' qualified into PinArchive)!');
+              this.showToast('Full Catalog Discovered: ' + fetched + ' pins retrieved across ' + pages + ' pages (' + qualified + ' qualified into PinArchive)!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
                 await this.fetchCreatorAllPins();
-                await this.fetchCreatorPins(this.activeCreator);
-                await this.fetchCreatorBoards(this.activeCreator);
+                await this.fetchCreatorWinningPins(this.activeCreator);
+                await this.fetchCreatorBoards(this.activeCreator, true);
               }
             } else {
-              this.showToast('❌ Discover catalog failed: ' + (data?.error || res.statusText || 'Server error'));
+              this.showToast('Discover catalog failed: ' + (data?.error || res.statusText || 'Server error'));
             }
           } catch (e) {
-            this.showToast('❌ Discover catalog network error: ' + e.message);
+            this.showToast('Discover catalog network error: ' + e.message);
           } finally {
             this.discoveringCatalogCompetitorId = null;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -558,7 +558,7 @@ export function getDashboardCreatorsFleetMethods() {
           const compId = competitor.id;
           const username = (competitor.username || '').replace(/^@+/, '').trim();
           this.auditSweepingCompetitorId = compId;
-          this.showToast('🏛️ Starting Comprehensive Audit Sweep for @' + username + '...');
+          this.showToast('Starting Comprehensive Audit Sweep for @' + username + '...');
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/audit-sweep'), {
               method: 'POST',
@@ -571,20 +571,18 @@ export function getDashboardCreatorsFleetMethods() {
               const pinsAudited = s.total_pins_inventory ?? s.total_pins_audited ?? 0;
               const boardsSynced = s.boards_synced ?? 0;
               const dipsHealed = s.monotonic_dips_healed ?? 0;
-              this.showToast('🏛️ Audit Sweep Complete for @' + username + '! ' + pinsAudited + ' pins audited, ' + boardsSynced + ' boards synced, ' + dipsHealed + ' metric dips healed.');
+              this.showToast('Audit Sweep Complete for @' + username + '! ' + pinsAudited + ' pins audited, ' + boardsSynced + ' boards synced, ' + dipsHealed + ' metric dips healed.');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
-                await this.fetchCreatorProfile(this.activeCreator);
-                await this.fetchCreatorPins(this.activeCreator);
-                await this.fetchCreatorAllPins();
-                await this.fetchCreatorBoards(this.activeCreator);
-                await this.fetchCreatorTopUrls();
+                this._clientCache?.creators?.delete(username.toLowerCase());
+                this._clientCache?.boards?.clear();
+                await this.openCreatorPage(this.activeCreator, this.activeCreatorTab || 'overview', false);
               }
             } else {
-              this.showToast('❌ Audit sweep failed: ' + (data?.error || res.statusText || 'Server error'));
+              this.showToast('Audit sweep failed: ' + (data?.error || res.statusText || 'Server error'));
             }
           } catch (e) {
-            this.showToast('❌ Audit sweep network error: ' + e.message);
+            this.showToast('Audit sweep network error: ' + e.message);
           } finally {
             this.auditSweepingCompetitorId = null;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -594,7 +592,7 @@ export function getDashboardCreatorsFleetMethods() {
         async bulkPulseSelected() {
           if (!this.selectedCompetitorIds.length) return;
           const count = this.selectedCompetitorIds.length;
-          this.showToast('⚡ Bulk Pulsing ' + count + ' creators (syncing impressions & audience)...');
+          this.showToast('Bulk Pulsing ' + count + ' creators (syncing impressions & audience)...');
           let successCount = 0;
           let failedCount = 0;
           for (let i = 0; i < count; i++) {
@@ -617,11 +615,11 @@ export function getDashboardCreatorsFleetMethods() {
             }
           }
           if (failedCount === 0 && successCount > 0) {
-            this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
+            this.showToast('Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
           } else if (successCount > 0) {
-            this.showToast('⚠️ Bulk Pulse partially completed (' + successCount + '/' + count + ' updated, ' + failedCount + ' failed).');
+            this.showToast('Bulk Pulse partially completed (' + successCount + '/' + count + ' updated, ' + failedCount + ' failed).');
           } else {
-            this.showToast('❌ Bulk Pulse failed for all ' + count + ' selected creators.');
+            this.showToast('Bulk Pulse failed for all ' + count + ' selected creators.');
           }
           this._clientCache?.creators?.clear();
           this._clientCache?.boards?.clear();
@@ -636,7 +634,7 @@ export function getDashboardCreatorsFleetMethods() {
             return comp?.username ? comp.username.replace(/^@+/, '').trim() : null;
           }).filter(Boolean);
           if (!usernames.length) return;
-          this.showToast('🏆 Dispatching winning pins refresh for ' + usernames.length + ' creators on GitHub Actions...');
+          this.showToast('Dispatching winning pins refresh for ' + usernames.length + ' creators on GitHub Actions...');
           this._clientCache?.boards?.clear();
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
@@ -650,12 +648,12 @@ export function getDashboardCreatorsFleetMethods() {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              this.showToast('🚀 ' + (data?.message || 'Winning pins refresh dispatched on GitHub Actions!'));
+              this.showToast(data?.message || 'Winning pins refresh dispatched on GitHub Actions!');
             } else {
-              this.showToast('❌ Bulk dispatch failed: ' + (data?.error || res.statusText));
+              this.showToast('Bulk dispatch failed: ' + (data?.error || res.statusText));
             }
           } catch (err) {
-            this.showToast('❌ Network error: ' + err.message);
+            this.showToast('Network error: ' + err.message);
           } finally {
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
@@ -672,7 +670,7 @@ export function getDashboardCreatorsFleetMethods() {
           if (!target) return;
           const handle = (target.username || '').replace(/^@+/, '').trim();
           if (!handle) return;
-          this.showToast('🏆 Dispatching winning pins refresh for @' + handle + ' on GitHub Actions...');
+          this.showToast('Dispatching winning pins refresh for @' + handle + ' on GitHub Actions...');
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
               method: 'POST',
@@ -686,12 +684,12 @@ export function getDashboardCreatorsFleetMethods() {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               this._clientCache?.boards?.clear();
-              this.showToast('🚀 Winning pins refresh launched on GitHub Actions for @' + handle + '!');
+              this.showToast('Winning pins refresh launched on GitHub Actions for @' + handle + '!');
             } else {
-              this.showToast('❌ Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token'));
+              this.showToast('Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token'));
             }
           } catch (err) {
-            this.showToast('❌ Network error: ' + err.message);
+            this.showToast('Network error: ' + err.message);
           } finally {
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
@@ -788,7 +786,7 @@ export function getDashboardCreatorsFleetMethods() {
               }
             }
             if (failedCount === 0) {
-              this.showToast(activeStatus ? ('▶ Resumed ingestion for ' + updatedCount + ' profiles.') : ('⏸ Paused ingestion for ' + updatedCount + ' profiles.'));
+              this.showToast(activeStatus ? ('Resumed ingestion for ' + updatedCount + ' profiles.') : ('Paused ingestion for ' + updatedCount + ' profiles.'));
             } else if (updatedCount > 0) {
               this.showToast('Updated ' + updatedCount + '/' + count + ' profiles (' + failedCount + ' failed: ' + lastError + ')');
             } else {
@@ -823,7 +821,7 @@ export function getDashboardCreatorsFleetMethods() {
             if (res.ok) {
               this._clientCache?.boards?.clear();
               const data = await res.json();
-              this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
+              this.showToast('Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
               if (typeof this.fetchCreatorBoards === 'function') {
                 await this.fetchCreatorBoards(competitor, true);
               }
@@ -1016,7 +1014,7 @@ export function getDashboardCreatorsDossierMethods() {
               if (typeof window !== 'undefined') {
                 window.history.replaceState({}, '', '/accounts');
               }
-              this.showToast('⚠️ Creator profile @' + handle + ' is not tracked.');
+              this.showToast('Creator profile @' + handle + ' is not tracked.');
               return;
             }
 
@@ -1151,7 +1149,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.showToast('✅ Registered ' + data.added_count + ' seeds for @' + (this.activeCreator.username || '').replace(/^@+/, '') + '!');
+              this.showToast('Registered ' + data.added_count + ' seeds for @' + (this.activeCreator.username || '').replace(/^@+/, '') + '!');
               this.bulkAddSeedsInput = '';
               this.isBulkAddSeedsModalOpen = false;
               await this.fetchCreatorRelatedGraph();
@@ -1192,7 +1190,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.showToast('🎯 Auto-added ' + data.added_count + ' top winning seeds!');
+              this.showToast('Auto-added ' + data.added_count + ' top winning seeds!');
               await this.fetchCreatorRelatedGraph();
             }
           } catch (e) {
@@ -1214,7 +1212,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.showToast('🕸️ Queued ' + data.added_count + ' selected pins for Related Graph analysis!');
+              this.showToast('Queued ' + data.added_count + ' selected pins for Related Graph analysis!');
               this.selectedCreatorPinIds = [];
               await this.openCreatorPage(this.activeCreator, 'related_pins');
             }
@@ -1249,7 +1247,7 @@ export function getDashboardCreatorsDossierMethods() {
         async harvestLiveSingleSeedAction(pinId) {
           if (!this.activeCreator) return;
           this.isHarvestingRelated = true;
-          this.showToast('🔍 Scraping Pinterest Related Feed live for Seed #' + pinId + '...');
+          this.showToast('Scraping Pinterest Related Feed live for Seed #' + pinId + '...');
           try {
             const compId = this.activeCreator.id || this.activeCreator.username;
             const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/harvest-live'), {
@@ -1259,7 +1257,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.showToast('✅ Discovered ' + data.discovered_count + ' related pins into unified graph!');
+              this.showToast('Discovered ' + data.discovered_count + ' related pins into unified graph!');
               await this.fetchCreatorRelatedGraph();
             } else {
               this.showToast('Live scrape failed: ' + (data.error || data.message || 'Unknown error'));
@@ -1296,7 +1294,7 @@ export function getDashboardCreatorsDossierMethods() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              this.showToast('🚀 Dispatched Related Pins Crawler (account_quick) for @' + handle + '!');
+              this.showToast('Dispatched Related Pins Crawler (account_quick) for @' + handle + '!');
             } else {
               this.showToast('Dispatch failed: ' + (data.error || data.message || 'Check GITHUB_TOKEN'));
             }
@@ -1466,7 +1464,7 @@ export function getDashboardCreatorsDossierMethods() {
             if (res.ok) {
               const cleanHandle = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
               this._clientCache?.creators?.delete(cleanHandle);
-              this.showToast('✅ Qualification rules saved for @' + (this.activeCreator.username || '').replace(/^@+/, ''));
+              this.showToast('Qualification rules saved for @' + (this.activeCreator.username || '').replace(/^@+/, ''));
             } else {
               const err = await res.json().catch(() => ({}));
               this.showToast('Failed to save rules: ' + (err.error || err.message || 'Error'));
@@ -1493,7 +1491,7 @@ export function getDashboardCreatorsDossierMethods() {
             if (res.ok && data.ok) {
               const prunedText = data.pruned_count ? (' (' + data.pruned_count + ' demoted)') : '';
               this.reEvaluateMessage = 'Qualified ' + data.qualified_count + ' pins into archive' + prunedText + ' based on active rules!';
-              this.showToast('🎯 Re-evaluation complete: ' + data.qualified_count + ' qualified' + prunedText);
+              this.showToast('Re-evaluation complete: ' + data.qualified_count + ' qualified' + prunedText);
               const cleanHandle = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
               this._clientCache?.creators?.delete(cleanHandle);
               await Promise.all([

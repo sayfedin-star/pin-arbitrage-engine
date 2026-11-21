@@ -25,17 +25,17 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button @click="scrollToSection('visual-crossover-hub')" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Jump to Visual Annotations, 3-Tag Triplets, Guided Capsules &amp; Color Swatches">
-            <span>✨</span>
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Visual &amp; Intent Matrix</span>
           </button>
           <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
-            <span x-show="!crossoverLoading">⚡</span>
-            <span x-show="crossoverLoading" class="animate-spin inline-block">⏳</span>
+            <span x-show="!crossoverLoading" class="inline-flex"><i data-lucide="zap" class="w-3.5 h-3.5"></i></span>
+            <span x-show="crossoverLoading" class="inline-flex"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i></span>
             <span x-text="crossoverLoading ? 'Recalculating Matrix...' : 'Re-Run Crossover Analysis'"></span>
           </button>
           <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
-            <span x-show="!auditDispatching">🚀</span>
-            <span x-show="auditDispatching" class="animate-spin inline-block">⏳</span>
+            <span x-show="!auditDispatching" class="inline-flex"><i data-lucide="rocket" class="w-3.5 h-3.5"></i></span>
+            <span x-show="auditDispatching" class="inline-flex"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i></span>
             <span x-text="auditDispatching ? 'Launching 20 Runners...' : 'Deep Cluster Audit (20 Runners)'"></span>
           </button>
         </div>
@@ -78,7 +78,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
       <!-- Active Drill-Down Filter Banner -->
       <div x-show="entityFilter.type" class="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-500/30 rounded-xl p-3 flex items-center justify-between shadow-sm" x-cloak>
         <div class="flex items-center gap-2 text-xs text-indigo-900 dark:text-indigo-200">
-          <span class="font-bold">🎯 Active Drill-Down Filter:</span>
+          <i data-lucide="target" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i><span class="font-bold">Active Drill-Down Filter:</span>
           <span class="font-mono tabular-nums uppercase text-[10px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300" x-text="entityFilter.type"></span>
           <span class="font-mono tabular-nums font-semibold text-indigo-950 dark:text-white" x-text="entityFilter.value"></span>
         </div>
@@ -92,7 +92,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center justify-center font-bold text-xs">
-              ⚡
+              <i data-lucide="zap" class="w-4 h-4"></i>
             </div>
             <div>
               <h3 class="text-xs font-bold text-slate-900 dark:text-white tracking-tight uppercase font-mono">Cluster Performance &amp; Velocity Rollup Bar</h3>
@@ -148,7 +148,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <!-- Table Title & Meta Bar -->
         <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
-            <span class="text-base" x-text="scopeFilter === 'super_only' ? '⭐' : (scopeFilter === 'active_only' ? '🟢' : (scopeFilter === 'vault_only' ? '🟣' : '📌'))">📌</span>
+            <span x-show="scopeFilter === 'super_only'" class="inline-flex text-pink-500"><i data-lucide="star" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'active_only'" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter === 'vault_only'" class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter !== 'super_only' && scopeFilter !== 'active_only' && scopeFilter !== 'vault_only'" class="inline-flex text-indigo-500"><i data-lucide="pin" class="w-4 h-4"></i></span>
             <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight" 
                 x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'active_only' ? 'Active SERP Dominators (Live Ranking Pins)' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers (Organic Cluster Pins)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter)))"></h3>
             <span class="text-xs text-slate-500 dark:text-slate-400" 
@@ -174,22 +174,22 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
                     :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
                     :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <span>🟢</span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
+              <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
             </button>
             <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
                     :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <span>🟣</span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
+              <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
             </button>
             <button @click="scopeFilter = 'super_only'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
                     :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
+              <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
             </button>
-            <button type="button" @click="onlySurging24h = !onlySurging24h; currentPage = 1" :class="onlySurging24h ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>⚡</span><span>24h Surges</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="formatNumber(crossoverData?.summary?.surging_24h_count || 0)"></span></button>
-            <button type="button" @click="onlyFreshRockets = !onlyFreshRockets; currentPage = 1" :class="onlyFreshRockets ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🚀</span><span>Rockets (≤14d)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300" x-text="formatNumber(crossoverData?.summary?.rockets_count || 0)"></span></button>
-            <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🐣</span><span>Breakout Baby Domains (&lt;2y + 7d Gains)</span></button>
-            <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><span>🎯</span><span>Linkless Vacuums</span><span x-show="crossoverData?.summary?.vacuum_pins_count" class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="crossoverData?.summary?.vacuum_pins_count"></span></button>
+            <button type="button" @click="onlySurging24h = !onlySurging24h; currentPage = 1" :class="onlySurging24h ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>24h Surges</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="formatNumber(crossoverData?.summary?.surging_24h_count || 0)"></span></button>
+            <button type="button" @click="onlyFreshRockets = !onlyFreshRockets; currentPage = 1" :class="onlyFreshRockets ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="rocket" class="w-3.5 h-3.5 shrink-0"></i><span>Rockets (≤14d)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300" x-text="formatNumber(crossoverData?.summary?.rockets_count || 0)"></span></button>
+            <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i><span>Breakout Baby Domains (&lt;2y + 7d Gains)</span></button>
+            <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Linkless Vacuums</span><span x-show="crossoverData?.summary?.vacuum_pins_count" class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="crossoverData?.summary?.vacuum_pins_count"></span></button>
             <template x-if="activeFolder?.items?.length">
               <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
                 <option value="all">Filter by Keyword (All)</option>
@@ -223,11 +223,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             <div class="relative">
               <input type="text" x-model.debounce.150ms="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
                      class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
-              <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
             </div>
             
              <a href="#visual-crossover-hub" @click.prevent="scrollToSection('visual-crossover-hub')" class="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors flex items-center gap-1 ml-1" title="Jump to Visual Annotations & Power Pairs">
-               <span>✨ Visual Hub ↓</span>
+               <i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i><span>Visual Hub ↓</span>
              </a>
            </div>
          </div>
@@ -313,7 +313,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <img :src="sp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'" 
                               class="w-full h-full object-cover"
                               loading="lazy"
-                              onerror="window.handlePinImgError(this)">
+                              onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                        </a>
                        <div class="flex flex-col gap-1 max-w-xs">
                          <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Context-Preserving Pin Navigation -->
@@ -326,17 +326,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                            <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
                            <!-- Breakout Baby Domain Badge -->
                            <template x-if="(Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && (Number(sp.gains_7d || (sp.daily_save_velocity ? sp.daily_save_velocity * 7 : 0)) >= 15)">
-                             <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
-                                   title="Breakout Baby Domain (<2y + 7d Gains >= 15)">
-                               🐣 Baby Breakout
-                             </span>
+                             <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold" title="Breakout Baby Domain (<2y + 7d Gains >= 15)"><i data-lucide="sparkles" class="w-2.5 h-2.5 shrink-0"></i><span>Baby Breakout</span></span>
                            </template>
                            <!-- Linkless Vacuum Pin Badge -->
                            <template x-if="sp.is_vacuum_pin || ((!sp.domain || sp.domain === 'Uploaded by user') && Number(sp.save_count || 0) >= 100)">
-                             <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold"
-                                   title="Linkless SERP Vacuum (High Saves, No Outbound Domain)">
-                               🎯 Vacuum
-                             </span>
+                             <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold" title="Linkless SERP Vacuum (High Saves, No Outbound Domain)"><i data-lucide="target" class="w-2.5 h-2.5 shrink-0"></i><span>Vacuum</span></span>
                            </template>
                          </div>
 
@@ -344,9 +338,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
                            <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va">
                              <button @click="applyMatrixFilter({ tag: (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va), raw_tag: (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va) }, 'anchors')" 
-                                     class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left cursor-pointer" 
-                                     :title="'Filter cluster pins by visual tag: ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"
-                                     x-text="'👁️ ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></button>
+                                     class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors max-w-[130px] text-left cursor-pointer" 
+                                     :title="'Filter cluster pins by visual tag: ' + (typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"><i data-lucide="eye" class="w-2.5 h-2.5 shrink-0"></i><span class="truncate" x-text="(typeof va === 'object' && va !== null ? (va.name || va.tag || va.label || va.term || '') : va)"></span></button>
                            </template>
                            <span x-show="sp.visual_annotations?.length > 3" 
                                  class="text-[9px] font-mono tabular-nums text-slate-400 dark:text-slate-500 cursor-help"
@@ -369,7 +362,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                                    : rk.rank_position <= 10 
                                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
                                    : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
-                             <span x-show="rk.is_displaced" class="text-[9px]">🟣</span>
+                             <span x-show="rk.is_displaced" class="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span>
                              <span x-text="rk.keyword"></span>
                              <span class="font-bold" x-text="'#' + rk.rank_position"></span>
                              <span x-show="rk.is_displaced" class="text-[9px] font-normal opacity-80">(Vault)</span>
@@ -385,9 +378,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                        <div class="flex items-center gap-2 flex-wrap">
                          <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
                          <template x-if="sp.bridge_tags && sp.bridge_tags.length">
-                           <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
-                                 :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"
-                                 x-text="'🌉 ' + sp.bridge_tags.length + ' Bridges'"></span>
+                           <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold" :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"><i data-lucide="git-merge" class="w-2.5 h-2.5 shrink-0"></i><span x-text="sp.bridge_tags.length + ' Bridges'"></span></span>
                          </template>
                        </div>
                      </div>
@@ -405,7 +396,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <template x-if="sp.creator_username">
                            <button @click.stop="openCreatorVisualFeed(sp.creator_username)"
                                    class="p-0.5 rounded text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
-                                   title="⚡ Instant 50-Pin Visual Feed (<350ms)">
+                                   title="Instant 50-Pin Visual Feed (<350ms)">
                              <i data-lucide="layout-grid" class="w-3 h-3 text-emerald-500"></i>
                            </button>
                          </template>
@@ -417,13 +408,13 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                      <div class="flex flex-col gap-1">
                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 w-fit"
                              :title="'Created on Pinterest: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
-                         <span>⏳</span>
+                         <i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i>
                          <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
                        </span>
                        <template x-if="sp.folder_age_days != null">
                          <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1 w-fit"
                                :title="'Added to folder: ' + sp.folder_age_days + ' days ago'">
-                           <span>📁</span>
+                           <i data-lucide="folder" class="w-3 h-3 shrink-0"></i>
                            <span x-text="sp.folder_age_days + 'd in folder'"></span>
                          </span>
                        </template>
@@ -447,7 +438,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                    <td class="p-3.5 text-right font-sans">
                      <div class="flex items-center justify-end gap-1.5">
                        <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
-                         <span>⚡</span>
+                         <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
                          <span>Blueprint</span>
                        </button>
                        <a :href="'/pin/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors inline-flex items-center gap-1 shadow-2xs" title="Open Full Pin Dossier">
@@ -461,7 +452,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <tr x-show="crossoverLoading">
                 <td colspan="8" class="p-10 text-center text-slate-500 font-sans">
                   <div class="flex items-center justify-center gap-2.5">
-                    <span class="animate-spin inline-block text-indigo-500 text-lg">⏳</span>
+                    <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-indigo-500 shrink-0"></i>
                     <span class="font-medium text-slate-600 dark:text-slate-300">Loading cluster snapshots and computing crossover matrix...</span>
                   </div>
                 </td>
@@ -530,7 +521,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#27272A]">
           <div class="flex items-center space-x-3">
             <div class="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-lg font-bold">
-              ✨
+              <i data-lucide="sparkles" class="w-5 h-5"></i>
             </div>
             <div>
               <div class="flex items-center space-x-2 flex-wrap gap-y-1">
@@ -550,7 +541,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               </button>
             </template>
             <button type="button" @click="copyAnnotations()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1.5 cursor-pointer">
-              <span>📋</span>
+              <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
               <span>Copy All Annotations</span>
             </button>
           </div>
@@ -559,20 +550,20 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <!-- Unified 5-Tab Matrix Navigation Bar -->
         <div class="flex items-center justify-between gap-3 flex-wrap p-2 rounded-2xl bg-slate-50 dark:bg-[#18181B]/70 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
           <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" @click="switchMatrixTab('pairs')" :class="(visualHubTab === 'pairs' || visualHubTab === 'all') ? 'bg-purple-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
-              ⚡ 2-Tag Power Pairs (<span x-text="powerPairs.length"></span>)
+            <button type="button" @click="switchMatrixTab('pairs')" :class="(visualHubTab === 'pairs' || visualHubTab === 'all') ? 'bg-purple-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer inline-flex items-center gap-1.5">
+              <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>2-Tag Power Pairs (<span x-text="powerPairs.length"></span>)</span>
             </button>
-            <button type="button" @click="switchMatrixTab('triplets')" :class="visualHubTab === 'triplets' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
-              🔺 3-Tag Triplets (<span x-text="powerTriplets.length"></span>)
+            <button type="button" @click="switchMatrixTab('triplets')" :class="visualHubTab === 'triplets' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-rose-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer inline-flex items-center gap-1.5">
+              <i data-lucide="triangle" class="w-3.5 h-3.5 shrink-0"></i><span>3-Tag Triplets (<span x-text="powerTriplets.length"></span>)</span>
             </button>
-            <button type="button" @click="switchMatrixTab('anchors')" :class="visualHubTab === 'anchors' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-sky-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
-              🏷️ 1-Tag Power Leaders &amp; Bridges (<span x-text="coreAnchorsList.length"></span>)
+            <button type="button" @click="switchMatrixTab('anchors')" :class="visualHubTab === 'anchors' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-sky-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer inline-flex items-center gap-1.5">
+              <i data-lucide="tag" class="w-3.5 h-3.5 shrink-0"></i><span>1-Tag Power Leaders &amp; Bridges (<span x-text="coreAnchorsList.length"></span>)</span>
             </button>
-            <button type="button" @click="switchMatrixTab('guided')" :class="visualHubTab === 'guided' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-amber-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
-              🎯 Guided Search Capsules (<span x-text="(crossoverData?.guided_pivots || []).length"></span>)
+            <button type="button" @click="switchMatrixTab('guided')" :class="visualHubTab === 'guided' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-amber-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer inline-flex items-center gap-1.5">
+              <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Guided Search Capsules (<span x-text="(crossoverData?.guided_pivots || []).length"></span>)</span>
             </button>
-            <button type="button" @click="switchMatrixTab('colors')" :class="visualHubTab === 'colors' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-emerald-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer">
-              🎨 Dominant Color Swatches (<span x-text="(crossoverData?.dominant_colors || []).length"></span>)
+            <button type="button" @click="switchMatrixTab('colors')" :class="visualHubTab === 'colors' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-emerald-500/40'" class="px-3 py-1.5 rounded-xl transition cursor-pointer inline-flex items-center gap-1.5">
+              <i data-lucide="palette" class="w-3.5 h-3.5 shrink-0"></i><span>Dominant Color Swatches (<span x-text="(crossoverData?.dominant_colors || []).length"></span>)</span>
             </button>
           </div>
 
@@ -581,8 +572,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             <template x-if="visualHubTab === 'anchors'">
               <div class="flex items-center gap-1 text-[11px]">
                 <button type="button" @click="anchorsTier = 'all'; selectedMatrixIndex = 0" :class="anchorsTier === 'all' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer">All</button>
-                <button type="button" @click="anchorsTier = 'universal'; selectedMatrixIndex = 0" :class="anchorsTier === 'universal' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer" title="Tags bridging >= 50% of cluster keywords">🌉 Bridges (≥50%)</button>
-                <button type="button" @click="anchorsTier = 'whales'; selectedMatrixIndex = 0" :class="anchorsTier === 'whales' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer" title="Tags appearing on >= 25 pins">💎 Whales (≥25)</button>
+                <button type="button" @click="anchorsTier = 'universal'; selectedMatrixIndex = 0" :class="anchorsTier === 'universal' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer inline-flex items-center gap-1" title="Tags bridging >= 50% of cluster keywords"><i data-lucide="git-merge" class="w-3 h-3 shrink-0"></i><span>Bridges (≥50%)</span></button>
+                <button type="button" @click="anchorsTier = 'whales'; selectedMatrixIndex = 0" :class="anchorsTier === 'whales' ? 'bg-sky-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-500 border border-slate-200 dark:border-[#27272A]'" class="px-2 py-1 rounded-lg cursor-pointer inline-flex items-center gap-1" title="Tags appearing on >= 25 pins"><i data-lucide="gem" class="w-3 h-3 shrink-0"></i><span>Whales (≥25)</span></button>
               </div>
             </template>
 
@@ -592,16 +583,16 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                      @input="selectedMatrixIndex = 0"
                      placeholder="Filter patterns or keywords..."
                      class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
-              <span class="absolute left-2.5 top-1.5 text-xs text-slate-400">🔍</span>
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
               <button x-show="matrixSearch" @click="matrixSearch = ''; selectedMatrixIndex = 0" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
             </div>
 
             <select x-model="matrixSort" @change="selectedMatrixIndex = 0" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
-              <option value="velocity_desc">⚡ Sort: 24h Velocity (Fastest)</option>
-              <option value="freq_desc">🔥 Sort: Pin Count (Most Pins)</option>
-              <option value="keywords_desc">🌉 Sort: Keyword Coverage (Most KWs)</option>
-              <option value="lift_desc">🚀 Sort: Synergy Lift / Score</option>
-              <option value="saves_desc">💎 Sort: Combined Saves</option>
+              <option value="velocity_desc">Sort: 24h Velocity (Fastest)</option>
+              <option value="freq_desc">Sort: Pin Count (Most Pins)</option>
+              <option value="keywords_desc">Sort: Keyword Coverage (Most KWs)</option>
+              <option value="lift_desc">Sort: Synergy Lift / Score</option>
+              <option value="saves_desc">Sort: Combined Saves</option>
             </select>
           </div>
         </div>
@@ -650,7 +641,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                       <!-- 1-Tag Power Leader / Bridge Label -->
                       <template x-if="visualHubTab === 'anchors'">
                         <div class="flex items-center gap-1.5 min-w-0">
-                          <span x-text="item.is_universal ? '🌉' : '🏷️'" class="text-xs"></span>
+                          <span x-show="item.is_universal" class="inline-flex text-indigo-500 shrink-0"><i data-lucide="git-merge" class="w-3 h-3"></i></span><span x-show="!item.is_universal" class="inline-flex text-slate-400 shrink-0"><i data-lucide="tag" class="w-3 h-3"></i></span>
                           <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="item.tag"></span>
                           <template x-if="item.overlap_percentage >= 50">
                             <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30" x-text="item.overlap_percentage + '% SERPs'"></span>
@@ -678,8 +669,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
 
                     <!-- Right-side Velocity Badge -->
                     <div class="flex items-center gap-1.5 shrink-0 font-mono tabular-nums">
-                      <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                            x-text="'⚡ +' + formatNumber(item.total_velocity ?? item.velocity_gain ?? 0) + '/d'"></span>
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"><i data-lucide="zap" class="w-2.5 h-2.5 shrink-0"></i><span x-text="'+' + formatNumber(item.total_velocity ?? item.velocity_gain ?? 0) + '/d'"></span></span>
                     </div>
                   </div>
 
@@ -736,13 +726,13 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                       <button type="button"
                               @click="applyMatrixFilter(getSelectedMatrixItem(), visualHubTab)"
                               class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono tabular-nums transition flex items-center gap-1.5 cursor-pointer shadow-xs">
-                        <span>🎯</span>
+                        <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i>
                         <span>Filter Cluster Table (<span x-text="getMatchingPinsForMatrixItem(getSelectedMatrixItem(), visualHubTab).length"></span> pins) ↑</span>
                       </button>
                       <button type="button"
                               @click="copyMatrixItemBlueprint(getSelectedMatrixItem(), visualHubTab)"
                               class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] text-xs font-bold font-mono tabular-nums transition flex items-center gap-1 cursor-pointer">
-                        <span>📋</span>
+                        <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
                         <span>Blueprint</span>
                       </button>
                     </div>
@@ -752,8 +742,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <div class="flex items-center gap-2 flex-wrap text-[11px] font-mono tabular-nums">
                     <span class="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-bold"
                           x-text="(getSelectedMatrixItem().keywords_count || getSelectedMatrixItem().keyword_count || getSelectedMatrixItem().shared_count || 1) + ' Cluster Keywords'"></span>
-                    <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold"
-                          x-text="'⚡ +' + formatNumber(getSelectedMatrixItem().total_velocity ?? getSelectedMatrixItem().velocity_gain ?? 0) + '/d save velocity'"></span>
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="'+' + formatNumber(getSelectedMatrixItem().total_velocity ?? getSelectedMatrixItem().velocity_gain ?? 0) + '/d save velocity'"></span></span>
                     <template x-if="(getSelectedMatrixItem().total_saves || 0) > 0">
                       <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] font-semibold"
                             x-text="formatNumber(getSelectedMatrixItem().total_saves) + ' combined saves'"></span>
@@ -784,7 +773,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                           <img :src="mp.image_url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2290%22 viewBox=%220 0 60 90%22><rect width=%2260%22 height=%2290%22 rx=%224%22 fill=%22%2318181b%22/><text x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%2352525b%22 font-family=%22monospace%22 font-size=%2210%22>PIN</text></svg>'"
                                class="w-full h-full object-cover"
                                loading="lazy"
-                               onerror="window.handlePinImgError(this)">
+                               onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                         </a>
                         <div class="flex flex-col gap-1 min-w-0 flex-1">
                           <a :href="'/pin/' + mp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))"
@@ -803,7 +792,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                                     x-text="'+' + mp.repin_clones_count + ' repin clone' + (mp.repin_clones_count > 1 ? 's' : '')"></span>
                             </template>
                             <span class="text-slate-500 dark:text-slate-400 font-semibold" x-text="formatNumber(mp.save_count || 0) + ' saves'"></span>
-                            <span class="text-slate-400" x-text="'⏳ ' + formatUniversalAge(mp.pin_age_days)"></span>
+                            <span class="inline-flex items-center gap-0.5 text-slate-400"><i data-lucide="hourglass" class="w-2.5 h-2.5 shrink-0"></i><span x-text="formatUniversalAge(mp.pin_age_days)"></span></span>
                           </div>
 
                           <div class="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 truncate">
@@ -827,8 +816,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                       </div>
 
                       <div class="pt-2 border-t border-slate-200/70 dark:border-[#27272A]/80 flex items-center justify-between gap-2 font-mono tabular-nums text-[10px]">
-                        <button type="button" @click="copyPinBlueprint(mp)" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 transition cursor-pointer">
-                          ⚡ Blueprint
+                        <button type="button" @click="copyPinBlueprint(mp)" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 transition cursor-pointer inline-flex items-center gap-1">
+                          <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Blueprint</span>
                         </button>
                         <a :href="'/pin/' + mp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="text-indigo-600 dark:text-indigo-400 hover:underline font-bold">
                           Full Dossier ↗
@@ -856,7 +845,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="flex items-center justify-between flex-wrap gap-4 pb-6 border-b border-slate-100 dark:border-[#27272A]">
             <div>
               <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>⚙️</span>
+                <i data-lucide="settings" class="w-4 h-4 text-slate-500 shrink-0"></i>
                 <span>Room 5: Campaign Folder Settings &amp; Smart Bulk Pin Pruning</span>
               </h3>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Configure automated fleet crawling controls, harvest quotas, and clean out low-performing pins.</p>
@@ -925,7 +914,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <div class="p-4 rounded-xl border border-amber-500/25 bg-amber-500/5 space-y-2.5">
                 <div class="flex items-center justify-between">
                   <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <span>🔑 Pinterest Session Cookie (PINTEREST_COOKIE)</span>
+                    <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i><span>Pinterest Session Cookie (PINTEREST_COOKIE)</span>
                   </div>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border"
                         :class="pinterestCookieStatus?.has_cookie ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'"
@@ -967,7 +956,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <!-- Smart Bulk Pin Pruning Box -->
               <div class="p-4 rounded-xl border border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/10 space-y-3">
                 <div class="flex items-center gap-2">
-                  <span class="text-rose-600 dark:text-rose-400 font-bold">✂️</span>
+                  <i data-lucide="scissors" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0"></i>
                   <div class="text-xs font-bold text-slate-900 dark:text-white">Smart Bulk Pin Pruning</div>
                 </div>
                 <p class="text-[11px] text-slate-500 dark:text-slate-400">Prune dead or low-traction pins across selected cluster keywords into the tombstone archive.</p>

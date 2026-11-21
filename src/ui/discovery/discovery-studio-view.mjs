@@ -31,7 +31,7 @@ export function getDiscoveryStudioViewHtml() {
         </a>
         <a href="/pulse" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition inline-flex items-center space-x-1.5 shadow-2xs" title="24h Algorithmic Pulse & Crossover Radar">
           <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
-          <span>⚡ 24h Pulse Radar</span>
+          <span>24h Pulse Radar</span>
         </a>
         <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
           <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
@@ -140,11 +140,10 @@ export function getDiscoveryStudioViewHtml() {
           </h2>
           <!-- Telemetry Cache Indicator -->
           <template x-if="results.length > 0">
-            <span 
-              class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded border"
+            <span
+              class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded border"
               :class="isCacheHit ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'"
-              x-text="isCacheHit ? '⚡ 0ms Client Cache' : '🌐 Live Pinterest v3_typeahead'"
-            ></span>
+            ><span x-show="isCacheHit" class="inline-flex items-center"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i></span><span x-show="!isCacheHit" class="inline-flex items-center"><i data-lucide="globe" class="w-3 h-3 shrink-0"></i></span><span x-text="isCacheHit ? '0ms Client Cache' : 'Live Pinterest v3_typeahead'"></span></span>
           </template>
           <button x-show="results.length > 0" @click="selectAllToggle()" class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-mono tabular-nums" x-cloak>
             <span x-text="selectedKeywords.length === results.length ? 'Deselect all' : 'Select all (' + results.length + ')'"></span>
@@ -158,7 +157,7 @@ export function getDiscoveryStudioViewHtml() {
             class="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-white text-xs font-mono tabular-nums border border-rose-200 dark:border-rose-700/40 flex items-center gap-1.5 transition-colors"
             title="Explore Pinterest Related Interests for current search"
           >
-            <span>🔗 Get Related</span>
+            <i data-lucide="link" class="w-3 h-3 shrink-0"></i><span>Get Related</span>
           </button>
           <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono tabular-nums border border-slate-200 dark:border-slate-700">
             <span x-text="selectedKeywords.length === results.length ? 'Clear Selection' : 'Select All'"></span>
@@ -225,11 +224,11 @@ export function getDiscoveryStudioViewHtml() {
                       <div class="flex items-center gap-2">
                         <span class="font-semibold text-slate-900 dark:text-slate-100 font-mono tabular-nums" x-html="highlightTerm(item.term)"></span>
                         <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-mono tabular-nums border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
-                          <span>🌱</span>
+                          <i data-lucide="sprout" class="w-3 h-3 shrink-0"></i>
                           <span>Seed</span>
                         </span>
                         <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums border border-emerald-500/20">Top Hit</span>
-                        <span x-show="item.hasPrediction" class="text-xs" title="Official Pinterest Trends Prediction Active">🔮</span>
+                        <span x-show="item.hasPrediction" class="inline-flex items-center text-purple-500" title="Official Pinterest Trends Prediction Active"><i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i></span>
                       </div>
                     </div>
                     <!-- 52-Week Official Sparkline Curve -->
@@ -341,7 +340,7 @@ export function getDiscoveryStudioViewHtml() {
                   <div class="flex flex-col gap-1 items-start min-w-[200px] max-w-md">
                     <!-- Formatted Breadcrumbs with Individual Segments -->
                     <div x-show="item.categoryTree && item.categoryTree.length > 0" class="flex items-center gap-1 flex-wrap text-[11px] font-sans leading-normal">
-                      <span class="text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0 mr-0.5">🌿</span>
+                      <i data-lucide="leaf" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0 mr-0.5"></i>
                       <template x-for="(crumb, cIdx) in item.categoryTree" :key="cIdx">
                         <span class="inline-flex items-center gap-1">
                           <span 
@@ -355,7 +354,7 @@ export function getDiscoveryStudioViewHtml() {
 
                     <!-- Direct Category Path Fallback -->
                     <div x-show="(!item.categoryTree || item.categoryTree.length === 0) && item.categoryPath" class="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-medium text-[11px]">
-                      <span class="text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0">🌿</span>
+                      <i data-lucide="leaf" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0"></i>
                       <span class="font-sans break-words" x-text="item.categoryPath"></span>
                     </div>
 
@@ -375,21 +374,21 @@ export function getDiscoveryStudioViewHtml() {
                       class="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-rose-200 dark:border-rose-700/40 transition-colors flex items-center gap-1"
                       title="Explore official Pinterest related interests & additions"
                     >
-                      <span>🔗 Related</span>
+                      <i data-lucide="link" class="w-3 h-3 shrink-0"></i><span>Related</span>
                     </button>
                     <button 
                       @click="trackSingleKeyword(item.term)" 
-                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors inline-flex items-center gap-1"
                       title="Track directly in Radar"
                     >
-                      ⚡ Track
+                      <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Track</span>
                     </button>
                     <button
                       @click="openAddToFolderModalForSingle(item.term)"
-                      class="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-indigo-200 dark:border-indigo-700/40 transition-colors"
+                      class="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white font-mono tabular-nums text-[11px] border border-indigo-200 dark:border-indigo-700/40 transition-colors inline-flex items-center gap-1"
                       title="Add to Campaign Folder"
                     >
-                      📁 Folder
+                      <i data-lucide="folder" class="w-3 h-3 shrink-0"></i><span>Folder</span>
                     </button>
                     <a 
                       :href="safeUrl('/keywords/' + encodeURIComponent(item.term))" 
@@ -409,11 +408,11 @@ export function getDiscoveryStudioViewHtml() {
             <tr x-show="!loading && searchQuery.trim().length >= 2 && results.length === 0" x-cloak>
               <td colspan="8" class="p-12 text-center">
                 <div class="max-w-md mx-auto flex flex-col items-center gap-3">
-                  <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xl text-slate-400">🔍</div>
+                  <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400"><i data-lucide="search" class="w-5 h-5"></i></div>
                   <div class="text-sm font-semibold text-slate-900 dark:text-white">No autocomplete matches found for "<span x-text="searchQuery" class="text-emerald-600 dark:text-emerald-400 font-mono tabular-nums"></span>"</div>
                   <p class="text-xs text-slate-500 dark:text-slate-400">Pinterest v3_typeahead did not return suggestions for this exact term. You can still track this keyword directly in your SERP Radar.</p>
                   <button @click="trackSingleKeyword(searchQuery)" class="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95">
-                    <span>⚡</span> Track "<span x-text="searchQuery"></span>" Directly in Radar
+                    <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Track "<span x-text="searchQuery"></span>" Directly in Radar</span>
                   </button>
                 </div>
               </td>
@@ -423,7 +422,7 @@ export function getDiscoveryStudioViewHtml() {
             <tr x-show="!loading && searchQuery.trim().length < 2 && results.length === 0">
               <td colspan="8" class="p-12 text-center text-slate-400 font-sans">
                 <div class="max-w-md mx-auto flex flex-col items-center gap-2">
-                  <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-xl">💡</div>
+                  <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center"><i data-lucide="lightbulb" class="w-5 h-5"></i></div>
                   <div class="text-sm font-medium text-slate-800 dark:text-slate-200">Start Typing to Discover Pinterest Autocomplete Terms</div>
                   <div class="text-xs text-slate-500 dark:text-slate-400">Enter a seed topic above or pick one of the popular categories to inspect live Pinterest search queries.</div>
                 </div>
@@ -453,10 +452,10 @@ export function getDiscoveryStudioViewHtml() {
       <span class="text-slate-300">selected</span>
     </div>
     <button @click="openAddToFolderModal = true" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 shadow-sm transition-colors">
-      <span>📁</span> + Add to Campaign Folder
+      <i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i><span>+ Add to Campaign Folder</span>
     </button>
     <button @click="trackSelectedDirectly()" :disabled="submittingBulk" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-1.5 shadow-sm transition-colors">
-      <span x-show="!submittingBulk">⚡ Track in Radar</span>
+      <span x-show="!submittingBulk" class="inline-flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Track in Radar</span></span>
       <span x-show="submittingBulk">Scheduling...</span>
     </button>
     <button @click="selectedKeywords = []" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-colors">
@@ -469,7 +468,7 @@ export function getDiscoveryStudioViewHtml() {
     <div @click.away="openBulkModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Import Keywords in Bulk">
       <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A] pb-3">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <span>📥</span> Import Keywords in Bulk
+          <i data-lucide="download" class="w-4 h-4 text-emerald-500 shrink-0"></i><span>Import Keywords in Bulk</span>
         </h3>
         <button @click="openBulkModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg">✕</button>
       </div>
@@ -521,7 +520,7 @@ export function getDiscoveryStudioViewHtml() {
     <div @click.away="openAddToFolderModal = false; keywordsToAddToFolder = []" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-slate-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Add Keywords to Folder">
       <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A] pb-3">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <span>📁</span> Add <span x-text="keywordsToAddToFolder.length || selectedKeywords.length"></span> Keywords to Folder
+          <i data-lucide="folder" class="w-4 h-4 text-emerald-500 shrink-0"></i><span>Add <span x-text="keywordsToAddToFolder.length || selectedKeywords.length"></span> Keywords to Folder</span>
         </h3>
         <button @click="openAddToFolderModal = false; keywordsToAddToFolder = []" class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg">✕</button>
       </div>
@@ -565,8 +564,8 @@ export function getDiscoveryStudioViewHtml() {
       <!-- Modal Header -->
       <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3 bg-slate-50/70 dark:bg-slate-950/60">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 text-lg">
-            📌
+          <div class="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400">
+            <i data-lucide="pin" class="w-4 h-4"></i>
           </div>
           <div>
             <h3 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -630,7 +629,7 @@ export function getDiscoveryStudioViewHtml() {
                 title="Click to copy ID"
               >
                 <span x-text="relatedData.main.annotation_id"></span>
-                <span class="text-[10px] text-slate-500">📋</span>
+                <i data-lucide="clipboard-list" class="w-3 h-3 text-slate-500 shrink-0"></i>
               </span>
             </div>
             <div>
@@ -663,7 +662,7 @@ export function getDiscoveryStudioViewHtml() {
 
         <!-- Error State -->
         <div x-show="!relatedLoading && (!relatedData || !relatedData.success)" class="py-16 text-center" x-cloak>
-          <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xl text-slate-400 mx-auto mb-3">🔍</div>
+          <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mx-auto mb-3"><i data-lucide="search" class="w-5 h-5"></i></div>
           <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-1">No Pinterest Annotation Graph Found</h4>
           <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto" x-text="relatedData?.error || 'This keyword does not map to an indexed Pinterest Interest node yet.'"></p>
         </div>
@@ -745,10 +744,10 @@ export function getDiscoveryStudioViewHtml() {
                   <td class="p-3 text-right">
                     <button 
                       @click="trackRelatedSingle(item.annotation)" 
-                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-emerald-200 dark:border-slate-700 transition-colors inline-flex items-center gap-1"
                       title="Track directly in Radar"
                     >
-                      ⚡ Track
+                      <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Track</span>
                     </button>
                   </td>
                 </tr>
@@ -773,7 +772,7 @@ export function getDiscoveryStudioViewHtml() {
             :disabled="selectedRelatedAnnotations.length === 0" 
             class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-mono tabular-nums text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
           >
-            <span>📁</span>
+            <i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i>
             <span>+ Add to Campaign Folder</span>
             <span x-show="selectedRelatedAnnotations.length > 0" x-text="'(' + selectedRelatedAnnotations.length + ')'"></span>
           </button>
@@ -782,7 +781,7 @@ export function getDiscoveryStudioViewHtml() {
             :disabled="selectedRelatedAnnotations.length === 0" 
             class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-mono tabular-nums text-xs font-bold transition-colors flex items-center gap-1.5"
           >
-            <span>⚡ Track Selected in Radar</span>
+            <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Track Selected in Radar</span>
             <span x-show="selectedRelatedAnnotations.length > 0" x-text="'(' + selectedRelatedAnnotations.length + ')'"></span>
           </button>
           <button @click="openRelatedModal = false" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium border border-slate-200 dark:border-transparent">

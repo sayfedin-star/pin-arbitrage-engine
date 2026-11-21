@@ -179,6 +179,7 @@ export function getDomainsClientAppScript() {
               } catch (_) {}
             })();
           }
+          this.$watch('dossierTab', () => { if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); }); });
           this.fetchFolders();
           this.loadDomains();
           // Defer heavy database-wide aggregations to background idle so leaderboard query gets 100% database priority
@@ -393,6 +394,7 @@ export function getDomainsClientAppScript() {
           } finally {
             if (reqSeq === this._loadReqSeq) {
               this.loading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -650,7 +652,7 @@ export function getDomainsClientAppScript() {
 
               if (data.is_complete || (this.globalStats.unchecked_domains === 0)) {
                 this.globalEnriching = false;
-                this.showToast('🎉 All domains in database are fully verified!', 'success');
+                this.showToast('All domains in database are fully verified!', 'success');
                 break;
               }
 
@@ -830,6 +832,7 @@ export function getDomainsClientAppScript() {
           } finally {
             if (reqSeq === this._dossierReqSeq && (!signal || !signal.aborted)) {
               this.dossierLoading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -907,19 +910,19 @@ export function getDomainsClientAppScript() {
           const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
           if (diffDays < 30) {
             return {
-              label: '🌱 ' + diffDays + 'd',
+              label: diffDays + 'd',
               title: 'Fresh Pin: Created ' + diffDays + ' days ago',
               class: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
             };
           } else if (diffDays <= 180) {
             return {
-              label: '⚡ ' + diffDays + 'd',
+              label: diffDays + 'd',
               title: 'Velocity Active: Created ' + diffDays + ' days ago',
               class: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
             };
           } else {
             const years = (diffDays / 365).toFixed(1);
-            const text = diffDays >= 365 ? '🦖 ' + years + 'y' : '🦖 ' + diffDays + 'd';
+            const text = diffDays >= 365 ? years + 'y' : diffDays + 'd';
             return {
               label: text,
               title: 'Evergreen Pin: Created ' + diffDays + ' days ago',
@@ -1196,6 +1199,7 @@ export function getDomainsClientAppScript() {
           this.blueprintLoading = true;
           this.isBlueprintModalOpen = true;
           this.blueprintData = null;
+          if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
 
           try {
             const activeFid = this.scopedFolderId || this.selectedFolderId || '';
@@ -1210,6 +1214,7 @@ export function getDomainsClientAppScript() {
           } finally {
             if (!signal || !signal.aborted) {
               this.blueprintLoading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -1226,7 +1231,7 @@ export function getDomainsClientAppScript() {
         copyBlueprintMarkdown() {
           if (!this.blueprintData?.markdown_blueprint) return;
           navigator.clipboard.writeText(this.blueprintData.markdown_blueprint).then(() => {
-            this.showToast('📋 Attack Blueprint copied to clipboard in Markdown format!', 'success');
+            this.showToast('Attack Blueprint copied to clipboard in Markdown format!', 'success');
           }).catch(() => {
             this.showToast('Failed to copy to clipboard', 'error');
           });
@@ -1244,7 +1249,7 @@ export function getDomainsClientAppScript() {
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          this.showToast('📥 Downloaded Blueprint JSON!', 'success');
+          this.showToast('Downloaded Blueprint JSON!', 'success');
         },
 
         async recheckAgeForDossier() {
@@ -1422,7 +1427,7 @@ export function getDomainsClientAppScript() {
 
               if (data.is_complete || (this.globalAdsStats.unchecked_domains === 0)) {
                 this.globalAdsEnriching = false;
-                this.showToast('🎉 All domains in database have ads.txt monetization verified!', 'success');
+                this.showToast('All domains in database have ads.txt monetization verified!', 'success');
                 break;
               }
 
@@ -1446,23 +1451,23 @@ export function getDomainsClientAppScript() {
         },
 
         getAdNetworkBadgeText(net) {
-          if (!net || net === 'unchecked') return '⏳ Unchecked';
+          if (!net || net === 'unchecked') return 'Unchecked';
           switch (net) {
-            case 'raptive': return '💎 Raptive';
-            case 'mediavine': return '🍇 Mediavine';
-            case 'journey': return '🚀 Journey';
-            case 'ezoic': return '⚡ Ezoic';
-            case 'hbagency': return '⚡ HBAgency';
-            case 'monumetric': return '📈 Monumetric';
-            case 'shemedia': return '🌸 SheMedia';
-            case 'freestar': return '⭐ Freestar';
-            case 'playwire': return '🎮 Playwire';
-            case 'snigel': return '🛡️ Snigel';
-            case 'adsense': return '🟡 AdSense';
-            case 'affiliate_only': return '🛒 Affiliate Only';
-            case 'unmonetized': return '⚪ Direct / None';
-            case 'protected': return '🛡️ Bot Protected';
-            case 'failed': return '❌ Unreachable';
+            case 'raptive': return 'Raptive';
+            case 'mediavine': return 'Mediavine';
+            case 'journey': return 'Journey';
+            case 'ezoic': return 'Ezoic';
+            case 'hbagency': return 'HBAgency';
+            case 'monumetric': return 'Monumetric';
+            case 'shemedia': return 'SheMedia';
+            case 'freestar': return 'Freestar';
+            case 'playwire': return 'Playwire';
+            case 'snigel': return 'Snigel';
+            case 'adsense': return 'AdSense';
+            case 'affiliate_only': return 'Affiliate Only';
+            case 'unmonetized': return 'Direct / None';
+            case 'protected': return 'Bot Protected';
+            case 'failed': return 'Unreachable';
             default: return this.capitalize(net);
           }
         },

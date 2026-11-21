@@ -78,7 +78,8 @@ export function renderRelatedSeedsTab() {
             <div class="flex items-center space-x-2 justify-end">
               <!-- Select All Toggle -->
               <button @click="toggleSelectAllSeeds()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 flex items-center space-x-1.5">
-                <i :data-lucide="isAllSeedsSelected ? 'check-square' : 'square'" class="w-3.5 h-3.5" :class="isAllSeedsSelected ? 'text-rose-600' : 'text-slate-400'"></i>
+                <span x-show="isAllSeedsSelected" class="inline-flex items-center justify-center"><i data-lucide="check-square" class="w-3.5 h-3.5 text-rose-600"></i></span>
+                <span x-show="!isAllSeedsSelected" class="inline-flex items-center justify-center"><i data-lucide="square" class="w-3.5 h-3.5 text-slate-400"></i></span>
                 <span x-text="isAllSeedsSelected ? 'Deselect All' : 'Select All'"></span>
               </button>
 
@@ -116,13 +117,13 @@ export function renderRelatedSeedsTab() {
               <!-- Crawl Selected -->
               <button @click="openCrawlModal('selected')" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95">
                 <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                <span>⚡ Crawl Selected (<span x-text="selectedSeedIds.length"></span>)</span>
+                <span>Crawl Selected (<span x-text="selectedSeedIds.length"></span>)</span>
               </button>
 
               <!-- Delete Selected from Database -->
               <button @click="openDeleteModal('selected')" class="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-600 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95">
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                <span>🗑️ Delete & Purge DB</span>
+                <span>Delete & Purge DB</span>
               </button>
 
               <!-- Export Selected -->
@@ -194,7 +195,7 @@ export function renderRelatedSeedsTab() {
                     <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                     <span>Inspect</span>
                   </button>
-                  <button @click.stop="openCrawlModal(seed.pin_id)" class="p-2 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition active:scale-95" title="⚡ Crawl this seed">
+                  <button @click.stop="openCrawlModal(seed.pin_id)" class="p-2 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition active:scale-95" title="Crawl this seed">
                     <i data-lucide="zap" class="w-3.5 h-3.5"></i>
                   </button>
                   <button @click.stop="openDeleteModal(seed)" class="p-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition active:scale-95" title="Delete & purge seed from database">
@@ -261,7 +262,7 @@ export function renderRelatedSeedsTab() {
                           <button @click="openSeedDossier(seed)" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-[11px] transition shadow-sm" title="Inspect Seed Cluster">
                             Inspect
                           </button>
-                          <button @click.stop="openCrawlModal(seed.pin_id)" class="p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition" title="⚡ Crawl this seed">
+                          <button @click.stop="openCrawlModal(seed.pin_id)" class="p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition" title="Crawl this seed">
                             <i data-lucide="zap" class="w-3.5 h-3.5"></i>
                           </button>
                           <button @click.stop="openDeleteModal(seed)" class="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition" title="Delete seed">
@@ -303,7 +304,7 @@ export function renderRelatedSeedsTab() {
               <span class="text-xs font-mono tabular-nums text-slate-500">Active Seed: <strong class="text-slate-900 dark:text-white" x-text="activeDossierSeed.pin_id"></strong></span>
               <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 shadow-sm" title="Import authentic raw Pinterest JSON response (RelatedModulesResource)">
                 <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
-                <span>📥 Import Raw JSON</span>
+                <span>Import Raw JSON</span>
               </button>
               <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 disabled:opacity-50">
                 <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3"></i>
@@ -483,7 +484,7 @@ export function renderRelatedSeedsTab() {
                       <template x-if="recgptPlaybook?.dinner_anchor?.daily_velocity">
                         <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
-                          <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.dinner_anchor?.daily_velocity + '/day'"></strong>
+                          <strong class="text-emerald-600 inline-flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="recgptPlaybook?.dinner_anchor?.daily_velocity + '/day'"></span></strong>
                         </div>
                       </template>
                     </div>
@@ -491,7 +492,7 @@ export function renderRelatedSeedsTab() {
 
                   <button @click="inspectCandidate(recgptPlaybook?.dinner_anchor)" class="w-full py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center space-x-1.5 shadow-sm">
                     <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                    <span>⚡ Generate Pin Asset</span>
+                    <span>Generate Pin Asset</span>
                   </button>
                 </div>
 
@@ -529,7 +530,7 @@ export function renderRelatedSeedsTab() {
                       <template x-if="recgptPlaybook?.navboost_co_visitor?.daily_velocity">
                         <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
-                          <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.navboost_co_visitor?.daily_velocity + '/day'"></strong>
+                          <strong class="text-emerald-600 inline-flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="recgptPlaybook?.navboost_co_visitor?.daily_velocity + '/day'"></span></strong>
                         </div>
                       </template>
                     </div>
@@ -537,7 +538,7 @@ export function renderRelatedSeedsTab() {
 
                   <button @click="inspectCandidate(recgptPlaybook?.navboost_co_visitor)" class="w-full py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center space-x-1.5 shadow-sm">
                     <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                    <span>⚡ Generate Pin Asset</span>
+                    <span>Generate Pin Asset</span>
                   </button>
                 </div>
 
@@ -575,7 +576,7 @@ export function renderRelatedSeedsTab() {
                       <template x-if="recgptPlaybook?.session_finisher?.daily_velocity">
                         <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
-                          <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.session_finisher?.daily_velocity + '/day'"></strong>
+                          <strong class="text-emerald-600 inline-flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="recgptPlaybook?.session_finisher?.daily_velocity + '/day'"></span></strong>
                         </div>
                       </template>
                     </div>
@@ -583,7 +584,7 @@ export function renderRelatedSeedsTab() {
 
                   <button @click="inspectCandidate(recgptPlaybook?.session_finisher)" class="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition active:scale-95 flex items-center justify-center space-x-1.5 shadow-sm">
                     <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                    <span>⚡ Generate Pin Asset</span>
+                    <span>Generate Pin Asset</span>
                   </button>
                 </div>
 
@@ -719,11 +720,11 @@ export function renderRelatedSeedsTab() {
                   <div class="pt-3 flex flex-wrap items-center justify-center gap-3">
                     <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono tabular-nums transition active:scale-95 inline-flex items-center space-x-2 shadow-sm">
                       <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
-                      <span>📥 استيراد ملف JSON الخام (Import Raw JSON)</span>
+                      <span>استيراد ملف JSON الخام (Import Raw JSON)</span>
                     </button>
                     <button @click="isCookieModalOpen = true" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] text-xs font-bold font-mono tabular-nums transition active:scale-95 inline-flex items-center space-x-2">
                       <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
-                      <span>🔑 إعداد كوكيز بينترست (Set Session Cookie)</span>
+                      <span>إعداد كوكيز بينترست (Set Session Cookie)</span>
                     </button>
                     <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold font-mono tabular-nums transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
                       <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>

@@ -186,7 +186,7 @@ export function getDashboardIntersectionsMethods() {
           if (!item) {
             return {
               tier: 'B',
-              label: '⭐ Tier B',
+              label: 'Tier B',
               badgeClass: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30',
               barGradient: 'bg-gradient-to-r from-slate-400 to-slate-500',
               barPercent: 10,
@@ -202,7 +202,7 @@ export function getDashboardIntersectionsMethods() {
           if (score >= 3000000 || overlap >= 7) {
             return {
               tier: 'S+',
-              label: '👑 Tier S+ (Top 0.1%)',
+              label: 'Tier S+ (Top 0.1%)',
               badgeClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30',
               barGradient: 'bg-gradient-to-r from-purple-500 via-rose-500 to-amber-500',
               barPercent,
@@ -212,7 +212,7 @@ export function getDashboardIntersectionsMethods() {
           if (score >= 1000000 || overlap >= 5) {
             return {
               tier: 'S',
-              label: '🔥 Tier S (Golden Core)',
+              label: 'Tier S (Golden Core)',
               badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30',
               barGradient: 'bg-gradient-to-r from-rose-500 to-amber-500',
               barPercent,
@@ -222,7 +222,7 @@ export function getDashboardIntersectionsMethods() {
           if (score >= 500000 || overlap >= 3) {
             return {
               tier: 'A',
-              label: '⚡ Tier A (Cluster Hub)',
+              label: 'Tier A (Cluster Hub)',
               badgeClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30',
               barGradient: 'bg-gradient-to-r from-sky-500 to-emerald-500',
               barPercent,
@@ -231,7 +231,7 @@ export function getDashboardIntersectionsMethods() {
           }
           return {
             tier: 'B',
-            label: '⭐ Tier B (Pairwise)',
+            label: 'Tier B (Pairwise)',
             badgeClass: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30',
             barGradient: 'bg-gradient-to-r from-slate-400 to-slate-500',
             barPercent,

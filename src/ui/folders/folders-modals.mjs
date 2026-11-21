@@ -11,7 +11,7 @@ export function getFoldersModalsHtml() {
     <div @click.away="openNewFolderModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4" role="dialog" aria-modal="true" aria-label="Create New Campaign Folder">
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <span>📁</span> Create New Campaign Folder
+          <i data-lucide="folder" class="w-4 h-4 text-indigo-500 shrink-0"></i><span>Create New Campaign Folder</span>
         </h3>
         <button @click="openNewFolderModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white">✕</button>
       </div>
@@ -49,7 +49,7 @@ export function getFoldersModalsHtml() {
   <div x-show="deleteModalFolderId" @keydown.escape.window="deleteModalFolderId = null" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
     <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 text-center" role="dialog" aria-modal="true" aria-label="Delete Campaign Folder">
       <div class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xl mx-auto">
-        🗑️
+        <i data-lucide="trash-2" class="w-5 h-5"></i>
       </div>
       <div>
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Campaign Folder?</h3>
@@ -70,7 +70,7 @@ export function getFoldersModalsHtml() {
       <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-lg font-bold">
-            ⚙️
+            <i data-lucide="settings" class="w-5 h-5"></i>
           </div>
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">Folder Settings & 20-Runner Fleet Config</h3>
@@ -84,7 +84,7 @@ export function getFoldersModalsHtml() {
       <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-transparent border border-indigo-500/20 flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="text-base">🚀</span>
+            <i data-lucide="rocket" class="w-4 h-4 text-indigo-500 shrink-0"></i>
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Cluster Fleet Engine (20 Parallel Runners)</span>
           </div>
           <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20">Stage 0 + Stage 1 Matrix</span>
@@ -206,7 +206,7 @@ export function getFoldersModalsHtml() {
           </button>
           <button type="button" @click="saveFolderSettings(true)" :disabled="settingsLoading || auditDispatching"
                   class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition flex items-center gap-1.5">
-            <span>🚀</span>
+            <i data-lucide="rocket" class="w-3.5 h-3.5 shrink-0"></i>
             <span x-text="auditDispatching ? 'Launching...' : 'Save & Launch 20 Runners'"></span>
           </button>
         </div>

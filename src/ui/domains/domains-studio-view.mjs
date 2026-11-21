@@ -18,7 +18,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <span class="text-slate-300 dark:text-slate-700">|</span>
           <nav class="flex items-center gap-1.5 text-slate-500">
             <a :href="getBaseStudioPath()" href="/domains" @click.prevent="closeDossier()" class="hover:text-sky-600 dark:hover:text-sky-400 flex items-center gap-1 transition">
-              <span>🌐 Domain Radar</span>
+              <i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i><span>Domain Radar</span>
             </a>
             <span class="text-slate-300 dark:text-slate-700">/</span>
             <span class="font-bold text-slate-900 dark:text-white" x-text="dossierDomain"></span>
@@ -29,19 +29,19 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="openBlueprintModal(dossierDomain)"
                   class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-rose-500/20 active:scale-95"
                   title="Generate instant 6-pillar Arbitrage Attack Blueprint">
-            <span>⚡</span>
+            <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Attack Plan</span>
           </button>
           <button @click="recheckAgeForDossier()"
                   :disabled="enrichingDomains[dossierDomain]"
                   class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-            <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': enrichingDomains[dossierDomain] }"></i>
             <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
           </button>
           <button @click="recheckAdsForDossier()"
                   :disabled="enrichingAds[dossierDomain]"
                   class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-            <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': enrichingAds[dossierDomain] }"></i>
             <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
           </button>
           <button @click="closeDossier()"
@@ -59,7 +59,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3.5">
             <template x-if="dossierDomain && dossierDomain.toLowerCase() === 'uploaded by user'">
-              <span class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg shadow-sm font-bold">✨</span>
+              <span class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shadow-sm"><i data-lucide="sparkles" class="w-4 h-4"></i></span>
             </template>
             <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
               <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
@@ -70,7 +70,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
             <div class="flex items-center gap-3 flex-wrap">
               <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="dossierDomain"></h2>
               <template x-if="dossierDomain && dossierDomain.toLowerCase() === 'uploaded by user'">
-                <span class="text-xs font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold">🎯 100% Organic Direct Uploads • Unlinked Pinterest Traffic • Vacuum Opportunity</span>
+                <span class="inline-flex items-center gap-1 text-xs font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>100% Organic Direct Uploads • Unlinked Pinterest Traffic • Vacuum Opportunity</span></span>
               </template>
               <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
                 <div class="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-400">
@@ -91,20 +91,20 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
             <button @click="openBlueprintModal(dossierDomain)"
                     class="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
                     title="Generate instant 6-pillar Arbitrage Attack Blueprint">
-              <span>⚡ Attack Plan</span>
+              <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Attack Plan</span>
             </button>
             <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
               <div class="flex items-center gap-2">
                 <button @click="recheckAgeForDossier()"
                         :disabled="enrichingDomains[dossierDomain]"
                         class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]/80 hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-                  <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': enrichingDomains[dossierDomain] }"></i>
                   <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
                 </button>
                 <button @click="recheckAdsForDossier()"
                         :disabled="enrichingAds[dossierDomain]"
                         class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]/80 hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-                  <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': enrichingAds[dossierDomain] }"></i>
                   <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
                 </button>
               </div>
@@ -116,15 +116,15 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
         <template x-if="dossierData?.summary?.is_organic_vault">
           <div class="flex items-center gap-2 flex-wrap font-mono tabular-nums text-xs pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-bold shadow-sm">
-              <span>🎯</span>
+              <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i>
               <span>100% Unmonetized Arbitrage Vacuum</span>
             </span>
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-bold shadow-sm">
-              <span>⚡</span>
+              <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i>
               <span>0 Outbound Links • Top SERP Search Rankings</span>
             </span>
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20 font-bold shadow-sm">
-              <span>👤</span>
+              <i data-lucide="user" class="w-3.5 h-3.5 shrink-0"></i>
               <span x-text="(dossierData?.summary?.accounts_count || 0) + ' Organic Creator Accounts'"></span>
             </span>
           </div>
@@ -135,7 +135,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold shadow-sm"
                 :class="dossierData?.age_info?.age_years != null ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : (dossierData?.age_info?.lookup_status === 'failed' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' : 'bg-slate-100 dark:bg-[#18181B] text-slate-500 border-slate-200 dark:border-[#27272A]')"
                 :title="dossierData?.age_info?.registered_at ? 'Registered: ' + dossierData.age_info.registered_at.slice(0, 10) : 'Age'">
-            <span>🌱</span>
+            <i data-lucide="sprout" class="w-3.5 h-3.5 shrink-0"></i>
             <span x-text="dossierData?.age_info?.age_days != null ? formatDomainAge(dossierData.age_info.age_days) : (dossierData?.age_info?.lookup_status === 'failed' ? 'Registry Withheld / Privacy Shielded' : 'Unverified Age')"></span>
           </span>
 
@@ -189,7 +189,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <template x-if="dossierData?.ad_info?.previous_ad_network">
             <span class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1 shadow-sm"
                   :title="'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')">
-              <span>↗️</span>
+              <span>↗</span>
               <span x-text="'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)"></span>
               <span class="text-[10px] text-slate-400" x-text="dossierData?.ad_info?.switched_at ? '(' + dossierData.ad_info.switched_at.slice(0, 10) + ')' : ''"></span>
             </span>
@@ -240,7 +240,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="dossierTab = 'urls'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
                   :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
-            <span x-text="dossierData?.summary?.is_organic_vault ? '📁 Direct Upload Boards' : '🔗 Money Articles'"></span>
+            <span x-show="dossierData?.summary?.is_organic_vault" class="inline-flex items-center gap-1.5"><i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i><span>Direct Upload Boards</span></span><span x-show="!dossierData?.summary?.is_organic_vault" class="inline-flex items-center gap-1.5"><i data-lucide="link" class="w-3.5 h-3.5 shrink-0"></i><span>Money Articles</span></span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierArticles().length"></span>
@@ -250,7 +250,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="dossierTab = 'pins'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
                   :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
-            <span>🎯 Ranked Pins</span>
+            <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Ranked Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierPins().length || dossierData?.summary?.total_pins || 0"></span>
@@ -260,7 +260,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="dossierTab = 'keywords'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
                   :class="dossierTab === 'keywords' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
-            <span>🕸️ Keyword Monopoly</span>
+            <i data-lucide="git-fork" class="w-3.5 h-3.5 shrink-0"></i><span>Keyword Monopoly</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'keywords' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierKeywords().length"></span>
@@ -272,7 +272,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="dossierTab = 'accounts'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
                   :class="dossierTab === 'accounts' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
-            <span>👤 Creators</span>
+            <i data-lucide="user" class="w-3.5 h-3.5 shrink-0"></i><span>Creators</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'accounts' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="dossierData?.accounts?.length || 0"></span>
@@ -282,7 +282,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="dossierTab = 'visual_dna'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
                   :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
-            <span>🧬 Visual DNA</span>
+            <i data-lucide="dna" class="w-3.5 h-3.5 shrink-0"></i><span>Visual DNA</span>
           </button>
         </div>
 
@@ -340,13 +340,13 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
           <button @click="copyAllArticleUrls()"
                   class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
                   title="Copy all discovered article URLs to clipboard">
-            <span>📋</span>
+            <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Copy URLs</span>
           </button>
           <button @click="copyAllKeywords()"
                   class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
                   title="Copy all monopolized keywords to clipboard">
-            <span>📋</span>
+            <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Copy Keywords</span>
           </button>
         </div>
@@ -357,7 +357,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
         <!-- Loading State -->
         <template x-if="dossierLoading">
           <div class="py-24 text-center text-slate-400 font-mono tabular-nums flex flex-col items-center justify-center gap-3">
-            <span class="animate-spin text-3xl">🔄</span>
+            <i data-lucide="loader-2" class="w-7 h-7 animate-spin text-sky-500"></i>
             <span class="text-sm">De-obfuscating domain intelligence & 4-pillar data...</span>
           </div>
         </template>
@@ -365,14 +365,14 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
         <!-- Error & Cold Start State -->
         <template x-if="!dossierLoading && !dossierData">
           <div class="py-20 text-center flex flex-col items-center justify-center gap-4 bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-8 shadow-sm">
-            <div class="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center text-2xl font-bold">⚠️</div>
+            <div class="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center"><i data-lucide="alert-triangle" class="w-6 h-6"></i></div>
             <div class="flex flex-col gap-1 max-w-md">
               <span class="text-base font-bold text-slate-900 dark:text-white">Dossier Cold-Start or Timed Out</span>
               <span class="text-xs text-slate-500 dark:text-slate-400">The serverless database or background compute may have experienced a cold start while compiling 4-pillar data for <span class="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="dossierDomain"></span>.</span>
             </div>
             <button @click="openDossier(dossierDomain, false, true)"
                     class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-mono tabular-nums font-semibold shadow-sm transition flex items-center gap-2">
-              <span>🔄</span>
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0"></i>
               <span>Retry Loading Dossier</span>
             </button>
           </div>
@@ -422,7 +422,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                  referrerpolicy="no-referrer"
                                  class="w-12 h-16 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
                                  loading="lazy"
-                                 onerror="window.handlePinImgError(this)">
+                                 onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                           </td>`,
                           titleHtml: `
                           <td class="py-3 px-3 min-w-[260px]">
@@ -430,9 +430,9 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                               <div class="flex items-center gap-2 flex-wrap">
                                 <span class="text-sm font-bold text-slate-900 dark:text-white truncate max-w-md" x-text="p.title"></span>
                                 <template x-if="p.is_vulnerable">
-                                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
+                                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
                                         title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
-                                    ⚡ Decaying Monopoly
+                                    <i data-lucide="zap" class="w-2.5 h-2.5 shrink-0"></i><span>Decaying Monopoly</span>
                                   </span>
                                 </template>
                               </div>
@@ -446,9 +446,10 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                   </span>
                                 </template>
                                 <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
-                                  <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
-                                        :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).join(', ')"
-                                        x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
+                                  <span class="inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 max-w-[200px]"
+                                        :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).join(', ')">
+                                    <span aria-hidden="true">•</span><i data-lucide="tag" class="w-2.5 h-2.5 shrink-0"></i><span class="truncate" x-text="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || a.label || a.term || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
+                                  </span>
                                 </template>
                               </div>
                               <!-- SERP Appearances Badges (Clickable with drilldown) -->
@@ -540,13 +541,13 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                 <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
                   <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono tabular-nums text-xs">
                     <div class="flex items-center gap-2">
-                      <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Displaced Vault:</span>
+                      <span class="inline-flex items-center gap-1.5 text-sky-600 dark:text-sky-400 font-bold"><i data-lucide="package" class="w-3.5 h-3.5 shrink-0"></i><span>Historical Displaced Vault:</span></span>
                       <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Unified PostgreSQL.'"></span>
                     </div>
                     <button @click="loadMoreDisplaced()"
                             :disabled="dossierLoadingMore"
                             class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
-                      <span :class="{ 'animate-spin': dossierLoadingMore }">🔄</span>
+                      <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': dossierLoadingMore }"></i>
                       <span x-text="dossierLoadingMore ? 'Hydrating Vault...' : 'Load +50 Displaced Vault Pins'">Load +50 Displaced Vault Pins</span>
                     </button>
                   </div>
@@ -564,7 +565,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <button @click="copyToClipboard(art.sample_url || art.clean_slug, 'Copied article URL!')"
                                   class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-[#27272A]"
                                   title="Copy URL">
-                            📋
+                            <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i>
                           </button>
                           <a :href="safeUrl(art.sample_url)"
                              target="_blank"
@@ -587,7 +588,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <template x-if="art.url_global_saves != null">
                             <span class="inline-flex items-center gap-1 font-mono">
                               <span>•</span>
-                              <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'🌐 ' + formatNumber(art.url_global_saves) + ' Article Saves'"></span>
+                              <i data-lucide="globe" class="w-3 h-3 text-sky-500 shrink-0"></i><span class="text-sky-600 dark:text-sky-400 font-bold" x-text="formatNumber(art.url_global_saves) + ' Article Saves'"></span>
                             </span>
                           </template>
                           <template x-if="art.url_global_saves != null && (Number(art.url_global_saves) / Math.max(1, Number(art.total_saves || 1))) >= 5.0">
@@ -606,7 +607,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <template x-if="art.is_vulnerable">
                             <span class="inline-flex items-center gap-1">
                               <span>•</span>
-                              <span class="text-rose-600 dark:text-rose-400 font-bold">⚡ Vulnerable</span>
+                              <span class="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-400 font-bold"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Vulnerable</span></span>
                             </span>
                           </template>
                           <!-- Clickable Keyword Count Drilldown -->
@@ -626,8 +627,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           <div class="flex items-center gap-1.5 flex-wrap mt-2">
                             <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-bold">Search Intents:</span>
                             <template x-for="ang in art.angles_targeted" :key="ang">
-                              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]"
-                                    x-text="'🎯 ' + ang"></span>
+                              <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]"><i data-lucide="target" class="w-2.5 h-2.5 shrink-0"></i><span x-text="ang"></span></span>
                             </template>
                           </div>
                         </template>
@@ -663,7 +663,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                  referrerpolicy="no-referrer"
                                  class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
                                  loading="lazy"
-                                 onerror="window.handlePinImgError(this)">
+                                 onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                             
                             <!-- Top Badges Overlay (Age & Intent) -->
                             <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
@@ -754,27 +754,27 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           </a>
                           <!-- Strategy Badge (Pillar 1) -->
                           <template x-if="kw.strategy === 'URL_FLOODING'">
-                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                            <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
                                   title="URL Creative Flooding: The competitor launched multiple creative pins pointing to the exact same article!">
-                              💣 URL Flooding (1 Article, Multi-Pin)
+                              <i data-lucide="flame" class="w-3 h-3 shrink-0"></i><span>URL Flooding (1 Article, Multi-Pin)</span>
                             </span>
                           </template>
                           <template x-if="kw.strategy === 'TOPIC_CLUSTER'">
-                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30"
+                            <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30"
                                   title="Topic Cluster: The competitor dominates this keyword through distinct specialized articles!">
-                              🌳 Topic Cluster (<span x-text="kw.unique_urls_count"></span> Articles)
+                              <i data-lucide="git-branch" class="w-3 h-3 shrink-0"></i><span>Topic Cluster (<span x-text="kw.unique_urls_count"></span> Articles)</span>
                             </span>
                           </template>
                           <template x-if="kw.strategy === 'HYBRID_FLOODING'">
-                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
-                              ⚡ Hybrid Domination
+                            <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                              <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Hybrid Domination</span>
                             </span>
                           </template>
                           <!-- Decaying Monopoly Warning (Pillar 5) -->
                           <template x-if="kw.is_decaying_monopoly">
-                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
+                            <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
                                   title="Decaying Monopoly: Competitor holds top slots with stagnant velocity. High vulnerability to fresh pin takeover!">
-                              ⚡ Decaying Monopoly (Vulnerable)
+                              <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Decaying Monopoly (Vulnerable)</span>
                             </span>
                           </template>
                         </div>
@@ -800,7 +800,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                     <template x-if="kw.top_slot_attribution">
                       <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] text-[11px] font-mono tabular-nums text-slate-500 flex items-center justify-between flex-wrap gap-2">
                         <div class="flex items-center gap-1.5 min-w-0">
-                          <span class="font-bold text-amber-600 dark:text-amber-400">🏆 Top Slot Driver:</span>
+                          <span class="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400"><i data-lucide="trophy" class="w-3 h-3 shrink-0"></i><span>Top Slot Driver:</span></span>
                           <span class="font-bold text-slate-800 dark:text-slate-200" x-text="kw.top_slot_attribution.rank_position != null ? ('Rank #' + kw.top_slot_attribution.rank_position) : (kw.top_slot_attribution.last_known_rank != null ? ('Vault #' + kw.top_slot_attribution.last_known_rank) : 'Vault Pin')"></span>
                           <button @click="filterToArticle(kw.top_slot_attribution.clean_slug || kw.top_slot_attribution.title)"
                                   class="text-sky-600 dark:text-sky-400 hover:underline truncate max-w-[280px] flex items-center gap-1"
@@ -827,7 +827,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                       <div class="flex items-center gap-3.5 min-w-0">
                         <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold font-mono tabular-nums text-sm shrink-0"
                              :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'">
-                          <span x-text="acc.role === 'PRIMARY_BRAND' ? '👑' : '@'"></span>
+                          <span x-show="acc.role === 'PRIMARY_BRAND'" class="inline-flex"><i data-lucide="crown" class="w-4 h-4"></i></span><span x-show="acc.role !== 'PRIMARY_BRAND'">@</span>
                         </div>
                         <div class="flex flex-col min-w-0">
                           <div class="flex items-center gap-2 flex-wrap">
@@ -836,9 +836,8 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                rel="noopener noreferrer"
                                class="text-sm font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
                                x-text="'@' + acc.username"></a>
-                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold"
-                                  :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'"
-                                  x-text="acc.role === 'PRIMARY_BRAND' ? '👑 Primary Brand Account' : '🛰️ Satellite / Ghost Creator'"></span>
+                            <span class="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold"
+                                  :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'"><span x-show="acc.role === 'PRIMARY_BRAND'" class="inline-flex"><i data-lucide="crown" class="w-3 h-3"></i></span><span x-show="acc.role !== 'PRIMARY_BRAND'" class="inline-flex"><i data-lucide="radar" class="w-3 h-3"></i></span><span x-text="acc.role === 'PRIMARY_BRAND' ? 'Primary Brand Account' : 'Satellite / Ghost Creator'"></span></span>
                           </div>
                           <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums mt-1">
                             <span x-text="acc.pins_count + ' pins linked'"></span>
@@ -865,7 +864,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                     <!-- Cross-Domain Sybil Footprint (Pillar 4) -->
                     <template x-if="Array.isArray(acc.sister_domains) && acc.sister_domains.length > 0">
                       <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center gap-1.5 flex-wrap text-xs font-mono tabular-nums">
-                        <span class="text-amber-600 dark:text-amber-400 font-bold">⚠️ Sybil Sister Domains Fingerprint:</span>
+                        <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i><span>Sybil Sister Domains Fingerprint:</span></span>
                         <template x-for="sd in acc.sister_domains" :key="sd.domain">
                           <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20"
                                 x-text="sd.domain + ' (' + sd.pins_count + ' pins)'"></span>
@@ -882,7 +881,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                 <!-- Top Overview Card -->
                 <div class="bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
                   <div class="flex items-center gap-2">
-                    <span class="text-xl">🧬</span>
+                    <i data-lucide="dna" class="w-5 h-5 text-sky-500 shrink-0"></i>
                     <div>
                       <h3 class="text-sm font-bold text-slate-900 dark:text-white">Reverse-Engineered Visual DNA</h3>
                       <p class="text-[11px] text-slate-400">Pinterest Computer Vision annotations cloud, dominant color palette & winning design signals</p>
@@ -892,8 +891,8 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   <!-- Visual Tags Cloud -->
                   <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                        🏷️ Top Computer Vision Object Annotations (AI Eye)
+                      <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                        <i data-lucide="tag" class="w-3.5 h-3.5 shrink-0"></i><span>Top Computer Vision Object Annotations (AI Eye)</span>
                       </span>
                       <span class="text-[10px] text-slate-400 font-mono tabular-nums">Elements Pinterest AI identifies in images</span>
                     </div>
@@ -913,8 +912,8 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   <!-- Dominant Color Palette -->
                   <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                        🎨 Dominant Color Palette Distribution
+                      <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                        <i data-lucide="palette" class="w-3.5 h-3.5 shrink-0"></i><span>Dominant Color Palette Distribution</span>
                       </span>
                       <span class="text-[10px] text-slate-400 font-mono tabular-nums">HEX color breakdown across creative pins</span>
                     </div>
@@ -934,8 +933,8 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   <!-- High-Converting Title Keywords -->
                   <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                        ✍️ Winning SEO Title Semantic Keywords
+                      <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                        <i data-lucide="pen-line" class="w-3.5 h-3.5 shrink-0"></i><span>Winning SEO Title Semantic Keywords</span>
                       </span>
                       <span class="text-[10px] text-slate-400 font-mono tabular-nums">Most frequent high-CTR title tokens</span>
                     </div>

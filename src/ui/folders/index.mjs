@@ -84,7 +84,7 @@ ${renderSharedDocumentHead({
           </a>
           <a href="/pulse" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition inline-flex items-center space-x-1.5 shadow-2xs" title="24h Algorithmic Pulse & Crossover Radar">
             <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
-            <span>⚡ 24h Pulse Radar</span>
+            <span>24h Pulse Radar</span>
           </a>
           <button @click="openNewFolderModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>

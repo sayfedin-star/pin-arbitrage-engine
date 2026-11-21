@@ -608,10 +608,10 @@ export function getKeywordsClientAppScript() {
 
         getKeywordVelocityTierLabel(kw) {
           const vel = this.getKeywordVelocity(kw);
-          if (vel >= 50) return '🔥 Explosive';
-          if (vel >= 10) return '📈 Trending';
-          if (vel > 0) return '⏸ Steady';
-          return '⚪ Stagnant';
+          if (vel >= 50) return 'Explosive';
+          if (vel >= 10) return 'Trending';
+          if (vel > 0) return 'Steady';
+          return 'Stagnant';
         },
 
         getKeywordVelocityTierClass(kw) {

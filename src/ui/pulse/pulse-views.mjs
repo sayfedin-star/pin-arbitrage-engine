@@ -142,7 +142,7 @@ export function getPulseStudioViewsHtml() {
           :class="currentRoom === 'radar' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] border border-transparent'"
         >
           <i data-lucide="flame" class="w-4 h-4 text-rose-500"></i>
-          <span>🔥 24h Viral Pin Radar</span>
+          <span>24h Viral Pin Radar</span>
           <span class="px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[10px] bg-slate-200/80 dark:bg-[#27272A] text-slate-700 dark:text-slate-300" x-text="formatNumber(getFilteredRadarPins().length)"></span>
         </button>
 
@@ -154,7 +154,7 @@ export function getPulseStudioViewsHtml() {
           :class="currentRoom === 'matrix' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] border border-transparent'"
         >
           <i data-lucide="dna" class="w-4 h-4 text-purple-500"></i>
-          <span>🧬 Annotation &amp; Intent Matrix</span>
+          <span>Annotation &amp; Intent Matrix</span>
         </button>
 
         <!-- Room 3: Breakout Creators & Vacuums -->
@@ -165,7 +165,7 @@ export function getPulseStudioViewsHtml() {
           :class="currentRoom === 'creators_vacuums' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] border border-transparent'"
         >
           <i data-lucide="rocket" class="w-4 h-4 text-amber-500"></i>
-          <span>🚀 Creators &amp; SERP Vacuums</span>
+          <span>Creators &amp; SERP Vacuums</span>
         </button>
       </nav>
 
@@ -200,37 +200,37 @@ export function getPulseStudioViewsHtml() {
           <button 
             type="button" 
             @click="setRadarFilter('fresh')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="radarFilter === 'fresh' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>⚡ Fresh Breakouts (≤14d)</span>
+            <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Fresh Breakouts (≤14d)</span>
             <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.fresh_rocket_pins_14d_count || (breakout_pins.fresh_rockets || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
             @click="setRadarFilter('bridges')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="radarFilter === 'bridges' ? 'bg-white dark:bg-[#121215] text-indigo-600 dark:text-indigo-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>🌉 Multi-Keyword Pixie Bridges</span>
+            <i data-lucide="git-merge" class="w-3.5 h-3.5 shrink-0"></i><span>Multi-Keyword Pixie Bridges</span>
             <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.multi_keyword_bridge_pins_count || (keyword_vacuums_and_bridges.bridge_pins || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
             @click="setRadarFilter('domainless')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="radarFilter === 'domainless' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>💎 Domainless / Linkless Hijacks</span>
+            <i data-lucide="gem" class="w-3.5 h-3.5 shrink-0"></i><span>Domainless / Linkless Hijacks</span>
             <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.domainless_viral_pins_count || (hidden_gems_telemetry.domainless_viral_pins || []).length) + ')'"></span>
           </button>
           <button 
             type="button" 
             @click="setRadarFilter('vault')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="radarFilter === 'vault' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>📦 Vault Surges (Displaced Index)</span>
+            <i data-lucide="package" class="w-3.5 h-3.5 shrink-0"></i><span>Vault Surges (Displaced Index)</span>
             <span class="ml-1 font-mono text-[10px]" x-text="'(' + formatNumber(kpis.vault_surge_pins_count || (breakout_pins.vault_surge_pins || []).length) + ')'"></span>
           </button>
         </div>
@@ -303,7 +303,7 @@ export function getPulseStudioViewsHtml() {
                              alt="Pin preview" 
                              loading="lazy" 
                              class="w-full h-full object-cover group-hover:scale-105 transition" 
-                             onerror="window.handlePinImgError(this)" />
+                             onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                       </div>
                       <div class="flex flex-col space-y-1">
                         <!-- Direct link to /pin/:id -->
@@ -346,7 +346,7 @@ export function getPulseStudioViewsHtml() {
 
                       <!-- Fresh Rocket Badge -->
                       <template x-if="pin.is_fresh_14d || pin.is_fresh_breakout || (pin.pin_age_days !== null && pin.pin_age_days !== undefined && pin.pin_age_days !== '' && Number(pin.pin_age_days) >= 0 && Number(pin.pin_age_days) <= 14)">
-                        <span class="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold border border-amber-500/20">🚀 Rocket (≤14d)</span>
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold border border-amber-500/20"><i data-lucide="rocket" class="w-2.5 h-2.5 shrink-0"></i><span>Rocket (≤14d)</span></span>
                       </template>
 
                       <!-- Pixie Bridge Badge -->
@@ -363,7 +363,7 @@ export function getPulseStudioViewsHtml() {
 
                       <!-- Vault Surge Badge -->
                       <template x-if="pin.is_vault_surge || pin.is_displaced">
-                        <span class="px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[9.5px] font-mono border border-purple-500/20 font-bold">📦 Vault Surge</span>
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[9.5px] font-mono border border-purple-500/20 font-bold"><i data-lucide="package" class="w-2.5 h-2.5 shrink-0"></i><span>Vault Surge</span></span>
                       </template>
                     </div>
 
@@ -407,9 +407,9 @@ export function getPulseStudioViewsHtml() {
                   <td class="py-2.5 px-3 text-right">
                     <button type="button" 
                             @click="openBlueprintModal(pin)" 
-                            class="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                            class="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer shadow-2xs inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                             title="Inspect pin dossier and generate production blueprint">
-                      <span>⚡ Blueprint</span>
+                      <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Blueprint</span>
                     </button>
                   </td>`
                 })}
@@ -465,26 +465,26 @@ export function getPulseStudioViewsHtml() {
           <button 
             type="button" 
             @click="setMatrixSubFilter('capsules')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="matrixSubFilter === 'capsules' ? 'bg-white dark:bg-[#121215] text-sky-600 dark:text-sky-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>🎯 Guided Search Capsules</span>
+            <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Guided Search Capsules</span>
           </button>
           <button 
             type="button" 
             @click="setMatrixSubFilter('colors')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="matrixSubFilter === 'colors' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>🎨 Dominant Color Swatches</span>
+            <i data-lucide="palette" class="w-3.5 h-3.5 shrink-0"></i><span>Dominant Color Swatches</span>
           </button>
           <button 
             type="button" 
             @click="setMatrixSubFilter('domains')" 
-            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+            class="px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
             :class="matrixSubFilter === 'domains' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
-            <span>🌐 Top Arbitrage Domains</span>
+            <i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i><span>Top Arbitrage Domains</span>
           </button>
         </div>
 
@@ -615,7 +615,7 @@ export function getPulseStudioViewsHtml() {
                          alt="Pin thumbnail" 
                          loading="lazy" 
                          class="w-full h-full object-cover group-hover:scale-105 transition" 
-                         onerror="window.handlePinImgError(this)" />
+                         onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                   </div>
 
                   <!-- Details -->
@@ -664,9 +664,9 @@ export function getPulseStudioViewsHtml() {
                   <button 
                     type="button" 
                     @click="openBlueprintModal(p)" 
-                    class="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer"
+                    class="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1"
                   >
-                    <span>⚡ Blueprint</span>
+                    <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Blueprint</span>
                   </button>
                 </div>
               </div>
@@ -705,10 +705,10 @@ export function getPulseStudioViewsHtml() {
             <button 
               type="button" 
               @click="setCreatorSubFilter('david')" 
-              class="px-3.5 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+              class="px-3.5 py-1.5 rounded-lg font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
               :class="creatorSubFilter === 'david' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
             >
-              <span>🏹 David Breakouts (High Velocity Small Accounts)</span>
+              <i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>David Breakouts (High Velocity Small Accounts)</span>
             </button>
           </div>
 
@@ -762,7 +762,7 @@ export function getPulseStudioViewsHtml() {
                               <img :src="p.image_url ? window.resolvePinImageUrl(p.image_url, '236x') : window.resolvePinImageUrl('', '236x')" 
                                    alt="Driver" 
                                    class="w-full h-full object-cover group-hover:scale-105 transition" 
-                                   onerror="window.handlePinImgError(this)" 
+                                   onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" 
                                    loading="lazy" />
                             </div>
                             <div class="min-w-0 pr-1 text-left">
@@ -802,7 +802,7 @@ export function getPulseStudioViewsHtml() {
         <div class="rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-xs p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <span class="text-base">💎</span>
+              <i data-lucide="gem" class="w-4 h-4 text-emerald-500 shrink-0"></i>
               <h3 class="font-bold text-slate-900 dark:text-white text-sm">True Domainless Viral Pins</h3>
             </div>
             <span class="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">Blog Hijack Ripe</span>
@@ -817,7 +817,7 @@ export function getPulseStudioViewsHtml() {
                 <div class="flex items-center space-x-3 min-w-0">
                   <div class="w-10 h-14 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden shrink-0 cursor-pointer"
                        @click="openBlueprintModal(gem)">
-                    <img :src="window.resolvePinImageUrl(gem.image_url, '236x')" alt="Gem" class="w-full h-full object-cover" onerror="window.handlePinImgError(this)" />
+                    <img :src="window.resolvePinImageUrl(gem.image_url, '236x')" alt="Gem" class="w-full h-full object-cover" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                   </div>
                   <div class="min-w-0 space-y-0.5">
                     <a :href="'/pin/' + gem.pin_id" 
@@ -833,8 +833,8 @@ export function getPulseStudioViewsHtml() {
                   </div>
                 </div>
 
-                <button type="button" @click="openBlueprintModal(gem)" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10.5px] font-bold shrink-0 cursor-pointer shadow-2xs">
-                  <span>⚡ Hijack</span>
+                <button type="button" @click="openBlueprintModal(gem)" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10.5px] font-bold shrink-0 cursor-pointer shadow-2xs inline-flex items-center gap-1">
+                  <i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Hijack</span>
                 </button>
               </div>
             </template>
@@ -845,7 +845,7 @@ export function getPulseStudioViewsHtml() {
         <div class="rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] overflow-hidden shadow-xs p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2">
-              <span class="text-base">🌪️</span>
+              <i data-lucide="wind" class="w-4 h-4 text-purple-500 shrink-0"></i>
               <h3 class="font-bold text-slate-900 dark:text-white text-sm">High-Churn Keyword SERP Vacuums</h3>
             </div>
             <span class="text-[11px] font-mono text-purple-600 dark:text-purple-400 font-bold">Top 10 Flux</span>
@@ -971,7 +971,7 @@ export function getPulseStudioViewsHtml() {
               <img :src="window.resolvePinImageUrl(activeBlueprintPin?.image_url, '474x')" 
                    alt="Blueprint Pin" 
                    class="w-full h-full object-cover" 
-                   onerror="window.handlePinImgError(this)" />
+                   onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
             </div>
             <div class="space-y-1.5 min-w-0 flex-1">
               <div class="font-bold text-slate-900 dark:text-white text-sm" x-text="activeBlueprintPin?.title || 'Untitled Pin'"></div>

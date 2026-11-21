@@ -47,28 +47,28 @@ export function renderSerpStudioMatrixTab() {
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '24h' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 24 Hours">
-              <span>🔥</span>
+              <i data-lucide="flame" class="w-3 h-3 shrink-0"></i>
               <span class="font-mono tabular-nums">24h</span>
             </button>
             <button @click="growthPaceFilter = '3d'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '3d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 3 Days">
-              <span>⏱</span>
+              <i data-lucide="timer" class="w-3 h-3 shrink-0"></i>
               <span class="font-mono tabular-nums">3d</span>
             </button>
             <button @click="growthPaceFilter = '7d'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '7d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 7 Days">
-              <span>📅</span>
+              <i data-lucide="calendar" class="w-3 h-3 shrink-0"></i>
               <span class="font-mono tabular-nums">7d</span>
             </button>
             <button @click="growthPaceFilter = 'all'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="All-Time Total Engagement">
-              <span>⭐</span>
+              <i data-lucide="star" class="w-3 h-3 shrink-0"></i>
               <span class="font-mono tabular-nums">All</span>
             </button>
           </div>
@@ -105,7 +105,7 @@ export function renderSerpStudioMatrixTab() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
                   :class="serpScope === 'all' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
                   :title="'Showing ' + allCombinedPins.length + ' of ' + totalCatalogCount + ' total catalog pins'">
-            <span>🔘 All Pins</span>
+            <i data-lucide="circle-dot" class="w-3.5 h-3.5 shrink-0"></i><span>All Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="totalCatalogCount > allCombinedPins.length ? (allCombinedPins.length + ' / ' + totalCatalogCount) : totalCatalogCount"></span>
@@ -114,7 +114,7 @@ export function renderSerpStudioMatrixTab() {
           <button @click="serpScope = 'active'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
                   :class="serpScope === 'active' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
-            <span>🟢 Active SERP</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span>Active SERP</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'active' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="(selectedKeywordDetails?.current_pins || []).length"></span>
@@ -124,7 +124,7 @@ export function renderSerpStudioMatrixTab() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
                   :class="serpScope === 'displaced' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
                   :title="'Showing ' + displacedVaultPins.length + ' of ' + totalDisplacedCount + ' displaced vault pins'">
-            <span>🔴 Displaced Vault</span>
+            <span class="w-2 h-2 rounded-full bg-rose-500 inline-block shrink-0" aria-hidden="true"></span><span>Displaced Vault</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'displaced' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="totalDisplacedCount > displacedVaultPins.length ? (displacedVaultPins.length + ' / ' + totalDisplacedCount) : totalDisplacedCount"></span>
@@ -133,7 +133,7 @@ export function renderSerpStudioMatrixTab() {
           <button @click="serpScope = 'breakout'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
                   :class="serpScope === 'breakout' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
-            <span>🚀 Breakouts</span>
+            <i data-lucide="rocket" class="w-3.5 h-3.5 shrink-0"></i><span>Breakouts</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'breakout' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="breakoutPins.length"></span>
@@ -142,7 +142,7 @@ export function renderSerpStudioMatrixTab() {
           <button @click="serpScope = 'velocity'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
                   :class="serpScope === 'velocity' ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
-            <span>⚡ High Velocity</span>
+            <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>High Velocity</span>
           </button>
 
           <!-- Active Visual Tag Filter Badge -->
@@ -294,7 +294,7 @@ export function renderSerpStudioMatrixTab() {
                     <td class="py-3.5 px-3">
                       <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pin/:pin_id)">
                         <template x-if="pin.image_url">
-                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition" onerror="window.handlePinImgError(this)">
+                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                         </template>
                         <template x-if="!pin.image_url">
                           <div class="w-10 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
@@ -331,9 +331,7 @@ export function renderSerpStudioMatrixTab() {
                                 x-text="getPinMethod(pin)"></span>
                           <!-- Created Timestamp / Age Badge -->
                           <template x-if="getPinCreatedDate(pin)">
-                            <span class="text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[9px] truncate shrink-0"
-                                  :title="'Created: ' + formatPinCreated(pin)"
-                                  x-text="'📅 ' + (formatPinAge(pin) || formatPinCreated(pin))"></span>
+                            <span class="inline-flex items-center gap-0.5 text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[9px] truncate shrink-0" :title="'Created: ' + formatPinCreated(pin)"><i data-lucide="calendar" class="w-2.5 h-2.5 shrink-0"></i><span x-text="formatPinAge(pin) || formatPinCreated(pin)"></span></span>
                           </template>
                         </div>
                         <!-- Visual Annotations Tag Pills (Intra-SERP Crossover Engine) -->
@@ -351,7 +349,7 @@ export function renderSerpStudioMatrixTab() {
                                         ? 'Core Visual Anchor: #' + vtag + ' is shared across ' + getTagFrequency(vtag) + ' pins in this keyword. Click to filter crossover.' 
                                         : 'Filter by visual tag: #' + vtag">
                                 <template x-if="isCoreAnchorTag(vtag)">
-                                  <span class="text-[8px] text-purple-400">🔗</span>
+                                  <i data-lucide="link" class="w-2.5 h-2.5 text-purple-400 shrink-0"></i>
                                 </template>
                                 <span x-text="'#' + vtag"></span>
                                 <template x-if="getTagFrequency(vtag) > 1">
@@ -408,7 +406,7 @@ export function renderSerpStudioMatrixTab() {
                           </div>
                           <template x-if="pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404'">
                             <span class="text-[9px] text-rose-400 font-mono tabular-nums font-bold flex items-center gap-1">
-                              <span>🗑️ Removed (404)</span>
+                              <i data-lucide="trash-2" class="w-3 h-3 shrink-0"></i><span>Removed (404)</span>
                             </span>
                           </template>
                           <template x-if="!(pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404')">
@@ -510,7 +508,7 @@ export function renderSerpStudioMatrixTab() {
                   <!-- Thumbnail with Rank & Format overlays -->
                   <a :href="getPinDossierUrl(pin)" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pin/:pin_id)">
                     <template x-if="pin.image_url">
-                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="window.handlePinImgError(this)">
+                      <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                     </template>
                     <template x-if="!pin.is_displaced">
                       <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs"
@@ -541,7 +539,7 @@ export function renderSerpStudioMatrixTab() {
                             :title="'Method: ' + formatPinMethodLabel(pin)"
                             x-text="getPinMethod(pin)"></span>
                       <template x-if="formatPinAge(pin)">
-                        <span class="text-slate-400 text-[9px] shrink-0" :title="'Created: ' + formatPinCreated(pin)" x-text="'📅 ' + formatPinAge(pin)"></span>
+                        <span class="inline-flex items-center gap-0.5 text-slate-400 text-[9px] shrink-0" :title="'Created: ' + formatPinCreated(pin)"><i data-lucide="calendar" class="w-2.5 h-2.5 shrink-0"></i><span x-text="formatPinAge(pin)"></span></span>
                       </template>
                     </div>
                     <!-- Visual Annotations Tag Pills -->

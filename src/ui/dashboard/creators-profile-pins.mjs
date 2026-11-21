@@ -13,7 +13,7 @@ export function renderCreatorsProfilePins() {
               <!-- Top Row: Title, Totals & Refresh -->
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div class="flex items-center gap-2.5">
-                  <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500 font-bold text-base shadow-2xs">📌</span>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500 font-bold text-base shadow-2xs"><i data-lucide="pin" class="w-4 h-4"></i></span>
                   <div>
                     <div class="flex items-center gap-2">
                       <h3 class="text-base font-bold text-slate-900 dark:text-white">Master Pin Ledger</h3>
@@ -42,7 +42,7 @@ export function renderCreatorsProfilePins() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
-                  <span>📋 All Catalog</span>
+                  <span class="inline-flex items-center gap-1"><i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i><span>All Catalog</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
                 </button>
 
@@ -53,7 +53,7 @@ export function renderCreatorsProfilePins() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
-                  <span>🏆 Qualified Winners</span>
+                  <span class="inline-flex items-center gap-1"><i data-lucide="trophy" class="w-3.5 h-3.5 shrink-0"></i><span>Qualified Winners</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
                 </button>
 
@@ -64,7 +64,7 @@ export function renderCreatorsProfilePins() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
-                  <span>🎯 SERP Ranked</span>
+                  <span class="inline-flex items-center gap-1"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>SERP Ranked</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
                 </button>
 
@@ -75,7 +75,7 @@ export function renderCreatorsProfilePins() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
-                  <span>🔥 High Velocity (≥10/d)</span>
+                  <span class="inline-flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5 shrink-0"></i><span>High Velocity (≥10/d)</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinHighVelocity) ? 'bg-white/20 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'" x-text="formatNumber(activeCreatorHighVelocityTotal || 0)"></span>
                 </button>
 
@@ -86,7 +86,7 @@ export function renderCreatorsProfilePins() {
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
-                  <span>📰 Articles Only</span>
+                  <span class="inline-flex items-center gap-1"><i data-lucide="newspaper" class="w-3.5 h-3.5 shrink-0"></i><span>Articles Only</span></span>
                 </button>
 
                 <!-- Domain Ecosystem Attribution Scope Pills -->
@@ -99,7 +99,7 @@ export function renderCreatorsProfilePins() {
                       :class="creatorAllPinScope === 'official' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
                       title="Direct pins linking to this creator's own primary website domain"
                     >
-                      <span>👤 Official Account</span>
+                      <span class="inline-flex items-center gap-1"><i data-lucide="user" class="w-3.5 h-3.5 shrink-0"></i><span>Official Account</span></span>
                       <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums bg-black/10 dark:bg-white/15" x-text="formatNumber(activeCreatorCatalogTotal || 0)"></span>
                     </button>
                     <button
@@ -109,7 +109,7 @@ export function renderCreatorsProfilePins() {
                       :class="creatorAllPinScope === 'ecosystem' ? 'bg-violet-600 text-white border-violet-700 shadow-xs' : 'bg-violet-50/70 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/60'"
                       title="Includes all SERP & Vault pins linking to this creator's primary website domain across all Pinterest users"
                     >
-                      <span>🌐 Full Domain Ecosystem</span>
+                      <span class="inline-flex items-center gap-1"><i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i><span>Full Domain Ecosystem</span></span>
                       <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'ecosystem' ? 'bg-white/20 text-white' : 'bg-violet-500/15 text-violet-700 dark:text-violet-300'" x-text="formatNumber(activeCreatorEcosystemTotal || (activeCreatorCatalogTotal + activeCreatorCuratorPinsTotal) || 0)"></span>
                     </button>
                     <button
@@ -119,7 +119,7 @@ export function renderCreatorsProfilePins() {
                       :class="creatorAllPinScope === 'curators' ? 'bg-fuchsia-600 text-white border-fuchsia-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
                       title="Third-party community curator pins linking to this creator's website domain"
                     >
-                      <span>🤝 Community Curators</span>
+                      <span class="inline-flex items-center gap-1"><i data-lucide="handshake" class="w-3.5 h-3.5 shrink-0"></i><span>Community Curators</span></span>
                       <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'curators' ? 'bg-white/20 text-white' : 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400'" x-text="formatNumber(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0)"></span>
                     </button>
                     <template x-if="(activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0) > 0">
@@ -130,7 +130,7 @@ export function renderCreatorsProfilePins() {
                         :class="creatorAllPinScope === 'external' ? 'bg-amber-600 text-white border-amber-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'"
                         title="Third-party pins from external domains saved onto this account's boards (excluded from official creator stats)"
                       >
-                        <span>📌 External Repins</span>
+                        <span class="inline-flex items-center gap-1"><i data-lucide="pin" class="w-3.5 h-3.5 shrink-0"></i><span>External Repins</span></span>
                         <span class="px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums" :class="creatorAllPinScope === 'external' ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0)"></span>
                       </button>
                     </template>
@@ -172,11 +172,11 @@ export function renderCreatorsProfilePins() {
                     <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
                     <select x-model="creatorAllPinStage" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <option value="">All Stages</option>
-                      <option value="GROWING">📈 GROWING</option>
-                      <option value="NEW">🟢 NEW (≤14d)</option>
-                      <option value="MATURE">🟣 MATURE</option>
-                      <option value="COOLING">📉 COOLING</option>
-                      <option value="DORMANT">⚪ DORMANT</option>
+                      <option value="GROWING">GROWING</option>
+                      <option value="NEW">NEW (≤14d)</option>
+                      <option value="MATURE">MATURE</option>
+                      <option value="COOLING">COOLING</option>
+                      <option value="DORMANT">DORMANT</option>
                     </select>
                   </div>
 
@@ -278,7 +278,7 @@ export function renderCreatorsProfilePins() {
               <p class="text-xs text-slate-500 max-w-sm mx-auto mt-1">No pins match the current filter or this account has not been harvested yet. Click "Harvest All Pins" to pull the full catalog from Pinterest.</p>
               <button type="button" @click="openGhaCrawlerModal(activeCreator)" class="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer">
                 <i data-lucide="zap" class="w-4 h-4"></i>
-                <span>⚡ Launch 20-Runner GitHub Actions Harvest</span>
+                <span>Launch 20-Runner GitHub Actions Harvest</span>
               </button>
             </div>
 
@@ -328,9 +328,9 @@ export function renderCreatorsProfilePins() {
                       <!-- Thumbnail with hover preview -->
                       <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
-                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" onerror="window.handlePinImgError(this)" />
+                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                           <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#27272A] pointer-events-none bg-white dark:bg-slate-900">
-                            <img :src="p.image_url" class="w-full h-auto object-cover" onerror="window.handlePinImgError(this)" />
+                            <img :src="p.image_url" class="w-full h-auto object-cover" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                           </div>
                         </div>
                       </td>`,
@@ -342,7 +342,7 @@ export function renderCreatorsProfilePins() {
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
                           <template x-if="p.attribution_source === 'curator' && p.curator_username">
                             <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 font-semibold" :title="'Saved onto board by third-party curator @' + p.curator_username">
-                              <span>🤝 @<span x-text="String(p.curator_username).replace(/^@/, '')"></span></span>
+                              <span class="inline-flex items-center gap-1"><i data-lucide="handshake" class="w-3 h-3 shrink-0"></i><span>@<span x-text="String(p.curator_username).replace(/^@/, '')"></span></span></span>
                             </span>
                           </template>
                           <template x-if="p.destination_url">
@@ -384,7 +384,7 @@ export function renderCreatorsProfilePins() {
                         <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
                           <template x-if="p.is_ranked">
                             <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
-                              <span>🎯</span>
+                              <i data-lucide="target" class="w-3 h-3 shrink-0"></i>
                               <span x-text="p.rank_position ? '#' + p.rank_position : ''"></span>
                             </span>
                           </template>
@@ -396,7 +396,7 @@ export function renderCreatorsProfilePins() {
                           </template>
                           <template x-if="p.is_qualified">
                             <button @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins();" class="inline-flex items-center justify-center px-1.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs shadow-2xs cursor-pointer hover:bg-amber-500/25 transition" title="Qualified Winner">
-                              <span>🏆</span>
+                              <i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-500"></i>
                             </button>
                           </template>
                           <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked">

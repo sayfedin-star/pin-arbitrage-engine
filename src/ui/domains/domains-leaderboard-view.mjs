@@ -14,7 +14,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
            title="Click to reset filters and view all domains">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider">Ranked Domains</span>
-          <span class="text-xs">🌐</span>
+          <i data-lucide="globe" class="w-3.5 h-3.5 text-sky-500 shrink-0"></i>
         </div>
         <span class="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="formatNumber(overview.total_domains)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">Indexed sites (Click to reset)</span>
@@ -24,7 +24,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex flex-col gap-1 shadow-sm">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider">Top-5 Monopoly</span>
-          <span class="text-xs">🏆</span>
+          <i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i>
         </div>
         <span class="text-2xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="(overview.top5_monopoly_pct || 0) + '%'">0%</span>
         <div class="w-full bg-slate-100 dark:bg-[#18181B] rounded-full h-1.5 mt-1 overflow-hidden">
@@ -38,7 +38,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
            :class="activePreset === 'baby_giants' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Baby Giants (&lt; 2y)</span>
-          <span class="text-xs">🌱</span>
+          <i data-lucide="sprout" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i>
         </div>
         <span class="text-2xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.baby_giants_count)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">&lt; 2y with Top 10 or 1k+ saves</span>
@@ -50,7 +50,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
            :class="activePreset === 'multi_account' ? 'border-purple-500 ring-2 ring-purple-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-purple-600 dark:text-purple-400">PBN / Multi-Acct</span>
-          <span class="text-xs">🕸️</span>
+          <i data-lucide="git-fork" class="w-3.5 h-3.5 text-purple-500 shrink-0"></i>
         </div>
         <span class="text-2xl font-bold font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="formatNumber(overview.multi_account_count)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">&gt;= 2 accounts pushing traffic</span>
@@ -63,7 +63,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
            title="Click to filter by High Multipliers (>= 3.0x pins/URL)">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-amber-600 dark:text-amber-400">Avg Pin / URL</span>
-          <span class="text-xs">🔁</span>
+          <i data-lucide="repeat" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i>
         </div>
         <span class="text-2xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="(overview.avg_pins_per_url || 1.0) + 'x'">1.0x</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">Click for High Multipliers (&gt;= 3x)</span>
@@ -81,7 +81,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                  @input.debounce.400ms="applySearch()"
                  placeholder="Search domain (e.g. tasty)..."
                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
-          <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
           <button x-show="searchQuery"
                   @click="searchQuery = ''; applySearch()"
                   class="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
@@ -124,7 +124,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1"
                   :class="activePreset === 'cluster_push_signal' ? 'bg-amber-500 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'"
                   title="Filter young domains (age <= 2y) backed by high-audience creator accounts">
-            <span>⚡ Cluster Push Signal</span>
+            <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Cluster Push Signal</span>
           </button>
           <!-- Target Domains Toggle -->
           <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
@@ -164,7 +164,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                       :disabled="batchEnriching || globalEnriching"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Verify Page WHOIS</span>
-                <span x-show="batchEnriching" class="animate-spin text-[10px]">⏳</span>
+                <span x-show="batchEnriching" class="inline-flex"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></span>
               </button>
 
               <button @click="batchEnrichAdsVisible(); actionsOpen = false"
@@ -173,7 +173,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Scan Page Ads.txt</span>
                 <span class="sr-only">Batch Check Ads</span>
-                <span x-show="batchAdsEnriching" class="animate-spin text-[10px]">⏳</span>
+                <span x-show="batchAdsEnriching" class="inline-flex"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></span>
               </button>
 
               <div class="h-px bg-slate-100 dark:bg-[#18181B] my-1"></div>
@@ -339,7 +339,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       <!-- Table Header Bar -->
       <div class="px-5 py-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-base">🏆</span>
+          <i data-lucide="trophy" class="w-4 h-4 text-amber-500 shrink-0"></i>
           <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Domain Authority & Monopoly Leaderboard</h2>
           <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'(' + formatNumber(totalDomains) + ' domains matching)'"></span>
         </div>
@@ -351,17 +351,17 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         <div class="px-5 py-3 bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-emerald-500/10 border-b border-sky-500/20 flex flex-col gap-2">
           <div class="flex items-center justify-between text-xs font-mono tabular-nums flex-wrap gap-2">
             <div class="flex items-center gap-2">
-              <span class="animate-spin text-sm">🚀</span>
+              <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-sky-500 shrink-0"></i>
               <span class="font-bold text-sky-800 dark:text-sky-300">Global Verification In Progress:</span>
               <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(globalStats.checked_domains) + ' / ' + formatNumber(globalStats.total_domains) + ' domains (' + (globalStats.percent_complete || 0) + '%)'"></span>
             </div>
             <div class="flex items-center gap-3">
-              <span class="text-emerald-700 dark:text-emerald-400 font-bold" x-text="'🌱 ' + formatNumber(globalStats.resolved_domains) + ' resolved'"></span>
-              <span class="text-amber-700 dark:text-amber-400 font-bold" x-text="'🔒 ' + formatNumber(globalStats.failed_domains) + ' shielded'"></span>
-              <span class="text-slate-500 font-mono tabular-nums" x-text="'⏳ ' + formatNumber(globalStats.unchecked_domains) + ' remaining'"></span>
+              <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold"><i data-lucide="sprout" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.resolved_domains) + ' resolved'"></span></span>
+              <span class="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold"><i data-lucide="lock" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.failed_domains) + ' shielded'"></span></span>
+              <span class="inline-flex items-center gap-1 text-slate-500 font-mono tabular-nums"><i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.unchecked_domains) + ' remaining'"></span></span>
               <button @click="stopGlobalEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
-                <span>⏸️</span>
+                <i data-lucide="pause" class="w-3 h-3 shrink-0"></i>
                 <span>Pause</span>
               </button>
             </div>
@@ -379,20 +379,20 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         <div class="px-5 py-3 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-sky-500/10 border-b border-emerald-500/20 flex flex-col gap-2">
           <div class="flex items-center justify-between text-xs font-mono tabular-nums flex-wrap gap-2">
             <div class="flex items-center gap-2">
-              <span class="animate-spin text-sm">💰</span>
+              <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0"></i>
               <span class="font-bold text-emerald-800 dark:text-emerald-300">Automated Ads.txt Verification In Progress:</span>
               <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(globalAdsStats.checked_domains) + ' / ' + formatNumber(globalAdsStats.total_domains) + ' domains (' + (globalAdsStats.percent_complete || 0) + '%)'"></span>
             </div>
             <div class="flex items-center gap-2.5 flex-wrap">
-              <span class="text-purple-600 dark:text-purple-400 font-bold" x-text="'💎 ' + formatNumber(globalAdsStats.raptive_count) + ' Raptive'"></span>
-              <span class="text-rose-600 dark:text-rose-400 font-bold" x-text="'🍇 ' + formatNumber(globalAdsStats.mediavine_count) + ' Mediavine'"></span>
-              <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'🚀 ' + formatNumber(globalAdsStats.journey_count) + ' Journey'"></span>
-              <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="'⚡ ' + formatNumber(globalAdsStats.hbagency_count) + ' HBAgency'"></span>
-              <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="'🟡 ' + formatNumber(globalAdsStats.adsense_count) + ' AdSense'"></span>
-              <span class="text-slate-500 font-mono tabular-nums" x-text="'⏳ ' + formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span>
+              <span class="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-bold"><i data-lucide="gem" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.raptive_count) + ' Raptive'"></span></span>
+              <span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold"><i data-lucide="sparkles" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.mediavine_count) + ' Mediavine'"></span></span>
+              <span class="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 font-bold"><i data-lucide="rocket" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.journey_count) + ' Journey'"></span></span>
+              <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.hbagency_count) + ' HBAgency'"></span></span>
+              <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold"><span class="w-2 h-2 rounded-full bg-amber-500 inline-block shrink-0" aria-hidden="true"></span><span x-text="formatNumber(globalAdsStats.adsense_count) + ' AdSense'"></span></span>
+              <span class="inline-flex items-center gap-1 text-slate-500 font-mono tabular-nums"><i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span></span>
               <button @click="stopGlobalAdsEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
-                <span>⏸️</span>
+                <i data-lucide="pause" class="w-3 h-3 shrink-0"></i>
                 <span>Pause</span>
               </button>
             </div>
@@ -435,7 +435,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
               <tr>
                 <td colspan="7" class="py-12 text-center text-slate-400 font-mono tabular-nums">
                   <div class="inline-flex items-center gap-2">
-                    <span class="animate-spin text-base">⏳</span>
+                    <i data-lucide="loader-2" class="w-4 h-4 animate-spin shrink-0"></i>
                     <span>Querying cross-pillar domain authority...</span>
                   </div>
                 </td>
@@ -447,10 +447,10 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
               <tr>
                 <td colspan="7" class="py-12 text-center text-rose-500 font-mono tabular-nums">
                   <div class="flex flex-col items-center gap-2">
-                    <span class="text-2xl">⚠️</span>
+                    <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500"></i>
                     <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="loadError"></span>
                     <button @click="loadDomains(false)" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold font-sans transition shadow-sm mt-1 flex items-center gap-1.5">
-                      <span>🔄</span>
+                      <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0"></i>
                       <span>Retry Loading</span>
                     </button>
                   </div>
@@ -463,7 +463,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
               <tr>
                 <td colspan="7" class="py-12 text-center text-slate-400">
                   <div class="flex flex-col items-center gap-2">
-                    <span class="text-2xl">🔍</span>
+                    <i data-lucide="search" class="w-6 h-6 text-slate-400"></i>
                     <span class="font-semibold text-slate-700 dark:text-slate-300">No domains match the selected filters</span>
                     <button @click="resetFilters()" class="text-xs text-sky-600 hover:underline">Reset all filters</button>
                   </div>
@@ -480,7 +480,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                   <div class="flex items-center gap-2.5">
                     <span class="text-slate-400 font-mono tabular-nums text-[11px] w-6 shrink-0" x-text="((currentPage - 1) * limit) + idx + 1"></span>
                     <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
-                      <span class="w-4 h-4 rounded shrink-0 bg-amber-500/10 text-amber-500 flex items-center justify-center text-[10px]" title="Direct Organic Uploads (Unlinked Pins)">✨</span>
+                      <span class="w-4 h-4 rounded shrink-0 bg-amber-500/10 text-amber-500 flex items-center justify-center" title="Direct Organic Uploads (Unlinked Pins)"><i data-lucide="sparkles" class="w-3 h-3"></i></span>
                     </template>
                     <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
                       <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(d.domain) + '&sz=32'"
@@ -561,7 +561,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                 <td class="py-3 px-4">
                   <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
                     <span class="inline-flex items-center gap-1 font-mono tabular-nums text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
-                      <span>✨</span>
+                      <i data-lucide="sparkles" class="w-3 h-3 shrink-0"></i>
                       <span>100% Organic (Unmonetized)</span>
                     </span>
                   </template>
@@ -580,7 +580,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                         <template x-if="d.previous_ad_network">
                           <span class="px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0"
                                 :title="'Migrated from ' + d.previous_ad_network + (d.ad_switched_at ? ' on ' + d.ad_switched_at.slice(0, 10) : '')"
-                                x-text="'↗️ Ex-' + capitalize(d.previous_ad_network)"></span>
+                                x-text="'↗ Ex-' + capitalize(d.previous_ad_network)"></span>
                         </template>
 
                         <!-- Force Re-check Button on hover -->
@@ -588,7 +588,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                                 :disabled="enrichingAds[d.domain]"
                                 class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition"
                                 title="Re-scan ads.txt">
-                          <span :class="{ 'animate-spin': enrichingAds[d.domain] }">🔄</span>
+                          <i data-lucide="refresh-cw" class="w-3 h-3" :class="{ 'animate-spin': enrichingAds[d.domain] }"></i>
                         </button>
                       </div>
                     </template>
@@ -598,7 +598,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                       <button @click.stop="enrichAd(d.domain)"
                               :disabled="enrichingAds[d.domain]"
                               class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-[10px] font-mono tabular-nums border border-slate-200 dark:border-[#27272A] transition flex items-center gap-1 disabled:opacity-60 shadow-sm w-fit">
-                        <span :class="{ 'animate-spin': enrichingAds[d.domain] }" x-text="enrichingAds[d.domain] ? '⏳' : '💰'">💰</span>
+                        <span x-show="enrichingAds[d.domain]" class="inline-flex"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></span><span x-show="!enrichingAds[d.domain]" class="inline-flex"><i data-lucide="dollar-sign" class="w-3 h-3"></i></span>
                         <span x-text="enrichingAds[d.domain] ? 'Checking...' : 'Check Ads'">Check Ads</span>
                       </button>
                     </template>
@@ -615,7 +615,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                     </div>
                     <span class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded w-fit"
                           :class="d.pins_per_url >= 3.0 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400'">
-                      <span>🔁</span>
+                      <i data-lucide="repeat" class="w-3 h-3 shrink-0"></i>
                       <span x-text="d.pins_per_url + 'x Pins/URL'"></span>
                     </span>
                   </div>
@@ -626,10 +626,10 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                   <template x-if="d.active_serp_pins > 0 || d.displaced_pins > 0">
                     <div class="flex flex-col gap-1">
                       <div class="flex items-center gap-2 text-[11px] font-mono tabular-nums">
-                        <span class="text-emerald-600 dark:text-emerald-400 font-bold" title="Top 3 Pins" x-text="'🥇 ' + d.top3_pins"></span>
-                        <span class="text-sky-600 dark:text-sky-400 font-bold" title="Top 10 Pins" x-text="'🎯 ' + d.top10_pins"></span>
+                        <span class="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-bold" title="Top 3 Pins"><i data-lucide="award" class="w-3 h-3 shrink-0"></i><span x-text="d.top3_pins"></span></span>
+                        <span class="inline-flex items-center gap-0.5 text-sky-600 dark:text-sky-400 font-bold" title="Top 10 Pins"><i data-lucide="target" class="w-3 h-3 shrink-0"></i><span x-text="d.top10_pins"></span></span>
                         <template x-if="d.displaced_pins > 0">
-                          <span class="text-rose-600 dark:text-rose-400 font-bold" :title="'Displaced: ' + d.decay_rate_pct + '%'" x-text="'📉 ' + d.displaced_pins"></span>
+                          <span class="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-400 font-bold" :title="'Displaced: ' + d.decay_rate_pct + '%'"><i data-lucide="trending-down" class="w-3 h-3 shrink-0"></i><span x-text="d.displaced_pins"></span></span>
                         </template>
                       </div>
                       <div class="text-[10px] text-slate-400 font-mono tabular-nums flex items-center gap-2">
@@ -643,7 +643,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                     <div class="flex flex-col gap-0.5 font-mono tabular-nums">
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A] w-fit"
                             title="This domain was discovered via Competitor Profiles (P1) or PinArchive (P4) and has no tracked SERP keywords yet">
-                        <span>📦</span>
+                        <i data-lucide="package" class="w-3 h-3 shrink-0"></i>
                         <span>Catalog / Archive Only</span>
                       </span>
                       <span class="text-[9px] text-slate-400">No SERP keyword tracked yet</span>
@@ -668,7 +668,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                     <div class="flex items-center gap-1.5">
                       <span class="inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20"
                             :title="'Arbitrage Velocity / Age Score: ' + d.arbitrage_score">
-                        <span>⚡</span>
+                        <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
                         <span x-text="d.arbitrage_score"></span>
                       </span>
                     </div>
@@ -699,7 +699,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                             class="px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
                             :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                             :title="pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'">
-                      <span>📌</span>
+                      <i data-lucide="pin" class="w-3 h-3 shrink-0"></i>
                       <span x-text="pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'"></span>
                     </button>
                     <button @click.stop="openDossier(d.domain)"

@@ -49,31 +49,31 @@ ${renderSerpStudioIntelligenceTab()}
     <button @click="bulkSyncKeywords()" :disabled="isBulkLoading"
             class="px-3.5 py-1.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
       <i data-lucide="zap" class="w-3.5 h-3.5" :class="isBulkLoading ? 'animate-spin' : ''"></i>
-      <span>⚡ Fast Refresh Now</span>
+      <span>Fast Refresh Now</span>
     </button>
 
     <button @click="openBulkFolderModal()" :disabled="isBulkLoading"
             class="px-3.5 py-1.5 rounded-xl font-bold bg-pink-500/20 hover:bg-pink-500/30 text-pink-400 border border-pink-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
       <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
-      <span>📁 Add to Campaign Folder</span>
+      <span>Add to Campaign Folder</span>
     </button>
 
     <button @click="bulkToggleKeywordStatus(false)" :disabled="isBulkLoading"
             class="px-3.5 py-1.5 rounded-xl font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
       <i data-lucide="pause-circle" class="w-3.5 h-3.5"></i>
-      <span>⏸ Pause Tracking</span>
+      <span>Pause Tracking</span>
     </button>
 
     <button @click="bulkToggleKeywordStatus(true)" :disabled="isBulkLoading"
             class="px-3.5 py-1.5 rounded-xl font-bold bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
       <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
-      <span>▶ Resume Tracking</span>
+      <span>Resume Tracking</span>
     </button>
 
     <button @click="bulkDeleteKeywords()" :disabled="isBulkLoading"
             class="px-3.5 py-1.5 rounded-xl font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
       <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-      <span>🗑 Delete Selected</span>
+      <span>Delete Selected</span>
     </button>
 
     <button @click="clearSelectedKeywords()" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer" title="Clear Selection">

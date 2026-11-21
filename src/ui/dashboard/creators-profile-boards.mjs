@@ -12,7 +12,7 @@ export function renderCreatorsProfileBoards() {
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-[#18181B] p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] shadow-xs">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-base">📌</span>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-base"><i data-lucide="pin" class="w-4 h-4"></i></span>
                   <h3 class="text-base font-bold text-slate-900 dark:text-white">Curated Boards &amp; Topic Strategy</h3>
                   <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(activeCreatorBoards.length || activeCreator.total_boards || 0) + ' boards'"></span>
                 </div>
@@ -25,7 +25,7 @@ export function renderCreatorsProfileBoards() {
                 </button>
                 <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm cursor-pointer" title="Crawl all creator boards using 20-Runner GitHub Actions Crawler">
                   <i data-lucide="zap" :class="{'animate-spin': isDispatchingGitHubCrawl}" class="w-3.5 h-3.5"></i>
-                  <span>⚡ Harvest All Boards (20 Runners)</span>
+                  <span>Harvest All Boards (20 Runners)</span>
                 </button>
               </div>
             </div>
@@ -73,7 +73,7 @@ export function renderCreatorsProfileBoards() {
             <div x-show="creatorBoardsTopicsList.length > 0" class="rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-500/5 via-sky-500/5 to-indigo-500/5 dark:from-purple-950/20 dark:via-sky-950/20 dark:to-indigo-950/20 p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="flex h-5 w-5 items-center justify-center rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 text-xs">✨</span>
+                  <span class="flex h-5 w-5 items-center justify-center rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 text-xs"><i data-lucide="sparkles" class="w-3 h-3"></i></span>
                   <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Pinterest Algorithmic Topics (<code class="text-purple-600 dark:text-purple-400 font-mono tabular-nums">board_vase</code> Semantic Interests)</span>
                   <span class="text-[10px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400" x-text="creatorBoardsTopicsList.length + ' topics'"></span>
                 </div>
@@ -130,11 +130,11 @@ export function renderCreatorsProfileBoards() {
                     @change="creatorBoardPage = 1"
                     class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-hidden focus:border-purple-500 transition cursor-pointer"
                   >
-                    <option value="most_pins">🔥 Most Pins</option>
-                    <option value="most_followers">👥 Most Followers</option>
-                    <option value="recent_activity">🕒 Recent Activity</option>
-                    <option value="name_asc">🔤 Name (A-Z)</option>
-                    <option value="creation_date">📅 Creation Date</option>
+                    <option value="most_pins">Most Pins</option>
+                    <option value="most_followers">Most Followers</option>
+                    <option value="recent_activity">Recent Activity</option>
+                    <option value="name_asc">Name (A-Z)</option>
+                    <option value="creation_date">Creation Date</option>
                   </select>
                 </div>
 

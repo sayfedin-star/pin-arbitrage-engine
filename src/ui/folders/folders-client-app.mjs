@@ -492,10 +492,10 @@ export function getFoldersClientAppScript() {
             return '#' + (item.tag || item.raw_tag || '');
           }
           if (tab === 'guided' || item._type === 'capsule') {
-            return '🎯 Capsule: ' + (item.display_label || item.term || '');
+            return 'Capsule: ' + (item.display_label || item.term || '');
           }
           if (tab === 'colors' || item._type === 'color') {
-            return '🎨 Palette: ' + (item.hex || '');
+            return 'Palette: ' + (item.hex || '');
           }
           return '#' + (item.tag_a || '') + ' + #' + (item.tag_b || '');
         },
@@ -691,7 +691,7 @@ export function getFoldersClientAppScript() {
           const label = this.getMatrixItemLabel(item);
           const kws = (item.keywords || []).slice(0, 6).join(', ');
           const text = [
-            '📌 CLUSTER VISUAL PATTERN BLUEPRINT',
+            'CLUSTER VISUAL PATTERN BLUEPRINT',
             '===================================',
             'Pattern: ' + label,
             'Joint Cluster Pins: ' + (item.joint_count || item.pin_count || item.count || 0),
@@ -935,8 +935,18 @@ export function getFoldersClientAppScript() {
             }
           });
 
+          this.$watch('currentRoom', () => {
+            if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          });
+
+          this.$watch('visualHubTab', () => {
+            if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          });
+
           this.$nextTick(() => {
-            if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+            if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') {
+              window.PAE.refreshIcons();
+            } else if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
               window.lucide.createIcons();
             }
           });
@@ -1017,6 +1027,7 @@ export function getFoldersClientAppScript() {
                 this.foldersList = [this.activeFolder];
               }
               this.foldersLoading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -1089,6 +1100,7 @@ export function getFoldersClientAppScript() {
           } finally {
             if (reqSeq === this._folderReqSeq && (!signal || !signal.aborted)) {
               this.crossoverLoading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -1133,6 +1145,7 @@ export function getFoldersClientAppScript() {
           } finally {
             if (reqSeq === this._folderReqSeq && (!signal || !signal.aborted)) {
               this.crossoverLoading = false;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -1295,7 +1308,7 @@ export function getFoldersClientAppScript() {
         async dispatchFolderDeepAudit() {
           if (!this.activeFolderId) return;
           this.auditDispatching = true;
-          this.showToast('🚀 Dispatching 20-runner parallel cluster fleet on GitHub Actions...', 'info');
+          this.showToast('Dispatching 20-runner parallel cluster fleet on GitHub Actions...', 'info');
           try {
             let meta = this.activeFolder?.metadata;
             if (typeof meta === 'string') {
@@ -1659,7 +1672,7 @@ export function getFoldersClientAppScript() {
           const kws = (sp.rankings || []).map(r => r.keyword + ' (#' + r.rank_position + ')').slice(0, 5);
           const vel = Number(sp.effective_velocity ?? sp.daily_save_velocity ?? 0);
           const blueprint = [
-            '⚡ SCIENTIFIC PIN ARBITRAGE BLUEPRINT',
+            'SCIENTIFIC PIN ARBITRAGE BLUEPRINT',
             '====================================',
             'Reference Pin: ' + title + ' (#' + sp.pin_id + ')',
             'Total Saves: ' + this.formatNumber(sp.save_count || 0) + ' | 24h Save Velocity: +' + vel + '/d | 24h Repins: +' + (sp.delta_repins_24h || 0),
@@ -1682,7 +1695,7 @@ export function getFoldersClientAppScript() {
           const tagB = String(pair.tag_b || '').replace(/<[^>]*>/g, '').trim();
 
           const blueprint = [
-            '📌 PINTEREST HIGH-CONVERTING VISUAL BLUEPRINT',
+            'PINTEREST HIGH-CONVERTING VISUAL BLUEPRINT',
             '============================================',
             'Cluster: ' + folderName,
             'Power Synergy Pair: ' + tagA + ' + ' + tagB,
@@ -1690,7 +1703,7 @@ export function getFoldersClientAppScript() {
             'Pillar Concept: ' + pillar,
             'Target Launch Window: ' + launch,
             '',
-            '🎨 CREATIVE GUIDELINES FOR GRAPHIC DESIGNER:',
+            'CREATIVE GUIDELINES FOR GRAPHIC DESIGNER:',
             '1. Primary Focal Object: ' + tagA + ' prominently showcased in foreground.',
             '2. Secondary Anchor: ' + tagB + ' clearly visible or labeled in background/overlay.',
             '3. Typography: High-contrast bold headline with clean sans-serif text.',
@@ -1983,7 +1996,7 @@ export function getFoldersClientAppScript() {
                 name: this.newFolderName.trim(),
                 description: this.newFolderDesc.trim(),
                 color: this.newFolderColor,
-                icon: '📁'
+                icon: 'folder'
               })
             });
             if (res.ok) {

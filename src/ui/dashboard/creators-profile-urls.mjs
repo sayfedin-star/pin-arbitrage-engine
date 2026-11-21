@@ -10,7 +10,7 @@ export function renderCreatorsProfileUrls() {
             <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 font-bold text-sm">🔗</span>
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 font-bold text-sm"><i data-lucide="link" class="w-4 h-4"></i></span>
                   <h3 class="text-base font-extrabold text-slate-900 dark:text-white">Top Destination URLs Intelligence</h3>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -22,10 +22,10 @@ export function renderCreatorsProfileUrls() {
               <div class="flex items-center gap-3 flex-wrap">
                 <!-- Ecosystem vs Official Scope Toggle -->
                 <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
-                  <button @click="creatorTopUrlScope = 'ecosystem'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'ecosystem' ? 'bg-violet-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="All URLs discovered across official pins and third-party curator pins for this domain">🌐 Full Domain URLs</button>
-                  <button @click="creatorTopUrlScope = 'official'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'official' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Only URLs from pins directly on this account's boards linking to primary domain">👤 Official Only</button>
-                  <button @click="creatorTopUrlScope = 'curators'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'curators' ? 'bg-fuchsia-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="URLs amplified by community curators">🤝 Curators</button>
-                  <button @click="creatorTopUrlScope = 'external'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlScope === 'external' ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Third-party domain URLs repinned onto this account's boards">📌 External Repins</button>
+                  <button @click="creatorTopUrlScope = 'ecosystem'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1" :class="creatorTopUrlScope === 'ecosystem' ? 'bg-violet-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="All URLs discovered across official pins and third-party curator pins for this domain"><i data-lucide="globe" class="w-3.5 h-3.5 shrink-0"></i><span>Full Domain URLs</span></button>
+                  <button @click="creatorTopUrlScope = 'official'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1" :class="creatorTopUrlScope === 'official' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Only URLs from pins directly on this account's boards linking to primary domain"><i data-lucide="user" class="w-3.5 h-3.5 shrink-0"></i><span>Official Only</span></button>
+                  <button @click="creatorTopUrlScope = 'curators'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1" :class="creatorTopUrlScope === 'curators' ? 'bg-fuchsia-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="URLs amplified by community curators"><i data-lucide="handshake" class="w-3.5 h-3.5 shrink-0"></i><span>Curators</span></button>
+                  <button @click="creatorTopUrlScope = 'external'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1" :class="creatorTopUrlScope === 'external' ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'" title="Third-party domain URLs repinned onto this account's boards"><i data-lucide="pin" class="w-3.5 h-3.5 shrink-0"></i><span>External Repins</span></button>
                 </div>
 
                 <!-- Filter Type Segmented Control -->
@@ -33,7 +33,7 @@ export function renderCreatorsProfileUrls() {
                   <button @click="creatorTopUrlFilterType = 'all'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
                   <button @click="creatorTopUrlFilterType = 'articles_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'articles_only' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Articles Only</button>
                   <button @click="creatorTopUrlFilterType = 'products_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'products_only' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Products Only</button>
-                  <button @click="creatorTopUrlFilterType = 'affiliate_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'affiliate_only' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">🛒 Affiliate &amp; Marketplaces</button>
+                  <button @click="creatorTopUrlFilterType = 'affiliate_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1" :class="creatorTopUrlFilterType === 'affiliate_only' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"><i data-lucide="shopping-cart" class="w-3.5 h-3.5 shrink-0"></i><span>Affiliate &amp; Marketplaces</span></button>
                 </div>
 
                 <!-- Search Input -->
@@ -88,13 +88,13 @@ export function renderCreatorsProfileUrls() {
                         <!-- Type -->
                         <td class="py-3 px-3">
                           <template x-if="item.is_affiliate">
-                            <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">🛒 Affiliate</span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20"><i data-lucide="shopping-cart" class="w-3 h-3 shrink-0"></i><span>Affiliate</span></span>
                           </template>
                           <template x-if="!item.is_affiliate && item.is_product">
-                            <span class="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20">🛍️ Product</span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20"><i data-lucide="shopping-bag" class="w-3 h-3 shrink-0"></i><span>Product</span></span>
                           </template>
                           <template x-if="!item.is_affiliate && !item.is_product">
-                            <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">📰 Article</span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"><i data-lucide="newspaper" class="w-3 h-3 shrink-0"></i><span>Article</span></span>
                           </template>
                         </td>
                         <!-- Pins Count -->

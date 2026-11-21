@@ -50,9 +50,9 @@ export function renderRelatedCandidatesToolbar({
                     <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Speed:</span>
                     <select x-model="${filterObj}.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Speeds</option>
-                      <option value="explosive">🔥 Explosive (≥ 50/d)</option>
-                      <option value="trending">⚡ Trending (10-49/d)</option>
-                      <option value="stagnant">💤 Stagnant (&lt; 10/d)</option>
+                      <option value="explosive">Explosive (≥ 50/d)</option>
+                      <option value="trending">Trending (10-49/d)</option>
+                      <option value="stagnant">Stagnant (&lt; 10/d)</option>
                     </select>
                   </div>
 
@@ -61,8 +61,8 @@ export function renderRelatedCandidatesToolbar({
                     <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Market:</span>
                     <select x-model="${filterObj}.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Statuses</option>
-                      <option value="vacuum">🎯 Vacuum Targets Only (Organic ≥ 5K)</option>
-                      <option value="product">🛒 Competitor Products (Etsy/Shopify)</option>
+                      <option value="vacuum">Vacuum Targets Only (Organic ≥ 5K)</option>
+                      <option value="product">Competitor Products (Etsy/Shopify)</option>
                     </select>
                   </div>
 
@@ -71,13 +71,13 @@ export function renderRelatedCandidatesToolbar({
                     <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sequence:</span>
                     <select x-model="${filterObj}.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Sequence Roles</option>
-                      <option value="DESSERT_HERO">🧁 Hero Dessert/Bake</option>
-                      <option value="BEVERAGE_PAIRING">☕ Beverage/Pairing</option>
-                      <option value="PASTRY_BITES">🥐 Pastry Bites</option>
-                      <option value="DINNER_ANCHOR">🍽️ Dinner Anchor</option>
-                      <option value="NAVBOOST_CO_VISITOR">🥖 Co-Visitor Side</option>
-                      <option value="SESSION_FINISHER">🍪 Session Finisher</option>
-                      <option value="PIXIE_DRIFT_OUTLIER">⚠️ Pixie Drift Outlier</option>
+                      <option value="DESSERT_HERO">Hero Dessert/Bake</option>
+                      <option value="BEVERAGE_PAIRING">Beverage/Pairing</option>
+                      <option value="PASTRY_BITES">Pastry Bites</option>
+                      <option value="DINNER_ANCHOR">Dinner Anchor</option>
+                      <option value="NAVBOOST_CO_VISITOR">Co-Visitor Side</option>
+                      <option value="SESSION_FINISHER">Session Finisher</option>
+                      <option value="PIXIE_DRIFT_OUTLIER">Pixie Drift Outlier</option>
                     </select>
                   </div>
 
@@ -141,7 +141,7 @@ export function renderRelatedCandidatesTable({
                       <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                     </template>
                     <template x-if="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)) === 0">
-                      <div class="text-[10px] text-slate-500" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></div>
+                      <div class="text-[10px] text-slate-500 inline-flex items-center gap-0.5"><i data-lucide="zap" class="w-2.5 h-2.5 text-amber-500 shrink-0"></i><span x-text="item.daily_velocity + '/day (Trending)'"></span></div>
                     </template>
                   </td>`;
 
@@ -182,7 +182,7 @@ export function renderRelatedCandidatesTable({
                         <div class="flex items-center space-x-2.5">
                           <template x-if="item.image_url">
                             <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="group/thumb block relative flex-shrink-0">
-                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="window.handlePinImgError(this)">
+                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                             </a>
                           </template>
                           <template x-if="!item.image_url">
@@ -209,7 +209,7 @@ export function renderRelatedCandidatesTable({
                             <!-- Ingestion Method Badge -->
                             <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
                               <div class="text-[8px] font-mono tabular-nums font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
-                                <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
+                                <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? 'CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? 'Scheduled' : item.ingestion_method)"></span>
                               </div>
                             </template>
                           </div>
@@ -234,13 +234,13 @@ export function renderRelatedCandidatesTable({
                                 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER',
                                 'bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/40 font-extrabold': item.sequence_role === 'PIXIE_DRIFT_OUTLIER'
                               }" x-text="{
-                                'DESSERT_HERO': '🧁 Hero Bake',
-                                'BEVERAGE_PAIRING': '☕ Pairing',
-                                'PASTRY_BITES': '🥐 Bites',
-                                'DINNER_ANCHOR': '🍽️ Anchor',
-                                'NAVBOOST_CO_VISITOR': '🥖 Co-Visitor',
-                                'SESSION_FINISHER': '🍪 Finisher',
-                                'PIXIE_DRIFT_OUTLIER': '⚠️ Pixie Drift'
+                                'DESSERT_HERO': 'Hero Bake',
+                                'BEVERAGE_PAIRING': 'Pairing',
+                                'PASTRY_BITES': 'Bites',
+                                'DINNER_ANCHOR': 'Anchor',
+                                'NAVBOOST_CO_VISITOR': 'Co-Visitor',
+                                'SESSION_FINISHER': 'Finisher',
+                                'PIXIE_DRIFT_OUTLIER': 'Pixie Drift'
                               }[item.sequence_role] || item.sequence_role"></span>
                             </template>
                           </div>
@@ -258,10 +258,10 @@ export function renderRelatedCandidatesTable({
                         <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
                         <div class="mt-0.5">
                           <template x-if="Number(item.daily_velocity || 0) >= 50">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40" x-text="'🔥 ' + item.daily_velocity + '/day (Explosive)'"></span>
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40"><i data-lucide="flame" class="w-2.5 h-2.5 shrink-0"></i><span x-text="item.daily_velocity + '/day (Explosive)'"></span></span>
                           </template>
                           <template x-if="Number(item.daily_velocity || 0) >= 10 && Number(item.daily_velocity || 0) < 50">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></span>
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"><i data-lucide="zap" class="w-2.5 h-2.5 shrink-0"></i><span x-text="item.daily_velocity + '/day (Trending)'"></span></span>
                           </template>
                           <template x-if="Number(item.daily_velocity || 0) < 10">
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="item.daily_velocity + '/day (Stagnant)'"></span>

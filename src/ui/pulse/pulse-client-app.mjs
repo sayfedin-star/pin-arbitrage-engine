@@ -879,7 +879,7 @@ export function getPulseClientAppScript() {
             : '- Standard extraction';
 
           var md = [
-            '# ⚡ PAE SCIENTIFIC PIN BLUEPRINT: ' + (p.title || 'Untitled'),
+            '# PAE SCIENTIFIC PIN BLUEPRINT: ' + (p.title || 'Untitled'),
             '**Pin ID:** ' + (p.pin_id || 'N/A'),
             '**Target Board:** ' + (p.board_name || 'General Inspiration'),
             '**Dominant Color:** ' + (p.dominant_color || '#888888'),

@@ -220,7 +220,7 @@ export function getDashboardBoardsAndPinMethods() {
           const creator = this.activeBoardCreator || this.activeCreator;
           const handle = creator ? (creator.username || '').replace(/^@+/, '').trim() : '';
           if (!handle) return;
-          this.showToast('🔍 Scraping authentic Related Interests (board_vase) from Pinterest...');
+          this.showToast('Scraping authentic Related Interests (board_vase) from Pinterest...');
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/board-detail/sync'), {
               method: 'POST',
@@ -235,13 +235,13 @@ export function getDashboardBoardsAndPinMethods() {
                   ...data.board,
                   board_vase: Array.isArray(data.board.board_vase) ? data.board.board_vase : []
                 };
-                this.showToast('✅ Discovered ' + (this.activeBoard.board_vase?.length || 0) + ' algorithmic Related Topics (board_vase)!');
+                this.showToast('Discovered ' + (this.activeBoard.board_vase?.length || 0) + ' algorithmic Related Topics (board_vase)!');
               }
             } else {
-              this.showToast('❌ Could not refresh board topics from Pinterest.');
+              this.showToast('Could not refresh board topics from Pinterest.');
             }
           } catch (e) {
-            this.showToast('❌ Error refreshing board: ' + e.message);
+            this.showToast('Error refreshing board: ' + e.message);
           } finally {
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
@@ -434,7 +434,7 @@ export function getDashboardBoardsAndPinMethods() {
           this.creatorAllPinBoard = boardName;
           this.activeCreatorAllPinsPage = 1;
           this.fetchCreatorAllPins();
-          this.showToast('📋 Filtered discovered pins for board: ' + boardName);
+          this.showToast('Filtered discovered pins for board: ' + boardName);
         },
 
         filterWinningPinsByBoard(boardName) {
@@ -444,7 +444,7 @@ export function getDashboardBoardsAndPinMethods() {
           this.creatorAllPinBoard = boardName;
           this.activeCreatorAllPinsPage = 1;
           this.fetchCreatorAllPins();
-          this.showToast('🏆 Filtered qualified winning pins for board: ' + boardName);
+          this.showToast('Filtered qualified winning pins for board: ' + boardName);
         },
 
         toggleGhaBoardSelection(boardName) {
@@ -482,8 +482,8 @@ export function getDashboardBoardsAndPinMethods() {
           const targetBoards = this.ghaBoardScope === 'custom' ? this.ghaTargetBoards.join(',') : '';
           const boardMsg = targetBoards ? (' (' + this.ghaTargetBoards.length + ' selected board(s))') : ' (Sharded across 20 nodes)';
           this.showToast(isBulk
-            ? ('⚡ Dispatching fleet crawler for ' + bulkUsernames.length + ' creators...')
-            : ('⚡ Dispatching fleet crawler for @' + handle + boardMsg + '...'));
+            ? ('Dispatching fleet crawler for ' + bulkUsernames.length + ' creators...')
+            : ('Dispatching fleet crawler for @' + handle + boardMsg + '...'));
 
           const resolvedMaxPages = this.ghaCrawlMode === 'discovery' ? 3 : (this.ghaCrawlMode === 'refresh' ? 10 : 500);
 
@@ -510,12 +510,12 @@ export function getDashboardBoardsAndPinMethods() {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               this._clientCache?.boards?.clear();
-              this.showToast('🚀 ' + (data?.message || 'Crawler pipeline launched on GitHub Actions!'));
+              this.showToast(data?.message || 'Crawler pipeline launched on GitHub Actions!');
             } else {
-              this.showToast('❌ Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token configuration'));
+              this.showToast('Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token configuration'));
             }
           } catch (err) {
-            this.showToast('❌ Network error: ' + err.message);
+            this.showToast('Network error: ' + err.message);
           } finally {
             this.isDispatchingGitHubCrawl = false;
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -547,7 +547,7 @@ export function getDashboardBoardsAndPinMethods() {
             this.competitorsOverview.active_count = (this.competitors || []).filter(c => c.is_active !== false).length;
             this.competitorsOverview.paused_count = (this.competitors || []).filter(c => c.is_active === false).length;
           }
-          this.showToast(newStatus ? '▶ Ingestion resumed.' : '⏸ Ingestion paused.');
+          this.showToast(newStatus ? 'Ingestion resumed.' : 'Ingestion paused.');
 
           // 2. Persist to backend
           try {
@@ -617,7 +617,7 @@ export function getDashboardBoardsAndPinMethods() {
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
-          this.showToast('✅ Exported ' + data.length + ' candidates to CSV.');
+          this.showToast('Exported ' + data.length + ' candidates to CSV.');
         },
 
         setCreatorPinPace(pace) {
@@ -694,7 +694,7 @@ export function getDashboardBoardsAndPinMethods() {
           ]);
 
           if (!handle || reservedPaths.has(handle) || !/^[a-z0-9_.-]{3,64}$/.test(handle)) {
-            this.showToast('⚠️ Invalid Pinterest creator handle: "' + (handle || raw) + '". Reserved words and invalid formats are not allowed.');
+            this.showToast('Invalid Pinterest creator handle: "' + (handle || raw) + '". Reserved words and invalid formats are not allowed.');
             return;
           }
 
@@ -714,10 +714,10 @@ export function getDashboardBoardsAndPinMethods() {
               });
               if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
-                this.showToast('❌ Failed to add creator: ' + (errData?.error || res.statusText || 'Error'));
+                this.showToast('Failed to add creator: ' + (errData?.error || res.statusText || 'Error'));
                 return;
               }
-              this.showToast('✅ Creator @' + handle + ' added to tracking!');
+              this.showToast('Creator @' + handle + ' added to tracking!');
               // Await live profile sync before UI refresh
               await this.syncCompetitor(handle);
             }
@@ -726,7 +726,7 @@ export function getDashboardBoardsAndPinMethods() {
             if (this.newCompetitorDiscoverPins) {
               const crawlMode = this.newCompetitorDiscoverMode === 'deep' ? 'discovery' : 'refresh';
               const maxPages = this.newCompetitorDiscoverMode === 'deep' ? Math.min(10000, Math.max(1, Number(this.newCompetitorMaxPages) || 500)) : 3;
-              this.showToast('⚡ Dispatching 20-runner GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
+              this.showToast('Dispatching 20-runner GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
               
               const resPins = await window.apiFetch(this.getApiUrl('/api/creators/dispatch-crawl'), {
                 method: 'POST',
@@ -740,10 +740,10 @@ export function getDashboardBoardsAndPinMethods() {
               });
               if (resPins.ok) {
                 const data = await resPins.json().catch(() => ({}));
-                this.showToast('🚀 ' + (data?.message || '20-Runner Crawler dispatched on GitHub Actions!'));
+                this.showToast(data?.message || '20-Runner Crawler dispatched on GitHub Actions!');
               } else {
                 const errData = await resPins.json().catch(() => ({}));
-                this.showToast('⚠️ Crawler notice: ' + (errData?.error || resPins.statusText || 'Failed'));
+                this.showToast('Crawler notice: ' + (errData?.error || resPins.statusText || 'Failed'));
               }
             }
 

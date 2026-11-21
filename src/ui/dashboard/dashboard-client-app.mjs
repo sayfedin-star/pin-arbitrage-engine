@@ -2148,13 +2148,13 @@ ${getDashboardCreatorsFleetMethods()}
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              this.showToast('✅ Auto-promote breakout rules saved successfully!');
+              this.showToast('Auto-promote breakout rules saved successfully!');
               this.isAutoPromoteModalOpen = false;
             } else {
-              this.showToast('❌ Failed to save auto-promote rules: ' + (data?.error || res.statusText));
+              this.showToast('Failed to save auto-promote rules: ' + (data?.error || res.statusText));
             }
           } catch (err) {
-            this.showToast('❌ Network error: ' + err.message);
+            this.showToast('Network error: ' + err.message);
           } finally {
             this.isSavingAutoPromote = false;
           }
@@ -2196,7 +2196,7 @@ ${getDashboardCreatorsFleetMethods()}
 
             const data = await res.json();
             if (res.ok && data.candidates_imported !== undefined) {
-              this.rawJsonStatusMsg = '✅ تم بنجاح! تم استيراد ' + data.candidates_imported + ' كانديديت و ' + data.capsules_imported + ' كبسولة بحثية BUBBLE_ONE_COL وتثبيت كوتا الحصص في PostgreSQL.';
+              this.rawJsonStatusMsg = 'تم بنجاح! تم استيراد ' + data.candidates_imported + ' كانديديت و ' + data.capsules_imported + ' كبسولة بحثية BUBBLE_ONE_COL وتثبيت كوتا الحصص في PostgreSQL.';
               this.rawJsonIsError = false;
               await this.refreshAll();
               if (this.activeDossierSeed && this.activeDossierSeed.pin_id === this.rawJsonTargetPin.trim()) {
@@ -2206,11 +2206,11 @@ ${getDashboardCreatorsFleetMethods()}
                 this.isRawJsonModalOpen = false;
               }, 2000);
             } else {
-              this.rawJsonStatusMsg = '❌ خطأ: ' + (data.error || data.message || 'فشل استيراد البيانات');
+              this.rawJsonStatusMsg = 'خطأ: ' + (data.error || data.message || 'فشل استيراد البيانات');
               this.rawJsonIsError = true;
             }
           } catch (err) {
-            this.rawJsonStatusMsg = '❌ خطأ في الاتصال: ' + err.message;
+            this.rawJsonStatusMsg = 'خطأ في الاتصال: ' + err.message;
             this.rawJsonIsError = true;
           } finally {
             this.isSubmittingRawJson = false;

@@ -131,7 +131,7 @@ export function getDashboardSeedActionMethods() {
 
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
-              this.showToast('✅ Successfully imported ' + (data?.count || 0) + ' seeds into PostgreSQL!');
+              this.showToast('Successfully imported ' + (data?.count || 0) + ' seeds into PostgreSQL!');
               this.bulkPinsInput = '';
               this.isAddSeedOpen = false;
               await this.refreshAll();
@@ -228,7 +228,7 @@ export function getDashboardSeedActionMethods() {
 
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              this.showToast('🚀 GitHub Actions Workflow Run triggered successfully!');
+              this.showToast('GitHub Actions Workflow Run triggered successfully!');
               this.crawlModalTab = 'history';
               setTimeout(() => this.fetchWorkflowRuns(), 2000);
             } else {
@@ -276,7 +276,7 @@ export function getDashboardSeedActionMethods() {
 
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
-              this.showToast('🗑️ Deleted ' + (data?.deleted_count || 0) + ' seeds ' + (data?.purged_database ? '(PostgreSQL DB purged cleanly)' : ''));
+              this.showToast('Deleted ' + (data?.deleted_count || 0) + ' seeds ' + (data?.purged_database ? '(PostgreSQL DB purged cleanly)' : ''));
               this.selectedSeedIds = this.selectedSeedIds.filter(id => !pinIds.includes(id));
               this.isDeleteModalOpen = false;
               if (this.activeDossierSeed && pinIds.includes(this.activeDossierSeed.pin_id)) {

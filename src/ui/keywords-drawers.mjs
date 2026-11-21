@@ -130,8 +130,7 @@ export function getKeywordDrawersAndModalsHtml() {
                   <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.saves_24h + ' 24h'"></span>
                 </template>
                 <template x-if="dossierData?.url_global_saves || activeInspectorPin?.url_global_saves">
-                  <span class="text-[9px] font-bold text-sky-400 font-mono block truncate" :title="'Global Article Saves: ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves)"
-                        x-text="'🌐 ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves) + ' Art.'"></span>
+                  <span class="text-[9px] font-bold text-sky-400 font-mono inline-flex items-center gap-1 truncate" :title="'Global Article Saves: ' + formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves)"><i data-lucide="globe" class="w-2.5 h-2.5 shrink-0"></i><span x-text="formatNumber(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves) + ' Art.'"></span></span>
                 </template>
                 <template x-if="computeViralityRatio(dossierData?.url_global_saves || activeInspectorPin?.url_global_saves, dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count) >= 5.0">
                   <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono inline-block mt-0.5"
@@ -194,7 +193,7 @@ export function getKeywordDrawersAndModalsHtml() {
                           class="px-2.5 py-1 rounded-lg bg-slate-950/80 hover:bg-slate-900 text-emerald-400 text-[10px] font-mono font-bold border border-emerald-500/30 backdrop-blur-xs flex items-center gap-1 cursor-pointer transition shadow-sm"
                           title="Download lossless HD asset">
                     <i data-lucide="download" class="w-3 h-3"></i>
-                    <span>⬇️ Download HD</span>
+                    <span>Download HD</span>
                   </button>
                 </div>
                 <template x-if="dossierData?.dominant_color">
@@ -270,7 +269,8 @@ export function getKeywordDrawersAndModalsHtml() {
               <template x-if="dossierData?.is_indexed_google !== undefined">
                 <div class="flex items-center space-x-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border"
                      :class="dossierData.is_indexed_google ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'">
-                  <span x-text="dossierData.is_indexed_google ? '✓ Google Indexed' : '⚠️ Google Noindex'"></span>
+                  <span x-show="dossierData.is_indexed_google" class="inline-flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i><span>Google Indexed</span></span>
+                  <span x-show="!dossierData.is_indexed_google" class="inline-flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i><span>Google Noindex</span></span>
                 </div>
               </template>
 
@@ -539,7 +539,7 @@ export function getKeywordDrawersAndModalsHtml() {
           <div x-show="!settingsEnableSerpHarvest" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-start space-x-2">
             <i data-lucide="zap" class="w-4 h-4 shrink-0 mt-0.5 text-amber-500"></i>
             <div>
-              <span class="font-bold">⚡ Audit-Only Mode Active:</span> Live Pinterest search will be bypassed entirely. Crawlers will skip Stage 0/1 SERP scraping and immediately proceed to deep closeup telemetry and velocity measurement on stored catalog & vault pins.
+              <span class="font-bold">Audit-Only Mode Active:</span> Live Pinterest search will be bypassed entirely. Crawlers will skip Stage 0/1 SERP scraping and immediately proceed to deep closeup telemetry and velocity measurement on stored catalog & vault pins.
             </div>
           </div>
         </div>
@@ -698,7 +698,7 @@ export function getKeywordDrawersAndModalsHtml() {
           <button type="button" @click="saveSettings()" :disabled="settingsLoading"
                   class="px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
             <i data-lucide="check" class="w-3.5 h-3.5" :class="settingsLoading ? 'animate-spin' : ''"></i>
-            <span x-text="settingsLoading ? 'Saving...' : '💾 Save & Apply Settings'"></span>
+            <span x-text="settingsLoading ? 'Saving...' : 'Save & Apply Settings'"></span>
           </button>
         </div>
       </div>

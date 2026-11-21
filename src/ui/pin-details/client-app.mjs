@@ -724,7 +724,7 @@ export function getPinDetailsClientAppScripts() {
               if (this.dossier?.pillar_1_creator_context) {
                 this.dossier.pillar_1_creator_context.is_tracked_competitor = true;
               }
-              this.showToast('⚡ Creator @' + cleanUser + ' added with 24h Pulse tracking!', 'success');
+              this.showToast('Creator @' + cleanUser + ' added with 24h Pulse tracking!', 'success');
             } else {
               const err = await res.json().catch(() => ({}));
               this.showToast('Failed to track creator: ' + (err.error || res.statusText), 'error');

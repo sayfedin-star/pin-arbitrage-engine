@@ -36,7 +36,7 @@ export function getKeywordsDashboardViewHtml() {
                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 border border-rose-500/20 text-rose-600 dark:text-rose-400 transition inline-flex items-center space-x-1.5 shadow-2xs"
                title="24h Algorithmic Pulse & Crossover Radar">
               <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
-              <span class="hidden sm:inline">⚡ 24h Pulse Radar</span>
+              <span class="hidden sm:inline">24h Pulse Radar</span>
             </a>
 
             <!-- Campaign Folders Fleet Link (Level 4) -->
@@ -145,7 +145,8 @@ export function getKeywordsDashboardViewHtml() {
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Displaced Pins' : 'Campaign Folders'"></span>
             <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'">
-              <i :data-lucide="activeFolderId ? 'archive' : 'folder'" class="w-3.5 h-3.5"></i>
+              <span x-show="activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="archive" class="w-3.5 h-3.5"></i></span>
+              <span x-show="!activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="folder" class="w-3.5 h-3.5"></i></span>
             </span>
           </div>
           <template x-if="isKeywordsLoading">
@@ -180,7 +181,8 @@ export function getKeywordsDashboardViewHtml() {
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Average Velocity' : 'Nightly Crawler Fleet'"></span>
             <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'">
-              <i :data-lucide="activeFolderId ? 'zap' : 'clock'" class="w-3.5 h-3.5"></i>
+              <span x-show="activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="zap" class="w-3.5 h-3.5"></i></span>
+              <span x-show="!activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="clock" class="w-3.5 h-3.5"></i></span>
             </span>
           </div>
           <div>
@@ -231,10 +233,10 @@ export function getKeywordsDashboardViewHtml() {
 
             <!-- Campaign Folders filter dropdown -->
             <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="ALL">📁 All Folders</option>
+              <option value="ALL">All Folders</option>
               <option value="UNASSIGNED">Unassigned (No Folder)</option>
               <template x-for="f in folders" :key="f.id">
-                <option :value="f.id" x-text="'📁 ' + f.name + ' (' + getFolderKeywordCount(f) + ')'"></option>
+                <option :value="f.id" x-text="f.name + ' (' + getFolderKeywordCount(f) + ')'"></option>
               </template>
             </select>
 
@@ -417,7 +419,7 @@ export function getKeywordsDashboardViewHtml() {
                     <td x-show="visibleColumns.preview" class="py-3 px-3">
                       <div class="w-10 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] shadow-2xs relative">
                         <template x-if="kw.top_pin_image">
-                          <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" onerror="window.handlePinImgError(this)">
+                          <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                         </template>
                         <template x-if="!kw.top_pin_image">
                           <div class="w-full h-full flex items-center justify-center">
@@ -692,7 +694,7 @@ export function getKeywordsDashboardViewHtml() {
                   <!-- Card Header: Image Banner with Floating Badges -->
                   <div class="w-full h-44 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-[#27272A] relative">
                     <template x-if="kw.top_pin_image">
-                      <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onerror="window.handlePinImgError(this)">
+                      <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                     </template>
                     <template x-if="!kw.top_pin_image">
                       <div class="w-full h-full flex items-center justify-center">

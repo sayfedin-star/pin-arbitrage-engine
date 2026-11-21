@@ -114,11 +114,11 @@ export function renderRelatedIntersectionsTab() {
               <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
                 <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sort:</span>
                 <select x-model="intersectionSort" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
-                  <option value="pixie">🏆 Pixie Multi-Hit Score</option>
-                  <option value="overlap">🔗 Overlap Depth (Max Seeds)</option>
-                  <option value="saves">💾 Total Saves (High to Low)</option>
-                  <option value="rate">🔄 Repin Rate % (High to Low)</option>
-                  <option value="velocity">⚡ Daily Velocity (Fastest)</option>
+                  <option value="pixie">Pixie Multi-Hit Score</option>
+                  <option value="overlap">Overlap Depth (Max Seeds)</option>
+                  <option value="saves">Total Saves (High to Low)</option>
+                  <option value="rate">Repin Rate % (High to Low)</option>
+                  <option value="velocity">Daily Velocity (Fastest)</option>
                 </select>
               </div>
             </div>
@@ -132,8 +132,8 @@ export function renderRelatedIntersectionsTab() {
                 <select x-model="intersectionFilters.minOverlap" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Hubs (≥ 2 Seeds)</option>
                   <option value="3">≥ 3 Seeds (Hubs)</option>
-                  <option value="5">🔥 ≥ 5 Seeds (Golden Core)</option>
-                  <option value="7">👑 ≥ 7 Seeds (Mega-Hubs)</option>
+                  <option value="5">≥ 5 Seeds (Golden Core)</option>
+                  <option value="7">≥ 7 Seeds (Mega-Hubs)</option>
                 </select>
               </div>
 
@@ -165,10 +165,10 @@ export function renderRelatedIntersectionsTab() {
                 <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Market:</span>
                 <select x-model="intersectionFilters.market" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Opportunities</option>
-                  <option value="vacuum">🎯 Vacuum Targets Only (≥ 5K)</option>
-                  <option value="product">🛒 Competitor Products</option>
-                  <option value="high_rate">⚡ High Repin Rate (≥ 50%)</option>
-                  <option value="explosive">🔥 Explosive Velocity (≥ 50/d)</option>
+                  <option value="vacuum">Vacuum Targets Only (≥ 5K)</option>
+                  <option value="product">Competitor Products</option>
+                  <option value="high_rate">High Repin Rate (≥ 50%)</option>
+                  <option value="explosive">Explosive Velocity (≥ 50/d)</option>
                 </select>
               </div>
 
@@ -202,7 +202,7 @@ export function renderRelatedIntersectionsTab() {
               <!-- 1. Media Image Container (2:3 Aspect Ratio) -->
               <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden cursor-pointer" @click="openHubDrawer(item)">
                 <template x-if="item.image_url">
-                  <img :src="item.image_url" alt="Pin preview" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="window.handlePinImgError(this)">
+                  <img :src="item.image_url" alt="Pin preview" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                 </template>
                 <template x-if="!item.image_url">
                   <div class="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
@@ -221,15 +221,15 @@ export function renderRelatedIntersectionsTab() {
                           'bg-amber-950/85 text-amber-200 border-amber-500/40': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
                           'bg-slate-900/85 text-slate-200 border-slate-700/60': item.seed_overlap_count < 3
                         }">
-                    <span x-text="'🔥 ' + item.seed_overlap_count + ' Seeds'"></span>
+                    <span class="inline-flex items-center gap-1"><i data-lucide="flame" class="w-3 h-3 shrink-0"></i><span x-text="item.seed_overlap_count + ' Seeds'"></span></span>
                     <span class="text-[9px] opacity-80" x-text="'(' + Math.pow(item.seed_overlap_count, 2) + 'x)'"></span>
                   </span>
 
                   <!-- Vacuum / Format Badge -->
                   <div class="flex items-center space-x-1">
                     <template x-if="item.is_vacuum_target">
-                      <span class="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-emerald-950/85 text-emerald-300 border border-emerald-500/40 backdrop-blur-md shadow-md">
-                        🎯 VACUUM
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-emerald-950/85 text-emerald-300 border border-emerald-500/40 backdrop-blur-md shadow-md">
+                        <i data-lucide="target" class="w-3 h-3 shrink-0"></i><span>VACUUM</span>
                       </span>
                     </template>
                     <span class="px-1.5 py-0.5 rounded-lg text-[9px] font-mono tabular-nums font-bold uppercase backdrop-blur-md shadow-md bg-slate-950/70 text-white border border-white/20" x-text="item.format_type === 'PRODUCT CARD' ? 'PRODUCT' : (item.format_type === 'VIDEO PIN' ? 'VIDEO' : 'PIN')"></span>
@@ -295,7 +295,7 @@ export function renderRelatedIntersectionsTab() {
                   <div>
                     <div class="text-[9px] uppercase text-slate-400">Daily Velocity</div>
                     <template x-if="Number(item.daily_velocity || 0) > 0">
-                      <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'🔥 ' + item.daily_velocity + '/d'"></div>
+                      <div class="font-bold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1"><i data-lucide="flame" class="w-3 h-3 shrink-0"></i><span x-text="item.daily_velocity + '/d'"></span></div>
                     </template>
                     <template x-if="!Number(item.daily_velocity || 0)">
                       <div class="text-slate-400 text-[10px]">Stagnant</div>
@@ -371,7 +371,7 @@ export function renderRelatedIntersectionsTab() {
                     <div class="flex items-center space-x-2.5">
                       <div @click="openHubDrawer(item)" class="group/thumb block relative flex-shrink-0 cursor-pointer">
                         <template x-if="item.image_url">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="window.handlePinImgError(this)">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1')" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                         </template>
                         <template x-if="!item.image_url">
                           <div class="w-10 h-14 rounded-xl flex-shrink-0 flex items-center justify-center border-2 shadow-sm" :style="'border-color: ' + safeColor(item.winning_color, '#cbd5e1') + '; background-color: ' + safeColor(item.winning_color, '#cbd5e1') + '15;'">
@@ -389,8 +389,8 @@ export function renderRelatedIntersectionsTab() {
                           }" x-text="item.format_type"></span>
 
                           <template x-if="item.is_vacuum_target">
-                            <span class="inline-block px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
-                              🎯 VACUUM
+                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
+                              <i data-lucide="target" class="w-2.5 h-2.5 shrink-0"></i><span>VACUUM</span>
                             </span>
                           </template>
                         </div>
@@ -398,7 +398,7 @@ export function renderRelatedIntersectionsTab() {
                         <!-- Ingestion Method Badge -->
                         <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
                           <div class="text-[8px] font-mono tabular-nums font-bold uppercase tracking-wider text-slate-400">
-                            <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
+                            <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? 'CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? 'Scheduled' : item.ingestion_method)"></span>
                           </div>
                         </template>
                       </div>
@@ -504,7 +504,7 @@ export function renderRelatedIntersectionsTab() {
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                     <template x-if="Number(item.daily_velocity || 0) > 0">
-                      <div class="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="'🔥 ' + item.daily_velocity + '/day'"></div>
+                      <div class="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5 inline-flex items-center gap-0.5"><i data-lucide="flame" class="w-2.5 h-2.5 shrink-0"></i><span x-text="item.daily_velocity + '/day'"></span></div>
                     </template>
                   </td>`,
                   extraCellsBeforeActions: `

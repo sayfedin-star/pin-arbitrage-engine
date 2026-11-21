@@ -194,9 +194,7 @@ export function renderPinRowTemplate({
 
             <!-- Rule 31 Age Badge -->
             <template x-if="${p}.pin_age_days !== null && ${p}.pin_age_days !== undefined && ${p}.pin_age_days !== ''">
-              <span class="text-slate-400 text-[9.5px] shrink-0" 
-                    :title="'Age: ' + ${p}.pin_age_days + ' days'" 
-                    x-text="'📅 ' + (typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days + 'd'))"></span>
+              <span class="inline-flex items-center gap-1 text-slate-400 text-[9.5px] shrink-0" :title="'Age: ' + ${p}.pin_age_days + ' days'"><i data-lucide="calendar" class="w-3 h-3 shrink-0"></i><span x-text="typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days + 'd')"></span></span>
             </template>
 
             <!-- SEO Alt-Text Badge -->
@@ -264,7 +262,7 @@ export function renderPinRowTemplate({
                   @click="${onBlueprintClick}" 
                   class="px-2 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                   title="Inspect pin dossier and generate production blueprint">
-            <span>⚡ Blueprint</span>
+            <span class="inline-flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span>Blueprint</span></span>
           </button>
           <a :href="${dossierUrlExpr}" 
              class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-rose-600 hover:text-white dark:hover:bg-rose-600 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition cursor-pointer" 

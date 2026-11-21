@@ -45,12 +45,12 @@ export function renderCampaignWorkspaceHeader({
   const jsCleanFolderId = escapeAttrJs(cleanFolderIdRaw);
   const folderNameRaw = folder?.name || 'Campaign Workspace';
   const folderDescRaw = folder?.description || 'Campaign cluster for Pinterest arbitrage';
-  const folderIconRaw = folder?.icon || '📁';
+  const folderIconRaw = folder?.icon || '';
   const folderName = escapeHtml(folderNameRaw);
   const jsFolderName = escapeAttrJs(folderNameRaw);
   const folderDesc = escapeHtml(folderDescRaw);
   const jsFolderDesc = escapeAttrJs(folderDescRaw);
-  const folderIcon = (!folderIconRaw || folderIconRaw === 'folder' || folderIconRaw.length > 4) ? '' : escapeHtml(folderIconRaw);
+  const folderIcon = (!folderIconRaw || folderIconRaw === 'folder' || folderIconRaw === '📁' || folderIconRaw.length > 4) ? '' : escapeHtml(folderIconRaw);
   const folderColor = sanitizeHex6(folder?.color, '#E11D48');
   const folderDateRaw = folder?.created_at ? new Date(folder.created_at).toLocaleDateString() : '';
   const folderDate = escapeHtml(folderDateRaw);
@@ -109,8 +109,8 @@ export function renderCampaignWorkspaceHeader({
         <!-- Folder Avatar & Metadata -->
         <div class="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200/80 dark:border-[#27272A] shrink-0 overflow-hidden"
              :style="'background-color: ' + ((typeof activeFolder !== 'undefined' && activeFolder?.color && /^#[0-9a-fA-F]{6}$/.test(String(activeFolder.color).trim())) ? String(activeFolder.color).trim() + '20' : '${folderColor}20')">
-          <span x-show="(typeof activeFolder !== 'undefined' && activeFolder?.icon) && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.icon) ? activeFolder.icon : ''">${folderIcon}</span>
-          <span x-show="typeof activeFolder === 'undefined' || !activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon.length > 4">
+          <span x-show="(typeof activeFolder !== 'undefined' && activeFolder?.icon) && activeFolder.icon !== 'folder' && activeFolder.icon !== '📁' && activeFolder.icon.length <= 4" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.icon) ? activeFolder.icon : ''">${folderIcon}</span>
+          <span x-show="typeof activeFolder === 'undefined' || !activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon === '📁' || activeFolder.icon.length > 4">
             <i data-lucide="folder-kanban" class="w-5 h-5 text-rose-500"></i>
           </span>
         </div>
@@ -147,7 +147,8 @@ export function renderCampaignWorkspaceHeader({
                      class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors cursor-pointer"
                      :class="(f.id == '${jsCleanFolderId}') ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
                     <div class="flex items-center gap-2 truncate">
-                      <span x-text="f.icon && f.icon !== 'folder' && f.icon.length <= 4 ? f.icon : '📁'"></span>
+                      <span x-show="f.icon && f.icon !== 'folder' && f.icon !== '📁' && f.icon.length <= 4" x-text="f.icon"></span>
+                      <span x-show="!f.icon || f.icon === 'folder' || f.icon === '📁' || f.icon.length > 4" class="inline-flex items-center justify-center"><i data-lucide="folder" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i></span>
                       <span class="truncate" x-text="f.name"></span>
                     </div>
                     <span class="text-[10px] font-mono tabular-nums text-slate-400 shrink-0 ml-1" x-text="'#' + f.id"></span>
@@ -230,7 +231,7 @@ export function renderCampaignWorkspaceHeader({
           <i data-lucide="globe" class="w-4 h-4 ${isDomains ? iconActive : iconInactive}"></i>
           <span>Domain Studio</span>
           <span class="${isDomains ? badgeActive : badgeInactive}"
-                x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' 📌)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
+                x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' pinned)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
         </a>
 
         <!-- Room 4B: Newborn Breakout Hunter -->

@@ -97,11 +97,11 @@ export function renderDashboardClusterModals() {
           <div x-show="bulkAutoCrawl" class="flex items-center space-x-1.5 text-[11px] font-mono">
             <label class="flex items-center space-x-1 cursor-pointer">
               <input type="radio" value="workflow" x-model="bulkCrawlEngine" class="text-rose-600">
-              <span>🚀 GitHub Actions</span>
+              <span class="inline-flex items-center gap-1"><i data-lucide="rocket" class="w-3 h-3 shrink-0"></i><span>GitHub Actions</span></span>
             </label>
             <label class="flex items-center space-x-1 cursor-pointer">
               <input type="radio" value="local" x-model="bulkCrawlEngine" class="text-rose-600">
-              <span>💻 Local</span>
+              <span class="inline-flex items-center gap-1"><i data-lucide="laptop" class="w-3 h-3 shrink-0"></i><span>Local</span></span>
             </label>
           </div>
         </div>
@@ -247,7 +247,7 @@ export function renderDashboardClusterModals() {
               <input type="radio" value="workflow" x-model="crawlEngine" class="mt-0.5 text-purple-600 focus:ring-purple-500">
               <div>
                 <div class="flex items-center space-x-1.5">
-                  <span class="font-bold text-slate-800 dark:text-slate-200">🚀 GitHub Actions Workflow</span>
+                  <span class="font-bold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1"><i data-lucide="rocket" class="w-3.5 h-3.5 text-purple-500 shrink-0"></i><span>GitHub Actions Workflow</span></span>
                   <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">20 Parallel Runners</span>
                 </div>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
@@ -261,7 +261,7 @@ export function renderDashboardClusterModals() {
                    :class="crawlEngine === 'local' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-[#27272A] hover:bg-slate-50 dark:hover:bg-slate-900/50'">
               <input type="radio" value="local" x-model="crawlEngine" class="mt-0.5 text-amber-600 focus:ring-amber-500">
               <div>
-                <span class="font-bold text-slate-800 dark:text-slate-200">💻 Local Background Process</span>
+                <span class="font-bold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1"><i data-lucide="laptop" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i><span>Local Background Process</span></span>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
                   Spawns crawler asynchronously on this server via <code class="text-amber-600">node scripts/cluster-intelligence.mjs</code>. Instant feedback in top banner.
                 </p>
@@ -413,14 +413,14 @@ export function renderDashboardClusterModals() {
 
       <div class="space-y-3 text-xs">
         <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1.5 text-amber-800 dark:text-amber-300 font-mono">
-          <p class="font-bold">⚡ Why are session cookies required for BUBBLE_ONE_COL and RecGPT extraction?</p>
+          <p class="font-bold flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Why are session cookies required for BUBBLE_ONE_COL and RecGPT extraction?</span></p>
           <p class="text-[11px] leading-relaxed">
             Pinterest treats unauthenticated requests as anonymous visitors, returning 0 search capsules and 0 RecGPT candidates. Adding an active session cookie allows the engine to retrieve BUBBLE_ONE_COL guided capsules and the full 147 RecGPT candidate quota.
           </p>
         </div>
 
         <div class="space-y-1 text-slate-600 dark:text-slate-400 text-[11px]">
-          <p class="font-semibold text-slate-800 dark:text-slate-200">📌 3-Step Setup Guide:</p>
+          <p class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5"><i data-lucide="pin" class="w-3.5 h-3.5 text-rose-500 shrink-0"></i><span>3-Step Setup Guide:</span></p>
           <ol class="list-decimal list-inside space-y-0.5">
             <li>Open <code class="text-rose-500">pinterest.com</code> in your browser and log in.</li>
             <li>Press <code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">F12</code> and navigate to the <strong>Network</strong> tab.</li>
@@ -435,7 +435,7 @@ export function renderDashboardClusterModals() {
 
         <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
           <span>Current Status:</span>
-          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? '✅ Authenticated (Active Cookie)' : '❌ Unauthenticated (Guest Mode)'"></span>
+          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? 'Authenticated (Active Cookie)' : 'Unauthenticated (Guest Mode)'"></span>
           <span x-show="cookieStatus.preview" class="text-[10px] text-slate-400" x-text="'(' + cookieStatus.preview + ')'"></span>
         </div>
       </div>

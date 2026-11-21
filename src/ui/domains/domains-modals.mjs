@@ -32,7 +32,7 @@ export function getDomainsModalsHtml() {
       <div class="px-6 py-4 border-b border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#09090B]/50 flex items-center justify-between gap-4">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-rose-500/20">
-            ⚡
+            <i data-lucide="zap" class="w-5 h-5"></i>
           </div>
           <div>
             <div class="flex items-center gap-2">
@@ -49,13 +49,13 @@ export function getDomainsModalsHtml() {
           <button @click="copyBlueprintMarkdown()"
                   :disabled="!blueprintData"
                   class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
-            <span>📋</span>
+            <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Copy Markdown</span>
           </button>
           <button @click="exportBlueprintJson()"
                   :disabled="!blueprintData"
                   class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 border border-slate-200 dark:border-[#27272A] disabled:opacity-50">
-            <span>📥</span>
+            <i data-lucide="download" class="w-3.5 h-3.5 shrink-0"></i>
             <span>JSON</span>
           </button>
           <button @click="closeBlueprintModal()"
@@ -70,7 +70,7 @@ export function getDomainsModalsHtml() {
         <!-- Loading -->
         <template x-if="blueprintLoading">
           <div class="py-20 text-center text-slate-400 font-mono tabular-nums flex flex-col items-center justify-center gap-2">
-            <span class="animate-spin text-2xl">⚡</span>
+            <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-amber-500"></i>
             <span>Computing 6-Pillar Arbitrage Attack Blueprint...</span>
           </div>
         </template>
@@ -81,7 +81,7 @@ export function getDomainsModalsHtml() {
             <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-3">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <span class="text-base">🎯</span>
+                  <i data-lucide="target" class="w-4 h-4 text-rose-500 shrink-0"></i>
                   <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">1. Top Target Articles to Clone & Outrank</h3>
                 </div>
                 <span class="text-[11px] text-slate-400 font-mono tabular-nums">Ranked by traffic velocity and monopoly slots</span>
@@ -96,7 +96,7 @@ export function getDomainsModalsHtml() {
                         <span class="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white truncate" x-text="art.slug"></span>
                         <template x-if="art.is_vulnerable">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                            ⚡ CRITICAL VULNERABLE
+                            <span class="inline-flex items-center gap-1"><i data-lucide="zap" class="w-2.5 h-2.5 shrink-0"></i><span>CRITICAL VULNERABLE</span></span>
                           </span>
                         </template>
                       </div>
@@ -130,14 +130,14 @@ export function getDomainsModalsHtml() {
               <!-- Title Blueprints -->
               <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-2.5">
                 <div class="flex items-center gap-2">
-                  <span class="text-base">✍️</span>
+                  <i data-lucide="pen-line" class="w-4 h-4 text-sky-500 shrink-0"></i>
                   <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">2. Winning Title Blueprint Formulas</h3>
                 </div>
                 <div class="space-y-2">
                   <template x-for="(t, idx) in blueprintData.title_blueprints" :key="idx">
                     <div class="p-2.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-xs flex items-center justify-between gap-2 shadow-sm">
                       <span class="text-slate-800 dark:text-slate-200" x-text="t"></span>
-                      <button @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs">📋</button>
+                      <button @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center" title="Copy title formula"><i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i></button>
                     </div>
                   </template>
                 </div>
@@ -146,7 +146,7 @@ export function getDomainsModalsHtml() {
               <!-- Computer Vision Tags -->
               <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-2.5">
                 <div class="flex items-center gap-2">
-                  <span class="text-base">🧬</span>
+                  <i data-lucide="dna" class="w-4 h-4 text-sky-500 shrink-0"></i>
                   <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">3. Pinterest Computer Vision Targets</h3>
                 </div>
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -163,7 +163,7 @@ export function getDomainsModalsHtml() {
             <!-- 3. Deployment Multiplier Strategy (Pillar 2 & 5) -->
             <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 font-mono tabular-nums text-xs text-amber-900 dark:text-amber-300 space-y-2">
               <div class="font-bold flex items-center gap-2">
-                <span>🚀</span>
+                <i data-lucide="rocket" class="w-4 h-4 shrink-0"></i>
                 <span>Recommended 3-Pin Multiplier Strategy:</span>
               </div>
               <ul class="space-y-1 text-[11px] list-disc list-inside">

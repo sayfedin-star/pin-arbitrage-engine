@@ -411,7 +411,7 @@ export function renderSerpStudioTrendsTab() {
                   
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
                     <template x-if="p.image_url">
-                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" referrerpolicy="no-referrer" onerror="window.handlePinImgError(this)">
+                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" referrerpolicy="no-referrer" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
                     </template>
                     <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-2.5">
                       <span class="text-[10px] font-bold text-white flex items-center space-x-1">

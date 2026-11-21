@@ -149,14 +149,14 @@ export function getDashboardBoardViewHtml() {
 
         <!-- KPI 3: Qualified Winning Pins -->
         <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
-          <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">🏆 Qualified Winning Pins</div>
+          <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><i data-lucide="trophy" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i><span>Qualified Winning Pins</span></div>
           <div class="text-2xl font-black text-amber-500 font-mono tabular-nums" x-text="formatNumber(boardWinningPinsCount)"></div>
           <div class="text-[10.5px] text-slate-400">Meets 3-tier breakout rules</div>
         </div>
 
         <!-- KPI 4: Commercial / Product Pins -->
         <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
-          <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">🛒 Commercial Product Pins</div>
+          <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><i data-lucide="shopping-cart" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i><span>Commercial Product Pins</span></div>
           <div class="flex items-baseline gap-1.5">
             <span class="text-2xl font-black text-emerald-500 font-mono tabular-nums" x-text="formatNumber(boardProductPinsCount)"></span>
             <span class="text-xs font-bold text-slate-400" x-show="boardPins.length > 0" x-text="'(' + Math.round((boardProductPinsCount / Math.max(1, boardPins.length)) * 100) + '%)'"></span>
@@ -176,12 +176,12 @@ export function getDashboardBoardViewHtml() {
           </button>
           
           <button type="button" @click="boardPinsFilter = 'qualified'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'qualified' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-            <span>🏆 Winning Pins</span>
+            <span class="inline-flex items-center gap-1"><i data-lucide="trophy" class="w-3.5 h-3.5 shrink-0"></i><span>Winning Pins</span></span>
             <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono tabular-nums text-[10px]" :class="boardPinsFilter === 'qualified' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardWinningPinsCount"></span>
           </button>
 
           <button type="button" @click="boardPinsFilter = 'product'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'product' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-            <span>🛒 Product Pins</span>
+            <span class="inline-flex items-center gap-1"><i data-lucide="shopping-cart" class="w-3.5 h-3.5 shrink-0"></i><span>Product Pins</span></span>
             <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono tabular-nums text-[10px]" :class="boardPinsFilter === 'product' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardProductPinsCount"></span>
           </button>
         </div>
@@ -268,7 +268,7 @@ export function getDashboardBoardViewHtml() {
             
             <!-- Pin Image Container -->
             <div class="relative h-64 w-full overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer" @click="openPinPage(p)">
-              <img :src="p.image_url" :alt="p.title" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="window.handlePinImgError(this)" />
+              <img :src="p.image_url" :alt="p.title" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
               
               <!-- Gradient Overlay -->
               <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80 group-hover:opacity-90 transition-opacity"></div>
@@ -382,7 +382,7 @@ export function getDashboardBoardViewHtml() {
                   <!-- Thumbnail -->
                   <td class="py-2.5 px-4 w-14">
                     <div class="w-11 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] cursor-pointer" @click="openPinPage(p)">
-                      <img :src="p.image_url" loading="lazy" class="w-full h-full object-cover" onerror="window.handlePinImgError(this)" />
+                      <img :src="p.image_url" loading="lazy" class="w-full h-full object-cover" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
                     </div>
                   </td>
 
@@ -417,7 +417,7 @@ export function getDashboardBoardViewHtml() {
                   <td class="py-2.5 px-3 text-center font-sans">
                     <template x-if="p.is_qualified">
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                        <span>🏆 Winning</span>
+                        <i data-lucide="trophy" class="w-3 h-3 shrink-0"></i><span>Winning</span>
                       </span>
                     </template>
                     <template x-if="!p.is_qualified">

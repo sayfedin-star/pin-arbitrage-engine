@@ -8,7 +8,7 @@
 
 import crypto from 'node:crypto';
 import { precompressStaticBuffer } from '../http/compression.mjs';
-import { getAppSidebarClientScriptCode } from './app-sidebar.mjs';
+import { getAppSidebarClientScriptCode } from './command-palette-client-app.mjs';
 import { getDashboardClientAppScript } from './dashboard/dashboard-client-app.mjs';
 import { getKeywordsClientAppScript } from './keywords/keywords-client-app.mjs';
 import { getFoldersClientAppScript } from './folders/folders-client-app.mjs';

@@ -42,13 +42,13 @@ ${renderCreatorsLedgerView({ safeFolderId })}
               </a>
 
               <!-- ⚡ Quick Pulse (~2s Edge) -->
-              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="⚡ Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
+              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
                 <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="pulsingCreatorId === activeCreator.id ? 'animate-spin' : ''"></i>
                 <span x-text="pulsingCreatorId === activeCreator.id ? 'Pulsing...' : 'Pulse Profile'"></span>
               </button>
 
               <!-- 🏆 Refresh Winners (GitHub Actions) -->
-              <button @click="dispatchRefreshWinnersAction(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer" title="🏆 Refresh Winners: Dispatch background refresh of winning pin stats on GitHub Actions">
+              <button @click="dispatchRefreshWinnersAction(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer" title="Refresh Winners: Dispatch background refresh of winning pin stats on GitHub Actions">
                 <i data-lucide="award" class="w-3.5 h-3.5 text-purple-500"></i>
                 <span>Refresh Winners</span>
               </button>
@@ -94,10 +94,10 @@ ${renderCreatorsLedgerView({ safeFolderId })}
                 <div class="space-y-1.5 min-w-0">
                   <div class="flex flex-wrap items-center gap-2.5">
                     <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white" x-text="(activeCreator.username || '').replace(/^@+/, '')"></h1>
-                    <span class="rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="activeCreator.account_type === 'own' ? '🎯 Own Account' : '🎯 Competitor'"></span>
+                    <span class="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20"><i data-lucide="target" class="w-3 h-3 shrink-0"></i><span x-text="activeCreator.account_type === 'own' ? 'Own Account' : 'Competitor'"></span></span>
                     <span class="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">General</span>
-                    <span x-show="activeCreator.is_active === false" class="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30">⏸ Ingest Paused</span>
-                    <span x-show="activeCreator.is_active !== false" class="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">🟢 Active Ingest</span>
+                    <span x-show="activeCreator.is_active === false" class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30"><i data-lucide="pause" class="w-3 h-3 shrink-0"></i><span>Ingest Paused</span></span>
+                    <span x-show="activeCreator.is_active !== false" class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span>Active Ingest</span></span>
                   </div>
 
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -230,7 +230,7 @@ ${renderCreatorsLedgerView({ safeFolderId })}
                 <div class="flex items-center gap-4">
                   <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
                     <input type="checkbox" x-model="creatorRules.articles_only" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
-                    <span>🎯 Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span>
+                    <span class="inline-flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i><span>Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span></span>
                   </label>
                 </div>
 
@@ -241,7 +241,7 @@ ${renderCreatorsLedgerView({ safeFolderId })}
                   </button>
                   <button @click="reEvaluateCreatorPinsAction()" :disabled="isReEvaluatingCreatorPins" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
                     <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isReEvaluatingCreatorPins ? 'animate-spin' : ''"></i>
-                    <span x-text="isReEvaluatingCreatorPins ? 'Evaluating...' : '⚡ Re-evaluate Pins'"></span>
+                    <span x-text="isReEvaluatingCreatorPins ? 'Evaluating...' : 'Re-evaluate Pins'"></span>
                   </button>
                 </div>
               </div>

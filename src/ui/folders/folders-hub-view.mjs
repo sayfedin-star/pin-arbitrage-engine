@@ -55,7 +55,8 @@ export function getFoldersHubViewHtml() {
             <div class="flex items-center justify-between">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200 dark:border-white/10"
                    :style="'background-color: ' + (safeColor(f.color, '#6366f1').length === 7 ? safeColor(f.color, '#6366f1') + '20' : safeColor(f.color, '#6366f1'))">
-                <span x-text="f.icon || '📁'">📁</span>
+                <span x-show="f.icon && f.icon !== 'folder' && f.icon !== '📁' && f.icon.length <= 4" x-text="f.icon"></span>
+                <span x-show="!f.icon || f.icon === 'folder' || f.icon === '📁' || f.icon.length > 4" class="inline-flex items-center justify-center text-indigo-600 dark:text-indigo-400"><i data-lucide="folder" class="w-5 h-5"></i></span>
               </div>
               <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-[#27272A] font-semibold" 
                     x-text="'Folder #' + f.id"></span>
@@ -90,7 +91,7 @@ export function getFoldersHubViewHtml() {
               <div class="flex flex-col">
                 <span class="text-[9px] uppercase tracking-wider text-slate-400">Domains</span>
                 <span class="text-sm font-bold text-sky-600 dark:text-sky-400" 
-                      x-text="(f.domain_count || 0) + (f.pinned_domain_count ? ' (' + f.pinned_domain_count + '📌)' : '')">0</span>
+                      x-text="(f.domain_count || 0) + (f.pinned_domain_count ? ' (' + f.pinned_domain_count + ' pinned)' : '')">0</span>
               </div>
             </div>
 
@@ -120,8 +121,8 @@ export function getFoldersHubViewHtml() {
 
       <!-- Empty State (No folders exist) -->
       <div x-show="!foldersList.length && !foldersLoading" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4 shadow-sm" x-cloak>
-        <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
-          📁
+        <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500">
+          <i data-lucide="folder" class="w-7 h-7"></i>
         </div>
         <div class="max-w-md">
           <h3 class="text-base font-bold text-slate-900 dark:text-white tracking-tight">No Campaign Folders Yet</h3>

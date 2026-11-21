@@ -4,7 +4,7 @@
  *
  * Supports variant: 'dashboard' | 'folders' to keep Alpine expressions strictly
  * scoped to helpers available on each page's client runtime (avoiding
- * ReferenceError in /folders where resolveHdImageUrl & formatTimeAgo are absent).
+ * ReferenceError in /folders where resolveHdImageUrl is absent; formatUniversalAge is globally provided by pae-shell.js).
  */
 export function renderCreatorVisualFeedModal({ variant = 'dashboard' } = {}) {
   const isFolders = variant === 'folders';
@@ -17,7 +17,7 @@ export function renderCreatorVisualFeedModal({ variant = 'dashboard' } = {}) {
     ? `<div class="group relative rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] overflow-hidden flex flex-col justify-between hover:border-emerald-500/50 transition shadow-2xs">
               <div class="relative aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden">
                 <img :src="p.images?.['1200x']?.url || p.image_url"
-                     onerror="window.handlePinImgError(this)"
+                     onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}"
                      class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                      loading="lazy" />
                 <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition duration-200 flex flex-col justify-between p-2">
@@ -47,12 +47,12 @@ export function renderCreatorVisualFeedModal({ variant = 'dashboard' } = {}) {
                 
                 <!-- Live Saves & Repins Overlay -->
                 <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-2 flex items-center justify-between text-[10px] font-mono tabular-nums text-white">
-                  <span class="font-bold text-rose-400 flex items-center gap-0.5">
-                    <span>📌</span>
+                  <span class="font-bold text-rose-400 inline-flex items-center gap-1">
+                    <i data-lucide="pin" class="w-3 h-3 shrink-0"></i>
                     <span x-text="formatNumber(p.saves || p.save_count || 0)"></span>
                   </span>
                   <template x-if="p.created_at">
-                    <span class="text-slate-300 text-[9px]" x-text="formatTimeAgo(p.created_at)"></span>
+                    <span class="text-slate-300 text-[9px]" x-text="formatUniversalAge(p.created_at)"></span>
                   </template>
                 </div>
               </div>
@@ -95,8 +95,9 @@ export function renderCreatorVisualFeedModal({ variant = 'dashboard' } = {}) {
           <div>
             <div class="flex items-center space-x-2">
               <h3 class="font-bold text-sm sm:text-base text-slate-900 dark:text-white" x-text="visualFeedUser?.full_name || ('@' + visualFeedUsername)"></h3>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                ⚡ Instant Feed (&lt;350ms)
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
+                <span>Instant Feed (&lt;350ms)</span>
               </span>
             </div>
             <div class="flex items-center space-x-3 text-xs text-slate-500 font-mono tabular-nums mt-0.5">

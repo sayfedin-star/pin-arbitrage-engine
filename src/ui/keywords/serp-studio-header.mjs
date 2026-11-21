@@ -108,8 +108,8 @@ export function renderSerpStudioHeader() {
                       <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background-color: ' + (f.color || '#ec4899')"></span>
                       <span class="truncate font-semibold text-slate-800 dark:text-slate-200" x-text="f.name"></span>
                     </div>
-                    <i :data-lucide="isKeywordInFolder(f.id) ? 'check-circle-2' : 'plus-circle'"
-                       class="w-3.5 h-3.5" :class="isKeywordInFolder(f.id) ? 'text-pink-500' : 'text-slate-400'"></i>
+                    <span x-show="isKeywordInFolder(f.id)" class="inline-flex items-center justify-center text-pink-500"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i></span>
+                    <span x-show="!isKeywordInFolder(f.id)" class="inline-flex items-center justify-center text-slate-400"><i data-lucide="plus-circle" class="w-3.5 h-3.5"></i></span>
                   </div>
                 </template>
                 <template x-if="folders.length === 0">
@@ -294,9 +294,11 @@ export function renderSerpStudioHeader() {
         </div>
         <div class="flex items-center space-x-2">
           <template x-if="selectedKeywordDetails?.intelligence?.opportunity">
-            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono tabular-nums"
-                  :class="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400')"
-                  x-text="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? '🟢 WIDE OPEN' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? '🟡 MODERATE' : '🔴 SATURATED')"></span>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-black font-mono tabular-nums"
+                  :class="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400')">
+              <span class="w-2 h-2 rounded-full inline-block shrink-0" :class="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'bg-emerald-500' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'bg-amber-500' : 'bg-rose-500')" aria-hidden="true"></span>
+              <span x-text="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'WIDE OPEN' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'MODERATE' : 'SATURATED')"></span>
+            </span>
           </template>
           <template x-if="!selectedKeywordDetails?.intelligence?.opportunity">
             <span class="text-sm font-bold text-slate-400">Calculating...</span>

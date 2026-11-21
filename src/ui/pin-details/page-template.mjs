@@ -162,7 +162,8 @@ export function getPinDetailsBodyHtml(safePinId) {
     :class="toast.type === 'error' ? 'bg-red-950/90 text-red-200 border-red-800' : 'bg-emerald-950/90 text-emerald-200 border-emerald-800'"
     x-cloak
   >
-    <span x-text="toast.type === 'error' ? '⚠️' : '✅'" class="text-base"></span>
+    <span x-show="toast.type === 'error'" class="inline-flex shrink-0"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>
+    <span x-show="toast.type !== 'error'" class="inline-flex shrink-0"><i data-lucide="check-circle-2" class="w-4 h-4"></i></span>
     <span x-text="toast.message" class="flex-1 font-sans"></span>
     <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
   </div>
@@ -194,7 +195,8 @@ export function getPinDetailsBodyHtml(safePinId) {
         class="w-14 h-14 rounded-full flex items-center justify-center text-2xl border"
         :class="isDbBusy ? 'bg-amber-950/40 border-amber-800 text-amber-400' : 'bg-red-950/40 border-red-800 text-red-400'"
       >
-        <span x-text="isDbBusy ? '⏳' : '⚠️'"></span>
+        <span x-show="isDbBusy" class="inline-flex"><i data-lucide="hourglass" class="w-6 h-6"></i></span>
+        <span x-show="!isDbBusy" class="inline-flex"><i data-lucide="alert-triangle" class="w-6 h-6"></i></span>
       </div>
       <div>
         <h2 class="text-base font-bold text-slate-900 dark:text-white" x-text="isDbBusy ? 'Database Busy' : 'Pin Telemetry Not Found'"></h2>
@@ -444,7 +446,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           </template>
           <template x-if="!dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.is_go_linkless">
             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/80 font-medium shadow-2xs">
-              <span>⚠️</span>
+              <i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>
               <span>Linkless Pin</span>
             </span>
           </template>

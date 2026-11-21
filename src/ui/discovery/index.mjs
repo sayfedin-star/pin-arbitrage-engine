@@ -54,7 +54,8 @@ ${renderSharedDocumentHead({
     :class="toast.type === 'error' ? 'bg-red-950/90 text-red-200 border-red-800/80' : 'bg-emerald-950/90 text-emerald-200 border-emerald-800/80'"
     x-cloak
   >
-    <span x-text="toast.type === 'error' ? '⚠️' : '✅'" class="text-base"></span>
+    <span x-show="toast.type === 'error'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>
+    <span x-show="toast.type !== 'error'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="check-circle-2" class="w-4 h-4"></i></span>
     <span x-text="toast.message" class="flex-1 font-sans"></span>
     <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
   </div>

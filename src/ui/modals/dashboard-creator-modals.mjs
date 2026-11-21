@@ -95,7 +95,7 @@ export function renderDashboardCreatorModals() {
             <input type="checkbox" x-model="newCompetitorAutoArchiveWinning" class="mt-0.5 rounded border-indigo-300 dark:border-indigo-700 text-rose-500 focus:ring-rose-500">
             <div>
               <span class="font-bold text-slate-900 dark:text-white block flex items-center gap-1.5">
-                <span>📌 Ingest to Winning Pins Archive</span>
+                <span class="inline-flex items-center gap-1"><i data-lucide="pin" class="w-3.5 h-3.5 text-rose-500 shrink-0"></i><span>Ingest to Winning Pins Archive</span></span>
                 <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20">Recommended</span>
               </span>
               <span class="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
@@ -210,14 +210,14 @@ export function renderDashboardCreatorModals() {
             <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaCrawlMode === 'discovery' ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-500 text-amber-700 dark:text-amber-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400'">
               <input type="radio" value="discovery" x-model="ghaCrawlMode" class="mt-0.5 text-amber-600">
               <div>
-                <div class="text-xs font-bold">⚡ Recent Pins Feed (Early-Stop: 3 pages)</div>
+                <div class="text-xs font-bold flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i><span>Recent Pins Feed (Early-Stop: 3 pages)</span></div>
                 <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Fetches newest ~75 pins. Fast check for daily additions and fresh breakouts.</div>
               </div>
             </label>
             <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaCrawlMode === 'sharded_boards' ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-500 text-emerald-700 dark:text-emerald-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400'">
               <input type="radio" value="sharded_boards" x-model="ghaCrawlMode" class="mt-0.5 text-emerald-600">
               <div>
-                <div class="text-xs font-bold">🌊 Full Catalog & Boards (Deep: up to 500 pages)</div>
+                <div class="text-xs font-bold flex items-center gap-1.5"><i data-lucide="waves" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i><span>Full Catalog & Boards (Deep: up to 500 pages)</span></div>
                 <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">20-node fleet sweeps all personal boards and up to 12,500 pins across fleet.</div>
               </div>
             </label>
@@ -230,7 +230,7 @@ export function renderDashboardCreatorModals() {
         <button @click="isGhaCrawlerModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer">Cancel</button>
         <button @click="submitGhaCrawlerDispatch()" :disabled="isDispatchingGitHubCrawl || (ghaBoardScope === 'custom' && ghaTargetBoards.length === 0)" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-2 shadow-md shadow-sky-600/20 cursor-pointer">
           <i data-lucide="zap" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-          <span x-text="isDispatchingGitHubCrawl ? 'Launching 20 Runners...' : '🚀 Launch 20-Runner Crawler'"></span>
+          <span x-text="isDispatchingGitHubCrawl ? 'Launching 20 Runners...' : 'Launch 20-Runner Crawler'"></span>
         </button>
       </div>
     </div>
@@ -320,7 +320,7 @@ export function renderDashboardCreatorModals() {
         class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5"
       >
         <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
-        <span>🕸️ Analyze Related Pins Radar</span>
+        <span>Analyze Related Pins Radar</span>
       </button>
       <button
         type="button"
@@ -377,7 +377,7 @@ export function renderDashboardCreatorModals() {
           <template x-for="sec in boardSectionsList" :key="sec.id || sec.title">
             <div class="py-2.5 px-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900/40 rounded-xl transition">
               <div class="flex items-center space-x-2.5">
-                <span class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xs">📂</span>
+                <span class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xs"><i data-lucide="folder-open" class="w-3.5 h-3.5"></i></span>
                 <div>
                   <div class="font-bold text-xs text-slate-900 dark:text-white" x-text="sec.title || sec.name"></div>
                   <div class="text-[10px] text-slate-400 font-mono" x-text="'Slug: ' + (sec.slug || 'default')"></div>

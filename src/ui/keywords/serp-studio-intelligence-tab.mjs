@@ -25,7 +25,7 @@ export function renderSerpStudioIntelligenceTab() {
             <button @click="intelScope = 'all'"
                     class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
                     :class="intelScope === 'all' ? 'bg-purple-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
-              <span>🔘 Full Catalog</span>
+              <i data-lucide="circle-dot" class="w-3.5 h-3.5 shrink-0"></i><span>Full Catalog</span>
               <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                     :class="intelScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
                     x-text="totalCatalogCount > allCombinedPins.length ? ('#' + allCombinedPins.length + ' / ' + totalCatalogCount) : ('#' + totalCatalogCount)"></span>
@@ -33,7 +33,7 @@ export function renderSerpStudioIntelligenceTab() {
             <button @click="intelScope = 'active'"
                     class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
                     :class="intelScope === 'active' ? 'bg-emerald-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
-              <span>🟢 Active SERP</span>
+              <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span>Active SERP</span>
               <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                     :class="intelScope === 'active' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
                     x-text="'#' + (selectedKeywordDetails?.current_pins?.length || 0)"></span>
@@ -124,7 +124,7 @@ export function renderSerpStudioIntelligenceTab() {
               </div>
             </div>
             <div class="space-y-1.5">
-              <div class="text-xs font-black truncate" x-text="selectedKeywordDetails?.intelligence?.opportunity?.badge || '🟢 Wide Open'"></div>
+              <div class="text-xs font-black truncate" x-text="selectedKeywordDetails?.intelligence?.opportunity?.badge || 'Wide Open'"></div>
               <p class="text-[11px] text-slate-500 leading-snug line-clamp-2" x-text="selectedKeywordDetails?.intelligence?.opportunity?.summary || 'Algorithmic Arbitrage target.'"></p>
             </div>
           </div>
@@ -155,7 +155,7 @@ export function renderSerpStudioIntelligenceTab() {
                        @input="domainPage = 1"
                        placeholder="Filter domains..."
                        class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 w-40 sm:w-48 font-sans">
-                <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
                 <button x-show="domainSearch" @click="domainSearch = ''; domainPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
               </div>
 
@@ -196,8 +196,7 @@ export function renderSerpStudioIntelligenceTab() {
                           <i data-lucide="external-link" class="w-3 h-3 text-slate-400 group-hover:text-cyan-400 transition"></i>
                         </a>
                         <template x-if="dom.pin_count > 1">
-                          <span class="px-2 py-0.5 rounded-full text-[9px] font-mono tabular-nums font-black bg-amber-500/15 text-amber-500 border border-amber-500/30"
-                                x-text="'🔥 ' + dom.pin_count + ' Pins'"></span>
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono tabular-nums font-black bg-amber-500/15 text-amber-500 border border-amber-500/30"><i data-lucide="flame" class="w-2.5 h-2.5 shrink-0"></i><span x-text="dom.pin_count + ' Pins'"></span></span>
                         </template>
                       </div>
                     </td>
@@ -308,7 +307,7 @@ export function renderSerpStudioIntelligenceTab() {
                     <button @click="copySerpVisualBlueprint(pair)"
                             class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono tabular-nums transition flex items-center justify-center space-x-1 cursor-pointer">
                       <i data-lucide="copy" class="w-3 h-3"></i>
-                      <span>📋 Copy Visual Blueprint</span>
+                      <span>Copy Visual Blueprint</span>
                     </button>
                   </div>
                 </template>
@@ -343,7 +342,7 @@ export function renderSerpStudioIntelligenceTab() {
                          @input="anchorsPage = 1"
                          placeholder="Filter anchors (e.g. food, dress)..."
                          class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
-                  <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+                  <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
                   <button x-show="anchorsSearch" @click="anchorsSearch = ''; anchorsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
                 </div>
 
@@ -371,19 +370,19 @@ export function renderSerpStudioIntelligenceTab() {
                   <button @click="anchorsView = 'cloud'"
                           :class="anchorsView === 'cloud' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                           class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Semantic Tag Cloud">
-                    <span>☁️</span>
+                    <i data-lucide="cloud" class="w-3.5 h-3.5 shrink-0"></i>
                     <span>Cloud</span>
                   </button>
                   <button @click="anchorsView = 'cards'"
                           :class="anchorsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                           class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Cards Grid">
-                    <span>🎴</span>
+                    <i data-lucide="layers" class="w-3.5 h-3.5 shrink-0"></i>
                     <span>Cards</span>
                   </button>
                   <button @click="anchorsView = 'table'"
                           :class="anchorsView === 'table' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                           class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Full Paginated Table">
-                    <span>📊</span>
+                    <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 shrink-0"></i>
                     <span>Table</span>
                   </button>
                 </div>
@@ -476,7 +475,7 @@ export function renderSerpStudioIntelligenceTab() {
                         <td class="p-3">
                           <button @click="filterByVisualTag(anchor.tag)"
                                   class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer flex items-center gap-1.5 text-left capitalize">
-                            <span>🏷️</span>
+                            <i data-lucide="tag" class="w-3.5 h-3.5 text-purple-500 shrink-0"></i>
                             <span x-text="anchor.tag"></span>
                           </button>
                         </td>

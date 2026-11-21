@@ -66,7 +66,9 @@ ${renderSharedDocumentHead({
        x-transition:leave-end="opacity-0 translate-y-2"
        class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 text-xs font-semibold border backdrop-blur-md"
        :class="toast.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-300' : (toast.type === 'error' ? 'bg-rose-950/90 border-rose-500/40 text-rose-300' : 'bg-slate-900/90 border-slate-700 text-slate-200')">
-    <i :data-lucide="toast.type === 'success' ? 'check-circle-2' : (toast.type === 'error' ? 'alert-triangle' : 'info')" class="w-4 h-4 shrink-0"></i>
+    <span x-show="toast.type === 'success'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="check-circle-2" class="w-4 h-4"></i></span>
+    <span x-show="toast.type === 'error'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>
+    <span x-show="toast.type !== 'success' && toast.type !== 'error'" class="inline-flex items-center justify-center shrink-0"><i data-lucide="info" class="w-4 h-4"></i></span>
     <span x-text="toast.message"></span>
   </div>
 
