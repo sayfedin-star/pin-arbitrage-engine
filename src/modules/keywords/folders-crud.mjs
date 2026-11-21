@@ -5,7 +5,7 @@
 
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/competitors-crud.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
-import { ignoreAndRemoveSerpPin } from './service.mjs';
+import { ignoreAndRemoveSerpPin } from './displaced-and-tombstones.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
 
 /**

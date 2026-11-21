@@ -24,7 +24,8 @@ import {
   extractPinTitle,
   calculateKeywordIntelligenceSummary
 } from './analytics.mjs';
-import { getKeywordDisplacedPins } from './service.mjs';
+import { getKeywordDisplacedPins, computeVacuumOpportunityScore } from './displaced-and-tombstones.mjs';
+export { computeVacuumOpportunityScore };
 
 // Bounded True LRU + Singleflight Cache for Visual Similarity Lens (max 500 entries, 15m TTL)
 const VISUAL_CACHE_MAX = 500;
@@ -681,18 +682,6 @@ export async function getKeywordIntelligence(sql, keywordId) {
     pins_analyzed: pins.length,
     ...intelligence
   };
-}
-
-/**
- * Calculates continuous Decay- & Competition-Adjusted SERP Vacuum Opportunity Score (0..100)
- */
-export function computeVacuumOpportunityScore({ lastKnownRank = 30, domainlessTop10Count = 0, saveCount = 0, medianTop10Saves = 100 } = {}) {
-  const rank = Math.max(1, Number(lastKnownRank || 30));
-  const rankScore = 55.0 * Math.exp(-0.045 * (rank - 1));
-  const domainlessGapScore = Math.min(25, Number(domainlessTop10Count || 0) * 8);
-  const savesRatio = Number(saveCount || 0) / Math.max(100, Number(medianTop10Saves || 100));
-  const compScore = Math.min(20, Math.round(15.0 * savesRatio));
-  return Math.min(100, Math.max(10, Math.round(rankScore + domainlessGapScore + compScore)));
 }
 
 /**

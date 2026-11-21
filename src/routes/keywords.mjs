@@ -1,8 +1,8 @@
 /**
  * Keywords, Folders & Settings Sub-Router
- * 
- * Handles all keyword velocity tracker, campaign folder, crossover matrix,
- * trends, guides, serp-comparison, and app settings endpoints.
+ *
+ * Handles all keyword velocity tracker, trends, guides, serp-comparison, and app settings endpoints,
+ * while delegating `/api/urls/*` to ./urls-global-saves.mjs and `/api/folders/*` to ./folders.mjs.
  */
 
 import {
@@ -33,40 +33,13 @@ import {
   fetchKeywordRelatedInterests
 } from '../modules/keywords/trends-service.mjs';
 
+import { batchAddKeywordsToFolder } from '../modules/keywords/folders-crud.mjs';
 import {
-  listFolders,
-  listFoldersLite,
-  getFolder,
-  createFolder,
-  updateFolder,
-  deleteFolder,
-  addKeywordToFolder,
-  batchAddKeywordsToFolder,
-  removeKeywordFromFolder,
-  getFoldersForKeyword,
-  listFolderCreators,
-  listFolderCreatorsWithDiscovery,
-  linkCreatorToFolder,
-  unlinkCreatorFromFolder,
-  listFolderPinnedDomains,
-  pinDomainToFolder,
-  unpinDomainFromFolder,
-  pruneFolderPins,
-  bulkPulseTrackFolderCreators,
-  toggleFolderCreatorTracking
-} from '../modules/keywords/folders-crud.mjs';
-import {
-  calculateFolderCrossover,
-  normalizeFolderMetadata,
   cacheFolderTrends,
   invalidateFolderCache
 } from '../modules/keywords/folders-crossover.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
-
-import { escapeSqlWildcards, chunkArray } from '../utils.mjs';
-import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
-
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   searchMultiEntityAutocomplete,
@@ -75,128 +48,27 @@ import {
   AUTOCOMPLETE_MAX_LIMIT
 } from '../modules/search/autocomplete-service.mjs';
 
-const BATCH_GLOBAL_SAVES_WINDOW_MS = 60_000;
-const BATCH_GLOBAL_SAVES_MAX_REQUESTS = 20;
-export const BATCH_GLOBAL_SAVES_MAX_KEYS = 2000;
-const batchGlobalSavesRateStore = new Map();
+import {
+  BATCH_GLOBAL_SAVES_MAX_KEYS,
+  _resetBatchGlobalSavesRateLimit,
+  _getBatchGlobalSavesRateStoreStats,
+  verifySameOriginBrowserOrApiRequest,
+  enforceBatchGlobalSavesRateLimit,
+  handleUrlGlobalSavesRoutes
+} from './urls-global-saves.mjs';
+import {
+  isFoldersRoute,
+  handleFoldersRoutes
+} from './folders.mjs';
 
-export function _resetBatchGlobalSavesRateLimit() {
-  batchGlobalSavesRateStore.clear();
-}
-
-export function _getBatchGlobalSavesRateStoreStats() {
-  let maxBucketLength = 0;
-  for (const timestamps of batchGlobalSavesRateStore.values()) {
-    if (Array.isArray(timestamps) && timestamps.length > maxBucketLength) {
-      maxBucketLength = timestamps.length;
-    }
-  }
-  return {
-    size: batchGlobalSavesRateStore.size,
-    maxKeys: BATCH_GLOBAL_SAVES_MAX_KEYS,
-    maxTimestampsPerKey: BATCH_GLOBAL_SAVES_MAX_REQUESTS,
-    maxBucketLength
-  };
-}
-
-export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
-  const getHdr = (name) => {
-    if (!request?.headers) return '';
-    if (typeof request.headers.get === 'function') {
-      return request.headers.get(name) || '';
-    }
-    return request.headers[name.toLowerCase()] || request.headers[name] || '';
-  };
-
-  const originHeader = String(getHdr('Origin')).trim();
-  const secFetchSite = String(getHdr('Sec-Fetch-Site')).trim().toLowerCase();
-  if (secFetchSite && secFetchSite !== 'same-origin') {
-    return { allowed: false, reason: 'Cross-site requests to batch-global-saves are forbidden.' };
-  }
-
-  if (originHeader) {
-    try {
-      const rawReqUrl = request.fullUrl || request.url || '';
-      const reqOrigin = new URL(rawReqUrl, 'http://localhost').origin.toLowerCase();
-      const callerOrigin = new URL(originHeader).origin.toLowerCase();
-      const allowedList = String(env?.ALLOWED_ORIGINS || '')
-        .split(',')
-        .map(s => s.trim().toLowerCase())
-        .filter(Boolean);
-      if (callerOrigin !== reqOrigin && !allowedList.includes(callerOrigin)) {
-        return { allowed: false, reason: `Origin mismatch (${callerOrigin} !== ${reqOrigin}).` };
-      }
-      return { allowed: true };
-    } catch (_) {
-      return { allowed: false, reason: 'Malformed Origin header.' };
-    }
-  }
-
-  if (secFetchSite === 'same-origin') {
-    return { allowed: true };
-  }
-
-  const apiKey = String(getHdr('x-api-key')).trim();
-  const authHeader = String(getHdr('Authorization') || getHdr('authorization')).trim();
-  if (apiKey || authHeader.toLowerCase().startsWith('bearer ')) {
-    return { allowed: true };
-  }
-
-  return { allowed: false, reason: 'Same-origin Origin header or valid API credentials required.' };
-}
-
-export function enforceBatchGlobalSavesRateLimit(
-  request,
-  nowMs = Date.now(),
-  maxRequests = BATCH_GLOBAL_SAVES_MAX_REQUESTS,
-  maxKeys = BATCH_GLOBAL_SAVES_MAX_KEYS
-) {
-  const safeMaxRequests = Math.max(1, Math.floor(Number(maxRequests) || BATCH_GLOBAL_SAVES_MAX_REQUESTS));
-  const safeMaxKeys = Math.max(1, Math.floor(Number(maxKeys) || BATCH_GLOBAL_SAVES_MAX_KEYS));
-  const rawIp =
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-forwarded-for')?.split(',')[0] ||
-    request.headers.get('x-real-ip') ||
-    'unknown';
-  const clientKey = String(rawIp).trim() || 'unknown';
-
-  const existing = batchGlobalSavesRateStore.get(clientKey) || [];
-  const recent = existing
-    .filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS)
-    .slice(-safeMaxRequests);
-
-  const touchLru = (timestamps) => {
-    if (batchGlobalSavesRateStore.has(clientKey)) {
-      batchGlobalSavesRateStore.delete(clientKey);
-    } else if (batchGlobalSavesRateStore.size >= safeMaxKeys) {
-      // First purge expired entries
-      for (const [key, list] of batchGlobalSavesRateStore.entries()) {
-        const active = list.filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS);
-        if (active.length === 0) batchGlobalSavesRateStore.delete(key);
-        else batchGlobalSavesRateStore.set(key, active.slice(-safeMaxRequests));
-      }
-      // Hard LRU eviction if still at or above capacity
-      while (batchGlobalSavesRateStore.size >= safeMaxKeys) {
-        const oldestKey = batchGlobalSavesRateStore.keys().next().value;
-        if (oldestKey === undefined) break;
-        batchGlobalSavesRateStore.delete(oldestKey);
-      }
-    }
-    batchGlobalSavesRateStore.set(clientKey, timestamps.slice(-safeMaxRequests));
-  };
-
-  if (recent.length >= safeMaxRequests) {
-    touchLru(recent);
-    const oldest = recent[0];
-    const retryAfterSec = Math.max(1, Math.ceil((BATCH_GLOBAL_SAVES_WINDOW_MS - (nowMs - oldest)) / 1000));
-    return { limited: true, retryAfterSec };
-  }
-
-  recent.push(nowMs);
-  touchLru(recent);
-  return { limited: false, remaining: Math.max(0, safeMaxRequests - recent.length) };
-}
-
+// Explicit named re-exports matching the exact original 7-symbol public surface
+export {
+  BATCH_GLOBAL_SAVES_MAX_KEYS,
+  _resetBatchGlobalSavesRateLimit,
+  _getBatchGlobalSavesRateStoreStats,
+  verifySameOriginBrowserOrApiRequest,
+  enforceBatchGlobalSavesRateLimit
+};
 
 /**
  * Fast URI discriminator for Keywords & Folders routes
@@ -206,8 +78,7 @@ export function isKeywordsRoute(pathname) {
     pathname.startsWith('/api/keywords/') ||
     pathname === '/api/settings' ||
     pathname === '/api/search/autocomplete' ||
-    pathname === '/api/folders' ||
-    pathname.startsWith('/api/folders/') ||
+    isFoldersRoute(pathname) ||
     pathname === '/api/urls/global-saves' ||
     pathname === '/api/urls/batch-global-saves';
 }
@@ -234,187 +105,21 @@ export async function handleKeywordsRoutes({
   tripPinterestCircuitBreaker,
   redactSecrets
 }) {
-  // 0A. GET /api/urls/global-saves?url=...
-  if (pathname === '/api/urls/global-saves') {
-    if (method !== 'GET') {
-      return methodNotAllowedResponse('GET, OPTIONS');
-    }
-    const rawUrl = searchParams.get('url') || searchParams.get('destination_url') || '';
-    if (!rawUrl) {
-      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Missing url query parameter' }, 400);
-    }
-    const cleanUrl = sanitizeDestinationUrl(rawUrl);
-    if (!cleanUrl) {
-      return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'Invalid destination url' }, 400);
-    }
-
-
-    try {
-      const fetchRes = await fetchUrlGlobalSaves(cleanUrl);
-      const count = Number(fetchRes?.count || 0);
-      if (fetchRes && fetchRes.ok) {
-        if (sql && count > 0) {
-          const escapedCleanUrl = escapeSqlWildcards(cleanUrl);
-          safeWaitUntil(ctx, async () => {
-            await sql`
-              UPDATE universal_master_pins
-              SET url_global_saves = GREATEST(COALESCE(url_global_saves, 0), ${count}::bigint)
-              WHERE destination_url IS NOT NULL
-                AND destination_url <> ''
-                AND (
-                  (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
-                  OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
-                  OR LEFT(destination_url, 1024) LIKE ${escapedCleanUrl.slice(0, 1000) + '?%'} ESCAPE '\\'
-                );
-            `;
-          }, 'write_back_single_url_global_saves');
-        }
-        return jsonResponse({
-          ok: true,
-          url: cleanUrl,
-          count,
-          global_saves: count
-        }, 200, 86400);
-      }
-      return jsonResponse({
-        ok: false,
-        url: cleanUrl,
-        count: 0,
-        global_saves: 0,
-        error: fetchRes?.error || 'FETCH_FAILED'
-      }, 502);
-    } catch (err) {
-      return jsonResponse({ ok: false, url: cleanUrl, count: 0, global_saves: 0, error: err.message }, 500);
-    }
-  }
-
-  // 0B. POST /api/urls/batch-global-saves
-  if (pathname === '/api/urls/batch-global-saves') {
-    if (method !== 'POST') {
-      return methodNotAllowedResponse('POST, OPTIONS');
-    }
-    const originCheck = verifySameOriginBrowserOrApiRequest(request, env);
-    if (!originCheck.allowed) {
-      return jsonResponse({
-        ok: false,
-        success: false,
-        error: 'FORBIDDEN',
-        message: originCheck.reason || 'Cross-origin request rejected.'
-      }, 403);
-    }
-    const rateLimit = enforceBatchGlobalSavesRateLimit(request);
-    if (rateLimit.limited) {
-      const res = jsonResponse({
-        ok: false,
-        success: false,
-        error: 'RATE_LIMITED',
-        message: 'Too many batch-global-saves requests. Please retry shortly.',
-        retry_after_seconds: rateLimit.retryAfterSec
-      }, 429, 0, { 'Retry-After': String(rateLimit.retryAfterSec) });
-      if (res?.headers?.set) {
-        res.headers.set('Retry-After', String(rateLimit.retryAfterSec));
-      }
-      return res;
-    }
-    let body = {};
-    try {
-      body = await request.json();
-    } catch (_) {
-      body = {};
-    }
-    const rawList = Array.isArray(body?.urls) ? body.urls : (Array.isArray(body?.destination_urls) ? body.destination_urls : []);
-    const cleanUrls = Array.from(new Set(rawList.map(u => sanitizeDestinationUrl(u)).filter(Boolean))).slice(0, 15);
-
-    if (cleanUrls.length === 0) {
-      return jsonResponse({ ok: true, results: {}, counts: {}, total: 0 });
-    }
-
-    const results = {};
-    const uncached = [];
-
-    uncached.push(...cleanUrls);
-
-    const writeBackEntries = [];
-    if (uncached.length > 0) {
-      const URL_FETCH_CONCURRENCY = 8;
-      const fetchResults = [];
-      for (const chunk of chunkArray(uncached, URL_FETCH_CONCURRENCY)) {
-        const chunkRes = await Promise.allSettled(chunk.map(u => fetchUrlGlobalSaves(u)));
-        fetchResults.push(...chunkRes);
-      }
-
-      for (let i = 0; i < uncached.length; i++) {
-        const targetUrl = uncached[i];
-        const res = fetchResults[i];
-        if (res.status === 'fulfilled' && res.value?.ok) {
-          const count = Number(res.value.count || 0);
-          results[targetUrl] = count;
-          writeBackEntries.push({ url: targetUrl, count });
-        } else {
-          results[targetUrl] = 0;
-        }
-      }
-    }
-
-    // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
-    if (sql && writeBackEntries.length > 0) {
-      safeWaitUntil(ctx, async () => {
-        const validEntries = writeBackEntries
-          .filter(e => e.count > 0 && e.url)
-          .map(e => ({ url: e.url, escaped_url: escapeSqlWildcards(e.url), count: e.count }));
-        if (validEntries.length === 0) return;
-        validEntries.sort((a, b) => a.url.localeCompare(b.url));
-        const payloadJson = JSON.stringify(validEntries);
-        await sql`
-          WITH input_urls AS (
-            SELECT url, escaped_url, count
-            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, escaped_url text, count bigint)
-          ),
-          matched_pins AS (
-            SELECT ump.pin_id, iu.count
-            FROM input_urls iu
-            JOIN universal_master_pins ump
-              ON ump.destination_url IS NOT NULL
-             AND ump.destination_url <> ''
-             AND md5(ump.destination_url) = md5(iu.url)
-             AND ump.destination_url = iu.url
-            UNION ALL
-            SELECT ump.pin_id, iu.count
-            FROM input_urls iu
-            JOIN universal_master_pins ump
-              ON ump.destination_url IS NOT NULL
-             AND ump.destination_url <> ''
-             AND md5(ump.destination_url) = md5(iu.url || '/')
-             AND ump.destination_url = (iu.url || '/')
-            UNION ALL
-            SELECT ump.pin_id, iu.count
-            FROM input_urls iu
-            JOIN universal_master_pins ump
-              ON ump.destination_url IS NOT NULL
-             AND ump.destination_url <> ''
-             AND LEFT(ump.destination_url, 1024) ~>=~ (LEFT(iu.url, 1020) || '?')
-             AND LEFT(ump.destination_url, 1024) ~<~ (LEFT(iu.url, 1020) || '@')
-             AND LEFT(ump.destination_url, 1024) LIKE (LEFT(iu.escaped_url, 1020) || '?%') ESCAPE '\\'
-          ),
-          dedup_matches AS (
-            SELECT pin_id, MAX(count)::bigint AS max_count
-            FROM matched_pins
-            GROUP BY pin_id
-          )
-          UPDATE universal_master_pins ump
-          SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), dm.max_count)
-          FROM dedup_matches dm
-          WHERE ump.pin_id = dm.pin_id;
-        `;
-      }, 'write_back_batch_global_saves');
-    }
-
-    return jsonResponse({
-      ok: true,
-      results,
-      counts: results,
-      total: Object.keys(results).length
+  // 0A & 0B. /api/urls/global-saves & /api/urls/batch-global-saves
+  if (pathname === '/api/urls/global-saves' || pathname === '/api/urls/batch-global-saves') {
+    const urlSavesRes = await handleUrlGlobalSavesRoutes({
+      pathname,
+      method,
+      request,
+      searchParams,
+      env,
+      ctx,
+      sql,
+      jsonResponse,
+      methodNotAllowedResponse,
+      safeWaitUntil
     });
+    if (urlSavesRes) return urlSavesRes;
   }
 
   // 1. GET /api/keywords
@@ -424,7 +129,6 @@ export async function handleKeywordsRoutes({
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const forceRefresh = searchParams.get('refresh') === 'true';
     const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
-
 
     const cacheKey = buildCanonicalCacheKey('keywords:hub', {
       search,
@@ -452,7 +156,6 @@ export async function handleKeywordsRoutes({
           folderId
         });
       }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh });
-
 
       return jsonResponse({
         success: true,
@@ -506,8 +209,8 @@ export async function handleKeywordsRoutes({
     const hasExplicitPages = body.crawl_pages !== undefined || body.max_pages !== undefined;
     const crawlPages = hasExplicitPages ? Math.max(1, Math.min(40, Number(body.crawl_pages || body.max_pages) || 2)) : undefined;
     const maxPins = body.max_pins ?? body.max_serp_pins;
-    const res = await crawlKeywordSERP(sql, keywordId, { 
-      cookie, 
+    const res = await crawlKeywordSERP(sql, keywordId, {
+      cookie,
       force,
       ...(crawlPages !== undefined ? { crawl_pages: crawlPages } : {}),
       ...(maxPins !== undefined && maxPins !== null && maxPins !== '' ? { max_pins: maxPins } : {}),
@@ -629,14 +332,14 @@ export async function handleKeywordsRoutes({
     if (ids.length > 0) {
       if (isActive !== undefined) {
         await sql`
-          UPDATE tracked_keywords 
-          SET is_active = ${isActive}, updated_at = NOW() 
+          UPDATE tracked_keywords
+          SET is_active = ${isActive}, updated_at = NOW()
           WHERE id = ANY(${ids});
         `;
       } else {
         await sql`
-          UPDATE tracked_keywords 
-          SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
+          UPDATE tracked_keywords
+          SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW()
           WHERE id = ANY(${ids});
         `;
       }
@@ -648,16 +351,16 @@ export async function handleKeywordsRoutes({
     let row;
     if (isActive !== undefined) {
       [row] = await sql`
-        UPDATE tracked_keywords 
-        SET is_active = ${isActive}, updated_at = NOW() 
-        WHERE id = ${id} 
+        UPDATE tracked_keywords
+        SET is_active = ${isActive}, updated_at = NOW()
+        WHERE id = ${id}
         RETURNING *;
       `;
     } else {
       [row] = await sql`
-        UPDATE tracked_keywords 
-        SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
-        WHERE id = ${id} 
+        UPDATE tracked_keywords
+        SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW()
+        WHERE id = ${id}
         RETURNING *;
       `;
     }
@@ -1152,428 +855,21 @@ export async function handleKeywordsRoutes({
     });
   }
 
-  // 24. Raw Visual Annotations Crossover API
-  if (method === 'GET' && pathname === '/api/folders/crossover') {
-    const folderId = searchParams.get('folder_id') || searchParams.get('id');
-    if (!folderId || isNaN(Number(folderId))) {
-      return jsonResponse({
-        success: false,
-        error: 'BAD_REQUEST',
-        message: 'Valid numeric folder_id is required'
-      }, 400);
-    }
-    const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx });
-    return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
-  }
-
-  if (pathname.startsWith('/api/folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover'))) {
-    if (method !== 'GET') {
-      return methodNotAllowedResponse('GET, OPTIONS');
-    }
-    const parts = pathname.split('/').filter(Boolean);
-    const folderId = parts[2];
-    if (!folderId || isNaN(Number(folderId))) {
-      return jsonResponse({
-        success: false,
-        error: 'BAD_REQUEST',
-        message: 'Valid numeric folder_id is required'
-      }, 400);
-    }
-    const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx });
-    return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
-  }
-
-  // 25. Dedicated Folder Cluster Fleet Audit Dispatch API
-  const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/folders\/(\d+)\/dispatch-audit$/);
-  if (folderAuditMatch) {
-    const folderId = folderAuditMatch[1];
-    const [folderRow] = await sql`SELECT id, name, metadata FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
-    if (!folderRow) {
-      return jsonResponse({ success: false, error: `Folder ${folderId} not found` }, 404);
-    }
-    const body = await request.json().catch(() => ({}));
-    const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
-    const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
-    const rawFolderMaxPins = body.max_pins ?? folderMeta.max_pins ?? '';
-    const rawFolderMaxSerpPins = body.max_serp_pins ?? body.max_pins ?? folderMeta.max_serp_pins ?? folderMeta.max_pins ?? '';
-    const maxPinsInput = rawFolderMaxPins !== undefined && rawFolderMaxPins !== null ? String(rawFolderMaxPins).trim() : '';
-    const maxSerpPinsInput = rawFolderMaxSerpPins !== undefined && rawFolderMaxSerpPins !== null ? String(rawFolderMaxSerpPins).trim() : maxPinsInput;
-    const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
-    const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
-
-    const dRes = await dispatchGitHubWorkflow(env, {
-      workflowFile: 'keyword-intelligence-velocity.yml',
-      timeoutMs: 8000,
-      inputs: {
-        target_keyword: '',
-        folder_id: String(folderId),
-        crawl_scope: crawlScopeInput,
-        max_pins: maxPinsInput,
-        max_serp_pins: maxSerpPinsInput,
-        max_catalog_inspect: maxCatalogInspectInput,
-        enable_serp_harvest: enableSerpHarvestInput
-      }
+  // 24-26. Campaign Folders Sub-Router (/api/folders & /api/folders/*)
+  if (isFoldersRoute(pathname)) {
+    const foldersRes = await handleFoldersRoutes({
+      pathname,
+      method,
+      request,
+      searchParams,
+      env,
+      ctx,
+      sql,
+      jsonResponse,
+      methodNotAllowedResponse,
+      invalidateEdgeCache
     });
-    if (!dRes.ok) {
-      return jsonResponse({ success: false, error: dRes.error }, dRes.status);
-    }
-    return jsonResponse({
-      success: true,
-      folder_id: Number(folderId),
-      folder_name: folderRow.name,
-      message: `20-Runner Parallel Fleet Audit dispatched successfully for folder "${folderRow.name}"!`
-    });
-  }
-
-  // 26. Unified Campaign Folders CRUD API (/api/folders and /api/folders/*)
-  const isFoldersRoute = (
-    pathname === '/api/folders' || pathname.startsWith('/api/folders/')
-  ) && !pathname.includes('crossover') && !pathname.includes('dispatch-audit');
-
-  if (isFoldersRoute) {
-    const parts = pathname.slice('/api/folders'.length).split('/').filter(Boolean);
-    const firstSegIsNumeric = Boolean(parts[0] && /^\d+$/.test(parts[0]));
-    const folderId = firstSegIsNumeric ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
-
-    // Sub-route: /api/folders/by-keyword (GET)
-    if (parts.length === 1 && parts[0] === 'by-keyword') {
-      if (method !== 'GET') return methodNotAllowedResponse('GET, OPTIONS');
-      const keywordId = searchParams.get('keyword_id');
-      if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id is required' }, 400);
-      const folders = await getFoldersForKeyword(sql, keywordId);
-      return jsonResponse({ success: true, folders });
-    }
-
-    // Sub-route: /api/folders/items (POST / DELETE without path :id)
-    if (parts.length === 1 && parts[0] === 'items') {
-      if (method === 'POST') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        const body = await request.json().catch(() => ({}));
-        const itemFolderId = body.folder_id || searchParams.get('folder_id');
-        if (!itemFolderId) return jsonResponse({ success: false, error: 'folder_id is required' }, 400);
-        if (Array.isArray(body.keyword_ids)) {
-          const result = await batchAddKeywordsToFolder(sql, itemFolderId, body.keyword_ids);
-          invalidateFolderCache(itemFolderId);
-          return jsonResponse({ success: true, ...result });
-        }
-        const keywordId = body.keyword_id || searchParams.get('keyword_id');
-        if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id or keyword_ids is required' }, 400);
-        const item = await addKeywordToFolder(sql, itemFolderId, keywordId, body.notes || '');
-        invalidateFolderCache(itemFolderId);
-        return jsonResponse({ success: true, item });
-      }
-      if (method === 'DELETE') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        let itemFolderId = searchParams.get('folder_id');
-        let keywordId = searchParams.get('keyword_id');
-        try {
-          const body = await request.json();
-          itemFolderId = itemFolderId || body.folder_id;
-          keywordId = keywordId || body.keyword_id;
-        } catch (_) {}
-        if (!itemFolderId || !keywordId) return jsonResponse({ success: false, error: 'folder_id and keyword_id are required' }, 400);
-        const deleted = await removeKeywordFromFolder(sql, itemFolderId, keywordId);
-        invalidateFolderCache(itemFolderId);
-        return jsonResponse({ success: true, deleted });
-      }
-      return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
-    }
-
-    // A0. Sub-route: /api/folders/:id/prune-pins (POST)
-    if (parts.length >= 2 && parts[1] === 'prune-pins') {
-      // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT] Pruning tombstones to keyword_ignored_pins
-      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
-      if (method !== 'POST') return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
-      const body = await request.json().catch(() => ({}));
-      const {
-        dry_run,
-        dryRun,
-        keyword_ids,
-        keywordIds,
-        scope,
-        min_folder_age_days,
-        minFolderAgeDays,
-        min_pin_age_days,
-        minPinAgeDays,
-        max_saves,
-        maxSaves,
-        max_repins,
-        maxRepins
-      } = body;
-      const result = await pruneFolderPins(sql, folderId, {
-        dry_run,
-        dryRun,
-        keyword_ids,
-        keywordIds,
-        scope,
-        min_folder_age_days,
-        minFolderAgeDays,
-        min_pin_age_days,
-        minPinAgeDays,
-        max_saves,
-        maxSaves,
-        max_repins,
-        maxRepins
-      }, { env, ctx });
-      const isDry = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
-      if (!isDry && typeof invalidateEdgeCache === 'function') {
-        await invalidateEdgeCache('folders').catch(() => {});
-        await invalidateEdgeCache('keywords').catch(() => {});
-      }
-      return jsonResponse(result);
-    }
-
-    // A. Sub-route: /api/folders/:id/creators
-    if (parts.length >= 2 && parts[1] === 'creators') {
-      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
-
-      // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
-      if (method === 'GET' && parts.length === 2) {
-        const withDiscovery = searchParams.get('discovery') !== 'false';
-        const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-        const vaultScope = searchParams.get('vault_scope') || 'high_signal';
-
-        let payload;
-        if (withDiscovery) {
-          const discoveryData = await listFolderCreatorsWithDiscovery(sql, folderId, { vaultScope });
-          payload = {
-            success: true,
-            folder_id: folderId,
-            creators: discoveryData.all_creators,
-            linked_creators: discoveryData.linked_creators,
-            vault_scope: vaultScope,
-            totals: discoveryData.totals
-          };
-        } else {
-          const creators = await listFolderCreators(sql, folderId);
-          payload = { success: true, creators, folder_id: folderId, vault_scope: vaultScope };
-        }
-
-
-        return jsonResponse(payload, 200, refresh ? 0 : 30);
-      }
-
-      // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx })
-      if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-pulse-track') {
-        const body = await request.json().catch(() => ({}));
-        const result = await bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx });
-        return jsonResponse(result, 200);
-      }
-
-      // POST /api/folders/:id/creators -> linkCreatorToFolder or toggleFolderCreatorTracking fallback
-      if (method === 'POST' && parts.length === 2) {
-        const body = await request.json().catch(() => ({}));
-        const numericCid = Number(body.competitor_id || body.creator_id || body.id);
-        if (Number.isFinite(numericCid) && numericCid > 0) {
-          const linked = await linkCreatorToFolder(sql, folderId, numericCid);
-          invalidateFolderCache(folderId);
-          return jsonResponse({ success: true, linked, folder_id: folderId });
-        }
-        const rawUser = String(body.username || body.competitor_id || body.creator_id || body.id || '');
-        const cleanUsername = rawUser.replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
-        if (cleanUsername) {
-          const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername);
-          invalidateFolderCache(folderId);
-          return jsonResponse({ success: true, linked: result.is_tracked, folder_id: folderId, ...result });
-        }
-        return jsonResponse({ success: false, error: 'Valid competitor_id or username is required' }, 400);
-      }
-
-      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query)
-      if (method === 'DELETE' && (parts.length === 2 || parts.length === 3)) {
-        let competitorId = null;
-        let rawUser = '';
-        if (parts.length === 3) {
-          const segment = parts[2];
-          const num = Number(segment);
-          if (Number.isFinite(num) && num > 0) {
-            competitorId = num;
-          } else {
-            rawUser = segment;
-          }
-        } else if (parts.length === 2) {
-          const body = await request.json().catch(() => ({}));
-          const rawId = body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid');
-          const num = Number(rawId);
-          if (Number.isFinite(num) && num > 0) {
-            competitorId = num;
-          } else {
-            rawUser = body.username || rawId || searchParams.get('username') || '';
-          }
-        }
-
-        if (!competitorId && rawUser) {
-          const cleanUsername = String(rawUser).replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
-          if (cleanUsername) {
-            const [existing] = await sql`
-              SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;
-            `;
-            if (existing?.id) {
-              competitorId = existing.id;
-            }
-          }
-        }
-
-        if (!competitorId) {
-          return jsonResponse({ success: false, error: 'Valid creator ID or username is required' }, 400);
-        }
-        const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
-        invalidateFolderCache(folderId);
-        return jsonResponse({ success: true, unlinked, folder_id: folderId });
-      }
-
-      return jsonResponse({ success: false, error: 'Method not allowed on /creators' }, 405);
-    }
-
-    // B. Sub-route: /api/folders/:id/domains
-    if (parts.length >= 2 && parts[1] === 'domains') {
-      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
-
-      // GET /api/folders/:id/domains -> listFolderPinnedDomains(sql, folderId)
-      if (method === 'GET' && parts.length === 2) {
-        const domains = await listFolderPinnedDomains(sql, folderId);
-        return jsonResponse({ success: true, domains, pinned_domains: domains, folder_id: folderId });
-      }
-
-      // POST /api/folders/:id/domains -> pinDomainToFolder(sql, folderId, domain, notes)
-      if (method === 'POST' && parts.length === 2) {
-        const body = await request.json().catch(() => ({}));
-        const domain = body.domain;
-        if (!domain) {
-          return jsonResponse({ success: false, error: 'domain is required' }, 400);
-        }
-        const pinned = await pinDomainToFolder(sql, folderId, domain, body.notes || '');
-        return jsonResponse({ success: true, pinned, folder_id: folderId });
-      }
-
-      // DELETE /api/folders/:id/domains/:domain -> unpinDomainFromFolder(sql, folderId, domain)
-      if (method === 'DELETE' && parts.length >= 3) {
-        const domain = decodeURIComponent(parts.slice(2).join('/'));
-        if (!domain) {
-          return jsonResponse({ success: false, error: 'domain is required' }, 400);
-        }
-        const unpinned = await unpinDomainFromFolder(sql, folderId, domain);
-        return jsonResponse({ success: true, unpinned, folder_id: folderId });
-      }
-
-      return jsonResponse({ success: false, error: 'Method not allowed on /domains' }, 405);
-    }
-
-    // C. Sub-route: /api/folders/:id/items
-    if (parts.length >= 2 && parts[1] === 'items') {
-      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
-      if (method === 'POST') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        const body = await request.json().catch(() => ({}));
-        if (Array.isArray(body.keyword_ids)) {
-          const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
-          invalidateFolderCache(folderId);
-          return jsonResponse({ success: true, ...result });
-        }
-        const keywordId = body.keyword_id || searchParams.get('keyword_id');
-        if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
-        const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
-        invalidateFolderCache(folderId);
-        return jsonResponse({ success: true, item });
-      }
-      if (method === 'DELETE') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        let keywordId = parts[2] || searchParams.get('keyword_id');
-        let body = {};
-        try {
-          body = await request.json();
-          keywordId = keywordId || body.keyword_id;
-        } catch (_) {}
-        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
-        invalidateFolderCache(folderId);
-        return jsonResponse({ success: true, deleted });
-      }
-      return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
-    }
-
-    const projectId = searchParams.get('project_id') || 'default';
-
-    if (method === 'GET') {
-      const isLite = searchParams.get('lite') === 'true';
-      const hasExplicitIdQuery = Boolean(searchParams.get('id') || searchParams.get('folder_id'));
-
-      if (folderId && (parts.length === 1 || (parts.length === 0 && hasExplicitIdQuery))) {
-        // [INVARIANT: FOLDER-SSOT-LOOKUP] Serve authoritative live data from Central Hub getFolder(sql, folderId) (< 5ms)
-        let folder = null;
-        if (sql) {
-          try {
-            folder = await getFolder(sql, folderId);
-          } catch (_) {}
-        }
-        if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
-        return jsonResponse({ success: true, folder }, 200, 15);
-      }
-
-      try {
-        const folders = isLite
-          ? await listFoldersLite(sql, { projectId })
-          : await listFolders(sql, { projectId });
-        return jsonResponse({
-          success: true,
-          folders: Array.isArray(folders) ? folders : []
-        }, 200, 10);
-      } catch (err) {
-        console.warn('[Folders Fallback] listFolders failed:', err.message);
-        return jsonResponse({
-          success: false,
-          error: 'DB_UNAVAILABLE',
-          degraded: true,
-          message: 'Folders hub temporarily unavailable while database is waking up. Retry in 3 seconds.'
-        }, 503, 0, { 'Retry-After': '3' });
-      }
-    }
-
-    if (method === 'POST' && parts.length === 0) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
-      const body = await request.json().catch(() => ({}));
-      if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
-        return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
-      }
-      const created = await createFolder(sql, body);
-      return jsonResponse({ success: true, folder: created });
-    }
-
-    if ((method === 'PUT' || method === 'PATCH') && (parts.length === 0 || (parts.length === 1 && firstSegIsNumeric))) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
-      const body = await request.json().catch(() => ({}));
-      const targetFolderId = firstSegIsNumeric ? Number(parts[0]) : (body.id || body.folder_id || searchParams.get('id') || searchParams.get('folder_id'));
-      if (!targetFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
-      const updated = await updateFolder(sql, targetFolderId, body);
-      invalidateFolderCache(targetFolderId);
-      return jsonResponse({ success: true, folder: updated });
-    }
-
-    // [INVARIANT: GUARD-ACCIDENTAL-FOLDER-DELETION] Strictly guard folder deletion:
-    // Allowed only on DELETE /api/folders/:id (numeric) or DELETE /api/folders?id=:id (parts.length === 0). Sub-route unpin/unlink operations MUST NEVER delete the folder!
-    if (method === 'DELETE' && ((parts.length === 1 && firstSegIsNumeric) || parts.length === 0)) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
-      let delFolderId = firstSegIsNumeric ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
-      if (!delFolderId && parts.length === 0) {
-        try {
-          const body = await request.json();
-          delFolderId = body.id || body.folder_id;
-        } catch (_) {}
-      }
-      if (!delFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
-      const deleted = await deleteFolder(sql, delFolderId);
-      invalidateFolderCache(delFolderId);
-      return jsonResponse({ success: true, deleted });
-    }
+    if (foldersRes) return foldersRes;
   }
 
   // 27. GET /api/keywords/trends/popular-pins

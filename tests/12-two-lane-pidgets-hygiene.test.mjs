@@ -387,7 +387,7 @@ test('Pkg 5: sanitizeDossierTrajectory zeroes Day-1 baseline velocity even on mu
   assert.ok(clientAppSrc.includes('totalComments()'), 'Expected totalComments() helper in Pin Details client app');
 
   // Verify Phase 1A skip_top_enrich gate in keywords/service.mjs
-  const kwServiceSrc = fs.readFileSync('src/modules/keywords/service.mjs', 'utf8');
+  const kwServiceSrc = fs.readFileSync('src/modules/keywords/serp-crawler.mjs', 'utf8');
   assert.match(kwServiceSrc, /if\s*\(\s*!options\.skip_top_enrich\s*&&\s*typeof fetchPinsBatchFromPidgets === 'function'/);
 });
 
@@ -701,7 +701,7 @@ test('Wave 7.4: isAggregatedClusterPin dual condition, Pulse UI parity, crawler 
   assert.match(kwCrawlerSrc, /ksp\.vacuum_opportunity_score IS DISTINCT FROM/, 'flushBatchToHub must avoid no-op updated_at churn on cached displaced rows');
 
   // Verify src/modules/keywords/service.mjs topToEnrich syncs daily_repin_velocity with isRepinHydrationJump guard
-  const kwServiceSrc = fs.readFileSync('src/modules/keywords/service.mjs', 'utf8');
+  const kwServiceSrc = fs.readFileSync('src/modules/keywords/serp-crawler.mjs', 'utf8');
   const repinJumpGuards = kwServiceSrc.match(/isRepinHydrationJump\(/g) || [];
   const repinVelSyncs = kwServiceSrc.match(/p\.daily_repin_velocity = computedRepinDelta;/g) || [];
   assert.ok(repinJumpGuards.length >= 2, 'Both Pidgets pre-enrich and topToEnrich must guard against repin hydration jumps');
