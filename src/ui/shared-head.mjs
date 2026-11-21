@@ -73,9 +73,11 @@ export function renderSharedDocumentHead({
   <title>${title}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="${fontsHref}" rel="stylesheet">${themeScript}
   <script src="https://cdn.tailwindcss.com"></script>${tailwindScriptHtml ? `\n${tailwindScriptHtml}` : ''}${includeChartJs ? '\n  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>' : ''}${sharedStyles}
   <script src="/pae-shell.js?v=${PAE_SHELL_VERSION}"></script>${extraHeadHtml ? `\n${extraHeadHtml}` : ''}
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
-  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>`;
+  <script defer src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>`;
 }

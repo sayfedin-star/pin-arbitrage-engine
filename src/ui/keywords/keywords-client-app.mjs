@@ -236,7 +236,7 @@ export function getKeywordsClientAppScript() {
         domainPageSize: 15,
 
         // [INVARIANT: DEFENSIVE-PIN-DOSSIER-URL]
-        // Generates safe, breadcrumb-rich URLs to Level 3 Pin Dossier (/pins/:pin_id).
+        // Generates safe, breadcrumb-rich URLs to Level 3 Pin Dossier (/pin/:pin_id).
         // Defensively resolves keyword and campaign folder context without throwing ReferenceErrors on undeclared state.
         getPinDossierUrl(pin) {
           if (!pin || !pin.pin_id) return '#';
@@ -247,7 +247,7 @@ export function getKeywordsClientAppScript() {
           if (kw?.keyword) params.set('keyword', kw.keyword);
           if (folderId) params.set('folder_id', String(folderId));
           const qs = params.toString();
-          return '/pins/' + encodeURIComponent(pin.pin_id) + (qs ? '?' + qs : '');
+          return '/pin/' + encodeURIComponent(pin.pin_id) + (qs ? '?' + qs : '');
         },
 
         togglePinTags(pinId) {

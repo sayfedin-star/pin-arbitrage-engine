@@ -628,7 +628,7 @@ export function getKeywordsSerpStudioViewHtml() {
                     thumbHtml: `
                     <!-- Preview Thumbnail -->
                     <td class="py-3.5 px-3">
-                      <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                      <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pin/:pin_id)">
                         <template x-if="pin.image_url">
                           <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition" onerror="window.handlePinImgError(this)">
                         </template>
@@ -645,7 +645,7 @@ export function getKeywordsSerpStudioViewHtml() {
                       <div class="space-y-1">
                         <a :href="getPinDossierUrl(pin)" @click.stop
                            class="font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block transition"
-                           title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
+                           title="Open Dedicated Pin Intelligence (/pin/:pin_id)"
                            x-text="pin.title || 'Untitled Pin'"></a>
                         <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono tabular-nums">
                           <a :href="getPinDossierUrl(pin)" @click.stop
@@ -807,7 +807,7 @@ export function getKeywordsSerpStudioViewHtml() {
                       <div class="flex items-center justify-end space-x-1" @click.stop>
                         <a :href="getPinDossierUrl(pin)"
                            class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
-                           title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                           title="Open Dedicated Pin Intelligence (/pin/:pin_id)">
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                         </a>
                         <button @click="openPinInspector(pin)"
@@ -844,7 +844,7 @@ export function getKeywordsSerpStudioViewHtml() {
                 
                 <div class="space-y-3">
                   <!-- Thumbnail with Rank & Format overlays -->
-                  <a :href="getPinDossierUrl(pin)" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                  <a :href="getPinDossierUrl(pin)" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pin/:pin_id)">
                     <template x-if="pin.image_url">
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="window.handlePinImgError(this)">
                     </template>
@@ -866,7 +866,7 @@ export function getKeywordsSerpStudioViewHtml() {
                   <div class="space-y-1">
                     <a :href="getPinDossierUrl(pin)" @click.stop
                        class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 leading-snug transition block"
-                       title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
+                       title="Open Dedicated Pin Intelligence (/pin/:pin_id)"
                        x-text="pin.title || 'Untitled Pin'"></a>
                     <div class="flex items-center space-x-1.5 text-[10px] font-mono tabular-nums">
                       <a :href="getPinDossierUrl(pin)" @click.stop
@@ -914,7 +914,7 @@ export function getKeywordsSerpStudioViewHtml() {
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
                     <span class="truncate max-w-[120px] font-mono tabular-nums text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
-                      <a :href="getPinDossierUrl(pin)" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
+                      <a :href="getPinDossierUrl(pin)" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pin/:pin_id)">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
                       <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" title="Dossier">

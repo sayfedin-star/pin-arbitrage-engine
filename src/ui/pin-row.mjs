@@ -29,7 +29,7 @@
  * @param {string} [options.onRowClick=''] - Alpine expression for clicking row (e.g. 'openPinInspector(pin)')
  * @param {string} [options.onBlueprintClick='openBlueprintModal(pin)'] - Blueprint action expression
  * @param {string} [options.onTagClick='setTagFilter(tag)'] - Tag pill click expression
- * @param {string} [options.dossierUrlExpr='"/pins/" + pin.pin_id'] - URL expression for pin dossier
+ * @param {string} [options.dossierUrlExpr='"/pin/" + pin.pin_id'] - URL expression for pin dossier
  * @returns {string} HTML string
  */
 export function renderPinRowTemplate({
@@ -54,7 +54,7 @@ export function renderPinRowTemplate({
   onRowClick = '',
   onBlueprintClick = 'openBlueprintModal(pin)',
   onTagClick = 'setTagFilter(tag)',
-  dossierUrlExpr = '"/pins/" + pin.pin_id',
+  dossierUrlExpr = '"/pin/" + pin.pin_id',
   rowClass = 'hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition border-b border-slate-100 dark:border-[#27272A]/60 group cursor-pointer',
   rowDynamicClass = '',
   checkboxTdAttrs = '',

@@ -13,7 +13,7 @@ export function getPinDetailsBodyHtml(safePinId) {
         :title="getBackButtonTitle()"
       >
         <span class="text-slate-400">←</span>
-        <span class="truncate max-w-[120px] sm:max-w-[160px]" x-text="getBackButtonLabel()"></span>
+        <span class="truncate max-w-[120px] sm:max-w-[160px]" x-text="getBackButtonLabel()">Back</span>
       </a>
 
       <!-- Breadcrumbs Trail -->
@@ -99,7 +99,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           </div>
         </template>
         <span class="text-slate-600">/</span>
-        <span class="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">#<span x-text="pinId"></span></span>
+        <span class="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">#<span x-text="pinId">${safePinId}</span></span>
       </nav>`;
 
   const customHeaderRightHtml = `
@@ -147,7 +147,7 @@ export function getPinDetailsBodyHtml(safePinId) {
       </a>`;
 
   return `
-<body class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-200" x-data="pinDetailApp('${safePinId}')">
+<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-200" x-data="pinDetailApp('${safePinId}')">
 
   <!-- Toast Notification Container -->
   <div 
@@ -176,7 +176,7 @@ export function getPinDetailsBodyHtml(safePinId) {
   })}
 
   <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out md:ml-64 lg:ml-72" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
   <!-- Full-Page Loading Spinner (Initial load only) -->
   <div x-show="loading && !dossier" class="flex-1 flex items-center justify-center p-12" x-cloak>

@@ -34,7 +34,7 @@ export function getKeywordDrawersAndModalsHtml() {
     actionsHtml: `<!-- Open Full Dossier Page (Level 3) -->
             <a :href="getPinDossierUrl(activeInspectorPin)"
                class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition flex items-center space-x-1"
-               title="Open Dedicated Full Dossier Page (/pins/:pin_id)">
+               title="Open Dedicated Full Dossier Page (/pin/:pin_id)">
               <i data-lucide="external-link" class="w-3 h-3 text-emerald-500"></i>
               <span>Full Dossier</span>
             </a>

@@ -856,3 +856,61 @@ test('Wave 4A.6: AbortController cancels stale in-flight requests on rapid switc
     await Promise.all([p1, p2]);
   }
 });
+
+test('Wave 4A.7: Pin Dossier FOUC x-cloak parity, pre-hydration sidebar/header geometry, jsDelivr minified CDN, and canonical /pin/:id links', async (t) => {
+  const app = createFastifyApp({
+    NODE_ENV: 'test',
+    DATABASE_URL: '',
+    SQL_CLIENT: makeNoopSql()
+  });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const pinId = '1145532855470118639';
+  const routes = [
+    '/',
+    '/keywords',
+    '/folders/5',
+    '/newborn',
+    '/domains',
+    `/pin/${pinId}`,
+    `/pins/${pinId}`,
+    '/pulse',
+    '/discovery'
+  ];
+
+  for (const route of routes) {
+    const res = await app.inject({ method: 'GET', url: route });
+    assert.equal(res.statusCode, 200, `GET ${route} must return 200`);
+    const html = res.body;
+
+    // 1. Every SSR studio must cloak <body> prior to Alpine hydration
+    assert.match(html, /<body\b[^>]*\bx-cloak\b/i, `${route} <body> must include x-cloak`);
+
+    // 2. Minified jsDelivr CDN + preconnect hints, zero unpkg.com runtime dependencies
+    assert.ok(html.includes('<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>'), `${route} must preconnect cdn.jsdelivr.net`);
+    assert.ok(html.includes('https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js'), `${route} must load minified Lucide from jsDelivr`);
+    assert.ok(html.includes('https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js'), `${route} must load Alpine.js from jsDelivr`);
+    assert.equal(html.includes('unpkg.com'), false, `${route} must not reference unpkg.com`);
+
+    // 3. Desktop <aside> carries static width fallback w-64 lg:w-72
+    assert.match(html, /<aside\b[^>]*\bw-64\s+lg:w-72\b/, `${route} <aside> must have static w-64 lg:w-72 fallback`);
+  }
+
+  // 4. Pin Dossier custom header sits at z-30 with static md:ml-64 lg:ml-72 and SSR fallback pinId/Back label
+  const pinRes = await app.inject({ method: 'GET', url: `/pin/${pinId}` });
+  const pinHtml = pinRes.body;
+  assert.match(pinHtml, /<header\b[^>]*\bz-30\b[^>]*\bmd:ml-64\s+lg:ml-72\b/, '/pin/:id custom <header> must use z-30 and static md:ml-64 lg:ml-72');
+  assert.ok(pinHtml.includes(`#<span x-text="pinId">${pinId}</span>`), '/pin/:id breadcrumb must include SSR pinId fallback');
+  assert.ok(pinHtml.includes('x-text="getBackButtonLabel()">Back</span>'), '/pin/:id back button must include SSR fallback label');
+
+  // 5. Canonical /pin/:id links in /folders/5 HTML and keywords.js bundle (zero plural /pins/ page links)
+  const foldersRes = await app.inject({ method: 'GET', url: '/folders/5' });
+  assert.ok(foldersRes.body.includes(`:href="'/pin/' + sp.pin_id`), '/folders/5 must link cluster pins to canonical /pin/:id');
+  assert.equal(foldersRes.body.includes(`'/pins/'`), false, '/folders/5 must not emit plural /pins/ hrefs');
+
+  const kwJs = getClientJsAsset('keywords').code;
+  assert.ok(kwJs.includes("return '/pin/' + encodeURIComponent(pin.pin_id)"), 'keywords.js getPinDossierUrl must emit canonical /pin/:id');
+  assert.equal(kwJs.includes("'/pins/'"), false, 'keywords.js must not emit plural /pins/ page URLs');
+});

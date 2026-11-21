@@ -34,7 +34,7 @@ function renderAppTopbar({
     return `
   <!-- Unified Single Sticky Command Bar (Responsive Mobile + Desktop Shell) -->
   <header
-    class="flex sticky top-0 z-40 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-3 shadow-xs"
+    class="flex sticky top-0 z-30 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-3 shadow-xs md:ml-64 lg:ml-72"
     :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- Left: Mobile Menu / Sidebar Toggle & Contextual Slot -->
@@ -55,7 +55,7 @@ function renderAppTopbar({
         :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
         aria-label="Toggle Sidebar">
         <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
-        <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
+        <span x-show="isSidebarCollapsed" x-cloak class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
       </button>
 
       ${customHeaderLeftHtml}
@@ -100,7 +100,7 @@ function renderAppTopbar({
   return `
   <!-- Desktop Sticky Topbar (Light-Mode Bento Shell) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <header
-    class="hidden md:flex sticky top-0 z-30 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-4 shadow-xs"
+    class="hidden md:flex sticky top-0 z-30 transition-all duration-300 ease-in-out border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl px-4 lg:px-6 py-2.5 items-center justify-between gap-4 shadow-xs md:ml-64 lg:ml-72"
     :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
     
     <!-- Left: Sidebar Toggle & ⌘K/⌘F Global Command Trigger -->
@@ -112,7 +112,7 @@ function renderAppTopbar({
         :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
         aria-label="Toggle Sidebar">
         <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
-        <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
+        <span x-show="isSidebarCollapsed" x-cloak class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
       </button>
 
       <!-- ⌘K / ⌘F Global Search Command Bar Trigger -->
@@ -206,13 +206,13 @@ export function renderAppSidebar({
         <button
           type="button"
           @click="isCookieModalOpen = true${isMobile ? '; isMobileMenuOpen = false' : ''}"
-          class="flex items-center rounded-xl border transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+          class="flex items-center rounded-xl border transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer w-full justify-between px-3 py-2 text-xs font-semibold"
           :class="[
-            ${isMobile ? "'w-full justify-between px-3 py-2 text-xs font-semibold'" : "isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold'"},
+            ${isMobile ? "'w-full justify-between px-3 py-2 text-xs font-semibold'" : "isSidebarCollapsed ? '!w-10 !h-10 !p-0 !justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold'"},
             cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
           ]"
           :title="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'">
-          <span class="${isMobile ? 'flex items-center truncate font-mono tabular-nums space-x-2' : 'flex items-center truncate font-mono tabular-nums'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+          <span class="flex items-center truncate font-mono tabular-nums space-x-2"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'!space-x-0 justify-center\' : \'space-x-2\'"'}>
             <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
             <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? '${isMobile ? 'Session: Authenticated' : 'Pinterest: Authenticated'}' : 'Guest Mode (No Cookie)'"></span>
           </span>
@@ -220,9 +220,9 @@ export function renderAppSidebar({
         </button>
   ` : `
         <div
-          class="${isMobile ? 'flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums w-full justify-between px-3 py-2 text-xs font-semibold' : 'flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'w-10 h-10 p-0 justify-center mx-auto\' : \'w-full justify-between px-3 py-2 text-xs font-semibold\'"'}
+          class="flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono tabular-nums w-full justify-between px-3 py-2 text-xs font-semibold"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'!w-10 !h-10 !p-0 !justify-center mx-auto\' : \'w-full justify-between px-3 py-2 text-xs font-semibold\'"'}
           title="PAE Distributed System: Active">
-          <span class="${isMobile ? 'flex items-center truncate space-x-2' : 'flex items-center truncate'}"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'justify-center\' : \'space-x-2\'"'}>
+          <span class="flex items-center truncate space-x-2"${isMobile ? '' : ' :class="isSidebarCollapsed ? \'!space-x-0 justify-center\' : \'space-x-2\'"'}>
             <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 motion-safe:animate-pulse"></span>
             <span ${isMobile ? '' : 'x-show="!isSidebarCollapsed" '}class="truncate text-[11px]">System: Operational</span>
           </span>
@@ -431,13 +431,13 @@ export function renderAppSidebar({
 
   <!-- Desktop Permanent Sidebar (<aside>) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <aside
-    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    class="hidden md:flex fixed inset-y-0 left-0 z-40 w-64 lg:w-72 bg-white dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
     :class="isSidebarCollapsed ? '!w-20' : 'w-64 lg:w-72'">
     
     <!-- Top Section: App Brand, Quick Actions, Grouped Navigation Links -->
-    <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
+    <div class="p-4 lg:p-5 space-y-4 transition-all duration-300" :class="isSidebarCollapsed ? '!p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
       <!-- App Brand & Title + Collapse Toggle -->
-      <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
+      <div class="flex items-center justify-between transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center !justify-center' : 'justify-between'">
         <a href="/" class="flex items-center space-x-3 overflow-hidden group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-xl">
           <div class="h-10 w-10 rounded-xl bg-rose-600 flex items-center justify-center shadow-xs text-white shrink-0 group-hover:scale-102 transition">
             <i data-lucide="cpu" class="w-5 h-5"></i>
@@ -472,7 +472,7 @@ export function renderAppSidebar({
           :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'"
           aria-label="Toggle Sidebar">
           <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
-          <span x-show="isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
+          <span x-show="isSidebarCollapsed" x-cloak class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
         </button>
       </div>
 
@@ -484,65 +484,65 @@ export function renderAppSidebar({
           <div x-show="!isSidebarCollapsed" class="px-3 pt-1 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold">
             Executive
           </div>
-          <div x-show="isSidebarCollapsed" class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
+          <div x-show="isSidebarCollapsed" x-cloak class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
 
           <!-- Overview & Hub -->
           ${isDashboardSpa ? `
           <button
             type="button"
             @click="switchTab('overview')"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
             :class="[
-              isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+              isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5',
               currentTab === 'overview' ? '${activeClass}' : '${inactiveClass}'
             ]"
             title="Overview & Hub">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0" :class="currentTab === 'overview' ? '${iconActive}' : '${iconInactive}'"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
             </div>
             <span x-show="!isSidebarCollapsed" :class="currentTab === 'overview' ? '${badgeActive}' : '${badgeInactive}'">Home</span>
-            <span x-show="isSidebarCollapsed && currentTab === 'overview'" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+            <span x-show="isSidebarCollapsed && currentTab === 'overview'" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
           </button>` : `
           <a
             href="/"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${overviewActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${overviewActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Overview & Hub">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0 ${isOverview ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
             </div>
             <span x-show="!isSidebarCollapsed" class="${isOverview ? badgeActive : badgeInactive}">Home</span>
-            ${isOverview ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isOverview ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>`}
 
           <!-- 24h Pulse Studio -->
           <a
             href="/pulse"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${pulseActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="24h Pulse Studio">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="activity" class="w-4 h-4 shrink-0 ${isPulse ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">24h Pulse Studio</span>
             </div>
             <span x-show="!isSidebarCollapsed" class="${isPulse ? badgeActive : badgeInactive}">Live</span>
-            ${isPulse ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isPulse ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>
 
           <!-- Newborn Breakout Hunter -->
           <a
             href="/newborn"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${newbornActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${newbornActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Newborn Breakout Hunter">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="flame" class="w-4 h-4 shrink-0 ${isNewborn ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Newborn Hunter</span>
             </div>
             <span x-show="!isSidebarCollapsed" class="${isNewborn ? badgeActive : badgeInactive}">8-Surf</span>
-            ${isNewborn ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isNewborn ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>
         </div>
 
@@ -551,70 +551,70 @@ export function renderAppSidebar({
           <div x-show="!isSidebarCollapsed" class="px-3 pt-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold">
             Intelligence
           </div>
-          <div x-show="isSidebarCollapsed" class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
+          <div x-show="isSidebarCollapsed" x-cloak class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
 
           <!-- Creator Hub -->
           ${isDashboardSpa ? `
           <button
             type="button"
             @click="switchTab('creators_archive')"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
             :class="[
-              isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+              isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5',
               ${spaCreatorsExpr} ? '${activeClass}' : '${inactiveClass}'
             ]"
             title="Creator Hub">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="users" class="w-4 h-4 shrink-0" :class="${spaCreatorsExpr} ? '${iconActive}' : '${iconInactive}'"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
             </div>
             <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
               <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="(competitorsOverview && competitorsOverview.tracked_profiles) || competitors.length"></span>
             </div>
-            <span x-show="isSidebarCollapsed && ((competitorsOverview && competitorsOverview.tracked_profiles > 0) || competitors.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+            <span x-show="isSidebarCollapsed && ((competitorsOverview && competitorsOverview.tracked_profiles > 0) || competitors.length > 0)" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
           </button>` : `
           <a
             href="/accounts"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Creator Hub">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="users" class="w-4 h-4 shrink-0 ${isCreators ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
             </div>
-            <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="${isCreators ? badgeActive : badgeInactive}" x-text="(typeof competitors !== 'undefined' && competitors) ? competitors.length : ''"></span>
+            <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" x-cloak class="${isCreators ? badgeActive : badgeInactive}" x-text="(typeof competitors !== 'undefined' && competitors) ? competitors.length : ''"></span>
             <span x-show="!isSidebarCollapsed && (typeof competitors === 'undefined' || !competitors || !competitors.length)" class="${isCreators ? badgeActive : badgeInactive}">Ledger</span>
-            ${isCreators ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isCreators ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>`}
 
           <!-- Keywords Fleet -->
           <a
             href="/keywords"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${keywordsActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${keywordsActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Keywords Fleet">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="search" class="w-4 h-4 shrink-0 ${isKeywords ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Keywords Fleet</span>
             </div>
-            <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="${isKeywords ? badgeActive : badgeInactive}" x-text="(typeof keywords !== 'undefined' && keywords) ? keywords.length : ''"></span>
+            <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" x-cloak class="${isKeywords ? badgeActive : badgeInactive}" x-text="(typeof keywords !== 'undefined' && keywords) ? keywords.length : ''"></span>
             <span x-show="!isSidebarCollapsed && (typeof keywords === 'undefined' || !keywords || !keywords.length)" class="${isKeywords ? badgeActive : badgeInactive}">SERP</span>
-            <span x-show="isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+            <span x-show="isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
           </a>
 
           <!-- Domain Radar -->
           <a
             href="/domains"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${domainsActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${domainsActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Domain Radar">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="globe" class="w-4 h-4 shrink-0 ${isDomains ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Domain Radar</span>
             </div>
-            <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" class="${isDomains ? badgeActive : badgeInactive}" x-text="(typeof overview !== 'undefined' && overview) ? overview.total_domains : ''"></span>
+            <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" x-cloak class="${isDomains ? badgeActive : badgeInactive}" x-text="(typeof overview !== 'undefined' && overview) ? overview.total_domains : ''"></span>
             <span x-show="!isSidebarCollapsed && (typeof overview === 'undefined' || !overview || !overview.total_domains)" class="${isDomains ? badgeActive : badgeInactive}">WHOIS</span>
-            ${isDomains ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isDomains ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>
 
           <!-- Related Pins -->
@@ -622,13 +622,13 @@ export function renderAppSidebar({
           <button
             type="button"
             @click="switchTab('related_pins')"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
             :class="[
-              isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+              isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5',
               ${spaRelatedExpr} ? '${activeClass}' : '${inactiveClass}'
             ]"
             title="Related Pins">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="git-fork" class="w-4 h-4 shrink-0" :class="${spaRelatedExpr} ? '${iconActive}' : '${iconInactive}'"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
             </div>
@@ -636,19 +636,19 @@ export function renderAppSidebar({
               <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="((overview && overview.total_seeds) || seeds.length) + 's'"></span>
               <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="((overview && overview.intersecting_hubs_count) || intersections.length) + 'i'"></span>
             </div>
-            <span x-show="isSidebarCollapsed && (((overview && overview.total_seeds > 0) || seeds.length > 0) || ((overview && overview.intersecting_hubs_count > 0) || intersections.length > 0))" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+            <span x-show="isSidebarCollapsed && (((overview && overview.total_seeds > 0) || seeds.length > 0) || ((overview && overview.intersecting_hubs_count > 0) || intersections.length > 0))" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
           </button>` : `
           <a
             href="/related-pins"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Related Pins">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="git-fork" class="w-4 h-4 shrink-0 ${isRelated ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
             </div>
             <span x-show="!isSidebarCollapsed" class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
-            ${isRelated ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isRelated ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>`}
         </div>
 
@@ -657,28 +657,28 @@ export function renderAppSidebar({
           <div x-show="!isSidebarCollapsed" class="px-3 pt-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] font-bold">
             Campaigns
           </div>
-          <div x-show="isSidebarCollapsed" class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
+          <div x-show="isSidebarCollapsed" x-cloak class="w-8 mx-auto my-1 border-t border-slate-200 dark:border-[#27272A]"></div>
 
           <!-- Campaign Folders -->
           <a
             href="/folders"
-            class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}"
-            :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+            class="relative flex items-center w-full justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}"
+            :class="isSidebarCollapsed ? '!w-10 !h-10 !justify-center !p-0' : 'w-full justify-between px-3 py-2.5'"
             title="Campaign Folders">
-            <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <div class="flex items-center space-x-2.5" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : 'space-x-2.5'">
               <i data-lucide="folder-kanban" class="w-4 h-4 shrink-0 ${isFolders ? iconActive : iconInactive}"></i>
               <span x-show="!isSidebarCollapsed" class="truncate">Campaign Folders</span>
             </div>
-            <span x-show="!isSidebarCollapsed && ((typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) || (typeof folders !== 'undefined' && folders && folders.length > 0))" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) ? foldersList.length : ((typeof folders !== 'undefined' && folders) ? folders.length : '')"></span>
+            <span x-show="!isSidebarCollapsed && ((typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) || (typeof folders !== 'undefined' && folders && folders.length > 0))" x-cloak class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) ? foldersList.length : ((typeof folders !== 'undefined' && folders) ? folders.length : '')"></span>
             <span x-show="!isSidebarCollapsed && !(typeof foldersList !== 'undefined' && foldersList && foldersList.length > 0) && !(typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
-            ${isFolders ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+            ${isFolders ? '<span x-show="isSidebarCollapsed" x-cloak class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
           </a>
         </div>
       </nav>
     </div>
 
     <!-- Bottom Footer Section: Auth Status (TopBar is SSOT for theme/refresh when visible) -->
-    <div class="border-t border-slate-200/80 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#09090B]/60 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
+    <div class="p-4 space-y-3 border-t border-slate-200/80 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#09090B]/60 transition-all duration-300" :class="isSidebarCollapsed ? '!p-3 !space-y-2' : 'p-4 space-y-3'">
       ${renderFooterStatus(false)}
 
       ${!showTopbar ? `
