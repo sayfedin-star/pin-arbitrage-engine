@@ -46,11 +46,13 @@ export async function getNewbornOverview(sql, env = {}) {
       FROM newborn_candidates;
     `,
     sql`
-      SELECT id, run_type, status, progress_stage, progress_detail, progress_pct, error_message,
-             folder_id, seed_queries, surfaces_used, cookie_mode,
+      SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+             folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
              candidates_discovered, candidates_qualified,
              golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
-             snowball_hops_executed, telemetry, started_at, completed_at
+             snowball_hops_executed, shards_total, shards_completed, shards_failed,
+             github_run_id, github_run_url, cancel_requested_at,
+             telemetry, started_at, completed_at
       FROM newborn_runs
       ORDER BY started_at DESC
       LIMIT 12;

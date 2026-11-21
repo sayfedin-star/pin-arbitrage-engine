@@ -7,7 +7,7 @@
  * 1. ZONE_AUTH_SESSION (`_auth=1` session cookie unlocks clean Snowflake IDs & graphs):
  *    - `RelatedModulesResource/get` (HTTP 412 Login required without `_auth=1`)
  *    - `BaseSearchResource/get` (`scope: "pins"` — avoids `e1_` encrypted IDs)
- *    - `BoardFeedResource/get` (including `/<user>/<slug>/more_ideas/` with `add_vase: true`)
+ *    - `BoardContentRecommendationResource/get` ("Find more ideas") & `BoardFeedResource/get`
  *    - `BestPinsFeedAltResource/get` (deep `/ideas/` pagination)
  *    - `SearchTabResource/get` (`Ideas for you`)
  *
@@ -31,6 +31,7 @@ import {
   PINTEREST_PAGE_HEADERS,
   CircuitBreakerOpenError,
   globalPinterestCircuitBreaker,
+  globalPidgetsCircuitBreaker,
   getDefaultDispatcher
 } from '../../core/pinterest/client.mjs';
 import { extractRelayCompletedPayloads } from '../../core/pinterest/pins.mjs';
@@ -135,6 +136,9 @@ export function resolveUrlCookieZone(urlStr, endpointHint = '') {
   if (/BestPinsFeedAltResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.best_pins_ideas;
   if (/SearchTabResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.search_tab_ideas;
   if (/UserHomefeedResource\/get/i.test(u)) return ENDPOINT_BOUNDARY_RULES.home_feed;
+  if (/BoardContentRecommendationResource\/get/i.test(u)) {
+    return ENDPOINT_BOUNDARY_RULES.board_more_ideas;
+  }
   if (/BoardFeedResource\/get/i.test(u)) {
     let decoded = u;
     try { decoded = decodeURIComponent(u); } catch (_) {}
@@ -216,9 +220,13 @@ export class NewbornCookieRouter {
     this.hasInitialAuthCookie = Boolean(this.authCookieHeader && this.authCookieHeader.includes('_auth=1'));
     this.authDegraded = false;
     this.degradedReason = null;
-    this.circuitBreaker = options.circuitBreaker !== undefined
-      ? options.circuitBreaker
-      : globalPinterestCircuitBreaker;
+    this.discoveryBreaker = options.discoveryBreaker !== undefined
+      ? options.discoveryBreaker
+      : (options.circuitBreaker !== undefined ? options.circuitBreaker : globalPinterestCircuitBreaker);
+    this.pidgetsBreaker = options.pidgetsBreaker !== undefined
+      ? options.pidgetsBreaker
+      : globalPidgetsCircuitBreaker;
+    this.circuitBreaker = this.discoveryBreaker;
     this.dispatcher = options.dispatcher !== undefined ? options.dispatcher : getDefaultDispatcher();
     this.fetchImpl = typeof options.fetchImpl === 'function' ? options.fetchImpl : globalThis.fetch;
     this.timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
@@ -230,6 +238,16 @@ export class NewbornCookieRouter {
       guestRetriesSucceeded: 0,
       skippedAuthOnlyEndpoints: 0
     };
+  }
+
+  _selectBreaker(url, endpointRule = null) {
+    if (
+      endpointRule === ENDPOINT_BOUNDARY_RULES.pidgets ||
+      /widgets\.pinterest\.com\/v3\/pidgets/i.test(String(url || ''))
+    ) {
+      return this.pidgetsBreaker;
+    }
+    return this.discoveryBreaker;
   }
 
   get canUseAuthSession() {
@@ -252,12 +270,14 @@ export class NewbornCookieRouter {
     };
   }
 
-  async _executeRawFetch(url, headers, { timeoutMs, signal: externalSignal, skipCircuitBreaker = false } = {}) {
+  async _executeRawFetch(url, headers, { timeoutMs, signal: externalSignal, skipCircuitBreaker = false, endpointRule = null } = {}) {
     if (externalSignal?.aborted) {
       throw externalSignal.reason || new DOMException('The operation was aborted.', 'AbortError');
     }
 
-    if (!skipCircuitBreaker && this.circuitBreaker && !this.circuitBreaker.canExecute()) {
+    const activeBreaker = this._selectBreaker(url, endpointRule);
+
+    if (!skipCircuitBreaker && activeBreaker && !activeBreaker.canExecute()) {
       throw new CircuitBreakerOpenError();
     }
 
@@ -274,21 +294,21 @@ export class NewbornCookieRouter {
       // CRITICAL: HTTP 412 (Login required) and HTTP 401 (Session expired) are cookie-state signals,
       // NEVER IP-ban rate limits. Release HALF_OPEN probe cleanly without recording a failure!
       if (res.status === 412 || res.status === 401) {
-        this.circuitBreaker?.releaseProbe?.();
+        activeBreaker?.releaseProbe?.();
       } else if (res.status === 429 || res.status === 403 || res.status >= 500) {
-        this.circuitBreaker?.recordFailure?.(res.status);
+        activeBreaker?.recordFailure?.(res.status);
       } else if (res.ok || res.status === 404) {
-        this.circuitBreaker?.recordSuccess?.();
+        activeBreaker?.recordSuccess?.();
       } else {
-        this.circuitBreaker?.releaseProbe?.();
+        activeBreaker?.releaseProbe?.();
       }
       return res;
     } catch (err) {
-      if (externalSignal?.aborted) {
-        this.circuitBreaker?.releaseProbe?.();
+      if (err?.name === 'AbortError' || externalSignal?.aborted) {
+        activeBreaker?.releaseProbe?.();
         throw err;
       }
-      this.circuitBreaker?.recordFailure?.(null, err);
+      activeBreaker?.recordFailure?.(null, err);
       throw err;
     }
   }
@@ -325,7 +345,7 @@ export class NewbornCookieRouter {
     if (rule.zone === COOKIE_ZONES.ZERO_COOKIE) {
       const zeroHeaders = stripAllCookiesFromHeaders(baseHeaders);
       this.telemetry.zeroCookieZoneRequests++;
-      const res = await this._executeRawFetch(url, zeroHeaders, { timeoutMs, signal });
+      const res = await this._executeRawFetch(url, zeroHeaders, { timeoutMs, signal, endpointRule: rule });
       if (!res.ok) {
         if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
         return {
@@ -366,7 +386,7 @@ export class NewbornCookieRouter {
       // Attempt guest zero-cookie execution when supported
       const guestHeaders = stripAllCookiesFromHeaders(baseHeaders);
       this.telemetry.zeroCookieZoneRequests++;
-      const guestRes = await this._executeRawFetch(url, guestHeaders, { timeoutMs, signal });
+      const guestRes = await this._executeRawFetch(url, guestHeaders, { timeoutMs, signal, endpointRule: rule });
       if (guestRes.status === 412 || guestRes.status === 401) {
         if (guestRes.body && !guestRes.bodyUsed) await guestRes.body.cancel().catch(() => {});
         this.telemetry.http412Fallbacks++;
@@ -408,7 +428,7 @@ export class NewbornCookieRouter {
       Cookie: this.authCookieHeader
     };
     this.telemetry.authZoneRequests++;
-    const res = await this._executeRawFetch(url, authHeaders, { timeoutMs, signal });
+    const res = await this._executeRawFetch(url, authHeaders, { timeoutMs, signal, endpointRule: rule });
 
     if (res.status === 412 || res.status === 401) {
       if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
@@ -420,7 +440,7 @@ export class NewbornCookieRouter {
       if (rule.allowGuestRetry) {
         const retryGuestHeaders = stripAllCookiesFromHeaders(baseHeaders);
         this.telemetry.zeroCookieZoneRequests++;
-        const retryRes = await this._executeRawFetch(url, retryGuestHeaders, { timeoutMs, signal });
+        const retryRes = await this._executeRawFetch(url, retryGuestHeaders, { timeoutMs, signal, endpointRule: rule });
         if (retryRes.ok) {
           this.telemetry.guestRetriesSucceeded++;
           const retryData = isDocumentHtml ? await retryRes.text() : await retryRes.json();
@@ -662,7 +682,7 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
       }
       return res;
     } catch (err) {
-      if (externalSignal?.aborted) {
+      if (err?.name === 'AbortError' || externalSignal?.aborted) {
         activeBreaker?.releaseProbe?.();
         throw err;
       }

@@ -185,12 +185,15 @@ export async function apiRoutesPlugin(app, options = {}) {
               pathname.startsWith('/api/pins/')
             )
           );
+          const isFleetRoutableNewbornPath =
+            pathname === '/api/newborn/cluster/hunt' ||
+            pathname === '/api/newborn/discover';
           const isCrawlerEndpoint =
             pathname === '/api/crawl' ||
             pathname.startsWith('/api/crawl/') ||
             pathname === '/api/keywords/sync' ||
             CREATOR_CRAWLER_PATHS.has(pathname) ||
-            NEWBORN_CRAWLER_PATHS.has(pathname) ||
+            (NEWBORN_CRAWLER_PATHS.has(pathname) && !isFleetRoutableNewbornPath) ||
             /^\/api\/newborn\/candidates\/[^/]+\/fetch-account$/.test(pathname) ||
             (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
             isLiveScrapeGet;
@@ -412,6 +415,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               getCachedOrFetch,
               invalidateEdgeCache,
               safeWaitUntil,
+              checkPinterestCircuitBreaker,
               tripPinterestCircuitBreaker,
               redactSecrets
             });

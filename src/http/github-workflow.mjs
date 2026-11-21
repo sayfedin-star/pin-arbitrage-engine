@@ -176,3 +176,98 @@ export async function dispatchGitHubWorkflow(envOrOptions, maybeOptions = {}) {
     errorText
   };
 }
+
+/**
+ * Cancels an active GitHub Actions workflow run via POST /actions/runs/{run_id}/cancel.
+ */
+export async function cancelGitHubWorkflowRun(
+  env,
+  { runId, allowPat = true, timeoutMs = 10_000, userAgent = 'PAE-Fastify-Engine', defaultRepo = DEFAULT_GITHUB_REPOSITORY } = {}
+) {
+  const numericRunId = Number(runId);
+  if (!Number.isInteger(numericRunId) || numericRunId <= 0) {
+    const msg = 'Invalid GitHub Actions runId for workflow cancellation';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: false,
+      error: msg
+    };
+  }
+
+  const { githubToken, githubRepo } = resolveGitHubAuth(env, { allowPat, defaultRepo });
+  if (!githubToken || !githubRepo) {
+    const msg = 'Missing GITHUB_TOKEN or GITHUB_REPOSITORY in environment';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: true,
+      hasToken: Boolean(githubToken),
+      githubRepo,
+      error: msg
+    };
+  }
+
+  const cleanRepo = String(githubRepo).trim();
+  if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(cleanRepo) || cleanRepo.includes('..')) {
+    const msg = 'Invalid GITHUB_REPOSITORY format for workflow cancellation';
+    return {
+      ok: false,
+      status: 400,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: msg
+    };
+  }
+
+  const cancelUrl = `https://api.github.com/repos/${cleanRepo}/actions/runs/${numericRunId}/cancel`;
+  let ghRes;
+  try {
+    ghRes = await fetch(cancelUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${githubToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': userAgent
+      },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (err) {
+    const msg = err?.message || 'GitHub workflow cancel network error';
+    return {
+      ok: false,
+      status: 502,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: msg
+    };
+  }
+
+  // GitHub returns 202 Accepted on cancel, or 409 Conflict if the run already completed
+  if (ghRes.ok || ghRes.status === 202 || ghRes.status === 409) {
+    return {
+      ok: true,
+      status: ghRes.status,
+      alreadyCompleted: ghRes.status === 409,
+      missingToken: false,
+      hasToken: true,
+      githubRepo: cleanRepo,
+      error: ''
+    };
+  }
+
+  const errorText = await ghRes.text().catch(() => '');
+  return {
+    ok: false,
+    status: ghRes.status,
+    missingToken: false,
+    hasToken: true,
+    githubRepo: cleanRepo,
+    error: errorText || `GitHub cancel API returned HTTP ${ghRes.status}`
+  };
+}
+

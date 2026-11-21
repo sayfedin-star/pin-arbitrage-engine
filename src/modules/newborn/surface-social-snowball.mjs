@@ -4,7 +4,7 @@
  * Authenticated Home Feed Deep Scroll and Related Pin Snowball Surface Harvesters.
  */
 
-import { isValidPinId } from '../../http/security-and-response.mjs';
+import { isValidPinId, redactSecrets } from '../../http/security-and-response.mjs';
 import {
   extractBookmark,
   normalizeSurfaceCandidatePin,
@@ -18,7 +18,7 @@ import {
  */
 export async function harvestHomeFeedSurface(
   router,
-  { maxPages = 5, pageSize = 50, targetPins = 250, seedQuery = null, onPageProgress = null } = {}
+  { maxPages = 5, pageSize = 50, targetPins = 250, seedQuery = null, onPageProgress = null, signal = null } = {}
 ) {
   const pSize = Math.max(10, Math.min(50, Number(pageSize) || 50));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
@@ -34,6 +34,7 @@ export async function harvestHomeFeedSurface(
   let consecutiveEmptyPages = 0;
 
   for (let page = 1; page <= maxP; page++) {
+    if (signal?.aborted) break;
     if (pinTarget !== null && pinsMap.size >= pinTarget) break;
 
     const opts = {
@@ -50,7 +51,8 @@ export async function harvestHomeFeedSurface(
     const res = await router.requestJson(url, {
       endpointKey: 'home_feed',
       sourceUrl: '/',
-      handler: 'www/index.js'
+      handler: 'www/index.js',
+      signal
     });
 
     if (res.skippedAuthOnly || res.authRequiredFallback) {
@@ -139,23 +141,33 @@ export function extractPinsFromRelatedModulesPayload(payload) {
 
 /**
  * SURFACE 8: Related Pin Snowball (`RelatedModulesResource/get`, Zone 1 `_auth=1`).
- * Gracefully skips when no cookie is configured or on `HTTP 412 Login required` without tripping circuit breaker.
+ * Uses the canonical 2026 RelatedModulesResource payload and records HTTP/error diagnostics
+ * on failure rather than silently swallowing page-1 rejections.
  */
 export async function harvestRelatedPinSnowballSurface(
   router,
   seedPinId,
-  { maxPages = 10, pageSize = 30, targetPins = null, hop = 1, seedQuery = null, onPageProgress = null } = {}
+  { maxPages = 10, pageSize = 24, targetPins = null, hop = 1, seedQuery = null, onPageProgress = null, signal = null } = {}
 ) {
   const cleanSeedId = String(seedPinId || '').trim();
   if (!isValidPinId(cleanSeedId)) {
-    return { ok: false, surface: 'related_pin_snowball', seed_pin_id: cleanSeedId, pins: [], skipped_auth_only: false, pages_fetched: 0 };
+    return {
+      ok: false,
+      surface: 'related_pin_snowball',
+      seed_pin_id: cleanSeedId,
+      pins: [],
+      skipped_auth_only: false,
+      pages_fetched: 0,
+      last_http_status: null,
+      error: 'INVALID_SEED_PIN_ID'
+    };
   }
 
-  const pSize = Math.max(10, Math.min(50, Number(pageSize) || 30));
+  const effectivePageSize = Math.max(10, Math.min(24, Number(pageSize) || 24));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
     ? Math.max(25, Math.min(1000, Math.round(Number(targetPins))))
     : null;
-  const maxP = Math.max(1, Math.min(40, pinTarget ? Math.ceil(pinTarget / Math.max(20, pSize)) + 2 : (Number(maxPages) || 2)));
+  const maxP = Math.max(1, Math.min(50, pinTarget ? Math.ceil(pinTarget / Math.max(12, effectivePageSize)) + 2 : (Number(maxPages) || 10)));
   const sourceUrl = `/pin/${cleanSeedId}/`;
 
   const pinsMap = new Map();
@@ -164,18 +176,26 @@ export async function harvestRelatedPinSnowballSurface(
   let pagesFetched = 0;
   let skippedAuthOnly = false;
   let consecutiveEmptyPages = 0;
+  let lastHttpStatus = null;
+  let lastError = null;
 
   for (let page = 1; page <= maxP; page++) {
+    if (signal?.aborted) break;
     if (pinTarget !== null && pinsMap.size >= pinTarget) break;
 
-    const isAuth = Boolean(router?.canUseAuthSession);
     const opts = {
+      additional_fields: ['pin.gen_ai_topics'],
       pin_id: cleanSeedId,
       context_pin_ids: [],
+      context_near_dup_image_sigs: [],
+      homefeed_source_sig: null,
+      page_size: effectivePageSize,
       search_query: '',
-      field_set_key: isAuth ? 'react_grid_pin' : 'unauth_react',
-      ...(isAuth ? { add_vase: true, is_related_modules: true } : {}),
-      page_size: pSize,
+      source: 'deep_linking',
+      top_level_source: 'deep_linking',
+      top_level_source_depth: 1,
+      is_pdp: false,
+      client_tracking_params: 'CwABAAAAEDE0ODExNTU0MzQxNjE4ODgLAAcAAAAPdW5rbm93bi91bmtub3duAA',
       ...(bookmark ? { bookmarks: [bookmark] } : {})
     };
     const url = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}`;
@@ -183,14 +203,27 @@ export async function harvestRelatedPinSnowballSurface(
     const res = await router.requestJson(url, {
       endpointKey: 'related_modules',
       sourceUrl,
-      handler: 'www/pin/[id].js'
+      handler: 'www/pin/[id].js',
+      extraHeaders: {
+        Origin: 'https://www.pinterest.com',
+        'Screen-Dpr': '1'
+      },
+      signal
     });
+
+    if (res.status !== undefined && res.status !== null) {
+      lastHttpStatus = res.status;
+    }
 
     if (res.skippedAuthOnly || res.authRequiredFallback) {
       skippedAuthOnly = true;
+      lastError = redactSecrets(String(res.error || 'AUTH_REQUIRED_412'));
       break;
     }
-    if (!res.ok || !res.data) break;
+    if (!res.ok || !res.data) {
+      lastError = redactSecrets(String(res.error || (res.status ? `HTTP_${res.status}` : 'EMPTY_RESPONSE')));
+      break;
+    }
     pagesFetched++;
 
     const rr = res.data?.resource_response?.data ?? res.data?.data ?? [];
@@ -232,6 +265,8 @@ export async function harvestRelatedPinSnowballSurface(
     seed_pin_id: cleanSeedId,
     pins: Array.from(pinsMap.values()),
     skipped_auth_only: skippedAuthOnly,
-    pages_fetched: pagesFetched
+    pages_fetched: pagesFetched,
+    last_http_status: lastHttpStatus,
+    error: lastError
   };
 }

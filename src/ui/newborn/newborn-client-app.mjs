@@ -136,6 +136,12 @@ export function getNewbornClientAppScript() {
         l1InterestsCatalog: [],
         supportedCountries: [{ code: 'US', label: 'United States (US)' }],
 
+        // Wave 6F Execution Mode & Live Run Control State
+        executionMode: 'auto',
+        fleetShards: 8,
+        pollReconnectingNotice: '',
+        cancellingRun: false,
+
         // Live 202 Run Polling State
         activeRunId: null,
         _abortControllers: {},
@@ -289,7 +295,7 @@ export function getNewbornClientAppScript() {
             const latest = this.runs[0];
             this.activeRunId = Number(latest.id);
             this.activeRun = latest;
-            if (latest.status === 'running') {
+            if (this.isRunActiveStatus(latest.status)) {
               this.startPollingRun(this.activeRunId);
             }
           }
@@ -406,6 +412,26 @@ export function getNewbornClientAppScript() {
           this.settingsDrawerOpen = false;
         },
 
+        isRunActiveStatus(status) {
+          const s = String(status || '').toLowerCase();
+          return s === 'queued' || s === 'running';
+        },
+
+        maxClusterSelectableKeywords() {
+          return this.executionMode === 'direct' ? 25 : 100;
+        },
+
+        setExecutionMode(mode) {
+          const m = ['auto', 'direct', 'fleet'].includes(String(mode || '').toLowerCase())
+            ? String(mode).toLowerCase()
+            : 'auto';
+          this.executionMode = m;
+          const cap = this.maxClusterSelectableKeywords();
+          if (this.selectedClusterKeywords.length > cap) {
+            this.selectedClusterKeywords = this.selectedClusterKeywords.slice(0, cap);
+          }
+        },
+
         estimateScrollBudget() {
           let total = 0;
           if (this.huntPaths.search.enabled) total += Number(this.huntPaths.search.target_pins || 0);
@@ -417,9 +443,24 @@ export function getNewbornClientAppScript() {
           return total;
         },
 
+        estimateClusterTotalBudget() {
+          const count = Math.max(0, this.selectedClusterKeywords.length || 0);
+          return this.estimateScrollBudget() * Math.max(1, count);
+        },
+
         async lookupIdeaPage(rawTerm) {
           const clean = String(rawTerm || '').trim();
-          if (!clean || clean.length < 2 || /^\\d{10,30}$/.test(clean) || /^https?:\\/\\//i.test(clean)) {
+          const words = clean ? clean.split(/\\s+/).filter(Boolean) : [];
+          if (
+            !clean ||
+            clean.length < 2 ||
+            clean.length > 120 ||
+            /[\\r\\n]/.test(clean) ||
+            words.length > 12 ||
+            /^\\d{10,30}$/.test(clean) ||
+            /^https?:\\/\\//i.test(clean) ||
+            /pinterest\\./i.test(clean)
+          ) {
             this.ideaPageInfo = null;
             this.isLookingUpIdeaPage = false;
             return null;
@@ -696,15 +737,17 @@ export function getNewbornClientAppScript() {
         toggleClusterKeyword(term) {
           const clean = String(term || '').trim();
           if (!clean) return;
+          const cap = this.maxClusterSelectableKeywords();
           if (this.selectedClusterKeywords.includes(clean)) {
             this.selectedClusterKeywords = this.selectedClusterKeywords.filter((t) => t !== clean);
-          } else if (this.selectedClusterKeywords.length < 25) {
+          } else if (this.selectedClusterKeywords.length < cap) {
             this.selectedClusterKeywords = [...this.selectedClusterKeywords, clean];
           }
         },
 
         selectTopClusterKeywords(n = 15) {
-          const cap = Math.max(1, Math.min(25, Number(n) || 15));
+          const maxCap = this.maxClusterSelectableKeywords();
+          const cap = Math.max(1, Math.min(maxCap, Number(n) || 15));
           this.selectedClusterKeywords = this.getFilteredClusterKeywords().slice(0, cap).map((k) => k.keyword);
         },
 
@@ -721,7 +764,8 @@ export function getNewbornClientAppScript() {
         },
 
         async launchClusterHunt() {
-          const picked = this.selectedClusterKeywords.slice(0, 25);
+          const cap = this.maxClusterSelectableKeywords();
+          const picked = this.selectedClusterKeywords.slice(0, cap);
           if (picked.length === 0) return;
           const hasAnyPath = this.huntPaths.search.enabled || this.huntPaths.boards.enabled || this.huntPaths.idea_page.enabled || this.huntPaths.home_feed.enabled;
           if (!hasAnyPath) {
@@ -734,6 +778,8 @@ export function getNewbornClientAppScript() {
             const payload = {
               cluster_id: this.activeCluster?.id || null,
               keywords: picked,
+              execution_mode: this.executionMode || 'auto',
+              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
               filters: {
@@ -769,14 +815,21 @@ export function getNewbornClientAppScript() {
             });
 
             if (data?.run_id) {
+              const mode = data.execution_mode || data.run?.execution_mode || 'direct';
               this.activeRunId = Number(data.run_id);
               this.activeRun = data.run || {
                 id: this.activeRunId,
                 run_type: 'discovery',
-                status: 'running',
+                execution_mode: mode,
+                status: mode === 'fleet' ? 'queued' : 'running',
                 progress_stage: 'queued',
-                progress_detail: 'Queued — hunting ' + picked.length + ' cluster keywords...',
+                progress_detail: mode === 'fleet'
+                  ? ('Queued on GitHub Actions Fleet (' + (data.shards_total || this.fleetShards) + ' shards) for ' + picked.length + ' keywords...')
+                  : ('Queued — hunting ' + picked.length + ' cluster keywords...'),
                 progress_pct: 5,
+                shards_total: Number(data.shards_total || (mode === 'fleet' ? this.fleetShards : 1)),
+                shards_completed: 0,
+                shards_failed: 0,
                 seed_queries: picked
               };
               this.activeView = 'hunt';
@@ -784,7 +837,10 @@ export function getNewbornClientAppScript() {
               this.selectedPinIds = [];
               this.filters.annotation = '';
               this.startPollingRun(this.activeRunId);
-              this.toast('Cluster Hunt #' + this.activeRunId + ' launched for ' + picked.length + ' keywords', 'success');
+              this.toast(
+                (mode === 'fleet' ? 'Fleet Cluster Hunt #' : 'Cluster Hunt #') + this.activeRunId + ' launched for ' + picked.length + ' keywords',
+                'success'
+              );
             }
           } catch (err) {
             this.toast('Cluster hunt failed: ' + err.message, 'error');
@@ -802,11 +858,56 @@ export function getNewbornClientAppScript() {
           this.activeView = 'hunt';
           this.selectedPinIds = [];
           this.filters.annotation = '';
-          if (run.status === 'running') {
+          if (this.isRunActiveStatus(run.status)) {
             this.startPollingRun(this.activeRunId);
           }
           await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
           this.refreshIcons();
+        },
+
+        async reconnectToRun(run) {
+          if (!run || !run.id) return;
+          this.activeRunId = Number(run.id);
+          this.activeRun = run;
+          this.showRunCompleteBanner = false;
+          this.activeView = 'hunt';
+          this.startPollingRun(this.activeRunId);
+          this.toast('Reconnected to Hunt #' + this.activeRunId, 'info');
+          this.refreshIcons();
+        },
+
+        async cancelActiveRun() {
+          if (!this.activeRun || !this.activeRun.id || this.cancellingRun) return;
+          const runId = Number(this.activeRun.id);
+          this.cancellingRun = true;
+          try {
+            const { data } = await this.apiJson('/api/newborn/runs/' + encodeURIComponent(runId) + '/cancel', {
+              method: 'POST',
+              body: JSON.stringify({})
+            });
+            const cancelPatch = data?.run || (data?.status ? {
+              status: data.status,
+              progress_stage: data.status,
+              cancel_requested_at: data.cancel_requested_at || new Date().toISOString()
+            } : null);
+            if (cancelPatch) {
+              this.activeRun = {
+                ...this.activeRun,
+                ...cancelPatch
+              };
+            }
+            if (!this.isRunActiveStatus(this.activeRun?.status)) {
+              this.stopPollingRun();
+              this.showRunCompleteBanner = true;
+              await Promise.all([this.loadOverviewAndRuns(), this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
+            }
+            this.toast('Cancellation requested for Hunt #' + runId, 'info');
+          } catch (err) {
+            this.toast('Cancel failed: ' + err.message, 'error');
+          } finally {
+            this.cancellingRun = false;
+            this.refreshIcons();
+          }
         },
 
         async clearRunScope() {
@@ -1085,6 +1186,8 @@ export function getNewbornClientAppScript() {
           try {
             const payload = {
               query: rawSeed,
+              execution_mode: this.executionMode || 'auto',
+              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
               filters: {
@@ -1120,14 +1223,21 @@ export function getNewbornClientAppScript() {
             });
 
             if (data?.run_id) {
+              const mode = data.execution_mode || data.run?.execution_mode || 'direct';
               this.activeRunId = Number(data.run_id);
               this.activeRun = data.run || {
                 id: this.activeRunId,
                 run_type: 'discovery',
-                status: 'running',
+                execution_mode: mode,
+                status: mode === 'fleet' ? 'queued' : 'running',
                 progress_stage: 'queued',
-                progress_detail: 'Queued — starting deep-scroll Golden Pin hunt...',
+                progress_detail: mode === 'fleet'
+                  ? ('Queued on GitHub Actions Fleet (' + (data.shards_total || this.fleetShards) + ' shards)...')
+                  : 'Queued — starting deep-scroll Golden Pin hunt...',
                 progress_pct: 5,
+                shards_total: Number(data.shards_total || 1),
+                shards_completed: 0,
+                shards_failed: 0,
                 seed_queries: rawSeed ? [rawSeed] : ['home_feed']
               };
               this.activeView = 'hunt';
@@ -1135,7 +1245,12 @@ export function getNewbornClientAppScript() {
               this.selectedPinIds = [];
               this.filters.annotation = '';
               this.startPollingRun(this.activeRunId);
-              this.toast(data.deduplicated ? ('Attached to live Hunt #' + this.activeRunId) : ('Hunt #' + this.activeRunId + ' started'), 'info');
+              this.toast(
+                data.deduplicated
+                  ? ('Attached to live Hunt #' + this.activeRunId)
+                  : ((mode === 'fleet' ? 'Fleet Hunt #' : 'Hunt #') + this.activeRunId + ' started'),
+                'info'
+              );
             }
           } catch (err) {
             this.toast('Failed to start hunt: ' + err.message, 'error');
@@ -1192,7 +1307,7 @@ export function getNewbornClientAppScript() {
 
         stopPollingRun() {
           if (this.pollTimerId !== null) {
-            clearInterval(this.pollTimerId);
+            clearTimeout(this.pollTimerId);
             this.pollTimerId = null;
           }
           if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function' && this._visibilityBound) {
@@ -1203,6 +1318,24 @@ export function getNewbornClientAppScript() {
           this._pollInFlight = false;
           this._pollConsecutiveFailures = 0;
           this._pollTargetRunId = null;
+          this.pollReconnectingNotice = '';
+        },
+
+        _scheduleNextPoll(runId, delayMs) {
+          if (!this.isPollingRun || this._pollTargetRunId !== runId) return;
+          if (this.pollTimerId !== null) {
+            clearTimeout(this.pollTimerId);
+            this.pollTimerId = null;
+          }
+          this.pollTimerId = setTimeout(() => {
+            this.pollTimerId = null;
+            if (!this.isPollingRun || this._pollTargetRunId !== runId) return;
+            if (typeof document !== 'undefined' && document.hidden) {
+              this._scheduleNextPoll(runId, 2000);
+              return;
+            }
+            this.pollRunOnce(runId);
+          }, Math.max(500, Number(delayMs) || 1500));
         },
 
         startPollingRun(runId) {
@@ -1213,6 +1346,7 @@ export function getNewbornClientAppScript() {
           this._pollTargetRunId = targetId;
           this._pollConsecutiveFailures = 0;
           this._pollInFlight = false;
+          this.pollReconnectingNotice = '';
 
           if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
             this._visibilityBound = () => {
@@ -1223,59 +1357,101 @@ export function getNewbornClientAppScript() {
             document.addEventListener('visibilitychange', this._visibilityBound);
           }
 
-          this.pollTimerId = setInterval(() => {
-            if (typeof document !== 'undefined' && document.hidden) return;
-            this.pollRunOnce(targetId);
-          }, 1500);
-
           if (typeof document === 'undefined' || !document.hidden) {
             this.pollRunOnce(targetId);
+          } else {
+            this._scheduleNextPoll(targetId, 1500);
           }
         },
 
         async pollRunOnce(runId) {
           if (this._pollInFlight) return;
-          if (typeof document !== 'undefined' && document.hidden) return;
+          if (typeof document !== 'undefined' && document.hidden) {
+            if (this.isPollingRun && this._pollTargetRunId === runId) {
+              this._scheduleNextPoll(runId, 2000);
+            }
+            return;
+          }
           this._pollInFlight = true;
+          let shouldReschedule = false;
+          let nextDelayMs = (this.activeRun && this.activeRun.execution_mode === 'fleet') ? 3500 : 1500;
           try {
-            const { data } = await this.apiJson('/api/newborn/runs/' + encodeURIComponent(runId));
+            const { data } = await this.apiJson('/api/newborn/runs/' + encodeURIComponent(runId) + '?lite=1');
             this._pollConsecutiveFailures = 0;
+            this.pollReconnectingNotice = '';
             const run = data?.run;
-            if (!run) return;
-            this.activeRun = run;
-
-            if (run.telemetry && run.telemetry.idea_page && run.telemetry.idea_page.found) {
-              this.ideaPageInfo = run.telemetry.idea_page;
+            if (!run) {
+              shouldReschedule = true;
+              return;
             }
 
-            if (run.status !== 'running') {
+            const prev = this.activeRun && Number(this.activeRun.id) === Number(run.id) ? this.activeRun : {};
+            const mergedRun = {
+              ...prev,
+              ...run,
+              seed_queries: (Array.isArray(run.seed_queries) && run.seed_queries.length > 0)
+                ? run.seed_queries
+                : (prev.seed_queries || []),
+              telemetry: {
+                ...(prev.telemetry || {}),
+                ...(run.telemetry || {}),
+                funnel: {
+                  ...((prev.telemetry && prev.telemetry.funnel) || {}),
+                  ...((run.telemetry && run.telemetry.funnel) || {})
+                }
+              }
+            };
+            this.activeRun = mergedRun;
+            nextDelayMs = mergedRun.execution_mode === 'fleet' ? 3500 : 1500;
+
+            if (mergedRun.telemetry && mergedRun.telemetry.idea_page && mergedRun.telemetry.idea_page.found) {
+              this.ideaPageInfo = mergedRun.telemetry.idea_page;
+            }
+
+            if (!this.isRunActiveStatus(mergedRun.status)) {
               this.stopPollingRun();
               this.showRunCompleteBanner = true;
               await this.loadOverviewAndRuns();
 
-              if (run.run_type === 'watchlist_poll') {
+              if (mergedRun.run_type === 'watchlist_poll') {
                 await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
               } else {
-                this.activeRunId = Number(run.id);
+                this.activeRunId = Number(mergedRun.id);
                 await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
               }
 
-              if (run.status === 'failed') {
-                this.toast('Hunt #' + run.id + ' failed: ' + (run.error_message || 'Unknown error'), 'error');
+              const f = this.getRunFunnel(mergedRun);
+              if (mergedRun.status === 'failed') {
+                this.toast('Hunt #' + mergedRun.id + ' failed: ' + (mergedRun.error_message || 'Unknown error'), 'error');
+              } else if (mergedRun.status === 'cancelled') {
+                this.toast('Hunt #' + mergedRun.id + ' cancelled (' + f.verifiedWinners + ' winners saved)', 'info');
+              } else if (mergedRun.status === 'partial_rate_limited') {
+                this.toast('Hunt #' + mergedRun.id + ' paused on Pinterest rate limit — salvaged ' + f.verifiedWinners + ' Golden Pin winners', 'warning');
+              } else if (mergedRun.status === 'partial') {
+                this.toast('Hunt #' + mergedRun.id + ' partially completed: ' + f.verifiedWinners + ' Golden Pin winners', 'warning');
               } else {
-                const f = this.getRunFunnel(run);
-                this.toast('Hunt #' + run.id + ' complete: ' + f.verifiedWinners + ' Golden Pin winners', 'success');
+                this.toast('Hunt #' + mergedRun.id + ' complete: ' + f.verifiedWinners + ' Golden Pin winners', 'success');
               }
               this.refreshIcons();
+            } else {
+              shouldReschedule = true;
             }
           } catch (err) {
             this._pollConsecutiveFailures = (this._pollConsecutiveFailures || 0) + 1;
+            const backoffSchedule = [1500, 3000, 6000, 12000, 15000];
             if (this._pollConsecutiveFailures >= 5) {
               this.stopPollingRun();
               this.toast('Stopped polling Hunt #' + runId + ' after 5 consecutive errors: ' + (err?.message || 'Network error'), 'error');
+            } else {
+              this.pollReconnectingNotice = 'Reconnecting to live run (retry ' + this._pollConsecutiveFailures + '/5)...';
+              nextDelayMs = backoffSchedule[Math.min(backoffSchedule.length - 1, this._pollConsecutiveFailures - 1)];
+              shouldReschedule = true;
             }
           } finally {
             this._pollInFlight = false;
+            if (shouldReschedule && this.isPollingRun && this._pollTargetRunId === runId) {
+              this._scheduleNextPoll(runId, nextDelayMs);
+            }
           }
         },
 
@@ -1730,16 +1906,43 @@ export function getNewbornClientAppScript() {
           return 'Deep-Scroll Hunt';
         },
 
+        getRunStatusLabel(status) {
+          const map = {
+            queued: 'Queued',
+            running: 'Running',
+            completed: 'Completed',
+            partial: 'Partial',
+            partial_rate_limited: 'Salvaged (Rate Limit)',
+            cancelled: 'Cancelled',
+            failed: 'Failed'
+          };
+          return map[String(status || '').toLowerCase()] || String(status || 'unknown');
+        },
+
+        getRunStatusBadgeClass(status) {
+          const s = String(status || '').toLowerCase();
+          if (s === 'completed') return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300';
+          if (s === 'queued') return 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300';
+          if (s === 'running') return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300';
+          if (s === 'partial_rate_limited' || s === 'partial') return 'bg-amber-100/80 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300';
+          if (s === 'cancelled') return 'bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]';
+          return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300';
+        },
+
         getHumanProgressStep(stage) {
           const ageLabel = this.settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age';
           const map = {
             queued: 'Queued — preparing deep-scroll hunt...',
+            running: 'Running across active workers...',
             harvesting: '1. Deep-scrolling selected paths...',
             pretriage: '2. Filtering Re-pins via 50x Zero-Cookie Pidgets...',
             hydrating_pins: '3. Verifying ' + ageLabel + ' & Pin Annotations...',
             snowballing: '3. Scrolling Related Pins...',
             hydrating_creators: '3. Finalizing Golden Pin winners...',
             persisting: '3. Saving verified Golden Pin winners...',
+            partial_rate_limited: 'Paused on Pinterest rate limit — salvaged verified winners',
+            partial: 'Partially completed',
+            cancelled: 'Cancelled by operator',
             completed: 'Hunt complete',
             failed: 'Hunt failed'
           };
@@ -1748,7 +1951,7 @@ export function getNewbornClientAppScript() {
 
         getProgressStepIndex(stage) {
           const s = String(stage || '').toLowerCase();
-          if (s === 'hydrating_pins' || s === 'hydrating_creators' || s === 'persisting' || s === 'completed') return 3;
+          if (s === 'hydrating_pins' || s === 'hydrating_creators' || s === 'persisting' || s === 'completed' || s === 'partial_rate_limited' || s === 'partial') return 3;
           if (s === 'pretriage' || s === 'snowballing') return 2;
           return 1;
         },

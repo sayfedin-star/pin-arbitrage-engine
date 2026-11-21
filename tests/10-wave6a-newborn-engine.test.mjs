@@ -848,9 +848,9 @@ test('Wave 6A.2: All 8 surface harvesters, __PWS_INITIAL_PROPS__ SSR parser, Pid
         }
       }), { status: 200 });
     }
-    if (url.includes('BoardFeedResource/get') && decodeURIComponent(url).includes('more_ideas')) {
+    if (url.includes('BoardContentRecommendationResource/get') || (url.includes('BoardFeedResource/get') && decodeURIComponent(url).includes('more_ideas'))) {
       assert.ok(cookieHeader.includes('_auth=1'));
-      assert.ok(decodeURIComponent(url).includes('"add_vase":true'));
+      assert.ok(url.includes('BoardContentRecommendationResource/get'));
       return new Response(JSON.stringify({
         resource_response: {
           data: [{

@@ -238,6 +238,11 @@ export class PinterestCircuitBreaker {
     this.openedAt = null;
   }
 
+  getRemainingCooldownMs() {
+    if (this.state !== 'OPEN' || !this.openedAt) return 0;
+    return Math.max(0, this.resetTimeoutMs - (Date.now() - this.openedAt));
+  }
+
   getState() {
     return {
       state: this.state,
@@ -252,6 +257,11 @@ export class PinterestCircuitBreaker {
 }
 
 export const globalPinterestCircuitBreaker = new PinterestCircuitBreaker({
+  failureThreshold: 5,
+  resetTimeoutMs: 30000
+});
+
+export const globalPidgetsCircuitBreaker = new PinterestCircuitBreaker({
   failureThreshold: 5,
   resetTimeoutMs: 30000
 });

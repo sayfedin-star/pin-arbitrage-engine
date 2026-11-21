@@ -201,11 +201,18 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
  */
 export async function getNewbornIdeaPageIntelligence(term, { country = 'US', routerOptions = {}, env = null } = {}) {
   const cleanTerm = String(term || '').trim();
-  if (!cleanTerm || cleanTerm.length < 2) {
+  const isOversizedOrInvalid = Boolean(
+    cleanTerm.length > 120 ||
+    /https?:\/\//i.test(cleanTerm) ||
+    /[\r\n]/.test(cleanTerm) ||
+    cleanTerm.split(/\s+/).filter(Boolean).length > 12
+  );
+  if (!cleanTerm || cleanTerm.length < 2 || isOversizedOrInvalid) {
     return {
       ok: true,
       found: false,
-      term: cleanTerm,
+      ...(isOversizedOrInvalid ? { skipped_reason: 'query_too_long_or_not_keyword' } : {}),
+      term: cleanTerm.slice(0, 120),
       idea_url: null,
       internal_search_count: 0,
       formatted_volume: '0',

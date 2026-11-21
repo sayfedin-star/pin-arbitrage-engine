@@ -10,7 +10,7 @@
  */
 
 import { CircuitBreakerOpenError } from '../core/pinterest/client.mjs';
-import { dispatchGitHubWorkflow } from '../http/github-workflow.mjs';
+import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import {
   SURFACES_CATALOG,
   VALID_UPLOAD_PROVENANCE,
@@ -51,6 +51,8 @@ import {
   getNewbornKeywordClusterById,
   fetchNewbornCandidateAccounts,
   enqueueNewbornRun,
+  cancelNewbornRun,
+  createFleetBackedNewbornRun,
   promoteNewbornCandidates,
   promoteNewbornRookies
 } from '../modules/newborn/service.mjs';
@@ -110,7 +112,7 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
     }
   }
 
-  const maxHydrations = body?.max_pin_hydrations_per_run ?? body?.max_pin_hydrations ?? body?.hydration?.max_pin_hydrations_per_run;
+  const maxHydrations = f.max_pin_hydrations_per_run ?? body?.max_pin_hydrations_per_run ?? body?.max_pin_hydrations ?? body?.hydration?.max_pin_hydrations_per_run;
   if (maxHydrations !== undefined && maxHydrations !== null && maxHydrations !== '') {
     patch.discovery = {
       ...(patch.discovery || {}),
@@ -220,6 +222,71 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
   return explicit ? deepMergePlain(patch, explicit) : patch;
 }
 
+export function computeEstimatedPinBudget(body = {}, keywordsCount = 1) {
+  const kwCount = Math.max(1, Number(keywordsCount) || 1);
+  const p = (body?.paths && typeof body.paths === 'object') ? body.paths : null;
+  if (!p) {
+    // Default hunt budget (~500 Search + ~800 Boards + ~250 Idea Page per keyword)
+    return kwCount * 1550;
+  }
+  let perKeyword = 0;
+  if (p.search !== undefined) {
+    const sObj = typeof p.search === 'boolean' ? { enabled: p.search } : (p.search || {});
+    if (sObj.enabled !== false) {
+      perKeyword += Math.max(25, Math.min(10000, Number(sObj.target_pins ?? sObj.limit ?? 500) || 500));
+    }
+  }
+  if (p.boards !== undefined) {
+    const bObj = typeof p.boards === 'boolean' ? { enabled: p.boards } : (p.boards || {});
+    if (bObj.enabled !== false) {
+      const maxBoards = Math.max(1, Math.min(50, Number(bObj.max_boards ?? bObj.count ?? 10) || 10));
+      const pinsPerBoard = Math.max(25, Math.min(1000, Number(bObj.target_pins_per_board ?? bObj.pins_per_board ?? 100) || 100));
+      perKeyword += maxBoards * pinsPerBoard;
+    }
+  }
+  if (p.idea_page !== undefined) {
+    const iObj = typeof p.idea_page === 'boolean' ? { enabled: p.idea_page } : (p.idea_page || {});
+    if (iObj.enabled !== false) {
+      perKeyword += Math.max(25, Math.min(5000, Number(iObj.target_pins ?? iObj.limit ?? 250) || 250));
+    }
+  }
+  let homeFeedPins = 0;
+  if (p.home_feed !== undefined) {
+    const hObj = typeof p.home_feed === 'boolean' ? { enabled: p.home_feed } : (p.home_feed || {});
+    if (hObj.enabled === true) {
+      homeFeedPins = Math.max(25, Math.min(5000, Number(hObj.target_pins ?? hObj.limit ?? 250) || 250));
+    }
+  }
+  return (perKeyword * kwCount) + homeFeedPins;
+}
+
+export function resolveExecutionMode({ requestedMode = 'auto', keywordsCount = 0, estimatedPins = 0, env = null } = {}) {
+  const raw = String(requestedMode || 'auto').trim().toLowerCase();
+  const ghAuth = resolveGitHubAuth(env, { allowPat: true });
+  const hasGitHubToken = Boolean(ghAuth?.token);
+
+  if (raw === 'direct') {
+    return { mode: 'direct', hasGitHubToken };
+  }
+  if (raw === 'fleet') {
+    if (!hasGitHubToken) {
+      return {
+        mode: 'fleet',
+        hasGitHubToken: false,
+        error: 'GITHUB_TOKEN_MISSING',
+        status: 400,
+        message: 'Fleet execution mode requires GITHUB_TOKEN or GITHUB_PAT to be configured on the server.'
+      };
+    }
+    return { mode: 'fleet', hasGitHubToken: true };
+  }
+  // Default 'auto': route to 20-Runner Fleet when GitHub token is configured AND multi-keyword (>3) or heavy (>3000 pins)
+  if (hasGitHubToken && (keywordsCount > 3 || estimatedPins > 3000)) {
+    return { mode: 'fleet', hasGitHubToken: true, autoRouted: true };
+  }
+  return { mode: 'direct', hasGitHubToken, autoRouted: true };
+}
+
 /**
  * Fast URI discriminator for `/api/newborn/*` routes.
  */
@@ -231,6 +298,7 @@ export async function handleNewbornRoutes({
   pathname,
   method,
   request,
+  reply,
   searchParams,
   env,
   ctx,
@@ -241,9 +309,26 @@ export async function handleNewbornRoutes({
   buildCanonicalCacheKey,
   getCachedOrFetch,
   invalidateEdgeCache,
+  checkPinterestCircuitBreaker,
   tripPinterestCircuitBreaker,
   redactSecrets
 }) {
+  const checkDirectModeCircuitBreaker = async () => {
+    if (typeof checkPinterestCircuitBreaker !== 'function') return null;
+    const cb = await checkPinterestCircuitBreaker(env);
+    if (!cb?.active) return null;
+    if (reply && typeof reply.header === 'function') {
+      reply.header('Retry-After', String(cb.remaining_seconds));
+      reply.header('X-Circuit-Breaker', 'OPEN');
+    }
+    return jsonResponse({
+      success: false,
+      error: 'PINTEREST_RATE_LIMITED',
+      message: `Pinterest rate-limit circuit breaker is active. Operations cooling down for ${cb.remaining_seconds}s.`,
+      retry_after: cb.remaining_seconds,
+      reason: cb.reason
+    }, 429, -1);
+  };
   // 1. /api/newborn/settings (GET, PUT, PATCH) — strictly no-store
   if (pathname === '/api/newborn/settings') {
     if (method === 'GET') {
@@ -445,7 +530,31 @@ export async function handleNewbornRoutes({
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('keyword') || '';
+    const q = String(searchParams.get('q') || searchParams.get('term') || searchParams.get('keyword') || '').trim();
+    const isOversizedOrInvalid = Boolean(
+      q.length > 120 ||
+      /https?:\/\//i.test(q) ||
+      /[\r\n]/.test(q) ||
+      q.split(/\s+/).filter(Boolean).length > 12
+    );
+    if (isOversizedOrInvalid) {
+      return jsonResponse({
+        success: true,
+        ok: true,
+        found: false,
+        skipped_reason: 'query_too_long_or_not_keyword',
+        term: q.slice(0, 120),
+        idea_url: null,
+        internal_search_count: 0,
+        formatted_volume: '0',
+        weekly_change: null,
+        monthly_change: null,
+        yearly_change: null,
+        seo_breadcrumbs: [],
+        related_interests: [],
+        ideas_pivots: []
+      }, 200, -1);
+    }
     const country = searchParams.get('country') || 'US';
     const result = await getNewbornIdeaPageIntelligence(q, {
       country,
@@ -607,7 +716,32 @@ export async function handleNewbornRoutes({
     return jsonResponse({ success: true, runs }, 200, -1);
   }
 
-  // 8B. /api/newborn/runs/:id (GET) — live 1.5s progress polling, strictly no-store
+  // 8B0. /api/newborn/runs/:id/cancel (POST) — cooperative cancellation for Direct & Fleet runs
+  const runCancelMatch = pathname.match(/^\/api\/newborn\/runs\/([^/]+)\/cancel$/);
+  if (runCancelMatch) {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    const rawRunId = decodeURIComponent(runCancelMatch[1]).trim();
+    if (!/^\d+$/.test(rawRunId)) {
+      return jsonResponse({
+        success: false,
+        error: 'BAD_REQUEST',
+        message: `Invalid run ID "${rawRunId}". Expected a positive integer.`
+      }, 400, -1);
+    }
+    const cancelRes = await cancelNewbornRun(sql, Number(rawRunId), { env });
+    if (!cancelRes.ok) {
+      return jsonResponse({
+        success: false,
+        error: cancelRes.error || 'NOT_FOUND',
+        message: cancelRes.message || `Newborn run #${rawRunId} not found.`
+      }, cancelRes.status || 404, -1);
+    }
+    return jsonResponse({ success: true, ...cancelRes }, 200, -1);
+  }
+
+  // 8B. /api/newborn/runs/:id (GET) — live progress polling (supports ?lite=1 sub-2ms cache hit), strictly no-store
   const runDetailMatch = pathname.match(/^\/api\/newborn\/runs\/([^/]+)$/);
   if (runDetailMatch) {
     if (method !== 'GET') {
@@ -621,7 +755,8 @@ export async function handleNewbornRoutes({
         message: `Invalid run ID "${rawRunId}". Expected a positive integer.`
       }, 400, -1);
     }
-    const run = await getNewbornRunById(sql, Number(rawRunId));
+    const lite = searchParams.get('lite') === '1' || searchParams.get('lite') === 'true';
+    const run = await getNewbornRunById(sql, Number(rawRunId), { lite });
     if (!run) {
       return jsonResponse({
         success: false,
@@ -674,6 +809,8 @@ export async function handleNewbornRoutes({
         mode: String(body?.mode || 'auto_cycle'),
         profile: String(body?.profile || ''),
         query: String(body?.query || ''),
+        run_id: body?.run_id != null && body.run_id !== '' ? String(body.run_id) : '',
+        cluster_id: body?.cluster_id != null && body.cluster_id !== '' ? String(body.cluster_id) : '',
         shards: String(body?.shards || '4'),
         force: body?.force === false ? 'false' : 'true'
       }
@@ -779,19 +916,38 @@ export async function handleNewbornRoutes({
         const rawSelected = Array.isArray(body?.keywords)
           ? body.keywords
           : (Array.isArray(body?.seed_queries) ? body.seed_queries : []);
-        const selectedKeywords = Array.from(new Set(
+        const dedupedKeywords = Array.from(new Set(
           rawSelected
             .map((k) => String(typeof k === 'string' ? k : (k?.keyword || k?.term || '')).trim().toLowerCase())
             .filter(Boolean)
-        )).slice(0, 25);
+        ));
 
-        if (selectedKeywords.length === 0) {
+        if (dedupedKeywords.length === 0) {
           return jsonResponse({
             success: false,
             error: 'BAD_REQUEST',
-            message: 'Select at least 1 keyword (up to 25) to launch a Cluster Newborn Hunt.'
+            message: 'Select at least 1 keyword (up to 100 in Fleet mode, 25 in Direct mode) to launch a Cluster Newborn Hunt.'
           }, 400, -1);
         }
+
+        const estimatedPins = computeEstimatedPinBudget(body, dedupedKeywords.length);
+        const modeDecision = resolveExecutionMode({
+          requestedMode: body?.execution_mode ?? body?.executionMode ?? 'auto',
+          keywordsCount: dedupedKeywords.length,
+          estimatedPins,
+          env
+        });
+
+        if (modeDecision.error) {
+          return jsonResponse({
+            success: false,
+            error: modeDecision.error,
+            message: modeDecision.message
+          }, modeDecision.status || 400, -1);
+        }
+
+        const keywordCap = modeDecision.mode === 'fleet' ? 100 : 25;
+        const selectedKeywords = dedupedKeywords.slice(0, keywordCap);
 
         const baseOverrides = buildHuntOverridesFromBody(body, { isSnowball: false }) || {};
         const clusterOverrides = deepMergePlain(baseOverrides, {
@@ -799,6 +955,40 @@ export async function handleNewbornRoutes({
             max_queries_per_run: Math.max(selectedKeywords.length, 25)
           }
         });
+
+        if (modeDecision.mode === 'fleet') {
+          const requestedShards = body?.shards != null && Number(body.shards) > 0
+            ? Number(body.shards)
+            : Math.min(20, Math.max(2, Math.ceil(selectedKeywords.length / 2)));
+          const fleetRes = await createFleetBackedNewbornRun(sql, {
+            runType: 'discovery',
+            seedQueries: selectedKeywords,
+            selectedKeywords,
+            profileId: body?.profile_id ?? body?.profile ?? null,
+            folderId: body?.folder_id ?? null,
+            clusterId,
+            settingsOverrides: clusterOverrides,
+            shards: requestedShards,
+            env
+          });
+          if (!fleetRes.ok) {
+            return jsonResponse({
+              success: false,
+              error: fleetRes.error || 'DISPATCH_FAILED',
+              message: fleetRes.message || 'Failed to dispatch Fleet Cluster Hunt.'
+            }, fleetRes.status || 502, -1);
+          }
+          return jsonResponse({
+            success: true,
+            cluster_id: clusterId,
+            selected_keywords_count: selectedKeywords.length,
+            estimated_pins: estimatedPins,
+            ...fleetRes
+          }, 202, -1);
+        }
+
+        const cbBlocked = await checkDirectModeCircuitBreaker();
+        if (cbBlocked) return cbBlocked;
 
         const queued = await enqueueNewbornRun(sql, {
           runType: 'discovery',
@@ -815,6 +1005,7 @@ export async function handleNewbornRoutes({
           success: true,
           cluster_id: clusterId,
           selected_keywords_count: selectedKeywords.length,
+          estimated_pins: estimatedPins,
           ...queued
         }, 202, -1);
       }
@@ -859,6 +1050,55 @@ export async function handleNewbornRoutes({
         }
 
         const mergedOverrides = buildHuntOverridesFromBody(body, { isSnowball: false });
+        const estimatedPins = computeEstimatedPinBudget(body, Math.max(1, parsedQueries.length));
+        const modeDecision = resolveExecutionMode({
+          requestedMode: body?.execution_mode ?? body?.executionMode ?? 'auto',
+          keywordsCount: parsedQueries.length,
+          estimatedPins,
+          env
+        });
+
+        if (modeDecision.error) {
+          return jsonResponse({
+            success: false,
+            error: modeDecision.error,
+            message: modeDecision.message
+          }, modeDecision.status || 400, -1);
+        }
+
+        if (modeDecision.mode === 'fleet') {
+          const selectedKeywords = Array.from(new Set(parsedQueries)).slice(0, 100);
+          const seedCount = Math.max(1, selectedKeywords.length || parsedBoards.length || 1);
+          const requestedShards = body?.shards != null && Number(body.shards) > 0
+            ? Number(body.shards)
+            : Math.min(20, Math.max(1, Math.min(4, seedCount)));
+          const fleetOverrides = selectedKeywords.length > 25
+            ? deepMergePlain(mergedOverrides || {}, { discovery: { max_queries_per_run: selectedKeywords.length } })
+            : mergedOverrides;
+          const fleetRes = await createFleetBackedNewbornRun(sql, {
+            runType: 'discovery',
+            seedQueries: selectedKeywords,
+            seedBoards: parsedBoards,
+            seedPinIds: parsedPinIds,
+            selectedKeywords,
+            profileId: body?.profile_id ?? body?.profile ?? null,
+            folderId: body?.folder_id ?? null,
+            settingsOverrides: fleetOverrides,
+            shards: requestedShards,
+            env
+          });
+          if (!fleetRes.ok) {
+            return jsonResponse({
+              success: false,
+              error: fleetRes.error || 'DISPATCH_FAILED',
+              message: fleetRes.message || 'Failed to dispatch Fleet Discovery Hunt.'
+            }, fleetRes.status || 502, -1);
+          }
+          return jsonResponse({ success: true, estimated_pins: estimatedPins, ...fleetRes }, 202, -1);
+        }
+
+        const cbBlocked = await checkDirectModeCircuitBreaker();
+        if (cbBlocked) return cbBlocked;
 
         const queued = await enqueueNewbornRun(sql, {
           runType: 'discovery',
@@ -872,7 +1112,7 @@ export async function handleNewbornRoutes({
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...queued }, 202, -1);
+        return jsonResponse({ success: true, estimated_pins: estimatedPins, ...queued }, 202, -1);
       }
 
       if (pathname === '/api/newborn/snowball') {

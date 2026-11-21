@@ -125,6 +125,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     workerTotal = 1,
     nowMs = Date.now(),
     autoPromote = null,
+    signal = null,
     env = null,
     ctx = null
   } = options;
@@ -213,8 +214,8 @@ export async function pollNewbornWatchlist(sql, options = {}) {
       : [];
 
     const pinIds = (watchlistPins || []).map((p) => String(p.pin_id));
-    const pidgetsMap = pinIds.length > 0
-      ? await pretriageCandidatesWithPidgets(pinIds, router)
+    const pidgetsMap = pinIds.length > 0 && !signal?.aborted
+      ? await pretriageCandidatesWithPidgets(pinIds, router, { signal })
       : new Map();
 
     await updateRunProgress('hydrating_pins', `Refreshing ${pinIds.length} watchlisted pin${pinIds.length === 1 ? '' : 's'} on Pinterest...`, 40);
@@ -223,6 +224,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     const rootPinCache = new Map();
     const refreshedCandidates = await Promise.all(
       (watchlistPins || []).map((row) => pinSem.run(async () => {
+        if (signal?.aborted) return null;
         let merged = { ...row };
         const pInfo = pidgetsMap.get(String(row.pin_id));
         if (pInfo) {
@@ -232,7 +234,8 @@ export async function pollNewbornWatchlist(sql, options = {}) {
         const hyd = await hydratePinZeroCookie(String(row.pin_id), router, {
           rootPinCache,
           nowMs,
-          resolveRootPin: Boolean(settings.qualification?.resolve_root_pin === true)
+          resolveRootPin: Boolean(settings.qualification?.resolve_root_pin === true),
+          signal
         });
         if (hyd.ok && hyd.pin) {
           merged = mergeCandidatePinRecords(merged, hyd.pin);
@@ -243,15 +246,16 @@ export async function pollNewbornWatchlist(sql, options = {}) {
         return scored;
       }))
     );
+    const validRefreshedCandidates = refreshedCandidates.filter(Boolean);
 
-    const watchlistPeerAnnCounts = buildPeerAnnotationCounts(refreshedCandidates);
-    for (const scored of refreshedCandidates) {
+    const watchlistPeerAnnCounts = buildPeerAnnotationCounts(validRefreshedCandidates);
+    for (const scored of validRefreshedCandidates) {
       scored.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(scored, watchlistPeerAnnCounts);
     }
 
     let persistedPins = [];
-    if (refreshedCandidates.length > 0) {
-      const upRes = await upsertStagedCandidatesBatch(sql, refreshedCandidates, {
+    if (validRefreshedCandidates.length > 0) {
+      const upRes = await upsertStagedCandidatesBatch(sql, validRefreshedCandidates, {
         profileId: profile?.id ?? null,
         runId: runRowId,
         folderId: numericFolderId,
@@ -278,7 +282,8 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     const userSem = new Semaphore(4);
     const refreshedRookiesRaw = await Promise.all(
       (watchlistRookies || []).map((rkRow) => userSem.run(async () => {
-        const uRes = await hydrateUserZeroCookie(rkRow.username, router);
+        if (signal?.aborted) return null;
+        const uRes = await hydrateUserZeroCookie(rkRow.username, router, { signal });
         if (uRes.ok && uRes.user) {
           const assocPins = persistedPinsByUser.get(rkRow.username) || [];
           const scoredRk = scoreRookieCreator(uRes.user, assocPins, settings);
@@ -378,18 +383,32 @@ export async function pollNewbornWatchlist(sql, options = {}) {
       rookies: persistedRookies
     };
   } catch (err) {
+    const isCancelled = Boolean(signal?.aborted) || err?.name === 'AbortError' || err?.code === 'ABORT_ERR';
     const safeErrMsg = redactSecrets(err?.message || 'Watchlist poll failed').slice(0, 1000);
     if (runRowId !== null) {
-      await sql`
-        UPDATE newborn_runs
-        SET
-          status = 'failed',
-          progress_stage = 'failed',
-          progress_detail = ${safeErrMsg},
-          error_message = ${safeErrMsg},
-          completed_at = NOW()
-        WHERE id = ${runRowId};
-      `.catch(() => {});
+      if (isCancelled) {
+        await sql`
+          UPDATE newborn_runs
+          SET
+            status = 'cancelled',
+            progress_stage = 'cancelled',
+            progress_detail = 'Watchlist poll cancelled by operator.',
+            error_message = NULL,
+            completed_at = NOW()
+          WHERE id = ${runRowId};
+        `.catch(() => {});
+      } else {
+        await sql`
+          UPDATE newborn_runs
+          SET
+            status = 'failed',
+            progress_stage = 'failed',
+            progress_detail = ${safeErrMsg},
+            error_message = ${safeErrMsg},
+            completed_at = NOW()
+          WHERE id = ${runRowId};
+        `.catch(() => {});
+      }
     }
     throw err;
   }
@@ -410,6 +429,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     folderId = null,
     existingRunId = null,
     routerOptions = {},
+    signal = null,
     env = null,
     ctx = null
   } = options;
@@ -452,12 +472,13 @@ export async function runNewbornAutoCycle(sql, options = {}) {
   const runDisc = Boolean(force || forceDiscovery || schedule.discovery_due);
   const runWatch = Boolean(force || forceWatchlist || schedule.watchlist_poll_due);
 
-  if (runWatch) {
+  if (runWatch && !signal?.aborted) {
     results.watchlist_poll = await pollNewbornWatchlist(sql, {
       profileId,
       folderId,
       existingRunId: !runDisc ? numericRunId : null,
       routerOptions,
+      signal,
       nowMs,
       env,
       ctx
@@ -465,7 +486,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     results.executed = true;
   }
 
-  if (runDisc) {
+  if (runDisc && !signal?.aborted) {
     results.discovery = await runNewbornDiscovery(sql, {
       seedQueries,
       profileId,
@@ -473,6 +494,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
       existingRunId: numericRunId,
       routerOptions,
       runType: 'auto_cycle',
+      signal,
       nowMs,
       env,
       ctx

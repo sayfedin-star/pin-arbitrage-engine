@@ -44,8 +44,11 @@ export {
   newbornBackgroundQueue,
   clearNewbornInflightRunsForTest,
   buildNewbornDedupeKey,
+  getInMemoryRunProgress,
   getNewbornRunById,
-  enqueueNewbornRun
+  enqueueNewbornRun,
+  cancelNewbornRun,
+  createFleetBackedNewbornRun
 } from './run-queue.mjs';
 
 export {

@@ -24,7 +24,7 @@ import {
 export async function harvestPinSerpWithCapsulesSurface(
   router,
   query,
-  { maxPages = 10, pageSize = 50, targetPins = null, onPageProgress = null } = {}
+  { maxPages = 10, pageSize = 50, targetPins = null, onPageProgress = null, signal = null } = {}
 ) {
   const cleanQuery = String(query || '').trim();
   if (!cleanQuery) {
@@ -49,6 +49,7 @@ export async function harvestPinSerpWithCapsulesSurface(
   let consecutiveEmptyPages = 0;
 
   for (let page = 1; page <= maxP; page++) {
+    if (signal?.aborted) break;
     if (pinTarget !== null && pinsMap.size >= pinTarget) break;
 
     const opts = {
@@ -62,7 +63,8 @@ export async function harvestPinSerpWithCapsulesSurface(
     const res = await router.requestJson(url, {
       endpointKey: 'search_pins',
       sourceUrl,
-      handler: 'www/search/pins.js'
+      handler: 'www/search/pins.js',
+      signal
     });
 
     if (!res.ok || !res.data) break;
@@ -126,12 +128,13 @@ export async function harvestPinSerpWithCapsulesSurface(
   }
 
   // Zero-cookie SSR __PWS_INITIAL_PROPS__ fallback if guest XHR returned only encrypted `e1_` IDs
-  if (pinsMap.size === 0) {
+  if (pinsMap.size === 0 && !signal?.aborted) {
     const ssrUrl = `https://www.pinterest.com/search/pins/?q=${encodedQ}`;
     const ssrRes = await router.requestJson(ssrUrl, {
       endpointKey: 'ssr_page_zero_cookie',
       isDocumentHtml: true,
-      referer: 'https://www.pinterest.com/'
+      referer: 'https://www.pinterest.com/',
+      signal
     });
     if (ssrRes.ok && typeof ssrRes.data === 'string') {
       const props = extractPwsInitialProps(ssrRes.data);
@@ -167,7 +170,7 @@ export async function harvestPinSerpWithCapsulesSurface(
 export async function harvestFreshBoardsSurface(
   router,
   query,
-  { maxPages = 2, maxBoards = null, maxBoardAgeDays = 90, nowMs = Date.now() } = {}
+  { maxPages = 2, maxBoards = null, maxBoardAgeDays = 90, nowMs = Date.now(), signal = null } = {}
 ) {
   const cleanQuery = String(query || '').trim();
   if (!cleanQuery) {
@@ -190,6 +193,7 @@ export async function harvestFreshBoardsSurface(
   let pagesFetched = 0;
 
   for (let page = 1; page <= maxP; page++) {
+    if (signal?.aborted) break;
     const opts = {
       query: cleanQuery,
       scope: 'boards',
@@ -201,7 +205,8 @@ export async function harvestFreshBoardsSurface(
     const res = await router.requestJson(url, {
       endpointKey: 'search_boards',
       sourceUrl,
-      handler: 'www/search/boards.js'
+      handler: 'www/search/boards.js',
+      signal
     });
 
     if (!res.ok || !res.data) break;
@@ -285,7 +290,7 @@ export async function harvestFreshBoardsSurface(
 export async function harvestBoardFeedSurface(
   router,
   board = {},
-  { maxPages = 2, pageSize = 100, targetPins = null } = {}
+  { maxPages = 2, pageSize = 100, targetPins = null, signal = null } = {}
 ) {
   const boardId = String(board.board_id || board.id || '').trim();
   const parsedPath = parseBoardPath(board.url || board.clean_path || '', board.owner_username || '');
@@ -303,6 +308,7 @@ export async function harvestBoardFeedSurface(
     let bookmark = null;
     let lastBookmark = null;
     for (let page = 1; page <= maxP; page++) {
+      if (signal?.aborted) break;
       if (pinTarget !== null && pinsMap.size >= pinTarget) break;
       const opts = {
         board_id: boardId,
@@ -318,7 +324,8 @@ export async function harvestBoardFeedSurface(
       const res = await router.requestJson(url, {
         endpointKey: 'board_feed',
         sourceUrl: parsedPath.clean_path,
-        handler: 'www/[username]/[slug].js'
+        handler: 'www/[username]/[slug].js',
+        signal
       });
 
       if (!res.ok || !res.data) break;
@@ -351,11 +358,12 @@ export async function harvestBoardFeedSurface(
   }
 
   // Zero-cookie Pidgets board feed fallback (returns up to 50 clean board pins with pinner.profile_url)
-  if (pinsMap.size === 0 && parsedPath.owner_username && parsedPath.board_slug) {
+  if (pinsMap.size === 0 && !signal?.aborted && parsedPath.owner_username && parsedPath.board_slug) {
     const pidgetsBoardUrl = `https://widgets.pinterest.com/v3/pidgets/boards/${encodeURIComponent(parsedPath.owner_username)}/${encodeURIComponent(parsedPath.board_slug)}/pins/`;
     const pidRes = await router.requestJson(pidgetsBoardUrl, {
       endpointKey: 'pidgets',
-      referer: 'https://www.pinterest.com/'
+      referer: 'https://www.pinterest.com/',
+      signal
     });
 
     if (pidRes.ok && pidRes.data) {
@@ -391,13 +399,14 @@ export async function harvestBoardFeedSurface(
 }
 
 /**
- * SURFACE 6: Board "Find more ideas" (`BoardFeedResource/get` via `/<user>/<slug>/more_ideas/` with `add_vase: true`).
+ * SURFACE 6: Board "Find more ideas" (`BoardContentRecommendationResource/get` via `/<user>/<slug>/more_ideas/`).
  * Requires `_auth=1`; gracefully skips on missing/expired cookie without tripping circuit breaker.
+ * Falls back once on page 1 to legacy `BoardFeedResource/get` (`add_vase: true`) if non-auth 404/400 or empty payload.
  */
 export async function harvestBoardMoreIdeasSurface(
   router,
   board = {},
-  { maxPages = 4, pageSize = 25, targetPins = null } = {}
+  { maxPages = 4, pageSize = 25, targetPins = null, signal = null } = {}
 ) {
   const boardId = String(board.board_id || board.id || '').trim();
   const parsedPath = parseBoardPath(board.url || board.clean_path || '', board.owner_username || '');
@@ -418,35 +427,19 @@ export async function harvestBoardMoreIdeasSurface(
   let lastBookmark = null;
   let pagesFetched = 0;
   let skippedAuthOnly = false;
+  let useLegacyFallback = false;
 
-  for (let page = 1; page <= maxP; page++) {
-    if (pinTarget !== null && pinsMap.size >= pinTarget) break;
-    const opts = {
-      board_id: boardId,
-      board_url: parsedPath.clean_path,
-      current_page: 'board_more_ideas',
-      add_vase: true,
-      field_set_key: 'grid_item',
-      page_size: pSize,
-      ...(bookmark ? { bookmarks: [bookmark] } : {})
-    };
-    const url = `https://www.pinterest.com/resource/BoardFeedResource/get/?source_url=${encodeURIComponent(moreIdeasSourceUrl)}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}`;
-
-    const res = await router.requestJson(url, {
-      endpointKey: 'board_more_ideas',
-      sourceUrl: moreIdeasSourceUrl,
-      handler: 'www/[username]/[slug]/more_ideas.js'
-    });
-
-    if (res.skippedAuthOnly || res.authRequiredFallback) {
-      skippedAuthOnly = true;
-      break;
+  const extractMoreIdeasList = (data) => {
+    const rr = data?.resource_response?.data ?? data?.data ?? [];
+    if (Array.isArray(rr)) return rr;
+    if (rr && typeof rr === 'object') {
+      return rr.results || rr.items || rr.pins || rr.recommendations || [];
     }
-    if (!res.ok || !res.data) break;
-    pagesFetched++;
+    return [];
+  };
 
-    const rr = res.data?.resource_response?.data || res.data?.data || [];
-    const list = Array.isArray(rr) ? rr : (rr.items || rr.pins || rr.results || []);
+  const ingestList = (list) => {
+    let added = 0;
     for (const raw of list) {
       if (pinTarget !== null && pinsMap.size >= pinTarget) break;
       const norm = normalizeSurfaceCandidatePin(raw, {
@@ -461,8 +454,82 @@ export async function harvestBoardMoreIdeasSurface(
       });
       if (norm) {
         pinsMap.set(norm.pin_id, mergeCandidatePinRecords(pinsMap.get(norm.pin_id), norm));
+        added++;
       }
     }
+    return added;
+  };
+
+  const buildPrimaryUrl = (bm) => {
+    const opts = {
+      id: boardId,
+      board_id: boardId,
+      type: 'board',
+      page_size: pSize,
+      ...(bm ? { bookmarks: [bm] } : {})
+    };
+    return `https://www.pinterest.com/resource/BoardContentRecommendationResource/get/?source_url=${encodeURIComponent(moreIdeasSourceUrl)}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}`;
+  };
+
+  const buildLegacyUrl = (bm) => {
+    const opts = {
+      board_id: boardId,
+      board_url: parsedPath.clean_path,
+      current_page: 'board_more_ideas',
+      add_vase: true,
+      field_set_key: 'grid_item',
+      page_size: pSize,
+      ...(bm ? { bookmarks: [bm] } : {})
+    };
+    return `https://www.pinterest.com/resource/BoardFeedResource/get/?source_url=${encodeURIComponent(moreIdeasSourceUrl)}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}`;
+  };
+
+  for (let page = 1; page <= maxP; page++) {
+    if (signal?.aborted) break;
+    if (pinTarget !== null && pinsMap.size >= pinTarget) break;
+
+    const url = useLegacyFallback ? buildLegacyUrl(bookmark) : buildPrimaryUrl(bookmark);
+
+    let res = await router.requestJson(url, {
+      endpointKey: 'board_more_ideas',
+      sourceUrl: moreIdeasSourceUrl,
+      handler: 'www/[username]/[slug]/more_ideas.js',
+      signal
+    });
+
+    if (res.skippedAuthOnly || res.authRequiredFallback) {
+      skippedAuthOnly = true;
+      break;
+    }
+
+    let list = res.ok && res.data ? extractMoreIdeasList(res.data) : [];
+
+    // If page 1 on BoardContentRecommendationResource returns a non-auth 404/400 or empty payload,
+    // fall back once to legacy BoardFeedResource/get (`add_vase: true`).
+    if (
+      page === 1 &&
+      !useLegacyFallback &&
+      !signal?.aborted &&
+      ((!res.ok && (res.status === 404 || res.status === 400)) || (res.ok && list.length === 0))
+    ) {
+      useLegacyFallback = true;
+      res = await router.requestJson(buildLegacyUrl(null), {
+        endpointKey: 'board_more_ideas',
+        sourceUrl: moreIdeasSourceUrl,
+        handler: 'www/[username]/[slug]/more_ideas.js',
+        signal
+      });
+      if (res.skippedAuthOnly || res.authRequiredFallback) {
+        skippedAuthOnly = true;
+        break;
+      }
+      list = res.ok && res.data ? extractMoreIdeasList(res.data) : [];
+    }
+
+    if (!res.ok || !res.data) break;
+    pagesFetched++;
+
+    ingestList(list);
 
     if (pinTarget !== null && pinsMap.size >= pinTarget) break;
     bookmark = extractBookmark(res.data);
@@ -475,6 +542,7 @@ export async function harvestBoardMoreIdeasSurface(
     surface: 'board_more_ideas',
     pins: Array.from(pinsMap.values()),
     skipped_auth_only: skippedAuthOnly,
+    used_legacy_fallback: useLegacyFallback,
     pages_fetched: pagesFetched
   };
 }
@@ -487,7 +555,7 @@ export async function harvestBoardMoreIdeasSurface(
 export async function harvestIdeasHubSurface(
   router,
   termOrInterest,
-  { maxPages = 5, pageSize = 50, targetPins = null, preResolvedInterest = null, onPageProgress = null } = {}
+  { maxPages = 5, pageSize = 50, targetPins = null, preResolvedInterest = null, onPageProgress = null, signal = null } = {}
 ) {
   const rawInput = typeof termOrInterest === 'string'
     ? termOrInterest
@@ -522,7 +590,8 @@ export async function harvestIdeasHubSurface(
     const interestRes = await router.requestJson(interestUrl, {
       endpointKey: 'interest_resource',
       sourceUrl: `/ideas/${slug}/`,
-      handler: 'www/ideas/[interest_url_name]/[interest_id].js'
+      handler: 'www/ideas/[interest_url_name]/[interest_id].js',
+      signal
     });
 
     interestData = interestRes.data?.resource_response?.data || interestRes.data?.data || null;
@@ -564,6 +633,7 @@ export async function harvestIdeasHubSurface(
   // Step 2: Deep pagination via BestPinsFeedAltResource/get when auth session is available
   if (router.canUseAuthSession) {
     for (let page = 1; page <= maxP; page++) {
+      if (signal?.aborted) break;
       if (pinTarget !== null && pinsMap.size >= pinTarget) break;
       const opts = {
         interest_id: interestId,
@@ -578,7 +648,8 @@ export async function harvestIdeasHubSurface(
       const feedRes = await router.requestJson(feedUrl, {
         endpointKey: 'best_pins_ideas',
         sourceUrl: ideasSourceUrl,
-        handler: 'www/ideas/[interest_url_name]/[interest_id].js'
+        handler: 'www/ideas/[interest_url_name]/[interest_id].js',
+        signal
       });
 
       if (!feedRes.ok || !feedRes.data) break;
@@ -609,11 +680,12 @@ export async function harvestIdeasHubSurface(
   }
 
   // Step 3: Zero-cookie SSR <script id="__PWS_INITIAL_PROPS__"> fallback
-  if (pinsMap.size === 0) {
+  if (pinsMap.size === 0 && !signal?.aborted) {
     const htmlRes = await router.requestJson(`https://www.pinterest.com${ideasSourceUrl}`, {
       endpointKey: 'ssr_page_zero_cookie',
       isDocumentHtml: true,
-      referer: 'https://www.pinterest.com/'
+      referer: 'https://www.pinterest.com/',
+      signal
     });
 
     if (htmlRes.ok && typeof htmlRes.data === 'string') {

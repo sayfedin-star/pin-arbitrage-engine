@@ -254,8 +254,40 @@ export function getNewbornHeaderAndLaunchpadHtml() {
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">Extraction Paths &amp; Deep-Scroll Targets</span>
           <div class="flex items-center gap-3 flex-wrap text-[11px] font-mono tabular-nums">
-            <span :class="estimateScrollBudget() > 5000 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-[#A1A1AA]'"
-                  x-text="'Est. scroll budget: ' + formatNullableCount(estimateScrollBudget()) + ' pins'"></span>
+            <div class="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] p-0.5 font-sans" role="group" aria-label="Execution mode">
+              <button type="button"
+                      @click="setExecutionMode('auto')"
+                      class="px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                      :class="executionMode === 'auto' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white'">
+                Auto
+              </button>
+              <button type="button"
+                      @click="setExecutionMode('direct')"
+                      class="px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                      :class="executionMode === 'direct' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white'">
+                Direct
+              </button>
+              <button type="button"
+                      @click="setExecutionMode('fleet')"
+                      class="px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                      :class="executionMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white'">
+                Fleet (20 Runners)
+              </button>
+            </div>
+            <template x-if="executionMode === 'fleet'">
+              <label class="inline-flex items-center gap-1 text-slate-500 dark:text-[#A1A1AA]" title="Parallel GitHub Actions Fleet shards (1 to 20)">
+                <span class="font-sans text-[11px]">Shards:</span>
+                <input type="number"
+                       min="1"
+                       max="20"
+                       step="1"
+                       x-model.number="fleetShards"
+                       aria-label="Fleet shard count"
+                       class="w-12 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </label>
+            </template>
+            <span :class="estimateScrollBudget() > 3000 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-[#A1A1AA]'"
+                  x-text="'Est. scroll budget: ' + formatNullableCount(estimateScrollBudget()) + ' pins' + (executionMode === 'auto' && estimateScrollBudget() > 3000 ? ' (Auto -> Fleet)' : '')"></span>
             <label class="inline-flex items-center gap-1.5 text-slate-500 dark:text-[#A1A1AA]" title="Max PinResource/get hydrations per hunt (5 to 5,000)">
               <span class="font-sans text-[11px]">Hydration cap:</span>
               <input type="number"
@@ -486,35 +518,51 @@ export function getNewbornHeaderAndLaunchpadHtml() {
     </section>
 
     <!-- Instant HTTP 202 Live Funnel Progress Strip -->
-    <template x-if="activeRun && (activeRun.status === 'running' || activeRun.status === 'failed' || showRunCompleteBanner)">
+    <template x-if="activeRun && (isRunActiveStatus(activeRun.status) || activeRun.status === 'failed' || activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial' || activeRun.status === 'cancelled' || showRunCompleteBanner)">
       <section role="status"
                aria-live="polite"
                class="rounded-2xl border p-4 shadow-xs transition-colors"
-               :class="activeRun.status === 'failed' ? 'bg-rose-50/80 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60' : (activeRun.status === 'running' ? 'bg-white dark:bg-[#18181B] border-rose-200 dark:border-rose-900/50' : 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50')">
+               :class="activeRun.status === 'failed' ? 'bg-rose-50/80 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60' : ((activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial') ? 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/60' : (activeRun.status === 'cancelled' ? 'bg-slate-50 dark:bg-[#18181B] border-slate-200 dark:border-[#27272A]' : (isRunActiveStatus(activeRun.status) ? 'bg-white dark:bg-[#18181B] border-rose-200 dark:border-rose-900/50' : 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50')))">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-start gap-3 min-w-0">
             <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-                 :class="activeRun.status === 'failed' ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : (activeRun.status === 'running' ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400')">
-              <i :data-lucide="activeRun.status === 'failed' ? 'alert-triangle' : (activeRun.status === 'running' ? 'loader-2' : 'check-circle-2')"
+                 :class="activeRun.status === 'failed' ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400' : ((activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial') ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : (activeRun.status === 'cancelled' ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]' : (isRunActiveStatus(activeRun.status) ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400')))">
+              <i :data-lucide="activeRun.status === 'failed' || activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial' ? 'alert-triangle' : (activeRun.status === 'cancelled' ? 'slash' : (isRunActiveStatus(activeRun.status) ? 'loader-2' : 'check-circle-2'))"
                  class="w-4 h-4"
-                 :class="activeRun.status === 'running' ? 'animate-spin' : ''"
+                 :class="isRunActiveStatus(activeRun.status) ? 'animate-spin' : ''"
                  aria-hidden="true"></i>
             </div>
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-xs font-bold uppercase tracking-wider"
-                      :class="activeRun.status === 'failed' ? 'text-rose-700 dark:text-rose-300' : (activeRun.status === 'running' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300')"
-                      x-text="activeRun.status === 'running' ? ('Live Hunt #' + activeRun.id) : (activeRun.status === 'failed' ? ('Hunt #' + activeRun.id + ' Failed') : ('Hunt #' + activeRun.id + ' Complete'))"></span>
+                      :class="activeRun.status === 'failed' ? 'text-rose-700 dark:text-rose-300' : ((activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial') ? 'text-amber-700 dark:text-amber-300' : (activeRun.status === 'cancelled' ? 'text-slate-600 dark:text-[#A1A1AA]' : (isRunActiveStatus(activeRun.status) ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300')))"
+                      x-text="activeRun.status === 'queued' ? ('Queued Hunt #' + activeRun.id) : (activeRun.status === 'running' ? ('Live Hunt #' + activeRun.id) : (activeRun.status === 'failed' ? ('Hunt #' + activeRun.id + ' Failed') : (activeRun.status === 'partial_rate_limited' ? ('Hunt #' + activeRun.id + ' Salvaged (Rate Limit)') : (activeRun.status === 'partial' ? ('Hunt #' + activeRun.id + ' Partial') : (activeRun.status === 'cancelled' ? ('Hunt #' + activeRun.id + ' Cancelled') : ('Hunt #' + activeRun.id + ' Complete'))))))"></span>
+                <template x-if="activeRun.execution_mode === 'fleet'">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-900/50 text-[10px] font-mono font-semibold text-indigo-700 dark:text-indigo-300"
+                        x-text="'Fleet Shards: ' + Number(activeRun.shards_completed || 0) + '/' + Number(activeRun.shards_total || 1)"></span>
+                </template>
+                <template x-if="activeRun.execution_mode === 'fleet' && activeRun.github_run_url">
+                  <a :href="activeRun.github_run_url"
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     class="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+                    <span>GitHub Actions</span>
+                    <i data-lucide="external-link" class="w-3 h-3" aria-hidden="true"></i>
+                  </a>
+                </template>
                 <template x-if="formatRunSeedLabel(activeRun)">
                   <span class="text-xs font-semibold text-slate-800 dark:text-[#FAFAFA] truncate max-w-md" x-text="formatRunSeedLabel(activeRun)"></span>
                 </template>
               </div>
               <p class="text-xs text-slate-600 dark:text-[#A1A1AA] mt-0.5"
-                 x-text="activeRun.status === 'failed' ? (activeRun.error_message || activeRun.progress_detail || 'Hunt failed.') : (activeRun.progress_detail || getHumanProgressStep(activeRun.progress_stage))"></p>
+                 x-text="activeRun.status === 'failed' ? (activeRun.error_message || activeRun.progress_detail || 'Hunt failed.') : (activeRun.progress_detail || getHumanProgressStep(activeRun.progress_stage || activeRun.status))"></p>
+              <template x-if="pollReconnectingNotice">
+                <p class="text-[11px] font-medium text-amber-600 dark:text-amber-400 mt-0.5" x-text="pollReconnectingNotice"></p>
+              </template>
             </div>
           </div>
 
-          <!-- Real-Time Funnel Counters -->
+          <!-- Real-Time Funnel Counters & Controls -->
           <div class="flex items-center gap-2.5 shrink-0 flex-wrap">
             <div class="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-600 dark:text-[#A1A1AA]">
               <span>Scrolled: <strong class="text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(getRunFunnel(activeRun).scrolled)"></strong></span>
@@ -523,9 +571,18 @@ export function getNewbornHeaderAndLaunchpadHtml() {
               <span class="text-slate-300 dark:text-slate-600">-&gt;</span>
               <span>Verified Winners: <strong class="text-emerald-600 dark:text-emerald-400" x-text="formatNullableCount(getRunFunnel(activeRun).verifiedWinners)"></strong></span>
             </div>
-            <template x-if="activeRun.status !== 'running'">
+            <template x-if="isRunActiveStatus(activeRun.status)">
               <button type="button"
-                      @click="showRunCompleteBanner = false"
+                      @click="cancelActiveRun()"
+                      :disabled="cancellingRun"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50 text-[11px] font-semibold text-rose-700 dark:text-rose-300 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+                <i data-lucide="square" class="w-3 h-3" aria-hidden="true"></i>
+                <span x-text="cancellingRun ? 'Cancelling...' : 'Cancel Hunt'"></span>
+              </button>
+            </template>
+            <template x-if="!isRunActiveStatus(activeRun.status)">
+              <button type="button"
+                      @click="showRunCompleteBanner = false; if (activeRun.status === 'failed' || activeRun.status === 'partial_rate_limited' || activeRun.status === 'partial' || activeRun.status === 'cancelled') { activeRun = null; }"
                       aria-label="Dismiss hunt status banner"
                       class="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                 <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
@@ -534,7 +591,7 @@ export function getNewbornHeaderAndLaunchpadHtml() {
           </div>
         </div>
 
-        <template x-if="activeRun.status === 'running'">
+        <template x-if="isRunActiveStatus(activeRun.status)">
           <div class="mt-3 space-y-2">
             <div role="progressbar"
                  aria-label="Hunt progress"

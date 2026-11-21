@@ -639,9 +639,15 @@ export function getNewbornCandidatesAndRookiesHtml() {
                     <div class="text-[11px] text-slate-500" x-text="r.progress_detail || r.cookie_mode || ''"></div>
                   </td>
                   <td class="py-3 px-4">
-                    <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                          :class="r.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : (r.status === 'running' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300')"
-                          x-text="r.status"></span>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                            :class="getRunStatusBadgeClass(r.status)"
+                            x-text="getRunStatusLabel(r.status)"></span>
+                      <template x-if="r.execution_mode === 'fleet'">
+                        <span class="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-semibold"
+                              x-text="'Fleet ' + Number(r.shards_completed || 0) + '/' + Number(r.shards_total || 1)"></span>
+                      </template>
+                    </div>
                   </td>
                   <td class="py-3 px-4 font-mono tabular-nums text-slate-700 dark:text-[#E4E4E7]">
                     <span x-text="formatNullableCount(getRunFunnel(r).scrolled)"></span>
@@ -651,12 +657,21 @@ export function getNewbornCandidatesAndRookiesHtml() {
                     <strong class="text-emerald-600 dark:text-emerald-400" x-text="formatNullableCount(getRunFunnel(r).verifiedWinners)"></strong>
                   </td>
                   <td class="py-3 px-4 font-mono tabular-nums text-slate-500" x-text="formatShortTimestamp(r.started_at)"></td>
-                  <td class="py-3 px-4 text-right">
-                    <button type="button"
-                            @click.stop="selectPastRun(r)"
-                            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-300 text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
-                      View Results
-                    </button>
+                  <td class="py-3 px-4 text-right whitespace-nowrap">
+                    <div class="inline-flex items-center gap-1.5">
+                      <template x-if="isRunActiveStatus(r.status)">
+                        <button type="button"
+                                @click.stop="reconnectToRun(r)"
+                                class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer">
+                          Reconnect
+                        </button>
+                      </template>
+                      <button type="button"
+                              @click.stop="selectPastRun(r)"
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-300 text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
+                        View Results
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </template>

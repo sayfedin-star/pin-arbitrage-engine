@@ -297,9 +297,23 @@ test('Wave 6E-3: Direct Age Mode skips root PinResource unwrap, disables Pidgets
       }), { status: 200 });
     }
 
+    if (u.includes('BoardContentRecommendationResource/get')) {
+      return new Response(JSON.stringify({
+        resource_response: {
+          data: [
+            {
+              id: '80000000000033',
+              title: 'Find More Ideas Lasagna Soup',
+              repin_count: 64,
+              created_at: fiveDaysAgo
+            }
+          ]
+        }
+      }), { status: 200 });
+    }
+
     if (u.includes('BoardFeedResource/get')) {
       const decoded = decodeURIComponent(u);
-      // Board "Find more ideas" uses source_url=/<user>/<slug>/more_ideas/ & add_vase=true
       if (decoded.includes('/more_ideas/')) {
         return new Response(JSON.stringify({
           resource_response: {

@@ -32,7 +32,7 @@ export function getNewbornClusterExplorerHtml() {
               <div>
                 <h2 class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA]">Newborn Keyword Cluster Explorer</h2>
                 <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA]">
-                  Combine 4 Trends tabs + Typeahead suggestions + Idea Page volumes, then hunt up to 25 keywords across all surfaces at once.
+                  Combine 4 Trends tabs + Typeahead suggestions + Idea Page volumes, then hunt up to <span class="font-mono font-semibold" x-text="maxClusterSelectableKeywords()"></span> keywords across all surfaces at once (Auto-routes &gt;3 keywords to 20-Runner Fleet).
                 </p>
               </div>
             </div>
@@ -118,7 +118,7 @@ export function getNewbornClusterExplorerHtml() {
             </div>
             <h3 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Build a Keyword Cluster to hunt Newborn Pins at scale</h3>
             <p class="text-xs sm:text-sm text-slate-500 dark:text-[#A1A1AA] max-w-lg mx-auto">
-              Enter a seed keyword like <strong>soup</strong> to merge all 4 Pinterest Trends tabs, Typeahead long-tail expansions, Idea Page search volumes, and 90-day predicted peaks — then select up to <strong>25 keywords</strong> for a unified multi-surface hunt.
+              Enter a seed keyword like <strong>soup</strong> to merge all 4 Pinterest Trends tabs, Typeahead long-tail expansions, Idea Page search volumes, and 90-day predicted peaks — then select up to <strong>100 keywords</strong> (25 Direct / 100 Fleet) for a unified multi-surface hunt.
             </p>
           </div>
         </template>
@@ -163,6 +163,30 @@ export function getNewbornClusterExplorerHtml() {
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
+                  <div class="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] p-0.5" role="group" aria-label="Cluster hunt execution mode">
+                    <button type="button"
+                            @click="setExecutionMode('auto')"
+                            class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                            :class="executionMode === 'auto' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA]'">
+                      Auto
+                    </button>
+                    <button type="button"
+                            @click="setExecutionMode('direct')"
+                            class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                            :class="executionMode === 'direct' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA]'">
+                      Direct
+                    </button>
+                    <button type="button"
+                            @click="setExecutionMode('fleet')"
+                            class="px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                            :class="executionMode === 'fleet' ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-[#A1A1AA]'">
+                      Fleet (20 Runners)
+                    </button>
+                  </div>
+
+                  <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA]"
+                        x-text="selectedClusterKeywords.length > 0 ? ('Est. total: ' + formatNullableCount(estimateClusterTotalBudget()) + ' pins') : ''"></span>
+
                   <template x-if="Number(activeCluster.remaining_unenriched_count || 0) > 0">
                     <button type="button"
                             @click="enrichClusterVolumesNow()"
@@ -178,7 +202,7 @@ export function getNewbornClusterExplorerHtml() {
                           :disabled="isLaunchingClusterHunt || selectedClusterKeywords.length === 0"
                           class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                     <i data-lucide="radar" class="w-3.5 h-3.5" :class="isLaunchingClusterHunt ? 'animate-spin' : ''" aria-hidden="true"></i>
-                    <span x-text="isLaunchingClusterHunt ? 'Launching Hunt...' : ('Hunt Selected (' + selectedClusterKeywords.length + '/25)')"></span>
+                    <span x-text="isLaunchingClusterHunt ? 'Launching Hunt...' : ('Hunt Selected (' + selectedClusterKeywords.length + '/' + maxClusterSelectableKeywords() + ')')"></span>
                   </button>
                 </div>
               </div>
@@ -254,8 +278,13 @@ export function getNewbornClusterExplorerHtml() {
                   <span class="text-[11px] text-slate-500 font-mono tabular-nums mr-1"
                         x-text="getFilteredClusterKeywords().length + ' shown'"></span>
                   <button type="button" @click="selectTopClusterKeywords(10)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 text-[11px] font-semibold text-slate-700 dark:text-[#E4E4E7] cursor-pointer">Top 10</button>
-                  <button type="button" @click="selectTopClusterKeywords(20)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 text-[11px] font-semibold text-slate-700 dark:text-[#E4E4E7] cursor-pointer">Top 20</button>
                   <button type="button" @click="selectTopClusterKeywords(25)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 text-[11px] font-semibold text-slate-700 dark:text-[#E4E4E7] cursor-pointer">Top 25</button>
+                  <template x-if="maxClusterSelectableKeywords() > 25">
+                    <button type="button" @click="selectTopClusterKeywords(50)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 50</button>
+                  </template>
+                  <template x-if="maxClusterSelectableKeywords() >= 100">
+                    <button type="button" @click="selectTopClusterKeywords(100)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 100</button>
+                  </template>
                   <template x-if="selectedClusterKeywords.length > 0">
                     <button type="button" @click="clearClusterSelection()" class="px-2 py-1 text-[11px] text-slate-500 hover:text-rose-600 cursor-pointer">Clear</button>
                   </template>
@@ -288,7 +317,7 @@ export function getNewbornClusterExplorerHtml() {
                       <td class="py-2.5 pl-4 pr-2">
                         <input type="checkbox"
                                :checked="selectedClusterKeywords.includes(kw.keyword)"
-                               :disabled="!selectedClusterKeywords.includes(kw.keyword) && selectedClusterKeywords.length >= 25"
+                               :disabled="!selectedClusterKeywords.includes(kw.keyword) && selectedClusterKeywords.length >= maxClusterSelectableKeywords()"
                                @change="toggleClusterKeyword(kw.keyword)"
                                :aria-label="'Select keyword ' + kw.keyword"
                                class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer disabled:opacity-40" />

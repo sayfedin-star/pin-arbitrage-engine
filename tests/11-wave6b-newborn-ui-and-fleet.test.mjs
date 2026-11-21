@@ -501,7 +501,7 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
         });
       }
       if (String(url).startsWith('/api/newborn/runs/')) {
-        const rid = Number(String(url).split('/').pop());
+        const rid = Number(String(url).split('?')[0].split('/').pop());
         const count = (runPollCounts.get(rid) || 0) + 1;
         runPollCounts.set(rid, count);
         return jsonRes({

@@ -65,7 +65,7 @@ export const SURFACES_CATALOG = Object.freeze([
   {
     id: 'board_more_ideas',
     label: 'Board "Find more ideas"',
-    endpoint: 'BoardFeedResource/get (/<user>/<slug>/more_ideas/, add_vase: true)',
+    endpoint: 'BoardContentRecommendationResource/get (with page-1 BoardFeedResource fallback)',
     cookie_zone: 'auth_session',
     guest_fallback_supported: false,
     default_enabled: true,
@@ -636,7 +636,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
       country,
       default_l1_interest: defaultL1Interest,
       max_board_age_days: clampInt(patchDisc.max_board_age_days, baseDisc.max_board_age_days ?? 90, 1, 365),
-      max_queries_per_run: clampInt(patchDisc.max_queries_per_run, baseDisc.max_queries_per_run ?? 25, 1, 50),
+      max_queries_per_run: clampInt(patchDisc.max_queries_per_run, baseDisc.max_queries_per_run ?? 25, 1, 100),
       surfaces: normalizedSurfaces,
       snowball: {
         enabled: cleanBool(patchSnow.enabled, cleanBool(baseSnow.enabled, false)),

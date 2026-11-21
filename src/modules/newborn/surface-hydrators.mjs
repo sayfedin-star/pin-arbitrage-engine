@@ -29,7 +29,7 @@ import {
 export async function pretriageCandidatesWithPidgets(
   pinIds,
   router,
-  { concurrency = 6, onBatchProgress = null } = {}
+  { concurrency = 6, onBatchProgress = null, signal = null } = {}
 ) {
   const uniqueIds = Array.from(new Set((pinIds || []).map((id) => String(id || '').trim()).filter(isValidPinId)));
   const enrichmentMap = new Map();
@@ -41,11 +41,13 @@ export async function pretriageCandidatesWithPidgets(
 
   await Promise.all(
     slices.map((slice) => sem.run(async () => {
+      if (signal?.aborted) return;
       const requestedSliceSet = new Set(slice);
       const url = `https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${slice.join(',')}`;
       const res = await router.requestJson(url, {
         endpointKey: 'pidgets',
-        referer: 'https://www.pinterest.com/'
+        referer: 'https://www.pinterest.com/',
+        signal
       });
 
       completedBatches++;
@@ -159,7 +161,7 @@ export async function pretriageCandidatesWithPidgets(
 export async function hydratePinZeroCookie(
   pinId,
   router,
-  { _depth = 0, rootPinCache = null, nowMs = Date.now(), resolveRootPin = false } = {}
+  { _depth = 0, rootPinCache = null, nowMs = Date.now(), resolveRootPin = false, signal = null } = {}
 ) {
   const cleanId = String(pinId || '').trim();
   if (!isValidPinId(cleanId)) return { ok: false, pin_id: cleanId, pin: null, error: 'invalid_pin_id' };
@@ -178,17 +180,19 @@ export async function hydratePinZeroCookie(
   const res = await router.requestJson(url, {
     endpointKey: 'pin_resource',
     sourceUrl,
-    handler: 'www/pin/[id].js'
+    handler: 'www/pin/[id].js',
+    signal
   });
 
   let rawPin = res.data?.resource_response?.data || res.data?.data || null;
 
   // Fallback to zero-cookie SSR __PWS_INITIAL_PROPS__ if PinResource failed
-  if (!rawPin || typeof rawPin !== 'object') {
+  if ((!rawPin || typeof rawPin !== 'object') && !signal?.aborted) {
     const ssrRes = await router.requestJson(`https://www.pinterest.com/pin/${cleanId}/`, {
       endpointKey: 'ssr_page_zero_cookie',
       isDocumentHtml: true,
-      referer: 'https://www.pinterest.com/'
+      referer: 'https://www.pinterest.com/',
+      signal
     });
     if (ssrRes.ok && typeof ssrRes.data === 'string') {
       const props = extractPwsInitialProps(ssrRes.data);
@@ -238,7 +242,8 @@ export async function hydratePinZeroCookie(
           _depth: 1,
           rootPinCache,
           nowMs,
-          resolveRootPin: false
+          resolveRootPin: false,
+          signal
         });
         if (rootPinCache && typeof rootPinCache.set === 'function') {
           rootPinCache.set(rootTargetId, rootRes);
@@ -342,7 +347,7 @@ export async function hydratePinZeroCookie(
  * Maps `profile_reach` -> `monthly_reach` (`total_audience`) and `profile_views` -> `profile_views` (`impressions`),
  * preserving `10,000,001` (`10M+` ceiling indicator).
  */
-export async function hydrateUserZeroCookie(username, router) {
+export async function hydrateUserZeroCookie(username, router, { signal = null } = {}) {
   const cleanUser = extractUsernameFromProfileUrl('', username);
   if (!cleanUser) {
     return { ok: false, username: '', user: null, error: 'invalid_username' };
@@ -358,16 +363,18 @@ export async function hydrateUserZeroCookie(username, router) {
   const res = await router.requestJson(url, {
     endpointKey: 'user_resource',
     sourceUrl,
-    handler: 'www/[username]/index.js'
+    handler: 'www/[username]/index.js',
+    signal
   });
 
   let data = res.data?.resource_response?.data || res.data?.data || null;
 
-  if (!data || typeof data !== 'object') {
+  if ((!data || typeof data !== 'object') && !signal?.aborted) {
     const ssrRes = await router.requestJson(`https://www.pinterest.com/${cleanUser}/`, {
       endpointKey: 'ssr_page_zero_cookie',
       isDocumentHtml: true,
-      referer: 'https://www.pinterest.com/'
+      referer: 'https://www.pinterest.com/',
+      signal
     });
     if (ssrRes.ok && typeof ssrRes.data === 'string') {
       const props = extractPwsInitialProps(ssrRes.data);

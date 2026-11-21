@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Execution Mode: auto_cycle (schedule/full cycle), discovery (8-surface hunt), watchlist_poll (sharded poll), or snowball'
+        description: 'Execution Mode: auto_cycle (schedule/full cycle), discovery (8-surface hunt), watchlist_poll (sharded poll), snowball, or db_run (UI-dispatched sharded run)'
         required: true
         type: choice
         options:
@@ -15,6 +15,7 @@ on:
           - discovery
           - watchlist_poll
           - snowball
+          - db_run
         default: 'auto_cycle'
       profile:
         description: 'Named Rule Profile slug or ID (e.g. default-golden-breakout, ultra-fresh-7d-rockets, linkless-arbitrage-vacuum)'
@@ -31,6 +32,16 @@ on:
         required: false
         type: string
         default: ''
+      run_id:
+        description: 'Existing newborn_runs.id for DB-backed Fleet execution (mode=db_run)'
+        required: false
+        type: string
+        default: ''
+      cluster_id:
+        description: 'Optional newborn_keyword_clusters.id associated with the Fleet run'
+        required: false
+        type: string
+        default: ''
       force:
         description: 'Force immediate execution regardless of schedule window/cooldown?'
         required: false
@@ -38,7 +49,7 @@ on:
         default: true
 
 concurrency:
-  group: newborn-hunter-${{ github.workflow }}-${{ github.ref }}
+  group: newborn-hunter-${{ github.event_name == 'workflow_dispatch' && inputs.run_id != '' && format('run-{0}', inputs.run_id) || format('{0}-{1}-{2}', github.workflow, github.event_name, github.ref) }}
   cancel-in-progress: false
 
 permissions:
@@ -64,6 +75,8 @@ jobs:
       effective_mode: ${{ steps.dispatcher.outputs.effective_mode }}
       task_count: ${{ steps.dispatcher.outputs.task_count }}
       skip_reason: ${{ steps.dispatcher.outputs.skip_reason }}
+      run_id: ${{ steps.dispatcher.outputs.run_id }}
+      cluster_id: ${{ steps.dispatcher.outputs.cluster_id }}
     steps:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
@@ -99,6 +112,8 @@ jobs:
           NEWBORN_PROFILE: ${{ inputs.profile || '' }}
           NEWBORN_QUERY: ${{ inputs.query || '' }}
           NEWBORN_SHARDS: ${{ inputs.shards || '' }}
+          NEWBORN_RUN_ID: ${{ inputs.run_id || '' }}
+          NEWBORN_CLUSTER_ID: ${{ inputs.cluster_id || '' }}
           NEWBORN_FORCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.force == false && 'false' || 'true') || 'false' }}
         run: node scripts/newborn-fleet.mjs --mode=dispatch
 
@@ -152,6 +167,8 @@ jobs:
           NEWBORN_QUERY: ${{ matrix.query || '' }}
           NEWBORN_BOARDS: ${{ matrix.boards || '' }}
           NEWBORN_PIN_IDS: ${{ matrix.pin_ids || '' }}
+          NEWBORN_RUN_ID: ${{ matrix.run_id || needs.dispatch.outputs.run_id || '' }}
+          NEWBORN_CLUSTER_ID: ${{ matrix.cluster_id || needs.dispatch.outputs.cluster_id || '' }}
           NEWBORN_FORCE: ${{ matrix.force || 'false' }}
           WORKER_INDEX: ${{ matrix.worker_index }}
           WORKER_TOTAL: ${{ matrix.worker_total }}
@@ -195,6 +212,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          NEWBORN_RUN_ID: ${{ needs.dispatch.outputs.run_id || '' }}
+          NEWBORN_CLUSTER_ID: ${{ needs.dispatch.outputs.cluster_id || '' }}
+          NEWBORN_EFFECTIVE_MODE: ${{ needs.dispatch.outputs.effective_mode || '' }}
         run: node scripts/newborn-fleet.mjs --mode=consolidate
 
       - name: 5. Notify Origin Server Cache Invalidation
