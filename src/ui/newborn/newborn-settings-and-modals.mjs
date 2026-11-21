@@ -347,8 +347,11 @@ export function getNewbornSettingsAndModalsHtml() {
                 <!-- Metadata & Opt-In Account Reach -->
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] space-y-2 text-xs">
                   <div class="flex justify-between gap-2"><span class="text-slate-500" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Created (UTC)' : 'Pin Created (UTC)'">Pin Created (UTC)</span><span class="font-mono tabular-nums" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Source</span><span class="font-semibold" x-text="formatSurfaceLabel(dossierData.candidate.first_surface)"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Source</span><span class="font-semibold" x-text="formatSurfaceLabel(dossierData.candidate.run_surface || dossierData.candidate.first_surface)"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link / Linkless' : (dossierData.candidate.clean_domain || '—')"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Shares</span><span class="font-mono tabular-nums" x-text="formatNullableCount(dossierData.candidate.share_count)"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Creation Method</span><span class="font-medium" x-text="formatCreationMethodLabel(dossierData.candidate.raw_creation_method) || '—'"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Type</span><span class="font-medium" x-text="dossierData.candidate.is_repin ? 'Repin' : 'Original'"></span></div>
                   <div class="pt-2 border-t border-slate-200/70 dark:border-[#27272A] flex items-center justify-between gap-2">
                     <div>
                       <div class="text-slate-500">Account Reach (Opt-In)</div>

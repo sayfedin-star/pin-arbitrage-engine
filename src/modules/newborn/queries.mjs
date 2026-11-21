@@ -17,8 +17,22 @@ import {
   evaluateAutomationSchedule,
   getNewbornCookieStatus
 } from './settings.mjs';
-import { formatPinterestBoardUrl } from './surface-normalizers.mjs';
+import { decodeHtmlEntities, formatPinterestBoardUrl } from './surface-normalizers.mjs';
 import { buildNewbornCrossoverMatrix } from './intelligence.mjs';
+
+function decodeCandidateAnnotations(annotations) {
+  if (!Array.isArray(annotations)) return [];
+  return annotations.map((item) => {
+    if (typeof item === 'string') return decodeHtmlEntities(item);
+    if (item && typeof item === 'object') {
+      return {
+        ...item,
+        ...(item.name != null ? { name: decodeHtmlEntities(item.name) } : {})
+      };
+    }
+    return item;
+  });
+}
 
 /**
  * Single-pass Executive Overview for `/api/newborn/overview`.
@@ -113,6 +127,9 @@ export async function listNewbornCandidates(sql, filters = {}) {
     : null;
   const surface = filters.surface ? String(filters.surface).trim().toLowerCase() : null;
   const provenance = filters.provenance ? String(filters.provenance).trim().toUpperCase() : null;
+  const creationMethod = filters.creation_method ? String(filters.creation_method).trim().toLowerCase() : null;
+  const rawRepinFilter = filters.repin_filter ? String(filters.repin_filter).trim().toLowerCase() : '';
+  const repinFilter = rawRepinFilter === 'original' ? false : (rawRepinFilter === 'repin' ? true : null);
   const goldenOnly = filters.golden_only === true || filters.golden_only === 'true';
   const rookieOnly = filters.rookie_only === true || filters.rookie_only === 'true';
   const linklessOnly = filters.linkless_only === true || filters.linkless_only === 'true';
@@ -135,13 +152,19 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const limit = Math.min(500, Math.max(1, Number(filters.limit) || 50));
   const offset = Math.max(0, Number(filters.offset) || 0);
 
+  const surfaceCond = runId !== null
+    ? sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`
+    : sql`(${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`;
+
   const whereCond = sql`
     (${stage}::text IS NULL OR nc.stage = ${stage})
     AND (${stage !== null}::boolean = TRUE OR nc.stage <> 'discarded')
     AND (${folderId}::int IS NULL OR nc.folder_id = ${folderId})
     AND (${qualifiedOnly}::boolean = FALSE OR nc.qualified = TRUE)
-    AND (${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})
+    AND ${surfaceCond}
     AND (${provenance}::text IS NULL OR nc.upload_provenance = ${provenance})
+    AND (${creationMethod}::text IS NULL OR LOWER(COALESCE(nc.raw_creation_method, '')) = ${creationMethod})
+    AND (${repinFilter}::boolean IS NULL OR nc.is_repin = ${repinFilter})
     AND (${goldenOnly}::boolean = FALSE OR nc.is_golden_pin = TRUE)
     AND (${rookieOnly}::boolean = FALSE OR nc.is_rookie_outlier = TRUE)
     AND (${linklessOnly}::boolean = FALSE OR nc.is_linkless = TRUE)
@@ -176,7 +199,7 @@ export async function listNewbornCandidates(sql, filters = {}) {
     ? sql`JOIN newborn_run_candidates nrc ON nrc.pin_id = nc.pin_id AND nrc.run_id = ${runId}`
     : sql``;
   const selectCols = runId !== null
-    ? sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries`
+    ? sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries, nrc.surface AS run_surface`
     : sql`nc.*`;
 
   const [rows, countRows] = await Promise.all([
@@ -236,6 +259,13 @@ export async function listNewbornCandidates(sql, filters = {}) {
           ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
           LIMIT ${limit} OFFSET ${offset};
         `
+      : sort === 'shares' || sort === 'share_count'
+      ? sql`
+          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+          WHERE ${whereCond}
+          ORDER BY nc.share_count DESC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+          LIMIT ${limit} OFFSET ${offset};
+        `
       : sort === 'golden_score'
       ? sql`
           SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
@@ -264,8 +294,17 @@ export async function listNewbornCandidates(sql, filters = {}) {
       : (Array.isArray(row.matched_queries) && row.matched_queries.length > 0
           ? row.matched_queries
           : (row.seed_query ? [String(row.seed_query).trim().toLowerCase()] : []));
+    const runSurface = row.run_surface || null;
     return {
       ...row,
+      title: row.title != null ? decodeHtmlEntities(row.title) : row.title,
+      description: row.description != null ? decodeHtmlEntities(row.description) : row.description,
+      board_name: row.board_name != null ? decodeHtmlEntities(row.board_name) : row.board_name,
+      pinner_full_name: row.pinner_full_name != null ? decodeHtmlEntities(row.pinner_full_name) : row.pinner_full_name,
+      origin_creator_full_name: row.origin_creator_full_name != null ? decodeHtmlEntities(row.origin_creator_full_name) : row.origin_creator_full_name,
+      visual_annotations: Array.isArray(row.visual_annotations) ? decodeCandidateAnnotations(row.visual_annotations) : row.visual_annotations,
+      run_surface: runSurface,
+      effective_surface: runSurface || row.first_surface || null,
       matched_queries: matchedQueries,
       cluster_hit_count: matchedQueries.length,
       board_url: formatPinterestBoardUrl(row.board_url || ''),
@@ -318,6 +357,12 @@ export async function getNewbornCandidateDossier(sql, pinId) {
   return {
     candidate: {
       ...rawCand,
+      title: rawCand.title != null ? decodeHtmlEntities(rawCand.title) : rawCand.title,
+      description: rawCand.description != null ? decodeHtmlEntities(rawCand.description) : rawCand.description,
+      board_name: rawCand.board_name != null ? decodeHtmlEntities(rawCand.board_name) : rawCand.board_name,
+      pinner_full_name: rawCand.pinner_full_name != null ? decodeHtmlEntities(rawCand.pinner_full_name) : rawCand.pinner_full_name,
+      origin_creator_full_name: rawCand.origin_creator_full_name != null ? decodeHtmlEntities(rawCand.origin_creator_full_name) : rawCand.origin_creator_full_name,
+      visual_annotations: Array.isArray(rawCand.visual_annotations) ? decodeCandidateAnnotations(rawCand.visual_annotations) : rawCand.visual_annotations,
       board_url: formatPinterestBoardUrl(rawCand.board_url || ''),
       board_pin_count: rawCand.board_pin_count ?? candMeta.board_pin_count ?? null,
       board_follower_count: rawCand.board_follower_count ?? candMeta.board_follower_count ?? null

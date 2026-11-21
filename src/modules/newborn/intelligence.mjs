@@ -47,7 +47,7 @@ export function classifyPinProvenance(pin = {}) {
     provenance = 'SHARE_EXTENSION_ANDROID';
   } else if (
     existing === 'UPLOADED' ||
-    /^(uploaded|upload|user_upload|uploaded_by_user|native_upload|web_upload|pin_builder|created_by_user)$/.test(rawMethod)
+    /^(uploaded|upload|user_upload|uploaded_by_user|native_upload|web_upload|pin_builder|created_by_user|photos|pin_scheduling|ios_photos|android_photos|native_create|mobile_upload|web_create|create_pin)$/.test(rawMethod)
   ) {
     provenance = 'UPLOADED';
   } else if (

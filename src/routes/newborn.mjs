@@ -86,7 +86,7 @@ function deepMergePlain(base, extra) {
  * Translates direct Wave 6D Hunt Card inputs (`filters`, `paths`, `target_pins`) into
  * normalized `settings_overrides` merged with any explicit `settings_overrides` / `overrides`.
  */
-function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
+export function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
   const explicit = body?.settings_overrides ?? body?.overrides ?? null;
   const patch = {};
 
@@ -179,12 +179,21 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
     }
     if (p.related !== undefined) {
       const rObj = typeof p.related === 'boolean' ? { enabled: p.related } : (p.related || {});
+      const relatedEnabled = isSnowball ? true : Boolean(rObj.enabled);
       const targetPins = Math.max(25, Math.min(2000, Math.round(Number(rObj.target_pins ?? rObj.limit ?? 200) || 200)));
       surfaces.related_pin_snowball = {
-        enabled: Boolean(rObj.enabled),
+        enabled: relatedEnabled,
         target_pins: targetPins,
         max_pages: Math.max(1, Math.min(80, Math.ceil(targetPins / 25)))
       };
+      patch.discovery = deepMergePlain(patch.discovery || {}, {
+        snowball: relatedEnabled ? { enabled: true } : { enabled: false, max_hops: 0 }
+      });
+    } else if (!isSnowball) {
+      surfaces.related_pin_snowball = { enabled: false };
+      patch.discovery = deepMergePlain(patch.discovery || {}, {
+        snowball: { enabled: false, max_hops: 0 }
+      });
     }
     // Keep Trend/Zero-Query seed expansion off when user picks explicit Hunt Card paths unless explicitly toggled
     if (p.growing_trends === undefined) {
@@ -199,21 +208,31 @@ function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {}) {
     }
 
     if (Object.keys(surfaces).length > 0) {
-      patch.discovery = { ...(patch.discovery || {}), surfaces };
+      patch.discovery = deepMergePlain(patch.discovery || {}, { surfaces });
     }
+  } else if (!isSnowball && !explicit?.discovery?.surfaces?.related_pin_snowball && !explicit?.discovery?.snowball) {
+    patch.discovery = deepMergePlain(patch.discovery || {}, {
+      surfaces: { related_pin_snowball: { enabled: false } },
+      snowball: { enabled: false, max_hops: 0 }
+    });
   }
 
-  if (isSnowball && (body?.target_pins !== undefined || body?.max_hops !== undefined)) {
-    const targetPins = Math.max(25, Math.min(2000, Math.round(Number(body?.target_pins ?? 200) || 200)));
+  if (isSnowball) {
+    const hasSnowballLimits = body?.target_pins !== undefined || body?.max_hops !== undefined;
+    const targetPins = hasSnowballLimits
+      ? Math.max(25, Math.min(2000, Math.round(Number(body?.target_pins ?? 200) || 200)))
+      : null;
     patch.discovery = deepMergePlain(patch.discovery || {}, {
       surfaces: {
         related_pin_snowball: {
           enabled: true,
-          target_pins: targetPins,
-          max_pages: Math.max(1, Math.min(80, Math.ceil(targetPins / 25)))
+          ...(targetPins !== null ? { target_pins: targetPins, max_pages: Math.max(1, Math.min(80, Math.ceil(targetPins / 25))) } : {})
         }
       },
-      ...(body?.max_hops !== undefined ? { snowball: { enabled: true, max_hops: Math.max(1, Math.min(3, Number(body.max_hops) || 1)) } } : {})
+      snowball: {
+        enabled: true,
+        ...(body?.max_hops !== undefined ? { max_hops: Math.max(1, Math.min(3, Number(body.max_hops) || 1)) } : {})
+      }
     });
   }
 
@@ -575,6 +594,8 @@ export async function handleNewbornRoutes({
       stage: searchParams.get('stage') || null,
       surface: searchParams.get('surface') || null,
       provenance: searchParams.get('provenance') || null,
+      creation_method: searchParams.get('creation_method') || null,
+      repin_filter: searchParams.get('repin_filter') || null,
       golden_only: searchParams.get('golden_only') || searchParams.get('golden') || null,
       rookie_only: searchParams.get('rookie_only') || searchParams.get('rookie') || null,
       linkless_only: searchParams.get('linkless_only') || searchParams.get('linkless') || null,
@@ -589,7 +610,9 @@ export async function handleNewbornRoutes({
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
     const cacheKey = buildCanonicalCacheKey('newborn:candidates', searchParams);
-    const data = await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10_000);
+    const data = filters.run_id
+      ? await listNewbornCandidates(sql, filters)
+      : await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10_000);
     return jsonResponse({ success: true, ...data }, 200, filters.run_id ? -1 : 10);
   }
 

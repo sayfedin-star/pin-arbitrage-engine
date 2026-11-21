@@ -17,6 +17,8 @@ export {
 } from './settings.mjs';
 
 export {
+  decodeHtmlEntities,
+  extractPinAnnotationsDetailed,
   parseSmartHuntInput,
   resolveIdeaPageIntelligence
 } from './surfaces.mjs';

@@ -286,7 +286,7 @@ export async function upsertStagedCandidatesBatch(
         disqualification_reasons: c.disqualification_reasons || [],
         qualified: c.qualified !== false,
         root_pin_id: c.root_pin_id || c.canonical_pin_id || pid,
-        root_age_verified: c.root_age_verified !== false,
+        root_age_verified: Boolean(c.is_hydrated && c.root_age_verified === true),
         board_pin_count: c.board_pin_count != null ? Math.round(Number(c.board_pin_count)) : (c.metadata?.board_pin_count ?? null),
         board_follower_count: c.board_follower_count != null ? Math.round(Number(c.board_follower_count)) : (c.metadata?.board_follower_count ?? null)
       }),
@@ -426,7 +426,10 @@ export async function upsertStagedCandidatesBatch(
         dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' THEN EXCLUDED.dominant_color ELSE newborn_candidates.dominant_color END,
         destination_url = COALESCE(EXCLUDED.destination_url, newborn_candidates.destination_url),
         clean_domain = COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain),
-        is_linkless = EXCLUDED.is_linkless,
+        is_linkless = (
+          COALESCE(EXCLUDED.destination_url, newborn_candidates.destination_url) IS NULL
+          AND COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain) IS NULL
+        ),
         pinner_username = COALESCE(EXCLUDED.pinner_username, newborn_candidates.pinner_username),
         pinner_full_name = COALESCE(EXCLUDED.pinner_full_name, newborn_candidates.pinner_full_name),
         pinner_followers = COALESCE(EXCLUDED.pinner_followers, newborn_candidates.pinner_followers),
@@ -451,10 +454,22 @@ export async function upsertStagedCandidatesBatch(
         is_product = (newborn_candidates.is_product OR EXCLUDED.is_product),
         created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, newborn_candidates.created_at_pinterest),
         age_days = COALESCE(EXCLUDED.age_days, newborn_candidates.age_days),
-        save_count = COALESCE(EXCLUDED.save_count, newborn_candidates.save_count),
-        repin_count = COALESCE(EXCLUDED.repin_count, newborn_candidates.repin_count),
+        save_count = CASE
+          WHEN newborn_candidates.save_count IS NULL THEN EXCLUDED.save_count
+          WHEN EXCLUDED.save_count IS NULL THEN newborn_candidates.save_count
+          ELSE GREATEST(newborn_candidates.save_count, EXCLUDED.save_count)
+        END,
+        repin_count = CASE
+          WHEN newborn_candidates.repin_count IS NULL THEN EXCLUDED.repin_count
+          WHEN EXCLUDED.repin_count IS NULL THEN newborn_candidates.repin_count
+          ELSE GREATEST(newborn_candidates.repin_count, EXCLUDED.repin_count)
+        END,
         comment_count = COALESCE(EXCLUDED.comment_count, newborn_candidates.comment_count),
-        share_count = COALESCE(EXCLUDED.share_count, newborn_candidates.share_count),
+        share_count = CASE
+          WHEN newborn_candidates.share_count IS NULL THEN EXCLUDED.share_count
+          WHEN EXCLUDED.share_count IS NULL THEN newborn_candidates.share_count
+          ELSE GREATEST(newborn_candidates.share_count, EXCLUDED.share_count)
+        END,
         reaction_count = COALESCE(EXCLUDED.reaction_count, newborn_candidates.reaction_count),
         is_hydrated = (newborn_candidates.is_hydrated OR EXCLUDED.is_hydrated),
         repin_per_day = COALESCE(EXCLUDED.repin_per_day, newborn_candidates.repin_per_day),
@@ -473,7 +488,15 @@ export async function upsertStagedCandidatesBatch(
         watchlist_added_at = COALESCE(newborn_candidates.watchlist_added_at, EXCLUDED.watchlist_added_at),
         last_polled_at = COALESCE(EXCLUDED.last_polled_at, newborn_candidates.last_polled_at),
         profile_id = COALESCE(EXCLUDED.profile_id, newborn_candidates.profile_id),
-        metadata = newborn_candidates.metadata || EXCLUDED.metadata,
+        metadata = jsonb_set(
+          COALESCE(newborn_candidates.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, '{}'::jsonb)),
+          '{root_age_verified}',
+          to_jsonb(
+            COALESCE((newborn_candidates.metadata->>'root_age_verified')::boolean, false)
+            OR COALESCE((EXCLUDED.metadata->>'root_age_verified')::boolean, false)
+          ),
+          true
+        ),
         last_seen_at = NOW(),
         updated_at = NOW();
     `;
@@ -557,7 +580,13 @@ export async function upsertStagedCandidatesBatch(
               SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
             ) merged_queries
           ), '[]'::jsonb),
-          surface = COALESCE(EXCLUDED.surface, newborn_run_candidates.surface),
+          surface = CASE
+            WHEN newborn_run_candidates.surface IS NOT NULL
+              AND newborn_run_candidates.surface <> ''
+              AND newborn_run_candidates.surface <> 'related_pin_snowball'
+            THEN newborn_run_candidates.surface
+            ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
+          END,
           qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
           golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
       `;
@@ -965,12 +994,14 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           pathTasks.push(runPathGuard(async () => {
             for (const q of queriesToRun) {
               if (signal?.aborted || discoveryHalted) break;
+              let serpPagesReported = 0;
               const serpRes = await harvestPinSerpWithCapsulesSurface(router, q, {
                 maxPages: surfacesCfg.pin_serp_capsules.max_pages,
                 pageSize: surfacesCfg.pin_serp_capsules.page_size || 50,
                 targetPins: surfacesCfg.pin_serp_capsules.target_pins ?? null,
                 signal,
                 onPageProgress: async ({ pagesFetched }) => {
+                  serpPagesReported += 1;
                   funnel.pages_scrolled += 1;
                   funnel.scrolled_pins = candidateMap.size;
                   await reportProgress(
@@ -981,7 +1012,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
                   );
                 }
               });
-              funnel.pages_scrolled += Number(serpRes.pages_fetched || 0);
+              funnel.pages_scrolled += Math.max(0, Number(serpRes.pages_fetched || 0) - serpPagesReported);
               for (const p of (serpRes.pins || [])) ingestCandidate(p);
               for (const cap of (serpRes.capsules || [])) {
                 if (cap?.term) discoveredCapsules.add(`${q} ${cap.term}`.trim().toLowerCase());
@@ -1181,6 +1212,184 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     let remainingPinHydrations = settings.discovery.hydration.max_pin_hydrations_per_run;
     const minRepinsGate = Math.max(0, Number(settings.qualification?.min_repin_count ?? 0));
     const minSavesGate = Math.max(0, Number(settings.qualification?.min_save_count ?? 0));
+    const minAge = Number(settings.qualification?.min_age_days ?? 0);
+    const maxAge = Number(settings.qualification?.max_age_days ?? 30);
+    const matchedRepinPinIds = new Set();
+    const attemptedHydrationPinIds = new Set();
+    let hydrationRateLimitedGlobal = false;
+
+    const computeKnownAgeDays = (cand) => {
+      if (!cand) return null;
+      if (cand.created_at_pinterest) {
+        const parsedMs = Date.parse(String(cand.created_at_pinterest));
+        if (Number.isFinite(parsedMs)) {
+          return Math.max(0, (nowMs - parsedMs) / 86_400_000);
+        }
+      }
+      if (cand.age_days !== null && cand.age_days !== undefined && Number.isFinite(Number(cand.age_days))) {
+        return Number(cand.age_days);
+      }
+      return null;
+    };
+
+    const runPinHydrationBatch = async (
+      batchPins = [],
+      {
+        progressPrefix = '2. Verifying root ages & annotations',
+        maxConcurrency = isShardMode ? 6 : 8,
+        startPct = 48,
+        spanPct = 34
+      } = {}
+    ) => {
+      const unwrappedIds = new Set();
+      let hydratedDone = 0;
+      let hydrationRateLimited = false;
+
+      if (!Array.isArray(batchPins) || batchPins.length === 0 || cancelledTriggered || signal?.aborted || hydrationRateLimitedGlobal) {
+        return { unwrappedIds, hydratedDone, rateLimited: hydrationRateLimitedGlobal };
+      }
+
+      const reportEvery = Math.max(8, Math.ceil(batchPins.length / 5));
+
+      // Cooldown wait if discoveryBreaker is OPEN with remaining cooldown <= 35s
+      const remainingCooldownMs = Number(router.discoveryBreaker?.getRemainingCooldownMs?.() || 0);
+      if (remainingCooldownMs > 0 && remainingCooldownMs <= 35_000) {
+        const waitMs = Math.min(remainingCooldownMs + 500, 35_000);
+        await reportProgress(
+          'hydrating_pins',
+          `Waiting ${Math.ceil(waitMs / 1000)}s for Pinterest cooldown before verifying ${batchPins.length} matched pins…`,
+          Math.max(40, startPct - 2),
+          {
+            scrolled_pins: candidateMap.size,
+            matched_repins: funnel.matched_repins,
+            candidates_discovered: candidateMap.size
+          },
+          { forceDbWrite: true }
+        );
+        try {
+          await sleepAbortable(waitMs, signal);
+        } catch (sleepErr) {
+          if (isAbortError(sleepErr, signal)) {
+            cancelledTriggered = true;
+            stopReason = 'operator_cancelled';
+          }
+        }
+      }
+
+      if (cancelledTriggered || signal?.aborted) {
+        return { unwrappedIds, hydratedDone, rateLimited: hydrationRateLimitedGlobal };
+      }
+
+      await reportProgress(
+        'hydrating_pins',
+        `${progressPrefix} (0/${batchPins.length} matched pins)…`,
+        startPct,
+        {
+          scrolled_pins: candidateMap.size,
+          matched_repins: funnel.matched_repins,
+          candidates_discovered: candidateMap.size
+        }
+      );
+
+      const hydrateSingleCandidate = async (cand) => {
+        if (cancelledTriggered || signal?.aborted || hydrationRateLimited || hydrationRateLimitedGlobal) return false;
+        attemptedHydrationPinIds.add(cand.pin_id);
+        try {
+          const hyd = await hydratePinZeroCookie(cand.pin_id, router, {
+            rootPinCache,
+            nowMs,
+            resolveRootPin,
+            signal
+          });
+          if (!hyd.ok && hyd.status === 429) {
+            hydrationRateLimited = true;
+            hydrationRateLimitedGlobal = true;
+            salvageTriggered = true;
+            stopReason = stopReason || 'rate_limited_hydration';
+            return false;
+          }
+          if (hyd.ok && hyd.pin) {
+            const existingCand = candidateMap.get(cand.pin_id) || cand;
+            if (resolveRootPin && hyd.pin.is_repin && hyd.pin.root_pin_id && hyd.pin.root_pin_id !== cand.pin_id && hyd.pin.root_age_verified === true) {
+              const rootId = hyd.pin.root_pin_id;
+              const mergedRoot = mergeCandidatePinRecords(
+                candidateMap.get(rootId),
+                mergeCandidatePinRecords(existingCand, {
+                  ...hyd.pin,
+                  pin_id: rootId,
+                  root_pin_id: rootId,
+                  unwrapped_from_repin_id: cand.pin_id
+                })
+              );
+              mergedRoot.pin_id = rootId;
+              mergedRoot.root_pin_id = rootId;
+              mergedRoot.root_age_verified = true;
+              candidateMap.set(rootId, mergedRoot);
+              candidateMap.delete(cand.pin_id);
+              attemptedHydrationPinIds.add(rootId);
+              unwrappedIds.add(rootId);
+              funnel.board_repins_unwrapped++;
+            } else {
+              ingestCandidate(hyd.pin);
+            }
+          }
+          hydratedDone++;
+          funnel.hydrated_pins++;
+          if (hydratedDone % reportEvery === 0 || hydratedDone === batchPins.length) {
+            const pct = startPct + Math.round((hydratedDone / Math.max(1, batchPins.length)) * spanPct);
+            await reportProgress(
+              'hydrating_pins',
+              `${progressPrefix} (${hydratedDone}/${batchPins.length} pins)…`,
+              pct,
+              {
+                scrolled_pins: candidateMap.size,
+                matched_repins: funnel.matched_repins,
+                hydrated_pins: funnel.hydrated_pins,
+                candidates_discovered: candidateMap.size
+              }
+            );
+          }
+          return Boolean(hyd.ok);
+        } catch (hydErr) {
+          if (isAbortError(hydErr, signal)) {
+            cancelledTriggered = true;
+            stopReason = 'operator_cancelled';
+            return false;
+          }
+          if (isRateLimitError(hydErr)) {
+            hydrationRateLimited = true;
+            hydrationRateLimitedGlobal = true;
+            salvageTriggered = true;
+            stopReason = stopReason || 'rate_limited_hydration';
+            return false;
+          }
+          throw hydErr;
+        }
+      };
+
+      const breakerState = router.discoveryBreaker?.state || 'CLOSED';
+      const needsHalfOpenSerialProbe = salvageTriggered || breakerState === 'OPEN' || breakerState === 'HALF_OPEN';
+
+      if (needsHalfOpenSerialProbe) {
+        // CRITICAL HALF_OPEN GUARD: Hydrate batchPins[0] serially as a single probe
+        // so concurrent Semaphore workers cannot trip probeInFlight === true into CircuitBreakerOpenError!
+        const probeOk = await hydrateSingleCandidate(batchPins[0]);
+        const probeRecoveredBreaker = router.discoveryBreaker?.state === 'CLOSED';
+        if ((probeOk || probeRecoveredBreaker) && !hydrationRateLimited && !hydrationRateLimitedGlobal && !cancelledTriggered && !signal?.aborted && batchPins.length > 1) {
+          const salvageSem = new Semaphore(3);
+          await Promise.all(
+            batchPins.slice(1).map((cand) => salvageSem.run(() => hydrateSingleCandidate(cand)))
+          );
+        }
+      } else {
+        const normalSem = new Semaphore(Math.max(1, Number(maxConcurrency) || 8));
+        await Promise.all(
+          batchPins.map((cand) => normalSem.run(() => hydrateSingleCandidate(cand)))
+        );
+      }
+
+      return { unwrappedIds, hydratedDone, rateLimited: hydrationRateLimited || hydrationRateLimitedGlobal };
+    };
 
     const enrichAndScoreIds = async (targetIds, progressLabelPrefix = '2. Verifying root ages & annotations') => {
       if (targetIds.length === 0 || cancelledTriggered || signal?.aborted) return;
@@ -1254,11 +1463,30 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           return passesRepins && passesSaves;
         });
 
-      funnel.matched_repins = Math.max(funnel.matched_repins, matchingPreGate.length);
+      for (const c of matchingPreGate) {
+        if (c?.pin_id) matchedRepinPinIds.add(c.pin_id);
+      }
+      funnel.matched_repins = matchedRepinPinIds.size;
 
+      // WAVE 6G PRE-AGE GATE: Skip pins whose known created_at_pinterest is already outside [minAge, maxAge]
+      // before consuming PinResource/get hydration budget, and prioritize in-window pins first.
       const orderedForHydration = matchingPreGate
-        .filter((c) => !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0)
+        .filter((c) => {
+          const needsHydration = !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0;
+          if (!needsHydration) return false;
+          const knownAge = computeKnownAgeDays(c);
+          if (knownAge !== null) {
+            if (knownAge > maxAge) return false;
+            if (knownAge < minAge && (!resolveRootPin || !c.is_repin)) return false;
+          }
+          return true;
+        })
         .sort((a, b) => {
+          const ageA = computeKnownAgeDays(a);
+          const ageB = computeKnownAgeDays(b);
+          const aInWindow = ageA !== null && ageA >= minAge && ageA <= maxAge ? 1 : 0;
+          const bInWindow = ageB !== null && ageB >= minAge && ageB <= maxAge ? 1 : 0;
+          if (bInWindow !== aInWindow) return bInWindow - aInWindow;
           const aDirect = Number(a.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
           const bDirect = Number(b.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
           if (bDirect !== aDirect) return bDirect - aDirect;
@@ -1270,137 +1498,12 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
       remainingPinHydrations = Math.max(0, remainingPinHydrations - orderedForHydration.length);
 
-      let hydratedDone = 0;
-      const reportEvery = Math.max(8, Math.ceil(orderedForHydration.length / 5));
-      const unwrappedIds = new Set();
-      let hydrationRateLimited = false;
-
-      if (orderedForHydration.length > 0 && !cancelledTriggered && !signal?.aborted) {
-        // Cooldown wait if discoveryBreaker is OPEN with remaining cooldown <= 35s
-        const remainingCooldownMs = Number(router.discoveryBreaker?.getRemainingCooldownMs?.() || 0);
-        if (remainingCooldownMs > 0 && remainingCooldownMs <= 35_000) {
-          const waitMs = Math.min(remainingCooldownMs + 500, 35_000);
-          await reportProgress(
-            'hydrating_pins',
-            `Waiting ${Math.ceil(waitMs / 1000)}s for Pinterest cooldown before verifying ${orderedForHydration.length} matched pins…`,
-            46,
-            {
-              scrolled_pins: candidateMap.size,
-              matched_repins: funnel.matched_repins,
-              candidates_discovered: candidateMap.size
-            },
-            { forceDbWrite: true }
-          );
-          try {
-            await sleepAbortable(waitMs, signal);
-          } catch (sleepErr) {
-            if (isAbortError(sleepErr, signal)) {
-              cancelledTriggered = true;
-              stopReason = 'operator_cancelled';
-            }
-          }
-        }
-
-        if (!cancelledTriggered && !signal?.aborted) {
-          await reportProgress(
-            'hydrating_pins',
-            `${progressLabelPrefix} (0/${orderedForHydration.length} matched pins)…`,
-            48,
-            {
-              scrolled_pins: candidateMap.size,
-              matched_repins: funnel.matched_repins,
-              candidates_discovered: candidateMap.size
-            }
-          );
-
-          const hydrateSingleCandidate = async (cand) => {
-            if (cancelledTriggered || signal?.aborted || hydrationRateLimited) return false;
-            try {
-              const hyd = await hydratePinZeroCookie(cand.pin_id, router, {
-                rootPinCache,
-                nowMs,
-                resolveRootPin,
-                signal
-              });
-              if (hyd.ok && hyd.pin) {
-                const existingCand = candidateMap.get(cand.pin_id) || cand;
-                if (resolveRootPin && hyd.pin.is_repin && hyd.pin.root_pin_id && hyd.pin.root_pin_id !== cand.pin_id && hyd.pin.root_age_verified === true) {
-                  const rootId = hyd.pin.root_pin_id;
-                  const mergedRoot = mergeCandidatePinRecords(
-                    candidateMap.get(rootId),
-                    mergeCandidatePinRecords(existingCand, {
-                      ...hyd.pin,
-                      pin_id: rootId,
-                      root_pin_id: rootId,
-                      unwrapped_from_repin_id: cand.pin_id
-                    })
-                  );
-                  mergedRoot.pin_id = rootId;
-                  mergedRoot.root_pin_id = rootId;
-                  mergedRoot.root_age_verified = true;
-                  candidateMap.set(rootId, mergedRoot);
-                  candidateMap.delete(cand.pin_id);
-                  unwrappedIds.add(rootId);
-                  funnel.board_repins_unwrapped++;
-                } else {
-                  ingestCandidate(hyd.pin);
-                }
-              }
-              hydratedDone++;
-              funnel.hydrated_pins++;
-              if (hydratedDone % reportEvery === 0 || hydratedDone === orderedForHydration.length) {
-                const pct = 48 + Math.round((hydratedDone / Math.max(1, orderedForHydration.length)) * 34);
-                await reportProgress(
-                  'hydrating_pins',
-                  `${progressLabelPrefix} (${hydratedDone}/${orderedForHydration.length} pins)…`,
-                  pct,
-                  {
-                    scrolled_pins: candidateMap.size,
-                    matched_repins: funnel.matched_repins,
-                    hydrated_pins: funnel.hydrated_pins,
-                    candidates_discovered: candidateMap.size
-                  }
-                );
-              }
-              return Boolean(hyd.ok);
-            } catch (hydErr) {
-              if (isAbortError(hydErr, signal)) {
-                cancelledTriggered = true;
-                stopReason = 'operator_cancelled';
-                return false;
-              }
-              if (isRateLimitError(hydErr)) {
-                hydrationRateLimited = true;
-                salvageTriggered = true;
-                stopReason = stopReason || 'rate_limited_hydration';
-                return false;
-              }
-              throw hydErr;
-            }
-          };
-
-          const breakerState = router.discoveryBreaker?.state || 'CLOSED';
-          const needsHalfOpenSerialProbe = salvageTriggered || breakerState === 'OPEN' || breakerState === 'HALF_OPEN';
-
-          if (needsHalfOpenSerialProbe) {
-            // CRITICAL HALF_OPEN GUARD: Hydrate orderedForHydration[0] serially as a single probe
-            // so concurrent Semaphore workers cannot trip probeInFlight === true into CircuitBreakerOpenError!
-            const probeOk = await hydrateSingleCandidate(orderedForHydration[0]);
-            const probeRecoveredBreaker = router.discoveryBreaker?.state === 'CLOSED';
-            if ((probeOk || probeRecoveredBreaker) && !hydrationRateLimited && !cancelledTriggered && !signal?.aborted && orderedForHydration.length > 1) {
-              const salvageSem = new Semaphore(3);
-              await Promise.all(
-                orderedForHydration.slice(1).map((cand) => salvageSem.run(() => hydrateSingleCandidate(cand)))
-              );
-            }
-          } else {
-            const normalSem = new Semaphore(8);
-            await Promise.all(
-              orderedForHydration.map((cand) => normalSem.run(() => hydrateSingleCandidate(cand)))
-            );
-          }
-        }
-      }
+      const { unwrappedIds } = await runPinHydrationBatch(orderedForHydration, {
+        progressPrefix: progressLabelPrefix,
+        maxConcurrency: isShardMode ? 6 : 8,
+        startPct: 48,
+        spanPct: 34
+      });
 
       for (const pid of new Set([...targetIds, ...unwrappedIds])) {
         const cur = candidateMap.get(pid);
@@ -1618,10 +1721,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     // Final re-scoring + HARD GATE BEFORE PERSISTENCE:
     // Discard in memory any candidate that lacks a verified root `created_at_pinterest`,
     // falls outside `[min_age_days, max_age_days]`, fails `Min Re-pins`, or fails optional `Min Saves > 0`.
-    const minAge = Number(settings.qualification?.min_age_days ?? 0);
-    const maxAge = Number(settings.qualification?.max_age_days ?? 30);
-    const allEvaluated = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
-    const verifiedQualified = allEvaluated
+    const evaluateQualifiedWinners = (evaluatedList) => evaluatedList
       .filter((c) => {
         if (!c || c.qualified !== true) return false;
         if (!c.created_at_pinterest) return false;
@@ -1631,6 +1731,49 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         return true;
       })
       .sort((a, b) => (Number(b.repin_count ?? 0) - Number(a.repin_count ?? 0)) || (Number(a.age_days ?? 9999) - Number(b.age_days ?? 9999)));
+
+    let allEvaluated = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
+    let verifiedQualified = evaluateQualifiedWinners(allEvaluated);
+
+    // WAVE 6G PASS 2 — Guaranteed Winner Hydration:
+    // Hydrate any qualified winners that did not yet receive `PinResource/get` in Pass 1 so they carry
+    // full `visual_annotations`, `share_count`, `raw_creation_method`, and verified root creation age.
+    const unhydratedWinners = verifiedQualified.filter(
+      (c) => !attemptedHydrationPinIds.has(c.pin_id) && (!c.is_hydrated || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0)
+    );
+    if (
+      unhydratedWinners.length > 0 &&
+      !cancelledTriggered &&
+      !signal?.aborted &&
+      !salvageTriggered &&
+      !hydrationRateLimitedGlobal
+    ) {
+      const winnerPassCap = Math.min(
+        isShardMode ? 120 : 250,
+        Math.max(remainingPinHydrations, isShardMode ? 80 : 150)
+      );
+      const winnerBatch = unhydratedWinners.slice(0, winnerPassCap);
+      if (winnerBatch.length > 0) {
+        const winnerPassRes = await runPinHydrationBatch(winnerBatch, {
+          progressPrefix: '3. Hydrating verified Golden Pin annotations',
+          maxConcurrency: isShardMode ? 6 : 8,
+          startPct: 86,
+          spanPct: 6
+        });
+        const touchedWinnerIds = new Set([
+          ...winnerBatch.map((c) => c.pin_id),
+          ...winnerPassRes.unwrappedIds
+        ]);
+        for (const pid of touchedWinnerIds) {
+          const cur = candidateMap.get(pid);
+          if (cur) {
+            candidateMap.set(pid, scoreNewbornCandidate(cur, settings, { nowMs }));
+          }
+        }
+        allEvaluated = Array.from(candidateMap.values()).map((c) => scoreNewbornCandidate(c, settings, { nowMs }));
+        verifiedQualified = evaluateQualifiedWinners(allEvaluated);
+      }
+    }
 
     const discardedInMemoryCount = Math.max(0, allEvaluated.length - verifiedQualified.length);
     funnel.scrolled_pins = Math.max(funnel.scrolled_pins, allEvaluated.length);
@@ -1782,6 +1925,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
     });
 
+    const uniqueSurfacesExecuted = Array.from(new Set(surfacesExecuted));
+
     if (sql && typeof sql === 'function') {
       if (isShardMode) {
         if (runRowId !== null) {
@@ -1797,6 +1942,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             verified_winners: qualifiedCount,
             golden_pins_count: goldenPinsCount,
             rookie_creators_count: persistedRookies.length,
+            surfaces_used: uniqueSurfacesExecuted,
             cookie_mode: router.effectiveMode,
             completed_at: new Date().toISOString()
           });
@@ -1812,6 +1958,14 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
               auto_watchlisted_count = auto_watchlisted_count + ${autoWatchlistedCount},
               auto_promoted_count = auto_promoted_count + ${autoPromotedCount},
               snowball_hops_executed = GREATEST(snowball_hops_executed, ${snowballHopsExecuted}),
+              surfaces_used = COALESCE((
+                SELECT jsonb_agg(DISTINCT elem)
+                FROM (
+                  SELECT jsonb_array_elements(COALESCE(surfaces_used, '[]'::jsonb)) AS elem
+                  UNION
+                  SELECT jsonb_array_elements(${JSON.stringify(uniqueSurfacesExecuted)}::jsonb) AS elem
+                ) merged_run_surfaces
+              ), '[]'::jsonb),
               cookie_mode = ${router.effectiveMode},
               progress_stage = 'running',
               progress_detail = ${`Fleet shard ${numericShardIndex + 1}/${numericShardTotal} finished (${funnel.scrolled_pins} scrolled -> ${qualifiedCount} winners).`},
@@ -1841,7 +1995,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
               progress_detail = ${finalProgressDetail},
               progress_pct = 100,
               error_message = NULL,
-              surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
+              surfaces_used = ${JSON.stringify(uniqueSurfacesExecuted)}::jsonb,
               cookie_mode = ${router.effectiveMode},
               candidates_discovered = ${funnel.scrolled_pins},
               candidates_qualified = ${qualifiedCount},
@@ -1900,7 +2054,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       resolve_root_pin: resolveRootPin,
       profile: profile ? { id: profile.id, slug: profile.slug, name: profile.name } : null,
       cookie_mode: router.effectiveMode,
-      surfaces_executed: surfacesExecuted,
+      surfaces_executed: uniqueSurfacesExecuted,
       snowball_hops_executed: snowballHopsExecuted,
       idea_page: runIdeaPage,
       funnel: { ...funnel, verified_winners: qualifiedCount },
@@ -1960,7 +2114,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             progress_stage = 'cancelled',
             progress_detail = 'Cancelled by operator.',
             error_message = NULL,
-            surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
+            surfaces_used = ${JSON.stringify(Array.from(new Set(surfacesExecuted)))}::jsonb,
             cookie_mode = ${router.effectiveMode},
             telemetry = ${JSON.stringify(sanitizeForJsonb({
               router: router.getRedactedTelemetry(),
@@ -1978,7 +2132,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             progress_stage = 'failed',
             progress_detail = ${safeErrMsg},
             error_message = ${safeErrMsg},
-            surfaces_used = ${JSON.stringify(surfacesExecuted)}::jsonb,
+            surfaces_used = ${JSON.stringify(Array.from(new Set(surfacesExecuted)))}::jsonb,
             cookie_mode = ${router.effectiveMode},
             telemetry = ${JSON.stringify(sanitizeForJsonb({
               router: router.getRedactedTelemetry(),

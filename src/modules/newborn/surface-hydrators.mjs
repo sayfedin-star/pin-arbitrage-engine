@@ -170,8 +170,7 @@ export async function hydratePinZeroCookie(
   const dataParam = encodeURIComponent(JSON.stringify({
     options: {
       id: cleanId,
-      field_set_key: 'detailed',
-      fetch_visual_search_objects: false
+      field_set_key: 'detailed'
     },
     context: {}
   }));
@@ -186,8 +185,8 @@ export async function hydratePinZeroCookie(
 
   let rawPin = res.data?.resource_response?.data || res.data?.data || null;
 
-  // Fallback to zero-cookie SSR __PWS_INITIAL_PROPS__ if PinResource failed
-  if ((!rawPin || typeof rawPin !== 'object') && !signal?.aborted) {
+  // Fallback to zero-cookie SSR __PWS_INITIAL_PROPS__ if PinResource failed (never double-fire on HTTP 429)
+  if ((!rawPin || typeof rawPin !== 'object') && res.status !== 429 && !signal?.aborted) {
     const ssrRes = await router.requestJson(`https://www.pinterest.com/pin/${cleanId}/`, {
       endpointKey: 'ssr_page_zero_cookie',
       isDocumentHtml: true,

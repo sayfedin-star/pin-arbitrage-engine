@@ -184,9 +184,15 @@ export function getNewbornClientAppScript() {
         overview: null,
         candidates: [],
         candidatesTotal: 0,
+        candidatesPageSize: 100,
+        candidatesOffset: 0,
+        isExportingCsv: false,
         selectedPinIds: [],
         filters: {
           linklessOnly: false,
+          surface: '',
+          creationMethod: '',
+          repinFilter: '',
           annotation: '',
           search: '',
           sort: 'repins'
@@ -806,7 +812,8 @@ export function getNewbornClientAppScript() {
                 home_feed: {
                   enabled: Boolean(this.huntPaths.home_feed.enabled),
                   target_pins: Number(this.huntPaths.home_feed.target_pins) || 250
-                }
+                },
+                related: { enabled: false }
               }
             };
             const { data } = await this.apiJson('/api/newborn/cluster/hunt', {
@@ -861,7 +868,7 @@ export function getNewbornClientAppScript() {
           if (this.isRunActiveStatus(run.status)) {
             this.startPollingRun(this.activeRunId);
           }
-          await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
+          await Promise.all([this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
           this.refreshIcons();
         },
 
@@ -914,13 +921,13 @@ export function getNewbornClientAppScript() {
           this.activeRunId = null;
           this.selectedPinIds = [];
           this.filters.annotation = '';
-          await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
+          await Promise.all([this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
           this.refreshIcons();
         },
 
         toggleFilterFlag(key) {
           this.filters[key] = !this.filters[key];
-          this.loadCandidates();
+          this.loadCandidates(true);
         },
 
         selectAnnotationFilter(tag) {
@@ -931,26 +938,89 @@ export function getNewbornClientAppScript() {
           } else {
             this.filters.annotation = clean;
           }
-          this.loadCandidates();
+          this.loadCandidates(true);
         },
 
-        async loadCandidates() {
+        buildCandidateFilterParams({ limit = null, offset = null } = {}) {
+          const params = new URLSearchParams();
+          if (this.activeRunId) params.set('run_id', String(this.activeRunId));
+          if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
+          if (this.filters.linklessOnly) params.set('linkless_only', 'true');
+          if (this.filters.surface) params.set('surface', String(this.filters.surface));
+          if (this.filters.creationMethod) params.set('creation_method', String(this.filters.creationMethod));
+          if (this.filters.repinFilter) params.set('repin_filter', String(this.filters.repinFilter));
+          if (this.filters.annotation && this.filters.annotation.trim()) params.set('annotation', this.filters.annotation.trim());
+          if (this.filters.search && this.filters.search.trim()) params.set('search', this.filters.search.trim());
+          params.set('sort', this.filters.sort || 'repins');
+          const effLimit = Math.min(500, Math.max(1, Number(limit ?? this.candidatesPageSize) || 100));
+          const effOffset = Math.max(0, Number(offset ?? this.candidatesOffset) || 0);
+          params.set('limit', String(effLimit));
+          params.set('offset', String(effOffset));
+          return params;
+        },
+
+        candidatesRangeStart() {
+          return this.candidatesTotal > 0 ? (Number(this.candidatesOffset || 0) + 1) : 0;
+        },
+
+        candidatesRangeEnd() {
+          return Math.min(Number(this.candidatesTotal || 0), Number(this.candidatesOffset || 0) + this.candidates.length);
+        },
+
+        hasPrevCandidatesPage() {
+          return Number(this.candidatesOffset || 0) > 0;
+        },
+
+        hasNextCandidatesPage() {
+          return (Number(this.candidatesOffset || 0) + Number(this.candidatesPageSize || 100)) < Number(this.candidatesTotal || 0);
+        },
+
+        prevCandidatesPage() {
+          if (!this.hasPrevCandidatesPage()) return;
+          this.candidatesOffset = Math.max(0, Number(this.candidatesOffset || 0) - Number(this.candidatesPageSize || 100));
+          this.selectedPinIds = [];
+          return this.loadCandidates(false);
+        },
+
+        nextCandidatesPage() {
+          if (!this.hasNextCandidatesPage()) return;
+          this.candidatesOffset = Number(this.candidatesOffset || 0) + Number(this.candidatesPageSize || 100);
+          this.selectedPinIds = [];
+          return this.loadCandidates(false);
+        },
+
+        changeCandidatesPageSize(nextSize = null) {
+          if (nextSize != null) this.candidatesPageSize = Number(nextSize) || 100;
+          this.candidatesPageSize = Math.min(500, Math.max(10, Number(this.candidatesPageSize) || 100));
+          this.selectedPinIds = [];
+          return this.loadCandidates(true);
+        },
+
+        async loadCandidates(resetPage = false) {
+          if (resetPage === true) {
+            this.candidatesOffset = 0;
+            this.selectedPinIds = [];
+          }
           const signal = this._nextAbortSignal('candidates');
           this.isLoading = true;
           try {
-            const params = new URLSearchParams();
-            if (this.activeRunId) params.set('run_id', String(this.activeRunId));
-            if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
-            if (this.filters.linklessOnly) params.set('linkless_only', 'true');
-            if (this.filters.annotation && this.filters.annotation.trim()) params.set('annotation', this.filters.annotation.trim());
-            if (this.filters.search && this.filters.search.trim()) params.set('search', this.filters.search.trim());
-            params.set('sort', this.filters.sort || 'repins');
-            params.set('limit', '200');
-
+            const params = this.buildCandidateFilterParams();
             const { data } = await this.apiJson('/api/newborn/candidates?' + params.toString(), signal ? { signal } : {});
             if (signal && signal.aborted) return;
             this.candidates = Array.isArray(data?.candidates) ? data.candidates : [];
             this.candidatesTotal = Number(data?.total ?? this.candidates.length);
+            if (this.candidates.length === 0 && this.candidatesOffset > 0 && this.candidatesTotal > 0) {
+              const pageSize = Math.max(1, Number(this.candidatesPageSize) || 100);
+              const clampedOffset = Math.max(0, Math.floor((this.candidatesTotal - 1) / pageSize) * pageSize);
+              if (clampedOffset !== this.candidatesOffset) {
+                this.candidatesOffset = clampedOffset;
+                const retryParams = this.buildCandidateFilterParams();
+                const retryRes = await this.apiJson('/api/newborn/candidates?' + retryParams.toString(), signal ? { signal } : {});
+                if (signal && signal.aborted) return;
+                this.candidates = Array.isArray(retryRes?.data?.candidates) ? retryRes.data.candidates : [];
+                this.candidatesTotal = Number(retryRes?.data?.total ?? this.candidates.length);
+              }
+            }
           } catch (err) {
             if (this._isAbortError(err, signal)) return;
             this.toast('Failed to load Golden Pins: ' + err.message, 'error');
@@ -1070,29 +1140,44 @@ export function getNewbornClientAppScript() {
 
             this.candidates = this.candidates.map((c) => {
               const r = resMap.get(String(c.pin_id));
-              if (!r || !r.fetched) return c;
+              if (!r || (!r.fetched && !r.is_hydrated)) return c;
               return {
                 ...c,
                 effective_creator_username: r.username || c.effective_creator_username,
-                effective_creator_followers: r.effective_creator_followers,
-                creator_monthly_reach: r.creator_monthly_reach,
-                creator_profile_views: r.creator_profile_views,
-                creator_pin_count: r.creator_pin_count
+                effective_creator_followers: r.fetched ? r.effective_creator_followers : c.effective_creator_followers,
+                creator_monthly_reach: r.fetched ? r.creator_monthly_reach : c.creator_monthly_reach,
+                creator_profile_views: r.fetched ? r.creator_profile_views : c.creator_profile_views,
+                creator_pin_count: r.fetched ? r.creator_pin_count : c.creator_pin_count,
+                title: r.title || c.title,
+                board_name: r.board_name || c.board_name,
+                share_count: r.share_count != null ? r.share_count : c.share_count,
+                raw_creation_method: r.raw_creation_method || c.raw_creation_method,
+                is_repin: typeof r.is_repin === 'boolean' ? (Boolean(c.is_repin) || r.is_repin) : c.is_repin,
+                is_hydrated: Boolean(c.is_hydrated || r.is_hydrated),
+                visual_annotations: Array.isArray(r.visual_annotations) && r.visual_annotations.length > 0 ? r.visual_annotations : c.visual_annotations
               };
             });
 
             if (refreshDossier && this.dossierData && this.dossierData.candidate) {
               const dr = resMap.get(String(this.dossierData.candidate.pin_id));
-              if (dr && dr.fetched) {
+              if (dr && (dr.fetched || dr.is_hydrated)) {
+                const dc = this.dossierData.candidate;
                 this.dossierData = {
                   ...this.dossierData,
                   candidate: {
-                    ...this.dossierData.candidate,
-                    effective_creator_username: dr.username || this.dossierData.candidate.effective_creator_username,
-                    effective_creator_followers: dr.effective_creator_followers,
-                    creator_monthly_reach: dr.creator_monthly_reach,
-                    creator_profile_views: dr.creator_profile_views,
-                    creator_pin_count: dr.creator_pin_count
+                    ...dc,
+                    effective_creator_username: dr.username || dc.effective_creator_username,
+                    effective_creator_followers: dr.fetched ? dr.effective_creator_followers : dc.effective_creator_followers,
+                    creator_monthly_reach: dr.fetched ? dr.creator_monthly_reach : dc.creator_monthly_reach,
+                    creator_profile_views: dr.fetched ? dr.creator_profile_views : dc.creator_profile_views,
+                    creator_pin_count: dr.fetched ? dr.creator_pin_count : dc.creator_pin_count,
+                    title: dr.title || dc.title,
+                    board_name: dr.board_name || dc.board_name,
+                    share_count: dr.share_count != null ? dr.share_count : dc.share_count,
+                    raw_creation_method: dr.raw_creation_method || dc.raw_creation_method,
+                    is_repin: typeof dr.is_repin === 'boolean' ? (Boolean(dc.is_repin) || dr.is_repin) : dc.is_repin,
+                    is_hydrated: Boolean(dc.is_hydrated || dr.is_hydrated),
+                    visual_annotations: Array.isArray(dr.visual_annotations) && dr.visual_annotations.length > 0 ? dr.visual_annotations : dc.visual_annotations
                   }
                 };
               }
@@ -1214,7 +1299,8 @@ export function getNewbornClientAppScript() {
                 home_feed: {
                   enabled: Boolean(this.huntPaths.home_feed.enabled),
                   target_pins: Number(this.huntPaths.home_feed.target_pins) || 250
-                }
+                },
+                related: { enabled: false }
               }
             };
             const { data } = await this.apiJson('/api/newborn/discover', {
@@ -1417,7 +1503,7 @@ export function getNewbornClientAppScript() {
                 await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
               } else {
                 this.activeRunId = Number(mergedRun.id);
-                await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
+                await Promise.all([this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
               }
 
               const f = this.getRunFunnel(mergedRun);
@@ -1477,19 +1563,21 @@ export function getNewbornClientAppScript() {
           return '"' + safe.replace(/"/g, '""') + '"';
         },
 
-        exportCsv() {
-          if (!Array.isArray(this.candidates) || this.candidates.length === 0) return;
+        exportCsv(rowsOverride = null) {
+          const list = Array.isArray(rowsOverride) ? rowsOverride : this.candidates;
+          if (!Array.isArray(list) || list.length === 0) return;
           const isLegacyRoot = Boolean(this.settingsDraft?.qualification?.resolve_root_pin);
           const headers = [
             'Pin ID', 'Title', 'Pinterest URL', 'Destination Domain', 'No Link',
             isLegacyRoot ? 'Root Age (Days)' : 'Pin Age (Days)',
             isLegacyRoot ? 'Root Created UTC' : 'Pin Created UTC',
-            'Re-pins', 'Re-pins/day', 'Saves',
+            'Re-pins', 'Re-pins/day', 'Saves', 'Shares',
+            'Creation Method', 'Is Repin',
             'Pin Annotations', 'Discovery Source', 'Matched Queries', 'Board Name',
             'Account Username', 'Total Audience', 'Impressions'
           ];
           const rows = [headers.map((h) => this.sanitizeCsvCell(h)).join(',')];
-          for (const p of this.candidates) {
+          for (const p of list) {
             const tags = this.extractPinAnnotationNames(p).join('; ');
             const mq = Array.isArray(p.matched_queries) ? p.matched_queries.join('; ') : '';
             rows.push([
@@ -1503,8 +1591,11 @@ export function getNewbornClientAppScript() {
               p.repin_count != null ? p.repin_count : '',
               p.repin_per_day != null ? p.repin_per_day : '',
               p.save_count != null ? p.save_count : '',
+              p.share_count != null ? p.share_count : '',
+              p.raw_creation_method || '',
+              p.is_repin ? 'YES' : 'NO',
               tags,
-              this.formatSurfaceLabel(p.first_surface),
+              this.formatSurfaceLabel(p.run_surface || p.first_surface),
               mq,
               p.board_name || '',
               p.effective_creator_username ? ('@' + p.effective_creator_username) : '',
@@ -1524,8 +1615,41 @@ export function getNewbornClientAppScript() {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }
-          this.toast('Exported ' + this.candidates.length + ' Golden Pins to CSV', 'success');
+          this.toast('Exported ' + list.length + ' Golden Pins to CSV', 'success');
           return csvContent;
+        },
+
+        async exportAllCsv() {
+          if (this.isExportingCsv) return;
+          const total = Number(this.candidatesTotal || this.candidates.length || 0);
+          if (total === 0) return;
+          if (total <= this.candidates.length) {
+            return this.exportCsv();
+          }
+          const signal = this._nextAbortSignal('csv_export');
+          this.isExportingCsv = true;
+          try {
+            const cap = Math.min(total, 10000);
+            const allRows = [];
+            for (let offset = 0; offset < cap; offset += 500) {
+              const params = this.buildCandidateFilterParams({ limit: 500, offset });
+              const { data } = await this.apiJson('/api/newborn/candidates?' + params.toString(), signal ? { signal } : {});
+              if (signal && signal.aborted) return;
+              const batch = Array.isArray(data?.candidates) ? data.candidates : [];
+              allRows.push(...batch);
+              if (batch.length < 500) break;
+            }
+            if (allRows.length > 0) {
+              return this.exportCsv(allRows);
+            }
+          } catch (err) {
+            if (this._isAbortError(err, signal)) return;
+            this.toast('Export failed: ' + err.message, 'error');
+          } finally {
+            if (!signal || !signal.aborted) {
+              this.isExportingCsv = false;
+            }
+          }
         },
 
         async stagePins(pinIds, nextStage) {
@@ -1894,7 +2018,23 @@ export function getNewbornClientAppScript() {
             growing_trends: 'Trends',
             zero_query_popular: 'Popular'
           };
-          return map[String(surface || '').toLowerCase()] || 'Search';
+          const clean = String(surface || '').trim();
+          return map[clean.toLowerCase()] || (clean || 'Unknown');
+        },
+
+        formatCreationMethodLabel(method) {
+          const clean = String(method || '').trim().toLowerCase();
+          if (!clean) return '';
+          const map = {
+            share_extension_ios: 'iOS Share',
+            share_extension_android: 'Android Share',
+            photos: 'Photos',
+            pin_scheduling: 'Scheduled',
+            uploaded: 'Uploaded',
+            bookmarklet: 'Bookmarklet'
+          };
+          if (map[clean]) return map[clean];
+          return clean.split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         },
 
         formatRunSeedLabel(run) {

@@ -190,15 +190,19 @@ export function getNewbornCandidatesAndRookiesHtml() {
                 No Link / Linkless
               </button>
 
+              <select x-model="filters.surface" @change="loadCandidates(true)" aria-label="Filter by discovery source" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Source: All</option><option value="pin_serp_capsules">Search</option><option value="board_more_ideas">Find More Ideas</option><option value="ideas_feeds">Idea Page</option><option value="home_feed">Home Feed</option><option value="related_pin_snowball">Related</option><option value="board_feed">Board</option></select>
+              <select x-model="filters.creationMethod" @change="loadCandidates(true)" aria-label="Filter by creation method" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Method: All</option><option value="uploaded">Uploaded</option><option value="photos">Photos</option><option value="pin_scheduling">Scheduled</option><option value="share_extension_ios">iOS Share</option><option value="share_extension_android">Android Share</option><option value="bookmarklet">Bookmarklet</option></select>
+              <select x-model="filters.repinFilter" @change="loadCandidates(true)" aria-label="Filter by pin type" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Type: All</option><option value="original">Original</option><option value="repin">Repin</option></select>
+
               <input type="search"
                      x-model="filters.search"
-                     @input.debounce.300ms="loadCandidates()"
+                     @input.debounce.300ms="loadCandidates(true)"
                      aria-label="Filter results by title, domain, or board"
                      placeholder="Filter title, domain..."
                      class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-800 dark:text-[#FAFAFA] w-36 sm:w-44 focus:outline-none focus:ring-2 focus:ring-rose-500" />
 
               <select x-model="filters.sort"
-                      @change="loadCandidates()"
+                      @change="loadCandidates(true)"
                       aria-label="Sort Golden Pins"
                       class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
                 <option value="repins">Sort: Re-pins (High -&gt; Low)</option>
@@ -206,14 +210,15 @@ export function getNewbornCandidatesAndRookiesHtml() {
                 <option value="fresh">Sort: Age (Youngest)</option>
                 <option value="repin_per_day">Sort: Re-pins / day</option>
                 <option value="saves">Sort: Saves</option>
+                <option value="shares">Sort: Pin Shares (High -&gt; Low)</option>
               </select>
 
               <button type="button"
-                      @click="exportCsv()"
-                      :disabled="candidates.length === 0"
+                      @click="exportAllCsv()"
+                      :disabled="candidates.length === 0 || isExportingCsv"
                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:bg-slate-50 dark:hover:bg-[#27272A] disabled:opacity-50 text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                 <i data-lucide="download" class="w-3.5 h-3.5 text-slate-500" aria-hidden="true"></i>
-                <span>Export CSV</span>
+                <span x-text="isExportingCsv ? 'Exporting...' : (candidatesTotal > candidates.length ? ('Export All (' + candidatesTotal + ')') : 'Export CSV')">Export CSV</span>
               </button>
             </div>
           </div>
@@ -280,7 +285,8 @@ export function getNewbornCandidatesAndRookiesHtml() {
 
         <!-- Clean Golden Pins Table (High-Signal Core Metrics Only) -->
         <template x-if="candidates.length > 0">
-          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-xs overflow-x-auto">
+          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-xs overflow-hidden">
+            <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
               <thead>
                 <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#121215] text-[11px] uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
@@ -359,6 +365,12 @@ export function getNewbornCandidatesAndRookiesHtml() {
                               <span>Pinterest</span>
                               <i data-lucide="external-link" class="w-3 h-3" aria-hidden="true"></i>
                             </a>
+                            <template x-if="formatCreationMethodLabel(pin.raw_creation_method)">
+                              <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA] text-[10px] font-medium" x-text="formatCreationMethodLabel(pin.raw_creation_method)"></span>
+                            </template>
+                            <template x-if="pin.is_repin">
+                              <span class="px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 text-[10px] font-semibold">Repin</span>
+                            </template>
                           </div>
                         </div>
                       </div>
@@ -383,6 +395,10 @@ export function getNewbornCandidatesAndRookiesHtml() {
                         <div class="text-[10px] text-slate-400 mt-0.5"
                              x-text="'Saves: ' + formatNullableCount(pin.save_count)"></div>
                       </template>
+                      <template x-if="pin.share_count != null">
+                        <div class="text-[10px] text-slate-400"
+                             x-text="'Shares: ' + formatNullableCount(pin.share_count)"></div>
+                      </template>
                     </td>
 
                     <!-- Pin Annotations (Extracted from pin_join) -->
@@ -405,7 +421,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
                     <td class="py-3 px-3 whitespace-nowrap">
                       <div class="flex items-center gap-1 flex-wrap">
                         <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[11px] font-semibold"
-                              x-text="formatSurfaceLabel(pin.first_surface)"></span>
+                              x-text="formatSurfaceLabel(pin.run_surface || pin.first_surface)"></span>
                         <template x-if="(pin.cluster_hit_count || (pin.matched_queries ? pin.matched_queries.length : 0)) >= 2">
                           <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-bold"
                                 :title="'Matched cluster keywords: ' + (pin.matched_queries || []).join(', ')"
@@ -419,6 +435,9 @@ export function getNewbornCandidatesAndRookiesHtml() {
                            class="block text-[11px] text-slate-500 hover:text-rose-600 truncate max-w-[140px] mt-1"
                            :title="pin.board_name"
                            x-text="pin.board_name"></a>
+                      </template>
+                      <template x-if="pin.board_name && !formatBoardUrl(pin.board_url)">
+                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[140px] mt-1" :title="pin.board_name" x-text="pin.board_name"></div>
                       </template>
                     </td>
 
@@ -477,6 +496,15 @@ export function getNewbornCandidatesAndRookiesHtml() {
                 </template>
               </tbody>
             </table>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#121215] text-xs text-slate-600 dark:text-[#A1A1AA]">
+              <span class="font-mono tabular-nums" x-text="'Showing ' + candidatesRangeStart() + '–' + candidatesRangeEnd() + ' of ' + candidatesTotal"></span>
+              <div class="flex items-center gap-2">
+                <select x-model.number="candidatesPageSize" @change="changeCandidatesPageSize()" aria-label="Rows per page" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="50">50 / page</option><option value="100">100 / page</option><option value="200">200 / page</option><option value="500">500 / page</option></select>
+                <button type="button" @click="prevCandidatesPage()" :disabled="!hasPrevCandidatesPage()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] disabled:opacity-40 text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><i data-lucide="chevron-left" class="w-3.5 h-3.5" aria-hidden="true"></i><span>Prev</span></button>
+                <button type="button" @click="nextCandidatesPage()" :disabled="!hasNextCandidatesPage()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] disabled:opacity-40 text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><span>Next</span><i data-lucide="chevron-right" class="w-3.5 h-3.5" aria-hidden="true"></i></button>
+              </div>
+            </div>
           </div>
         </template>
       </section>
@@ -680,5 +708,5 @@ export function getNewbornCandidatesAndRookiesHtml() {
         </template>
       </section>
     </template>
-  `;
+  `.replace(/\n[ \t]+/g, '\n');
 }

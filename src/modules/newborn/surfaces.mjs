@@ -7,6 +7,8 @@
  */
 
 export {
+  decodeHtmlEntities,
+  extractPinAnnotationsDetailed,
   extractUsernameFromProfileUrl,
   formatPinterestBoardUrl,
   boardMatchesSeedQuery,

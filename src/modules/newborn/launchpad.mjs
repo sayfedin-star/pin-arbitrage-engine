@@ -29,6 +29,7 @@ import {
   hydrateUserZeroCookie
 } from './surface-hydrators.mjs';
 import {
+  classifyPinProvenance,
   scoreNewbornCandidate,
   scoreRookieCreator
 } from './intelligence.mjs';
@@ -298,7 +299,7 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     ...(fetchImpl ? { fetchImpl } : {})
   });
 
-  // 1. Ensure each candidate has a creator username (hydrate via zero-cookie PinResource only if missing)
+  // 1. Ensure each candidate has a creator username AND full pin hydration (zero-cookie PinResource if missing or unhydrated)
   const pinSem = new Semaphore(6);
   const rootPinCache = new Map();
   const workingRows = await Promise.all(
@@ -306,8 +307,8 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       const existingUsername = normalizePinterestUsername(
         row.effective_creator_username || row.origin_creator_username || row.pinner_username || ''
       );
-      if (existingUsername) {
-        return { ...row, _resolved_username: existingUsername };
+      if (existingUsername && row.is_hydrated) {
+        return { ...row, _resolved_username: existingUsername, _newly_hydrated: false };
       }
       const hyd = await hydratePinZeroCookie(String(row.pin_id), router, {
         rootPinCache,
@@ -317,11 +318,11 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       if (hyd.ok && hyd.pin) {
         const merged = mergeCandidatePinRecords(row, hyd.pin);
         const foundUser = normalizePinterestUsername(
-          merged.effective_creator_username || merged.origin_creator_username || merged.pinner_username || ''
+          merged.effective_creator_username || merged.origin_creator_username || merged.pinner_username || existingUsername || ''
         );
-        return { ...merged, _resolved_username: foundUser || null };
+        return { ...merged, _resolved_username: foundUser || null, _newly_hydrated: true };
       }
-      return { ...row, _resolved_username: null };
+      return { ...row, _resolved_username: existingUsername || null, _newly_hydrated: false };
     }))
   );
 
@@ -341,7 +342,7 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     }))
   );
 
-  // 3. Persist updated account metrics onto newborn_candidates in a single batched UPDATE and stage rookies
+  // 3. Persist updated account & hydrated pin metadata onto newborn_candidates in a single batched UPDATE and stage rookies
   const results = [];
   const scoredRookies = [];
   const updatesToPersist = [];
@@ -349,7 +350,34 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
   for (const row of workingRows) {
     const uname = row._resolved_username;
     const u = uname ? userMap.get(uname) : null;
+    const hydratedAnnotations = Array.isArray(row.visual_annotations) ? row.visual_annotations : [];
+    const hydratedShareCount = row.share_count != null ? Math.round(Number(row.share_count)) : null;
+
     if (!u) {
+      const resolvedProv = row._newly_hydrated
+        ? (classifyPinProvenance(row)?.upload_provenance || row.upload_provenance || null)
+        : (row.upload_provenance || null);
+      if (row._newly_hydrated) {
+        updatesToPersist.push({
+          pin_id: String(row.pin_id),
+          effective_creator_username: uname || row.effective_creator_username || null,
+          effective_creator_followers: row.effective_creator_followers ?? null,
+          creator_monthly_reach: row.creator_monthly_reach ?? null,
+          creator_profile_views: row.creator_profile_views ?? null,
+          creator_pin_count: row.creator_pin_count ?? null,
+          is_rookie_outlier: Boolean(row.is_rookie_outlier),
+          outlier_ratio: row.outlier_ratio != null ? Number(row.outlier_ratio) : null,
+          title: row.title || null,
+          board_name: row.board_name || null,
+          board_url: row.board_url || null,
+          share_count: hydratedShareCount,
+          raw_creation_method: row.raw_creation_method || null,
+          upload_provenance: resolvedProv,
+          is_repin: Boolean(row.is_repin),
+          is_hydrated: Boolean(row.is_hydrated),
+          visual_annotations: hydratedAnnotations
+        });
+      }
       results.push({
         pin_id: String(row.pin_id),
         username: uname || null,
@@ -357,7 +385,15 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
         effective_creator_followers: row.effective_creator_followers ?? null,
         creator_monthly_reach: row.creator_monthly_reach ?? null,
         creator_profile_views: row.creator_profile_views ?? null,
-        creator_pin_count: row.creator_pin_count ?? null
+        creator_pin_count: row.creator_pin_count ?? null,
+        title: row.title || null,
+        board_name: row.board_name || null,
+        share_count: hydratedShareCount,
+        raw_creation_method: row.raw_creation_method || null,
+        upload_provenance: resolvedProv,
+        is_repin: Boolean(row.is_repin),
+        is_hydrated: Boolean(row.is_hydrated),
+        visual_annotations: hydratedAnnotations
       });
       continue;
     }
@@ -371,6 +407,7 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       creator_pin_count: u.pin_count != null ? Math.round(Number(u.pin_count)) : (row.creator_pin_count ?? null)
     };
     const rescored = scoreNewbornCandidate(enriched, settings, { nowMs });
+    const resolvedUploadProvenance = rescored.upload_provenance || enriched.upload_provenance || null;
 
     updatesToPersist.push({
       pin_id: String(row.pin_id),
@@ -380,7 +417,16 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       creator_profile_views: enriched.creator_profile_views,
       creator_pin_count: enriched.creator_pin_count,
       is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
-      outlier_ratio: rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null
+      outlier_ratio: rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null,
+      title: enriched.title || null,
+      board_name: enriched.board_name || null,
+      board_url: enriched.board_url || null,
+      share_count: hydratedShareCount,
+      raw_creation_method: enriched.raw_creation_method || null,
+      upload_provenance: resolvedUploadProvenance,
+      is_repin: Boolean(enriched.is_repin),
+      is_hydrated: Boolean(enriched.is_hydrated),
+      visual_annotations: hydratedAnnotations
     });
 
     results.push({
@@ -396,7 +442,15 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       creator_pin_count: enriched.creator_pin_count,
       board_count: u.board_count ?? null,
       is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
-      outlier_ratio: rescored.outlier_ratio ?? null
+      outlier_ratio: rescored.outlier_ratio ?? null,
+      title: enriched.title || null,
+      board_name: enriched.board_name || null,
+      share_count: hydratedShareCount,
+      raw_creation_method: enriched.raw_creation_method || null,
+      upload_provenance: resolvedUploadProvenance,
+      is_repin: Boolean(enriched.is_repin),
+      is_hydrated: Boolean(enriched.is_hydrated),
+      visual_annotations: hydratedAnnotations
     });
   }
 
@@ -405,13 +459,34 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     await sql`
       UPDATE newborn_candidates AS nc
       SET
-        effective_creator_username = u.effective_creator_username,
-        effective_creator_followers = u.effective_creator_followers,
-        creator_monthly_reach = u.creator_monthly_reach,
-        creator_profile_views = u.creator_profile_views,
-        creator_pin_count = u.creator_pin_count,
+        effective_creator_username = COALESCE(NULLIF(u.effective_creator_username, ''), nc.effective_creator_username),
+        effective_creator_followers = COALESCE(u.effective_creator_followers, nc.effective_creator_followers),
+        creator_monthly_reach = COALESCE(u.creator_monthly_reach, nc.creator_monthly_reach),
+        creator_profile_views = COALESCE(u.creator_profile_views, nc.creator_profile_views),
+        creator_pin_count = COALESCE(u.creator_pin_count, nc.creator_pin_count),
         is_rookie_outlier = u.is_rookie_outlier,
         outlier_ratio = u.outlier_ratio,
+        title = COALESCE(NULLIF(u.title, ''), nc.title),
+        board_name = COALESCE(NULLIF(u.board_name, ''), nc.board_name),
+        board_url = COALESCE(NULLIF(u.board_url, ''), nc.board_url),
+        share_count = CASE
+          WHEN u.share_count IS NULL THEN nc.share_count
+          WHEN nc.share_count IS NULL THEN u.share_count
+          ELSE GREATEST(nc.share_count, u.share_count)
+        END,
+        raw_creation_method = COALESCE(NULLIF(u.raw_creation_method, ''), nc.raw_creation_method),
+        upload_provenance = CASE
+          WHEN u.upload_provenance IS NOT NULL AND u.upload_provenance <> '' AND u.upload_provenance <> 'UNKNOWN'
+          THEN u.upload_provenance
+          ELSE nc.upload_provenance
+        END,
+        is_repin = (nc.is_repin OR u.is_repin),
+        is_hydrated = (nc.is_hydrated OR u.is_hydrated),
+        visual_annotations = CASE
+          WHEN jsonb_array_length(COALESCE(u.visual_annotations, '[]'::jsonb)) > 0
+          THEN u.visual_annotations
+          ELSE nc.visual_annotations
+        END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(updatesToPersist))}::jsonb) AS u(
         pin_id text,
@@ -421,7 +496,16 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
         creator_profile_views bigint,
         creator_pin_count int,
         is_rookie_outlier boolean,
-        outlier_ratio double precision
+        outlier_ratio double precision,
+        title text,
+        board_name text,
+        board_url text,
+        share_count int,
+        raw_creation_method text,
+        upload_provenance text,
+        is_repin boolean,
+        is_hydrated boolean,
+        visual_annotations jsonb
       )
       WHERE nc.pin_id = u.pin_id;
     `;

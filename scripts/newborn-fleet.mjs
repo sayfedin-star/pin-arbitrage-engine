@@ -670,7 +670,7 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
     const [runRow] = await sql`
       SELECT
         id, status, cancel_requested_at, shards_total, shards_completed, shards_failed,
-        telemetry, candidates_discovered, candidates_qualified, golden_pins_count
+        surfaces_used, telemetry, candidates_discovered, candidates_qualified, golden_pins_count
       FROM newborn_runs
       WHERE id = ${runId}
       LIMIT 1;
@@ -687,12 +687,24 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
       let totalMatchedRepins = 0;
       let totalHydrated = 0;
       let anyRateLimited = false;
+      const mergedSurfacesSet = new Set(
+        (Array.isArray(runRow.surfaces_used) ? runRow.surfaces_used : [])
+          .map((s) => String(s || '').trim())
+          .filter(Boolean)
+      );
       for (const s of shardEntries) {
         totalScrolled += Number(s.scrolled_pins || 0);
         totalMatchedRepins += Number(s.matched_repins || 0);
         totalHydrated += Number(s.hydrated_pins || 0);
         if (s.status === 'partial_rate_limited') anyRateLimited = true;
+        if (Array.isArray(s.surfaces_used)) {
+          for (const surf of s.surfaces_used) {
+            const cleanSurf = String(surf || '').trim();
+            if (cleanSurf) mergedSurfacesSet.add(cleanSurf);
+          }
+        }
       }
+      const mergedSurfaces = Array.from(mergedSurfacesSet);
       if (shardEntries.length === 0) {
         totalScrolled = Number(runRow.candidates_discovered || 0);
       }
@@ -768,6 +780,7 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
           candidates_discovered = ${totalScrolled},
           candidates_qualified = ${verifiedWinners},
           golden_pins_count = ${goldenCount},
+          surfaces_used = ${JSON.stringify(mergedSurfaces)}::jsonb,
           telemetry = ${JSON.stringify(mergedTelemetry)}::jsonb,
           completed_at = NOW()
         WHERE id = ${runId};
@@ -785,7 +798,8 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
         shards_failed: shardsFailed,
         scrolled_pins: totalScrolled,
         verified_winners: verifiedWinners,
-        golden_pins_count: goldenCount
+        golden_pins_count: goldenCount,
+        surfaces_used: mergedSurfaces
       };
     }
   }

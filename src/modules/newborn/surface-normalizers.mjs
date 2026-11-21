@@ -16,6 +16,56 @@ import { isValidPinId, RESERVED_KEYWORD_SLUGS } from '../../http/security-and-re
 import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS } from '../creators/competitors-crud.mjs';
 import { isCommercialOrAdPin } from '../keywords/service.mjs';
 
+const HTML_NAMED_ENTITIES = Object.freeze({
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  rsquo: '\u2019',
+  lsquo: '\u2018',
+  rdquo: '\u201D',
+  ldquo: '\u201C',
+  ndash: '\u2013',
+  mdash: '\u2014',
+  hellip: '\u2026',
+  copy: '\u00A9',
+  reg: '\u00AE',
+  trade: '\u2122'
+});
+
+/**
+ * Single-pass, safe HTML entity decoder (never double-decodes `&amp;lt;`).
+ * Supports decimal/hex numeric entities with strict Unicode scalar bounds and common named entities.
+ */
+export function decodeHtmlEntities(value) {
+  if (value === null || value === undefined) return '';
+  const str = typeof value === 'string' ? value : String(value);
+  if (!str.includes('&')) return str;
+  return str.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z]+));/g, (match, dec, hex, named) => {
+    if (dec !== undefined) {
+      const cp = Number.parseInt(dec, 10);
+      if (Number.isInteger(cp) && cp > 0 && cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF)) {
+        return String.fromCodePoint(cp);
+      }
+      return match;
+    }
+    if (hex !== undefined) {
+      const cp = Number.parseInt(hex, 16);
+      if (Number.isInteger(cp) && cp > 0 && cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF)) {
+        return String.fromCodePoint(cp);
+      }
+      return match;
+    }
+    if (named !== undefined) {
+      const mapped = HTML_NAMED_ENTITIES[named.toLowerCase()];
+      if (mapped !== undefined) return mapped;
+    }
+    return match;
+  });
+}
+
 /**
  * Extracts a clean, validated Pinterest username from an explicit username field
  * or a Pidgets / board `profile_url` (e.g. `https://www.pinterest.com/rookiebaker/`).
@@ -252,7 +302,7 @@ export function extractPinAnnotationsDetailed(rawPin) {
   const ingestLinkedItem = (item) => {
     if (!item) return;
     if (typeof item === 'string') {
-      const clean = item.trim();
+      const clean = decodeHtmlEntities(item).trim();
       if (clean.length >= 2 && !/^not[\s_-]?given$/i.test(clean)) {
         const key = clean.toLowerCase();
         if (!map.has(key)) map.set(key, { name: clean, url: null, idea_id: null });
@@ -260,7 +310,7 @@ export function extractPinAnnotationsDetailed(rawPin) {
       return;
     }
     if (typeof item === 'object') {
-      const rawName = safeString(item.name || item.key || item.label || item.title || '');
+      const rawName = decodeHtmlEntities(safeString(item.name || item.key || item.label || item.title || '')).trim();
       if (!rawName || rawName.length < 2 || /^not[\s_-]?given$/i.test(rawName)) return;
       const key = rawName.toLowerCase();
       const rawUrl = safeString(item.url || item.link || '');
@@ -283,7 +333,34 @@ export function extractPinAnnotationsDetailed(rawPin) {
   if (Array.isArray(withLinks)) {
     for (const item of withLinks) ingestLinkedItem(item);
   } else if (withLinks && typeof withLinks === 'object') {
-    for (const item of Object.values(withLinks)) ingestLinkedItem(item);
+    for (const [label, val] of Object.entries(withLinks)) {
+      if (typeof val === 'string') {
+        const valTrim = val.trim();
+        const keyTrim = label.trim();
+        const keyIsUrl = /^(\/|https?:\/\/)/i.test(keyTrim);
+        const valIsUrl = /^(\/|https?:\/\/)/i.test(valTrim);
+        if (valIsUrl && !keyIsUrl && !/^\d+$/.test(keyTrim)) {
+          ingestLinkedItem({ name: keyTrim, url: valTrim });
+        } else if (!valIsUrl && (/^\d+$/.test(keyTrim) || keyIsUrl)) {
+          ingestLinkedItem({
+            name: valTrim,
+            url: keyIsUrl ? keyTrim : null,
+            idea_id: /^\d+$/.test(keyTrim) ? keyTrim : null
+          });
+        } else {
+          ingestLinkedItem({ name: keyTrim, url: valTrim });
+        }
+      } else if (val && typeof val === 'object') {
+        const fallbackName = (!/^\d+$/.test(label.trim()) && !/^(\/|https?:\/\/)/i.test(label.trim())) ? label : '';
+        ingestLinkedItem({
+          ...val,
+          name: val.name || val.key || val.label || val.title || fallbackName,
+          idea_id: val.idea_id || val.ideaId || val.id || (/^\d+$/.test(label.trim()) ? label.trim() : null)
+        });
+      } else if (label && !/^\d+$/.test(label.trim())) {
+        ingestLinkedItem(label);
+      }
+    }
   }
 
   if (Array.isArray(visual)) {
@@ -339,7 +416,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     pinnerRaw.profile_url || pinnerRaw.url || '',
     pinnerRaw.username || formatted?.pinner?.username || ''
   );
-  const pinnerFullName = safeString(pinnerRaw.full_name || pinnerRaw.fullName || formatted?.pinner?.full_name || '');
+  const pinnerFullName = decodeHtmlEntities(safeString(pinnerRaw.full_name || pinnerRaw.fullName || formatted?.pinner?.full_name || ''));
   const pinnerFollowersRaw = pinnerRaw.follower_count ?? pinnerRaw.followerCount ?? null;
   const pinnerFollowers = pinnerFollowersRaw !== null && pinnerFollowersRaw !== undefined
     ? parseCleanMetric(pinnerFollowersRaw, null, { preserveCeiling: true, cap: 0 })
@@ -356,7 +433,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
   const originUsername = originRaw
     ? extractUsernameFromProfileUrl(originRaw.profile_url || originRaw.url || '', originRaw.username || '')
     : '';
-  const originFullName = originRaw ? safeString(originRaw.full_name || originRaw.fullName || '') : '';
+  const originFullName = originRaw ? decodeHtmlEntities(safeString(originRaw.full_name || originRaw.fullName || '')) : '';
   const originFollowersRaw = originRaw ? (originRaw.follower_count ?? originRaw.followerCount ?? null) : null;
   const originFollowers = originFollowersRaw !== null && originFollowersRaw !== undefined
     ? parseCleanMetric(originFollowersRaw, null, { preserveCeiling: true, cap: 0 })
@@ -375,9 +452,9 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
   const originPinId = isValidPinId(explicitOriginRaw) ? explicitOriginRaw : null;
 
   const isRepin = Boolean(
-    rawPin.is_repin ??
-    rawPin.isRepin ??
-    (originPinId && originPinId !== rawId) ??
+    rawPin.is_repin ||
+    rawPin.isRepin ||
+    (originPinId && originPinId !== rawId) ||
     (originUsername && pinnerUsername && originUsername !== pinnerUsername)
   );
 
@@ -396,7 +473,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
   const detailedAnnotations = extractPinAnnotationsDetailed(rawPin);
   const boardObj = rawPin.board || {};
   const boardId = safeString(boardObj.id || boardObj.entityId || context.board_id || formatted?.board_id || '') || null;
-  const boardName = safeString(boardObj.name || context.board_name || formatted?.board_name || '') || null;
+  const boardName = decodeHtmlEntities(safeString(boardObj.name || context.board_name || formatted?.board_name || '')) || null;
   const boardUrlRaw = safeString(boardObj.url || context.board_url || formatted?.board_url || '');
   const boardUrl = formatPinterestBoardUrl(boardUrlRaw);
 
@@ -516,9 +593,9 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     matched_queries: context.seed_query ? [String(context.seed_query).trim().toLowerCase()] : [],
     snowball_parent_pin_id: context.snowball_parent_pin_id || null,
     snowball_hop: Number.isFinite(Number(context.snowball_hop)) ? Number(context.snowball_hop) : 0,
-    title: formatted?.title || safeString(rawPin.title || rawPin.grid_title || ''),
-    description: formatted?.description || safeString(rawPin.description || ''),
-    alt_text: formatted?.alt_text || safeString(rawPin.alt_text || rawPin.auto_alt_text || ''),
+    title: decodeHtmlEntities(formatted?.title || safeString(rawPin.title || rawPin.grid_title || '')),
+    description: decodeHtmlEntities(formatted?.description || safeString(rawPin.description || '')),
+    alt_text: decodeHtmlEntities(formatted?.alt_text || safeString(rawPin.alt_text || rawPin.auto_alt_text || '')),
     image_url: formatted?.image_url || '',
     image_signature: formatted?.image_signature || safeString(rawPin.image_signature || rawPin.imageSignature || '') || null,
     dominant_color: formatted?.dominant_color || rawPin.dominant_color || '#888888',
@@ -577,11 +654,13 @@ export function mergeCandidatePinRecords(base, incoming) {
   const annMap = new Map();
   for (const a of [...(base.visual_annotations || []), ...(incoming.visual_annotations || [])]) {
     if (!a) continue;
-    const obj = typeof a === 'string' ? { name: a, url: null, idea_id: null } : a;
-    if (!obj.name) continue;
-    const k = obj.name.toLowerCase();
+    const rawObj = typeof a === 'string' ? { name: a, url: null, idea_id: null } : a;
+    const cleanName = decodeHtmlEntities(rawObj.name || '').trim();
+    if (!cleanName) continue;
+    const obj = { ...rawObj, name: cleanName };
+    const k = cleanName.toLowerCase();
     const prev = annMap.get(k);
-    if (!prev) annMap.set(k, { ...obj });
+    if (!prev) annMap.set(k, obj);
     else {
       if (!prev.url && obj.url) prev.url = obj.url;
       if (!prev.idea_id && obj.idea_id) prev.idea_id = obj.idea_id;
@@ -647,6 +726,14 @@ export function mergeCandidatePinRecords(base, incoming) {
     resolvedAgeDays = incoming.age_days ?? base.age_days ?? null;
   }
 
+  const preferHydratedText = (baseVal, incomingVal) => {
+    const b = decodeHtmlEntities(baseVal || '').trim();
+    const inc = decodeHtmlEntities(incomingVal || '').trim();
+    if (incoming.is_hydrated && inc) return inc;
+    if (base.is_hydrated && !incoming.is_hydrated && b) return b;
+    return inc || b || '';
+  };
+
   return {
     ...base,
     ...incoming,
@@ -669,9 +756,9 @@ export function mergeCandidatePinRecords(base, incoming) {
       base.snowball_hop ?? 0,
       incoming.snowball_hop ?? (base.snowball_hop ?? 0)
     ),
-    title: incoming.title || base.title || '',
-    description: incoming.description || base.description || '',
-    alt_text: incoming.alt_text || base.alt_text || '',
+    title: preferHydratedText(base.title, incoming.title),
+    description: preferHydratedText(base.description, incoming.description),
+    alt_text: preferHydratedText(base.alt_text, incoming.alt_text),
     image_url: incoming.image_url || base.image_url || '',
     image_signature: incoming.image_signature || base.image_signature || null,
     dominant_color: (incoming.dominant_color && incoming.dominant_color !== '#888888')
@@ -681,10 +768,10 @@ export function mergeCandidatePinRecords(base, incoming) {
     clean_domain: cleanDomain,
     is_linkless: isLinkless,
     pinner_username: pinnerUsername,
-    pinner_full_name: incoming.pinner_full_name || base.pinner_full_name || null,
+    pinner_full_name: preferHydratedText(base.pinner_full_name, incoming.pinner_full_name) || null,
     pinner_followers: pinnerFollowers,
     origin_creator_username: originUsername,
-    origin_creator_full_name: incoming.origin_creator_full_name || base.origin_creator_full_name || null,
+    origin_creator_full_name: preferHydratedText(base.origin_creator_full_name, incoming.origin_creator_full_name) || null,
     origin_creator_followers: originFollowers,
     effective_creator_username: effectiveUsername,
     effective_creator_followers: effectiveFollowers,
@@ -693,7 +780,7 @@ export function mergeCandidatePinRecords(base, incoming) {
     creator_pin_count: pickMaxNullable(base.creator_pin_count, incoming.creator_pin_count),
     is_repin: Boolean(base.is_repin || incoming.is_repin || (originUsername && pinnerUsername && originUsername !== pinnerUsername)),
     board_id: incoming.board_id || base.board_id || null,
-    board_name: incoming.board_name || base.board_name || null,
+    board_name: preferHydratedText(base.board_name, incoming.board_name) || null,
     board_url: formatPinterestBoardUrl(incoming.board_url || base.board_url || ''),
     board_pin_count: pickMaxNullable(base.board_pin_count, incoming.board_pin_count),
     board_follower_count: pickMaxNullable(base.board_follower_count, incoming.board_follower_count),
