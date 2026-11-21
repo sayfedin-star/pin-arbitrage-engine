@@ -833,8 +833,16 @@ test('Wave 1.12: Light-Mode default (§5.1), Launch Related Radar non-API link, 
   );
   assert.equal(radarLinks.length, 0, 'Launch Related Radar must NOT link directly to raw /api/keywords/visual-search JSON endpoint');
 
-  const pinScripts = [...pinRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
-  const pinCtrlScript = pinScripts.find((s) => s.includes('function pinDetailApp('));
+  const loadPageAssetScript = async (html, assetName) => {
+    const match = html.match(new RegExp(`<script\\s+src="(/assets/js/${assetName}\\.js\\?v=[a-f0-9]{12})"><\\/script>`, 'i'));
+    assert.ok(match, `Expected content-hashed /assets/js/${assetName}.js script tag in SSR HTML`);
+    const assetRes = await app.inject({ method: 'GET', url: match[1] });
+    assert.equal(assetRes.statusCode, 200, `Expected 200 OK for ${match[1]}`);
+    return assetRes.body;
+  };
+
+  const pinCtrlScript = await loadPageAssetScript(pinRes.body, 'pin-details');
+  assert.ok(pinCtrlScript.includes('function pinDetailApp('));
   const docClassList = new Set(['dark']);
   const pinVmCtx = {
     URL,
@@ -871,8 +879,8 @@ test('Wave 1.12: Light-Mode default (§5.1), Launch Related Radar non-API link, 
   // 3. /keywords: keywordStudio().init() defaults to light mode when localStorage is empty
   const kwRes = await app.inject({ method: 'GET', url: '/keywords' });
   assert.equal(kwRes.statusCode, 200);
-  const kwScripts = [...kwRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
-  const kwCtrlScript = kwScripts.find((s) => s.includes('function keywordStudio('));
+  const kwCtrlScript = await loadPageAssetScript(kwRes.body, 'keywords');
+  assert.ok(kwCtrlScript.includes('function keywordStudio('));
   const kwClassSet = new Set(['dark']);
   const kwVmCtx = {
     URL,
@@ -904,8 +912,8 @@ test('Wave 1.12: Light-Mode default (§5.1), Launch Related Radar non-API link, 
   assert.equal(kwClassSet.has('dark'), false);
 
   // 4. app-sidebar.mjs: Ctrl+B calls Alpine v3 Alpine.$data(el).toggleSidebar() and ignores input focus
-  const sidebarScript = kwScripts.find((s) => s.includes('refreshAppSidebarIcons'));
-  assert.ok(sidebarScript);
+  const sidebarScript = await loadPageAssetScript(kwRes.body, 'command-palette');
+  assert.ok(sidebarScript.includes('refreshAppSidebarIcons'));
   let toggleCalls = 0;
   let keydownHandler = null;
   const activeElRef = { current: { tagName: 'BODY', isContentEditable: false } };
@@ -949,11 +957,19 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
     await app.close();
   });
 
+  const loadAssetScript = async (html, assetName) => {
+    const match = html.match(new RegExp(`<script\\s+src="(/assets/js/${assetName}\\.js\\?v=[a-f0-9]{12})"><\\/script>`, 'i'));
+    assert.ok(match, `Expected content-hashed /assets/js/${assetName}.js script tag in SSR HTML`);
+    const assetRes = await app.inject({ method: 'GET', url: match[1] });
+    assert.equal(assetRes.statusCode, 200, `Expected 200 OK for ${match[1]}`);
+    return assetRes.body;
+  };
+
   // 1. Newborn polling behavior (safeApiFetch, document.hidden, in-flight mutex, 5-failure bound)
   const nbRes = await app.inject({ method: 'GET', url: '/newborn' });
   assert.equal(nbRes.statusCode, 200);
-  const nbScripts = [...nbRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
-  const nbCtrlScript = nbScripts.find((s) => s.includes('function newbornStudioApp('));
+  const nbCtrlScript = await loadAssetScript(nbRes.body, 'newborn');
+  assert.ok(nbCtrlScript.includes('function newbornStudioApp('));
 
   let safeFetchCalls = 0;
   let rawFetchCalls = 0;
@@ -1024,9 +1040,9 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
   const dashToasts = [];
   const creatorsVm = {
     console,
-    confirm: () => true,
     setTimeout: (fn) => { fn(); return 1; },
     window: {
+      PAE: { confirm: async () => true },
       safeApiFetch: async () => new Response(JSON.stringify({ error: 'FAIL' }), { status: 500 }),
       apiFetch: async () => new Response(JSON.stringify({ error: 'FAIL' }), { status: 500 })
     }
@@ -1061,7 +1077,8 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
 
   // 3. Discovery submitAddToFolder aborts when POST /api/folders fails
   const discRes = await app.inject({ method: 'GET', url: '/discovery' });
-  const discScript = [...discRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).find((s) => s.includes('function discoveryApp('));
+  const discScript = await loadAssetScript(discRes.body, 'discovery');
+  assert.ok(discScript.includes('function discoveryApp('));
   const discToasts = [];
   const discFetchUrls = [];
   const discVm = {
@@ -1088,7 +1105,8 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
 
   // 4. Keywords toggleCurrentKeywordFolder does NOT toast success on HTTP 500
   const kwRes = await app.inject({ method: 'GET', url: '/keywords' });
-  const kwScript = [...kwRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).find((s) => s.includes('function keywordStudio('));
+  const kwScript = await loadAssetScript(kwRes.body, 'keywords');
+  assert.ok(kwScript.includes('function keywordStudio('));
   const kwToasts = [];
   const kwVm = {
     console,
@@ -1110,7 +1128,8 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
 
   // 5. Pulse fetchPulseData(true) does NOT toast success when payload returns success: false
   const pulseRes = await app.inject({ method: 'GET', url: '/pulse' });
-  const pulseScript = [...pulseRes.body.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).find((s) => s.includes('function pulseStudioApp('));
+  const pulseScript = await loadAssetScript(pulseRes.body, 'pulse');
+  assert.ok(pulseScript.includes('function pulseStudioApp('));
   const pulseToasts = [];
   const pulseVm = {
     console,

@@ -2,14 +2,10 @@
  * Level 1A: Executive Keywords Dashboard View
  * (Filters, Presets, Grid/Table, Pagination, Quick Track Modal)
  */
-import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
-
-export function getKeywordsDashboardViewHtml({ safeFolderId = '' } = {}) {
+export function getKeywordsDashboardViewHtml() {
   return `    <!-- LEVEL 1A: EXECUTIVE KEYWORDS DASHBOARD (viewModeLevel === 'dashboard')   -->
     <!-- ========================================================================= -->
     <div x-show="viewModeLevel === 'dashboard'" x-cloak class="space-y-6">
-      
-      ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
 
       <!-- [INVARIANT: MODERN-MINIMALIST-HEADER] Linear / Vercel Executive Header -->
       <template x-if="!activeFolderId">

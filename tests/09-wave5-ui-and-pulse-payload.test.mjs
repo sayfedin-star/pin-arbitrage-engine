@@ -222,10 +222,13 @@ test('Wave 5B & 5C: All studio pages load /pae-shell.js, /pin/:id renders ONE un
       const breadcrumbNav = collectNodes(headerSubtree, (n) => n.tag === 'nav' && n.attrs?.['aria-label'] === 'Breadcrumb');
       assert.equal(breadcrumbNav.length, 1, 'Unified /pin/:id header must preserve contextual Breadcrumb nav');
 
-      // Execute pinDetailApp controller to verify ?folder_id=...&return_url=... contextual back-link behavior
-      const inlineScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
-      const pinAppScript = inlineScripts.find((code) => code.includes('function pinDetailApp('));
-      assert.ok(pinAppScript, 'pinDetailApp inline controller must be present');
+      // Execute pinDetailApp controller (served via content-hashed /assets/js/pin-details.js) to verify ?folder_id=...&return_url=... contextual back-link behavior
+      const pinAssetMatch = html.match(/<script\s+src="(\/assets\/js\/pin-details\.js\?v=[a-f0-9]{12})"><\/script>/i);
+      assert.ok(pinAssetMatch, 'pin-details external content-hashed script tag must be present');
+      const pinAssetRes = await app.inject({ method: 'GET', url: pinAssetMatch[1] });
+      assert.equal(pinAssetRes.statusCode, 200);
+      const pinAppScript = pinAssetRes.body;
+      assert.ok(pinAppScript.includes('function pinDetailApp('), 'pinDetailApp controller must be present in /assets/js/pin-details.js');
 
       const pinCtx = {
         URL,

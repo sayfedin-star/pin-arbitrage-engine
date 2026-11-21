@@ -6,7 +6,7 @@ import { renderAppSidebar } from '../app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 import { getPulseStudioViewsHtml } from './pulse-views.mjs';
-import { getPulseClientAppScript } from './pulse-client-app.mjs';
+import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 
 export function getPulsePageHtml(folderId = '') {
   const rawFolderId = String(folderId || '').trim();
@@ -74,7 +74,8 @@ ${renderSharedDocumentHead({
 
 ${getPulseStudioViewsHtml()}
 
-${getPulseClientAppScript()}
+${renderPageBootstrapScript({ folderId: safeFolderId })}
+${renderClientJsScriptTag('pulse')}
 </body>
 </html>`;
 }

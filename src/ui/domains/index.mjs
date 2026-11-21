@@ -7,7 +7,7 @@ import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs'
 import { getDomainsLeaderboardViewHtml } from './domains-leaderboard-view.mjs';
 import { getDomainsStudioViewHtml } from './domains-studio-view.mjs';
 import { getDomainsModalsHtml } from './domains-modals.mjs';
-import { getDomainsClientAppScript } from './domains-client-app.mjs';
+import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
@@ -107,7 +107,8 @@ ${renderSharedDocumentHead({
 
   ${getDomainsModalsHtml()}
 
-  ${getDomainsClientAppScript()}
+${renderPageBootstrapScript({ initialDomain: safeInitialDomain, folderId: safeFolderId })}
+${renderClientJsScriptTag('domains')}
 </body>
 </html>`;
 }

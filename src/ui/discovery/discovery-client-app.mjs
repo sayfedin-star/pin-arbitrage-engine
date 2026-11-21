@@ -7,22 +7,12 @@
 
 export function getDiscoveryClientAppScript() {
   return `  <script>
-    // [INVARIANT: SAFE-URL PROTOCOL SANITIZATION]
-    function safeUrl(rawUrl, fallback = '#') {
-      if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
-        const res = window.PAEFormatters.safeUrl(rawUrl);
-        return res === '#' ? fallback : res;
-      }
-      // @deprecated VM fallback when shared-head formatters are absent
-      if (!rawUrl || typeof rawUrl !== 'string') return fallback;
-      const trimmed = rawUrl.trim();
-      if (/^https?:\\/\\//i.test(trimmed) || (trimmed.startsWith('/') && !trimmed.startsWith('//'))) return trimmed;
-      return fallback;
-    }
-
     function discoveryApp() {
       return {
-        safeUrl,
+        safeUrl(rawUrl, fallback = '#') {
+          const res = window.PAEFormatters.safeUrl(rawUrl);
+          return res === '#' ? fallback : res;
+        },
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;

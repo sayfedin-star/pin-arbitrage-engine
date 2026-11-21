@@ -140,7 +140,7 @@ export function getDashboardOverviewHtml() {
               <span class="inline-block h-7 w-20 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading related clusters"></span>
             </template>
             <template x-if="isOverviewLoaded">
-              <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="(seeds.length || 0) + ' Seeds'"></span>
+              <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="(overview.total_seeds || seeds.length || 0) + ' Seeds'"></span>
             </template>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
@@ -148,7 +148,7 @@ export function getDashboardOverviewHtml() {
               <span class="inline-block h-3.5 w-24 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
             </template>
             <template x-if="isOverviewLoaded">
-              <span class="text-slate-500" x-text="(intersections.length || 0) + ' Intersecting Hubs'"></span>
+              <span class="text-slate-500" x-text="(overview.intersecting_hubs_count || intersections.length || 0) + ' Intersecting Hubs'"></span>
             </template>
             <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold" x-text="!isOverviewLoaded ? '...' : ('Gap: ' + (overview.avg_commercial_gap ?? 0))"></span>
           </div>

@@ -268,14 +268,23 @@ export function getDashboardBoardsAndPinMethods() {
           this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
-        copyPinField(type, text) {
+        async copyPinField(type, text) {
           if (!text) return;
-          navigator.clipboard.writeText(String(text));
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.copyText === 'function') {
+            await window.PAE.copyText(String(text));
+          } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            await navigator.clipboard.writeText(String(text));
+          }
           this.showToast('Copied ' + type + ' to clipboard!');
         },
 
         async deletePinSnapshot(snapshotId) {
-          if (!confirm('Are you sure you want to delete this historical metric snapshot?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to delete this historical metric snapshot?', {
+            title: 'Delete Metric Snapshot',
+            confirmLabel: 'Delete Snapshot',
+            danger: true
+          });
+          if (!confirmed) return;
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/pin-snapshot?id=' + encodeURIComponent(snapshotId) + '&pin_id=' + encodeURIComponent(this.activePinDossier.pin_id)), {
               method: 'DELETE'
@@ -292,27 +301,47 @@ export function getDashboardBoardsAndPinMethods() {
           }
         },
 
-        async fetchCreatorBoards(creator = this.activeCreator) {
+        async fetchCreatorBoards(creator = this.activeCreator, force = false) {
           if (!creator) return;
           const targetId = creator.id || (creator.username || '').replace(/^@+/, '').trim();
           if (!targetId) return;
           const cleanUser = (creator.username || '').replace(/^@+/, '').trim();
+          const boardCacheKey = String(targetId) + ':' + cleanUser.toLowerCase();
+          if (!force && this._clientCache?.boards?.has(boardCacheKey)) {
+            const cachedBoards = this._clientCache.boards.get(boardCacheKey) || [];
+            this.activeCreatorBoards = cachedBoards;
+            this.competitorBoardsList = cachedBoards;
+            return;
+          }
+          const signal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('creator_boards') : undefined;
           this.isLoadingBoards = true;
           try {
-            const res = await window.apiFetch(this.getApiUrl('/api/creators/boards?competitor_id=' + encodeURIComponent(targetId) + (cleanUser ? '&username=' + encodeURIComponent(cleanUser) : '')));
+            const res = await window.apiFetch(
+              this.getApiUrl('/api/creators/boards?competitor_id=' + encodeURIComponent(targetId) + (cleanUser ? '&username=' + encodeURIComponent(cleanUser) : '')),
+              signal ? { signal } : {}
+            );
+            if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
-              this.activeCreatorBoards = data.boards || [];
-              this.competitorBoardsList = data.boards || [];
+              if (signal && signal.aborted) return;
+              const boards = data.boards || [];
+              if (this._clientCache?.boards) {
+                this._clientCache.boards.set(boardCacheKey, boards);
+              }
+              this.activeCreatorBoards = boards;
+              this.competitorBoardsList = boards;
               if (this.activeCreator && (this.activeCreator.id === creator.id || this.activeCreator.username === creator.username)) {
-                this.activeCreator.total_boards = Math.max(Number(this.activeCreator.total_boards || 0), this.activeCreatorBoards.length);
+                this.activeCreator.total_boards = Math.max(Number(this.activeCreator.total_boards || 0), boards.length);
               }
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             console.error('fetchCreatorBoards error:', e);
           } finally {
-            this.isLoadingBoards = false;
-            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isLoadingBoards = false;
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 

@@ -295,7 +295,8 @@ test('All UI studio routes return 200 with private no-store + Vary: Cookie on GE
     const getRes = await app.inject({ method: 'GET', url: route });
     assert.equal(getRes.statusCode, 200, `GET ${route} should return 200`);
     assert.equal(getRes.headers['cache-control'], 'private, no-cache, no-store, must-revalidate');
-    assert.equal(getRes.headers.vary, 'Cookie');
+    assert.match(String(getRes.headers.vary || ''), /\bCookie\b/);
+    assert.match(String(getRes.headers.vary || ''), /\bAccept-Encoding\b/);
     assert.match(String(getRes.headers['content-type']), /text\/html/i);
     assert.ok(getRes.body.includes('<!DOCTYPE html>'));
 

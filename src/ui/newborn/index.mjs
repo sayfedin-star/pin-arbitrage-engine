@@ -17,7 +17,7 @@ import { getNewbornHeaderAndLaunchpadHtml } from './newborn-header-and-launchpad
 import { getNewbornCandidatesAndRookiesHtml } from './newborn-candidates-and-rookies.mjs';
 import { getNewbornClusterExplorerHtml } from './newborn-cluster-explorer.mjs';
 import { getNewbornSettingsAndModalsHtml } from './newborn-settings-and-modals.mjs';
-import { getNewbornClientAppScript } from './newborn-client-app.mjs';
+import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 
 const VALID_INITIAL_MODES = new Set([
   'hunt',
@@ -95,7 +95,8 @@ ${getNewbornClusterExplorerHtml()}
 
 ${getNewbornSettingsAndModalsHtml()}
 
-${getNewbornClientAppScript()}
+${renderPageBootstrapScript({ folderId: safeFolderId, initialMode: safeInitialMode })}
+${renderClientJsScriptTag('newborn')}
 </body>
 </html>`;
 }

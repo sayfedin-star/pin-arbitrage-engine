@@ -352,6 +352,16 @@
     return url.replace(/\/(236x|474x|564x|736x|1200x|originals)\//, '/' + targetTier + '/');
   }
 
+  function resolveHdImageUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    return url.replace(/\/(236x|474x|564x|736x)\//, '/1200x/');
+  }
+
+  function resolveLosslessImageUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    return url.replace(/\/(236x|474x|564x|736x|1200x)\//, '/originals/');
+  }
+
   function handlePinImgError(img) {
     if (!img) return;
     var currentSrc = img.src || '';
@@ -419,13 +429,16 @@
     }, 3500);
   }
 
-  // 6. Non-Blocking Accessible Confirmation Dialog
+  // 6. Non-Blocking Accessible Confirmation Dialog (iframe-safe, Light-Mode Bento)
+  var confirmDialogCounter = 0;
+
   function confirmPaeAction(message, options) {
     var opts = options || {};
     if (typeof document === 'undefined' || !document.body) {
       return Promise.resolve(false);
     }
     return new Promise(function(resolve) {
+      var dialogUid = 'pae-confirm-' + (++confirmDialogCounter);
       var prevActive = document.activeElement;
       var overlay = document.createElement('div');
       overlay.className = 'fixed inset-0 z-[95] bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4';
@@ -433,13 +446,17 @@
       var dialog = document.createElement('div');
       dialog.setAttribute('role', 'alertdialog');
       dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-labelledby', dialogUid + '-title');
+      dialog.setAttribute('aria-describedby', dialogUid + '-body');
       dialog.className = 'w-full max-w-md rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4';
 
       var titleEl = document.createElement('h3');
+      titleEl.id = dialogUid + '-title';
       titleEl.className = 'text-sm font-bold text-slate-900 dark:text-[#FAFAFA]';
       titleEl.textContent = opts.title || 'Confirm Action';
 
       var bodyEl = document.createElement('p');
+      bodyEl.id = dialogUid + '-body';
       bodyEl.className = 'text-xs text-slate-600 dark:text-[#A1A1AA] leading-relaxed';
       bodyEl.textContent = String(message || 'Are you sure you want to continue?');
 
@@ -474,6 +491,14 @@
         if (ev.key === 'Escape') {
           ev.preventDefault();
           cleanup(false);
+        } else if (ev.key === 'Tab') {
+          if (ev.shiftKey && document.activeElement === cancelBtn) {
+            ev.preventDefault();
+            try { confirmBtn.focus(); } catch (_) {}
+          } else if (!ev.shiftKey && document.activeElement === confirmBtn) {
+            ev.preventDefault();
+            try { cancelBtn.focus(); } catch (_) {}
+          }
         }
       }
 
@@ -493,6 +518,163 @@
       document.body.appendChild(overlay);
       try { confirmBtn.focus(); } catch (_) {}
     });
+  }
+
+  // 6B. Shared Shell Utilities (copyText, downloadCsv, toggleTheme, toggleSidebar)
+  async function copyTextAction(text, options) {
+    var opts = options || {};
+    var str = String(text == null ? '' : text);
+    var copied = false;
+    try {
+      if (win.navigator && win.navigator.clipboard && typeof win.navigator.clipboard.writeText === 'function') {
+        await win.navigator.clipboard.writeText(str);
+        copied = true;
+      }
+    } catch (_) {
+      copied = false;
+    }
+
+    if (!copied && typeof document !== 'undefined' && document.body && typeof document.createElement === 'function') {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = str;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        ta.style.pointerEvents = 'none';
+        document.body.appendChild(ta);
+        if (typeof ta.select === 'function') ta.select();
+        if (typeof document.execCommand === 'function') {
+          copied = Boolean(document.execCommand('copy'));
+        }
+        if (ta.parentNode) ta.parentNode.removeChild(ta);
+      } catch (_) {
+        copied = false;
+      }
+    }
+
+    if (opts.toast) {
+      if (copied) {
+        showPaeToast(opts.successMessage || 'Copied to clipboard', 'success');
+      } else {
+        showPaeToast(opts.errorMessage || 'Failed to copy to clipboard', 'error');
+      }
+    }
+    return copied;
+  }
+
+  function downloadCsvAction(filename, rows, options) {
+    var opts = options || {};
+    var rawName = String(filename || 'export.csv').trim() || 'export.csv';
+    var safeName = rawName.toLowerCase().endsWith('.csv') ? rawName : (rawName + '.csv');
+    var list = Array.isArray(rows) ? rows : [];
+    var csvLines = [];
+
+    if (Array.isArray(opts.headers) && opts.headers.length > 0) {
+      csvLines.push(opts.headers.map(function(h) { return sanitizeCsvCell(h); }).join(','));
+    }
+
+    if (list.length > 0 && !Array.isArray(list[0]) && typeof list[0] === 'object' && list[0] !== null) {
+      var cols = Array.isArray(opts.columns) && opts.columns.length > 0 ? opts.columns : Object.keys(list[0]);
+      if (csvLines.length === 0 && opts.includeHeaders !== false) {
+        csvLines.push(cols.map(function(c) { return sanitizeCsvCell(c); }).join(','));
+      }
+      for (var rIdx = 0; rIdx < list.length; rIdx++) {
+        var rowObj = list[rIdx] || {};
+        var cells = cols.map(function(col) { return sanitizeCsvCell(rowObj[col]); });
+        csvLines.push(cells.join(','));
+      }
+    } else {
+      for (var i = 0; i < list.length; i++) {
+        var rowArr = Array.isArray(list[i]) ? list[i] : [list[i]];
+        csvLines.push(rowArr.map(function(cell) { return sanitizeCsvCell(cell); }).join(','));
+      }
+    }
+
+    var csvText = csvLines.join('\n');
+    if (
+      typeof document !== 'undefined' &&
+      document.body &&
+      typeof Blob === 'function' &&
+      typeof URL !== 'undefined' &&
+      typeof URL.createObjectURL === 'function'
+    ) {
+      var blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+      var blobUrl = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.setAttribute('href', blobUrl);
+      link.setAttribute('download', safeName);
+      document.body.appendChild(link);
+      link.click();
+      if (link.parentNode) link.parentNode.removeChild(link);
+      if (typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(blobUrl);
+    }
+    return csvText;
+  }
+
+  function toggleThemeAction(forceDark) {
+    var currentDark = false;
+    if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList) {
+      currentDark = document.documentElement.classList.contains('dark');
+    } else {
+      try {
+        currentDark = typeof localStorage !== 'undefined'
+          ? (localStorage.getItem('pa_theme') || localStorage.getItem('pin_theme')) === 'dark'
+          : false;
+      } catch (_) {
+        currentDark = false;
+      }
+    }
+
+    var nextDark = typeof forceDark === 'boolean' ? forceDark : !currentDark;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('pa_theme', nextDark ? 'dark' : 'light');
+        localStorage.setItem('pin_theme', nextDark ? 'dark' : 'light');
+      }
+    } catch (_) {}
+
+    if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList) {
+      if (nextDark) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+      }
+    }
+
+    if (typeof win.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      try {
+        win.dispatchEvent(new CustomEvent('pae:theme-changed', { detail: { isDark: nextDark } }));
+      } catch (_) {}
+    }
+    return nextDark;
+  }
+
+  function toggleSidebarAction(forceCollapsed) {
+    var currentCollapsed = false;
+    try {
+      currentCollapsed = typeof localStorage !== 'undefined'
+        ? localStorage.getItem('pae_sidebar_collapsed') === 'true'
+        : false;
+    } catch (_) {
+      currentCollapsed = false;
+    }
+
+    var nextCollapsed = typeof forceCollapsed === 'boolean' ? forceCollapsed : !currentCollapsed;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('pae_sidebar_collapsed', nextCollapsed ? 'true' : 'false');
+      }
+    } catch (_) {}
+
+    if (typeof win.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      try {
+        win.dispatchEvent(new CustomEvent('pae:sidebar-changed', { detail: { collapsed: nextCollapsed } }));
+      } catch (_) {}
+    }
+    return nextCollapsed;
   }
 
   async function confirmDeleteFolderAction(folderId, executeFn) {
@@ -544,17 +726,27 @@
     apiFetch: safeApiFetch,
     safeApiFetch: safeApiFetch,
     resolvePinImageUrl: resolvePinImageUrl,
+    resolveHdImageUrl: resolveHdImageUrl,
+    resolveLosslessImageUrl: resolveLosslessImageUrl,
     handlePinImgError: handlePinImgError,
     toast: showPaeToast,
     confirm: confirmPaeAction,
-    confirmDeleteFolder: confirmDeleteFolderAction
+    confirmDeleteFolder: confirmDeleteFolderAction,
+    copyText: copyTextAction,
+    downloadCsv: downloadCsvAction,
+    toggleTheme: toggleThemeAction,
+    toggleSidebar: toggleSidebarAction
   });
 
   if (!win.safeApiFetch) win.safeApiFetch = safeApiFetch;
   if (!win.apiFetch) win.apiFetch = safeApiFetch;
   if (!win.paeToast) win.paeToast = showPaeToast;
   if (!win.paeConfirm) win.paeConfirm = confirmPaeAction;
+  if (!win.paeCopyText) win.paeCopyText = copyTextAction;
+  if (!win.paeDownloadCsv) win.paeDownloadCsv = downloadCsvAction;
   if (!win.resolvePinImageUrl) win.resolvePinImageUrl = resolvePinImageUrl;
+  if (!win.resolveHdImageUrl) win.resolveHdImageUrl = resolveHdImageUrl;
+  if (!win.resolveLosslessImageUrl) win.resolveLosslessImageUrl = resolveLosslessImageUrl;
   if (!win.handlePinImgError) win.handlePinImgError = handlePinImgError;
   if (!win.escapeHtml) win.escapeHtml = escapeHtml;
   if (!win.safeUrl) win.safeUrl = safeUrl;

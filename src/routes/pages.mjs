@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { requestContextStorage } from '../http/security-and-response.mjs';
+import { precompressStaticBuffer } from '../http/compression.mjs';
+import { getClientJsAsset } from '../ui/client-assets.mjs';
 
 const PAE_SHELL_PATH = fileURLToPath(new URL('../../public/pae-shell.js', import.meta.url));
 export const PAE_SHELL_BUF = fs.readFileSync(PAE_SHELL_PATH);
@@ -16,6 +18,22 @@ export const PAE_SHELL_TEXT = PAE_SHELL_BUF.toString('utf8');
 export const PAE_SHELL_HASH = crypto.createHash('sha256').update(PAE_SHELL_BUF).digest('hex');
 export const PAE_SHELL_ETAG = `"${PAE_SHELL_HASH}"`;
 export const PAE_SHELL_VERSION = PAE_SHELL_HASH.slice(0, 12);
+
+precompressStaticBuffer(PAE_SHELL_BUF);
+
+const CLIENT_JS_ASSET_ROUTE_REGEX = /^\/assets\/js\/([a-z0-9-]+)\.js$/;
+
+function etagMatches(rawIfNoneMatch, targetEtag) {
+  if (!rawIfNoneMatch || !targetEtag) return false;
+  const stripWeak = (val) => val.trim().replace(/^W\//i, '');
+  const normalizedTarget = stripWeak(targetEtag);
+  return String(rawIfNoneMatch)
+    .split(',')
+    .some((candidate) => {
+      const clean = candidate.trim();
+      return clean === '*' || stripWeak(clean) === normalizedTarget;
+    });
+}
 
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📌</text></svg>';
 
@@ -60,20 +78,47 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, HEAD, OPTIONS');
     }
+    const versionParam = searchParams?.get?.('v') || '';
+    const isVersionPinned = versionParam === PAE_SHELL_VERSION;
     const shellHeaders = {
       'Content-Type': 'application/javascript; charset=utf-8',
       'ETag': PAE_SHELL_ETAG,
-      'Cache-Control': 'public, max-age=3600, must-revalidate',
+      'Cache-Control': isVersionPinned
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=3600, must-revalidate',
       'X-Content-Type-Options': 'nosniff'
     };
     const rawIfNoneMatch = effectiveRequest?.headers?.['if-none-match'] || '';
-    if (rawIfNoneMatch) {
-      const candidates = String(rawIfNoneMatch).split(',').map((s) => s.trim());
-      if (candidates.includes(PAE_SHELL_ETAG) || candidates.includes('*')) {
-        return sendNative(null, 304, shellHeaders);
-      }
+    if (etagMatches(rawIfNoneMatch, PAE_SHELL_ETAG)) {
+      return sendNative(null, 304, shellHeaders);
     }
     return sendNative(PAE_SHELL_BUF, 200, shellHeaders);
+  }
+
+  // 0B. Content-Hashed Extracted Client Studio JS Assets (/assets/js/<name>.js?v=<sha12>)
+  const clientAssetMatch = pathLower.match(CLIENT_JS_ASSET_ROUTE_REGEX);
+  if (clientAssetMatch) {
+    const asset = getClientJsAsset(clientAssetMatch[1]);
+    if (asset) {
+      if (method !== 'GET' && method !== 'HEAD') {
+        return methodNotAllowedResponse('GET, HEAD, OPTIONS');
+      }
+      const versionParam = searchParams?.get?.('v') || '';
+      const isVersionPinned = versionParam === asset.version;
+      const assetHeaders = {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'ETag': asset.etag,
+        'Cache-Control': isVersionPinned
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=3600, must-revalidate',
+        'X-Content-Type-Options': 'nosniff'
+      };
+      const rawIfNoneMatch = effectiveRequest?.headers?.['if-none-match'] || '';
+      if (etagMatches(rawIfNoneMatch, asset.etag)) {
+        return sendNative(null, 304, assetHeaders);
+      }
+      return sendNative(asset.buf, 200, assetHeaders);
+    }
   }
 
   // 1. Fast Edge Favicon Interception

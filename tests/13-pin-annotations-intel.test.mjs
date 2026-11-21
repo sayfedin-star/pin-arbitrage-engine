@@ -20,6 +20,7 @@ import {
   resetPinterestCircuitBreaker
 } from '../src/http/security-and-response.mjs';
 import { getPinDetailPageHtml } from '../src/ui/pin-details/index.mjs';
+import { getClientJsAsset } from '../src/ui/client-assets.mjs';
 
 test('Annotations Intel Service: deduplicates visual_annotations + annotations_with_links, rejects [object Object], and caps at 15', () => {
   const tags = [
@@ -288,11 +289,10 @@ test('Pin Details SSR HTML & Alpine controller render collapsible Annotations In
   assert.ok(html.includes('colspan="4"'), 'Empty-state row should span 4 columns');
   assert.ok(html.includes("ID: ' + row.annotation_id") && html.includes("Updated: ' + formatAnnotationDate("), 'Tooltip should surface annotation_id and last_updated metadata');
 
-  // Execute inline script in VM to verify lazy-fetch & caching behavior
-  const scriptMatches = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
-  const appScriptTag = scriptMatches.find((s) => s.includes('function pinDetailApp('));
-  assert.ok(appScriptTag, 'Expected pinDetailApp script tag in SSR HTML');
-  const scriptCode = appScriptTag.replace(/^<script\b[^>]*>/i, '').replace(/<\/script>$/i, '');
+  // Execute extracted pin-details client script in VM to verify lazy-fetch & caching behavior
+  assert.match(html, /<script\s+src="\/assets\/js\/pin-details\.js\?v=[a-f0-9]{12}"><\/script>/i, 'Expected content-hashed pin-details script tag in SSR HTML');
+  const scriptCode = getClientJsAsset('pin-details').code;
+  assert.ok(scriptCode.includes('function pinDetailApp('), 'Expected pinDetailApp controller in pin-details asset');
 
   const fetchCalls = [];
   const sandbox = {
@@ -476,10 +476,9 @@ test('Annotations Intel Phase 1 Hardening: overall deadline returns partial:true
 
 test('Pin Details Historical Snapshot Audit Log starts collapsed by default (expandedDays = {}) while manual toggle/expand/collapse work via getDayRowKey', async () => {
   const html = getPinDetailPageHtml('574771971217813409');
-  const scriptMatches = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
-  const appScriptTag = scriptMatches.find((s) => s.includes('function pinDetailApp('));
-  assert.ok(appScriptTag, 'Expected pinDetailApp script tag');
-  const scriptCode = appScriptTag.replace(/^<script\b[^>]*>/i, '').replace(/<\/script>$/i, '');
+  assert.match(html, /<script\s+src="\/assets\/js\/pin-details\.js\?v=[a-f0-9]{12}"><\/script>/i, 'Expected content-hashed pin-details script tag');
+  const scriptCode = getClientJsAsset('pin-details').code;
+  assert.ok(scriptCode.includes('function pinDetailApp('), 'Expected pinDetailApp controller in pin-details asset');
 
   const sandbox = {
     console,

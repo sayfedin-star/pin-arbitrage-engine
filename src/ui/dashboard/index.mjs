@@ -8,7 +8,7 @@ import { getDashboardBoardViewHtml } from './dashboard-board-view.mjs';
 import { getDashboardOverviewHtml } from './dashboard-overview.mjs';
 import { getDashboardRelatedPinsHtml } from './dashboard-related-pins.mjs';
 import { getDashboardCreatorsHtml } from './dashboard-creators.mjs';
-import { getDashboardClientAppScript } from './dashboard-client-app.mjs';
+import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getDashboardHtml(folderId = '') {
@@ -92,7 +92,8 @@ ${renderSharedDocumentHead({
     <span x-text="toastMessage" class="leading-snug"></span>
   </div>
 
-  ${getDashboardClientAppScript({ safeFolderId })}
+${renderPageBootstrapScript({ folderId: safeFolderId })}
+${renderClientJsScriptTag('dashboard')}
 </body>
 </html>`;
 }

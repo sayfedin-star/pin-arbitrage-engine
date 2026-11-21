@@ -4,10 +4,11 @@
 
 import { getKeywordDrawersAndModalsHtml } from '../keywords-drawers.mjs';
 import { renderAppSidebar } from '../app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
 import { getKeywordsDashboardViewHtml } from './keywords-dashboard-view.mjs';
 import { getKeywordsSerpStudioViewHtml } from './keywords-serp-studio.mjs';
 import { getKeywordsModalsHtml } from './keywords-modals.mjs';
-import { getKeywordsClientAppScript } from './keywords-client-app.mjs';
+import { renderClientJsScriptTag, serializeSafeJsonForInlineScript } from '../client-assets.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getKeywordsPageHtml(initialSlug = '', _initialKeyword = '', folderId = '') {
@@ -46,8 +47,9 @@ ${renderSharedDocumentHead({
     };
   </script>`,
   extraHeadHtml: `  <script>
-    window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(String(initialSlug || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
-    window.__INITIAL_FOLDER_ID__ = ${JSON.stringify(safeFolderId).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
+    window.__INITIAL_KEYWORD_SLUG__ = ${serializeSafeJsonForInlineScript(String(initialSlug || ''))};
+    window.__INITIAL_FOLDER_ID__ = ${serializeSafeJsonForInlineScript(safeFolderId)};
+    window.__PAE_PAGE_DATA__ = ${serializeSafeJsonForInlineScript({ initialSlug: String(initialSlug || ''), folderId: safeFolderId })};
   </script>`
 })}
 </head>
@@ -73,9 +75,11 @@ ${renderSharedDocumentHead({
   <!-- Main Full-Width Executive Container (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    ${getKeywordsDashboardViewHtml({ safeFolderId })}
+    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
 
-    ${getKeywordsSerpStudioViewHtml({ safeFolderId })}
+    ${getKeywordsDashboardViewHtml()}
+
+    ${getKeywordsSerpStudioViewHtml()}
 
   </main>
 
@@ -83,7 +87,7 @@ ${renderSharedDocumentHead({
 
   ${getKeywordDrawersAndModalsHtml()}
 
-  ${getKeywordsClientAppScript()}
+${renderClientJsScriptTag('keywords')}
 </body>
 </html>`;
 }

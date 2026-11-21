@@ -641,11 +641,17 @@ export function getPinDetailsClientAppScripts() {
         },
 
         resolveHdImageUrl(url) {
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.resolveHdImageUrl === 'function') {
+            return window.PAE.resolveHdImageUrl(url);
+          }
           if (!url || typeof url !== 'string') return '';
           return url.replace(/[/](236x|474x|564x|736x)[/]/, '/1200x/');
         },
 
         resolveLosslessImageUrl(url) {
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.resolveLosslessImageUrl === 'function') {
+            return window.PAE.resolveLosslessImageUrl(url);
+          }
           if (!url || typeof url !== 'string') return '';
           return url.replace(/[/](236x|474x|564x|736x|1200x)[/]/, '/originals/');
         },
@@ -1481,18 +1487,20 @@ export function getPinDetailsClientAppScripts() {
     }
   </script>
   <script>
-    const initLucide = () => {
-      if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
-        window.lucide.createIcons();
+    (function() {
+      var initLucide = function() {
+        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      };
+      if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initLucide, { once: true });
+        } else {
+          initLucide();
+        }
       }
-    };
-    if (typeof document !== 'undefined') {
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initLucide);
-      } else {
-        initLucide();
-      }
-    }
+    })();
   </script>
   `;
 }

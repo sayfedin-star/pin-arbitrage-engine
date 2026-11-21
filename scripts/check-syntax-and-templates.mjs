@@ -25,6 +25,7 @@ import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
 import { getDomainsPageHtml } from '../src/ui/domains/index.mjs';
 import { getPulsePageHtml } from '../src/ui/pulse/index.mjs';
 import { getNewbornPageHtml } from '../src/ui/newborn/index.mjs';
+import { getClientJsAsset, listClientJsAssets } from '../src/ui/client-assets.mjs';
 
 const VOID_HTML_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
@@ -217,6 +218,57 @@ export function verifyAlpineTemplateXIfSingleRoot(root, label) {
   return xIfTemplates.length;
 }
 
+export function validateExtractedClientJsAssets() {
+  const assets = listClientJsAssets();
+  if (!Array.isArray(assets) || assets.length === 0) {
+    throw new Error('FAIL [client-assets]: No extracted client JS assets registered.');
+  }
+
+  for (const asset of assets) {
+    const filename = `assets/js/${asset.name}.js`;
+    try {
+      new vm.Script(asset.code, { filename });
+      acorn.parse(asset.code, {
+        ecmaVersion: 'latest',
+        sourceType: 'script',
+        locations: true
+      });
+    } catch (err) {
+      const lines = asset.code.split('\n');
+      const lineNum = err?.loc?.line || Number(String(err.stack || '').match(/:(\d+)\n/)?.[1] || 0);
+      if (lineNum > 0) {
+        for (let l = Math.max(0, lineNum - 3); l <= Math.min(lines.length - 1, lineNum + 3); l++) {
+          console.error(`    ${l + 1}: ${lines[l]}`);
+        }
+      }
+      throw new Error(`[${filename}] Extracted client JS syntax error: ${err.message}`);
+    }
+  }
+
+  return assets.length;
+}
+
+export function verifyReferencedClientAssetTags(name, html) {
+  const scriptSrcMatches = [...html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)];
+  let verifiedRefs = 0;
+  for (const m of scriptSrcMatches) {
+    const src = m[1] || '';
+    const assetMatch = src.match(/^\/assets\/js\/([a-z0-9-]+)\.js(?:\?v=([a-f0-9]+))?$/i);
+    if (!assetMatch) continue;
+    const assetName = assetMatch[1];
+    const queryVersion = assetMatch[2] || '';
+    const asset = getClientJsAsset(assetName);
+    if (!asset) {
+      throw new Error(`FAIL [${name}]: Referenced unknown extracted JS asset "${src}".`);
+    }
+    if (!queryVersion || queryVersion !== asset.version) {
+      throw new Error(`FAIL [${name}]: Asset "${src}" version mismatch (got "${queryVersion}", expected "${asset.version}").`);
+    }
+    verifiedRefs++;
+  }
+  return verifiedRefs;
+}
+
 export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
   const startTime = performance.now();
 
@@ -227,6 +279,9 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     const shellCode = fs.readFileSync(paeShellPath, 'utf8');
     new vm.Script(shellCode, { filename: 'pae-shell.js' });
   }
+
+  // 1B. Validate syntax of all extracted content-hashed client JS assets via vm.Script + Acorn
+  const clientAssetCount = validateExtractedClientJsAssets();
 
   // 2. Render all 8 SSR UI pages (including folder-scoped variants) with zero DB/network
   const foldersSettingsHtml = getCampaignFoldersPageHtml('test_folder_123', 'settings');
@@ -245,11 +300,13 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     ['newborn-ui (settings)', getNewbornPageHtml('', 'settings')]
   ];
 
-  // 3. Compile inline <script> blocks via vm.Script & verify DOM tag balance + <template x-if> single-root nesting
+  // 3. Compile inline <script> blocks via vm.Script, verify extracted asset refs & DOM tag balance + <template x-if> single-root nesting
   let totalInlineScripts = 0;
+  let totalAssetRefs = 0;
   let totalXIfTemplates = 0;
   for (const [label, html] of ssrPages) {
     totalInlineScripts += validateInlineScriptsForPage(label, html);
+    totalAssetRefs += verifyReferencedClientAssetTags(label, html);
     countTagBalance(html, label);
     const tree = parseHtmlElementTree(html);
     totalXIfTemplates += verifyAlpineTemplateXIfSingleRoot(tree, label);
@@ -290,9 +347,9 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
 
   const durationMs = (performance.now() - startTime).toFixed(1);
   console.log(
-    `✅ [STATIC CHECK PASSED] ${mjsCount} .mjs files, ${totalInlineScripts} inline <script> blocks, ${ssrPages.length} SSR DOM trees, and ${totalXIfTemplates} <template x-if> roots verified in ${durationMs}ms.`
+    `✅ [STATIC CHECK PASSED] ${mjsCount} .mjs files, ${clientAssetCount} extracted JS assets (${totalAssetRefs} SSR refs), ${totalInlineScripts} inline <script> blocks, ${ssrPages.length} SSR DOM trees, and ${totalXIfTemplates} <template x-if> roots verified in ${durationMs}ms.`
   );
-  return { mjsCount, totalInlineScripts, ssrViews: ssrPages.length, totalXIfTemplates };
+  return { mjsCount, clientAssetCount, totalAssetRefs, totalInlineScripts, ssrViews: ssrPages.length, totalXIfTemplates };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

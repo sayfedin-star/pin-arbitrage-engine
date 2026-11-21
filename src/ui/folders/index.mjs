@@ -6,7 +6,7 @@ import { renderAppSidebar } from '../app-sidebar.mjs';
 import { getFoldersStudioViewHtml } from './folders-studio-view.mjs';
 import { getFoldersHubViewHtml } from './folders-hub-view.mjs';
 import { getFoldersModalsHtml } from './folders-modals.mjs';
-import { getFoldersClientAppScript } from './folders-client-app.mjs';
+import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
@@ -102,7 +102,8 @@ ${renderSharedDocumentHead({
 
   ${getFoldersModalsHtml()}
 
-  ${getFoldersClientAppScript()}
+${renderPageBootstrapScript({ folderId: safeFolderId, initialRoom: activeRoom })}
+${renderClientJsScriptTag('folders')}
 </body>
 </html>`;
 }

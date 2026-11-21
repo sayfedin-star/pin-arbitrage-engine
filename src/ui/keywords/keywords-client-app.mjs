@@ -140,9 +140,12 @@ export function getKeywordsClientAppScript() {
         trendsData: null,
         isTrendsLoading: false,
 
-        // Concurrency & Race-Condition Hardening (Inspector & Details)
+        // Concurrency & Race-Condition Hardening (Inspector, List, Trends, Displaced & Details)
         detailRequestId: 0,
         detailAbortController: null,
+        keywordsAbortController: null,
+        trendsAbortController: null,
+        displacedAbortController: null,
         activePinRequestId: 0,
         pinInspectorAbortController: null,
 
@@ -1302,6 +1305,12 @@ export function getKeywordsClientAppScript() {
         },
 
         switchToDashboard() {
+          for (const ctrlKey of ['detailAbortController', 'trendsAbortController', 'displacedAbortController', 'pinInspectorAbortController']) {
+            if (this[ctrlKey]) {
+              try { this[ctrlKey].abort(); } catch (_) {}
+              this[ctrlKey] = null;
+            }
+          }
           this.viewModeLevel = 'dashboard';
           const returnPath = this.activeFolderId
             ? '/folders/' + encodeURIComponent(this.activeFolderId) + '/keywords'
@@ -1407,7 +1416,12 @@ export function getKeywordsClientAppScript() {
 
         async bulkDeleteKeywords() {
           if (this.selectedKeywordIds.length === 0) return;
-          if (!confirm('Are you sure you want to delete ' + this.selectedKeywordIds.length + ' tracked keywords?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to delete ' + this.selectedKeywordIds.length + ' tracked keywords?', {
+            title: 'Delete Tracked Keywords',
+            confirmLabel: 'Delete ' + this.selectedKeywordIds.length + ' Keywords',
+            danger: true
+          });
+          if (!confirmed) return;
           this.isBulkLoading = true;
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords'), {
@@ -1583,20 +1597,34 @@ export function getKeywordsClientAppScript() {
         },
 
         async fetchKeywords(forceRefresh = false) {
+          if (this.keywordsAbortController) {
+            try { this.keywordsAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this.keywordsAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           this.isKeywordsLoading = true;
           try {
             const refreshParam = forceRefresh ? '&refresh=true' : '';
             const folderParam = this.activeFolderId ? ('&folder_id=' + encodeURIComponent(this.activeFolderId)) : '';
-            const res = await window.apiFetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam + folderParam));
+            const res = await window.apiFetch(
+              this.getApiUrl('/api/keywords?limit=1000' + refreshParam + folderParam),
+              signal ? { signal } : {}
+            );
+            if (signal && signal.aborted) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
+            if (signal && signal.aborted) return;
             const raw = Array.isArray(data.keywords) ? data.keywords : [];
             this.keywords = raw.map(k => this.normalizeKeyword(k));
           } catch (err) {
+            if ((signal && signal.aborted) || (err && err.name === 'AbortError')) return;
             this.showToast('Failed to load keywords: ' + err.message, 'error');
           } finally {
-            this.isKeywordsLoading = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isKeywordsLoading = false;
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
@@ -1723,6 +1751,12 @@ export function getKeywordsClientAppScript() {
 
         async fetchTrends(term, force = false) {
           if (!term) return;
+          if (this.trendsAbortController) {
+            try { this.trendsAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this.trendsAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           this.isTrendsLoading = true;
           try {
             if (force) {
@@ -1730,10 +1764,13 @@ export function getKeywordsClientAppScript() {
               const res = await fetchFn(this.getApiUrl('/api/keywords/trends/refresh'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ term, force: true })
+                body: JSON.stringify({ term, force: true }),
+                ...(signal ? { signal } : {})
               });
+              if (signal && signal.aborted) return;
               if (res && res.ok) {
                 const data = await res.json();
+                if (signal && signal.aborted) return;
                 if (data.success) {
                   this.trendsData = { ...(this.trendsData || {}), ...data };
                   return;
@@ -1741,10 +1778,12 @@ export function getKeywordsClientAppScript() {
               }
             }
 
+            const fetchOpts = signal ? { signal } : {};
             const [trendsRes, popularRes] = await Promise.allSettled([
-              window.apiFetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
-              window.apiFetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
+              window.apiFetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term)), fetchOpts),
+              window.apiFetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)), fetchOpts)
             ]);
+            if (signal && signal.aborted) return;
 
             let merged = {};
             if (trendsRes.status === 'fulfilled' && trendsRes.value.ok) {
@@ -1761,12 +1800,15 @@ export function getKeywordsClientAppScript() {
               }
             }
 
+            if (signal && signal.aborted) return;
             if (Object.keys(merged).length > 0) {
               this.trendsData = { ...(this.trendsData || {}), ...merged };
             }
           } catch (_) {} finally {
-            this.isTrendsLoading = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isTrendsLoading = false;
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
@@ -1880,6 +1922,12 @@ export function getKeywordsClientAppScript() {
         async fetchDisplacedPins(keywordId, append = false) {
           const kid = keywordId || this.selectedKeyword?.id;
           if (!kid) return;
+          if (this.displacedAbortController) {
+            try { this.displacedAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this.displacedAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           if (append) {
             this.isLoadingMoreDisplaced = true;
           } else {
@@ -1890,9 +1938,14 @@ export function getKeywordsClientAppScript() {
             const offset = append ? this.displacedOffset : 0;
             const limit = 500;
             const statusParam = this.displacedStatusFilter !== 'ALL' ? '&status=' + encodeURIComponent(this.displacedStatusFilter) : '';
-            const res = await window.apiFetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam));
+            const res = await window.apiFetch(
+              this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam),
+              signal ? { signal } : {}
+            );
+            if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
+              if (signal && signal.aborted) return;
               const incoming = data.displaced_pins || data.pins || [];
               if (append) {
                 const existingIds = new Set([
@@ -1917,9 +1970,11 @@ export function getKeywordsClientAppScript() {
               this.rebuildPinCaches();
             }
           } catch (_) {} finally {
-            this.isDisplacedLoading = false;
-            this.isLoadingMoreDisplaced = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isDisplacedLoading = false;
+              this.isLoadingMoreDisplaced = false;
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
@@ -2316,11 +2371,17 @@ export function getKeywordsClientAppScript() {
         },
 
         resolveHdImageUrl(url) {
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.resolveHdImageUrl === 'function') {
+            return window.PAE.resolveHdImageUrl(url);
+          }
           if (!url || typeof url !== 'string') return '';
           return url.replace(/[/](236x|474x|564x|736x)[/]/, '/1200x/');
         },
 
         resolveLosslessImageUrl(url) {
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.resolveLosslessImageUrl === 'function') {
+            return window.PAE.resolveLosslessImageUrl(url);
+          }
           if (!url || typeof url !== 'string') return '';
           return url.replace(/[/](236x|474x|564x|736x|1200x)[/]/, '/originals/');
         },
@@ -2449,7 +2510,12 @@ export function getKeywordsClientAppScript() {
         },
 
         async deleteKeyword(id) {
-          if (!confirm('Are you sure you want to delete this tracked keyword and its snapshots?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to delete this tracked keyword and its snapshots?', {
+            title: 'Delete Tracked Keyword',
+            confirmLabel: 'Delete Keyword',
+            danger: true
+          });
+          if (!confirmed) return;
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords?id=' + id), { method: 'DELETE' });
             if (!res.ok) {

@@ -36,6 +36,7 @@ import {
   timingSafeEqualStr,
   registerDefaultBackgroundQueue
 } from './http/security-and-response.mjs';
+import { registerCompressionHook } from './http/compression.mjs';
 
 export { createSqlClient, getSqlClient, getPoolStats, drainSqlClient };
 
@@ -278,6 +279,8 @@ export function createFastifyApp(customEnv = {}) {
     if (!reply.hasHeader('Referrer-Policy')) reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     return payload;
   });
+
+  registerCompressionHook(app);
 
   const resolvedDatabaseUrl = customEnv.DATABASE_URL !== undefined
     ? customEnv.DATABASE_URL

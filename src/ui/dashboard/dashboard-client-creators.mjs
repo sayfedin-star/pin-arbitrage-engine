@@ -7,7 +7,7 @@
  */
 
 export function getDashboardCreatorsFleetMethods() {
-  return `        async fetchCompetitors(bypassCache = false) {
+  return `        async fetchCompetitors(bypassCache = false, opts = {}) {
           if (bypassCache) {
             this._clientCache?.creators?.clear();
             this._clientCache?.boards?.clear();
@@ -16,15 +16,20 @@ export function getDashboardCreatorsFleetMethods() {
             return this.loadFolderCreators(this.scopedFolderId || this.folderFilter);
           }
           const reqSeq = ++this._creatorsReqSeq;
+          const requestedLimit = Number(opts && opts.limit) > 0 ? Number(opts.limit) : 5000;
+          const signal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('competitors') : undefined;
           try {
-            const baseEndpoint = '/api/creators?limit=5000' + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
-            const res = await window.apiFetch(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
-            if (reqSeq !== this._creatorsReqSeq) return;
+            const baseEndpoint = '/api/creators?limit=' + requestedLimit + (bypassCache ? ('&_t=' + Date.now() + '&refresh=true') : '');
+            const fetchOpts = bypassCache ? { cache: 'no-store' } : {};
+            if (signal) fetchOpts.signal = signal;
+            const res = await window.apiFetch(this.getApiUrl(baseEndpoint), fetchOpts);
+            if (reqSeq !== this._creatorsReqSeq || (signal && signal.aborted)) return;
             if (res.ok) {
               const data = await res.json();
-              if (reqSeq !== this._creatorsReqSeq) return;
+              if (reqSeq !== this._creatorsReqSeq || (signal && signal.aborted)) return;
               this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = data.competitors || [];
+              if (requestedLimit >= 5000) this._competitorsFullyLoaded = true;
               this._competitorsCacheKey = '';
               if (this.activeCreator) {
                 const matched = this.competitors.find(c => (c.username || '').toLowerCase() === (this.activeCreator.username || '').toLowerCase());
@@ -39,6 +44,7 @@ export function getDashboardCreatorsFleetMethods() {
               this._competitorsCacheKey = '';
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             if (reqSeq !== this._creatorsReqSeq) return;
             this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
             this.competitors = [];
@@ -132,7 +138,12 @@ export function getDashboardCreatorsFleetMethods() {
         },
 
         async deleteCompetitor(id) {
-          if (!confirm('Are you sure you want to stop tracking this competitor?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to stop tracking this creator?', {
+            title: 'Remove Tracked Creator',
+            confirmLabel: 'Remove Creator',
+            danger: true
+          });
+          if (!confirmed) return;
           const previousCompetitors = [...(this.competitors || [])];
           // Optimistically remove from UI
           this.competitors = this.competitors.filter(c => Number(c.id) !== Number(id));
@@ -218,11 +229,15 @@ export function getDashboardCreatorsFleetMethods() {
             return this._loadingFolderCreatorsPromise;
           }
           this._loadingFolderCreatorsKey = inflightKey;
+          const signal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('competitors') : undefined;
           this._loadingFolderCreatorsPromise = (async () => {
             try {
               const scopeParam = this.vaultScope ? ('&vault_scope=' + encodeURIComponent(this.vaultScope)) : '';
-              const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam);
-              if (reqSeq !== this._creatorsReqSeq) return;
+              const res = await (window.safeApiFetch || fetch)(
+                '/api/folders/' + encodeURIComponent(fid) + '/creators?discovery=true' + scopeParam,
+                signal ? { signal } : {}
+              );
+              if (reqSeq !== this._creatorsReqSeq || (signal && signal.aborted)) return;
               if (res.ok) {
                 const data = await res.json();
                 if (reqSeq !== this._creatorsReqSeq) return;
@@ -685,7 +700,12 @@ export function getDashboardCreatorsFleetMethods() {
         async bulkDeleteSelectedCompetitors() {
           if (!this.selectedCompetitorIds.length) return;
           const count = this.selectedCompetitorIds.length;
-          if (!confirm('Are you sure you want to stop tracking ' + count + ' selected competitors?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to stop tracking ' + count + ' selected creators?', {
+            title: 'Remove Selected Creators',
+            confirmLabel: 'Remove ' + count + ' Creators',
+            danger: true
+          });
+          if (!confirmed) return;
           const previousCompetitors = [...(this.competitors || [])];
           const toDelete = new Set(this.selectedCompetitorIds.map(Number));
           this.competitors = this.competitors.filter(c => !toDelete.has(Number(c.id)));
@@ -804,15 +824,8 @@ export function getDashboardCreatorsFleetMethods() {
               this._clientCache?.boards?.clear();
               const data = await res.json();
               this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
-              const bRes = await window.apiFetch(this.getApiUrl('/api/creators/boards?competitor_id=' + encodeURIComponent(competitor.id) + (competitor.username ? '&username=' + encodeURIComponent(competitor.username) : '')));
-              if (bRes.ok) {
-                const bData = await bRes.json();
-                this.competitorBoardsList = bData.boards || [];
-                competitor.total_boards = this.competitorBoardsList.length;
-                if (this.activeCreator && (this.activeCreator.id === competitor.id || this.activeCreator.username === competitor.username)) {
-                  this.activeCreatorBoards = bData.boards || [];
-                  this.activeCreator.total_boards = this.competitorBoardsList.length;
-                }
+              if (typeof this.fetchCreatorBoards === 'function') {
+                await this.fetchCreatorBoards(competitor, true);
               }
               await this.fetchCompetitors();
             } else {
@@ -856,7 +869,12 @@ export function getDashboardCreatorsDossierMethods() {
         },
 
         async deleteSnapshotAction(snapshotId) {
-          if (!confirm('Are you sure you want to delete this snapshot?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to delete this snapshot?', {
+            title: 'Delete Snapshot',
+            confirmLabel: 'Delete Snapshot',
+            danger: true
+          });
+          if (!confirmed) return;
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/snapshot?id=' + snapshotId), { method: 'DELETE' });
             if (!res.ok) {
@@ -965,16 +983,29 @@ export function getDashboardCreatorsDossierMethods() {
             }
           }
 
+          if (typeof this._abortSlots === 'function') {
+            this._abortSlots('creator_detail', 'creator_pins', 'creator_urls', 'creator_related', 'creator_boards');
+          }
+          const detailSignal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('creator_detail') : undefined;
           try {
-            const detailRes = await window.apiFetch(this.getApiUrl('/api/creators/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId)));
+            const detailRes = await window.apiFetch(
+              this.getApiUrl('/api/creators/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId)),
+              detailSignal ? { signal: detailSignal } : {}
+            );
+            if (detailSignal && detailSignal.aborted) return;
 
             let freshDetail = null;
 
             if (detailRes.ok) {
               freshDetail = await detailRes.json();
+              if (detailSignal && detailSignal.aborted) return;
               this.activeCreatorDetail = freshDetail;
               this.activeCreatorSnapshots = freshDetail.snapshots || [];
               this.activeCreatorBoards = freshDetail.boards || [];
+              if (Array.isArray(freshDetail.boards) && this._clientCache?.boards) {
+                const boardCacheKey = String(freshDetail.profile?.id || compId) + ':' + handle;
+                this._clientCache.boards.set(boardCacheKey, freshDetail.boards);
+              }
               if (freshDetail.profile) {
                 this.activeCreator = { ...this.activeCreator, ...freshDetail.profile };
               }
@@ -999,24 +1030,31 @@ export function getDashboardCreatorsDossierMethods() {
 
             const initialFetches = [
               this.fetchCreatorAllPins(),
-              this.fetchCreatorRules(),
-              this.fetchCreatorTopUrls()
+              this.fetchCreatorRules()
             ];
-            if (this.activeCreatorTab === 'related_pins') {
+            if (this.activeCreatorTab === 'top_urls' || this.activeCreatorTab === 'links') {
+              initialFetches.push(this.fetchCreatorTopUrls());
+            } else if (this.activeCreatorTab === 'related_pins') {
               initialFetches.push(this.fetchCreatorRelatedGraph());
-            } else if (this.activeCreatorTab === 'boards') {
+            } else if (this.activeCreatorTab === 'boards' && !Array.isArray(freshDetail?.boards)) {
               initialFetches.push(this.fetchCreatorBoards());
             }
             await Promise.all(initialFetches);
           } catch (e) {
+            if ((detailSignal && detailSignal.aborted) || (e && e.name === 'AbortError')) return;
             console.error('openCreatorPage error:', e);
           } finally {
-            this.isCreatorLoading = false;
-            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            if (!detailSignal || !detailSignal.aborted) {
+              this.isCreatorLoading = false;
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
         switchCreatorTab(tab) {
+          if (typeof this._abortSlots === 'function') {
+            this._abortSlots('creator_pins', 'creator_urls', 'creator_related', 'creator_boards');
+          }
           if (tab === 'pins') {
             this.activeCreatorTab = 'all_pins';
             this.creatorAllPinQualifiedOnly = true;
@@ -1043,13 +1081,14 @@ export function getDashboardCreatorsDossierMethods() {
             if (tab === 'related_pins') this.fetchCreatorRelatedGraph();
             else if (tab === 'top_urls') this.fetchCreatorTopUrls();
             else if (tab === 'all_pins') this.fetchCreatorAllPins();
-            else if (tab === 'boards') this.fetchCreatorBoards();
+            else if (tab === 'boards') this.fetchCreatorBoards(this.activeCreator, false);
           }
           this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
 
         async fetchCreatorRelatedGraph() {
           if (!this.activeCreator) return;
+          const signal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('creator_related') : undefined;
           this.isLoadingRelatedGraph = true;
           try {
             const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
@@ -1062,13 +1101,16 @@ export function getDashboardCreatorsDossierMethods() {
             p.set('filter', this.creatorRelatedFilter || 'all');
             if (this.creatorRelatedSearch) p.set('search', this.creatorRelatedSearch.trim());
 
+            const fetchOpts = signal ? { signal } : {};
             const [interRes, seedsRes] = await Promise.all([
-              window.apiFetch(this.getApiUrl('/api/creators/related-pins/intersections?' + p.toString())),
-              window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds?id=' + encodeURIComponent(compId)))
+              window.apiFetch(this.getApiUrl('/api/creators/related-pins/intersections?' + p.toString()), fetchOpts),
+              window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds?id=' + encodeURIComponent(compId)), fetchOpts)
             ]);
+            if (signal && signal.aborted) return;
 
             if (interRes.ok) {
               const data = await interRes.json();
+              if (signal && signal.aborted) return;
               this.creatorRelatedIntersections = data.intersections || [];
               this.creatorRelatedStats = data.stats || this.creatorRelatedStats;
               this.creatorRelatedPage = data.page || 1;
@@ -1077,14 +1119,18 @@ export function getDashboardCreatorsDossierMethods() {
 
             if (seedsRes.ok) {
               const sData = await seedsRes.json();
+              if (signal && signal.aborted) return;
               this.creatorRelatedSeeds = sData.seeds || [];
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             console.error('fetchCreatorRelatedGraph error:', e);
             this.showToast('Error loading related pins graph');
           } finally {
-            this.isLoadingRelatedGraph = false;
-            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isLoadingRelatedGraph = false;
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 
@@ -1180,7 +1226,12 @@ export function getDashboardCreatorsDossierMethods() {
         },
 
         async deleteSeedAction(pinId) {
-          if (!confirm('Delete Seed #' + pinId + ' and its discovered related nodes?')) return;
+          const confirmed = await window.PAE.confirm('Delete Seed #' + pinId + ' and its discovered related nodes?', {
+            title: 'Delete Seed',
+            confirmLabel: 'Delete Seed',
+            danger: true
+          });
+          if (!confirmed) return;
           try {
             const compId = this.activeCreator.id || this.activeCreator.username;
             const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/seeds?id=' + encodeURIComponent(compId) + '&pin_id=' + encodeURIComponent(pinId)), {
@@ -1224,7 +1275,15 @@ export function getDashboardCreatorsDossierMethods() {
         async dispatchRelatedWorkflowAction() {
           if (!this.activeCreator) return;
           const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
-          if (!confirm('Dispatch Related Pins Crawler (account_quick) on GitHub Actions for @' + handle + '? This will crawl all registered account seeds into the unified related-pins graph.')) return;
+          const confirmed = await window.PAE.confirm(
+            'Dispatch Related Pins Crawler (account_quick) on GitHub Actions for @' + handle + '? This will crawl all registered account seeds into the unified related-pins graph.',
+            {
+              title: 'Dispatch Related Pins Crawler',
+              confirmLabel: 'Dispatch Crawler',
+              danger: false
+            }
+          );
+          if (!confirmed) return;
           this.isHarvestingRelated = true;
           try {
             const res = await window.apiFetch(this.getApiUrl('/api/creators/related-pins/dispatch-workflow'), {
@@ -1454,6 +1513,7 @@ export function getDashboardCreatorsDossierMethods() {
 
         async fetchCreatorTopUrls() {
           if (!this.activeCreator) return;
+          const signal = typeof this._nextAbortSignal === 'function' ? this._nextAbortSignal('creator_urls') : undefined;
           this.isLoadingTopUrls = true;
           try {
             const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
@@ -1467,19 +1527,24 @@ export function getDashboardCreatorsDossierMethods() {
             p.set('page', this.creatorTopUrlsPage || 1);
             p.set('limit', 50);
 
-            const res = await window.apiFetch(this.getApiUrl('/api/creators/top-urls?' + p.toString()));
+            const res = await window.apiFetch(this.getApiUrl('/api/creators/top-urls?' + p.toString()), signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
+              if (signal && signal.aborted) return;
               this.activeCreatorTopUrls = data.urls || [];
               this.creatorTopUrlsTotal = data.total || 0;
               this.creatorTopUrlsPage = data.page || 1;
               this.creatorTopUrlsTotalPages = data.total_pages || 1;
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             console.error('fetchCreatorTopUrls error:', e);
           } finally {
-            this.isLoadingTopUrls = false;
-            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            if (!signal || !signal.aborted) {
+              this.isLoadingTopUrls = false;
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
           }
         },
 

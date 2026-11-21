@@ -2,16 +2,13 @@
  * Level 2: SERP Radar Studio View
  * (4-Card KPI Analytics Ribbon, SERP Matrix, Domain Intel, PinClicks, Displaced Vault)
  */
-import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
 import { renderPinRowTemplate } from '../pin-row.mjs';
 
-export function getKeywordsSerpStudioViewHtml({ safeFolderId = '' } = {}) {
+export function getKeywordsSerpStudioViewHtml() {
   return `    <!-- ========================================================================= -->
     <!-- LEVEL 2: SERP RADAR STUDIO (viewModeLevel === 'serp_studio')             -->
     <!-- ========================================================================= -->
     <div x-show="viewModeLevel === 'serp_studio'" x-cloak class="space-y-6">
-
-      ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
 
       <!-- Studio Return Button -->
       <div class="flex items-center justify-between">

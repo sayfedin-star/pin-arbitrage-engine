@@ -138,6 +138,32 @@ export function getNewbornClientAppScript() {
 
         // Live 202 Run Polling State
         activeRunId: null,
+        _abortControllers: {},
+        _nextAbortSignal(slot) {
+          if (typeof AbortController === 'undefined') return undefined;
+          if (!this._abortControllers) this._abortControllers = {};
+          const prev = this._abortControllers[slot];
+          if (prev) {
+            try { prev.abort(); } catch (_) {}
+          }
+          const next = new AbortController();
+          this._abortControllers[slot] = next;
+          return next.signal;
+        },
+        _abortSlots() {
+          if (!this._abortControllers) return;
+          for (let i = 0; i < arguments.length; i++) {
+            const slot = arguments[i];
+            const ctrl = this._abortControllers[slot];
+            if (ctrl) {
+              try { ctrl.abort(); } catch (_) {}
+              delete this._abortControllers[slot];
+            }
+          }
+        },
+        _isAbortError(err, signal) {
+          return Boolean((signal && signal.aborted) || (err && (err.name === 'AbortError' || err.code === 20)));
+        },
         activeRun: null,
         isPollingRun: false,
         showRunCompleteBanner: false,
@@ -508,6 +534,7 @@ export function getNewbornClientAppScript() {
         },
 
         async switchView(view) {
+          this._abortSlots('candidates', 'crossover', 'watchlist', 'anchors', 'clusters');
           this.activeView = view;
           if (view === 'hunt') {
             await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
@@ -807,6 +834,7 @@ export function getNewbornClientAppScript() {
         },
 
         async loadCandidates() {
+          const signal = this._nextAbortSignal('candidates');
           this.isLoading = true;
           try {
             const params = new URLSearchParams();
@@ -818,23 +846,30 @@ export function getNewbornClientAppScript() {
             params.set('sort', this.filters.sort || 'repins');
             params.set('limit', '200');
 
-            const { data } = await this.apiJson('/api/newborn/candidates?' + params.toString());
+            const { data } = await this.apiJson('/api/newborn/candidates?' + params.toString(), signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             this.candidates = Array.isArray(data?.candidates) ? data.candidates : [];
             this.candidatesTotal = Number(data?.total ?? this.candidates.length);
           } catch (err) {
+            if (this._isAbortError(err, signal)) return;
             this.toast('Failed to load Golden Pins: ' + err.message, 'error');
           } finally {
-            this.isLoading = false;
-            this.refreshIcons();
+            if (!signal || !signal.aborted) {
+              this.isLoading = false;
+              this.refreshIcons();
+            }
           }
         },
 
         async loadCrossoverForActiveHunt() {
+          const signal = this._nextAbortSignal('crossover');
           try {
             const qs = this.activeRunId ? ('?run_id=' + encodeURIComponent(this.activeRunId) + '&limit=30') : '?limit=30';
-            const { data } = await this.apiJson('/api/newborn/crossover' + qs);
+            const { data } = await this.apiJson('/api/newborn/crossover' + qs, signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             this.crossoverClusters = Array.isArray(data?.clusters) ? data.clusters : [];
-          } catch (_) {
+          } catch (err) {
+            if (this._isAbortError(err, signal)) return;
             this.crossoverClusters = [];
           }
         },
@@ -1381,17 +1416,25 @@ export function getNewbornClientAppScript() {
         },
 
         async loadWatchlist() {
+          const signal = this._nextAbortSignal('watchlist');
           try {
-            const { data } = await this.apiJson('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins');
+            const { data } = await this.apiJson('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins', signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             this.watchlistCandidates = Array.isArray(data?.candidates) ? data.candidates : [];
-          } catch (_) {}
+          } catch (err) {
+            if (this._isAbortError(err, signal)) return;
+          }
         },
 
         async loadDailyAnchors() {
+          const signal = this._nextAbortSignal('anchors');
           try {
-            const { data } = await this.apiJson('/api/newborn/anchors?active_only=true&limit=200');
+            const { data } = await this.apiJson('/api/newborn/anchors?active_only=true&limit=200', signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             this.dailyAnchors = Array.isArray(data?.anchors) ? data.anchors : [];
-          } catch (_) {}
+          } catch (err) {
+            if (this._isAbortError(err, signal)) return;
+          }
         },
 
         async pollWatchlistNow() {
@@ -1424,18 +1467,23 @@ export function getNewbornClientAppScript() {
         },
 
         async openDossier(pinId) {
+          const signal = this._nextAbortSignal('dossier');
           this.dossierOpen = true;
           this.isLoadingDossier = true;
           this.dossierData = null;
           try {
-            const { data } = await this.apiJson('/api/newborn/candidates/' + encodeURIComponent(pinId));
+            const { data } = await this.apiJson('/api/newborn/candidates/' + encodeURIComponent(pinId), signal ? { signal } : {});
+            if (signal && signal.aborted) return;
             this.dossierData = data;
           } catch (err) {
+            if (this._isAbortError(err, signal)) return;
             this.toast('Failed to load dossier: ' + err.message, 'error');
             this.dossierOpen = false;
           } finally {
-            this.isLoadingDossier = false;
-            this.refreshIcons();
+            if (!signal || !signal.aborted) {
+              this.isLoadingDossier = false;
+              this.refreshIcons();
+            }
           }
         },
 

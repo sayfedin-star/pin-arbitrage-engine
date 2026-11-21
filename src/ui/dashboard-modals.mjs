@@ -1078,7 +1078,7 @@ export function getDashboardModalsHtml() {
             <input type="checkbox" x-model="newCompetitorAlsoTrack" class="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-purple-600 focus:ring-purple-500">
             <div>
               <span class="font-bold text-slate-900 dark:text-white block">Also track & scrape in Competitor Intelligence</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">Saves account to database, monitors followers & monthly reach, and scrapes public boards.</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">Saves account to database, monitors followers & Total audience, and scrapes public boards.</span>
             </div>
           </label>
 

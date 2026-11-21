@@ -10,11 +10,47 @@ import { getDashboardSeedComputedProperties, getDashboardSeedActionMethods } fro
 
 import { getDashboardCreatorsFleetMethods, getDashboardCreatorsDossierMethods } from './dashboard-client-creators.mjs';
 import { getDashboardBoardsAndPinMethods } from './dashboard-client-boards.mjs';
-export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
+export function getDashboardClientAppScript() {
   return `  <script>
-    function dashboardApp() {
+    function dashboardApp(initialFolderId) {
+      const _initFolderId = String(
+        initialFolderId !== undefined && initialFolderId !== null && initialFolderId !== ''
+          ? initialFolderId
+          : ((typeof window !== 'undefined' && window.__PAE_PAGE_DATA__ && window.__PAE_PAGE_DATA__.folderId) || '')
+      ).replace(/[^a-zA-Z0-9_-]/g, '').trim();
+
       return {
         _hasInitialized: false,
+        _abortControllers: {},
+        _competitorsFullyLoaded: false,
+        _seedsLoaded: false,
+        _intersectionsLoaded: false,
+        _keywordsLoaded: false,
+        _nextAbortSignal(slot) {
+          if (typeof AbortController === 'undefined') return undefined;
+          if (!this._abortControllers) this._abortControllers = {};
+          const prev = this._abortControllers[slot];
+          if (prev) {
+            try { prev.abort(); } catch (_) {}
+          }
+          const next = new AbortController();
+          this._abortControllers[slot] = next;
+          return next.signal;
+        },
+        _abortSlots() {
+          if (!this._abortControllers) return;
+          for (let i = 0; i < arguments.length; i++) {
+            const slot = arguments[i];
+            const ctrl = this._abortControllers[slot];
+            if (ctrl) {
+              try { ctrl.abort(); } catch (_) {}
+              delete this._abortControllers[slot];
+            }
+          }
+        },
+        _isAbortError(err, signal) {
+          return Boolean((signal && signal.aborted) || (err && (err.name === 'AbortError' || err.code === 20)));
+        },
         creatorDiscoveryFilter: 'all',
         isDark: (() => {
           try {
@@ -27,6 +63,12 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           } catch (_) { return false; }
         })(),
         toggleTheme() {
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.toggleTheme === 'function') {
+            const nextDark = window.PAE.toggleTheme(!this.isDark);
+            this.isDark = nextDark;
+            this.darkMode = nextDark;
+            return;
+          }
           this.isDark = !this.isDark;
           this.darkMode = this.isDark;
           try {
@@ -59,12 +101,16 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           } catch (_) { return false; }
         })(),
         toggleSidebar() {
-          this.isSidebarCollapsed = !this.isSidebarCollapsed;
-          try {
-            if (typeof localStorage !== 'undefined') {
-              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
-            }
-          } catch (_) {}
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.toggleSidebar === 'function') {
+            this.isSidebarCollapsed = window.PAE.toggleSidebar(!this.isSidebarCollapsed);
+          } else {
+            this.isSidebarCollapsed = !this.isSidebarCollapsed;
+            try {
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+              }
+            } catch (_) {}
+          }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
@@ -80,13 +126,13 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
               return 'creators_archive';
             }
           }
-          return '${safeFolderId}' ? 'creators_archive' : 'overview';
+          return _initFolderId ? 'creators_archive' : 'overview';
         })(),
-        scopedFolderId: '${safeFolderId}',
-        activeFolderId: '${safeFolderId}',
+        scopedFolderId: _initFolderId,
+        activeFolderId: _initFolderId,
         activeFolder: null,
         crossoverData: null,
-        folderFilter: '${safeFolderId}',
+        folderFilter: _initFolderId,
         vaultScope: 'high_signal',
         foldersList: [],
         folderCreatorMap: {},
@@ -1221,6 +1267,7 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         },
 
         switchTab(tab) {
+          this._abortSlots('competitors', 'intersections', 'explorer', 'keywords', 'seed_dossier', 'creator_detail', 'creator_pins', 'creator_urls', 'creator_related', 'creator_boards');
           if (this.activePinId) {
             this.closePinPage(false);
           }
@@ -1230,6 +1277,12 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           if (tab === 'overview' || tab === 'home') {
             if (this.activeCreator) this.closeCreatorProfile(false);
             this.currentTab = 'overview';
+            if (!this.isOverviewLoaded) {
+              this.fetchOverview();
+            }
+            if (!this._seedsLoaded && this.seeds.length === 0) this.fetchSeeds();
+            if (!this._keywordsLoaded && this.keywords.length === 0) this.fetchKeywords({ limit: 50 });
+            if (this.competitors.length === 0) this.fetchCompetitors(false, { limit: 12 });
             if (typeof window !== 'undefined' && window.location.pathname !== '/') {
               window.history.pushState(null, '', '/');
             }
@@ -1239,16 +1292,16 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
             if (tab === 'seeds' || tab === 'intersections' || tab === 'explorer') {
               this.relatedSubTab = tab;
             }
-            if (this.seeds.length === 0) this.fetchSeeds();
-            if (this.intersections.length === 0) this.fetchIntersections();
-            if (this.explorerCandidates.length === 0) this.loadExplorerData();
+            if (!this._seedsLoaded || this.seeds.length === 0) this.fetchSeeds();
+            if (!this._intersectionsLoaded || this.intersections.length === 0) this.fetchIntersections();
+            if (this.relatedSubTab === 'explorer' && this.explorerCandidates.length === 0) this.loadExplorerData();
             if (typeof window !== 'undefined' && window.location.pathname !== '/related-pins') {
               window.history.pushState(null, '', '/related-pins');
             }
           } else if (tab === 'creators_archive' || tab === 'competitors' || tab === 'pinarchive' || tab === 'creators' || tab === 'accounts') {
             if (this.activeCreator) this.closeCreatorProfile(false);
             this.currentTab = 'creators_archive';
-            if (this.competitors.length === 0) this.fetchCompetitors();
+            if (!this._competitorsFullyLoaded || this.competitors.length === 0) this.fetchCompetitors();
             if (typeof window !== 'undefined' && window.location.pathname !== '/accounts') {
               window.history.pushState(null, '', '/accounts');
             }
@@ -1403,18 +1456,21 @@ ${getDashboardSeedComputedProperties()}
           this.recgptPlaybook = null;
           this.isLightboxOpen = false;
 
+          const signal = this._nextAbortSignal('seed_dossier');
           try {
             const [candRes, telRes, pbRes, capRes] = await Promise.all([
-              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
-              window.apiFetch(this.getApiUrl('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id)),
-              window.apiFetch(this.getApiUrl('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id)),
-              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + seed.pin_id))
+              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'), { signal }),
+              window.apiFetch(this.getApiUrl('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id), { signal }),
+              window.apiFetch(this.getApiUrl('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id), { signal }),
+              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + seed.pin_id), { signal })
             ]);
+            if (signal && signal.aborted) return;
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (telRes.ok) this.dossierTelemetry = await telRes.json();
             if (pbRes.ok) this.recgptPlaybook = await pbRes.json();
             if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
           } catch (e) {
+            if (this._isAbortError(e, signal)) return;
             console.error(e);
           }
 
@@ -1425,20 +1481,25 @@ ${getDashboardSeedComputedProperties()}
 
         async reloadDossierCandidates() {
           if (!this.activeDossierSeed) return;
+          const signal = this._nextAbortSignal('seed_dossier');
           try {
             const [candRes, capRes] = await Promise.all([
-              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
-              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id))
+              window.apiFetch(this.getApiUrl('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'), { signal }),
+              window.apiFetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id), { signal })
             ]);
+            if (signal && signal.aborted) return;
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
-          } catch (e) {}
+          } catch (e) {
+            if (this._isAbortError(e, signal)) return;
+          }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
         },
 
         closeSeedDossier() {
+          this._abortSlots('seed_dossier');
           this.activeDossierSeed = null;
           this.dossierCandidates = [];
           this.dossierTelemetry = {};
@@ -1748,18 +1809,30 @@ ${getDashboardSeedComputedProperties()}
                 this.fetchCookieStatus(),
                 this.loadFolderCreators(this.scopedFolderId)
               ]);
+            } else if (this.currentTab === 'creators_archive' || this.currentTab === 'competitors' || this.currentTab === 'pinarchive') {
+              await Promise.all([
+                this.fetchCookieStatus(),
+                this.folderFilter ? this.loadFolderCreators(this.folderFilter) : this.fetchCompetitors()
+              ]);
+            } else if (this.currentTab === 'related_pins' || this.currentTab === 'seeds' || this.currentTab === 'intersections' || this.currentTab === 'explorer') {
+              const relatedTasks = [
+                this.fetchCookieStatus(),
+                this.fetchSeeds(),
+                this.fetchIntersections()
+              ];
+              if (this.currentTab === 'explorer' || this.relatedSubTab === 'explorer') {
+                relatedTasks.push(this.loadExplorerData());
+              }
+              await Promise.all(relatedTasks);
             } else {
+              // Lightweight Overview hydration: avoids eager ?limit=5000 creators, ?limit=1000 keywords & ?limit=1000 intersections
               await Promise.all([
                 this.fetchOverview(),
                 this.fetchSeeds(),
-                this.fetchIntersections(),
                 this.fetchCookieStatus(),
-                (this.scopedFolderId || this.folderFilter) ? this.loadFolderCreators(this.scopedFolderId || this.folderFilter) : this.fetchCompetitors(),
-                this.fetchKeywords()
+                this.folderFilter ? this.loadFolderCreators(this.folderFilter) : this.fetchCompetitors(false, { limit: 12 }),
+                this.fetchKeywords({ limit: 50 })
               ]);
-            }
-            if (this.currentTab === 'explorer') {
-              await this.loadExplorerData();
             }
           } finally {
             this.isLoading = false;
@@ -1776,16 +1849,22 @@ ${getDashboardSeedComputedProperties()}
 
 ${getDashboardCreatorsFleetMethods()}
 
-        async fetchKeywords() {
+        async fetchKeywords(opts = {}) {
+          const limit = Number(opts && opts.limit) > 0 ? Number(opts.limit) : 50;
+          const signal = this._nextAbortSignal('keywords');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords?limit=1000'));
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords?limit=' + limit), { signal });
+            if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
+              if (signal && signal.aborted) return;
               this.keywords = data.keywords || [];
+              this._keywordsLoaded = true;
             } else {
               this.keywords = [];
             }
           } catch (e) {
+            if (this._isAbortError(e, signal)) return;
             this.keywords = [];
           }
         },
@@ -1808,7 +1887,12 @@ ${getDashboardCreatorsFleetMethods()}
         },
 
         async deleteKeyword(id) {
-          if (!confirm('Are you sure you want to stop tracking this keyword?')) return;
+          const confirmed = await window.PAE.confirm('Are you sure you want to stop tracking this keyword?', {
+            title: 'Stop Tracking Keyword',
+            confirmLabel: 'Remove Keyword',
+            danger: true
+          });
+          if (!confirmed) return;
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords?id=' + id), { method: 'DELETE' });
             if (res.ok) {
@@ -1834,40 +1918,52 @@ ${getDashboardCreatorsFleetMethods()}
         },
 
         async fetchSeeds() {
+          const signal = this._nextAbortSignal('seeds');
           try {
-            const res = await window.apiFetch(this.getApiUrl('/api/seeds'));
+            const res = await window.apiFetch(this.getApiUrl('/api/seeds'), { signal });
+            if (signal && signal.aborted) return;
             if (res.ok) {
               this.seeds = await res.json();
+              this._seedsLoaded = true;
             } else {
               this.seeds = [];
             }
           } catch (e) {
+            if (this._isAbortError(e, signal)) return;
             this.seeds = [];
           }
         },
 
         async fetchIntersections() {
+          const signal = this._nextAbortSignal('intersections');
           try {
-            const res = await window.apiFetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'));
+            const res = await window.apiFetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'), { signal });
+            if (signal && signal.aborted) return;
             if (res.ok) {
               this.intersections = await res.json();
+              this._intersectionsLoaded = true;
             } else {
               this.intersections = [];
             }
           } catch (e) {
+            if (this._isAbortError(e, signal)) return;
             this.intersections = [];
           }
         },
 
         async loadExplorerData() {
+          const signal = this._nextAbortSignal('explorer');
           let url = '/api/candidates?limit=1000&sort=' + this.explorerSort;
           if (this.explorerSeedId && this.explorerSeedId !== 'all') {
             url += '&seed_pin_id=' + this.explorerSeedId;
           }
           try {
-            const res = await window.apiFetch(this.getApiUrl(url));
+            const res = await window.apiFetch(this.getApiUrl(url), { signal });
+            if (signal && signal.aborted) return;
             if (res.ok) this.explorerCandidates = await res.json();
-          } catch (e) {}
+          } catch (e) {
+            if (this._isAbortError(e, signal)) return;
+          }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
@@ -2181,44 +2277,49 @@ ${getDashboardSeedActionMethods()}
             'pin_created_at',
             'seed_overlap_count'
           ];
-          const csvRows = [headers.map(h => this.sanitizeCsvCell(h)).join(',')];
+          const rowMatrix = list.map((row) => headers.map((header) => {
+            let val = row[header];
+            if (header === 'saves' && val === undefined) val = row.total_saves;
+            if (header === 'save_rate' && val === undefined) val = row.avg_save_rate;
+            if (header === 'dominant_color' && !val) val = row.winning_color;
+            if (header === 'provenance_engine' && !val) val = row.engine_source;
+            return val;
+          }));
 
-          for (const row of list) {
-            const values = headers.map(header => {
-              let val = row[header];
-              if (header === 'saves' && val === undefined) val = row.total_saves;
-              if (header === 'save_rate' && val === undefined) val = row.avg_save_rate;
-              if (header === 'dominant_color' && !val) val = row.winning_color;
-              if (header === 'provenance_engine' && !val) val = row.engine_source;
-              return this.sanitizeCsvCell(val);
-            });
-            csvRows.push(values.join(','));
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.downloadCsv === 'function') {
+            window.PAE.downloadCsv(fname, rowMatrix, { headers });
+          } else {
+            const csvRows = [headers.map(h => this.sanitizeCsvCell(h)).join(',')];
+            for (const row of rowMatrix) {
+              csvRows.push(row.map(v => this.sanitizeCsvCell(v)).join(','));
+            }
+            const blob = new Blob([csvRows.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', fname.endsWith('.csv') ? fname : (fname + '.csv'));
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
           }
-
-          const blob = new Blob([csvRows.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.setAttribute('href', url);
-          link.setAttribute('download', fname.endsWith('.csv') ? fname : (fname + '.csv'));
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
           this.showToast('Exported ' + list.length + ' rows to ' + fname);
         }
       };
     }
-    if (typeof document !== 'undefined') {
-      const initLucide = () => {
-        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
-          window.lucide.createIcons();
+    (function() {
+      if (typeof document !== 'undefined') {
+        const initLucide = () => {
+          if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+          }
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initLucide, { once: true });
+        } else {
+          initLucide();
         }
-      };
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initLucide);
-      } else {
-        initLucide();
       }
-    }
+    })();
   </script>`;
 }

@@ -32,6 +32,8 @@ export function getFoldersClientAppScript() {
         crossoverData: null,
         crossoverLoading: false,
         _folderReqSeq: 0,
+        _foldersListAbortController: null,
+        _activeFolderAbortController: null,
         auditDispatching: false,
         isSettingsModalOpen: false,
         settingsLoading: false,
@@ -170,7 +172,15 @@ export function getFoldersClientAppScript() {
 
         async executePrune() {
           if (!this.activeFolderId) return;
-          if (!confirm('Are you sure you want to prune candidate pins? They will be tombstoned to keyword_ignored_pins.')) return;
+          const confirmed = await window.PAE.confirm(
+            'Are you sure you want to prune candidate pins? They will be tombstoned to keyword_ignored_pins.',
+            {
+              title: 'Prune Candidate Pins',
+              confirmLabel: 'Prune Pins',
+              danger: true
+            }
+          );
+          if (!confirmed) return;
           this.pruningLoading = true;
           try {
             const kwIds = this.pruneForm.keyword_ids?.length 
@@ -964,16 +974,25 @@ export function getFoldersClientAppScript() {
         },
 
         async loadFolders() {
+          if (this._foldersListAbortController) {
+            try { this._foldersListAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this._foldersListAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           this.foldersLoading = true;
           try {
             let res;
+            const fetchOpts = signal ? { signal } : {};
             if (this.activeFolderId) {
-              res = await (window.safeApiFetch || fetch)('/api/folders?lite=true');
+              res = await (window.safeApiFetch || fetch)('/api/folders?lite=true', fetchOpts);
             } else {
-              res = await (window.safeApiFetch || fetch)('/api/folders');
+              res = await (window.safeApiFetch || fetch)('/api/folders', fetchOpts);
             }
+            if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
+              if (signal && signal.aborted) return;
               this.foldersList = data.folders || [];
               if (this.activeFolderId) {
                 const matched = this.foldersList.find(f => String(f.id) === String(this.activeFolderId));
@@ -987,29 +1006,38 @@ export function getFoldersClientAppScript() {
               }
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             console.error('Error loading folders:', e);
             if (!this.activeFolder) {
               this.showToast('Network error loading folders', 'error');
             }
           } finally {
-            if (!this.foldersList.length && this.activeFolder) {
-              this.foldersList = [this.activeFolder];
+            if (!signal || !signal.aborted) {
+              if (!this.foldersList.length && this.activeFolder) {
+                this.foldersList = [this.activeFolder];
+              }
+              this.foldersLoading = false;
             }
-            this.foldersLoading = false;
           }
         },
 
         async loadActiveFolder(forceRefresh = false) {
+          if (this._activeFolderAbortController) {
+            try { this._activeFolderAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this._activeFolderAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           const reqSeq = ++this._folderReqSeq;
           // Phase 1: Fast metadata hydration (< 50ms)
           try {
             const shouldRefresh = forceRefresh === true || this.currentRoom === 'settings';
             const folderUrl = '/api/folders/' + this.activeFolderId + (shouldRefresh ? '?refresh=true' : '');
-            const folderRes = await (window.safeApiFetch || fetch)(folderUrl);
-            if (reqSeq !== this._folderReqSeq) return;
+            const folderRes = await (window.safeApiFetch || fetch)(folderUrl, signal ? { signal } : {});
+            if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
             if (folderRes.ok) {
               const data = await folderRes.json().catch(() => ({}));
-              if (reqSeq !== this._folderReqSeq) return;
+              if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
               const fetched = data.folder || null;
               this.activeFolder = fetched ? (this.activeFolder ? { ...this.activeFolder, ...fetched } : fetched) : null;
               this.syncFolderSettingsFromActive();
@@ -1017,6 +1045,7 @@ export function getFoldersClientAppScript() {
               this.showToast('Campaign folder not found', 'error');
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             if (reqSeq !== this._folderReqSeq) return;
             console.error('Error fetching folder metadata:', e);
           }
@@ -1033,12 +1062,13 @@ export function getFoldersClientAppScript() {
           try {
             const crossoverRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/raw-visual-crossover', {
               timeout: 30000,
-              retries: 1
+              retries: 1,
+              ...(signal ? { signal } : {})
             });
-            if (reqSeq !== this._folderReqSeq) return;
+            if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
             if (crossoverRes.ok) {
               const cdata = await crossoverRes.json().catch(() => ({}));
-              if (reqSeq !== this._folderReqSeq) return;
+              if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
               this.crossoverData = cdata.crossover || cdata;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -1052,11 +1082,12 @@ export function getFoldersClientAppScript() {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             if (reqSeq !== this._folderReqSeq) return;
             console.error('Error loading crossover matrix:', e);
             this.showToast('Crossover matrix analysis timed out or failed', 'error');
           } finally {
-            if (reqSeq === this._folderReqSeq) {
+            if (reqSeq === this._folderReqSeq && (!signal || !signal.aborted)) {
               this.crossoverLoading = false;
             }
           }
@@ -1064,15 +1095,21 @@ export function getFoldersClientAppScript() {
 
         async runCrossoverAnalysis(isRefresh = false) {
           if (!this.activeFolderId) return;
+          if (this._activeFolderAbortController) {
+            try { this._activeFolderAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this._activeFolderAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           const reqSeq = ++this._folderReqSeq;
           this.crossoverLoading = true;
           try {
             const url = '/api/folders/' + this.activeFolderId + '/raw-visual-crossover' + (isRefresh ? '?refresh=true' : '');
-            const res = await (window.safeApiFetch || fetch)(url);
-            if (reqSeq !== this._folderReqSeq) return;
+            const res = await (window.safeApiFetch || fetch)(url, signal ? { signal } : {});
+            if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
-              if (reqSeq !== this._folderReqSeq) return;
+              if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
               this.crossoverData = data.crossover || data;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -1089,11 +1126,12 @@ export function getFoldersClientAppScript() {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
           } catch (e) {
+            if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             if (reqSeq !== this._folderReqSeq) return;
             console.error('Error running crossover analysis:', e);
             this.showToast('Network error analyzing crossover', 'error');
           } finally {
-            if (reqSeq === this._folderReqSeq) {
+            if (reqSeq === this._folderReqSeq && (!signal || !signal.aborted)) {
               this.crossoverLoading = false;
             }
           }

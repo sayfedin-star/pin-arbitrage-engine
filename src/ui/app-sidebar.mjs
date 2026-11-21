@@ -14,6 +14,8 @@
  * - [INVARIANT: HEADLESS-NODE-SHIELD] (Rule 17: typeof window, localStorage, document guards)
  */
 
+import { renderClientJsScriptTag } from './client-assets.mjs';
+
 function renderAppTopbar({
   activeNav: _activeNav = 'overview',
   refreshHandler = 'window.location.reload()',
@@ -360,7 +362,7 @@ export function renderAppSidebar({
               <i data-lucide="users" class="w-4 h-4 shrink-0" :class="${spaCreatorsExpr} ? '${iconActive}' : '${iconInactive}'"></i>
               <span>Creator Hub</span>
             </div>
-            <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="competitors.length"></span>
+            <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="(competitorsOverview && competitorsOverview.tracked_profiles) || competitors.length"></span>
           </button>` : `
           <a href="/accounts" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${creatorsActive}">
             <div class="flex items-center space-x-2.5">
@@ -393,8 +395,8 @@ export function renderAppSidebar({
               <span>Related Pins</span>
             </div>
             <div class="flex items-center space-x-1 font-mono tabular-nums">
-              <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="seeds.length + 's'"></span>
-              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
+              <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="((overview && overview.total_seeds) || seeds.length) + 's'"></span>
+              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="((overview && overview.intersecting_hubs_count) || intersections.length) + 'i'"></span>
             </div>
           </button>` : `
           <a href="/related-pins" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${relatedActive}">
@@ -567,9 +569,9 @@ export function renderAppSidebar({
               <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
             </div>
             <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
-              <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="competitors.length"></span>
+              <span :class="${spaCreatorsExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="(competitorsOverview && competitorsOverview.tracked_profiles) || competitors.length"></span>
             </div>
-            <span x-show="isSidebarCollapsed && competitors.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+            <span x-show="isSidebarCollapsed && ((competitorsOverview && competitorsOverview.tracked_profiles > 0) || competitors.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
           </button>` : `
           <a
             href="/accounts"
@@ -631,10 +633,10 @@ export function renderAppSidebar({
               <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
             </div>
             <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
-              <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="seeds.length + 's'"></span>
-              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
+              <span :class="${spaRelatedExpr} ? '${badgeActive}' : '${badgeInactive}'" x-text="((overview && overview.total_seeds) || seeds.length) + 's'"></span>
+              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="((overview && overview.intersecting_hubs_count) || intersections.length) + 'i'"></span>
             </div>
-            <span x-show="isSidebarCollapsed && (seeds.length > 0 || intersections.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+            <span x-show="isSidebarCollapsed && (((overview && overview.total_seeds > 0) || seeds.length > 0) || ((overview && overview.intersecting_hubs_count > 0) || intersections.length > 0))" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
           </button>` : `
           <a
             href="/related-pins"
@@ -882,6 +884,12 @@ export function renderAppSidebar({
     </div>
   </div>
 
+${renderClientJsScriptTag('command-palette')}
+`;
+}
+
+export function getAppSidebarClientScriptCode() {
+  return `
   <script>
     (function() {
       var STATIC_STUDIO_ITEMS = [
@@ -1375,19 +1383,64 @@ export function renderAppSidebar({
 
   <script>
     (function() {
+      var _iconTimer = null;
+      var _iconRaf = null;
+      var _lastIconRunTs = 0;
+
+      function runLucidePass() {
+        _iconTimer = null;
+        _iconRaf = null;
+        if (typeof window === 'undefined' || !window.lucide || typeof window.lucide.createIcons !== 'function') {
+          return;
+        }
+        if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+          var pendingIcon = document.querySelector('i[data-lucide], [data-lucide]:not(svg)');
+          if (!pendingIcon) return;
+        }
+        _lastIconRunTs = Date.now();
+        window.lucide.createIcons();
+      }
+
       function refreshAppSidebarIcons() {
-        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
-          window.lucide.createIcons();
+        if (typeof window === 'undefined') return;
+        if (_iconTimer !== null && typeof clearTimeout === 'function') {
+          clearTimeout(_iconTimer);
+          _iconTimer = null;
+        }
+        if (_iconRaf !== null && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(_iconRaf);
+          _iconRaf = null;
+        }
+        var now = Date.now();
+        var elapsed = now - _lastIconRunTs;
+        if (elapsed >= 60 && typeof requestAnimationFrame === 'function') {
+          _iconRaf = requestAnimationFrame(runLucidePass);
+        } else if (typeof setTimeout === 'function') {
+          _iconTimer = setTimeout(runLucidePass, 60);
+        } else {
+          runLucidePass();
         }
       }
+
+      if (typeof window !== 'undefined') {
+        if (window.PAE && !window.PAE.refreshIcons) {
+          window.PAE.refreshIcons = refreshAppSidebarIcons;
+        }
+        if (window.__paeSidebarBootstrapped) {
+          refreshAppSidebarIcons();
+          return;
+        }
+        window.__paeSidebarBootstrapped = true;
+      }
+
       if (typeof document !== 'undefined') {
         if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', refreshAppSidebarIcons);
+          document.addEventListener('DOMContentLoaded', refreshAppSidebarIcons, { once: true });
         } else {
           refreshAppSidebarIcons();
         }
         if (typeof window !== 'undefined') {
-          window.addEventListener('load', refreshAppSidebarIcons);
+          window.addEventListener('load', refreshAppSidebarIcons, { once: true });
           window.addEventListener('keydown', function(e) {
             if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')) {
               var activeEl = document.activeElement;
@@ -1408,10 +1461,7 @@ export function renderAppSidebar({
             }
           });
         }
-        document.addEventListener('alpine:initialized', refreshAppSidebarIcons);
-        setTimeout(refreshAppSidebarIcons, 50);
-        setTimeout(refreshAppSidebarIcons, 250);
-        setTimeout(refreshAppSidebarIcons, 1000);
+        document.addEventListener('alpine:initialized', refreshAppSidebarIcons, { once: true });
       }
     })();
   </script>

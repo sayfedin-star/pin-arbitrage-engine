@@ -5,7 +5,7 @@
 import { renderAppSidebar } from '../app-sidebar.mjs';
 import { renderSharedDocumentHead } from '../shared-head.mjs';
 import { getDiscoveryStudioViewHtml } from './discovery-studio-view.mjs';
-import { getDiscoveryClientAppScript } from './discovery-client-app.mjs';
+import { renderClientJsScriptTag } from '../client-assets.mjs';
 
 export function getDiscoveryPageHtml() {
   return `<!DOCTYPE html>
@@ -63,7 +63,7 @@ ${renderSharedDocumentHead({
 
 ${getDiscoveryStudioViewHtml()}
 
-${getDiscoveryClientAppScript()}
+${renderClientJsScriptTag('discovery')}
 </body>
 </html>`;
 }

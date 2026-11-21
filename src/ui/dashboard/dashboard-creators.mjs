@@ -114,7 +114,7 @@ export function getDashboardCreatorsHtml({ safeFolderId = '' } = {}) {
               <div class="flex flex-col gap-0.5">
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Impressions</span>
                 <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_impressions || 0)">0</span>
-                <span class="text-[10px] text-slate-400">Total Profile Views</span>
+                <span class="text-[10px] text-slate-400">Impressions</span>
               </div>
               <div class="flex flex-col gap-0.5">
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Catalog Pins</span>

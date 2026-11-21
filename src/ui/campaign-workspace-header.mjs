@@ -82,6 +82,18 @@ export function renderCampaignWorkspaceHeader({
   const badgeActive = 'px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[10px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20';
   const badgeInactive = 'px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[10px] font-medium bg-slate-100 dark:bg-[#18181B] text-slate-500 dark:text-[#71717A] border border-slate-200/80 dark:border-[#27272A]';
 
+  const refreshClickExpr = isNewborn
+    ? "typeof refreshWorkspace === 'function' ? refreshWorkspace(true) : window.location.reload()"
+    : isKeywords
+      ? "typeof fetchKeywords === 'function' ? fetchKeywords(true) : window.location.reload()"
+      : isCreators
+        ? "typeof refreshAll === 'function' ? refreshAll() : window.location.reload()"
+        : isDomains
+          ? "typeof refreshDomains === 'function' ? refreshDomains() : window.location.reload()"
+          : isPulse
+            ? "typeof refreshPulse === 'function' ? refreshPulse(true) : window.location.reload()"
+            : "typeof runCrossoverAnalysis === 'function' ? runCrossoverAnalysis(true) : (typeof loadFolders === 'function' ? loadFolders() : window.location.reload())";
+
   return `
   <!-- [INVARIANT: CAMPAIGN-WORKSPACE-HEADER-PARITY] Shared Workspace Header -->
   <!-- // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 1: Unclipped Header Wrapper -->
@@ -152,7 +164,8 @@ export function renderCampaignWorkspaceHeader({
       <!-- Quick Action Group -->
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Refresh Action -->
-        <button @click="typeof refreshWorkspace === 'function' ? refreshWorkspace() : (typeof loadWorkspaceData === 'function' ? loadWorkspaceData() : (typeof runCrossoverAnalysis === 'function' ? runCrossoverAnalysis(true) : window.location.reload()))"
+        <button type="button"
+                @click="${refreshClickExpr}"
                 class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Refresh Workspace Data">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-slate-400 dark:text-[#71717A]"></i>
@@ -160,7 +173,8 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Settings Action -->
-        <button @click="if (typeof currentRoom !== 'undefined' && typeof syncFolderSettingsFromActive === 'function') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') + '/settings'); } catch (_) {} syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}') + '/settings'; }"
+        <button type="button"
+                @click="if (typeof currentRoom !== 'undefined' && typeof syncFolderSettingsFromActive === 'function') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') + '/settings'); } catch (_) {} syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}') + '/settings'; }"
                 class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Folder Settings & Rules">
           <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400 dark:text-[#71717A]"></i>
@@ -168,7 +182,8 @@ export function renderCampaignWorkspaceHeader({
         </button>
 
         <!-- Delete Action -->
-        <button @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : window.PAE.confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'), typeof executeDeleteFolder === 'function' ? executeDeleteFolder : null)"
+        <button type="button"
+                @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : window.PAE.confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'), typeof executeDeleteFolder === 'function' ? executeDeleteFolder : null)"
                 class="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-xs font-semibold text-rose-600 dark:text-rose-400 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                 title="Delete Folder">
           <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i>

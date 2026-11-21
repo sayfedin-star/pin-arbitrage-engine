@@ -85,6 +85,8 @@ export function getDomainsClientAppScript() {
         currentDisplacedLimit: 30,
         dossierLoadingMore: false,
         _dossierReqSeq: 0,
+        _dossierAbortController: null,
+        _blueprintAbortController: null,
 
         // Arbitrage Attack Blueprint Modal State (Pillar 6)
         isBlueprintModalOpen: false,
@@ -753,6 +755,12 @@ export function getDomainsClientAppScript() {
 
         async openDossier(domain, pushState = true, forceRefresh = false) {
           if (!domain) return;
+          if (this._dossierAbortController) {
+            try { this._dossierAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this._dossierAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           const reqSeq = ++this._dossierReqSeq;
           this.dossierDomain = domain;
           this.isDossierOpen = true;
@@ -778,11 +786,11 @@ export function getDomainsClientAppScript() {
             const activeFid = this.scopedFolderId || this.selectedFolderId || '';
             const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
             const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(domain) + folderParam + (forceRefresh ? '&refresh=true' : '');
-            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
-            if (reqSeq !== this._dossierReqSeq) return;
+            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000, ...(signal ? { signal } : {}) });
+            if (reqSeq !== this._dossierReqSeq || (signal && signal.aborted)) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            if (reqSeq !== this._dossierReqSeq) return;
+            if (reqSeq !== this._dossierReqSeq || (signal && signal.aborted)) return;
             this.dossierData = data;
             if (Array.isArray(this.dossierData?.top_articles) && this.dossierData.top_articles.length > 0) {
               const sampleUrls = this.dossierData.top_articles.map(a => a.sample_url).filter(Boolean).slice(0, 15);
@@ -793,8 +801,10 @@ export function getDomainsClientAppScript() {
                       method: 'POST',
                       credentials: 'same-origin',
                       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                      body: JSON.stringify({ urls: sampleUrls })
+                      body: JSON.stringify({ urls: sampleUrls }),
+                      ...(signal ? { signal } : {})
                     });
+                    if (reqSeq !== this._dossierReqSeq || (signal && signal.aborted)) return;
                     if (batchRes.ok) {
                       const batchData = await batchRes.json();
                       const results = batchData.results || batchData.data || [];
@@ -814,10 +824,11 @@ export function getDomainsClientAppScript() {
               }
             }
           } catch (err) {
+            if ((signal && signal.aborted) || (err && err.name === 'AbortError')) return;
             if (reqSeq !== this._dossierReqSeq) return;
             this.showToast('Failed to load dossier: ' + err.message, 'error');
           } finally {
-            if (reqSeq === this._dossierReqSeq) {
+            if (reqSeq === this._dossierReqSeq && (!signal || !signal.aborted)) {
               this.dossierLoading = false;
             }
           }
@@ -825,29 +836,39 @@ export function getDomainsClientAppScript() {
 
         async loadMoreDisplaced() {
           if (!this.dossierDomain || this.dossierLoadingMore) return;
+          const signal = this._dossierAbortController ? this._dossierAbortController.signal : undefined;
           this.currentDisplacedLimit += 50;
           this.dossierLoadingMore = true;
           try {
             const activeFid = this.scopedFolderId || this.selectedFolderId || '';
             const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
             const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(this.dossierDomain) + folderParam + '&displaced_limit=' + this.currentDisplacedLimit;
-            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
+            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000, ...(signal ? { signal } : {}) });
+            if (signal && signal.aborted) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            if (data?.ranked_pins) {
+            if (signal && signal.aborted) return;
+            if (data?.ranked_pins && this.dossierData) {
               this.dossierData.ranked_pins = data.ranked_pins;
               this.dossierData.summary = data.summary;
               this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
               this.showToast('Loaded ' + data.ranked_pins.length + ' visual pins!', 'success');
             }
           } catch (err) {
+            if ((signal && signal.aborted) || (err && err.name === 'AbortError')) return;
             this.showToast('Failed to load more displaced pins: ' + err.message, 'error');
           } finally {
-            this.dossierLoadingMore = false;
+            if (!signal || !signal.aborted) {
+              this.dossierLoadingMore = false;
+            }
           }
         },
 
         closeDossier(pushState = true) {
+          if (this._dossierAbortController) {
+            try { this._dossierAbortController.abort(); } catch (_) {}
+            this._dossierAbortController = null;
+          }
           // [INVARIANT: PRESERVE-LEADERBOARD-TELEMETRY]
           // Only WHOIS age and Ads.txt enrichments sync back; core table metrics remain 100% INVARIANT!
           const domainToSync = this.dossierDomain || this.selectedDomain;
@@ -1166,6 +1187,12 @@ export function getDomainsClientAppScript() {
 
         async openBlueprintModal(domain) {
           if (!domain) return;
+          if (this._blueprintAbortController) {
+            try { this._blueprintAbortController.abort(); } catch (_) {}
+          }
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          this._blueprintAbortController = controller;
+          const signal = controller ? controller.signal : undefined;
           this.blueprintLoading = true;
           this.isBlueprintModalOpen = true;
           this.blueprintData = null;
@@ -1173,17 +1200,25 @@ export function getDomainsClientAppScript() {
           try {
             const activeFid = this.scopedFolderId || this.selectedFolderId || '';
             const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
-            const res = await (window.safeApiFetch || fetch)('/api/domains/blueprint?domain=' + encodeURIComponent(domain) + folderParam, { timeout: 18000 });
+            const res = await (window.safeApiFetch || fetch)('/api/domains/blueprint?domain=' + encodeURIComponent(domain) + folderParam, { timeout: 18000, ...(signal ? { signal } : {}) });
+            if (signal && signal.aborted) return;
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.blueprintData = await res.json();
           } catch (err) {
+            if ((signal && signal.aborted) || (err && err.name === 'AbortError')) return;
             this.showToast('Failed to generate Attack Blueprint: ' + err.message, 'error');
           } finally {
-            this.blueprintLoading = false;
+            if (!signal || !signal.aborted) {
+              this.blueprintLoading = false;
+            }
           }
         },
 
         closeBlueprintModal() {
+          if (this._blueprintAbortController) {
+            try { this._blueprintAbortController.abort(); } catch (_) {}
+            this._blueprintAbortController = null;
+          }
           this.isBlueprintModalOpen = false;
           this.blueprintData = null;
         },
