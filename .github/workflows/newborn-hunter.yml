@@ -2,8 +2,8 @@ name: Newborn Breakout Hunter & Watchlist Pipeline
 
 on:
   schedule:
-    # Evaluates dynamic newborn_engine_settings schedule, UTC active window, and cooldowns every 3 hours
-    - cron: '30 */3 * * *'
+    # Evaluates dynamic newborn_engine_settings schedule every 3h outside the 01:00-05:00 UTC nightly batch window
+    - cron: '15 0,6,9,12,15,18,21 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -163,7 +163,7 @@ jobs:
   consolidate:
     name: Stage 2 - Newborn Telemetry Consolidation
     needs: [dispatch, hunter-fleet]
-    if: needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0' && needs.hunter-fleet.result == 'success'
+    if: always() && !cancelled() && needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -186,7 +186,7 @@ jobs:
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
           machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
-          skip-wakeup: 'false'
+          skip-wakeup: 'true'
           cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 

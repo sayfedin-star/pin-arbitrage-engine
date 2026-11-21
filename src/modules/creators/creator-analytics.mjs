@@ -5,6 +5,7 @@
  */
 
 import { escapeSqlWildcards } from '../../utils.mjs';
+import { PINTEREST_CEILING_VALUE } from '../../core/pinterest/index.mjs';
 import { normalizePinterestUsername } from './competitors-crud.mjs';
 export {
   getTopDestinationUrls,
@@ -304,8 +305,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   const profViews = Number(profile.profile_views || 0);
   const profPins = Number(profile.total_pins || 0);
   const profBoards = Number(profile.total_boards || 0);
-  let runningMaxReach = profReach > 10000001 ? profReach : 0;
-  let runningMaxViews = profViews > 10000001 ? profViews : 0;
+  let runningMaxReach = profReach > PINTEREST_CEILING_VALUE ? profReach : 0;
+  let runningMaxViews = profViews > PINTEREST_CEILING_VALUE ? profViews : 0;
   let lastValidReach = profReach > 0 ? profReach : 0;
   let lastValidViews = profViews > 0 ? profViews : 0;
   let lastValidPins = profPins > 0 ? profPins : 0;
@@ -317,7 +318,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     const b = Number(snap.total_boards || 0);
     if (r <= 0 && lastValidReach > 0) {
       snap.monthly_reach = lastValidReach;
-    } else if (r === 10000001 && runningMaxReach > 10000001) {
+    } else if (r === PINTEREST_CEILING_VALUE && runningMaxReach > PINTEREST_CEILING_VALUE) {
       snap.monthly_reach = runningMaxReach;
     } else if (r > 0) {
       lastValidReach = r;
@@ -325,7 +326,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
     if (v <= 0 && lastValidViews > 0) {
       snap.profile_views = lastValidViews;
-    } else if (v === 10000001 && runningMaxViews > 10000001) {
+    } else if (v === PINTEREST_CEILING_VALUE && runningMaxViews > PINTEREST_CEILING_VALUE) {
       snap.profile_views = runningMaxViews;
     } else if (v > 0) {
       lastValidViews = v;
@@ -342,10 +343,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       lastValidBoards = b;
     }
   }
-  if (Number(profile.monthly_reach || 0) === 10000001 && runningMaxReach > 10000001) {
+  if (Number(profile.monthly_reach || 0) === PINTEREST_CEILING_VALUE && runningMaxReach > PINTEREST_CEILING_VALUE) {
     profile.monthly_reach = runningMaxReach;
   }
-  if (Number(profile.profile_views || 0) === 10000001 && runningMaxViews > 10000001) {
+  if (Number(profile.profile_views || 0) === PINTEREST_CEILING_VALUE && runningMaxViews > PINTEREST_CEILING_VALUE) {
     profile.profile_views = runningMaxViews;
   }
 

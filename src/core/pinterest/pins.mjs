@@ -74,6 +74,68 @@ export const MAX_METRIC_CAP = 10000000; // 10 Million
 export const PINTEREST_CEILING_VALUE = 10000001; // 10M+ unauthenticated ceiling indicator
 
 /**
+ * Normalizes a Pinterest reach/views metric against transient 0 drops and the
+ * unauthenticated 10,000,001 (10M+) ceiling cap using ordered historical baselines.
+ *
+ * @param {number|string|null|undefined} rawValue
+ * @param {...(number|string|null|undefined)} baselines
+ * @returns {number}
+ */
+export function normalizeCeilingMetric(rawValue, ...baselines) {
+  const raw = Number(rawValue || 0);
+  const validRaw = Number.isFinite(raw) ? raw : 0;
+  let resolved = validRaw > 0 ? validRaw : 0;
+
+  for (const b of baselines) {
+    const prev = Number(b || 0);
+    if (!Number.isFinite(prev) || prev <= 0) continue;
+    if (resolved <= 0) {
+      resolved = prev;
+    } else if (validRaw === PINTEREST_CEILING_VALUE && prev > PINTEREST_CEILING_VALUE && resolved <= PINTEREST_CEILING_VALUE) {
+      resolved = prev;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Computes a reach/views delta while suppressing false spikes/drops caused by the
+ * unauthenticated 10,000,001 (10M+) ceiling sentinel.
+ *
+ * @param {number|string|null|undefined} currentValue
+ * @param {number|string|null|undefined} baselineValue
+ * @param {number|string|null|undefined} [rawValue=currentValue]
+ * @returns {number}
+ */
+export function sanitizeCeilingDelta(currentValue, baselineValue, rawValue = currentValue) {
+  const curr = Number(currentValue || 0);
+  const base = Number(baselineValue || 0);
+  const raw = Number(rawValue ?? curr);
+  if (!Number.isFinite(curr) || !Number.isFinite(base) || curr <= 0 || base <= 0) return 0;
+  if (raw === PINTEREST_CEILING_VALUE || (base === PINTEREST_CEILING_VALUE && curr > PINTEREST_CEILING_VALUE)) {
+    return 0;
+  }
+  return curr - base;
+}
+
+/**
+ * Suppresses a persisted delta that originated from jumping off the 10,000,001 ceiling sentinel.
+ *
+ * @param {number|string|null|undefined} metricValue
+ * @param {number|string|null|undefined} deltaValue
+ * @returns {number}
+ */
+export function sanitizeStoredCeilingDelta(metricValue, deltaValue) {
+  const metric = Number(metricValue || 0);
+  const delta = Number(deltaValue || 0);
+  if (!Number.isFinite(metric) || !Number.isFinite(delta)) return 0;
+  if (metric > PINTEREST_CEILING_VALUE && (metric - delta) === PINTEREST_CEILING_VALUE) {
+    return 0;
+  }
+  return delta;
+}
+
+/**
  * Sanitizes destination URLs while preserving tracking parameters.
  */
 export function sanitizeDestinationUrl(rawUrl) {

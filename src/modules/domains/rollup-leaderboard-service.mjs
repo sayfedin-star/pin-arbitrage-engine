@@ -871,15 +871,7 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
             AND (${searchPattern}::text IS NULL OR LOWER(r.domain) LIKE ${searchPattern} ESCAPE '\\')
             AND (
               ${excludeMarketplaces} = FALSE
-              OR r.domain NOT IN (
-                'etsy.com', 'amazon.com', 'amazon.co.uk', 'amzn.to', 'walmart.com', 'target.com',
-                'ebay.com', 'aliexpress.com', 'temu.com', 'shein.com', 'ltks.co', 'liketoknow.it',
-                'shopltk.com', 'rstyle.me', 'shopstyle.it', 'youtube.com', 'youtu.be', 'instagram.com',
-                'tiktok.com', 'facebook.com', 'twitter.com', 'x.com', 'reddit.com', 'threads.net',
-                'linkedin.com', 'quora.com', 'tumblr.com', 'medium.com', 'wikipedia.org',
-                'google.com', 'share.google', 'drive.google.com', 'docs.google.com', 'storage.googleapis.com',
-                'blogger.googleusercontent.com'
-              )
+              OR r.domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
             )
             AND (
               ${preset} = 'all'

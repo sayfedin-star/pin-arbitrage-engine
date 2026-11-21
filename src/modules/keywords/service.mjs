@@ -18,7 +18,7 @@
 
 import { formatPinterestCookie, chunkArray } from '../../utils.mjs';
 import {
-  getPinterestHeaders,
+  getStandardPinterestHeaders,
   fetchPinFromPinterest,
   fetchPinsBatchFromPidgets,
   pinterestFetch
@@ -250,7 +250,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     `;
     const ignoredPinSet = new Set(ignoredPinRows.map(r => String(r.pin_id)));
 
-    const headers = getPinterestHeaders({
+    const headers = getStandardPinterestHeaders({
       cookie,
       referer: `https://www.pinterest.com/search/pins/?q=${query}`,
       extraHeaders: {
@@ -348,7 +348,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           rawGuides = data?.resource_response?.data?.rankedGuides || [];
         }
         if (pageItems.length === 0) break;
-        rawResults = rawResults.concat(pageItems);
+        rawResults.push(...pageItems);
 
         for (const it of pageItems) {
           if (!it || it.type !== 'pin') continue;
@@ -822,6 +822,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       rank++;
     }
 
+    // Pre-index preparedPins by pin_id and index for O(1) lookups across Pidgets chunks & top enrichment
+    const preparedPinById = new Map();
+    const preparedPinIndexMap = new Map();
+    for (let i = 0; i < preparedPins.length; i++) {
+      const pinObj = preparedPins[i];
+      if (pinObj?.pin_id) preparedPinById.set(String(pinObj.pin_id), pinObj);
+      preparedPinIndexMap.set(pinObj, i);
+    }
+
     // Batch Pidgets SERP Pre-Enrichment (LND-801)
     // Skip when skip_top_enrich is true (Phase 1A fleet harvest), because Phase 1B runs unified 50x Pidgets telemetry
     // and Phase 1A intentionally omits resavePinsMetricsBatch for existing SERP pins.
@@ -831,9 +840,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         try {
           const pidgetsMap = await fetchPinsBatchFromPidgets(chunk);
           if (pidgetsMap) {
-            for (const p of preparedPins) {
-              const pidStr = String(p.pin_id);
+            for (const rawPid of chunk) {
+              const pidStr = String(rawPid);
               if (!pidgetsMap.has(pidStr)) continue;
+              const p = preparedPinById.get(pidStr);
+              if (!p) continue;
               const pData = pidgetsMap.get(pidStr);
               if (!pData || pData.is_missing) continue;
 
@@ -883,8 +894,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                   p.delta_repins_24h = computedRepinDelta;
                   p.daily_repin_velocity = computedRepinDelta;
                 }
-                const pIdxInPrepared = preparedPins.indexOf(p);
-                if (pIdxInPrepared !== -1) {
+                const pIdxInPrepared = preparedPinIndexMap.get(p);
+                if (pIdxInPrepared !== undefined) {
                   pinVelocities[pIdxInPrepared] = newVel;
                 }
                 if (p.metadata) {
@@ -906,7 +917,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Enrich top 10 ranking pins + up to 10 detected breakout candidates with verified live deep metrics via fetchPinFromPinterest
     const skipTopEnrich = Boolean(options.skip_top_enrich);
     const topSlice = skipTopEnrich ? [] : preparedPins.slice(0, 10);
-    const breakoutSlice = skipTopEnrich ? [] : preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSlice.includes(p)).slice(0, 10);
+    const topSliceSet = new Set(topSlice);
+    const breakoutSlice = skipTopEnrich ? [] : preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSliceSet.has(p)).slice(0, 10);
     const topToEnrich = [...topSlice, ...breakoutSlice];
     if (topToEnrich.length > 0) {
       await Promise.allSettled(topToEnrich.map(async (p) => {
@@ -1029,8 +1041,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 p.delta_repins_24h = computedRepinDelta;
                 p.daily_repin_velocity = computedRepinDelta;
               }
-              const pIdxInPrepared = preparedPins.indexOf(p);
-              if (pIdxInPrepared !== -1) {
+              const pIdxInPrepared = preparedPinIndexMap.get(p);
+              if (pIdxInPrepared !== undefined) {
                 pinVelocities[pIdxInPrepared] = newVel;
               }
               if (p.metadata) {

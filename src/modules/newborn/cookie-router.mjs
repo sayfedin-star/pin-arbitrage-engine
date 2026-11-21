@@ -35,6 +35,7 @@ import {
 } from '../../core/pinterest/client.mjs';
 import { extractRelayCompletedPayloads } from '../../core/pinterest/pins.mjs';
 import { redactSecrets } from '../../http/security-and-response.mjs';
+import { normalizePinterestCookie } from '../../utils.mjs';
 import { resolveNewbornRawCookie } from './settings.mjs';
 
 export const COOKIE_ZONES = Object.freeze({
@@ -150,32 +151,7 @@ export function resolveUrlCookieZone(urlStr, endpointHint = '') {
  * strictly for Newborn ZONE_AUTH_SESSION requests.
  */
 export function formatAuthSessionCookie(rawCookie) {
-  if (!rawCookie || typeof rawCookie !== 'string') return '';
-  let cookie = rawCookie.trim();
-  if ((cookie.startsWith('"') && cookie.endsWith('"')) || (cookie.startsWith("'") && cookie.endsWith("'"))) {
-    cookie = cookie.slice(1, -1).trim();
-  }
-  if (!cookie) return '';
-
-  // Bare _pinterest_sess token value (e.g. TWc9... / Mg==...)
-  if (
-    !cookie.includes('=') ||
-    cookie.startsWith('TWc9') ||
-    cookie.startsWith('Mg==') ||
-    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
-  ) {
-    const cleanToken = cookie.replace(/"/g, '').trim();
-    return cleanToken ? `_pinterest_sess="${cleanToken}"; _auth=1` : '';
-  }
-
-  const parts = cookie
-    .split(';')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0 && !/^_auth\s*=/i.test(p))
-    .map((p) => p.replace(/^_pinterest_sess=([^;\s"]+)$/, '_pinterest_sess="$1"'));
-
-  if (parts.length === 0) return '';
-  return `${parts.join('; ')}; _auth=1`;
+  return normalizePinterestCookie(rawCookie, { authFlag: 1 });
 }
 
 /**

@@ -9,7 +9,7 @@
  * - Discovery typeahead and Pinterest trend acceleration
  */
 
-import { escapeSqlWildcards, getCulinaryColorName, formatAge, normalizeCleanDomain } from '../../utils.mjs';
+import { escapeSqlWildcards, getCulinaryColorName, formatAge, normalizeCleanDomain, Semaphore } from '../../utils.mjs';
 import { computeCrossPillarConvictionScore } from '../../lib/math.mjs';
 import { fetchKeywordTypeahead } from '../keywords/service.mjs';
 import { fetchPinterestBatchVelocity, fetchPinterestInterestVolume } from '../keywords/trends-service.mjs';
@@ -357,156 +357,104 @@ export async function getCandidatesService(targetSql, { seedPinId, limit, offset
   });
 }
 
+const BAKERY_SEED_LABEL_RE = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i;
+
+function selectRecgptPlaybookTriplet(rows = [], { isBakerySeed = false } = {}) {
+  const ordered = [...(Array.isArray(rows) ? rows : [])].sort(
+    (a, b) => Number(b?.saves || 0) - Number(a?.saves || 0) || String(a?.candidate_pin_id || '').localeCompare(String(b?.candidate_pin_id || ''))
+  );
+  const pickedIds = new Set();
+  const pickedIndices = new Set();
+
+  const pickByRoles = (preferredRoles) => {
+    for (const role of preferredRoles) {
+      for (let i = 0; i < ordered.length; i++) {
+        const row = ordered[i];
+        if (!row || row.sequence_role !== role) continue;
+        const cid = String(row.candidate_pin_id || '');
+        if (cid && pickedIds.has(cid)) continue;
+        if (pickedIndices.has(i)) continue;
+        if (cid) pickedIds.add(cid);
+        pickedIndices.add(i);
+        return row;
+      }
+    }
+    return null;
+  };
+
+  const pickFallback = () => {
+    for (let i = 0; i < ordered.length; i++) {
+      const row = ordered[i];
+      if (!row || pickedIndices.has(i)) continue;
+      const cid = String(row.candidate_pin_id || '');
+      if (cid && pickedIds.has(cid)) continue;
+      if (cid) pickedIds.add(cid);
+      pickedIndices.add(i);
+      return row;
+    }
+    return null;
+  };
+
+  let dinnerAnchor = pickByRoles(isBakerySeed ? ['DESSERT_HERO', 'DINNER_ANCHOR'] : ['DINNER_ANCHOR']);
+  let navboostSide = pickByRoles(isBakerySeed ? ['BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR'] : ['NAVBOOST_CO_VISITOR']);
+  let sessionFinisher = pickByRoles(isBakerySeed ? ['PASTRY_BITES', 'SESSION_FINISHER'] : ['SESSION_FINISHER']);
+
+  if (!dinnerAnchor) dinnerAnchor = pickFallback();
+  if (!navboostSide) navboostSide = pickFallback();
+  if (!sessionFinisher) sessionFinisher = pickFallback();
+
+  return { dinnerAnchor, navboostSide, sessionFinisher };
+}
+
 /**
- * 9. Fetch RecGPT Playbook Recommendation Triplet
+ * 9. Fetch RecGPT Playbook Recommendation Triplet (single ROW_NUMBER() window query)
  */
 export async function getRecgptPlaybookService(targetSql, { seedPinId }) {
-  let dinnerAnchor = null;
-  let navboostSide = null;
-  let sessionFinisher = null;
+  const rankedRows = seedPinId
+    ? await targetSql`
+        WITH ranked AS (
+          SELECT
+            cgn.*,
+            cs.label AS seed_label,
+            ROW_NUMBER() OVER (
+              PARTITION BY cgn.sequence_role
+              ORDER BY cgn.saves DESC NULLS LAST, cgn.candidate_pin_id ASC
+            ) AS role_rn,
+            ROW_NUMBER() OVER (
+              ORDER BY cgn.saves DESC NULLS LAST, cgn.candidate_pin_id ASC
+            ) AS overall_rn
+          FROM candidate_graph_nodes cgn
+          LEFT JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+          WHERE cgn.seed_pin_id = ${seedPinId}
+        )
+        SELECT *
+        FROM ranked
+        WHERE role_rn <= 3 OR overall_rn <= 6
+        ORDER BY overall_rn ASC;
+      `
+    : await targetSql`
+        WITH ranked AS (
+          SELECT
+            cgn.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY cgn.sequence_role
+              ORDER BY cgn.saves DESC NULLS LAST, cgn.candidate_pin_id ASC
+            ) AS role_rn,
+            ROW_NUMBER() OVER (
+              ORDER BY cgn.saves DESC NULLS LAST, cgn.candidate_pin_id ASC
+            ) AS overall_rn
+          FROM candidate_graph_nodes cgn
+          INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
+        )
+        SELECT *
+        FROM ranked
+        WHERE role_rn <= 3 OR overall_rn <= 6
+        ORDER BY overall_rn ASC;
+      `;
 
-  let isBakerySeed = false;
-  if (seedPinId) {
-    const sInfo = await targetSql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
-    if (sInfo.length > 0) {
-      isBakerySeed = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(sInfo[0].label || '');
-    }
-
-    if (isBakerySeed) {
-      const dRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('DESSERT_HERO', 'DINNER_ANCHOR')
-        ORDER BY (sequence_role = 'DESSERT_HERO') DESC, saves DESC LIMIT 1;
-      `;
-      if (dRows.length > 0) dinnerAnchor = dRows[0];
-
-      const nRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR')
-          AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-        ORDER BY (sequence_role = 'BEVERAGE_PAIRING') DESC, saves DESC LIMIT 1;
-      `;
-      if (nRows.length > 0) navboostSide = nRows[0];
-
-      const sRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('PASTRY_BITES', 'SESSION_FINISHER')
-          AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-          AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
-        ORDER BY (sequence_role = 'PASTRY_BITES') DESC, saves DESC LIMIT 1;
-      `;
-      if (sRows.length > 0) sessionFinisher = sRows[0];
-    } else {
-      const dRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      if (dRows.length > 0) dinnerAnchor = dRows[0];
-
-      const nRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      if (nRows.length > 0) navboostSide = nRows[0];
-
-      const sRows = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      if (sRows.length > 0) sessionFinisher = sRows[0];
-    }
-
-    // Seed-scoped fallbacks: never cross into another seed
-    if (!dinnerAnchor) {
-      const f = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId}
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      dinnerAnchor = f[0] || null;
-    }
-    if (!navboostSide) {
-      const f = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      navboostSide = f[0] || null;
-    }
-    if (!sessionFinisher) {
-      const f = await targetSql`
-        SELECT * FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId}
-          AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-          AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
-        ORDER BY saves DESC LIMIT 1;
-      `;
-      sessionFinisher = f[0] || null;
-    }
-  } else {
-    // Global Cluster Hub explorer fallbacks strictly scoped to active cluster_seeds
-    if (!dinnerAnchor) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        WHERE cgn.sequence_role = 'DINNER_ANCHOR'
-        ORDER BY cgn.saves DESC LIMIT 1;
-      `;
-      dinnerAnchor = f[0] || null;
-    }
-    if (!navboostSide) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        WHERE cgn.sequence_role = 'NAVBOOST_CO_VISITOR'
-        ORDER BY cgn.saves DESC LIMIT 1;
-      `;
-      navboostSide = f[0] || null;
-    }
-    if (!sessionFinisher) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        WHERE cgn.sequence_role = 'SESSION_FINISHER'
-        ORDER BY cgn.saves DESC LIMIT 1;
-      `;
-      sessionFinisher = f[0] || null;
-    }
-
-    if (!dinnerAnchor) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        ORDER BY cgn.saves DESC LIMIT 1;
-      `;
-      dinnerAnchor = f[0] || null;
-    }
-    if (!navboostSide) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        ORDER BY cgn.saves DESC OFFSET 1 LIMIT 1;
-      `;
-      navboostSide = f[0] || null;
-    }
-    if (!sessionFinisher) {
-      const f = await targetSql`
-        SELECT cgn.*
-        FROM candidate_graph_nodes cgn
-        INNER JOIN cluster_seeds cs ON cs.pin_id = cgn.seed_pin_id
-        ORDER BY cgn.saves DESC OFFSET 2 LIMIT 1;
-      `;
-      sessionFinisher = f[0] || null;
-    }
-  }
+  const seedLabel = seedPinId ? String(rankedRows?.[0]?.seed_label || '') : '';
+  const isBakerySeed = Boolean(seedPinId && BAKERY_SEED_LABEL_RE.test(seedLabel));
+  const { dinnerAnchor, navboostSide, sessionFinisher } = selectRecgptPlaybookTriplet(rankedRows, { isBakerySeed });
 
   const formatCard = (node, defaultTitle, defaultRole, defaultPrep) => {
     if (!node) {
@@ -1016,9 +964,10 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
       typeof item === 'string' ? item : (item.term || item.query || '')
     ).filter(Boolean);
 
+    const interestSem = new Semaphore(4);
     const [velocityMapResult, enriched] = await Promise.all([
       fetchPinterestBatchVelocity(cleanQ, suggestionTerms).catch(() => new Map()),
-      Promise.allSettled(boundedSuggestions.map(async (item) => {
+      Promise.allSettled(boundedSuggestions.map((item) => interestSem.run(async () => {
         const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
         const isSeed = (typeof item === 'object' && Boolean(item.is_seed)) || (termStr.toLowerCase() === cleanQ.toLowerCase());
         try {
@@ -1037,7 +986,7 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
         } catch (_) {
           return { term: termStr, is_seed: isSeed, search_volume: null, annotation_id: null, category_tree: [], category_path: '', url: null };
         }
-      }))
+      })))
     ]);
 
     const velocityMap = (velocityMapResult instanceof Map) ? velocityMapResult : new Map();

@@ -30,6 +30,7 @@ import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 // Bounded Process-Local LRU Cache (max 25 entries, 120s TTL) with Epoch Invalidation
 export const PULSE_MEMORY_CACHE_MAX = 25;
 export const PULSE_MEMORY_TTL_MS = 120_000;
+export const PULSE_MAX_PAYLOAD_BYTES = 900 * 1024; // 900 KB hard wire payload ceiling
 export const pulseMemoryCache = new TtlSingleflightCache({
   maxEntries: PULSE_MEMORY_CACHE_MAX,
   defaultTtlMs: PULSE_MEMORY_TTL_MS
@@ -1826,12 +1827,22 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       fresh_rocket_pins: freshRocketPinsTop100,
       vault_surge_pins: vaultSurgePinsFormatted,
       pinarchive_winners: paWinners.slice(0, 10).map(p => ({
-        ...p,
+        pin_id: p.pin_id,
+        account_username: p.account_username || '',
+        title: String(p.title || '').slice(0, 105),
+        link: p.link || '',
+        domain: p.domain || '',
+        board_name: p.board_name || '',
+        image_url: p.image_url || '',
+        dominant_color: p.dominant_color || null,
         saves: Number(p.saves || 0),
         repins: Number(p.repins || 0),
         comments: Number(p.comments || 0),
         velocity: Number(p.velocity || 0),
-        annotations: extractCleanAnnotations(p.annotations)
+        annotations: extractCleanAnnotations(p.annotations).slice(0, 4),
+        created_at_pinterest: p.created_at_pinterest || null,
+        first_seen_at: p.first_seen_at || null,
+        last_updated_at: p.last_updated_at || null
       })),
       annotation_crossovers: {
         single_annotations: singleAnnotations,
@@ -1854,6 +1865,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       }
     };
 
+    enforcePulsePayloadByteBudget(payload, PULSE_MAX_PAYLOAD_BYTES);
+
     if (!bypassCache && pulseMemoryCache.isWriteValid(cacheKey, startEpoch)) {
       pulseForceRefreshCooldown.set(cacheKey, Date.now());
     }
@@ -1870,6 +1883,100 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
     forceRefresh: effectiveRefresh,
     shouldCache: (val) => Boolean(val && val.success !== false)
   });
+}
+
+function stripVerbosePinFields(items) {
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    if ('description' in item) delete item.description;
+    if ('alt_text' in item) delete item.alt_text;
+    if (typeof item.title === 'string' && item.title.length > 105) {
+      item.title = item.title.slice(0, 105);
+    }
+    if (Array.isArray(item.annotations) && item.annotations.length > 4) {
+      item.annotations = item.annotations.slice(0, 4);
+    }
+    if (Array.isArray(item.visual_annotations) && item.visual_annotations.length > 4) {
+      item.visual_annotations = item.visual_annotations.slice(0, 4);
+    }
+    if (Array.isArray(item.keywords) && item.keywords.length > 2) {
+      item.keywords = item.keywords.slice(0, 2);
+    }
+  }
+}
+
+/**
+ * Programmatically enforces the `< 900 KB` JSON byte budget on `/api/pulse/24h` payloads.
+ * Leaves normal compliant payloads completely untouched; when oversized, strips verbose
+ * card fields first and then progressively trims secondary arrays while preserving `kpis`.
+ *
+ * @param {object} payload
+ * @param {number} [maxBytes=PULSE_MAX_PAYLOAD_BYTES]
+ * @returns {object}
+ */
+export function enforcePulsePayloadByteBudget(payload, maxBytes = PULSE_MAX_PAYLOAD_BYTES) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const limit = Math.max(1024, Number(maxBytes) || PULSE_MAX_PAYLOAD_BYTES);
+
+  const measureBytes = () => Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  if (measureBytes() < limit) {
+    return payload;
+  }
+
+  // Stage 1: Strip verbose card fields & excess nested tags across all card collections
+  stripVerbosePinFields(payload.breakout_pins);
+  stripVerbosePinFields(payload.fresh_rocket_pins);
+  stripVerbosePinFields(payload.vault_surge_pins);
+  stripVerbosePinFields(payload.pinarchive_winners);
+  stripVerbosePinFields(payload.keyword_vacuums_and_bridges?.bridge_pins);
+  stripVerbosePinFields(payload.hidden_gems_telemetry?.vacuum_hijack_pins);
+  stripVerbosePinFields(payload.hidden_gems_telemetry?.domainless_viral_pins);
+  if (Array.isArray(payload.creator_breakouts)) {
+    for (const cb of payload.creator_breakouts) {
+      if (Array.isArray(cb?.driver_pins)) stripVerbosePinFields(cb.driver_pins);
+    }
+  }
+  if (measureBytes() < limit) {
+    return payload;
+  }
+
+  // Stage 2: Progressively shrink secondary arrays (lowest-priority / largest first) without touching `kpis`
+  const trimTargets = [
+    () => [payload.hidden_gems_telemetry, 'vacuum_hijack_pins'],
+    () => [payload.hidden_gems_telemetry, 'domainless_viral_pins'],
+    () => [payload.keyword_vacuums_and_bridges, 'bridge_pins'],
+    () => [payload.keyword_vacuums_and_bridges, 'keyword_vacuum_opportunities'],
+    () => [payload.annotation_crossovers, 'triplet_crossovers'],
+    () => [payload.annotation_crossovers, 'pair_crossovers'],
+    () => [payload.annotation_crossovers, 'single_annotations'],
+    () => [payload, 'guided_capsule_crossovers'],
+    () => [payload.hidden_gems_telemetry, 'winning_boards'],
+    () => [payload.hidden_gems_telemetry, 'top_arbitrage_domains'],
+    () => [payload, 'vault_surge_pins'],
+    () => [payload, 'fresh_rocket_pins'],
+    () => [payload, 'creator_breakouts'],
+    () => [payload, 'pinarchive_winners'],
+    () => [payload, 'breakout_pins']
+  ];
+
+  for (let round = 0; round < 16 && measureBytes() >= limit; round++) {
+    let trimmedAny = false;
+    for (const resolveTarget of trimTargets) {
+      if (measureBytes() < limit) break;
+      const [container, key] = resolveTarget();
+      if (!container || !Array.isArray(container[key]) || container[key].length === 0) continue;
+      const currentLen = container[key].length;
+      const nextLen = currentLen <= 1 ? 0 : Math.floor(currentLen * 0.6);
+      if (nextLen < currentLen) {
+        container[key] = container[key].slice(0, nextLen);
+        trimmedAny = true;
+      }
+    }
+    if (!trimmedAny) break;
+  }
+
+  return payload;
 }
 
 /**

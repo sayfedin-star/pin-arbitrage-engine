@@ -66,8 +66,6 @@ export function getStandardPinterestHeaders(options = {}) {
   return headers;
 }
 
-export const getPinterestHeaders = getStandardPinterestHeaders;
-
 /**
  * Page document navigation headers for full HTML fetches.
  */

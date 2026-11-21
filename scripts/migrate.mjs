@@ -370,6 +370,7 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
 
 const MIGRATION_CLIENT_OPTIONS = Object.freeze({
   max: 1,
+  applicationName: 'pae-migrate',
   connection: {
     statement_timeout: 300000,
     lock_timeout: 30000

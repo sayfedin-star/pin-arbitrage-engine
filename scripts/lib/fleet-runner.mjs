@@ -118,7 +118,7 @@ export function startInstaBoxActivityLease(taskNameOrOptions = 'cli-worker', may
   const machineId = String(opts.machineId ?? process.env.INSTABOX_MACHINE_ID ?? '').trim();
   const apiKey = String(opts.apiKey ?? process.env.INSTABOX_API_KEY ?? '').trim();
   const fetchFn = opts.fetchImpl ?? globalThis.fetch;
-  const intervalMs = Math.max(1000, Number(opts.intervalMs ?? DEFAULT_LEASE_RENEW_INTERVAL_MS));
+  const intervalMs = Math.max(10, Number(opts.intervalMs ?? DEFAULT_LEASE_RENEW_INTERVAL_MS));
   const ttlSeconds = Math.max(60, Math.floor(Number(opts.ttlSeconds ?? DEFAULT_LEASE_TTL_SECONDS)));
   const pid = opts.pid ?? process.pid;
 
@@ -145,28 +145,41 @@ export function startInstaBoxActivityLease(taskNameOrOptions = 'cli-worker', may
   };
 
   let stopped = false;
+  let inflightRenewal = null;
 
-  const acquireOrRenew = async () => {
-    if (stopped) return false;
-    try {
-      const res = await fetchFn(leaseUrl, {
-        method: 'PUT',
-        headers: {
-          ...authHeaders,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ ttlSeconds }),
-        signal: AbortSignal.timeout(8000)
-      });
-      return Boolean(res?.ok);
-    } catch (_) {
-      return false;
-    }
+  const acquireOrRenew = () => {
+    if (stopped) return Promise.resolve(false);
+    if (inflightRenewal) return inflightRenewal;
+    let trackedPromise = null;
+    const req = (async () => {
+      try {
+        const res = await fetchFn(leaseUrl, {
+          method: 'PUT',
+          headers: {
+            ...authHeaders,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ ttlSeconds }),
+          signal: AbortSignal.timeout(8000)
+        });
+        return Boolean(res?.ok);
+      } catch (_) {
+        return false;
+      }
+    })();
+    trackedPromise = req.finally(() => {
+      if (inflightRenewal === trackedPromise) {
+        inflightRenewal = null;
+      }
+    });
+    inflightRenewal = trackedPromise;
+    return trackedPromise;
   };
 
   const initialPromise = acquireOrRenew();
 
   const timer = setInterval(() => {
+    if (stopped || inflightRenewal) return;
     acquireOrRenew().catch(() => {});
   }, intervalMs);
   timer.unref?.();
@@ -180,6 +193,9 @@ export function startInstaBoxActivityLease(taskNameOrOptions = 'cli-worker', may
       stopped = true;
       clearInterval(timer);
       await initialPromise.catch(() => {});
+      if (inflightRenewal) {
+        await inflightRenewal.catch(() => {});
+      }
       try {
         await fetchFn(leaseUrl, {
           method: 'DELETE',
@@ -270,28 +286,83 @@ export async function runFleetLifecycle(taskName, taskFn, options = {}) {
     requireDb = true,
     lease: injectedLease = null,
     leaseOptions = {},
+    dispatcher: injectedDispatcher = null,
     setDefaultDispatcher = null,
     loadEnv = process.env.NODE_ENV !== 'test',
     createSqlClientFn = createSqlClient,
-    worker: workerOptions = {}
+    worker: workerOptions = {},
+    registerSignalHandlers = true,
+    exitOnSignal = process.env.NODE_ENV !== 'test',
+    onSignal = null
   } = options;
 
   if (loadEnv) {
     loadDotEnvIfPresent();
   }
 
-  const dispatcher = setDefaultDispatcher
-    ? await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)
-    : null;
+  const dispatcher = injectedDispatcher || (
+    setDefaultDispatcher
+      ? await bootstrapUndiciKeepAliveDispatcher(setDefaultDispatcher)
+      : null
+  );
+
+  const sanitizedTask = String(taskName || 'cli-worker')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'cli-worker';
 
   const lease = injectedLease || startInstaBoxActivityLease(taskName, leaseOptions);
   let sql = sqlClient || null;
+  let cleanupPromise = null;
+
+  const cleanupResources = () => {
+    if (!cleanupPromise) {
+      cleanupPromise = (async () => {
+        try {
+          if (lease && typeof lease.stop === 'function') {
+            await lease.stop();
+          }
+        } catch (_) {}
+        try {
+          if (sql && typeof sql.end === 'function') {
+            await sql.end({ timeout: 3 });
+          }
+        } catch (_) {}
+        try {
+          if (dispatcher && typeof dispatcher.close === 'function') {
+            await dispatcher.close();
+          }
+        } catch (_) {}
+      })();
+    }
+    return cleanupPromise;
+  };
+
+  let handleSignal = null;
+  if (registerSignalHandlers) {
+    handleSignal = (sig) => {
+      const exitCode = sig === 'SIGINT' ? 130 : 143;
+      if (typeof onSignal === 'function') {
+        try { onSignal(sig); } catch (_) {}
+      }
+      cleanupResources().finally(() => {
+        if (exitOnSignal) {
+          process.exit(exitCode);
+        }
+      });
+    };
+    process.on('SIGTERM', handleSignal);
+    process.on('SIGINT', handleSignal);
+  }
 
   try {
     const dbUrl = options.dbUrl !== undefined ? options.dbUrl : process.env.DATABASE_URL;
     if (!sql) {
       if (dbUrl) {
-        sql = createSqlClientFn(dbUrl, sqlOptions);
+        const mergedSqlOptions = {
+          applicationName: `pae-${sanitizedTask}`.slice(0, 63),
+          ...(sqlOptions && typeof sqlOptions === 'object' ? sqlOptions : {})
+        };
+        sql = createSqlClientFn(dbUrl, mergedSqlOptions);
       } else if (requireDb) {
         throw new Error(`DATABASE_URL environment variable is required for ${taskName}.`);
       }
@@ -305,16 +376,11 @@ export async function runFleetLifecycle(taskName, taskFn, options = {}) {
       ...worker
     });
   } finally {
-    try {
-      if (lease && typeof lease.stop === 'function') {
-        await lease.stop();
-      }
-    } catch (_) {}
-    try {
-      if (sql && typeof sql.end === 'function') {
-        await sql.end({ timeout: 3 });
-      }
-    } catch (_) {}
+    if (handleSignal) {
+      process.off('SIGTERM', handleSignal);
+      process.off('SIGINT', handleSignal);
+    }
+    await cleanupResources();
   }
 }
 

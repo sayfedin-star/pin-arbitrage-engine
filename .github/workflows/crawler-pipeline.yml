@@ -2,8 +2,8 @@ name: Distributed Crawler & Intelligence Pipeline
 
 on:
   schedule:
-    # Runs daily at 02:00 UTC for fresh 24h delta tracking & competitor snapshots
-    - cron: '0 2 * * *'
+    # Runs daily at 02:30 UTC (clear of 01:00 keyword pipeline & 04:15 related-pins) for 24h delta tracking & single nightly rollup
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       target_account:
@@ -166,7 +166,7 @@ jobs:
   consolidate:
     name: Stage 2 - Creator Telemetry & Executive Report Consolidation
     needs: [dispatch, crawl-fleet]
-    if: always() && needs.dispatch.result == 'success'
+    if: always() && !cancelled() && needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -188,7 +188,7 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
-          skip-wakeup: 'false'
+          skip-wakeup: 'true'
 
       - name: 4. Execute Consolidation & Report Engine
         env:

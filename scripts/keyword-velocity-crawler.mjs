@@ -71,7 +71,9 @@ if (!DATABASE_URL && isMainModule) {
   process.exit(1);
 }
 
-const sql = (DATABASE_URL && isMainModule) ? createSqlClient(DATABASE_URL) : null;
+const sql = (DATABASE_URL && isMainModule)
+  ? createSqlClient(DATABASE_URL, { applicationName: 'pae-keyword-velocity' })
+  : null;
 function classifyFatalSerpSqlError(err) {
   if (isTransientPgConnectionError(err) || isStatementTimeoutError(err)) {
     return false;

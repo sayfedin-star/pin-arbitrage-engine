@@ -560,9 +560,45 @@ function toTitleCase(str = '') {
 }
 
 /**
- * Synthesizes an Annotation + Board-Title + Guided Capsule Crossover Blueprint for a candidate pin.
+ * Precomputes O(N) annotation frequency counts across a candidate cohort so
+ * `synthesizeNewbornCrossoverBlueprint` runs in O(N) total instead of O(N^2).
+ *
+ * @param {Array<object>} [candidates=[]]
+ * @returns {Map<string, number>}
  */
-export function synthesizeNewbornCrossoverBlueprint(candidate = {}, peerCandidates = []) {
+export function buildPeerAnnotationCounts(candidates = []) {
+  const counts = new Map();
+  const perPinCounts = new Map();
+  for (const peer of (Array.isArray(candidates) ? candidates : [])) {
+    if (!peer) continue;
+    const pid = peer.pin_id != null ? String(peer.pin_id) : null;
+    let pinCounts = pid ? perPinCounts.get(pid) : null;
+    for (const pa of (peer.visual_annotations || [])) {
+      const n = String(typeof pa === 'string' ? pa : (pa?.name || '')).trim().toLowerCase();
+      if (!n) continue;
+      counts.set(n, (counts.get(n) || 0) + 1);
+      if (pid) {
+        if (!pinCounts) {
+          pinCounts = new Map();
+          perPinCounts.set(pid, pinCounts);
+        }
+        pinCounts.set(n, (pinCounts.get(n) || 0) + 1);
+      }
+    }
+  }
+  Object.defineProperty(counts, '_perPinCounts', {
+    value: perPinCounts,
+    enumerable: false,
+    configurable: true
+  });
+  return counts;
+}
+
+/**
+ * Synthesizes an Annotation + Board-Title + Guided Capsule Crossover Blueprint for a candidate pin.
+ * Accepts either a raw `peerCandidates` array or a precomputed `Map` from `buildPeerAnnotationCounts()`.
+ */
+export function synthesizeNewbornCrossoverBlueprint(candidate = {}, peerCandidatesOrCounts = []) {
   const annotations = (candidate.visual_annotations || [])
     .map((a) => String(typeof a === 'string' ? a : (a?.name || '')).trim())
     .filter(Boolean);
@@ -575,12 +611,22 @@ export function synthesizeNewbornCrossoverBlueprint(candidate = {}, peerCandidat
     .filter(Boolean);
   const capsuleTokens = new Set(capsules.flatMap((c) => tokenizeSemanticPhrase(c)));
 
-  const peerAnnCounts = new Map();
-  for (const peer of peerCandidates) {
-    if (!peer || peer.pin_id === candidate.pin_id) continue;
-    for (const pa of (peer.visual_annotations || [])) {
-      const n = String(typeof pa === 'string' ? pa : (pa?.name || '')).trim().toLowerCase();
-      if (n) peerAnnCounts.set(n, (peerAnnCounts.get(n) || 0) + 1);
+  let peerAnnCounts;
+  let selfAnnDeductions = null;
+  if (peerCandidatesOrCounts instanceof Map) {
+    peerAnnCounts = peerCandidatesOrCounts;
+    const pid = candidate.pin_id != null ? String(candidate.pin_id) : null;
+    if (pid && peerCandidatesOrCounts._perPinCounts instanceof Map) {
+      selfAnnDeductions = peerCandidatesOrCounts._perPinCounts.get(pid) || null;
+    }
+  } else {
+    peerAnnCounts = new Map();
+    for (const peer of (Array.isArray(peerCandidatesOrCounts) ? peerCandidatesOrCounts : [])) {
+      if (!peer || peer.pin_id === candidate.pin_id) continue;
+      for (const pa of (peer.visual_annotations || [])) {
+        const n = String(typeof pa === 'string' ? pa : (pa?.name || '')).trim().toLowerCase();
+        if (n) peerAnnCounts.set(n, (peerAnnCounts.get(n) || 0) + 1);
+      }
     }
   }
 
@@ -604,7 +650,9 @@ export function synthesizeNewbornCrossoverBlueprint(candidate = {}, peerCandidat
       crossoverWeight += 12;
     }
 
-    const peerHits = peerAnnCounts.get(annLower) || 0;
+    const rawPeerHits = peerAnnCounts.get(annLower) || 0;
+    const selfHits = selfAnnDeductions ? (selfAnnDeductions.get(annLower) || 0) : 0;
+    const peerHits = Math.max(0, rawPeerHits - selfHits);
     if (peerHits > 0) {
       sources.push('cluster_consensus');
       crossoverWeight += Math.min(15, peerHits * 5);

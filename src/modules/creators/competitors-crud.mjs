@@ -4,11 +4,18 @@
  */
 
 import { formatPinterestCookie, escapeSqlWildcards } from '../../utils.mjs';
-import { fetchUserResource } from '../../core/pinterest/index.mjs';
+import {
+  fetchUserResource,
+  PINTEREST_CEILING_VALUE,
+  normalizeCeilingMetric,
+  sanitizeCeilingDelta,
+  sanitizeStoredCeilingDelta
+} from '../../core/pinterest/index.mjs';
 import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
 import { pruneOrphanCandidateGraphNodes } from '../related-pins/graph-writer.mjs';
 
 export const GLOBAL_QUALIFICATION_RULES_KEY = 'pin_qualification_rules';
+export { PINTEREST_CEILING_VALUE, normalizeCeilingMetric, sanitizeCeilingDelta, sanitizeStoredCeilingDelta };
 
 
 /**
@@ -207,16 +214,12 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 
     return query.map(p => {
       const mReach = Number(p.monthly_reach || 0);
-      let dReach24h = Number(p.delta_reach_24h || 0);
-      let dReach7d = Number(p.reach_delta_7d || 0);
-      if (mReach > 10000001 && (mReach - dReach24h) === 10000001) dReach24h = 0;
-      if (mReach > 10000001 && (mReach - dReach7d) === 10000001) dReach7d = 0;
+      const dReach24h = sanitizeStoredCeilingDelta(mReach, p.delta_reach_24h);
+      const dReach7d = sanitizeStoredCeilingDelta(mReach, p.reach_delta_7d);
 
       const pViews = Number(p.profile_views || 0);
-      let dViews24h = Number(p.delta_views_24h || 0);
-      let dViews7d = Number(p.views_delta_7d || 0);
-      if (pViews > 10000001 && (pViews - dViews24h) === 10000001) dViews24h = 0;
-      if (pViews > 10000001 && (pViews - dViews7d) === 10000001) dViews7d = 0;
+      const dViews24h = sanitizeStoredCeilingDelta(pViews, p.delta_views_24h);
+      const dViews7d = sanitizeStoredCeilingDelta(pViews, p.views_delta_7d);
 
       return {
         ...p,
@@ -342,12 +345,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const prevExistingBoards = Number(existingProfile?.total_boards || 0);
   const prevExistingFollowers = Number(existingProfile?.follower_count || 0);
 
-  let monthlyReach = rawReach <= 0
-    ? prevExistingReach
-    : ((rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach);
-  let profileViews = rawViews <= 0
-    ? prevExistingViews
-    : ((rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews);
+  let monthlyReach = normalizeCeilingMetric(rawReach, prevExistingReach);
+  let profileViews = normalizeCeilingMetric(rawViews, prevExistingViews);
   const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
   const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
   const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
@@ -391,34 +390,24 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   }
 
   const priorReach = Number(prior24h?.monthly_reach || 0);
-  if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) {
-    monthlyReach = priorReach;
-  }
   const priorViews = Number(prior24h?.profile_views || 0);
-  if (rawViews === 10000001 && priorViews > 10000001 && profileViews <= 10000001) {
-    profileViews = priorViews;
+  const baselineReach = Number(baseline7d?.monthly_reach || 0);
+  const baselineViews = Number(baseline7d?.profile_views || 0);
+
+  if (rawReach === PINTEREST_CEILING_VALUE) {
+    monthlyReach = normalizeCeilingMetric(rawReach, monthlyReach, priorReach, baselineReach);
+  }
+  if (rawViews === PINTEREST_CEILING_VALUE) {
+    profileViews = normalizeCeilingMetric(rawViews, profileViews, priorViews, baselineViews);
   }
 
-  let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
-  let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
-  if (rawReach === 10000001 || (priorReach === 10000001 && monthlyReach > 10000001)) deltaReach24h = 0;
-  if (rawViews === 10000001 || (priorViews === 10000001 && profileViews > 10000001)) deltaViews24h = 0;
+  const deltaReach24h = prior24h ? sanitizeCeilingDelta(monthlyReach, priorReach, rawReach) : 0;
+  const deltaViews24h = prior24h ? sanitizeCeilingDelta(profileViews, priorViews, rawViews) : 0;
   const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
   const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
-  const baselineReach = Number(baseline7d?.monthly_reach || 0);
-  if (rawReach === 10000001 && baselineReach > 10000001 && monthlyReach <= 10000001) {
-    monthlyReach = baselineReach;
-  }
-  const baselineViews = Number(baseline7d?.profile_views || 0);
-  if (rawViews === 10000001 && baselineViews > 10000001 && profileViews <= 10000001) {
-    profileViews = baselineViews;
-  }
-
-  let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
-  let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
-  if (rawReach === 10000001 || (baselineReach === 10000001 && monthlyReach > 10000001)) reachDelta7d = 0;
-  if (rawViews === 10000001 || (baselineViews === 10000001 && profileViews > 10000001)) viewsDelta7d = 0;
+  const reachDelta7d = baseline7d ? sanitizeCeilingDelta(monthlyReach, baselineReach, rawReach) : 0;
+  const viewsDelta7d = baseline7d ? sanitizeCeilingDelta(profileViews, baselineViews, rawViews) : 0;
   const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
   const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
@@ -515,14 +504,14 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       display_name = EXCLUDED.display_name,
       avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
       monthly_reach = CASE 
-        WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_profiles.monthly_reach > 10000001 THEN competitor_profiles.monthly_reach
+        WHEN EXCLUDED.monthly_reach = ${PINTEREST_CEILING_VALUE} AND competitor_profiles.monthly_reach > ${PINTEREST_CEILING_VALUE} THEN competitor_profiles.monthly_reach
         WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach 
         ELSE competitor_profiles.monthly_reach 
       END,
       delta_reach_24h = EXCLUDED.delta_reach_24h,
       reach_delta_7d = EXCLUDED.reach_delta_7d,
       profile_views = CASE 
-        WHEN EXCLUDED.profile_views = 10000001 AND competitor_profiles.profile_views > 10000001 THEN competitor_profiles.profile_views
+        WHEN EXCLUDED.profile_views = ${PINTEREST_CEILING_VALUE} AND competitor_profiles.profile_views > ${PINTEREST_CEILING_VALUE} THEN competitor_profiles.profile_views
         WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views 
         ELSE competitor_profiles.profile_views 
       END,
@@ -606,12 +595,12 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       )
       ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
         monthly_reach = CASE 
-          WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_history_snapshots.monthly_reach > 10000001 THEN competitor_history_snapshots.monthly_reach
+          WHEN EXCLUDED.monthly_reach = ${PINTEREST_CEILING_VALUE} AND competitor_history_snapshots.monthly_reach > ${PINTEREST_CEILING_VALUE} THEN competitor_history_snapshots.monthly_reach
           WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach 
           ELSE competitor_history_snapshots.monthly_reach 
         END,
         profile_views = CASE 
-          WHEN EXCLUDED.profile_views = 10000001 AND competitor_history_snapshots.profile_views > 10000001 THEN competitor_history_snapshots.profile_views
+          WHEN EXCLUDED.profile_views = ${PINTEREST_CEILING_VALUE} AND competitor_history_snapshots.profile_views > ${PINTEREST_CEILING_VALUE} THEN competitor_history_snapshots.profile_views
           WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views 
           ELSE competitor_history_snapshots.profile_views 
         END,
@@ -846,6 +835,138 @@ export const STANDARD_QUALIFICATION_DEFAULTS = {
   early_stop_pages: 3
 };
 
+/**
+ * Canonical Single Source of Truth (SSOT) for parsing and normalizing Pin Qualification Rules
+ * across global settings, per-competitor overrides, pin qualification, and fleet auto-promotion.
+ *
+ * @param {object|null|undefined} rawRules
+ * @param {object} [options]
+ * @param {object} [options.base] - Optional base rule values merged beneath `rawRules`
+ * @param {boolean} [options.deriveTiersFromSaves=false] - Derive omitted tier2_min_repins & tier3_min_saves from tier1_min_saves
+ * @param {number} [options.minVelocityFloor=0] - Minimum floor for tier2_min_velocity (e.g. 0.1 on persistence)
+ * @param {boolean} [options.defaultArticlesOnly=false] - Default articles_only when omitted
+ * @returns {object}
+ */
+export function resolveQualificationRules(rawRules = {}, options = {}) {
+  const input = (rawRules && typeof rawRules === 'object') ? rawRules : {};
+  const base = (options.base && typeof options.base === 'object') ? options.base : {};
+  const deriveTiersFromSaves = Boolean(options.deriveTiersFromSaves);
+  const minVelocityFloor = Number.isFinite(Number(options.minVelocityFloor)) ? Number(options.minVelocityFloor) : 0;
+
+  const minSaves = parseRuleNumber(
+    input.tier1_min_saves ?? input.min_saves ?? base.tier1_min_saves ?? base.min_saves,
+    STANDARD_QUALIFICATION_DEFAULTS.tier1_min_saves,
+    0
+  );
+
+  const defaultTier2Repins = deriveTiersFromSaves
+    ? Math.max(STANDARD_QUALIFICATION_DEFAULTS.tier2_min_repins, minSaves)
+    : (base.tier2_min_repins ?? STANDARD_QUALIFICATION_DEFAULTS.tier2_min_repins);
+  const tier2Repins = parseRuleNumber(
+    input.tier2_min_repins ?? input.min_repins ?? (deriveTiersFromSaves ? undefined : base.tier2_min_repins),
+    defaultTier2Repins,
+    0
+  );
+
+  const tier2Velocity = parseRuleNumber(
+    input.tier2_min_velocity ?? input.min_velocity ?? base.tier2_min_velocity ?? base.min_velocity,
+    STANDARD_QUALIFICATION_DEFAULTS.tier2_min_velocity,
+    minVelocityFloor
+  );
+
+  const tier2MaxAgeDays = parseRuleNumber(
+    input.tier2_max_age_days ?? base.tier2_max_age_days,
+    STANDARD_QUALIFICATION_DEFAULTS.tier2_max_age_days,
+    1
+  );
+
+  const tier2MinShares = parseRuleNumber(
+    input.tier2_min_shares ?? base.tier2_min_shares,
+    STANDARD_QUALIFICATION_DEFAULTS.tier2_min_shares,
+    0
+  );
+
+  const tier3FreshDays = parseRuleNumber(
+    input.tier3_fresh_days ?? input.tier3_max_age_days ?? base.tier3_fresh_days ?? base.tier3_max_age_days,
+    STANDARD_QUALIFICATION_DEFAULTS.tier3_max_age_days,
+    1
+  );
+
+  const defaultTier3Saves = deriveTiersFromSaves
+    ? Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2)))
+    : (base.tier3_min_saves ?? STANDARD_QUALIFICATION_DEFAULTS.tier3_min_saves);
+  const tier3MinSaves = parseRuleNumber(
+    input.tier3_min_saves ?? input.fresh_min_saves ?? (deriveTiersFromSaves ? undefined : base.tier3_min_saves),
+    defaultTier3Saves,
+    0
+  );
+
+  const rawMasterEnabled = input.master_ingest_enabled !== undefined
+    ? input.master_ingest_enabled
+    : (input.cron_enabled !== undefined
+      ? input.cron_enabled
+      : (base.master_ingest_enabled !== undefined ? base.master_ingest_enabled : true));
+  const masterIngestEnabled = Boolean(rawMasterEnabled);
+
+  const articlesOnly = input.articles_only !== undefined
+    ? Boolean(input.articles_only)
+    : (base.articles_only !== undefined ? Boolean(base.articles_only) : Boolean(options.defaultArticlesOnly));
+  const excludeProductPins = Boolean(input.exclude_product_pins ?? base.exclude_product_pins ?? false);
+
+  const autoPipeline = input.auto_pipeline !== undefined
+    ? Boolean(input.auto_pipeline)
+    : (base.auto_pipeline !== undefined ? Boolean(base.auto_pipeline) : STANDARD_QUALIFICATION_DEFAULTS.auto_pipeline);
+
+  const earlyStopPages = parseRuleNumber(
+    input.early_stop_pages ?? base.early_stop_pages,
+    STANDARD_QUALIFICATION_DEFAULTS.early_stop_pages,
+    1
+  );
+  const maxPages = parseRuleNumber(
+    input.max_pages ?? base.max_pages,
+    STANDARD_QUALIFICATION_DEFAULTS.max_pages,
+    1
+  );
+  const maxBatchPins = parseRuleNumber(
+    input.max_batch_pins ?? base.max_batch_pins,
+    500,
+    10
+  );
+  const discoveryMaxPages = parseRuleNumber(
+    input.discovery_max_pages ?? base.discovery_max_pages,
+    500,
+    1
+  );
+  const refreshMaxPins = parseRuleNumber(
+    input.refresh_max_pins ?? base.refresh_max_pins,
+    0,
+    0
+  );
+  const pausedPolicy = String(input.paused_policy ?? base.paused_policy ?? 'reject');
+
+  return {
+    tier1_min_saves: minSaves,
+    tier2_min_repins: tier2Repins,
+    tier2_min_velocity: tier2Velocity,
+    tier2_max_age_days: tier2MaxAgeDays,
+    tier2_min_shares: tier2MinShares,
+    tier3_fresh_days: tier3FreshDays,
+    tier3_max_age_days: tier3FreshDays,
+    tier3_min_saves: tier3MinSaves,
+    articles_only: articlesOnly,
+    exclude_product_pins: excludeProductPins,
+    auto_pipeline: autoPipeline,
+    master_ingest_enabled: masterIngestEnabled,
+    cron_enabled: masterIngestEnabled,
+    max_pages: maxPages,
+    early_stop_pages: earlyStopPages,
+    max_batch_pins: maxBatchPins,
+    discovery_max_pages: discoveryMaxPages,
+    refresh_max_pins: refreshMaxPins,
+    paused_policy: pausedPolicy
+  };
+}
+
 export async function getCompetitorRules(sql, competitorId) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
@@ -859,12 +980,30 @@ export async function getCompetitorRules(sql, competitorId) {
 
   if (!row) throw new Error(`Competitor #${numericId} not found.`);
 
-  const defaultRules = STANDARD_QUALIFICATION_DEFAULTS;
+  const resolved = resolveQualificationRules(row.rules || {}, {
+    base: STANDARD_QUALIFICATION_DEFAULTS,
+    defaultArticlesOnly: true
+  });
 
   return {
     competitor_id: row.id,
     username: row.username,
-    rules: { ...defaultRules, ...(row.rules || {}) }
+    rules: {
+      ...STANDARD_QUALIFICATION_DEFAULTS,
+      ...(row.rules || {}),
+      tier1_min_saves: resolved.tier1_min_saves,
+      tier2_min_repins: resolved.tier2_min_repins,
+      tier2_min_velocity: resolved.tier2_min_velocity,
+      tier2_max_age_days: resolved.tier2_max_age_days,
+      tier2_min_shares: resolved.tier2_min_shares,
+      tier3_fresh_days: resolved.tier3_fresh_days,
+      tier3_max_age_days: resolved.tier3_max_age_days,
+      tier3_min_saves: resolved.tier3_min_saves,
+      articles_only: resolved.articles_only,
+      auto_pipeline: resolved.auto_pipeline,
+      max_pages: resolved.max_pages,
+      early_stop_pages: resolved.early_stop_pages
+    }
   };
 }
 
@@ -877,20 +1016,23 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
-  const freshDaysVal = parseRuleNumber(newRules.tier3_fresh_days ?? newRules.tier3_max_age_days, 14, 1);
+  const resolved = resolveQualificationRules(newRules, {
+    base: STANDARD_QUALIFICATION_DEFAULTS,
+    defaultArticlesOnly: true
+  });
   const sanitizedRules = {
-    tier1_min_saves: parseRuleNumber(newRules.tier1_min_saves, 100, 0),
-    tier2_min_repins: parseRuleNumber(newRules.tier2_min_repins, 100, 0),
-    tier2_min_velocity: parseRuleNumber(newRules.tier2_min_velocity, 3.5, 0),
-    tier2_max_age_days: parseRuleNumber(newRules.tier2_max_age_days, 60, 1),
-    tier2_min_shares: parseRuleNumber(newRules.tier2_min_shares, 15, 0),
-    tier3_fresh_days: freshDaysVal,
-    tier3_max_age_days: freshDaysVal,
-    tier3_min_saves: parseRuleNumber(newRules.tier3_min_saves, 25, 0),
-    articles_only: Boolean(newRules.articles_only ?? true),
-    auto_pipeline: Boolean(newRules.auto_pipeline ?? true),
-    max_pages: parseRuleNumber(newRules.max_pages, 500, 1),
-    early_stop_pages: parseRuleNumber(newRules.early_stop_pages, 3, 1)
+    tier1_min_saves: resolved.tier1_min_saves,
+    tier2_min_repins: resolved.tier2_min_repins,
+    tier2_min_velocity: resolved.tier2_min_velocity,
+    tier2_max_age_days: resolved.tier2_max_age_days,
+    tier2_min_shares: resolved.tier2_min_shares,
+    tier3_fresh_days: resolved.tier3_fresh_days,
+    tier3_max_age_days: resolved.tier3_max_age_days,
+    tier3_min_saves: resolved.tier3_min_saves,
+    articles_only: resolved.articles_only,
+    auto_pipeline: resolved.auto_pipeline,
+    max_pages: resolved.max_pages,
+    early_stop_pages: resolved.early_stop_pages
   };
 
   const [updated] = await sql`
@@ -1118,22 +1260,22 @@ export async function getQualificationRules(sql, options = {}) {
       ? (() => { try { return JSON.parse(row.rules); } catch (_) { return null; } })()
       : row?.rules;
     if (parsedRules && typeof parsedRules === 'object') {
-      const r = parsedRules;
+      const resolved = resolveQualificationRules(parsedRules, { base: DEFAULT_QUALIFICATION_RULES });
       return {
         id: 1,
-        tier1_min_saves: Number(r.tier1_min_saves ?? 100),
-        tier2_min_repins: Number(r.tier2_min_repins ?? 100),
-        tier2_min_velocity: Number(r.tier2_min_velocity ?? 3.5),
-        tier2_max_age_days: Number(r.tier2_max_age_days ?? 60),
-        tier3_max_age_days: Number(r.tier3_max_age_days ?? 14),
-        tier3_min_saves: Number(r.tier3_min_saves ?? 25),
-        master_ingest_enabled: Boolean(r.master_ingest_enabled ?? true),
-        cron_enabled: Boolean(r.master_ingest_enabled ?? true),
-        early_stop_pages: Number(r.early_stop_pages ?? 3),
-        max_batch_pins: Number(r.max_batch_pins ?? 500),
-        discovery_max_pages: Number(r.discovery_max_pages ?? 500),
-        refresh_max_pins: Number(r.refresh_max_pins ?? 0),
-        paused_policy: String(r.paused_policy ?? 'reject'),
+        tier1_min_saves: resolved.tier1_min_saves,
+        tier2_min_repins: resolved.tier2_min_repins,
+        tier2_min_velocity: resolved.tier2_min_velocity,
+        tier2_max_age_days: resolved.tier2_max_age_days,
+        tier3_max_age_days: resolved.tier3_max_age_days,
+        tier3_min_saves: resolved.tier3_min_saves,
+        master_ingest_enabled: resolved.master_ingest_enabled,
+        cron_enabled: resolved.cron_enabled,
+        early_stop_pages: resolved.early_stop_pages,
+        max_batch_pins: resolved.max_batch_pins,
+        discovery_max_pages: resolved.discovery_max_pages,
+        refresh_max_pins: resolved.refresh_max_pins,
+        paused_policy: resolved.paused_policy,
         updated_at: row.updated_at
       };
     }
@@ -1149,34 +1291,25 @@ export async function getQualificationRules(sql, options = {}) {
  */
 export async function updateQualificationRules(sql, rules = {}) {
   const current = await getQualificationRules(sql);
-  const t1Saves = Math.max(0, Number(rules.tier1_min_saves ?? current.tier1_min_saves ?? 100));
-  const t2Repins = Math.max(0, Number(rules.tier2_min_repins ?? current.tier2_min_repins ?? 100));
-  const t2Vel = Math.max(0.1, Number(rules.tier2_min_velocity ?? current.tier2_min_velocity ?? 3.5));
-  const t2Days = Math.max(1, Number(rules.tier2_max_age_days ?? current.tier2_max_age_days ?? 60));
-  const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? current.tier3_max_age_days ?? 14));
-  const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? current.tier3_min_saves ?? 25));
-  const masterEnabled = rules.master_ingest_enabled !== undefined
-    ? Boolean(rules.master_ingest_enabled)
-    : (rules.cron_enabled !== undefined ? Boolean(rules.cron_enabled) : Boolean(current.master_ingest_enabled));
-  const earlyStop = Math.max(1, Math.min(Number(rules.early_stop_pages ?? current.early_stop_pages ?? 3), 100));
-  const maxBatch = Math.max(10, Math.min(Number(rules.max_batch_pins ?? current.max_batch_pins ?? 500), 5000));
-  const discMax = Math.max(1, Math.min(Number(rules.discovery_max_pages ?? current.discovery_max_pages ?? 500), 2000));
-  const refreshMax = Math.max(0, Number(rules.refresh_max_pins ?? current.refresh_max_pins ?? 0));
-  const pausedPol = String(rules.paused_policy ?? current.paused_policy ?? 'reject');
+  const resolved = resolveQualificationRules(rules, {
+    base: current,
+    minVelocityFloor: 0.1
+  });
+  const masterEnabled = resolved.master_ingest_enabled;
 
   const sanitizedRules = {
-    tier1_min_saves: t1Saves,
-    tier2_min_repins: t2Repins,
-    tier2_min_velocity: t2Vel,
-    tier2_max_age_days: t2Days,
-    tier3_max_age_days: t3Days,
-    tier3_min_saves: t3Saves,
+    tier1_min_saves: resolved.tier1_min_saves,
+    tier2_min_repins: resolved.tier2_min_repins,
+    tier2_min_velocity: resolved.tier2_min_velocity,
+    tier2_max_age_days: resolved.tier2_max_age_days,
+    tier3_max_age_days: resolved.tier3_max_age_days,
+    tier3_min_saves: resolved.tier3_min_saves,
     master_ingest_enabled: masterEnabled,
-    early_stop_pages: earlyStop,
-    max_batch_pins: maxBatch,
-    discovery_max_pages: discMax,
-    refresh_max_pins: refreshMax,
-    paused_policy: pausedPol
+    early_stop_pages: Math.min(resolved.early_stop_pages, 100),
+    max_batch_pins: Math.min(resolved.max_batch_pins, 5000),
+    discovery_max_pages: Math.min(resolved.discovery_max_pages, 2000),
+    refresh_max_pins: resolved.refresh_max_pins,
+    paused_policy: resolved.paused_policy
   };
 
   const [updated] = await sql`
@@ -1215,8 +1348,13 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
     return { qualified: false, matchedTier: null };
   }
 
+  const resolved = resolveQualificationRules(rules, {
+    deriveTiersFromSaves: true,
+    defaultArticlesOnly: false
+  });
+
   // Strict product filtering if configured in active rules
-  if ((rules.articles_only === true || rules.exclude_product_pins === true) && Boolean(pin.is_product)) {
+  if ((resolved.articles_only === true || resolved.exclude_product_pins === true) && Boolean(pin.is_product)) {
     return { qualified: false, matchedTier: null };
   }
 
@@ -1233,16 +1371,16 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
     }
   }
 
-  const minSaves = Number(rules.tier1_min_saves ?? rules.min_saves ?? 100);
+  const minSaves = resolved.tier1_min_saves;
   // Tier 1: Star Performers (Cumulative Saves)
   if (saves >= minSaves) {
     return { qualified: true, matchedTier: 'tier1' };
   }
 
   // Tier 2: Sustained Virality & Velocity Breakout (Age <= 60d AND saves/age >= min_velocity, OR repins >= min_repins)
-  const minVelocity = Number(rules.tier2_min_velocity ?? 3.5);
-  const maxVelocityAge = Number(rules.tier2_max_age_days ?? 60);
-  const minRepins = Number(rules.tier2_min_repins ?? rules.min_repins ?? Math.max(100, minSaves));
+  const minVelocity = resolved.tier2_min_velocity;
+  const maxVelocityAge = resolved.tier2_max_age_days;
+  const minRepins = resolved.tier2_min_repins;
   const pinVelocity = Number(pin.velocity || pin.daily_save_velocity || (!isNaN(ageDays) && ageDays > 0 ? (saves / ageDays) : 0));
   const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
   const matchesVelocity = pinVelocity >= minVelocity || (allowVelocityFallback && saves >= 50 && pinVelocity >= 2.0);
@@ -1255,8 +1393,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
 
   // Tier 3: Fresh High-Velocity Breakouts (Age & Saves)
   // Pin MUST have a verified non-negative age <= tier3_max_age_days
-  const maxFreshDays = Number(rules.tier3_fresh_days ?? rules.tier3_max_age_days ?? 14);
-  const freshMinSaves = Number(rules.tier3_min_saves ?? rules.fresh_min_saves ?? Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))));
+  const maxFreshDays = resolved.tier3_max_age_days;
+  const freshMinSaves = resolved.tier3_min_saves;
   if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= maxFreshDays && saves >= freshMinSaves) {
     return { qualified: true, matchedTier: 'tier3' };
   }

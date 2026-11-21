@@ -4,28 +4,78 @@
 
 export { normalizeCleanDomain } from './modules/domains/domain-constants.mjs';
 
-export function formatPinterestCookie(rawCookie) {
+/**
+ * Unified Pinterest Cookie Normalizer (SSOT)
+ *
+ * Normalizes bare session tokens (`TWc9...`, `Mg==...`) or semicolon-separated cookie
+ * headers while deterministically enforcing `_auth=0` (guest) or `_auth=1` (Zone A).
+ *
+ * @param {string|null|undefined} rawCookie
+ * @param {object} [options]
+ * @param {0|1} [options.authFlag=0]
+ * @param {'prefix'|'suffix'} [options.authPosition]
+ * @param {boolean} [options.trailingSemicolon=false]
+ * @param {boolean} [options.allowBareAuthFlag]
+ * @returns {string}
+ */
+export function normalizePinterestCookie(rawCookie, options = {}) {
   if (!rawCookie || typeof rawCookie !== 'string') return '';
   let cookie = rawCookie.trim();
-  if (cookie.startsWith('"') && cookie.endsWith('"')) {
+  if (
+    (cookie.startsWith('"') && cookie.endsWith('"')) ||
+    (cookie.startsWith("'") && cookie.endsWith("'"))
+  ) {
     cookie = cookie.slice(1, -1).trim();
   }
   if (!cookie) return '';
-  // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
-  cookie = cookie.replace(/_auth="?[^;"]+"?;?\s*/g, '').trim();
-  if (
+
+  const authFlag = Number(options.authFlag) === 1 ? 1 : 0;
+  const authPosition = options.authPosition || (authFlag === 1 ? 'suffix' : 'prefix');
+  const trailingSemicolon = Boolean(options.trailingSemicolon);
+  const allowBareAuthFlag = options.allowBareAuthFlag !== undefined
+    ? Boolean(options.allowBareAuthFlag)
+    : authFlag === 0;
+  const authPair = `_auth=${authFlag}`;
+  const suffix = trailingSemicolon ? ';' : '';
+
+  const isBareToken =
     !cookie.includes('=') ||
     cookie.startsWith('TWc9') ||
     cookie.startsWith('Mg==') ||
-    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
-  ) {
-    return `_pinterest_sess="${cookie.replace(/"/g, '')}"; _auth=0;`;
+    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie));
+
+  if (isBareToken) {
+    const cleanToken = cookie.replace(/"/g, '').trim();
+    if (!cleanToken) return '';
+    const sessPair = `_pinterest_sess="${cleanToken}"`;
+    return authPosition === 'prefix'
+      ? `${authPair}; ${sessPair}${suffix}`
+      : `${sessPair}; ${authPair}${suffix}`;
   }
-  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
-  if (!cookie.includes('_auth=')) {
-    cookie = `${cookie.replace(/;$/, '')}; _auth=0;`;
+
+  const parts = cookie
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !/^_auth\s*=/i.test(part))
+    .map((part) => part.replace(/^_pinterest_sess=([^;\s"]+)$/, '_pinterest_sess="$1"'));
+
+  if (parts.length === 0) {
+    return allowBareAuthFlag ? `${authPair}${suffix}` : '';
   }
-  return cookie;
+
+  const joined = parts.join('; ');
+  return authPosition === 'prefix'
+    ? `${authPair}; ${joined}${suffix}`
+    : `${joined}; ${authPair}${suffix}`;
+}
+
+export function formatPinterestCookie(rawCookie) {
+  // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
+  return normalizePinterestCookie(rawCookie, {
+    authFlag: 0,
+    authPosition: 'suffix',
+    trailingSemicolon: true
+  });
 }
 
 /**
@@ -36,38 +86,13 @@ export function formatPinterestCookie(rawCookie) {
  * @returns {string}
  */
 export function sanitizeGuestCookie(rawCookie) {
-  if (!rawCookie || typeof rawCookie !== 'string') {
-    return '';
-  }
-  let cookie = rawCookie.trim();
-  if (cookie.startsWith('"') && cookie.endsWith('"')) {
-    cookie = cookie.slice(1, -1).trim();
-  }
-  if (!cookie) return '';
-
-  // Support raw _pinterest_sess token values (e.g. TWc9PS... or Mg==... without key=value format)
-  if (
-    !cookie.includes('=') ||
-    cookie.startsWith('TWc9') ||
-    cookie.startsWith('Mg==') ||
-    (!cookie.includes(';') && !/^[a-zA-Z0-9_-]+\s*=/.test(cookie))
-  ) {
-    const cleanToken = cookie.replace(/"/g, '').trim();
-    return `_auth=0; _pinterest_sess="${cleanToken}"`;
-  }
-
   // [INVARIANT: STRICT-GUEST-SCRAPING]
   // Never allow _auth=1 or any logged-in auth flag. Strip all _auth pairs and enforce _auth=0.
-  const strippedParts = cookie
-    .split(';')
-    .map(part => part.trim())
-    .filter(part => part.length > 0 && !/^_auth\s*=/i.test(part))
-    .map(part => part.replace(/^_pinterest_sess=([^;\s"]+)$/, '_pinterest_sess="$1"'));
-
-  if (strippedParts.length === 0) {
-    return '_auth=0';
-  }
-  return `_auth=0; ${strippedParts.join('; ')}`;
+  return normalizePinterestCookie(rawCookie, {
+    authFlag: 0,
+    authPosition: 'prefix',
+    trailingSemicolon: false
+  });
 }
 
 /**

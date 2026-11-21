@@ -14,6 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizePinterestUsername } from '../src/modules/creators/competitors-crud.mjs';
+import { PINTEREST_CEILING_VALUE } from '../src/core/pinterest/index.mjs';
 import {
   runFleetLifecycle,
   writeGitHubOutput,
@@ -87,34 +88,34 @@ async function healCreatorSequencesAndCeilings(sql, { includeSnapshots = false }
       UPDATE competitor_profiles
       SET
         delta_reach_24h = CASE
-          WHEN (monthly_reach > 10000001 AND (monthly_reach - delta_reach_24h) = 10000001)
-            OR (monthly_reach = 10000001 AND delta_reach_24h < 0)
+          WHEN (monthly_reach > ${PINTEREST_CEILING_VALUE} AND (monthly_reach - delta_reach_24h) = ${PINTEREST_CEILING_VALUE})
+            OR (monthly_reach = ${PINTEREST_CEILING_VALUE} AND delta_reach_24h < 0)
           THEN 0
           ELSE delta_reach_24h
         END,
         reach_delta_7d = CASE
-          WHEN (monthly_reach > 10000001 AND (monthly_reach - reach_delta_7d) = 10000001)
-            OR (monthly_reach = 10000001 AND reach_delta_7d < 0)
+          WHEN (monthly_reach > ${PINTEREST_CEILING_VALUE} AND (monthly_reach - reach_delta_7d) = ${PINTEREST_CEILING_VALUE})
+            OR (monthly_reach = ${PINTEREST_CEILING_VALUE} AND reach_delta_7d < 0)
           THEN 0
           ELSE reach_delta_7d
         END,
         delta_views_24h = CASE
-          WHEN (profile_views > 10000001 AND (profile_views - delta_views_24h) = 10000001)
-            OR (profile_views = 10000001 AND delta_views_24h < 0)
+          WHEN (profile_views > ${PINTEREST_CEILING_VALUE} AND (profile_views - delta_views_24h) = ${PINTEREST_CEILING_VALUE})
+            OR (profile_views = ${PINTEREST_CEILING_VALUE} AND delta_views_24h < 0)
           THEN 0
           ELSE delta_views_24h
         END,
         views_delta_7d = CASE
-          WHEN (profile_views > 10000001 AND (profile_views - views_delta_7d) = 10000001)
-            OR (profile_views = 10000001 AND views_delta_7d < 0)
+          WHEN (profile_views > ${PINTEREST_CEILING_VALUE} AND (profile_views - views_delta_7d) = ${PINTEREST_CEILING_VALUE})
+            OR (profile_views = ${PINTEREST_CEILING_VALUE} AND views_delta_7d < 0)
           THEN 0
           ELSE views_delta_7d
         END
       WHERE
-        (monthly_reach > 10000001 AND ((monthly_reach - delta_reach_24h) = 10000001 OR (monthly_reach - reach_delta_7d) = 10000001))
-        OR (monthly_reach = 10000001 AND (delta_reach_24h < 0 OR reach_delta_7d < 0))
-        OR (profile_views > 10000001 AND ((profile_views - delta_views_24h) = 10000001 OR (profile_views - views_delta_7d) = 10000001))
-        OR (profile_views = 10000001 AND (delta_views_24h < 0 OR views_delta_7d < 0));
+        (monthly_reach > ${PINTEREST_CEILING_VALUE} AND ((monthly_reach - delta_reach_24h) = ${PINTEREST_CEILING_VALUE} OR (monthly_reach - reach_delta_7d) = ${PINTEREST_CEILING_VALUE}))
+        OR (monthly_reach = ${PINTEREST_CEILING_VALUE} AND (delta_reach_24h < 0 OR reach_delta_7d < 0))
+        OR (profile_views > ${PINTEREST_CEILING_VALUE} AND ((profile_views - delta_views_24h) = ${PINTEREST_CEILING_VALUE} OR (profile_views - views_delta_7d) = ${PINTEREST_CEILING_VALUE}))
+        OR (profile_views = ${PINTEREST_CEILING_VALUE} AND (delta_views_24h < 0 OR views_delta_7d < 0));
     `;
 
     if (includeSnapshots) {
@@ -123,12 +124,12 @@ async function healCreatorSequencesAndCeilings(sql, { includeSnapshots = false }
         SET
           monthly_reach = CASE
             WHEN (chs.monthly_reach = 0 AND cp.monthly_reach > 0) THEN cp.monthly_reach
-            WHEN chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001 THEN cp.monthly_reach
+            WHEN chs.monthly_reach = ${PINTEREST_CEILING_VALUE} AND cp.monthly_reach > ${PINTEREST_CEILING_VALUE} THEN cp.monthly_reach
             ELSE chs.monthly_reach
           END,
           profile_views = CASE
             WHEN (chs.profile_views = 0 AND cp.profile_views > 0) THEN cp.profile_views
-            WHEN chs.profile_views = 10000001 AND cp.profile_views > 10000001 THEN cp.profile_views
+            WHEN chs.profile_views = ${PINTEREST_CEILING_VALUE} AND cp.profile_views > ${PINTEREST_CEILING_VALUE} THEN cp.profile_views
             ELSE chs.profile_views
           END,
           total_pins = CASE
@@ -147,8 +148,8 @@ async function healCreatorSequencesAndCeilings(sql, { includeSnapshots = false }
             OR (chs.profile_views = 0 AND cp.profile_views > 0)
             OR (chs.total_pins = 0 AND cp.total_pins > 0)
             OR (chs.total_boards = 0 AND cp.total_boards > 0)
-            OR (chs.monthly_reach = 10000001 AND cp.monthly_reach > 10000001)
-            OR (chs.profile_views = 10000001 AND cp.profile_views > 10000001)
+            OR (chs.monthly_reach = ${PINTEREST_CEILING_VALUE} AND cp.monthly_reach > ${PINTEREST_CEILING_VALUE})
+            OR (chs.profile_views = ${PINTEREST_CEILING_VALUE} AND cp.profile_views > ${PINTEREST_CEILING_VALUE})
           );
       `;
       await sql`

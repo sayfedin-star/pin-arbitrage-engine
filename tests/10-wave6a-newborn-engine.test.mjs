@@ -354,7 +354,24 @@ function createStatefulNewbornSqlMock() {
       }
       return [];
     }
-    if (/UPDATE newborn_candidates SET effective_creator_username =/i.test(q)) {
+    if (/UPDATE newborn_candidates(?:\s+AS\s+nc)?\s+SET\s+effective_creator_username\s*=/i.test(q)) {
+      if (/FROM\s+jsonb_to_recordset/i.test(q)) {
+        const rows = JSON.parse(values[0] || '[]');
+        for (const u of rows) {
+          const cur = state.candidates.get(String(u.pin_id));
+          if (cur) {
+            cur.effective_creator_username = u.effective_creator_username;
+            cur.effective_creator_followers = u.effective_creator_followers;
+            cur.creator_monthly_reach = u.creator_monthly_reach;
+            cur.creator_profile_views = u.creator_profile_views;
+            cur.creator_pin_count = u.creator_pin_count;
+            cur.is_rookie_outlier = Boolean(u.is_rookie_outlier);
+            cur.outlier_ratio = u.outlier_ratio;
+            cur.updated_at = new Date().toISOString();
+          }
+        }
+        return [];
+      }
       const [uname, followers, reach, views, pinCount, isRookie, ratio, pid] = values;
       const cur = state.candidates.get(String(pid));
       if (cur) {
@@ -1993,7 +2010,8 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
 
   const workflowYml = fs.readFileSync(path.resolve('.github/workflows/newborn-hunter.yml'), 'utf8');
   assert.ok(workflowYml.includes("vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'"));
-  assert.ok(workflowYml.includes("needs.hunter-fleet.result == 'success'"));
+  assert.ok(workflowYml.includes("!cancelled()"));
+  assert.ok(workflowYml.includes("needs.dispatch.outputs.task_count != '0'"));
 });
 
 test('Wave 6D.1: Pure Deep-Scroll Re-pin Hunter — Min Re-pins gate, Min Saves 0 vs >0, per-path targets up to 5,000, board repin root unwrapping, Trends lag fix, Idea Page volume, Home Feed, zero auto-UserResource & manual account pull', async (t) => {

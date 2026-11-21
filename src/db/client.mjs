@@ -9,6 +9,61 @@ let sharedClient = null;
 let sharedDsn = null;
 let activeQueryCount = 0;
 let totalQueryCount = 0;
+const CLIENT_POOL_METRICS = new WeakMap();
+
+/**
+ * Computes a ±20% jittered connection max_lifetime (in seconds) to prevent
+ * thundering-herd pool reconnect storms when all connections expire simultaneously.
+ *
+ * @param {number|null|false} baseSeconds
+ * @param {() => number} [jitterFn=Math.random]
+ * @returns {number|null|false}
+ */
+export function applyLifetimeJitter(baseSeconds, jitterFn = Math.random) {
+  if (baseSeconds === null || baseSeconds === false) return baseSeconds;
+  const base = Number(baseSeconds);
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  const rawRand = typeof jitterFn === 'function' ? Number(jitterFn()) : Math.random();
+  const clampedRand = Number.isFinite(rawRand) ? Math.min(1, Math.max(0, rawRand)) : 0.5;
+  // Maps [0, 1] -> [0.8, 1.2] (±20% jitter)
+  const factor = 0.8 + (clampedRand * 0.4);
+  return Math.max(1, Math.round(base * factor));
+}
+
+function resolveApplicationName(options = {}) {
+  const raw = String(
+    options.applicationName ||
+    options.connection?.application_name ||
+    (typeof process !== 'undefined' ? process.env?.PGAPPNAME : '') ||
+    'pae-node'
+  ).trim();
+  return (raw || 'pae-node').slice(0, 63);
+}
+
+function getOrCreateClientMetrics(target) {
+  let metrics = CLIENT_POOL_METRICS.get(target);
+  if (!metrics) {
+    metrics = { inFlight: 0, totalExecuted: 0, ended: false };
+    CLIENT_POOL_METRICS.set(target, metrics);
+  }
+  return metrics;
+}
+
+function recordQueryStart(metrics) {
+  activeQueryCount = Math.max(0, activeQueryCount + 1);
+  totalQueryCount += 1;
+  if (metrics) {
+    metrics.inFlight = Math.max(0, metrics.inFlight + 1);
+    metrics.totalExecuted += 1;
+  }
+}
+
+function recordQueryEnd(metrics) {
+  activeQueryCount = Math.max(0, activeQueryCount - 1);
+  if (metrics) {
+    metrics.inFlight = Math.max(0, metrics.inFlight - 1);
+  }
+}
 
 const PG_TRANSIENT_CONNECTION_CODES = new Set([
   '53300', '53400', '08006', '08001', '08003', '08004', '57P01', '57P02', '57P03',
@@ -353,8 +408,17 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
     return pgClient;
   }
 
+  const metrics = getOrCreateClientMetrics(pgClient);
   const origBegin = typeof pgClient.begin === 'function' ? pgClient.begin.bind(pgClient) : null;
   const origUnsafe = typeof pgClient.unsafe === 'function' ? pgClient.unsafe.bind(pgClient) : null;
+  const origEnd = typeof pgClient.end === 'function' ? pgClient.end.bind(pgClient) : null;
+
+  if (origEnd) {
+    pgClient.end = async (...args) => {
+      metrics.ended = true;
+      return await origEnd(...args);
+    };
+  }
 
   // Guarded begin helper: marks errors with __paeEnteredTxCallback = true once the transaction callback starts
   // so outer `withDbRetry` loops (including callers using `sql.noRetry.begin`) NEVER replay committed writes.
@@ -371,8 +435,7 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
           };
         });
 
-    activeQueryCount++;
-    totalQueryCount++;
+    recordQueryStart(metrics);
     try {
       return await origBegin(...wrappedArgs);
     } catch (err) {
@@ -387,29 +450,38 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
       }
       throw err;
     } finally {
-      activeQueryCount = Math.max(0, activeQueryCount - 1);
+      recordQueryEnd(metrics);
     }
   };
 
   // Expose an unwrapped noRetry sibling so callers inside explicit `withDbRetry(...)` never double-stack retries,
-  // while still preserving the non-retryable transaction callback guard.
+  // while still preserving the non-retryable transaction callback guard and accurate pool telemetry.
   const noRetryBegin = origBegin ? (...args) => runGuardedBeginOnce(...args) : null;
   const noRetryTransaction = noRetryBegin
     ? async (queriesOrFn) => executeAtomicTransaction(noRetryBegin, queriesOrFn)
     : undefined;
+  const noRetryUnsafe = origUnsafe
+    ? (...args) => wrapPendingQueryMetricsOnly(origUnsafe(...args), metrics)
+    : null;
 
   const noRetryClient = new Proxy(pgClient, {
     get(target, prop, receiver) {
       if (prop === 'begin' && noRetryBegin) return noRetryBegin;
-      if (prop === 'unsafe' && origUnsafe) return origUnsafe;
+      if (prop === 'unsafe' && noRetryUnsafe) return noRetryUnsafe;
       if (prop === 'transaction' && noRetryTransaction) return noRetryTransaction;
       if (prop === 'noRetry') return noRetryClient;
       return Reflect.get(target, prop, receiver);
     },
     apply(target, thisArg, args) {
-      return Reflect.apply(target, thisArg, args);
+      const result = Reflect.apply(target, thisArg, args);
+      const isTemplateCall = Array.isArray(args[0]) && Object.hasOwn(args[0], 'raw');
+      if (isTemplateCall && result && typeof result.then === 'function') {
+        return wrapPendingQueryMetricsOnly(result, metrics);
+      }
+      return result;
     }
   });
+  CLIENT_POOL_METRICS.set(noRetryClient, metrics);
 
   if (origBegin) {
     pgClient.begin = async (...args) => {
@@ -422,7 +494,7 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
       const invoke = () => origUnsafe(...args);
       const pending = invoke();
       const isReadOnly = isReadOnlyQuery(args[0]);
-      return wrapPendingQueryRetry(pending, invoke, { ...retryOptions, isReadOnly });
+      return wrapPendingQueryRetry(pending, invoke, { ...retryOptions, isReadOnly }, metrics);
     };
   }
 
@@ -435,7 +507,7 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
   pgClient.__unifiedTxAttached = true;
   pgClient.__atomicBuilderWrapped = true;
 
-  return new Proxy(pgClient, {
+  const wrappedClient = new Proxy(pgClient, {
     get(target, prop, receiver) {
       if (prop === 'noRetry') return noRetryClient;
       return Reflect.get(target, prop, receiver);
@@ -446,16 +518,60 @@ export function attachTransactionBridge(pgClient, retryOptions = {}) {
       const isTemplateCall = Array.isArray(args[0]) && Object.hasOwn(args[0], 'raw');
       if (isTemplateCall && result && typeof result.then === 'function') {
         const isReadOnly = isReadOnlyQuery(args[0], args.slice(1));
-        return wrapPendingQueryRetry(result, invoke, { ...retryOptions, isReadOnly });
+        return wrapPendingQueryRetry(result, invoke, { ...retryOptions, isReadOnly }, metrics);
       }
       return result;
     }
   });
+  CLIENT_POOL_METRICS.set(wrappedClient, metrics);
+  return wrappedClient;
 }
 
 function RetryablePendingQuery() {}
 
-function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
+function wrapPendingQueryMetricsOnly(pending, metrics) {
+  if (!pending || typeof pending.then !== 'function' || pending.__paeMetricsWrapped || pending.__paeRetryWrapped) {
+    return pending;
+  }
+  const origThen = pending.then.bind(pending);
+  if (pending.constructor === Promise) {
+    origThen(() => {}, () => {});
+    Object.defineProperty(pending, 'constructor', {
+      value: RetryablePendingQuery,
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+  }
+
+  let settledPromise = null;
+  const executeOnce = () => {
+    if (!settledPromise) {
+      settledPromise = (async () => {
+        recordQueryStart(metrics);
+        try {
+          return await new Promise((resolve, reject) => {
+            origThen(resolve, reject);
+          });
+        } finally {
+          recordQueryEnd(metrics);
+        }
+      })();
+    }
+    return settledPromise;
+  };
+
+  Object.defineProperty(pending, '__paeMetricsWrapped', { value: true, enumerable: false });
+  Object.defineProperty(pending, 'then', {
+    value: (onFulfilled, onRejected) => executeOnce().then(onFulfilled, onRejected),
+    configurable: true,
+    enumerable: false,
+    writable: true
+  });
+  return pending;
+}
+
+function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}, metrics = null) {
   if (!pending || typeof pending.then !== 'function' || pending.__paeRetryWrapped) {
     return pending;
   }
@@ -485,7 +601,7 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
               if (rebuilt && typeof rebuilt[m] === 'function') rebuilt = rebuilt[m](...a);
             }
             return rebuilt;
-          }, retryOptions);
+          }, retryOptions, metrics);
         },
         configurable: true,
         enumerable: false,
@@ -500,14 +616,13 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
     if (!settledPromise) {
       settledPromise = (async () => {
         try {
-          activeQueryCount = Math.max(0, activeQueryCount + 1);
-          totalQueryCount++;
+          recordQueryStart(metrics);
           try {
             return await new Promise((resolve, reject) => {
               origThen(resolve, reject);
             });
           } finally {
-            activeQueryCount = Math.max(0, activeQueryCount - 1);
+            recordQueryEnd(metrics);
           }
         } catch (err) {
           const maxRetries = (isReadOnly || retryOptions.forceRetry) ? Math.max(0, Number(retryOptions.maxRetries ?? 4)) : 0;
@@ -526,8 +641,7 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
           await sleepFn(firstDelay + firstJitter);
 
           return await withDbRetry(async () => {
-            activeQueryCount = Math.max(0, activeQueryCount + 1);
-            totalQueryCount++;
+            recordQueryStart(metrics);
             try {
               let nextQuery = invokeFn();
               for (const [modName, modArgs] of modifiers) {
@@ -540,7 +654,7 @@ function wrapPendingQueryRetry(pending, invokeFn, retryOptions = {}) {
               }
               return nextQuery;
             } finally {
-              activeQueryCount = Math.max(0, activeQueryCount - 1);
+              recordQueryEnd(metrics);
             }
           }, {
             ...retryOptions,
@@ -596,16 +710,30 @@ export function createSqlClient(dsn, options = {}) {
   const defaultStatementTimeoutMs = isCi ? 45000 : 15000;
   const resolvedStatementTimeoutMs = Number(options.connection?.statement_timeout ?? defaultStatementTimeoutMs);
   const defaultIdleInTxTimeoutMs = Math.max(isCi ? 60000 : 30000, resolvedStatementTimeoutMs);
+  const resolvedApplicationName = resolveApplicationName(options);
+
+  let maxLifetimeOption;
+  if (typeof options.max_lifetime === 'function') {
+    maxLifetimeOption = options.max_lifetime;
+  } else if (options.max_lifetime === 0 || options.max_lifetime === null || options.max_lifetime === false) {
+    maxLifetimeOption = options.max_lifetime;
+  } else {
+    const baseMaxLifetime = Number(options.max_lifetime ?? (isCi ? 180 : 300));
+    maxLifetimeOption = Number.isFinite(baseMaxLifetime) && baseMaxLifetime > 0
+      ? () => applyLifetimeJitter(baseMaxLifetime, options.jitterFn)
+      : 0;
+  }
 
   const pgClient = postgres(cleanDsn, {
     max: maxConnections,
     idle_timeout: Number(options.idle_timeout ?? 20),
     connect_timeout: Number(options.connect_timeout ?? 10),
-    max_lifetime: Number(options.max_lifetime ?? (isCi ? 180 : 300)),
+    max_lifetime: maxLifetimeOption,
     keep_alive: Number(options.keep_alive ?? (isCi ? 15 : 30)),
     onnotice: typeof options.onnotice === 'function' ? options.onnotice : () => {},
     connection: {
       ...(options.connection || {}),
+      application_name: resolvedApplicationName,
       statement_timeout: resolvedStatementTimeoutMs,
       idle_in_transaction_session_timeout: Number(
         options.connection?.idle_in_transaction_session_timeout ?? defaultIdleInTxTimeoutMs
@@ -639,9 +767,10 @@ export function createSqlClient(dsn, options = {}) {
  * Returns the shared singleton PostgreSQL client for the active process.
  *
  * @param {object} [env] - Optional environment bindings
+ * @param {object} [options] - Optional client creation options (e.g. `{ applicationName }`)
  * @returns {Function}
  */
-export function getSqlClient(env = null) {
+export function getSqlClient(env = null, options = {}) {
   if (env?.SQL_CLIENT) {
     return env.SQL_CLIENT;
   }
@@ -665,7 +794,11 @@ export function getSqlClient(env = null) {
     sharedDsn = null;
   }
 
-  sharedClient = createSqlClient(dsn);
+  const clientOpts = options && typeof options === 'object' ? { ...options } : {};
+  if (!clientOpts.applicationName && env?.APPLICATION_NAME) {
+    clientOpts.applicationName = env.APPLICATION_NAME;
+  }
+  sharedClient = createSqlClient(dsn, clientOpts);
   sharedDsn = dsn;
   return sharedClient;
 }
@@ -674,23 +807,35 @@ export function getSqlClient(env = null) {
  * Returns real-time connection pool and query telemetry metrics.
  *
  * @param {Function} [client] - Optional postgres client instance
- * @returns {{ active: number, idle: number, max: number, total_executed: number }}
+ * @returns {{ active: number, idle: number, waiting: number, max: number, total_executed: number }}
  */
 export function getPoolStats(client = null) {
   const targetClient = client || sharedClient;
   if (!targetClient) {
-    return { active: 0, idle: 0, max: 0, total_executed: totalQueryCount };
+    return { active: 0, idle: 0, waiting: 0, max: 0, total_executed: totalQueryCount };
   }
-  const envMax = Number(process.env.PG_POOL_MAX);
-  const fallbackMax = Number.isFinite(envMax) && envMax > 0 ? Math.floor(envMax) : 15;
-  const max = targetClient.options?.max ?? fallbackMax;
-  const active = Math.max(0, activeQueryCount);
-  const idle = Math.max(0, max - active);
+  const isCi = typeof process !== 'undefined' && Boolean(process.env?.GITHUB_ACTIONS);
+  const defaultMax = isCi ? 3 : 15;
+  const envMax = Number(typeof process !== 'undefined' ? process.env?.PG_POOL_MAX : undefined);
+  const rawFallbackMax = Number.isFinite(envMax) && envMax > 0 ? Math.floor(envMax) : defaultMax;
+  const fallbackMax = isCi ? Math.max(1, Math.min(rawFallbackMax, 4)) : Math.max(1, rawFallbackMax);
+  const rawMax = Number(targetClient.options?.max);
+  const max = Number.isFinite(rawMax) && rawMax > 0 ? Math.floor(rawMax) : fallbackMax;
+
+  const metrics = CLIENT_POOL_METRICS.get(targetClient);
+  const inFlight = metrics ? Math.max(0, metrics.inFlight) : Math.max(0, activeQueryCount);
+  const totalExecuted = metrics ? metrics.totalExecuted : totalQueryCount;
+  const ended = Boolean(metrics?.ended);
+  const active = Math.min(max, inFlight);
+  const waiting = Math.max(0, inFlight - max);
+  const idle = ended ? 0 : Math.max(0, max - active);
+
   return {
     active,
     idle,
+    waiting,
     max,
-    total_executed: totalQueryCount
+    total_executed: totalExecuted
   };
 }
 

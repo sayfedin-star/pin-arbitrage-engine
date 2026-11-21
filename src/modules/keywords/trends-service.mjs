@@ -5,8 +5,11 @@
  */
 
 import { getStandardPinterestHeaders, pinterestFetch } from '../../core/pinterest/index.mjs';
+import { Semaphore } from '../../utils.mjs';
 import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
 import { tripPinterestCircuitBreaker } from '../../http/security-and-response.mjs';
+
+export const PINTEREST_FANOUT_CONCURRENCY = 4;
 
 const TRENDS_CACHE_MAX = 300;
 const TRENDS_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
@@ -242,6 +245,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
       type: 'main'
     };
 
+    const interestSem = new Semaphore(PINTEREST_FANOUT_CONCURRENCY);
     const relatedPromises = [];
     const additionPromises = [];
 
@@ -250,7 +254,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
       const relatedList = (main.seo_related_objects || []).slice(0, 12);
       for (const item of relatedList) {
         if (!item.name) continue;
-        relatedPromises.push((async () => {
+        relatedPromises.push(interestSem.run(async () => {
           const details = await fetchPinterestInterestVolume(item.name);
           const vol = details?.internal_search_count || 0;
           const annoId = (details?.id && details.id !== '0') ? details.id : (item.id && item.id !== '0' ? item.id : '');
@@ -271,7 +275,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
             link,
             type: 'related'
           };
-        })());
+        }));
       }
     }
 
@@ -279,7 +283,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
       const pivotsList = (main.ideas_pivots || []).slice(0, 8);
       for (const pivot of pivotsList) {
         if (!pivot.full_name) continue;
-        additionPromises.push((async () => {
+        additionPromises.push(interestSem.run(async () => {
           const details = await fetchPinterestInterestVolume(pivot.full_name);
           const vol = details?.internal_search_count || 0;
           const annoId = (details?.id && details.id !== '0') ? details.id : (pivot.id && pivot.id !== '0' ? pivot.id : '');
@@ -297,7 +301,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
             link,
             type: 'addition'
           };
-        })());
+        }));
       }
     }
 
@@ -450,10 +454,11 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       }
     }
 
-    // 3. For any terms still missing from prefix_match, fetch in parallel (capped at 12)
+    // 3. For any terms still missing from prefix_match, fetch in parallel (capped at 12, Semaphore(4) concurrency)
     const stillMissing = normalizedTerms.filter(t => !resultMap.has(t) && t.length <= 40 && !t.includes('|')).slice(0, 12);
     if (stillMissing.length > 0) {
-      const missingFetches = stillMissing.map(async (mTerm) => {
+      const velocitySem = new Semaphore(PINTEREST_FANOUT_CONCURRENCY);
+      const missingFetches = stillMissing.map((mTerm) => velocitySem.run(async () => {
         let mRes;
         try {
           const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
@@ -475,7 +480,7 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
             await mRes.body.cancel().catch(() => {});
           }
         }
-      });
+      }));
       await Promise.allSettled(missingFetches);
     }
 

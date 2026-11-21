@@ -77,10 +77,26 @@ import {
 
 const BATCH_GLOBAL_SAVES_WINDOW_MS = 60_000;
 const BATCH_GLOBAL_SAVES_MAX_REQUESTS = 20;
+export const BATCH_GLOBAL_SAVES_MAX_KEYS = 2000;
 const batchGlobalSavesRateStore = new Map();
 
 export function _resetBatchGlobalSavesRateLimit() {
   batchGlobalSavesRateStore.clear();
+}
+
+export function _getBatchGlobalSavesRateStoreStats() {
+  let maxBucketLength = 0;
+  for (const timestamps of batchGlobalSavesRateStore.values()) {
+    if (Array.isArray(timestamps) && timestamps.length > maxBucketLength) {
+      maxBucketLength = timestamps.length;
+    }
+  }
+  return {
+    size: batchGlobalSavesRateStore.size,
+    maxKeys: BATCH_GLOBAL_SAVES_MAX_KEYS,
+    maxTimestampsPerKey: BATCH_GLOBAL_SAVES_MAX_REQUESTS,
+    maxBucketLength
+  };
 }
 
 export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
@@ -129,7 +145,14 @@ export function verifySameOriginBrowserOrApiRequest(request, env = {}) {
   return { allowed: false, reason: 'Same-origin Origin header or valid API credentials required.' };
 }
 
-export function enforceBatchGlobalSavesRateLimit(request, nowMs = Date.now(), maxRequests = BATCH_GLOBAL_SAVES_MAX_REQUESTS) {
+export function enforceBatchGlobalSavesRateLimit(
+  request,
+  nowMs = Date.now(),
+  maxRequests = BATCH_GLOBAL_SAVES_MAX_REQUESTS,
+  maxKeys = BATCH_GLOBAL_SAVES_MAX_KEYS
+) {
+  const safeMaxRequests = Math.max(1, Math.floor(Number(maxRequests) || BATCH_GLOBAL_SAVES_MAX_REQUESTS));
+  const safeMaxKeys = Math.max(1, Math.floor(Number(maxKeys) || BATCH_GLOBAL_SAVES_MAX_KEYS));
   const rawIp =
     request.headers.get('cf-connecting-ip') ||
     request.headers.get('x-forwarded-for')?.split(',')[0] ||
@@ -137,25 +160,41 @@ export function enforceBatchGlobalSavesRateLimit(request, nowMs = Date.now(), ma
     'unknown';
   const clientKey = String(rawIp).trim() || 'unknown';
 
-  if (batchGlobalSavesRateStore.size > 2000) {
-    for (const [key, timestamps] of batchGlobalSavesRateStore.entries()) {
-      const active = timestamps.filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS);
-      if (active.length === 0) batchGlobalSavesRateStore.delete(key);
-      else batchGlobalSavesRateStore.set(key, active);
-    }
-  }
-
   const existing = batchGlobalSavesRateStore.get(clientKey) || [];
-  const recent = existing.filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS);
-  if (recent.length >= maxRequests) {
+  const recent = existing
+    .filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS)
+    .slice(-safeMaxRequests);
+
+  const touchLru = (timestamps) => {
+    if (batchGlobalSavesRateStore.has(clientKey)) {
+      batchGlobalSavesRateStore.delete(clientKey);
+    } else if (batchGlobalSavesRateStore.size >= safeMaxKeys) {
+      // First purge expired entries
+      for (const [key, list] of batchGlobalSavesRateStore.entries()) {
+        const active = list.filter(ts => nowMs - ts < BATCH_GLOBAL_SAVES_WINDOW_MS);
+        if (active.length === 0) batchGlobalSavesRateStore.delete(key);
+        else batchGlobalSavesRateStore.set(key, active.slice(-safeMaxRequests));
+      }
+      // Hard LRU eviction if still at or above capacity
+      while (batchGlobalSavesRateStore.size >= safeMaxKeys) {
+        const oldestKey = batchGlobalSavesRateStore.keys().next().value;
+        if (oldestKey === undefined) break;
+        batchGlobalSavesRateStore.delete(oldestKey);
+      }
+    }
+    batchGlobalSavesRateStore.set(clientKey, timestamps.slice(-safeMaxRequests));
+  };
+
+  if (recent.length >= safeMaxRequests) {
+    touchLru(recent);
     const oldest = recent[0];
     const retryAfterSec = Math.max(1, Math.ceil((BATCH_GLOBAL_SAVES_WINDOW_MS - (nowMs - oldest)) / 1000));
     return { limited: true, retryAfterSec };
   }
 
   recent.push(nowMs);
-  batchGlobalSavesRateStore.set(clientKey, recent);
-  return { limited: false, remaining: Math.max(0, maxRequests - recent.length) };
+  touchLru(recent);
+  return { limited: false, remaining: Math.max(0, safeMaxRequests - recent.length) };
 }
 
 

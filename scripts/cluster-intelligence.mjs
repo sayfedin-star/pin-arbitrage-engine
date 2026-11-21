@@ -41,7 +41,7 @@ function getSql() {
     if (!url) {
       throw new Error('CRITICAL: DATABASE_URL environment variable is missing.');
     }
-    _sql = createSqlClient(url);
+    _sql = createSqlClient(url, { applicationName: 'pae-cluster-intelligence' });
   }
   return _sql;
 }

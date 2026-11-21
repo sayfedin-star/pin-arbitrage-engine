@@ -2,11 +2,14 @@
 
 /**
  * Account-Scoped Related Pins & Intersections Crawler
- * 100% Zero-Cookie Architecture.
+ * Zone-A Authenticated Session Architecture (`_auth=1` via `fetchRelatedModulesWithZoneA`,
+ * with automatic zero-cookie guest fallback when no Zone-A session cookie is configured).
  * Extracts Pinterest RelatedModulesResource graph nodes for specific competitor seeds.
  * Captures Pixie Telemetry, calculates Account Retention Rate, and stores into Unified PostgreSQL.
  */
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sanitizeForJsonb } from '../src/utils.mjs';
 import {
   randomJitterMs,
@@ -325,7 +328,10 @@ async function main() {
     `;
   }
 
-  // 3. Harvest each seed
+  // 3. Harvest each seed (hoist Zone-A cookie lookup once outside the seed loop)
+  const hoistedCookieRes = await resolveNewbornRawCookie(sql, process.env).catch(() => ({ rawCookie: '' }));
+  const hoistedRawCookie = hoistedCookieRes?.rawCookie || '';
+
   for (let i = 0; i < seedIds.length; i++) {
     if (isShuttingDown) {
       console.log('[!] Graceful shutdown initiated. Skipping remaining seeds.');
@@ -336,7 +342,7 @@ async function main() {
     console.log(`[Seed ${i + 1}/${seedIds.length}] Processing Seed Pin: ${sid}`);
     console.log(`=============================================================`);
     try {
-      await crawlSeedPin(competitorId, sid, username);
+      await crawlSeedPin(competitorId, sid, username, { rawCookie: hoistedRawCookie });
     } catch (err) {
       console.error(`[-] Error crawling seed ${sid}:`, err.message);
     }
@@ -395,9 +401,6 @@ async function main() {
   console.log(`  🎯 Multi-Seed Intersections (2+ Seeds): ${multiHitHubs} Hubs`);
   console.log('================================================================\n');
 }
-
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 
 const isDirectRun = Boolean(
   process.argv[1] && (

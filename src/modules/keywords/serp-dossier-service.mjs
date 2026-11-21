@@ -7,7 +7,7 @@ import { escapeSqlWildcards } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import {
   extractPinData,
-  getPinterestHeaders,
+  getStandardPinterestHeaders,
   PINTEREST_PAGE_HEADERS,
   fetchPinFromPinterest,
   pinterestFetch
@@ -272,7 +272,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         let vRes;
         try {
           const visualUrl = `https://www.pinterest.com/resource/VisualLiveSearchResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=%7B%22options%22%3A%7B%22pin_id%22%3A%22${cleanPin}%22%7D%2C%22context%22%3A%7B%7D%7D`;
-          const vHeaders = getPinterestHeaders({
+          const vHeaders = getStandardPinterestHeaders({
             cookie,
             referer: `https://www.pinterest.com/pin/${cleanPin}/`,
             extra: {
@@ -303,7 +303,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
 
         const searchQuery = encodeURIComponent(searchQueryStr);
         const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
-        const headers = getPinterestHeaders({
+        const headers = getStandardPinterestHeaders({
           cookie,
           referer: `https://www.pinterest.com/search/pins/?q=${searchQuery}`,
           extra: {

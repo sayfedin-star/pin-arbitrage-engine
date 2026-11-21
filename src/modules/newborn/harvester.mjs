@@ -40,6 +40,7 @@ import {
   evaluatePinAutoRules,
   scoreRookieCreator,
   evaluateRookieAutoRules,
+  buildPeerAnnotationCounts,
   synthesizeNewbornCrossoverBlueprint,
   buildNewbornCrossoverMatrix
 } from './intelligence.mjs';
@@ -912,9 +913,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           }
 
           if (cleanSeedBoards.length > 0) {
-            for (const sb of cleanSeedBoards) {
-              freshBoardsDiscovered.unshift(sb);
-            }
+            freshBoardsDiscovered.splice(0, 0, ...[...cleanSeedBoards].reverse());
           }
 
           const boardsToExpand = freshBoardsDiscovered.slice(0, maxBoardsLimit);
@@ -1217,6 +1216,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
       for (let hop = 1; hop <= maxHops && currentFrontier.length > 0; hop++) {
         const newSnowballIds = [];
+        const newSnowballIdSet = new Set();
         let authSkipped = false;
 
         for (const seedId of currentFrontier) {
@@ -1242,7 +1242,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
             const existingCand = candidateMap.get(sp.pin_id);
             const needsEnrich = !existingCand || !existingCand.is_hydrated || !existingCand.created_at_pinterest;
             ingestCandidate(sp);
-            if (needsEnrich && !newSnowballIds.includes(sp.pin_id)) {
+            if (needsEnrich && !newSnowballIdSet.has(sp.pin_id)) {
+              newSnowballIdSet.add(sp.pin_id);
               newSnowballIds.push(sp.pin_id);
             }
           }
@@ -1350,8 +1351,9 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     funnel.scrolled_pins = Math.max(funnel.scrolled_pins, allEvaluated.length);
     funnel.verified_winners = verifiedQualified.length;
 
+    const peerAnnCounts = buildPeerAnnotationCounts(verifiedQualified);
     for (const cand of verifiedQualified) {
-      cand.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(cand, verifiedQualified);
+      cand.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(cand, peerAnnCounts);
     }
 
     // Build Rookie Creator records strictly from opt-in hydrated creators

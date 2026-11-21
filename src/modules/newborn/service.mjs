@@ -66,6 +66,7 @@ import {
   evaluatePinAutoRules,
   scoreRookieCreator,
   evaluateRookieAutoRules,
+  buildPeerAnnotationCounts,
   synthesizeNewbornCrossoverBlueprint,
   buildNewbornCrossoverMatrix
 } from './intelligence.mjs';
@@ -725,10 +726,14 @@ export async function pollNewbornWatchlist(sql, options = {}) {
 
         const scored = scoreNewbornCandidate(merged, settings, { nowMs });
         scored.stage = 'watchlist';
-        scored.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(scored, watchlistPins);
         return scored;
       }))
     );
+
+    const watchlistPeerAnnCounts = buildPeerAnnotationCounts(refreshedCandidates);
+    for (const scored of refreshedCandidates) {
+      scored.crossover_blueprint = synthesizeNewbornCrossoverBlueprint(scored, watchlistPeerAnnCounts);
+    }
 
     let persistedPins = [];
     if (refreshedCandidates.length > 0) {
@@ -744,12 +749,24 @@ export async function pollNewbornWatchlist(sql, options = {}) {
 
     await updateRunProgress('hydrating_creators', `Refreshing ${(watchlistRookies || []).length} watchlisted creator${(watchlistRookies || []).length === 1 ? '' : 's'}...`, 78);
 
+    const persistedPinsByUser = new Map();
+    for (const p of persistedPins) {
+      const uname = p?.effective_creator_username;
+      if (!uname) continue;
+      let list = persistedPinsByUser.get(uname);
+      if (!list) {
+        list = [];
+        persistedPinsByUser.set(uname, list);
+      }
+      list.push(p);
+    }
+
     const userSem = new Semaphore(4);
     const refreshedRookiesRaw = await Promise.all(
       (watchlistRookies || []).map((rkRow) => userSem.run(async () => {
         const uRes = await hydrateUserZeroCookie(rkRow.username, router);
         if (uRes.ok && uRes.user) {
-          const assocPins = persistedPins.filter((p) => p.effective_creator_username === rkRow.username);
+          const assocPins = persistedPinsByUser.get(rkRow.username) || [];
           const scoredRk = scoreRookieCreator(uRes.user, assocPins, settings);
           scoredRk.stage = 'watchlist';
           scoredRk.golden_pins_count = Math.max(Number(rkRow.golden_pins_count || 0), scoredRk.golden_pins_count);
@@ -2264,9 +2281,10 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     }))
   );
 
-  // 3. Persist updated account metrics onto newborn_candidates and stage rookies
+  // 3. Persist updated account metrics onto newborn_candidates in a single batched UPDATE and stage rookies
   const results = [];
   const scoredRookies = [];
+  const updatesToPersist = [];
 
   for (const row of workingRows) {
     const uname = row._resolved_username;
@@ -2294,19 +2312,16 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     };
     const rescored = scoreNewbornCandidate(enriched, settings, { nowMs });
 
-    await sql`
-      UPDATE newborn_candidates
-      SET
-        effective_creator_username = ${enriched.effective_creator_username},
-        effective_creator_followers = ${enriched.effective_creator_followers},
-        creator_monthly_reach = ${enriched.creator_monthly_reach},
-        creator_profile_views = ${enriched.creator_profile_views},
-        creator_pin_count = ${enriched.creator_pin_count},
-        is_rookie_outlier = ${Boolean(rescored.is_rookie_outlier)},
-        outlier_ratio = ${rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null},
-        updated_at = NOW()
-      WHERE pin_id = ${String(row.pin_id)};
-    `;
+    updatesToPersist.push({
+      pin_id: String(row.pin_id),
+      effective_creator_username: enriched.effective_creator_username,
+      effective_creator_followers: enriched.effective_creator_followers,
+      creator_monthly_reach: enriched.creator_monthly_reach,
+      creator_profile_views: enriched.creator_profile_views,
+      creator_pin_count: enriched.creator_pin_count,
+      is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
+      outlier_ratio: rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null
+    });
 
     results.push({
       pin_id: String(row.pin_id),
@@ -2325,8 +2340,47 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     });
   }
 
+  if (updatesToPersist.length > 0) {
+    updatesToPersist.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+    await sql`
+      UPDATE newborn_candidates AS nc
+      SET
+        effective_creator_username = u.effective_creator_username,
+        effective_creator_followers = u.effective_creator_followers,
+        creator_monthly_reach = u.creator_monthly_reach,
+        creator_profile_views = u.creator_profile_views,
+        creator_pin_count = u.creator_pin_count,
+        is_rookie_outlier = u.is_rookie_outlier,
+        outlier_ratio = u.outlier_ratio,
+        updated_at = NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(updatesToPersist))}::jsonb) AS u(
+        pin_id text,
+        effective_creator_username text,
+        effective_creator_followers int,
+        creator_monthly_reach bigint,
+        creator_profile_views bigint,
+        creator_pin_count int,
+        is_rookie_outlier boolean,
+        outlier_ratio double precision
+      )
+      WHERE nc.pin_id = u.pin_id;
+    `;
+  }
+
+  const workingRowsByUser = new Map();
+  for (const r of workingRows) {
+    const uname = r?._resolved_username;
+    if (!uname) continue;
+    let list = workingRowsByUser.get(uname);
+    if (!list) {
+      list = [];
+      workingRowsByUser.set(uname, list);
+    }
+    list.push(r);
+  }
+
   for (const [uname, u] of userMap.entries()) {
-    const assocPins = workingRows.filter((r) => r._resolved_username === uname);
+    const assocPins = workingRowsByUser.get(uname) || [];
     const rk = scoreRookieCreator(u, assocPins, settings);
     if (rk) scoredRookies.push(rk);
   }

@@ -55,7 +55,7 @@ if (!isInitialTestEnv && typeof process !== 'undefined' && typeof process.loadEn
 export function getServerSqlClient(dsn) {
   const targetDsn = dsn !== undefined ? dsn : (typeof process !== 'undefined' ? process.env?.DATABASE_URL : '') || '';
   if (!targetDsn) return null;
-  return getSqlClient({ DATABASE_URL: targetDsn });
+  return getSqlClient({ DATABASE_URL: targetDsn }, { applicationName: 'pae-server' });
 }
 
 export async function dbHealthCheck(client) {

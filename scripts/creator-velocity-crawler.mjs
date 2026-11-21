@@ -32,7 +32,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   syncCompetitorProfile,
-  normalizePinterestUsername
+  normalizePinterestUsername,
+  resolveQualificationRules
 } from '../src/modules/creators/competitors-crud.mjs';
 import {
   syncCompetitorBoards,
@@ -41,6 +42,9 @@ import {
 import { syncCompetitorPins } from '../src/modules/creators/creator-ingest.mjs';
 import { getCreatorHubSettings } from '../src/modules/creators/creator-analytics.mjs';
 import {
+  PINTEREST_CEILING_VALUE,
+  normalizeCeilingMetric,
+  sanitizeCeilingDelta,
   randomJitterMs,
   sleep,
   setDefaultDispatcher,
@@ -81,7 +85,9 @@ if (isDirectCrawlerRun && !DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = (DATABASE_URL && isDirectCrawlerRun) ? createSqlClient(DATABASE_URL) : null;
+const sql = (DATABASE_URL && isDirectCrawlerRun)
+  ? createSqlClient(DATABASE_URL, { applicationName: 'pae-creator-velocity' })
+  : null;
 let lease = null;
 const closeCrawlerDb = (exitCode = 0) => (
   sql
@@ -1015,14 +1021,14 @@ async function run() {
               display_name = COALESCE(NULLIF(u.display_name, ''), cp.display_name),
               avatar_url = COALESCE(NULLIF(u.avatar_url, ''), cp.avatar_url),
               monthly_reach = CASE
-                WHEN u.monthly_reach = 10000001 AND cp.monthly_reach > 10000001 THEN cp.monthly_reach
+                WHEN u.monthly_reach = ${PINTEREST_CEILING_VALUE} AND cp.monthly_reach > ${PINTEREST_CEILING_VALUE} THEN cp.monthly_reach
                 WHEN u.monthly_reach > 0 THEN u.monthly_reach
                 ELSE cp.monthly_reach
               END,
               delta_reach_24h = u.delta_reach_24h,
               reach_delta_7d = u.reach_delta_7d,
               profile_views = CASE
-                WHEN u.profile_views = 10000001 AND cp.profile_views > 10000001 THEN cp.profile_views
+                WHEN u.profile_views = ${PINTEREST_CEILING_VALUE} AND cp.profile_views > ${PINTEREST_CEILING_VALUE} THEN cp.profile_views
                 WHEN u.profile_views > 0 THEN u.profile_views
                 ELSE cp.profile_views
               END,
@@ -1097,12 +1103,12 @@ async function run() {
             )
             ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
               monthly_reach = CASE
-                WHEN EXCLUDED.monthly_reach = 10000001 AND competitor_history_snapshots.monthly_reach > 10000001 THEN competitor_history_snapshots.monthly_reach
+                WHEN EXCLUDED.monthly_reach = ${PINTEREST_CEILING_VALUE} AND competitor_history_snapshots.monthly_reach > ${PINTEREST_CEILING_VALUE} THEN competitor_history_snapshots.monthly_reach
                 WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach
                 ELSE competitor_history_snapshots.monthly_reach
               END,
               profile_views = CASE
-                WHEN EXCLUDED.profile_views = 10000001 AND competitor_history_snapshots.profile_views > 10000001 THEN competitor_history_snapshots.profile_views
+                WHEN EXCLUDED.profile_views = ${PINTEREST_CEILING_VALUE} AND competitor_history_snapshots.profile_views > ${PINTEREST_CEILING_VALUE} THEN competitor_history_snapshots.profile_views
                 WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views
                 ELSE competitor_history_snapshots.profile_views
               END,
@@ -1166,43 +1172,28 @@ async function run() {
           const prevExistingBoards = Number(acc.total_boards || 0);
           const prevExistingFollowers = Number(acc.follower_count || 0);
 
-          let monthlyReach = rawReach <= 0
-            ? prevExistingReach
-            : ((rawReach === 10000001 && prevExistingReach > 10000001) ? prevExistingReach : rawReach);
-          let profileViews = rawViews <= 0
-            ? prevExistingViews
-            : ((rawViews === 10000001 && prevExistingViews > 10000001) ? prevExistingViews : rawViews);
-          const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
-          const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
-          const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
-
           const hist = historyMap.get(Number(acc.id)) || {};
           const prior24h = hist.prior24h || null;
           const baseline7d = hist.baseline7d || null;
 
           const priorReach = Number(prior24h?.monthly_reach || 0);
-          if (monthlyReach <= 0 && priorReach > 0) monthlyReach = priorReach;
-          if (rawReach === 10000001 && priorReach > 10000001 && monthlyReach <= 10000001) monthlyReach = priorReach;
           const priorViews = Number(prior24h?.profile_views || 0);
-          if (profileViews <= 0 && priorViews > 0) profileViews = priorViews;
-          if (rawViews === 10000001 && priorViews > 10000001 && profileViews <= 10000001) profileViews = priorViews;
+          const baselineReach = Number(baseline7d?.monthly_reach || 0);
+          const baselineViews = Number(baseline7d?.profile_views || 0);
 
-          let deltaReach24h = (prior24h && priorReach > 0 && monthlyReach > 0) ? (monthlyReach - priorReach) : 0;
-          let deltaViews24h = (prior24h && priorViews > 0 && profileViews > 0) ? (profileViews - priorViews) : 0;
-          if (rawReach === 10000001 || (priorReach === 10000001 && monthlyReach > 10000001)) deltaReach24h = 0;
-          if (rawViews === 10000001 || (priorViews === 10000001 && profileViews > 10000001)) deltaViews24h = 0;
+          const monthlyReach = normalizeCeilingMetric(rawReach, prevExistingReach, priorReach, baselineReach);
+          const profileViews = normalizeCeilingMetric(rawViews, prevExistingViews, priorViews, baselineViews);
+          const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
+          const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
+          const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
+
+          const deltaReach24h = prior24h ? sanitizeCeilingDelta(monthlyReach, priorReach, rawReach) : 0;
+          const deltaViews24h = prior24h ? sanitizeCeilingDelta(profileViews, priorViews, rawViews) : 0;
           const deltaPins24h = (prior24h && totalPins > 0) ? (totalPins - Number(prior24h.total_pins || 0)) : 0;
           const deltaBoards24h = (prior24h && totalBoards > 0) ? (totalBoards - Number(prior24h.total_boards || 0)) : 0;
 
-          const baselineReach = Number(baseline7d?.monthly_reach || 0);
-          if (rawReach === 10000001 && baselineReach > 10000001 && monthlyReach <= 10000001) monthlyReach = baselineReach;
-          const baselineViews = Number(baseline7d?.profile_views || 0);
-          if (rawViews === 10000001 && baselineViews > 10000001 && profileViews <= 10000001) profileViews = baselineViews;
-
-          let reachDelta7d = (baseline7d && baselineReach > 0 && monthlyReach > 0) ? (monthlyReach - baselineReach) : 0;
-          let viewsDelta7d = (baseline7d && baselineViews > 0 && profileViews > 0) ? (profileViews - baselineViews) : 0;
-          if (rawReach === 10000001 || (baselineReach === 10000001 && monthlyReach > 10000001)) reachDelta7d = 0;
-          if (rawViews === 10000001 || (baselineViews === 10000001 && profileViews > 10000001)) viewsDelta7d = 0;
+          const reachDelta7d = baseline7d ? sanitizeCeilingDelta(monthlyReach, baselineReach, rawReach) : 0;
+          const viewsDelta7d = baseline7d ? sanitizeCeilingDelta(profileViews, baselineViews, rawViews) : 0;
           const pinsDelta7d = (baseline7d && totalPins > 0) ? (totalPins - Number(baseline7d.total_pins || 0)) : 0;
           const boardsDelta7d = (baseline7d && totalBoards > 0) ? (totalBoards - Number(baseline7d.total_boards || 0)) : 0;
 
@@ -1234,13 +1225,15 @@ async function run() {
           if (isAutoPromoteEnabled && (deltaReach24h >= dynamicDelta24h || reachDelta7d >= dynamicDelta7d)) {
             console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${deltaReach24h} vs ${dynamicDelta24h}, 7d: +${reachDelta7d} vs ${dynamicDelta7d}). Promoting pulse_only -> full!`);
             const configuredQualRules = creatorHubSettings?.qualification_rules || {};
-            const minSaves = Number.isFinite(Number(configuredQualRules.min_saves)) ? Math.max(0, Number(configuredQualRules.min_saves)) : 500;
-            const minVelocity = Number.isFinite(Number(configuredQualRules.min_velocity)) ? Math.max(0, Number(configuredQualRules.min_velocity)) : 10.0;
+            const resolvedAutoPromote = resolveQualificationRules(configuredQualRules, {
+              base: { tier1_min_saves: 500, tier2_min_velocity: 10.0 },
+              deriveTiersFromSaves: true
+            });
             const qualRulesToPersist = {
-              tier1_min_saves: minSaves,
-              tier2_min_repins: minSaves,
-              tier2_min_velocity: minVelocity,
-              tier3_min_saves: Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))),
+              tier1_min_saves: resolvedAutoPromote.tier1_min_saves,
+              tier2_min_repins: resolvedAutoPromote.tier2_min_repins,
+              tier2_min_velocity: resolvedAutoPromote.tier2_min_velocity,
+              tier3_min_saves: resolvedAutoPromote.tier3_min_saves,
               auto_promote_inherited: true
             };
             nextTrackingMode = 'full';

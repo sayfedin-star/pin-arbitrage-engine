@@ -16,6 +16,77 @@ import {
   normalizeCleanDomain
 } from './domain-constants.mjs';
 
+export const CRT_SH_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap for crt.sh JSON responses
+
+/**
+ * Reads and parses a JSON HTTP response while enforcing a strict maximum byte limit
+ * before calling `JSON.parse()` so multi-megabyte `crt.sh` payloads cannot spike heap memory.
+ *
+ * @param {Response} res
+ * @param {number} [maxBytes=CRT_SH_MAX_BYTES]
+ * @returns {Promise<any>}
+ */
+export async function readBoundedJsonResponse(res, maxBytes = CRT_SH_MAX_BYTES) {
+  const limit = Math.max(1024, Number(maxBytes) || CRT_SH_MAX_BYTES);
+  const contentLengthHeader = typeof res?.headers?.get === 'function'
+    ? res.headers.get('content-length')
+    : res?.headers?.['content-length'];
+  const declaredLen = contentLengthHeader != null ? Number(contentLengthHeader) : NaN;
+  if (Number.isFinite(declaredLen) && declaredLen > limit) {
+    if (res?.body && typeof res.body.cancel === 'function') {
+      await res.body.cancel().catch(() => {});
+    }
+    const err = new Error(`Response Content-Length (${declaredLen} bytes) exceeds ${limit}-byte cap.`);
+    err.code = 'RESPONSE_TOO_LARGE';
+    throw err;
+  }
+
+  if (res?.body && typeof res.body.getReader === 'function') {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let totalBytes = 0;
+    let text = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > limit) {
+          await reader.cancel().catch(() => {});
+          const err = new Error(`Streaming response exceeded ${limit}-byte cap (received > ${totalBytes} bytes).`);
+          err.code = 'RESPONSE_TOO_LARGE';
+          throw err;
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+      return JSON.parse(text);
+    } finally {
+      reader.releaseLock?.();
+    }
+  }
+
+  if (typeof res?.text === 'function') {
+    const text = await res.text();
+    const byteLen = Buffer.byteLength(text, 'utf8');
+    if (byteLen > limit) {
+      const err = new Error(`Response body (${byteLen} bytes) exceeds ${limit}-byte cap.`);
+      err.code = 'RESPONSE_TOO_LARGE';
+      throw err;
+    }
+    return JSON.parse(text);
+  }
+
+  return await res.json();
+}
+
+function tagDatabaseError(err) {
+  const wrapped = err instanceof Error ? err : new Error(String(err));
+  wrapped.isDbError = true;
+  return wrapped;
+}
+
 /**
  * Escapes SQL LIKE/ILIKE wildcard characters (%, _, \) in user search strings
  */
@@ -161,7 +232,7 @@ export async function queryWhoisHttpsRdap(cleanDomain) {
  * Primary: https://api.domainee.dev/v1/tools/domain-age-checker?domain=http://<domain>/
  * Fallback: https://rdap.org/domain/<domain>
  */
-export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = false, fastPath = false } = {}) {
+export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = false, fastPath = false, throwOnDbError = false } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) return null;
 
@@ -202,7 +273,12 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           age_years: cached.age_years != null ? Number(cached.age_years) : null
         };
       }
-    } catch (_) {}
+    } catch (dbReadErr) {
+      console.error(`[whois-age-service] DB cache read failed for ${cleanDomain}:`, dbReadErr?.message || dbReadErr);
+      if (throwOnDbError) {
+        throw tagDatabaseError(dbReadErr);
+      }
+    }
   }
 
   // [INVARIANT: FAST-PATH-NON-BLOCKING] Uncached domains return immediately with pending status
@@ -330,9 +406,10 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
 
   // Tier 4: Certificate Transparency Logs (crt.sh) - Crucial for privacy-protected domains
   if (!created) {
+    let crtRes;
     try {
       const crtUrl = `https://crt.sh/?q=${encodeURIComponent(cleanDomain)}&output=json`;
-      const crtRes = await safeExternalFetch(crtUrl, {
+      crtRes = await safeExternalFetch(crtUrl, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
@@ -341,7 +418,7 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
         maxRedirects: 4
       });
       if (crtRes.ok) {
-        const certs = await crtRes.json();
+        const certs = await readBoundedJsonResponse(crtRes, CRT_SH_MAX_BYTES);
         if (Array.isArray(certs) && certs.length > 0) {
           const nowMs = Date.now();
           const validDates = certs
@@ -358,7 +435,15 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
       } else if (crtRes.body) {
         await crtRes.body.cancel().catch(() => {});
       }
-    } catch (_) {}
+    } catch (crtErr) {
+      if (crtErr?.code === 'RESPONSE_TOO_LARGE') {
+        console.warn(`[whois-age-service] Skipped oversized crt.sh payload for ${cleanDomain}: ${crtErr.message}`);
+      }
+    } finally {
+      if (crtRes?.body && !crtRes.bodyUsed) {
+        await crtRes.body.cancel().catch(() => {});
+      }
+    }
   }
 
   const nowMs = Date.now();
@@ -475,18 +560,9 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
       lookup_status: status,
       age_status: status
     };
-  } catch (_) {
-    return {
-      domain: cleanDomain,
-      registered_at: isValidCreated ? parsedCreated.toISOString() : null,
-      updated_at_whois: parsedUpdated,
-      expires_at: parsedExpires,
-      age_days: ageDays,
-      age_years: ageYears,
-      lookup_source: source,
-      lookup_status: status,
-      age_status: status
-    };
+  } catch (dbWriteErr) {
+    console.error(`[whois-age-service] DB persist failed for ${cleanDomain}:`, dbWriteErr?.message || dbWriteErr);
+    throw tagDatabaseError(dbWriteErr);
   }
 }
 
@@ -662,8 +738,13 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
     const slice = chunks[idx];
     const chunkPromises = slice.map(async (dom) => {
       try {
-        return await fetchAndCacheDomainAge(sql, dom, { forceRefresh });
-      } catch (_) {
+        return await fetchAndCacheDomainAge(sql, dom, { forceRefresh, throwOnDbError: true });
+      } catch (err) {
+        if (err?.isDbError) {
+          console.error(`[whois-age-service] Fatal DB error during batch enrichment of ${dom}:`, err?.message || err);
+          throw err;
+        }
+        console.warn(`[whois-age-service] External lookup error for ${dom}:`, err?.message || err);
         return { domain: dom, lookup_status: 'failed', age_years: null };
       }
     });

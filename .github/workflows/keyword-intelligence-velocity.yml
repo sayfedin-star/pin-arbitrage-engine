@@ -196,7 +196,7 @@ jobs:
   consolidate:
     name: Stage 2 - Telemetry & Visual Crossover Consolidation
     needs: [dispatch, crawl-fleet]
-    if: always() && needs.dispatch.result == 'success'
+    if: always() && !cancelled() && needs.dispatch.result == 'success' && needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -218,7 +218,7 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
-          skip-wakeup: 'false'
+          skip-wakeup: 'true'
 
       - name: 4. Execute Consolidation & Report Engine
         env:
@@ -229,10 +229,11 @@ jobs:
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
           STAGE1_RESULT: ${{ needs.crawl-fleet.result }}
-          SKIP_MV_REFRESH: 'true'
+          SKIP_MV_REFRESH: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: node scripts/keyword-fleet.mjs --stage=consolidate
 
-      - name: 6. Recompute Domain Intelligence Rollup
+      - name: 6. Recompute Domain Intelligence Rollup (Manual Dispatch Only)
+        if: github.event_name == 'workflow_dispatch'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}

@@ -10,7 +10,14 @@ import crypto from 'node:crypto';
 import { formatPinterestCookie } from '../../utils.mjs';
 import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
-import { normalizePinterestUsername, parseRuleNumber, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, isPinQualified } from './competitors-crud.mjs';
+import {
+  normalizePinterestUsername,
+  resolveQualificationRules,
+  getCompetitorRules,
+  resolveNumericCompetitorId,
+  getQualificationRules,
+  isPinQualified
+} from './competitors-crud.mjs';
 
 function buildFallbackBoardId(competitorId, boardName) {
   const norm = String(boardName || '').trim().toLowerCase();
@@ -160,12 +167,13 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
     };
   }
 
-  const t1 = Number(activeRules.tier1_min_saves ?? 100);
-  const t2 = Number(activeRules.tier2_min_repins ?? 100);
-  const t2Vel = Number(activeRules.tier2_min_velocity ?? 3.5);
-  const t2Days = Number(activeRules.tier2_max_age_days ?? 60);
-  const t3Days = Number(activeRules.tier3_max_age_days ?? 14);
-  const t3Saves = Number(activeRules.tier3_min_saves ?? 25);
+  const resolvedGlobal = resolveQualificationRules(activeRules);
+  const t1 = resolvedGlobal.tier1_min_saves;
+  const t2 = resolvedGlobal.tier2_min_repins;
+  const t2Vel = resolvedGlobal.tier2_min_velocity;
+  const t2Days = resolvedGlobal.tier2_max_age_days;
+  const t3Days = resolvedGlobal.tier3_max_age_days;
+  const t3Saves = resolvedGlobal.tier3_min_saves;
 
   const [res] = await sql`
     WITH target_pins AS (
@@ -224,13 +232,17 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
 
   const { rules, username } = await getCompetitorRules(sql, numericId);
 
-  const minSaves = parseRuleNumber(rules.tier1_min_saves, 100, 0);
-  const minRepins = parseRuleNumber(rules.tier2_min_repins, Math.max(100, minSaves), 0);
-  const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
-  const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
-  const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.tier3_max_age_days, 14, 1);
-  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves, Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))), 0);
-  const articlesOnly = rules.articles_only ?? true;
+  const resolved = resolveQualificationRules(rules, {
+    deriveTiersFromSaves: true,
+    defaultArticlesOnly: true
+  });
+  const minSaves = resolved.tier1_min_saves;
+  const minRepins = resolved.tier2_min_repins;
+  const minVelocity = resolved.tier2_min_velocity;
+  const maxAgeDays = resolved.tier2_max_age_days;
+  const freshDays = resolved.tier3_max_age_days;
+  const freshMinSaves = resolved.tier3_min_saves;
+  const articlesOnly = resolved.articles_only;
   const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
 
   // Fetch all pins meeting the 3-tier rules from competitor_board_pins JOIN universal_master_pins
@@ -318,10 +330,10 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
       compRules = cr?.rules;
     } catch (_) {}
   }
-  const rules = {
-    ...globalRules,
-    ...(compRules || {})
-  };
+  const rules = resolveQualificationRules(compRules || {}, {
+    base: globalRules,
+    defaultArticlesOnly: true
+  });
   if (rules.master_ingest_enabled === false) {
     return { ok: false, error: 'Master Ingest is currently disabled in Pin Qualification Rules.' };
   }

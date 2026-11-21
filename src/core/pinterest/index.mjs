@@ -9,7 +9,6 @@ export {
   CANONICAL_FINGERPRINT,
   sanitizeGuestCookie,
   getStandardPinterestHeaders,
-  getPinterestHeaders,
   getPinterestXhrHeaders,
   PINTEREST_PAGE_HEADERS,
   randomJitterMs,
@@ -34,6 +33,9 @@ export {
 export {
   MAX_METRIC_CAP,
   PINTEREST_CEILING_VALUE,
+  normalizeCeilingMetric,
+  sanitizeCeilingDelta,
+  sanitizeStoredCeilingDelta,
   PINTEREST_JSON_API_HEADERS,
   sanitizeDestinationUrl,
   normalizeDomain,
