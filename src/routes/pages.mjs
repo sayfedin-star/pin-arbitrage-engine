@@ -2,7 +2,7 @@
  * UI HTML Pages & Static Shell Sub-Router
  *
  * Serves `/pae-shell.js` from an in-memory buffer with strong SHA-256 ETag and
- * renders all 7 server-rendered HTML studio views via lazy dynamic imports.
+ * renders all 8 server-rendered HTML studio views via lazy dynamic imports.
  */
 
 import fs from 'node:fs';
@@ -23,7 +23,7 @@ const STATIC_ASSET_REGEX = /\.(?:ico|png|jpe?g|gif|svg|webp|css|js|map|woff2?|tt
 
 /**
  * Handles incoming UI HTML page and `/pae-shell.js` requests.
- * Returns Response if handled, or null if the request should proceed to API routers.
+ * Sends via Fastify reply if handled, or returns null if the request should proceed to API routers.
  */
 export async function handlePagesRoutes(routeCtx) {
   const {
@@ -43,36 +43,16 @@ export async function handlePagesRoutes(routeCtx) {
   const effectiveRequest = routeCtx.request || store?.request;
 
   const sendNative = (body, status = 200, headers = {}) => {
-    const isBodyless = method === 'HEAD' || status === 204 || status === 304;
-    if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-      effectiveReply.code(status);
-      for (const [k, v] of Object.entries(headers)) {
-        effectiveReply.header(k, v);
-      }
-      return effectiveReply.send(isBodyless ? '' : (body ?? ''));
+    if (!effectiveReply || typeof effectiveReply.send !== 'function') {
+      throw new Error('[pages] handlePagesRoutes requires an active Fastify reply.');
     }
-    const textBody = Buffer.isBuffer(body) ? body.toString('utf8') : (body || '');
-    const lowerHeaders = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-    const outHeaders = { ...headers };
-    Object.defineProperties(outHeaders, {
-      get: {
-        value: (h) => lowerHeaders.get(String(h).toLowerCase()) ?? null,
-        enumerable: false
-      },
-      forEach: {
-        value: (cb) => {
-          for (const [k, v] of Object.entries(outHeaders)) cb(v, k, outHeaders);
-        },
-        enumerable: false
-      }
-    });
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      headers: outHeaders,
-      body: isBodyless ? null : textBody,
-      text: async () => (isBodyless ? '' : textBody)
-    };
+    if (effectiveReply.sent) return effectiveReply;
+    const isBodyless = method === 'HEAD' || status === 204 || status === 304;
+    effectiveReply.code(status);
+    for (const [k, v] of Object.entries(headers)) {
+      effectiveReply.header(k, v);
+    }
+    return effectiveReply.send(isBodyless ? '' : (body ?? ''));
   };
 
   // 0. Cached Shared Browser Runtime (/pae-shell.js) — served from memory BEFORE STATIC_ASSET_REGEX
@@ -86,9 +66,7 @@ export async function handlePagesRoutes(routeCtx) {
       'Cache-Control': 'public, max-age=3600, must-revalidate',
       'X-Content-Type-Options': 'nosniff'
     };
-    const rawIfNoneMatch = effectiveRequest?.headers?.['if-none-match']
-      || (typeof effectiveRequest?.headers?.get === 'function' ? effectiveRequest.headers.get('if-none-match') : '')
-      || '';
+    const rawIfNoneMatch = effectiveRequest?.headers?.['if-none-match'] || '';
     if (rawIfNoneMatch) {
       const candidates = String(rawIfNoneMatch).split(',').map((s) => s.trim());
       if (candidates.includes(PAE_SHELL_ETAG) || candidates.includes('*')) {

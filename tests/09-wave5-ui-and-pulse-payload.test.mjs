@@ -1,17 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import vm from 'node:vm';
 import { createFastifyApp } from '../src/server.mjs';
 import { getGlobal24hPulseService, invalidateGlobalPulseCache, synthesizePinBlueprint } from '../src/modules/pulse/service.mjs';
-import {
-  safeApiFetch,
-  apiFetch,
-  sanitizeCsvCell,
-  escapeHtml,
-  formatUniversalAge,
-  formatNumber,
-  safeUrl
-} from '../src/ui/shared-formatters.mjs';
 import {
   parseHtmlElementTree,
   validateInlineScriptsForPage,
@@ -120,23 +113,35 @@ test('Wave 5B: GET /pae-shell.js serves cached runtime with ETag/304, executes w
   sandboxWindow.window = sandboxWindow;
   sandboxWindow.globalThis = sandboxWindow;
 
-  const compiledShell = new vm.Script(shellRes.body, { filename: 'pae-shell.js' });
+  const diskShellSource = fs.readFileSync(path.resolve(process.cwd(), 'public', 'pae-shell.js'), 'utf8');
+  assert.equal(shellRes.body, diskShellSource, 'Served /pae-shell.js must match public/pae-shell.js on disk');
+
+  const compiledShell = new vm.Script(diskShellSource, { filename: 'public/pae-shell.js' });
   compiledShell.runInNewContext(sandboxWindow);
 
   assert.equal(typeof sandboxWindow.apiFetch, 'function');
   assert.equal(typeof sandboxWindow.safeApiFetch, 'function');
+  assert.equal(sandboxWindow.apiFetch, sandboxWindow.safeApiFetch);
   assert.equal(typeof sandboxWindow.PAE.toast, 'function');
   assert.equal(typeof sandboxWindow.PAE.confirm, 'function');
 
-  // Formatter parity between /pae-shell.js and Node-side shared-formatters.mjs
+  // Direct formatter & sanitizer verification against public/pae-shell.js via vm.Script
   assert.equal(sandboxWindow.PAE.safeUrl('javascript:alert(1)'), '#');
-  assert.equal(sandboxWindow.PAE.safeUrl('https://pinterest.com/pin/1/'), safeUrl('https://pinterest.com/pin/1/'));
-  assert.equal(sandboxWindow.PAE.sanitizeCsvCell('=SUM(A1:A2)'), sanitizeCsvCell('=SUM(A1:A2)'));
+  assert.equal(sandboxWindow.PAE.safeUrl('//evil.example/x'), '#');
+  assert.equal(sandboxWindow.PAE.safeUrl('https://pinterest.com/pin/1/'), 'https://pinterest.com/pin/1/');
+  assert.equal(sandboxWindow.PAE.safeUrl('/keywords/soup'), '/keywords/soup');
+  assert.equal(sandboxWindow.PAE.safeColor('#e11d48'), '#e11d48');
+  assert.equal(sandboxWindow.PAE.safeColor('expression(alert(1))', '#cbd5e1'), '#cbd5e1');
   assert.equal(sandboxWindow.PAE.sanitizeCsvCell('=SUM(A1:A2)'), '"\'=SUM(A1:A2)"');
-  assert.equal(sandboxWindow.PAE.formatUniversalAge(400), formatUniversalAge(400));
+  assert.equal(sandboxWindow.PAE.formatUniversalAge(400), '1.1y');
   assert.equal(sandboxWindow.PAE.formatUniversalAge(145), '145d');
-  assert.equal(sandboxWindow.PAE.formatNumber(12500, { compact: true }), formatNumber(12500, { compact: true }));
-  assert.equal(sandboxWindow.PAE.escapeHtml('<script>"x"</script>'), escapeHtml('<script>"x"</script>'));
+  assert.equal(sandboxWindow.PAE.formatAge(365), '1.0y');
+  assert.equal(sandboxWindow.PAE.formatNumber(12500, { compact: true }), '12.5K');
+  assert.equal(sandboxWindow.PAE.formatNumber(12500), '12,500');
+  assert.equal(sandboxWindow.PAE.formatNumber(NaN), '0');
+  assert.equal(sandboxWindow.PAE.formatVelocity(12), '+12/d');
+  assert.equal(sandboxWindow.PAE.formatPercent(14.5), '+14.5%');
+  assert.equal(sandboxWindow.PAE.escapeHtml('<script>"x"</script>'), '&lt;script&gt;&quot;x&quot;&lt;/script&gt;');
 
   // Retry recovery on 502 with fresh AbortSignal + automatic x-api-key header injection
   const recovered = await sandboxWindow.apiFetch('/api/cold-start', { retries: 1, retryDelay: 5 });
@@ -154,16 +159,6 @@ test('Wave 5B: GET /pae-shell.js serves cached runtime with ETag/304, executes w
   assert.equal(auth503.status, 503);
   assert.equal(auth503.data.error, 'AUTH_NOT_CONFIGURED');
   assert.equal(fetchCalls.length - beforeAuthCalls, 1, 'AUTH_NOT_CONFIGURED 503 must fail fast without retrying');
-
-  // Node-side re-export check
-  assert.equal(apiFetch, safeApiFetch);
-  const nodeRes = await safeApiFetch('http://local.test/api/ok', {
-    fetchImpl: async () => new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' }
-    })
-  });
-  assert.equal(nodeRes.ok, true);
 });
 
 test('Wave 5B & 5C: All studio pages load /pae-shell.js, /pin/:id renders ONE unified sticky header with contextual back-links/actions, and /keywords has zero deprecated crossover markup', async (t) => {

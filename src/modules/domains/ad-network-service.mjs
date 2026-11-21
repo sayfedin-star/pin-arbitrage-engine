@@ -965,5 +965,3 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
   };
 }
 
-export { parseAdsTxtContent as parseAdsTxtMonetization };
-

@@ -356,8 +356,6 @@ export async function writeGitHubOutput(key, value, githubOutputPath = process.e
   }
 }
 
-export const writeOutput = writeGitHubOutput;
-
 /**
  * Appends Markdown telemetry to `$GITHUB_STEP_SUMMARY` when running in GitHub Actions.
  */

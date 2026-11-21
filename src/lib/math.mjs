@@ -143,7 +143,6 @@ export function calculateDailyVelocity(params) {
     currentDate = new Date(),
     baselineDate = null,
     maxCap = 25000,
-    createdAt = null,
     wasDeepHydrated = undefined
   } = params;
 

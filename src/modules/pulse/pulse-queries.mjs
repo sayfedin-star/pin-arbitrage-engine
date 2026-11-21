@@ -85,7 +85,7 @@ export async function queryActiveSerp(sql, folderIdNum) {
  * Part 2A: Aggregates displaced counts per keyword.
  * Part 2B: Full Surging Displaced Vault Pins hydrated from universal_master_pins SSOT.
  */
-export async function queryVaultAndVacuum(sql, folderIdNum, env) {
+export async function queryVaultAndVacuum(sql, folderIdNum, _env) {
   const [vacuumRows, vaultPinsRaw] = await Promise.all([
     sql`
       SELECT

@@ -71,8 +71,8 @@ export function getDashboardOverviewHtml() {
         </div>
       </div>
 
-      <!-- Real-Time Top KPI Ribbon (5 Core Pillars) -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <!-- Real-Time Top KPI Ribbon (3 Core Pillars) -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
         <!-- 1. Creator Reach -->
         <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-purple-500/40 hover:shadow-md transition cursor-pointer group">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
@@ -100,34 +100,7 @@ export function getDashboardOverviewHtml() {
           </div>
         </div>
 
-        <!-- 2. Archived Winning Pins -->
-        <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-indigo-500/40 hover:shadow-md transition cursor-pointer group">
-          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-            <span>ARCHIVED PINS</span>
-            <div class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500 group-hover:scale-110 transition">
-              <i data-lucide="archive" class="w-3.5 h-3.5"></i>
-            </div>
-          </div>
-          <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <template x-if="!isOverviewLoaded">
-              <span class="inline-block h-7 w-20 rounded-lg bg-slate-200 dark:bg-[#27272A] animate-pulse" aria-label="Loading archived pins"></span>
-            </template>
-            <template x-if="isOverviewLoaded">
-              <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono tabular-nums" x-text="formatNumber(pinarchiveOverview.total_pins || 0)"></span>
-            </template>
-          </div>
-          <div class="mt-2 flex items-center justify-between text-[10.5px]">
-            <template x-if="!isOverviewLoaded">
-              <span class="inline-block h-3.5 w-20 rounded bg-slate-200 dark:bg-[#27272A] animate-pulse"></span>
-            </template>
-            <template x-if="isOverviewLoaded">
-              <span class="text-slate-500" x-text="formatNumber(pinarchiveOverview.total_saves || 0) + ' Saves'"></span>
-            </template>
-            <span class="font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold">3-Tier Rules</span>
-          </div>
-        </div>
-
-        <!-- 3. Keywords Fleet -->
+        <!-- 2. Keywords Fleet -->
         <a href="/keywords" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-emerald-500/40 hover:shadow-md transition cursor-pointer group block">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
             <span>KEYWORDS FLEET</span>

@@ -261,8 +261,6 @@ export function isReadOnlyQuery(queryInput, interpolatedValues = []) {
   return true;
 }
 
-export const isReadOnlySql = isReadOnlyQuery;
-
 /**
  * Returns true if error is a PostgreSQL statement timeout cancellation (SQLSTATE 57014).
  * Intentionally separated from automatic global retries so non-idempotent writes and fast Web APIs fail fast,
@@ -713,17 +711,5 @@ export async function drainSqlClient({ timeout = 5 } = {}) {
     }
   }
 }
-
-/**
- * Global process-level sql client instance (or null if DATABASE_URL is not set).
- */
-export const sql = (
-  typeof process !== 'undefined' &&
-  process.env?.NODE_ENV !== 'test' &&
-  process.env?.ENVIRONMENT !== 'test' &&
-  process.env?.DATABASE_URL
-)
-  ? getSqlClient()
-  : null;
 
 

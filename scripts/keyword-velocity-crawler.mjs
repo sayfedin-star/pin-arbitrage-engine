@@ -31,9 +31,7 @@ import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
-import { autoDiscoverFolderCreatorsForKeyword } from '../src/modules/keywords/folders-crud.mjs';
 import {
-  randomJitterMs,
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinterest,
@@ -41,11 +39,7 @@ import {
   fetchPinHybrid,
   fetchPinsBatchFromPidgets
 } from '../src/core/pinterest/index.mjs';
-import {
-  insertNewPinsBatch,
-  resavePinsMetricsBatch,
-  ingestPinsBatch
-} from '../src/modules/pins/repository.mjs';
+import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 import { calculateDailyVelocity, calculateRollingGainsFromSnapshots } from '../src/lib/math.mjs';
 import {
   buildRichPinMetadataPayload,
@@ -72,7 +66,7 @@ if (isMainModule) {
 }
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL && isMainModule && !process.env.INGEST_API_URL && !process.env.PAE_INGEST_ENDPOINT) {
+if (!DATABASE_URL && isMainModule) {
   console.error('[-] FATAL: DATABASE_URL is not set.');
   process.exit(1);
 }
@@ -122,7 +116,6 @@ const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.t
 const explicitMaxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
   ? Math.max(10, Math.min(2000, parseInt(envSerpPins, 10)))
   : null;
-const maxSerpPins = explicitMaxSerpPins;
 
 const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
 const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
@@ -133,7 +126,6 @@ const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
 const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
   ? (envHarvest === 'true' || envHarvest === '1')
   : true;
-const maxPins = maxSerpPins;
 
 
 const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '12', 10));
@@ -1124,64 +1116,11 @@ export async function flushBatchToHub(pinsChunk, kw, targetSql = null) {
 }
 
 /**
- * Push crawled results via HTTP POST /api/internal/ingest (Stateless Scraper Protocol)
- */
-export async function pushBatchToIngestApi(payload, options = {}) {
-  const ingestUrl = options.ingestUrl || process.env.INGEST_API_URL || process.env.PAE_INGEST_ENDPOINT;
-  if (!ingestUrl) return null;
-
-  const apiKey = options.apiKey || process.env.API_SECRET_KEY || process.env.INTERNAL_API_KEY || '';
-  const cleanEndpoint = ingestUrl.endsWith('/api/internal/ingest')
-    ? ingestUrl
-    : `${ingestUrl.replace(/\/$/, '')}/api/internal/ingest`;
-
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(apiKey ? { 'x-api-key': apiKey, 'Authorization': `Bearer ${apiKey}` } : {})
-  };
-
-  const res = await fetch(cleanEndpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(30000)
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(`Ingest API error HTTP ${res.status}: ${errorText}`);
-  }
-
-  return await res.json();
-}
-
-/**
  * Flush enriched pin records to Unified PostgreSQL SSOT.
  * Includes LATERAL historical baseline lookup on pins_daily_metrics to guarantee authentic Vault velocity.
  */
 async function flushToUnifiedPostgres(enrichedPins, kw = null) {
   if (!enrichedPins || enrichedPins.length === 0) return 0;
-
-  // [INVARIANT: STATELESS-SCRAPER-INGEST-HTTP]
-  // In stateless runner mode, push crawled pins to internal ingestion route instead of opening direct DB connections.
-  const ingestUrl = process.env.INGEST_API_URL || process.env.PAE_INGEST_ENDPOINT;
-  if (ingestUrl && !sql) {
-    try {
-      console.log(`[Stateless Ingest] Pushing ${enrichedPins.length} pins to ${ingestUrl}...`);
-      await pushBatchToIngestApi({
-        batch_type: 'keyword_pins',
-        keyword_id: kw ? kw.id : null,
-        keyword: kw ? kw.keyword : null,
-        worker_index: typeof workerIndex !== 'undefined' ? workerIndex : 0,
-        worker_total: typeof workerTotal !== 'undefined' ? workerTotal : 20,
-        pins: enrichedPins
-      });
-      console.log(`[Stateless Ingest] Successfully flushed ${enrichedPins.length} pins via Ingest API.`);
-      return 1;
-    } catch (ingestErr) {
-      console.warn(`[!] Stateless Ingest API push failed, falling back to direct SQL: ${ingestErr.message}`);
-    }
-  }
 
   const FLUSH_TIMEOUT_MS = 65000;
   let timedOut = false;
@@ -1356,10 +1295,7 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
     // [INVARIANT: PIN-REPOSITORY-SSOT-INGESTION]
     for (let i = 0; i < sortedPins.length; i += 500) {
       const batchSlice = sortedPins.slice(i, i + 500);
-      if (process.env.INGEST_MODE === 'discrete') {
-        await insertNewPinsBatch(activeSql, batchSlice, 'keyword');
-        await resavePinsMetricsBatch(activeSql, batchSlice);
-      } else if (typeof activeSql.transaction === 'function' && process.env.INGEST_MODE === 'tx') {
+      if (typeof activeSql.transaction === 'function' && process.env.INGEST_MODE === 'tx') {
         await activeSql.transaction([
           (tx) => ingestPinsBatch(tx, batchSlice, { pillar: 'keyword' })
         ]);

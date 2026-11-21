@@ -443,34 +443,7 @@ export async function apiRoutesPlugin(app, options = {}) {
     if (reply.sent) {
       return reply;
     }
-    if (routeResult && typeof routeResult === 'object') {
-      if (typeof routeResult.status === 'number') {
-        reply.code(routeResult.status);
-      }
-      if (routeResult.headers && typeof routeResult.headers === 'object') {
-        if (typeof routeResult.headers.forEach === 'function') {
-          routeResult.headers.forEach((val, key) => {
-            reply.header(key, val);
-          });
-        } else {
-          for (const [key, val] of Object.entries(routeResult.headers)) {
-            if (typeof val !== 'function') reply.header(key, val);
-          }
-        }
-      }
-      if (routeResult.status === 204) {
-        return reply.send();
-      }
-      if (routeResult._payload !== undefined) {
-        return reply.send(routeResult._payload);
-      }
-      if (typeof Response !== 'undefined' && routeResult instanceof Response) {
-        const text = await routeResult.text();
-        return reply.send(text);
-      }
-      return reply.send(routeResult);
-    }
-    if (routeResult !== undefined) {
+    if (routeResult !== undefined && routeResult !== reply) {
       return reply.code(200).header('Content-Type', 'application/json; charset=utf-8').send(routeResult);
     }
     return reply.send();

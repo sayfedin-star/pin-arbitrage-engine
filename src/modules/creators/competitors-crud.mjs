@@ -246,7 +246,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 /**
  * Track a new competitor handle
  */
-export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, ingest_interval = 'daily', auto_archive_winning = true }) {
+export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, auto_archive_winning = true }) {
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
   if (cleanUsername.startsWith('__system_')) throw new Error('Reserved system profile.');
@@ -905,8 +905,6 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   if (!updated) throw new Error(`Competitor #${numericId} not found.`);
   return { ok: true, competitor_id: updated.id, username: updated.username, rules: updated.rules };
 }
-
-export const updateCompetitorRules = saveCompetitorRules;
 
 
 /**

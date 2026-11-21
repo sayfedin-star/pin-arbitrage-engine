@@ -9,7 +9,7 @@ import { fetchRelatedModulesWithZoneA } from '../newborn/cookie-router.mjs';
 import { extractCreatorAndLinkMeta, upsertCandidateGraphEdges } from '../related-pins/graph-writer.mjs';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectory, fetchUniversalPinDossier } from '../pins/repository.mjs';
 import { normalizePinterestUsername, syncCompetitorProfile, resolveNumericCompetitorId } from './competitors-crud.mjs';
-import { syncCompetitorPins, reEvaluateCompetitorPins, reconcileQualifiedCatalogPins } from './creator-ingest.mjs';
+import { syncCompetitorPins, reEvaluateCompetitorPins } from './creator-ingest.mjs';
 import { syncCompetitorBoards } from './boards-service.mjs';
 
 /**
@@ -668,16 +668,7 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
     }
   }
 
-  let reconcileRes = null;
-  if (numericId) {
-    try {
-      reconcileRes = await reconcileQualifiedCatalogPins(sql, numericId);
-    } catch (err) {
-      console.warn(`[deepHarvestCreator] reconcileQualifiedCatalogPins warning:`, err.message);
-    }
-  }
-
-  // 4-Worker pool live metric refresh on winning pins (bounded to max 25 to protect Cloudflare subrequest budget)
+  // 4-Worker pool live metric refresh on winning pins (bounded to max 25 to avoid Pinterest rate-limiting)
   let refreshedCount = 0;
   const limitPins = Math.max(1, Math.min(Number(maxPinRefresh) || 20, 25));
   const archivedPins = await sql`
@@ -714,6 +705,8 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
     await Promise.all(workers);
   }
 
+  const qualifiedCount = pinsSyncRes?.qualified_archived ?? pinsSyncRes?.qualified ?? pinsSyncRes?.inserted ?? 0;
+
   return {
     ok: true,
     mode: 'deep-harvest',
@@ -724,9 +717,9 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
     follower_count: pulse.follower_count,
     boards_synced: pulse.boards_synced,
     new_pins_discovered: pinsSyncRes?.new_pins_count || pinsSyncRes?.inserted || 0,
-    qualified_promotions: reconcileRes?.promoted_or_updated || 0,
-    promoted_count: reconcileRes?.promoted_or_updated || 0,
-    qualified_count: reconcileRes?.promoted_or_updated || 0,
+    qualified_promotions: qualifiedCount,
+    promoted_count: qualifiedCount,
+    qualified_count: qualifiedCount,
     refreshed_winning_pins: refreshedCount,
     harvested_at: new Date().toISOString()
   };

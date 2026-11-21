@@ -76,7 +76,6 @@ export async function handleClusterRoutes({
   buildCanonicalCacheKey,
   getCachedOrFetch,
   invalidateEdgeCache,
-  safeWaitUntil,
   redactSecrets
 }) {
   // 0. /api/pulse/24h (Global 24-Hour Algorithmic Pulse & Crossover Matrix)

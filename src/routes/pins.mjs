@@ -336,9 +336,7 @@ export async function handlePinsRoutes({
   jsonResponse,
   methodNotAllowedResponse,
   buildCanonicalCacheKey,
-  getCachedOrFetch,
   invalidateEdgeCache,
-  safeWaitUntil,
   isValidPinId,
   redactSecrets
 }) {

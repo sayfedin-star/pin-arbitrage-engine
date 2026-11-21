@@ -245,7 +245,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     const relatedPromises = [];
     const additionPromises = [];
 
-    // Resolve official Related Interests and Additions returned by Pinterest (capped to respect Cloudflare subrequest limit)
+    // Resolve official Related Interests and Additions returned by Pinterest (capped to keep latency bounded and avoid rate-limiting)
     if (mode === 'both' || mode === 'related') {
       const relatedList = (main.seo_related_objects || []).slice(0, 12);
       for (const item of relatedList) {

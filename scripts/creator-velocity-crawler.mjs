@@ -12,7 +12,7 @@
  * Execution Modes:
  * 1. MODE='creator_sweep' (Scheduled Multi-Creator Sweep):
  *    - Phase 1: Creator reach, boards, and fresh pins discovery (early_stop_pages = 3)
- *      for assigned accounts (idx % worker_total === worker_index), promoting winners via reconcileQualifiedCatalogPins.
+ *      for assigned accounts (idx % worker_total === worker_index).
  *    - Barrier Sync: Workers synchronize completion of Phase 1 before starting Phase 2.
  *    - Phase 2: Global winning pins slice (crc32(pin_id) % 20 === worker_index) refreshing metrics
  *      via PinResource fast path (~90ms), computing 24h save velocity, committing active records
@@ -38,10 +38,7 @@ import {
   syncCompetitorBoards,
   syncCompetitorBoardPins
 } from '../src/modules/creators/boards-service.mjs';
-import {
-  syncCompetitorPins,
-  reconcileQualifiedCatalogPins
-} from '../src/modules/creators/creator-ingest.mjs';
+import { syncCompetitorPins } from '../src/modules/creators/creator-ingest.mjs';
 import { getCreatorHubSettings } from '../src/modules/creators/creator-analytics.mjs';
 import {
   randomJitterMs,
@@ -1359,7 +1356,6 @@ async function run() {
             maxPages: targetPages,
             cookie: cookie
           });
-          await reconcileQualifiedCatalogPins(sql, acc.id);
         } catch (_) {}
       } else {
         console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);

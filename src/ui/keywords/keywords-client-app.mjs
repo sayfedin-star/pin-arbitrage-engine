@@ -203,12 +203,8 @@ export function getKeywordsClientAppScript() {
         folders: [],
         crossoverData: null,
         currentKeywordFolders: [],
-        isFolderManagerOpen: false,
         isCreateFolderModalOpen: false,
-        isAddKeywordsModalOpen: false,
         newFolder: { name: '', description: '', color: '#ec4899' },
-        folderKeywordSearch: '',
-        selectedFolderKeywordIds: [],
 
         // Pin Table Filter & Sort Controls
         intelScope: 'all',
@@ -292,12 +288,6 @@ export function getKeywordsClientAppScript() {
           if (!this.omnibarQuery.trim()) return [];
           const q = this.omnibarQuery.toLowerCase().trim();
           return (this.keywords || []).filter(k => (k?.keyword || '').toLowerCase().includes(q)).slice(0, 5);
-        },
-
-        get selectableKeywordsForFolder() {
-          if (!this.folderKeywordSearch || !this.folderKeywordSearch.trim()) return this.keywords;
-          const q = this.folderKeywordSearch.toLowerCase().trim();
-          return this.keywords.filter(k => (k.keyword || '').toLowerCase().includes(q) || (k.category || '').toLowerCase().includes(q));
         },
 
         get filteredDashboardKeywords() {
@@ -2889,30 +2879,6 @@ export function getKeywordsClientAppScript() {
           }
         },
 
-        async deleteCampaignFolder(folderId) {
-          const ok = await window.PAE.confirm('Are you sure you want to delete this campaign folder? Keywords will remain tracked.', {
-            title: 'Delete Campaign Folder',
-            confirmLabel: 'Delete Folder',
-            danger: true
-          });
-          if (!ok) return;
-          try {
-            const res = await window.apiFetch(this.getApiUrl('/api/folders?id=' + folderId), { method: 'DELETE' });
-            if (!res.ok) {
-              const errPayload = await res.json().catch(() => ({}));
-              throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
-            }
-            this.showToast('Folder deleted.', 'info');
-            if (this.activeFolder?.id === folderId) {
-              this.activeFolder = null;
-              this.crossoverData = null;
-            }
-            await this.fetchFolders();
-          } catch (err) {
-            this.showToast('Delete error: ' + err.message, 'error');
-          }
-        },
-
         async fetchCurrentKeywordFolders() {
           if (!this.selectedKeyword?.id) {
             this.currentKeywordFolders = [];
@@ -2962,38 +2928,6 @@ export function getKeywordsClientAppScript() {
             await this.fetchFolders();
           } catch (err) {
             this.showToast('Folder update error: ' + err.message, 'error');
-          }
-        },
-
-        isKeywordSelected(kid) {
-          return this.selectedFolderKeywordIds.includes(kid);
-        },
-
-        toggleKeywordSelection(kid) {
-          if (this.selectedFolderKeywordIds.includes(kid)) {
-            this.selectedFolderKeywordIds = this.selectedFolderKeywordIds.filter(id => id !== kid);
-          } else {
-            this.selectedFolderKeywordIds.push(kid);
-          }
-        },
-
-        async commitFolderKeywords() {
-          if (!this.activeFolder) return;
-          try {
-            const res = await window.apiFetch(this.getApiUrl('/api/folders/items'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                folder_id: this.activeFolder.id,
-                keyword_ids: this.selectedFolderKeywordIds
-              })
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            this.showToast('Folder keywords updated!', 'success');
-            this.isAddKeywordsModalOpen = false;
-            await this.fetchFolders();
-          } catch (err) {
-            this.showToast('Error saving keywords: ' + err.message, 'error');
           }
         },
 

@@ -326,7 +326,6 @@ async function main() {
   }
 
   // 3. Harvest each seed
-  let totalDiscovered = 0;
   for (let i = 0; i < seedIds.length; i++) {
     if (isShuttingDown) {
       console.log('[!] Graceful shutdown initiated. Skipping remaining seeds.');
@@ -337,8 +336,7 @@ async function main() {
     console.log(`[Seed ${i + 1}/${seedIds.length}] Processing Seed Pin: ${sid}`);
     console.log(`=============================================================`);
     try {
-      const discoveredCount = await crawlSeedPin(competitorId, sid, username);
-      totalDiscovered += discoveredCount;
+      await crawlSeedPin(competitorId, sid, username);
     } catch (err) {
       console.error(`[-] Error crawling seed ${sid}:`, err.message);
     }

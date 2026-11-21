@@ -45,16 +45,6 @@ export const pulseForceRefreshCooldown = new TtlSingleflightCache({
 // In-flight deduplication map backed by pulseMemoryCache
 export const inflightPulse = pulseMemoryCache.inflight;
 
-const tagNormCache = new Map();
-function getNormalizedTag(label) {
-  let norm = tagNormCache.get(label);
-  if (norm === undefined) {
-    norm = label.toLowerCase().replace(/\s+/g, ' ');
-    if (tagNormCache.size < 2000) tagNormCache.set(label, norm);
-  }
-  return norm;
-}
-
 const fastParseIsoDateMs = (val) => {
   if (!val) return NaN;
   if (val instanceof Date) return val.getTime();
@@ -443,7 +433,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   const windowParam = String(options.window || '24h').toLowerCase();
   const forceRefresh = Boolean(options.forceRefresh || options.force_refresh);
   const minAudience = Number(options.minAudience || options.min_audience || 0);
-  const ctx = options.ctx || null;
   const bypassCache = Boolean(options.bypassCache || options.skipCache);
   const testId = options.testId ? String(options.testId).trim() : '';
 
@@ -1982,24 +1971,5 @@ export function synthesizePinBlueprint(pinId, pulseData) {
       }
     }
   };
-}
-
-/**
- * Shared Folder Pulse Analytics Engine
- * Bridges folder crossover calculations with the core Pulse Intelligence Engine.
- *
- * @param {Function} sql - Unified PostgreSQL client
- * @param {number|string} folderId - Target Folder ID
- * @param {object} [options={}] - Options (refresh, env, ctx)
- * @returns {Promise<object>}
- */
-export async function getFolderPulseCrossoverAnalytics(sql, folderId, options = {}) {
-  const fid = Number(folderId);
-  return await getGlobal24hPulseService(sql, options.env, {
-    folderId: fid,
-    forceRefresh: Boolean(options.refresh || options.forceRefresh),
-    ctx: options.ctx,
-    ...options
-  });
 }
 

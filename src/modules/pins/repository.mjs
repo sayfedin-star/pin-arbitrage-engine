@@ -12,7 +12,7 @@
  *    creator context, keywords context, and 30-day trajectory with ZERO read-path database writes.
  */
 
-import { calculateDailyVelocity, isMultiStageHydrationJump, isRepinHydrationJump, detectHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../../lib/math.mjs';
 import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle, sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { qualifyPin } from '../creators/competitors-crud.mjs';
 import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './dossier-reader.mjs';

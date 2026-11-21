@@ -218,7 +218,7 @@ export function extractAuthenticRowGains(row, safeNum) {
  * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
  * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
  */
-export async function calculateFolderCrossover(sql, folderId, { refresh = false, env = null, ctx = null } = {}) {
+export async function calculateFolderCrossover(sql, folderId, { refresh = false } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
@@ -245,7 +245,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   try {
     return await crossoverCache.getOrFetch(
       key,
-      async () => await _executeFolderCrossover(sql, fid, { env, ctx, refresh: effectiveRefresh }),
+      async () => await _executeFolderCrossover(sql, fid),
       {
         ttlMs: CROSSOVER_TTL_MS,
         forceRefresh: effectiveRefresh,
@@ -260,7 +260,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   }
 }
 
-async function _executeFolderCrossover(sql, fid, { env = null, ctx = null, refresh = false } = {}) {
+async function _executeFolderCrossover(sql, fid) {
   // 1. Fetch Folder & Member Keywords
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;

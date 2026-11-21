@@ -29,7 +29,7 @@ scratch/
 *.key
 *credentials*
 *secret*
-scripts/populate_neon_fleet.mjs
+public/assets/aistudio/
 .wrangler/
 .stitch/
 .agents/teamwork/

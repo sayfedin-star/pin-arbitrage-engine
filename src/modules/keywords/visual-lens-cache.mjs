@@ -12,7 +12,7 @@
 
 const inflightRequests = new Map();
 
-export async function getCachedVisualSearchMatches(sql, pinId, env = null) {
+export async function getCachedVisualSearchMatches(sql, pinId, _env = null) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) return null;
 
@@ -70,7 +70,7 @@ export async function purgeExpiredVisualCache(sql, batchLimit = 500) {
   }
 }
 
-export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays = 7, env = null, seedPin = null) {
+export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays = 7, _env = null, _seedPin = null) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin || !Array.isArray(matches) || matches.length === 0) return false;
 

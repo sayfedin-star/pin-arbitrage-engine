@@ -5,7 +5,7 @@
  */
 
 import { escapeSqlWildcards } from '../../utils.mjs';
-import { normalizePinterestUsername, resolveNumericCompetitorId } from './competitors-crud.mjs';
+import { normalizePinterestUsername } from './competitors-crud.mjs';
 export {
   getTopDestinationUrls,
   getCompetitorRelatedIntersections,
@@ -1253,7 +1253,6 @@ export async function listArchivedPins(sql, {
   minSaves = 0,
   maxSaves = null,
   account = '',
-  timeframe = '24h',
   changedOnly = false,
   sortBy = 'saves',
   order = 'desc',

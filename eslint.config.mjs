@@ -11,7 +11,8 @@ const sharedSafetyRules = {
   'no-unreachable': 'error',
   'no-self-assign': 'error',
   'no-unsafe-finally': 'error',
-  'no-loss-of-precision': 'error'
+  'no-loss-of-precision': 'error',
+  'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }]
 };
 
 const webStandardGlobals = {

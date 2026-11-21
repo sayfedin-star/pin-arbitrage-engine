@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { formatPinterestCookie } from '../../utils.mjs';
 import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
-import { normalizePinterestUsername, parseRuleNumber, STANDARD_QUALIFICATION_DEFAULTS, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, isPinQualified } from './competitors-crud.mjs';
+import { normalizePinterestUsername, parseRuleNumber, getCompetitorRules, resolveNumericCompetitorId, getQualificationRules, isPinQualified } from './competitors-crud.mjs';
 
 function buildFallbackBoardId(competitorId, boardName) {
   const norm = String(boardName || '').trim().toLowerCase();
@@ -281,110 +281,6 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
     total_count: Number(res?.total_count || 0),
     pruned_count: 0,
     rules
-  };
-}
-
-
-/**
- * Zero-HTTP Reconciliation Pipeline
- * Reconciles catalog pins based on 3-tier qualification rules.
- * Can run for a specific competitor (by numeric ID or username) or across the entire database.
- */
-export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername = null) {
-  if (!sql) throw new Error('Database client (sql) is required.');
-
-  // If competitorIdOrUsername is null, execute per-account evaluation across all active accounts
-  if (!competitorIdOrUsername) {
-    const competitors = await sql`
-      SELECT id, username FROM competitor_profiles
-      WHERE is_active = TRUE
-        AND COALESCE(account_type, 'competitor') <> 'system';
-    `;
-    let totalPromoted = 0;
-    for (const comp of competitors) {
-      const res = await reconcileQualifiedCatalogPins(sql, comp.id);
-      totalPromoted += (res?.promoted_or_updated || 0);
-    }
-    return {
-      ok: true,
-      competitor_id: null,
-      username: null,
-      promoted_or_updated: totalPromoted
-    };
-  }
-
-  // If specific competitor requested, resolve it
-  let numericId = null;
-  let username = null;
-
-  if (competitorIdOrUsername) {
-    const raw = String(competitorIdOrUsername).trim();
-    if (/^\d+$/.test(raw)) {
-      numericId = Number(raw);
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
-      if (c) username = c.username;
-    } else {
-      const cleanUser = normalizePinterestUsername(raw);
-      if (cleanUser) {
-        const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-        if (c) {
-          numericId = c.id;
-          username = c.username;
-        }
-      }
-    }
-  }
-
-  // Load competitor-specific rules if single competitor, otherwise standard per-account defaults
-  let rules = null;
-  if (numericId) {
-    try {
-      const compRules = await getCompetitorRules(sql, numericId);
-      rules = compRules?.rules;
-    } catch (_) {}
-  }
-  if (!rules) {
-    rules = { ...STANDARD_QUALIFICATION_DEFAULTS };
-  }
-
-  const minSaves = parseRuleNumber(rules.tier1_min_saves ?? rules.min_saves, 100, 0);
-  const minRepins = parseRuleNumber(rules.tier2_min_repins ?? rules.min_repins, Math.max(100, minSaves), 0);
-  const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
-  const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
-  const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.fresh_days ?? rules.tier3_max_age_days, 14, 1);
-  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves ?? rules.fresh_min_saves, Math.min(minSaves, Math.max(25, Math.floor(minSaves / 2))), 0);
-  const articlesOnly = rules.articles_only ?? true;
-  const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
-
-  const [res] = await sql`
-    SELECT count(*)::int AS qualified_count
-    FROM competitor_board_pins cbp
-    JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-    WHERE (${numericId}::int IS NULL OR cbp.competitor_id = ${numericId})
-      AND (
-        COALESCE(ump.save_count, 0) >= ${minSaves}
-        OR COALESCE(ump.repin_count, 0) >= ${minRepins}
-        OR (
-          ump.created_at_pinterest >= NOW() - (${freshDays} || ' days')::interval
-          AND COALESCE(ump.save_count, 0) >= ${freshMinSaves}
-        )
-        OR (
-          ump.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
-          AND (
-            COALESCE(ump.daily_save_velocity, 0) >= ${minVelocity}
-            OR (COALESCE(ump.save_count, 0)::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - ump.created_at_pinterest)) / 86400)) >= ${minVelocity}
-            OR (${allowVelocityFallback} = TRUE AND COALESCE(ump.save_count, 0) >= 50 AND (COALESCE(ump.save_count, 0)::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - ump.created_at_pinterest)) / 86400)) >= 2.0)
-          )
-        )
-      )
-      AND (${articlesOnly} = FALSE OR (ump.is_product IS NULL OR ump.is_product = FALSE));
-  `;
-
-  return {
-    ok: true,
-    competitor_id: numericId,
-    username,
-    promoted_or_updated: Number(res?.qualified_count || 0)
   };
 }
 

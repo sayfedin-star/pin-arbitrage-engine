@@ -11,12 +11,10 @@
  * - Utility function: prod:v18 weights
  */
 
-import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSqlClient, withDbRetry } from '../src/db/client.mjs';
 import {
   CANONICAL_FINGERPRINT,
-  randomJitterMs,
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinResource,
@@ -61,9 +59,6 @@ const sql = (strings, ...values) => {
   return client(strings, ...values);
 };
 sql.noRetry = noRetrySql;
-
-// Jitter delay between requests: 2500ms - 4000ms per fail-safe standards
-const jitterDelay = () => randomJitterMs ? randomJitterMs(2500, 4000) : (2500 + Math.floor(Math.random() * 1500));
 
 // Comprehensive list of stop words for weighted token scoring (excludes platform & alt-text noise)
 const STOP_WORDS = new Set([
@@ -206,31 +201,6 @@ export async function fetchWithRetry(url, headers, maxRetries = 3, options = {})
 }
 
 /**
- * Parse candidate counts from aux_fields
- */
-function extractCandidateCounts(rawCounts) {
-  let counts = {};
-  if (typeof rawCounts === 'string') {
-    try {
-      counts = JSON.parse(rawCounts);
-    } catch (e) {
-      counts = {};
-    }
-  } else if (rawCounts && typeof rawCounts === 'object') {
-    counts = rawCounts;
-  }
-
-  return {
-    navboost_count: Number(counts["P2P_NAVBOOST_CAND"] || counts.navboost_count || 0),
-    recgpt_count: Number(counts["P2P_RECGPT"] || counts.recgpt_count || 0),
-    randomwalk_count: Number(counts["P2P_RANDOMWALK_CAND"] || counts.randomwalk_count || 0),
-    two_tower_count: Number(counts["P2P_TWO_TOWER_EMBEDDING_CAND"] || counts.two_tower_count || 0),
-    fresh_candidate_count: Number(counts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || counts.fresh_candidate_count || 0),
-    shopping_corpus_count: Number(counts["P2P_TWO_TOWER_SHOPPING_CORPUS_CAND"] || counts.PLP_CORPUS || counts.shopping_corpus_count || 0)
-  };
-}
-
-/**
  * Detect true engine provenance using upstream signals and MultiBiSage multi-graph interactions
  */
 function detectEngineProvenance(
@@ -240,8 +210,8 @@ function detectEngineProvenance(
   saveRate = 0,
   dailyVelocity = 0,
   ageDays = 180,
-  isRecgptCandidate = false,
-  recgptTransitionScore = 0,
+  _isRecgptCandidate = false,
+  _recgptTransitionScore = 0,
   sequenceRole = ''
 ) {
   const markers = [
@@ -324,7 +294,6 @@ export function isCulinaryCandidate(title = '', domain = '', description = '') {
  * Dynamically assigns sequence roles based on seed cluster domain (Bakery/Dessert vs Savory Dinner)
  */
 export function classifySequenceRole(title = '', description = '', ocrText = '', clusterType = 'GENERAL') {
-  const titleLower = (title || '').toLowerCase();
   const fullText = `${title || ''} ${description || ''} ${ocrText || ''}`.toLowerCase();
 
   const isCommercial = /\b(buy|shop|sale|deal|discount|price|order|coupon|store|etsy|amazon|product)\b/i.test(fullText);
@@ -876,7 +845,7 @@ function computeHighSaveTokens(candidates) {
  * Fetch authentic individual pin details from Pinterest PinResource
  * Zero speculation: Retrieves authoritative repin_count, reaction_counts, and saves directly
  */
-export async function fetchPinDetails(pinId, baseHeaders) {
+export async function fetchPinDetails(pinId, _baseHeaders) {
   try {
     const formatted = await fetchPinFromPinResource(pinId, { dispatcher: undiciAgent });
     if (formatted) {

@@ -368,8 +368,6 @@ export function getMigrationFiles(migrationsDir = path.join(__dirname, 'migratio
   });
 }
 
-export const discoverMigrations = getMigrationFiles;
-
 const MIGRATION_CLIENT_OPTIONS = Object.freeze({
   max: 1,
   connection: {

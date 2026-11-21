@@ -2,12 +2,10 @@
  * Alpine Application Data Store (dashboardApp)
  * Composed incrementally with specialized client subsystems:
  * - dashboard-client-intersections.mjs: Candidate filtering, Pixie resonance & lightbox
- * - dashboard-client-archive-rules.mjs: Fleet views, PinArchive & qualification rules
  * - dashboard-client-seeds.mjs: Seed selection, bulk ingestion, crawl & workflow dispatch
  */
 
 import { getDashboardIntersectionsMethods } from './dashboard-client-intersections.mjs';
-import { getDashboardArchiveRulesMethods } from './dashboard-client-archive-rules.mjs';
 import { getDashboardSeedComputedProperties, getDashboardSeedActionMethods } from './dashboard-client-seeds.mjs';
 
 import { getDashboardCreatorsFleetMethods, getDashboardCreatorsDossierMethods } from './dashboard-client-creators.mjs';
@@ -424,13 +422,6 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
         // Tab 5: Keyword Velocity State
         keywords: [],
         keywordSearch: '',
-        isAddKeywordModalOpen: false,
-        newKeywordText: '',
-        newKeywordCategory: 'General',
-        isKeywordPinsOpen: false,
-        activeKeyword: null,
-        activeKeywordPins: [],
-        isLoadingKeywordPins: false,
 
         get filteredKeywords() {
           let list = this.keywords || [];
@@ -446,34 +437,6 @@ export function getDashboardClientAppScript({ safeFolderId = '' } = {}) {
           boards: new Map(),
           pins: new Map()
         },
-
-        // Tab 6: PinArchive & Topic Clusters State
-        pinarchiveOverview: { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null },
-        pinarchiveTopics: [],
-        pinarchivePins: [],
-        pinarchiveTopicSearch: '',
-        pinarchiveSearch: '',
-        pinarchiveMinSaves: 0,
-        pinarchiveSort: 'saves',
-        pinarchiveSelectedTopic: '',
-        pinarchiveSelectedAccount: '',
-        pinarchiveViewMode: 'grid',
-        isLoadingPinArchive: false,
-
-        // Pin Qualification & Ingest Rules State
-        qualificationRules: {
-          tier1_min_saves: 100,
-          tier2_min_repins: 100,
-          tier3_max_age_days: 14,
-          tier3_min_saves: 25,
-          cron_enabled: true,
-          early_stop_pages: 3,
-          discovery_max_pages: 500
-        },
-        isRulesCollapsed: false,
-        isSavingRules: false,
-        isReEvaluating: false,
-        harvestingCompetitorId: null,
 
         // Competitor Boards Modal State
         isBoardsModalOpen: false,
@@ -1574,10 +1537,7 @@ ${getDashboardSeedComputedProperties()}
               this.visibleMasterColumns = { ...this.visibleMasterColumns, ...parsed, title: true };
             }
           } catch (_) {}
-          this.$watch('creatorSubTab', (val) => {
-            if (val === 'archive' && (!this.pinarchivePins || this.pinarchivePins.length === 0)) {
-              this.fetchPinArchivePins();
-            }
+          this.$watch('creatorSubTab', () => {
             this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           });
           this.$watch('activeCreatorTab', (val) => {
@@ -1847,24 +1807,6 @@ ${getDashboardCreatorsFleetMethods()}
           }
         },
 
-        async openKeywordPins(kw) {
-          this.activeKeyword = kw;
-          this.isKeywordPinsOpen = true;
-          this.isLoadingKeywordPins = true;
-          try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/pins?keyword_id=' + kw.id));
-            if (res.ok) {
-              const data = await res.json();
-              this.activeKeywordPins = data.pins || [];
-            }
-          } catch (e) {
-            this.activeKeywordPins = [];
-          } finally {
-            this.isLoadingKeywordPins = false;
-            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
-          }
-        },
-
         async deleteKeyword(id) {
           if (!confirm('Are you sure you want to stop tracking this keyword?')) return;
           try {
@@ -1875,9 +1817,6 @@ ${getDashboardCreatorsFleetMethods()}
             }
           } catch (e) {}
         },
-
-${getDashboardArchiveRulesMethods()}
-
 
         async fetchOverview() {
           try {
@@ -2185,33 +2124,6 @@ ${getDashboardArchiveRulesMethods()}
 ${getDashboardCreatorsDossierMethods()}
 
 ${getDashboardBoardsAndPinMethods()}
-
-        async submitAddKeyword() {
-          const kw = this.newKeywordText.trim();
-          if (!kw) return;
-          try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ keyword: kw, category: this.newKeywordCategory })
-            });
-            if (res.ok) {
-              const created = await res.json().catch(() => ({}));
-              this.newKeywordText = '';
-              this.isAddKeywordModalOpen = false;
-              await this.fetchKeywords();
-              this.showToast('Keyword "' + kw + '" tracked successfully!');
-              if (created?.keyword?.id) {
-                this.syncKeyword(created.keyword.id);
-              }
-            } else {
-              const err = await res.json().catch(() => ({}));
-              this.showToast('Failed to track keyword: ' + (err?.error || res.statusText || 'Error'));
-            }
-          } catch (e) {
-            this.showToast('Failed to track keyword: ' + e.message);
-          }
-        },
 
 ${getDashboardSeedActionMethods()}
 

@@ -1008,7 +1008,3 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   return null;
 }
-
-// Backward-compatible router aliases
-export const handleCompetitorsRoutes = handleCreatorsRoutes;
-export const handlePinarchiveRoutes = handleCreatorsRoutes;

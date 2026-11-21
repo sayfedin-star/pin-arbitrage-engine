@@ -20,12 +20,10 @@ Always execute the automated verification suite:
 
 ```bash
 npm run check
-node scripts/audit_ui.mjs
-npm test
-node --test tests/*.mjs
+DATABASE_URL="" npm test
 ```
 
-`npm run check` validates `.mjs` syntax, inline UI script compilation, route structure, SQL schema parity (`verify_sql_schema_parity.mjs`), ESLint (`--max-warnings=0`), and DOM nesting (`verify_dom_nesting.mjs`).
+`npm run check` validates `.mjs` syntax via Acorn, compiles inline `<script>` blocks across all 8 SSR UI views via `vm.Script`, verifies DOM tag balance and Alpine.js `<template x-if>` single-root nesting (`scripts/check-syntax-and-templates.mjs`), and enforces ESLint (`--max-warnings=0`, including `no-unused-vars`).
 
 If any check fails, do NOT proceed. Inspect the failure and resolve root causes.
 
@@ -42,12 +40,12 @@ If any check fails, do NOT proceed. Inspect the failure and resolve root causes.
 - [ ] Unpack numbers explicitly (`Number(entry?.saves ?? 0)` or `null` when unhydrated) and verify `Math.max()` / `Math.round()` cannot receive `NaN`.
 
 ### Checklist 3: SQL Schema Parity (Unified PostgreSQL 16 4-Table SSOT)
-Verify every query and migration against the live 4-Table SSOT schema (`scripts/migrations/060`–`064`):
+Verify every query and migration against the live 4-Table SSOT schema (`scripts/migrations/001`–`007`):
 - [ ] `universal_master_pins`: primary SSOT catalog (`pin_id` PK, `creator_username`, `clean_domain`, `save_count`, `repin_count`, `daily_save_velocity`, `is_hydrated`, `visual_annotations`, `fillfactor = 80`).
 - [ ] `pins_daily_metrics`: daily snapshots (`(pin_id, recorded_date)` PK, `snapshot_date` generated alias, `save_count`, `repin_count`, `comment_count`, `share_count`, `reaction_count`, `daily_save_velocity`, `daily_repin_velocity`).
 - [ ] `keyword_serp_positions`: active + displaced SERP rankings (`(keyword_id, pin_id)` PK, `rank_position`, `is_displaced`, `last_known_rank`, `vacuum_opportunity_score`).
 - [ ] `competitor_board_pins`: lightweight account/board-to-pin relation (`(competitor_id, board_id, pin_id)` PK).
-- [ ] Never reference retired pre-060 tables (`keyword_serp_current`, `keyword_displaced_index`, `pa_pins`, `competitor_pins`, `pin_serp_positions`).
+- [ ] Never reference retired legacy tables (`keyword_serp_current`, `keyword_displaced_index`, `pa_pins`, `pa_pin_metrics`, `pa_qualification_rules`, `keyword_pins_snapshots`, `competitor_pins`, `competitor_related_nodes`, `pin_serp_positions`).
 
 ### Checklist 4: Catch-Swallow & Secret Leak Inspection
 - [ ] Verify no `.catch(() => [])` or `.catch(() => {})` hides SQL syntax or missing-column errors.

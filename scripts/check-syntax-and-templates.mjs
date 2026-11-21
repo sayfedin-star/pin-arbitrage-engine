@@ -5,7 +5,7 @@
  *
  * Unified Fast Offline Static Verifier (Zero DB, Zero Network):
  * 1. Parses 100% of `.mjs` files across `src/`, `scripts/`, `workers/`, and `tests/` via Acorn.
- * 2. Compiles inline `<script>` blocks across all 7 SSR UI page renderers via `new vm.Script`.
+ * 2. Compiles inline `<script>` blocks across all 8 SSR UI page renderers via `new vm.Script`.
  * 3. Verifies balanced `<main>` / `<div>` DOM tags, Campaign Folders Room hierarchy, and
  *    Alpine.js `<template x-if>` single-root element nesting across all SSR views.
  */
@@ -228,7 +228,7 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     new vm.Script(shellCode, { filename: 'pae-shell.js' });
   }
 
-  // 2. Render all 7 SSR UI pages (including folder-scoped variants) with zero DB/network
+  // 2. Render all 8 SSR UI pages (including folder-scoped variants) with zero DB/network
   const foldersSettingsHtml = getCampaignFoldersPageHtml('test_folder_123', 'settings');
   const ssrPages = [
     ['dashboard-ui', getDashboardHtml('test_folder_123')],

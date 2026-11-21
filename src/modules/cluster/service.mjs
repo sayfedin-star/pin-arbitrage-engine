@@ -1010,7 +1010,7 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
   }
 
   if (targetSuggestions.length > 0) {
-    // [INVARIANT: CLOUDFLARE-SUBREQUEST-SHIELD] Bound suggestions to <= 8 terms to prevent subrequest exhaustion
+    // Bound live suggestion lookups to <= 8 terms to keep latency low and avoid Pinterest rate-limiting
     const boundedSuggestions = targetSuggestions.slice(0, 8);
     const suggestionTerms = boundedSuggestions.map(item => 
       typeof item === 'string' ? item : (item.term || item.query || '')

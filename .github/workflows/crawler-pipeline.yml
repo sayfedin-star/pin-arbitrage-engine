@@ -44,7 +44,6 @@ permissions:
   contents: read
 
 env:
-  DATABASE_TOPOLOGY: unified_postgres
   PG_POOL_MAX: '2'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

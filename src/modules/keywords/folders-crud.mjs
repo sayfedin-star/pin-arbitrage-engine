@@ -1014,7 +1014,7 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
  * Sets custom_label (defaulting to 'SERP Auto • ${folder.name}') and tracking_mode = 'pulse_only'.
  * Triggers initial lightweight pulse if options.sync_now === true.
  */
-export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, { env = null, ctx = null } = {}) {
+export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, { ctx = null } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
@@ -1336,7 +1336,7 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
  * Smart Pin Pruning Service (R4)
  * Supports dry-run preview and atomic deletion with keyword_ignored_pins tombstoning and edge cache evictions
  */
-export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } = {}) {
+export async function pruneFolderPins(sql, folderId, options = {}, _context = {}) {
   // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT]
   // Pruning execution tombstones candidate pins to keyword_ignored_pins
   const fid = Number(folderId);
@@ -1430,7 +1430,6 @@ export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } 
 
   const pruneKeywordIds = uniquePairs.map(p => p.keyword_id);
   const prunePinIds = uniquePairs.map(p => p.pin_id);
-  const uniqueKeywordIds = [...new Set(pruneKeywordIds)];
   const uniquePinIds = [...new Set(prunePinIds)];
 
   // A & B. Tombstone in keyword_ignored_pins and delete from keyword_serp_positions using atomic paired UNNEST tuple deletion

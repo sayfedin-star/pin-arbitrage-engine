@@ -45,53 +45,6 @@ export {
   getPinDeepDossier
 } from './serp-dossier-service.mjs';
 
-/**
- * Batch-hydrates slim displaced index rows with creative metadata from universal_master_pins.
- */
-export async function hydrateDisplacedPinsMetadata(sql, indexRows = []) {
-  if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
-  const needsHydration = indexRows.filter(r => !r.title || !r.image_url);
-  if (needsHydration.length === 0 || !sql) return indexRows;
-
-  try {
-    const masterMap = new Map();
-    const missingIds = needsHydration.map(r => String(r.pin_id)).filter(Boolean);
-    if (missingIds.length > 0) {
-      const masterRows = await sql`
-        SELECT ump.pin_id, ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url, ump.creator_username, ump.board_name, ump.dominant_color, COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations, ump.created_at_pinterest
-        FROM universal_master_pins ump
-        WHERE ump.pin_id = ANY(${missingIds}) AND (ump.title <> '' OR ump.image_url <> '')
-        LIMIT 2000;
-      `;
-      for (const hr of (masterRows || [])) {
-        if (hr && (hr.title || hr.image_url)) {
-          masterMap.set(String(hr.pin_id), hr);
-        }
-      }
-    }
-
-    return indexRows.map(row => {
-      const m = masterMap.get(String(row.pin_id));
-      if (!m) return row;
-      return {
-        ...row,
-        title: row.title || m.title || '',
-        domain: row.domain || m.domain || '',
-        destination_url: row.destination_url || m.destination_url || '',
-        image_url: row.image_url || m.image_url || '',
-        creator_username: row.creator_username || m.creator_username || '',
-        board_name: row.board_name || m.board_name || '',
-        dominant_color: row.dominant_color || m.dominant_color || '#888888',
-        visual_annotations: (Array.isArray(row.visual_annotations) && row.visual_annotations.length > 0) ? row.visual_annotations : (m.visual_annotations || []),
-        created_at_pinterest: row.created_at_pinterest || m.created_at_pinterest || null
-      };
-    });
-  } catch (err) {
-    console.warn('[hydrateDisplacedPinsMetadata] Master pins hydration lookup warning:', err?.message || err);
-    return indexRows;
-  }
-}
-
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
 
@@ -189,13 +142,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     if (options.cookie !== undefined) cookie = options.cookie;
   }
 
-  // Fallback to Worker or Cloudflare execution environment secrets if not provided directly
+  // Fallback to runtime environment secrets if not provided directly
   if (!cookie) {
     cookie = options?.env?.PINTEREST_COOKIE || maybeOptions?.env?.PINTEREST_COOKIE || null;
   }
 
   if (options.force) force = Boolean(options.force);
-  const env = options?.env || maybeOptions?.env || null;
 
   // 1. Process-local fast-fail check and lock acquisition
   if (activeKeywordCrawls.has(kid) && !force) {
@@ -563,10 +515,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     let rank = 1;
     let topPin = null;
-    let totalVelocity = 0;
     const pinVelocities = [];
     const todayDate = new Date();
-    const todayUtc = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate());
     const crawlNowIso = todayDate.toISOString();
     let climbedCount = 0;
     let droppedCount = 0;
@@ -732,7 +682,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         // Sanity bound to protect against malicious bot-farm spikes
         velocity = Math.min(velocity, 25000);
         pinVelocities.push(velocity);
-        totalVelocity += velocity;
       }
 
       // Classify pin format & aspect ratio (PinArchive Parity)
@@ -784,8 +733,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         follower_count: Number(item.pinner.follower_count || 0),
         image_small_url: item.pinner.image_small_url || ''
       } : null;
-
-      const comments = confirmedComments;
 
       const createdAt = item.created_at || item.createdAt || null;
       const method = item.method || item.creation_method || item.creationMethod || item.attribution?.provider_name || null;
@@ -962,7 +909,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const breakoutSlice = skipTopEnrich ? [] : preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSlice.includes(p)).slice(0, 10);
     const topToEnrich = [...topSlice, ...breakoutSlice];
     if (topToEnrich.length > 0) {
-      await Promise.allSettled(topToEnrich.map(async (p, idx) => {
+      await Promise.allSettled(topToEnrich.map(async (p) => {
         try {
           const detail = await fetchPinFromPinterest(p.pin_id, cookie);
           const scraped = detail?.pin || detail;
@@ -1419,7 +1366,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         (sql.options && sql.options.max !== undefined)
       );
       const txPayload = isLazyRequired
-        ? txBatch.map(b => (typeof b === 'function' ? b : (db) => b))
+        ? txBatch.map(b => (typeof b === 'function' ? b : () => b))
         : txBatch.map(b => (typeof b === 'function' ? b(sql) : b));
       await sql.transaction(txPayload);
     } else if (typeof sql.begin === 'function') {
@@ -1489,7 +1436,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   if (!kid) throw new Error('Valid keyword ID is required');
 
   const { limit = 500, offset = 0 } = options;
-  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD]
+  // Bound page size to <= 500 displaced pins per query
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
 

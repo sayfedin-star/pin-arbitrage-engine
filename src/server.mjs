@@ -33,7 +33,6 @@ import {
   getCorsHeaders,
   jsonResponse,
   methodNotAllowedResponse,
-  corsOptionsResponse,
   timingSafeEqualStr,
   registerDefaultBackgroundQueue
 } from './http/security-and-response.mjs';
@@ -58,10 +57,6 @@ export function getServerSqlClient(dsn) {
   if (!targetDsn) return null;
   return getSqlClient({ DATABASE_URL: targetDsn });
 }
-
-export const sql = (!isInitialTestEnv && typeof process !== 'undefined' && process.env?.DATABASE_URL)
-  ? getServerSqlClient()
-  : null;
 
 export async function dbHealthCheck(client) {
   const sqlClient = client || getServerSqlClient();
@@ -291,7 +286,6 @@ export function createFastifyApp(customEnv = {}) {
 
   const env = {
     ...process.env,
-    DATABASE_TOPOLOGY: customEnv.DATABASE_TOPOLOGY || process.env.DATABASE_TOPOLOGY || 'unified_postgres',
     SQL_CLIENT: sqlClient,
     DATABASE_URL: resolvedDatabaseUrl,
     ENVIRONMENT: customEnv.ENVIRONMENT || process.env.ENVIRONMENT || (isTestMode ? 'test' : 'development'),
@@ -383,7 +377,7 @@ export function createFastifyApp(customEnv = {}) {
       database: dbStatus,
       database_pool: getPoolStats(currentSql),
       pool: getPoolStats(currentSql),
-      topology: env.DATABASE_TOPOLOGY || 'unified_postgres',
+      topology: 'unified_postgres',
       commit: getGitCommitSha(),
       uptime_seconds: Math.floor(process.uptime()),
       background_queue: {
@@ -620,7 +614,7 @@ export function createFastifyApp(customEnv = {}) {
       return reply.send();
     }
 
-    const webResponse = await requestContextStorage.run(
+    await requestContextStorage.run(
       { request, reply, env, ctx: effectiveCtx, customCtx: externalCustomCtx, origin: dynamicCors['Access-Control-Allow-Origin'] },
       async () => {
         const url = new URL(fullUrl);
@@ -651,8 +645,7 @@ export function createFastifyApp(customEnv = {}) {
           isValidPinId,
           reply
         });
-        if (reply.sent) return reply;
-        if (pageResponse) return pageResponse;
+        if (reply.sent || pageResponse) return reply;
 
         return jsonResponse({
           success: false,
@@ -665,110 +658,10 @@ export function createFastifyApp(customEnv = {}) {
     if (reply.sent) {
       return reply;
     }
-
-    if (webResponse && typeof webResponse === 'object') {
-      if (typeof webResponse.status === 'number') reply.code(webResponse.status);
-      if (webResponse.headers && typeof webResponse.headers === 'object') {
-        if (typeof webResponse.headers.forEach === 'function') {
-          webResponse.headers.forEach((val, key) => {
-            reply.header(key, val);
-          });
-        } else {
-          for (const [key, val] of Object.entries(webResponse.headers)) {
-            if (typeof val !== 'function') reply.header(key, val);
-          }
-        }
-      }
-      if (method === 'HEAD' || webResponse.status === 204 || webResponse.status === 301 || webResponse.status === 302) {
-        return reply.send();
-      }
-      if (webResponse._payload !== undefined) {
-        return reply.send(webResponse._payload);
-      }
-      if (!webResponse.body) {
-        return reply.send();
-      }
-      const text = typeof webResponse.text === 'function' ? await webResponse.text() : String(webResponse.body);
-      return reply.send(text);
-    }
     return reply.send();
   });
 
   return app;
-}
-
-const injectedAppCache = new WeakMap();
-let defaultInjectedAppEntry = null;
-
-function getOrCreateInjectedApp(customEnv) {
-  if (customEnv && typeof customEnv === 'object') {
-    let entry = injectedAppCache.get(customEnv);
-    if (!entry) {
-      const app = createFastifyApp(customEnv);
-      entry = { app, readyPromise: app.ready() };
-      injectedAppCache.set(customEnv, entry);
-    }
-    return entry;
-  }
-  if (!defaultInjectedAppEntry) {
-    const app = createFastifyApp({});
-    defaultInjectedAppEntry = { app, readyPromise: app.ready() };
-  }
-  return defaultInjectedAppEntry;
-}
-
-/**
- * Unified Web-Request <-> Fastify adapter for programmatic callers & test suites.
- */
-export async function handleAppRequest(request, customEnv = {}, customCtx = null) {
-  const { app, readyPromise } = getOrCreateInjectedApp(customEnv);
-  await readyPromise;
-
-  const parsedUrl = new URL(request.url);
-  const headers = {};
-  request.headers.forEach((val, key) => {
-    headers[key] = val;
-  });
-  if (!headers.host) headers.host = parsedUrl.host;
-  if (!headers['x-forwarded-proto']) {
-    headers['x-forwarded-proto'] = parsedUrl.protocol.replace(':', '');
-  }
-
-  const method = (request.method || 'GET').toUpperCase();
-  let payload;
-  if (method !== 'GET' && method !== 'HEAD') {
-    const text = await request.text();
-    if (text) {
-      payload = text;
-    }
-  }
-
-  const runInject = () => app.inject({
-    method,
-    url: `${parsedUrl.pathname}${parsedUrl.search}`,
-    headers,
-    payload
-  });
-
-  const injectRes = customCtx
-    ? await requestContextStorage.run({ customCtx }, runInject)
-    : await runInject();
-
-  const resHeaders = new Headers();
-  for (const [key, val] of Object.entries(injectRes.headers)) {
-    if (val === undefined) continue;
-    if (Array.isArray(val)) {
-      for (const item of val) resHeaders.append(key, String(item));
-    } else {
-      resHeaders.set(key, String(val));
-    }
-  }
-
-  const isNullBodyStatus = method === 'HEAD' || injectRes.statusCode === 204 || injectRes.statusCode === 304;
-  return new Response(isNullBodyStatus ? null : injectRes.rawPayload, {
-    status: injectRes.statusCode,
-    headers: resHeaders
-  });
 }
 
 /**
@@ -892,7 +785,6 @@ if (isDirectExecution) {
 
 export default {
   createFastifyApp,
-  handleAppRequest,
   createServer,
   createRequestListener,
   startServer,
@@ -900,7 +792,6 @@ export default {
   serverBackgroundTaskQueue,
   AsyncTaskQueue,
   getGitCommitSha,
-  sql,
   dbHealthCheck,
   getPoolStats,
   drainSqlClient

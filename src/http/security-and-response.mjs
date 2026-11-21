@@ -406,98 +406,14 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
   return reply.send(responsePayload);
 }
 
-function toCompatHeaders(headers) {
-  const outHeaders = { ...headers };
-  const lowerHeaders = new Map(Object.entries(outHeaders).map(([k, v]) => [k.toLowerCase(), v]));
-  Object.defineProperties(outHeaders, {
-    get: {
-      value: (h) => lowerHeaders.get(String(h).toLowerCase()) ?? null,
-      enumerable: false
-    },
-    forEach: {
-      value: (cb) => {
-        for (const [k, v] of Object.entries(outHeaders)) cb(v, k, outHeaders);
-      },
-      enumerable: false
-    }
-  });
-  return outHeaders;
-}
-
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
   const effectiveReply = reply || store?.reply;
-  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-    return sendJsonResponse(effectiveReply, data, status, cacheSeconds, customCors);
+  if (!effectiveReply || typeof effectiveReply.send !== 'function') {
+    throw new Error('[http] jsonResponse requires an active Fastify reply context.');
   }
-
-  let responsePayload = data;
-
-  // Enforce uniform JSON error schema for HTTP 4xx and 5xx
-  if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
-    if (responsePayload.success === undefined) {
-      responsePayload = { ...responsePayload, success: false };
-    }
-    if (!responsePayload.error) {
-      responsePayload = {
-        ...responsePayload,
-        error: status === 400 ? 'BAD_REQUEST'
-          : status === 401 ? 'UNAUTHORIZED'
-          : status === 403 ? 'FORBIDDEN'
-          : status === 404 ? 'NOT_FOUND'
-          : status === 405 ? 'METHOD_NOT_ALLOWED'
-          : status === 413 ? 'PAYLOAD_TOO_LARGE'
-          : status === 503 ? 'SERVICE_UNAVAILABLE'
-          : 'INTERNAL_SERVER_ERROR'
-      };
-    }
-  }
-
-  // Automatically sanitize any error payloads before sending over the wire
-  if (responsePayload && typeof responsePayload === 'object') {
-    const sanitized = { ...responsePayload };
-    if (typeof sanitized.error === 'string') sanitized.error = redactSecrets(sanitized.error);
-    if (typeof sanitized.message === 'string') sanitized.message = redactSecrets(sanitized.message);
-    responsePayload = sanitized;
-  }
-
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
-
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    ...(resolvedOrigin
-      ? {
-          'Access-Control-Allow-Origin': resolvedOrigin,
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
-          ...(resolvedOrigin !== '*' ? { 'Vary': 'Origin' } : {})
-        }
-      : {}),
-    ...(customCors || {})
-  };
-  const hasExplicitCacheControl = Boolean(
-    customCors && Object.keys(customCors).some(k => k.toLowerCase() === 'cache-control')
-  );
-  if (cacheSeconds <= 0) {
-    if (!hasExplicitCacheControl) {
-      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private';
-      headers['Pragma'] = 'no-cache';
-    }
-  } else if (cacheSeconds > 0) {
-    headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
-  }
-
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    headers: toCompatHeaders(headers),
-    _payload: responsePayload,
-    json: async () => responsePayload,
-    text: async () => JSON.stringify(responsePayload)
-  };
+  if (effectiveReply.sent) return effectiveReply;
+  return sendJsonResponse(effectiveReply, data, status, cacheSeconds, customCors);
 }
 
 export function sendMethodNotAllowedResponse(reply, allow, customCors = null) {
@@ -551,75 +467,11 @@ export function createBoundMethodNotAllowed(reply, origin = null) {
 export function methodNotAllowedResponse(allow, customCors = null, reply = null) {
   const store = requestContextStorage.getStore();
   const effectiveReply = reply || store?.reply;
-  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-    return sendMethodNotAllowedResponse(effectiveReply, allow, customCors);
+  if (!effectiveReply || typeof effectiveReply.send !== 'function') {
+    throw new Error('[http] methodNotAllowedResponse requires an active Fastify reply context.');
   }
-
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] ?? store?.origin ?? null;
-
-  const payload = {
-    success: false,
-    error: 'METHOD_NOT_ALLOWED',
-    message: `HTTP method not allowed. Allowed methods: ${allow}`
-  };
-
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Allow': allow,
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    ...(resolvedOrigin
-      ? {
-          'Access-Control-Allow-Origin': resolvedOrigin,
-          'Access-Control-Allow-Methods': allow,
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
-          ...(resolvedOrigin !== '*' ? { 'Vary': 'Origin' } : {})
-        }
-      : {}),
-    ...(customCors || {})
-  };
-
-  return {
-    ok: false,
-    status: 405,
-    headers: toCompatHeaders(headers),
-    _payload: payload,
-    json: async () => payload,
-    text: async () => JSON.stringify(payload)
-  };
-}
-
-export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, PUT, PATCH, DELETE, OPTIONS', reply = null) {
-  const store = requestContextStorage.getStore();
-  const effectiveReply = reply || store?.reply;
-  const cors = getCorsHeaders(requestOrigin, env);
-  const headers = {
-    ...cors,
-    ...(cors['Access-Control-Allow-Origin']
-      ? {
-          'Access-Control-Allow-Methods': allow,
-          'Access-Control-Max-Age': '86400'
-        }
-      : {})
-  };
-
-  if (effectiveReply && typeof effectiveReply.send === 'function' && !effectiveReply.sent) {
-    effectiveReply.code(204);
-    for (const [k, v] of Object.entries(headers)) {
-      effectiveReply.header(k, v);
-    }
-    return effectiveReply.send();
-  }
-
-  return {
-    ok: true,
-    status: 204,
-    headers: toCompatHeaders(headers),
-    _payload: null,
-    json: async () => null,
-    text: async () => ''
-  };
+  if (effectiveReply.sent) return effectiveReply;
+  return sendMethodNotAllowedResponse(effectiveReply, allow, customCors);
 }
 
 // Operator HTML shells must never be cached in shared CDN/proxy caches across Cookie boundaries.

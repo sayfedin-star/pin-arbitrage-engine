@@ -20,8 +20,6 @@ export {
   CircuitBreakerOpenError,
   PinterestCircuitBreaker,
   globalPinterestCircuitBreaker,
-  PinterestClient,
-  defaultPinterestClient,
   setDefaultDispatcher,
   getDefaultDispatcher,
   pinterestFetch

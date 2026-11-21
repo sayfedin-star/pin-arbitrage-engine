@@ -14,7 +14,7 @@
  * - [INVARIANT: HEADLESS-NODE-SHIELD] (Rule 17: typeof window, localStorage, document guards)
  */
 
-export function renderAppTopbar({
+function renderAppTopbar({
   activeNav: _activeNav = 'overview',
   refreshHandler = 'window.location.reload()',
   isDashboardSpa = false,
