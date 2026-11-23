@@ -202,6 +202,15 @@ export function cleanExternalDomain(domainStr) {
 }
 
 /**
+ * Canonical case-insensitive Linkless Vacuum domain check.
+ * Treats empty/blank domains, 'uploaded by user', 'uploaded-by-user', and 'organic' as linkless.
+ */
+export function isLinklessVacuumDomain(domainStr) {
+  const d = String(domainStr || '').trim().toLowerCase();
+  return !d || d === 'uploaded by user' || d === 'uploaded-by-user' || d === 'organic';
+}
+
+/**
  * Helper to extract title entities / stopword-filtered n-grams
  */
 export function extractTitleKeywords(title = '') {
@@ -234,13 +243,12 @@ export function extractAuthenticRowGains(row, safeNum) {
 /**
  * Deep Algorithmic Crossover Matrix Engine
  * Calculates multi-dimensional overlaps across all keywords in a folder:
- * 1. Multi-Ranking Super-Pins (pins occupying rank positions in >= 2 keywords)
+ * 1. Multi-Ranking Super-Pins (pins occupying rank positions in >= 2 keywords across Active + Vault)
  * 2. Universal Tag Bridges (CV annotations & tags shared across multiple keywords)
  * 3. Shared Guided Pivots (Search capsules that act as semantic connectors)
  * 4. Creator & Domain Monopoly Index (who owns authority across this niche)
- * 5. Composite 52-Week Seasonality Wave & Optimal Launch Calendar
- * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
- * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
+ * 5. Composite 52-Week Seasonality Wave & Optimal Launch Calendar (when trends exist)
+ * 6. Fast edge caching (10m TTL) with ?refresh=true bypass, 15s cooldown notice, and inflight coalescing
  */
 export async function calculateFolderCrossover(sql, folderId, { refresh = false, workspaceId = null } = {}) {
   const fid = Number(folderId);
@@ -248,17 +256,19 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
 
   const key = buildFolderCacheKey(fid, workspaceId);
   let effectiveRefresh = Boolean(refresh);
+  let cooldownServed = false;
 
   // [INVARIANT: FOLDER-FORCE-REFRESH-COOLDOWN]
   // 15-second per-folder in-memory cooldown on forced ?refresh=true requests
   if (effectiveRefresh && folderForceRefreshCooldown.has(key)) {
     effectiveRefresh = false;
+    cooldownServed = true;
   }
 
   if (!effectiveRefresh) {
     const cached = crossoverCache.get(key);
-    if (cached && cached._crossover_schema_v === 6) {
-      return cached;
+    if (cached && cached._crossover_schema_v === 7) {
+      return cooldownServed ? { ...cached, cooldown_cached: true } : cached;
     }
   }
 
@@ -273,7 +283,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       {
         ttlMs: CROSSOVER_TTL_MS,
         forceRefresh: effectiveRefresh,
-        shouldCache: (val) => Boolean(val && val._crossover_schema_v === 6)
+        shouldCache: (val) => Boolean(val && val._crossover_schema_v === 7)
       }
     );
   } catch (err) {
@@ -281,6 +291,188 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
       folderForceRefreshCooldown.delete(key);
     }
     throw err;
+  }
+}
+
+function isMissingFirstSeenColumnError(err) {
+  const code = err?.code || err?.cause?.code;
+  const msg = String(err?.message || err?.cause?.message || '');
+  return code === '42703' && /first_seen_at/i.test(msg);
+}
+
+async function queryAggregatedFolderPins(sql, fid) {
+  const runAggQuery = (withFirstSeen) => {
+    if (withFirstSeen) {
+      return sql`
+        WITH folder_positions AS (
+          SELECT
+            c.pin_id,
+            c.keyword_id,
+            tk.keyword AS keyword_text,
+            CASE
+              WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
+              ELSE c.rank_position
+            END AS rank_position,
+            COALESCE(c.is_displaced, FALSE) AS is_displaced,
+            c.crawled_at,
+            c.updated_at AS snapshot_date,
+            c.first_seen_at AS pin_first_seen_at,
+            i.added_at AS folder_added_at
+          FROM keyword_folder_items i
+          JOIN tracked_keywords tk ON tk.id = i.keyword_id
+          JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+          WHERE i.folder_id = ${fid}
+            AND (
+              (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
+              OR (c.is_displaced IS TRUE AND COALESCE(c.last_known_rank, c.rank_position) IS NOT NULL AND COALESCE(c.last_known_rank, c.rank_position) >= 1)
+            )
+        ),
+        pin_agg AS (
+          SELECT
+            fp.pin_id,
+            BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
+            BOOL_OR(fp.is_displaced) AS has_vault_rank,
+            MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
+            MIN(fp.folder_added_at) AS folder_added_at,
+            MAX(fp.crawled_at) AS crawled_at,
+            MAX(fp.snapshot_date) AS snapshot_date,
+            JSONB_AGG(
+              JSONB_BUILD_OBJECT(
+                'keyword_id', fp.keyword_id,
+                'keyword', fp.keyword_text,
+                'rank_position', fp.rank_position,
+                'is_displaced', fp.is_displaced
+              )
+              ORDER BY fp.is_displaced ASC, fp.rank_position ASC
+            ) AS rankings
+          FROM folder_positions fp
+          GROUP BY fp.pin_id
+        )
+        SELECT
+          pa.pin_id,
+          pa.has_active_rank,
+          pa.has_vault_rank,
+          pa.pin_first_seen_at,
+          pa.folder_added_at,
+          pa.crawled_at,
+          pa.snapshot_date,
+          pa.rankings,
+          ump.title,
+          COALESCE(ump.clean_domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          ump.creator_username,
+          ump.board_name,
+          ump.dominant_color,
+          COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+          ump.creation_method,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.delta_repins_24h,
+          ump.gains_5d,
+          ump.gains_7d,
+          ump.gains_10d,
+          ump.gains_15d,
+          ump.created_at_pinterest,
+          (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+          (ump.metadata->>'format') AS format,
+          (ump.metadata->>'seo_title') AS seo_title
+        FROM pin_agg pa
+        JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
+        ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
+      `;
+    }
+    return sql`
+      WITH folder_positions AS (
+        SELECT
+          c.pin_id,
+          c.keyword_id,
+          tk.keyword AS keyword_text,
+          CASE
+            WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
+            ELSE c.rank_position
+          END AS rank_position,
+          COALESCE(c.is_displaced, FALSE) AS is_displaced,
+          c.crawled_at,
+          c.updated_at AS snapshot_date,
+          NULL::timestamptz AS pin_first_seen_at,
+          i.added_at AS folder_added_at
+        FROM keyword_folder_items i
+        JOIN tracked_keywords tk ON tk.id = i.keyword_id
+        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+        WHERE i.folder_id = ${fid}
+          AND (
+            (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
+            OR (c.is_displaced IS TRUE AND COALESCE(c.last_known_rank, c.rank_position) IS NOT NULL AND COALESCE(c.last_known_rank, c.rank_position) >= 1)
+          )
+      ),
+      pin_agg AS (
+        SELECT
+          fp.pin_id,
+          BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
+          BOOL_OR(fp.is_displaced) AS has_vault_rank,
+          MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
+          MIN(fp.folder_added_at) AS folder_added_at,
+          MAX(fp.crawled_at) AS crawled_at,
+          MAX(fp.snapshot_date) AS snapshot_date,
+          JSONB_AGG(
+            JSONB_BUILD_OBJECT(
+              'keyword_id', fp.keyword_id,
+              'keyword', fp.keyword_text,
+              'rank_position', fp.rank_position,
+              'is_displaced', fp.is_displaced
+            )
+            ORDER BY fp.is_displaced ASC, fp.rank_position ASC
+          ) AS rankings
+        FROM folder_positions fp
+        GROUP BY fp.pin_id
+      )
+      SELECT
+        pa.pin_id,
+        pa.has_active_rank,
+        pa.has_vault_rank,
+        pa.pin_first_seen_at,
+        pa.folder_added_at,
+        pa.crawled_at,
+        pa.snapshot_date,
+        pa.rankings,
+        ump.title,
+        COALESCE(ump.clean_domain, '') AS domain,
+        ump.destination_url,
+        ump.image_url,
+        ump.creator_username,
+        ump.board_name,
+        ump.dominant_color,
+        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+        ump.creation_method,
+        ump.save_count,
+        ump.repin_count,
+        ump.comment_count,
+        ump.daily_save_velocity,
+        ump.daily_repin_velocity,
+        ump.delta_repins_24h,
+        ump.gains_5d,
+        ump.gains_7d,
+        ump.gains_10d,
+        ump.gains_15d,
+        ump.created_at_pinterest,
+        (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+        (ump.metadata->>'format') AS format,
+        (ump.metadata->>'seo_title') AS seo_title
+      FROM pin_agg pa
+      JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
+      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
+    `;
+  };
+
+  try {
+    return await runAggQuery(true);
+  } catch (err) {
+    if (!isMissingFirstSeenColumnError(err)) throw err;
+    return await runAggQuery(false);
   }
 }
 
@@ -314,188 +506,42 @@ async function _executeFolderCrossover(sql, fid) {
 
   if (totalKeywords === 0) {
     return {
+      _crossover_schema_v: 7,
       folder,
       summary: {
         total_keywords: 0,
         total_unique_pins: 0,
         super_pins_count: 0,
         vacuum_pins_count: 0,
+        breakout_baby_domains_count: 0,
         universal_tags_count: 0,
         shared_pivots_count: 0,
-        monopoly_domain_count: 0
+        monopoly_domain_count: 0,
+        competitor_audience_gains: { '24h': 0, '7d': 0, 'all': 0, matched_creators_count: 0 }
       },
       super_pins: [],
+      all_pins: [],
       tag_bridges: [],
       guided_pivots: [],
+      dominant_colors: [],
       domain_monopoly: [],
-      creator_monopoly: [],
+      top_creators: [],
       seasonality: {
+        status: 'insufficient_data',
         composite_wave: [],
+        rolling_months: [],
         peak_months: [],
-        recommended_launch_window: 'Add keywords to see launch window'
+        recommended_launch_window: 'Add keywords to see launch window',
+        trends_loaded_count: 0
       },
       topic_cluster_blueprint: null
     };
   }
 
-  // 2. Query Live Active Catalog & Vault from keyword_serp_positions in a single parallel pass
+  // 2. Query aggregated unique pins (active + vault, zero LIMIT truncation), capsules, and per-pin rolling repin gains in parallel
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
-  let [pinRows, displacedRows, capsuleRows, repinWindowRows] = await Promise.all([
-    sql`
-      WITH ranked_active AS (
-        SELECT
-          c.keyword_id,
-          c.pin_id,
-          c.rank_position,
-          ump.title,
-          COALESCE(ump.clean_domain, '') AS domain,
-          ump.destination_url,
-          ump.image_url,
-          ump.creator_username,
-          ump.board_name,
-          ump.dominant_color,
-          COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-          ump.creation_method,
-          ump.save_count,
-          ump.repin_count,
-          ump.comment_count,
-          ump.daily_save_velocity,
-          ump.daily_repin_velocity,
-          ump.delta_repins_24h,
-          ump.gains_5d,
-          ump.gains_7d,
-          ump.gains_10d,
-          ump.gains_15d,
-          ump.created_at_pinterest,
-          c.crawled_at,
-          c.updated_at AS snapshot_date,
-          (ump.metadata->>'aspect_ratio') AS aspect_ratio,
-          (ump.metadata->>'format') AS format,
-          (ump.metadata->>'seo_title') AS seo_title,
-          tk.keyword AS keyword_text,
-          i.added_at AS folder_added_at,
-          ROW_NUMBER() OVER (PARTITION BY c.pin_id ORDER BY ump.save_count DESC NULLS LAST, ump.daily_save_velocity DESC NULLS LAST) AS pin_rn
-        FROM keyword_folder_items i
-        JOIN tracked_keywords tk ON tk.id = i.keyword_id
-        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
-        JOIN universal_master_pins ump ON ump.pin_id = c.pin_id
-        WHERE i.folder_id = ${fid}
-          AND c.is_displaced IS FALSE
-          AND c.rank_position IS NOT NULL
-          AND c.rank_position >= 1
-      )
-      SELECT
-        ra.keyword_id,
-        ra.pin_id,
-        ra.rank_position,
-        ra.title,
-        ra.domain,
-        ra.destination_url,
-        ra.image_url,
-        ra.creator_username,
-        ra.board_name,
-        ra.dominant_color,
-        ra.visual_annotations,
-        ra.creation_method,
-        ra.save_count,
-        ra.repin_count,
-        ra.comment_count,
-        ra.daily_save_velocity,
-        ra.daily_repin_velocity,
-        ra.delta_repins_24h,
-        ra.gains_5d,
-        ra.gains_7d,
-        ra.gains_10d,
-        ra.gains_15d,
-        ra.created_at_pinterest,
-        ra.crawled_at,
-        ra.snapshot_date,
-        ra.aspect_ratio,
-        ra.format,
-        ra.seo_title,
-        ra.keyword_text,
-        ra.folder_added_at
-      FROM ranked_active ra
-      ORDER BY ra.pin_rn ASC, ra.save_count DESC NULLS LAST, ra.daily_save_velocity DESC NULLS LAST
-      LIMIT 2500;
-    `,
-    sql`
-      WITH active_pin_ids AS (
-        SELECT DISTINCT c.pin_id
-        FROM keyword_folder_items i
-        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
-        WHERE i.folder_id = ${fid}
-          AND c.is_displaced IS FALSE
-          AND c.rank_position IS NOT NULL
-          AND c.rank_position >= 1
-      ),
-      folder_kdi AS (
-        SELECT
-          kdi.keyword_id,
-          kdi.pin_id,
-          COALESCE(kdi.last_known_rank, kdi.rank_position) AS rank_position,
-          COALESCE(ump.clean_domain, '') AS domain,
-          COALESCE(ump.creator_username, '') AS creator_username,
-          ump.title,
-          ump.image_url,
-          ump.destination_url,
-          COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-          ump.created_at_pinterest,
-          ump.save_count,
-          ump.repin_count,
-          ump.comment_count,
-          ump.daily_save_velocity,
-          ump.daily_repin_velocity,
-          ump.delta_repins_24h,
-          ump.gains_5d,
-          ump.gains_7d,
-          ump.gains_10d,
-          ump.gains_15d,
-          kdi.updated_at AS snapshot_date,
-          tk.keyword AS keyword_text,
-          i.added_at AS folder_added_at,
-          TRUE AS is_displaced,
-          (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) AS in_active_serp,
-          ROW_NUMBER() OVER (
-            PARTITION BY kdi.pin_id
-            ORDER BY (kdi.pin_id IN (SELECT pin_id FROM active_pin_ids)) DESC, ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
-          ) AS pin_rn
-        FROM keyword_folder_items i
-        JOIN tracked_keywords tk ON tk.id = i.keyword_id
-        JOIN keyword_serp_positions kdi ON kdi.keyword_id = i.keyword_id
-        JOIN universal_master_pins ump ON ump.pin_id = kdi.pin_id
-        WHERE i.folder_id = ${fid}
-          AND kdi.is_displaced IS TRUE
-      )
-      SELECT
-        keyword_id,
-        pin_id,
-        rank_position,
-        title,
-        image_url,
-        destination_url,
-        visual_annotations,
-        created_at_pinterest,
-        domain,
-        creator_username,
-        save_count,
-        repin_count,
-        comment_count,
-        daily_save_velocity,
-        daily_repin_velocity,
-        delta_repins_24h,
-        gains_5d,
-        gains_7d,
-        gains_10d,
-        gains_15d,
-        snapshot_date,
-        keyword_text,
-        folder_added_at,
-        is_displaced
-      FROM folder_kdi
-      ORDER BY pin_rn ASC, in_active_serp DESC, daily_save_velocity DESC NULLS LAST, save_count DESC NULLS LAST
-      LIMIT 2500;
-    `,
+  let [pinRows, capsuleRows, repinWindowRows] = await Promise.all([
+    queryAggregatedFolderPins(sql, fid),
     sql`
       SELECT 
         c.id,
@@ -547,74 +593,65 @@ async function _executeFolderCrossover(sql, fid) {
           (ARRAY_AGG(pm.save_count ORDER BY pm.recorded_date DESC) FILTER (WHERE pm.recorded_date <= pm.latest_date - INTERVAL '15 days'))[1] AS base_saves_15d
         FROM pin_metrics pm
         GROUP BY pm.pin_id, pm.latest_repins, pm.latest_saves, pm.latest_date
-      ),
-      repin_deltas AS (
-        SELECT
-          pb.pin_id,
-          CASE
-            WHEN pb.base_repins_5d IS NULL THEN 0
-            WHEN pb.base_repins_5d <= 0 AND pb.latest_repins >= 10 THEN 0
-            WHEN pb.base_repins_5d > 0 AND pb.base_repins_5d < 100
-              AND (pb.latest_repins - pb.base_repins_5d) >= 500
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_5d) < (pb.latest_repins - pb.base_repins_5d) * 0.25 THEN 0
-            WHEN pb.base_repins_5d > 0
-              AND pb.latest_repins >= pb.base_repins_5d * 4
-              AND (pb.latest_repins - pb.base_repins_5d) >= 200
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_5d) < (pb.latest_repins - pb.base_repins_5d) * 0.15 THEN 0
-            ELSE GREATEST(0, pb.latest_repins - pb.base_repins_5d)
-          END AS repins_5d,
-          CASE
-            WHEN pb.base_repins_7d IS NULL THEN 0
-            WHEN pb.base_repins_7d <= 0 AND pb.latest_repins >= 10 THEN 0
-            WHEN pb.base_repins_7d > 0 AND pb.base_repins_7d < 100
-              AND (pb.latest_repins - pb.base_repins_7d) >= 500
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_7d) < (pb.latest_repins - pb.base_repins_7d) * 0.25 THEN 0
-            WHEN pb.base_repins_7d > 0
-              AND pb.latest_repins >= pb.base_repins_7d * 4
-              AND (pb.latest_repins - pb.base_repins_7d) >= 200
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_7d) < (pb.latest_repins - pb.base_repins_7d) * 0.15 THEN 0
-            ELSE GREATEST(0, pb.latest_repins - pb.base_repins_7d)
-          END AS repins_7d,
-          CASE
-            WHEN pb.base_repins_10d IS NULL THEN 0
-            WHEN pb.base_repins_10d <= 0 AND pb.latest_repins >= 10 THEN 0
-            WHEN pb.base_repins_10d > 0 AND pb.base_repins_10d < 100
-              AND (pb.latest_repins - pb.base_repins_10d) >= 500
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_10d) < (pb.latest_repins - pb.base_repins_10d) * 0.25 THEN 0
-            WHEN pb.base_repins_10d > 0
-              AND pb.latest_repins >= pb.base_repins_10d * 4
-              AND (pb.latest_repins - pb.base_repins_10d) >= 200
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_10d) < (pb.latest_repins - pb.base_repins_10d) * 0.15 THEN 0
-            ELSE GREATEST(0, pb.latest_repins - pb.base_repins_10d)
-          END AS repins_10d,
-          CASE
-            WHEN pb.base_repins_15d IS NULL THEN 0
-            WHEN pb.base_repins_15d <= 0 AND pb.latest_repins >= 10 THEN 0
-            WHEN pb.base_repins_15d > 0 AND pb.base_repins_15d < 100
-              AND (pb.latest_repins - pb.base_repins_15d) >= 500
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_15d) < (pb.latest_repins - pb.base_repins_15d) * 0.25 THEN 0
-            WHEN pb.base_repins_15d > 0
-              AND pb.latest_repins >= pb.base_repins_15d * 4
-              AND (pb.latest_repins - pb.base_repins_15d) >= 200
-              AND GREATEST(0, pb.latest_saves - pb.base_saves_15d) < (pb.latest_repins - pb.base_repins_15d) * 0.15 THEN 0
-            ELSE GREATEST(0, pb.latest_repins - pb.base_repins_15d)
-          END AS repins_15d
-        FROM pin_baselines pb
       )
       SELECT
-        COALESCE(SUM(repins_5d), 0)::bigint AS repins_5d,
-        COALESCE(SUM(repins_7d), 0)::bigint AS repins_7d,
-        COALESCE(SUM(repins_10d), 0)::bigint AS repins_10d,
-        COALESCE(SUM(repins_15d), 0)::bigint AS repins_15d
-      FROM repin_deltas;
+        pb.pin_id,
+        CASE
+          WHEN pb.base_repins_5d IS NULL THEN NULL
+          WHEN pb.base_repins_5d <= 0 AND pb.latest_repins >= 10 THEN 0
+          WHEN pb.base_repins_5d > 0 AND pb.base_repins_5d < 100
+            AND (pb.latest_repins - pb.base_repins_5d) >= 500
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_5d) < (pb.latest_repins - pb.base_repins_5d) * 0.25 THEN 0
+          WHEN pb.base_repins_5d > 0
+            AND pb.latest_repins >= pb.base_repins_5d * 4
+            AND (pb.latest_repins - pb.base_repins_5d) >= 200
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_5d) < (pb.latest_repins - pb.base_repins_5d) * 0.15 THEN 0
+          ELSE GREATEST(0, pb.latest_repins - pb.base_repins_5d)
+        END AS repins_5d,
+        CASE
+          WHEN pb.base_repins_7d IS NULL THEN NULL
+          WHEN pb.base_repins_7d <= 0 AND pb.latest_repins >= 10 THEN 0
+          WHEN pb.base_repins_7d > 0 AND pb.base_repins_7d < 100
+            AND (pb.latest_repins - pb.base_repins_7d) >= 500
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_7d) < (pb.latest_repins - pb.base_repins_7d) * 0.25 THEN 0
+          WHEN pb.base_repins_7d > 0
+            AND pb.latest_repins >= pb.base_repins_7d * 4
+            AND (pb.latest_repins - pb.base_repins_7d) >= 200
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_7d) < (pb.latest_repins - pb.base_repins_7d) * 0.15 THEN 0
+          ELSE GREATEST(0, pb.latest_repins - pb.base_repins_7d)
+        END AS repins_7d,
+        CASE
+          WHEN pb.base_repins_10d IS NULL THEN NULL
+          WHEN pb.base_repins_10d <= 0 AND pb.latest_repins >= 10 THEN 0
+          WHEN pb.base_repins_10d > 0 AND pb.base_repins_10d < 100
+            AND (pb.latest_repins - pb.base_repins_10d) >= 500
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_10d) < (pb.latest_repins - pb.base_repins_10d) * 0.25 THEN 0
+          WHEN pb.base_repins_10d > 0
+            AND pb.latest_repins >= pb.base_repins_10d * 4
+            AND (pb.latest_repins - pb.base_repins_10d) >= 200
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_10d) < (pb.latest_repins - pb.base_repins_10d) * 0.15 THEN 0
+          ELSE GREATEST(0, pb.latest_repins - pb.base_repins_10d)
+        END AS repins_10d,
+        CASE
+          WHEN pb.base_repins_15d IS NULL THEN NULL
+          WHEN pb.base_repins_15d <= 0 AND pb.latest_repins >= 10 THEN 0
+          WHEN pb.base_repins_15d > 0 AND pb.base_repins_15d < 100
+            AND (pb.latest_repins - pb.base_repins_15d) >= 500
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_15d) < (pb.latest_repins - pb.base_repins_15d) * 0.25 THEN 0
+          WHEN pb.base_repins_15d > 0
+            AND pb.latest_repins >= pb.base_repins_15d * 4
+            AND (pb.latest_repins - pb.base_repins_15d) >= 200
+            AND GREATEST(0, pb.latest_saves - pb.base_saves_15d) < (pb.latest_repins - pb.base_repins_15d) * 0.15 THEN 0
+          ELSE GREATEST(0, pb.latest_repins - pb.base_repins_15d)
+        END AS repins_15d
+      FROM pin_baselines pb;
     `.catch((err) => {
       console.warn(`[calculateFolderCrossover] Rolling repin window query warning for folder ${fid}:`, err?.message || err);
-      return [{ repins_5d: 0, repins_7d: 0, repins_10d: 0, repins_15d: 0 }];
+      return [];
     })
   ]);
 
   if (!pinRows) pinRows = [];
-  if (!displacedRows) displacedRows = [];
   if (!capsuleRows) capsuleRows = [];
   if (!repinWindowRows) repinWindowRows = [];
 
@@ -624,7 +661,7 @@ async function _executeFolderCrossover(sql, fid) {
     folderKeywords,
     totalKeywords,
     pinRows,
-    displacedRows,
+    displacedRows: [],
     capsuleRows,
     repinWindowRows
   });

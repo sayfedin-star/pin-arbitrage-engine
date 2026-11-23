@@ -145,16 +145,18 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
               </template>
             </div>
 
-            <!-- Campaign Folder Filter Dropdown -->
-            <div class="flex items-center gap-1.5 text-xs">
-              <span class="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 font-mono tabular-nums"><i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i><span>Folder:</span></span>
-              <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
-                <option value="">All Folders</option>
-                <template x-for="f in foldersList" :key="f.id">
-                  <option :value="String(f.id)" :selected="String(f.id) === String(folderFilter || scopedFolderId)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
-                </template>
-              </select>
-            </div>
+            <!-- Campaign Folder Filter Dropdown (hidden when already scoped to a Campaign Workspace) -->
+            <template x-if="!scopedFolderId">
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 font-mono tabular-nums"><i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i><span>Folder:</span></span>
+                <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
+                  <option value="">All Folders</option>
+                  <template x-for="f in foldersList" :key="f.id">
+                    <option :value="String(f.id)" :selected="String(f.id) === String(folderFilter || scopedFolderId)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
+                  </template>
+                </select>
+              </div>
+            </template>
 
             <!-- Sort Selector -->
             <div class="flex items-center gap-1.5 text-xs">

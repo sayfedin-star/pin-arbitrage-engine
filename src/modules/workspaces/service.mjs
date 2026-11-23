@@ -992,8 +992,18 @@ export async function syncCampaignTopNSerpPins(sql, { folderId, workspaceId, top
     .filter((id) => /^\d{6,30}$/.test(id));
 
   if (pinIds.length === 0) {
+    const staleRows = await sql`
+      UPDATE campaign_tracked_pins
+      SET is_active = FALSE, updated_at = NOW()
+      WHERE folder_id = ${fid}
+        AND workspace_id = ${wid}
+        AND source_type = 'search'
+        AND is_active = TRUE
+      RETURNING pin_id;
+    `;
     return {
       synced: 0,
+      deactivated: Array.isArray(staleRows) ? staleRows.length : 0,
       top_n: cleanTopN,
       folder_id: fid,
       workspace_id: wid,
@@ -1009,8 +1019,20 @@ export async function syncCampaignTopNSerpPins(sql, { folderId, workspaceId, top
     sourceRef: `serp_top_${cleanTopN}`
   });
 
+  const staleRows = await sql`
+    UPDATE campaign_tracked_pins
+    SET is_active = FALSE, updated_at = NOW()
+    WHERE folder_id = ${fid}
+      AND workspace_id = ${wid}
+      AND source_type = 'search'
+      AND is_active = TRUE
+      AND NOT (pin_id = ANY(${pinIds}::text[]))
+    RETURNING pin_id;
+  `;
+
   return {
     synced: res.added,
+    deactivated: Array.isArray(staleRows) ? staleRows.length : 0,
     top_n: cleanTopN,
     folder_id: fid,
     workspace_id: wid,

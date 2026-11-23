@@ -70,6 +70,11 @@ export function getFoldersClientAppScript() {
           keyword_ids: []
         },
 
+        isLinklessVacuumDomain(domainStr) {
+          const d = String(domainStr || '').trim().toLowerCase();
+          return !d || d === 'uploaded by user' || d === 'uploaded-by-user' || d === 'organic';
+        },
+
         getSelectedWindowLabel() {
           const map = {
             '24h': '24h Velocity',
@@ -83,51 +88,85 @@ export function getFoldersClientAppScript() {
         },
 
         getPinWindowGain(sp) {
-          if (!sp) return 0;
+          if (!sp) return null;
           const win = this.selectedTimeWindow;
-          const d24 = Number(sp.effective_velocity ?? sp.delta_saves_24h ?? sp.daily_save_velocity ?? 0);
-          if (win === '24h') return Math.max(0, Math.round(d24));
-          if (win === '5d') return Math.max(0, Math.round(sp.gains_5d != null ? Number(sp.gains_5d) : (Number(sp.daily_save_velocity || d24) * 5)));
-          if (win === '7d') return Math.max(0, Math.round(sp.gains_7d != null ? Number(sp.gains_7d) : (Number(sp.daily_save_velocity || d24) * 7)));
-          if (win === '10d') return Math.max(0, Math.round(sp.gains_10d != null ? Number(sp.gains_10d) : (Number(sp.daily_save_velocity || d24) * 10)));
-          if (win === '15d') return Math.max(0, Math.round(sp.gains_15d != null ? Number(sp.gains_15d) : (Number(sp.daily_save_velocity || d24) * 15)));
+          if (win === '24h') {
+            const d24 = Number(sp.effective_velocity ?? sp.delta_saves_24h ?? sp.daily_save_velocity ?? 0);
+            return Math.max(0, Math.round(d24));
+          }
+          if (win === '5d') return sp.gains_5d != null && Number.isFinite(Number(sp.gains_5d)) ? Math.max(0, Math.round(Number(sp.gains_5d))) : null;
+          if (win === '7d') return sp.gains_7d != null && Number.isFinite(Number(sp.gains_7d)) ? Math.max(0, Math.round(Number(sp.gains_7d))) : null;
+          if (win === '10d') return sp.gains_10d != null && Number.isFinite(Number(sp.gains_10d)) ? Math.max(0, Math.round(Number(sp.gains_10d))) : null;
+          if (win === '15d') return sp.gains_15d != null && Number.isFinite(Number(sp.gains_15d)) ? Math.max(0, Math.round(Number(sp.gains_15d))) : null;
           return Math.max(0, Math.round(Number(sp.save_count || 0)));
         },
 
         getPinWindowRepins(sp) {
-          if (!sp) return 0;
+          if (!sp) return null;
           const win = this.selectedTimeWindow;
           if (win === 'all') return Math.max(0, Math.round(Number(sp.repin_count || 0)));
-          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 1;
-          return Math.max(0, Math.round(Number(sp.delta_repins_24h || sp.daily_repin_velocity || 0) * mult));
+          if (win === '24h') return Math.max(0, Math.round(Number(sp.delta_repins_24h ?? sp.daily_repin_velocity ?? 0)));
+          if (win === '5d') return sp.repins_gains_5d != null && Number.isFinite(Number(sp.repins_gains_5d)) ? Math.max(0, Math.round(Number(sp.repins_gains_5d))) : null;
+          if (win === '7d') return sp.repins_gains_7d != null && Number.isFinite(Number(sp.repins_gains_7d)) ? Math.max(0, Math.round(Number(sp.repins_gains_7d))) : null;
+          if (win === '10d') return sp.repins_gains_10d != null && Number.isFinite(Number(sp.repins_gains_10d)) ? Math.max(0, Math.round(Number(sp.repins_gains_10d))) : null;
+          if (win === '15d') return sp.repins_gains_15d != null && Number.isFinite(Number(sp.repins_gains_15d)) ? Math.max(0, Math.round(Number(sp.repins_gains_15d))) : null;
+          return null;
         },
 
         formatPinWindowPrimary(sp) {
           const gain = this.getPinWindowGain(sp);
+          if (gain === null) return '—';
           if (this.selectedTimeWindow === '24h') return '+' + this.formatNumber(gain) + '/d';
           if (this.selectedTimeWindow === 'all') return this.formatNumber(gain) + ' saves';
           return '+' + this.formatNumber(gain) + ' (' + this.selectedTimeWindow + ')';
         },
 
         get clusterWindowSavesGains() {
+          const win = this.selectedTimeWindow;
+          const summaryWin = this.crossoverData?.summary?.multi_window_gains?.[win];
+          if (summaryWin && summaryWin.saves !== undefined && summaryWin.saves !== null && Number.isFinite(Number(summaryWin.saves))) {
+            if (win !== '24h' && win !== 'all' && summaryWin.saves_coverage === 0) {
+              return null;
+            }
+            return Math.max(0, Math.round(Number(summaryWin.saves)));
+          }
           const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
-          if (!pins.length) return 0;
-          return pins.reduce((sum, p) => sum + this.getPinWindowGain(p), 0);
+          if (!pins.length) return (win !== '24h' && win !== 'all') ? null : 0;
+          let sum = 0;
+          let covered = 0;
+          for (const p of pins) {
+            const g = this.getPinWindowGain(p);
+            if (g !== null) {
+              sum += g;
+              covered++;
+            }
+          }
+          if (win !== '24h' && win !== 'all' && covered === 0) return null;
+          return sum;
         },
 
         get clusterWindowRepinsGains() {
           const win = this.selectedTimeWindow;
-          const sqlSummaryRepins = this.crossoverData?.summary?.multi_window_gains?.[win]?.repins;
-          if (sqlSummaryRepins !== undefined && sqlSummaryRepins !== null && Number.isFinite(Number(sqlSummaryRepins))) {
-            return Math.max(0, Math.round(Number(sqlSummaryRepins)));
+          const summaryWin = this.crossoverData?.summary?.multi_window_gains?.[win];
+          if (summaryWin && summaryWin.repins !== undefined && summaryWin.repins !== null && Number.isFinite(Number(summaryWin.repins))) {
+            if (win !== '24h' && win !== 'all' && summaryWin.repins_coverage === 0) {
+              return null;
+            }
+            return Math.max(0, Math.round(Number(summaryWin.repins)));
           }
           const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
-          if (!pins.length) return 0;
-          if (win === 'all') {
-            return Math.round(pins.reduce((sum, p) => sum + Number(p.repin_count || 0), 0));
+          if (!pins.length) return (win !== '24h' && win !== 'all') ? null : 0;
+          let sum = 0;
+          let covered = 0;
+          for (const p of pins) {
+            const r = this.getPinWindowRepins(p);
+            if (r !== null) {
+              sum += r;
+              covered++;
+            }
           }
-          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 1;
-          return Math.round(pins.reduce((sum, p) => sum + (Number(p.delta_repins_24h || p.daily_repin_velocity || 0) * mult), 0));
+          if (win !== '24h' && win !== 'all' && covered === 0) return null;
+          return sum;
         },
 
         get clusterAvgVelocity() {
@@ -138,21 +177,23 @@ export function getFoldersClientAppScript() {
         },
 
         get clusterCompetitorAudienceGains() {
+          const win = this.selectedTimeWindow;
+          // Competitor reach snapshots are authentically tracked on 24h, 7d, and All-Time windows only (no fake linear interpolation)
+          if (win === '5d' || win === '10d' || win === '15d') {
+            return null;
+          }
+          const fullRollup = this.crossoverData?.summary?.competitor_audience_gains;
+          if (fullRollup && fullRollup[win] !== undefined && fullRollup[win] !== null && Number.isFinite(Number(fullRollup[win]))) {
+            return Math.max(0, Math.round(Number(fullRollup[win])));
+          }
           const creators = this.crossoverData?.top_creators || [];
           if (!creators.length) return 0;
-          const win = this.selectedTimeWindow;
           return creators.reduce((sum, c) => {
-            const d24 = Number(c.delta_reach_24h ?? c.delta_monthly_reach ?? 0);
-            const d7 = Number(c.reach_delta_7d ?? (d24 > 0 ? d24 * 7 : 0));
-            const d30 = Number(c.delta_audience_30d ?? c.delta_monthly_reach ?? (d7 > 0 ? Math.round((d7 / 7) * 30) : 0));
             let val = 0;
-            if (win === '24h') val = d24;
-            else if (win === '5d') val = Math.round((d7 / 7) * 5);
-            else if (win === '7d') val = d7;
-            else if (win === '10d') val = Math.round((d7 / 7) * 10);
-            else if (win === '15d') val = Math.round((d7 / 7) * 15);
-            else val = d30 || Number(c.monthly_reach || 0);
-            return sum + Math.max(0, val);
+            if (win === '24h') val = Number(c.delta_reach_24h ?? c.delta_monthly_reach ?? 0);
+            else if (win === '7d') val = Number(c.reach_delta_7d ?? 0);
+            else val = Number(c.monthly_reach ?? c.delta_audience_30d ?? 0);
+            return sum + Math.max(0, Number.isFinite(val) ? val : 0);
           }, 0);
         },
 
@@ -557,28 +598,6 @@ export function getFoldersClientAppScript() {
         _cachedFilteredPins: null,
         powerPairs: [],
         powerTriplets: [],
-        powerPairsView: 'cards',
-        powerPairsLimit: 12,
-        powerPairsSearch: '',
-        powerPairsSort: 'freq_desc',
-        powerPairsPage: 1,
-        powerPairsPageSize: 15,
-
-        // Core Visual Anchors State
-        anchorsView: 'cards',
-        anchorsLimit: 24,
-        anchorsSearch: '',
-        anchorsTier: 'all',
-        anchorsPage: 1,
-        anchorsPageSize: 25,
-
-        // Domain Monopoly State
-        domainSearch: '',
-        domainSort: 'default',
-        domainPage: 1,
-        domainPageSize: 10,
-        _domainCacheKey: '',
-        _cachedFilteredDomains: null,
 
         getSortedPinRankings(sp) {
           const list = Array.isArray(sp?.rankings) ? sp.rankings.slice() : [];
@@ -966,158 +985,6 @@ export function getFoldersClientAppScript() {
           }).catch(() => {});
         },
 
-        togglePowerPairsSort(col) {
-          if (col === 'freq') {
-            this.powerPairsSort = this.powerPairsSort === 'freq_desc' ? 'freq_asc' : 'freq_desc';
-          } else if (col === 'velocity') {
-            this.powerPairsSort = this.powerPairsSort === 'velocity_desc' ? 'velocity_asc' : 'velocity_desc';
-          } else if (col === 'lift') {
-            this.powerPairsSort = this.powerPairsSort === 'lift_desc' ? 'lift_asc' : 'lift_desc';
-          } else if (col === 'tag') {
-            this.powerPairsSort = this.powerPairsSort === 'tag_asc' ? 'tag_desc' : 'tag_asc';
-          } else {
-            this.powerPairsSort = this.powerPairsSort === 'synergy_desc' ? 'freq_desc' : 'synergy_desc';
-          }
-          this.powerPairsPage = 1;
-        },
-
-        filteredPowerPairs() {
-          if (!this.powerPairs || this.powerPairs.length === 0) return [];
-          let list = this.powerPairs;
-          if (this.powerPairsSearch.trim()) {
-            const q = this.powerPairsSearch.toLowerCase().trim();
-            list = list.filter(p => 
-              p.tag_a.toLowerCase().includes(q) || 
-              p.tag_b.toLowerCase().includes(q)
-            );
-          }
-
-          if (this.powerPairsSort === 'freq_desc') {
-            list = list.slice().sort((a, b) => b.joint_count - a.joint_count || (b.total_velocity || 0) - (a.total_velocity || 0) || b.lift - a.lift);
-          } else if (this.powerPairsSort === 'freq_asc') {
-            list = list.slice().sort((a, b) => a.joint_count - b.joint_count || (a.total_velocity || 0) - (b.total_velocity || 0) || a.lift - b.lift);
-          } else if (this.powerPairsSort === 'velocity_desc') {
-            list = list.slice().sort((a, b) => (b.total_velocity || 0) - (a.total_velocity || 0) || b.joint_count - a.joint_count);
-          } else if (this.powerPairsSort === 'velocity_asc') {
-            list = list.slice().sort((a, b) => (a.total_velocity || 0) - (b.total_velocity || 0) || a.joint_count - b.joint_count);
-          } else if (this.powerPairsSort === 'lift_desc') {
-            list = list.slice().sort((a, b) => b.lift - a.lift || b.joint_count - a.joint_count);
-          } else if (this.powerPairsSort === 'lift_asc') {
-            list = list.slice().sort((a, b) => a.lift - b.lift || b.joint_count - a.joint_count);
-          } else if (this.powerPairsSort === 'tag_asc') {
-            list = list.slice().sort((a, b) => a.tag_a.localeCompare(b.tag_a));
-          } else if (this.powerPairsSort === 'tag_desc') {
-            list = list.slice().sort((a, b) => b.tag_a.localeCompare(a.tag_a));
-          } else {
-            list = list.slice().sort((a, b) => b.synergy_score - a.synergy_score || b.joint_count - a.joint_count);
-          }
-          return list;
-        },
-
-        paginatedPowerPairsTable() {
-          const list = this.filteredPowerPairs();
-          const start = (this.powerPairsPage - 1) * this.powerPairsPageSize;
-          return list.slice(start, start + this.powerPairsPageSize);
-        },
-
-        totalPowerPairsPages() {
-          return Math.ceil(this.filteredPowerPairs().length / this.powerPairsPageSize) || 1;
-        },
-
-        filteredAnchorsList() {
-          let list = this.coreAnchorsList || [];
-          if (this.anchorsTier === 'whales') {
-            list = list.filter(a => a.count >= 25);
-          } else if (this.anchorsTier === 'high') {
-            list = list.filter(a => a.count >= 10);
-          } else if (this.anchorsTier === 'core') {
-            list = list.filter(a => a.count >= 5);
-          }
-
-          if (this.anchorsSearch.trim()) {
-            const q = this.anchorsSearch.toLowerCase().trim();
-            list = list.filter(a => a.tag.toLowerCase().includes(q));
-          }
-          return list;
-        },
-
-        paginatedAnchorsTable() {
-          const list = this.filteredAnchorsList();
-          const start = (this.anchorsPage - 1) * this.anchorsPageSize;
-          return list.slice(start, start + this.anchorsPageSize);
-        },
-
-        totalAnchorsPages() {
-          return Math.ceil(this.filteredAnchorsList().length / this.anchorsPageSize) || 1;
-        },
-
-        toggleDomainSort(col) {
-          if (col === 'domain') {
-            this.domainSort = this.domainSort === 'domain_asc' ? 'domain_desc' : 'domain_asc';
-          } else if (col === 'keywords') {
-            this.domainSort = this.domainSort === 'kw_desc' ? 'kw_asc' : 'kw_desc';
-          } else if (col === 'pins') {
-            this.domainSort = this.domainSort === 'pins_desc' ? 'pins_asc' : 'pins_desc';
-          } else if (col === 'saves') {
-            this.domainSort = this.domainSort === 'saves_desc' ? 'saves_asc' : 'saves_desc';
-          } else {
-            this.domainSort = 'default';
-          }
-          this.domainPage = 1;
-          this._domainCacheKey = '';
-        },
-
-        filteredDomainList() {
-          const monopoly = this.crossoverData?.domain_monopoly || [];
-          const search = (this.domainSearch || '').toLowerCase().trim();
-          const currentKey = (this.activeFolderId || '') + '|' + search + '|' + this.domainSort + '|' + monopoly.length;
-          if (this._domainCacheKey === currentKey && this._cachedFilteredDomains) {
-            return this._cachedFilteredDomains;
-          }
-
-          let list = monopoly;
-          if (search) {
-            list = monopoly.filter(d => d.domain && d.domain.toLowerCase().includes(search));
-          }
-
-          if (this.domainSort === 'domain_asc') {
-            list = list.slice().sort((a, b) => String(a.domain || '').localeCompare(String(b.domain || '')));
-          } else if (this.domainSort === 'domain_desc') {
-            list = list.slice().sort((a, b) => String(b.domain || '').localeCompare(String(a.domain || '')));
-          } else if (this.domainSort === 'kw_desc') {
-            list = list.slice().sort((a, b) => ((b.keywords_count || 0) - (a.keywords_count || 0)) || ((b.pin_count || 0) - (a.pin_count || 0)) || ((b.total_saves || 0) - (a.total_saves || 0)));
-          } else if (this.domainSort === 'kw_asc') {
-            list = list.slice().sort((a, b) => ((a.keywords_count || 0) - (b.keywords_count || 0)) || ((a.pin_count || 0) - (b.pin_count || 0)) || ((a.total_saves || 0) - (b.total_saves || 0)));
-          } else if (this.domainSort === 'pins_desc') {
-            list = list.slice().sort((a, b) => ((b.pin_count || 0) - (a.pin_count || 0)) || ((b.total_saves || 0) - (a.total_saves || 0)));
-          } else if (this.domainSort === 'pins_asc') {
-            list = list.slice().sort((a, b) => ((a.pin_count || 0) - (b.pin_count || 0)) || ((a.total_saves || 0) - (b.total_saves || 0)));
-          } else if (this.domainSort === 'saves_desc') {
-            list = list.slice().sort((a, b) => ((b.total_saves || 0) - (a.total_saves || 0)) || ((b.pin_count || 0) - (a.pin_count || 0)));
-          } else if (this.domainSort === 'saves_asc') {
-            list = list.slice().sort((a, b) => ((a.total_saves || 0) - (b.total_saves || 0)) || ((a.pin_count || 0) - (b.pin_count || 0)));
-          }
-
-          this._domainCacheKey = currentKey;
-          this._cachedFilteredDomains = list;
-          return list;
-        },
-
-        paginatedDomains() {
-          const list = this.filteredDomainList();
-          const pageSize = Math.max(1, parseInt(this.domainPageSize, 10) || 10);
-          const totalPages = Math.ceil(list.length / pageSize) || 1;
-          let page = parseInt(this.domainPage, 10);
-          if (!page || isNaN(page) || page < 1) page = 1;
-          if (page > totalPages) page = totalPages;
-          const start = (page - 1) * pageSize;
-          return list.slice(start, start + pageSize);
-        },
-
-        totalDomainPages() {
-          const pageSize = Math.max(1, parseInt(this.domainPageSize, 10) || 10);
-          return Math.ceil(this.filteredDomainList().length / pageSize) || 1;
-        },
         toasts: [],
         colorOptions: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
 
@@ -1351,11 +1218,6 @@ export function getFoldersClientAppScript() {
               this.crossoverData = cdata.crossover || cdata;
               this.computePowerPairs();
               this.currentPage = 1;
-              this.domainPage = 1;
-              this.domainSearch = '';
-              this.domainSort = 'default';
-              this._domainCacheKey = '';
-              this._cachedFilteredDomains = null;
               this._pinsCacheKey = '';
             } else {
               this.showToast('Failed to compute crossover matrix', 'error');
@@ -1393,14 +1255,13 @@ export function getFoldersClientAppScript() {
               this.crossoverData = data.crossover || data;
               this.computePowerPairs();
               this.currentPage = 1;
-              this.domainPage = 1;
-              this.domainSearch = '';
-              this.domainSort = 'default';
-              this._domainCacheKey = '';
-              this._cachedFilteredDomains = null;
               this._pinsCacheKey = '';
               if (isRefresh) {
-                this.showToast('Crossover analysis recalculated successfully', 'success');
+                if (data.cooldown_cached || this.crossoverData?.cooldown_cached) {
+                  this.showToast('Using recent snapshot (15s refresh cooldown active)', 'info');
+                } else {
+                  this.showToast('Crossover analysis recalculated successfully', 'success');
+                }
               }
             } else {
               this.showToast('Failed to compute crossover matrix', 'error');
@@ -1504,16 +1365,6 @@ export function getFoldersClientAppScript() {
               max_pages: (pgr.max_pages !== undefined && pgr.max_pages !== null && pgr.max_pages !== '' && Number.isFinite(Number(pgr.max_pages))) ? Math.min(100, Math.max(1, Number(pgr.max_pages))) : Number(wsPgr.max_pages ?? 20)
             }
           };
-        },
-
-        async openFolderSettingsModal() {
-          if (!this.activeFolder) return;
-          await Promise.all([
-            this.fetchGlobalDefaultQuota().catch(() => {}),
-            this.fetchWorkspaceSettingsDefaults().catch(() => {})
-          ]);
-          this.syncFolderSettingsFromActive();
-          this.currentRoom = 'settings';
         },
 
         async fetchGlobalDefaultQuota() {
@@ -2019,42 +1870,6 @@ export function getFoldersClientAppScript() {
           });
         },
 
-        sanitizeCsvCell(val) {
-          let str = String(val == null ? '' : val);
-          const code = str.charCodeAt(0);
-          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
-            str = "'" + str;
-          }
-          return '"' + str.replace(/"/g, '""') + '"';
-        },
-
-        downloadClusterCsv() {
-          const bp = this.crossoverData?.topic_cluster_blueprint;
-          if (!bp || !bp.csv_rows?.length) {
-            this.showToast('No cluster blueprint rows available to export', 'warning');
-            return;
-          }
-
-          const headers = Object.keys(bp.csv_rows[0]);
-          const csvContent = [
-            headers.map(h => this.sanitizeCsvCell(h)).join(','),
-            ...bp.csv_rows.map(row => 
-              headers.map(h => this.sanitizeCsvCell(row[h])).join(',')
-            )
-          ].join('\\r\\n');
-
-          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = (this.activeFolder?.name || 'campaign').toLowerCase().replace(/[^a-z0-9]/g, '_') + '_content_plan.csv';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          this.showToast('Downloaded CSV Content Plan!', 'success');
-        },
-
         setEntityFilter(type, value) {
           if (!value) return;
           this.entityFilter = { type, value };
@@ -2149,18 +1964,18 @@ export function getFoldersClientAppScript() {
             );
           }
 
-          // 3B. Breakout Baby Domains Filter (<2y + 7d Gains >= 15)
+          // 3B. Breakout Baby Domains Filter (<2y + Authentic 7d Gains >= 15)
           if (this.onlyBreakoutBabyDomains) {
             list = list.filter(p => {
+              if (p.is_breakout_baby_domain) return true;
               const ageDays = Number(p.domain_age_days || (p.domain_age_years ? p.domain_age_years * 365 : 0));
-              const g7 = Number(p.gains_7d || (p.daily_save_velocity ? p.daily_save_velocity * 7 : 0));
-              return ageDays > 0 && ageDays <= 730 && g7 >= 15;
+              return ageDays > 0 && ageDays <= 730 && p.gains_7d != null && Number(p.gains_7d) >= 15;
             });
           }
 
-          // 3C. Linkless Vacuums Filter (High Saves >= 100, No Domain / User Upload)
+          // 3C. Linkless Vacuums Filter (High Saves >= 100, Case-Insensitive No Domain / User Upload)
           if (this.onlyVacuumPins) {
-            list = list.filter(p => Boolean(p.is_vacuum_pin || ((!p.domain || p.domain === 'Uploaded by user') && Number(p.save_count || 0) >= 100)));
+            list = list.filter(p => Boolean(p.is_vacuum_pin || (this.isLinklessVacuumDomain(p.domain) && Number(p.save_count || 0) >= 100)));
           }
 
           // 3D. Fresh Rockets Filter (<= 14d age with positive 24h momentum)
@@ -2173,11 +1988,12 @@ export function getFoldersClientAppScript() {
             list = list.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0);
           }
 
-          // 4. Sorting
+          // 4. Sorting (null rolling gains sort below authentic numbers)
+          const numOrNeg = (v) => (v === null || v === undefined ? -1 : v);
           if (this.sortBy === 'velocity_desc') {
-            list = list.slice().sort((a, b) => (this.getPinWindowGain(b) - this.getPinWindowGain(a)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
+            list = list.slice().sort((a, b) => (numOrNeg(this.getPinWindowGain(b)) - numOrNeg(this.getPinWindowGain(a))) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
           } else if (this.sortBy === 'repins_24h_desc') {
-            list = list.slice().sort((a, b) => (this.getPinWindowRepins(b) - this.getPinWindowRepins(a)) || (this.getPinWindowGain(b) - this.getPinWindowGain(a)));
+            list = list.slice().sort((a, b) => (numOrNeg(this.getPinWindowRepins(b)) - numOrNeg(this.getPinWindowRepins(a))) || (numOrNeg(this.getPinWindowGain(b)) - numOrNeg(this.getPinWindowGain(a))));
           } else if (this.sortBy === 'saves_desc') {
             list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'saves_asc') {
@@ -2187,9 +2003,9 @@ export function getFoldersClientAppScript() {
           } else if (this.sortBy === 'pin_age_desc') {
             list = list.slice().sort((a, b) => (b.pin_age_days != null && isFinite(b.pin_age_days) ? Number(b.pin_age_days) : -Infinity) - (a.pin_age_days != null && isFinite(a.pin_age_days) ? Number(a.pin_age_days) : -Infinity));
           } else if (this.sortBy === 'folder_age_desc') {
-            list = list.slice().sort((a, b) => (Number(b.folder_age_days) || 0) - (Number(a.folder_age_days) || 0));
+            list = list.slice().sort((a, b) => (a.folder_age_days == null ? -1 : Number(a.folder_age_days)) < (b.folder_age_days == null ? -1 : Number(b.folder_age_days)) ? 1 : ((a.folder_age_days == null ? -1 : Number(a.folder_age_days)) > (b.folder_age_days == null ? -1 : Number(b.folder_age_days)) ? -1 : 0));
           } else if (this.sortBy === 'folder_age_asc') {
-            list = list.slice().sort((a, b) => (Number(a.folder_age_days) || 0) - (Number(b.folder_age_days) || 0));
+            list = list.slice().sort((a, b) => (a.folder_age_days == null ? Infinity : Number(a.folder_age_days)) - (b.folder_age_days == null ? Infinity : Number(b.folder_age_days)));
           } else if (this.sortBy === 'rank_asc') {
             list = list.slice().sort((a, b) => (a.min_rank || 999) - (b.min_rank || 999));
           } else if (this.sortBy === 'overlap_desc') {
@@ -2201,11 +2017,6 @@ export function getFoldersClientAppScript() {
           this._pinsCacheKey = currentKey;
           this._cachedFilteredPins = list;
           return list;
-        },
-
-        // Alias for backward compatibility with template checks
-        filteredSuperPins() {
-          return this.filteredPinsList();
         },
 
         totalPages() {
@@ -2225,37 +2036,6 @@ export function getFoldersClientAppScript() {
           return list.slice(start, start + pageSize);
         },
 
-        goToPage(page) {
-          const total = this.totalPages();
-          const p = parseInt(page, 10);
-          if (!p || isNaN(p) || p < 1) {
-            this.currentPage = 1;
-          } else if (p > total) {
-            this.currentPage = total;
-          } else {
-            this.currentPage = p;
-          }
-        },
-
-        visiblePages() {
-          const total = this.totalPages();
-          const current = this.currentPage;
-          const pages = [];
-
-          if (total <= 7) {
-            for (let i = 1; i <= total; i++) pages.push(i);
-          } else {
-            pages.push(1);
-            if (current > 3) pages.push('...');
-            const start = Math.max(2, current - 1);
-            const end = Math.min(total - 1, current + 1);
-            for (let i = start; i <= end; i++) pages.push(i);
-            if (current < total - 2) pages.push('...');
-            pages.push(total);
-          }
-          return pages;
-        },
-
         filteredTagBridges() {
           let list = this.crossoverData?.tag_bridges || [];
 
@@ -2268,15 +2048,6 @@ export function getFoldersClientAppScript() {
           }
 
           return list;
-        },
-
-        calcSov(pinCount) {
-          const total = this.crossoverData?.summary?.total_unique_pins || (this.crossoverData?.all_pins?.length || 0);
-          if (!total || total <= 0) return 0;
-          const count = Number(pinCount) || 0;
-          if (count <= 0) return 0;
-          const pct = Math.round((count / total) * 100);
-          return Math.min(100, Math.max(0, pct));
         },
 
         async createFolder() {

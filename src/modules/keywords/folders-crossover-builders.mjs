@@ -15,6 +15,7 @@ import {
   normalizeTagLemma,
   STOPWORDS,
   cleanExternalDomain,
+  isLinklessVacuumDomain,
   extractAuthenticRowGains
 } from './folders-crossover.mjs';
 
@@ -97,12 +98,37 @@ export async function buildFolderCrossoverMatrix({
   const nowMs = Date.now();
   const folderCreatedMs = folder.created_at ? new Date(folder.created_at).getTime() : null;
 
+  const parseRowRankings = (row) => {
+    let rawRankings = row.rankings;
+    if (typeof rawRankings === 'string') {
+      try { rawRankings = JSON.parse(rawRankings); } catch (_) { rawRankings = null; }
+    }
+    if (Array.isArray(rawRankings) && rawRankings.length > 0) {
+      return rawRankings
+        .map((r) => ({
+          keyword_id: Number(r.keyword_id),
+          keyword: r.keyword || r.keyword_text || '',
+          rank_position: Number(r.rank_position),
+          is_displaced: Boolean(r.is_displaced)
+        }))
+        .filter((r) => Number.isFinite(r.rank_position) && r.rank_position >= 1);
+    }
+    const rankNum = Number(row.rank_position);
+    if (!Number.isFinite(rankNum) || rankNum < 1) return [];
+    return [{
+      keyword_id: row.keyword_id,
+      keyword: row.keyword_text,
+      rank_position: rankNum,
+      is_displaced: Boolean(row.is_displaced)
+    }];
+  };
+
   for (const row of combinedCatalogRows) {
     const pid = String(row.pin_id).trim();
     if (!pid) continue;
 
-    const rankNum = Number(row.rank_position);
-    if (!Number.isFinite(rankNum) || rankNum < 1) {
+    const rowRankings = parseRowRankings(row);
+    if (rowRankings.length === 0) {
       continue;
     }
 
@@ -116,10 +142,13 @@ export async function buildFolderCrossoverMatrix({
       ? Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000))
       : null;
 
+    const firstSeenMs = row.pin_first_seen_at ? new Date(row.pin_first_seen_at).getTime() : null;
+    const hasAuthenticFirstSeen = Boolean(firstSeenMs && !isNaN(firstSeenMs));
     const folderAddedMs = row.folder_added_at ? new Date(row.folder_added_at).getTime() : folderCreatedMs;
-    const folderAgeDays = (folderAddedMs && !isNaN(folderAddedMs))
-      ? Math.max(0, Math.floor((nowMs - folderAddedMs) / 86400000))
-      : 0;
+    const rawTenureMs = hasAuthenticFirstSeen ? firstSeenMs : folderAddedMs;
+    const folderAgeDays = (rawTenureMs && !isNaN(rawTenureMs))
+      ? Math.max(0, Math.floor((nowMs - rawTenureMs) / 86400000))
+      : null;
 
     const vel = safeNum(row.daily_save_velocity);
     const rowSaves = safeNum(row.save_count ?? meta.raw_saves ?? 0);
@@ -139,6 +168,7 @@ export async function buildFolderCrossoverMatrix({
       const pinner = meta.pinner || {};
       const candidateRawTitle = decodeHtmlEntities(String(row.title || meta.title || '').trim());
       const authenticTitle = !isSyntheticPinTitle(candidateRawTitle) ? candidateRawTitle : '';
+      const resolvedDomain = row.domain || meta.domain || '';
 
       pinMap.set(pid, {
         pin_id: pid,
@@ -146,16 +176,18 @@ export async function buildFolderCrossoverMatrix({
         title: authenticTitle,
         seo_title: decodeHtmlEntities(row.seo_title || meta.seo_title || ''),
         image_url: row.image_url || meta.image_url || '',
-        domain: row.domain || meta.domain || '',
+        domain: resolvedDomain,
         destination_url: row.destination_url || meta.destination_url || '',
         domain_age_days: null,
         domain_age_years: null,
         save_count: rowSaves,
-        is_vacuum_pin: Boolean(row.image_url || meta.image_url) && (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
+        is_vacuum_pin: Boolean(row.image_url || meta.image_url) && isLinklessVacuumDomain(resolvedDomain) && rowSaves >= 100,
         board_name: decodeHtmlEntities(row.board_name || meta.board_name || ''),
         visual_annotations: rowVisualAnnotations,
         dominant_color: row.dominant_color || meta.dominant_color || null,
         created_at_pinterest: row.created_at_pinterest || meta.created_at_pinterest || null,
+        pin_first_seen_at: hasAuthenticFirstSeen ? row.pin_first_seen_at : null,
+        tenure_source: hasAuthenticFirstSeen ? 'first_seen' : (folderAgeDays != null ? 'keyword_added' : null),
         alt_text: decodeHtmlEntities(row.alt_text || meta.alt_text || ''),
         description: decodeHtmlEntities(row.description || meta.description || ''),
         aspect_ratio: row.aspect_ratio || meta.aspect_ratio || '2:3',
@@ -178,6 +210,10 @@ export async function buildFolderCrossoverMatrix({
         gains_7d: rowGains7d,
         gains_10d: rowGains10d,
         gains_15d: rowGains15d,
+        repins_gains_5d: null,
+        repins_gains_7d: null,
+        repins_gains_10d: null,
+        repins_gains_15d: null,
         rankings: []
       });
     } else {
@@ -251,7 +287,11 @@ export async function buildFolderCrossoverMatrix({
         existingPin.created_at_pinterest = row.created_at_pinterest;
         existingPin.pin_age_days = pinAgeDays;
       }
-      if (folderAgeDays > 0 && (existingPin.folder_age_days === 0 || folderAgeDays > existingPin.folder_age_days)) {
+      if (hasAuthenticFirstSeen && (!existingPin.pin_first_seen_at || new Date(row.pin_first_seen_at).getTime() < new Date(existingPin.pin_first_seen_at).getTime())) {
+        existingPin.pin_first_seen_at = row.pin_first_seen_at;
+        existingPin.tenure_source = 'first_seen';
+        existingPin.folder_age_days = folderAgeDays;
+      } else if (!existingPin.pin_first_seen_at && folderAgeDays != null && (existingPin.folder_age_days == null || folderAgeDays > existingPin.folder_age_days)) {
         existingPin.folder_age_days = folderAgeDays;
       }
       if (!existingPin.creator_username && row.creator_username) {
@@ -263,24 +303,42 @@ export async function buildFolderCrossoverMatrix({
     }
 
     const pinRecord = pinMap.get(pid);
-    pinRecord.rankings.push({
-      keyword_id: row.keyword_id,
-      keyword: row.keyword_text,
-      rank_position: rankNum,
-      is_displaced: Boolean(row.is_displaced)
-    });
+    for (const rk of rowRankings) {
+      const existingRk = pinRecord.rankings.find(r => r.keyword_id === rk.keyword_id);
+      if (!existingRk) {
+        pinRecord.rankings.push(rk);
+      } else if (existingRk.is_displaced && !rk.is_displaced) {
+        existingRk.rank_position = rk.rank_position;
+        existingRk.is_displaced = false;
+      } else if (existingRk.is_displaced === rk.is_displaced && rk.rank_position < existingRk.rank_position) {
+        existingRk.rank_position = rk.rank_position;
+      }
+    }
   }
 
   let allPins = Array.from(pinMap.values());
   const primaryKeyword = folderKeywords[0]?.keyword || folder.name || 'Topic Cluster';
+  const minSuperOverlap = totalKeywords > 1 ? 2 : 1;
   let vacuumPinsCount = 0;
+
+  // Map authentic per-pin rolling repin gains (supports both per-pin rows and legacy single aggregate row)
+  const hasPerPinRepins = Array.isArray(repinWindowRows) && repinWindowRows.some(r => r && r.pin_id != null);
+  const repinByPinMap = new Map();
+  if (hasPerPinRepins) {
+    for (const rr of repinWindowRows) {
+      if (rr && rr.pin_id != null) {
+        repinByPinMap.set(String(rr.pin_id).trim(), rr);
+      }
+    }
+  }
 
   for (const p of allPins) {
     p.has_active_rank = p.rankings.some(r => !r.is_displaced);
     p.has_vault_rank = p.rankings.some(r => r.is_displaced);
     p.overlap_count = p.rankings.length;
     p.overlap_percentage = Math.round((p.overlap_count / totalKeywords) * 100);
-    p.is_super_pin = !p.is_displaced && p.overlap_count >= 2 && p.rankings.every(r => !r.is_displaced && Number.isFinite(r.rank_position) && r.rank_position >= 1);
+    // Unified Super-Pin rule: any pin ranking in >= 2 keywords across Active + Vault
+    p.is_super_pin = p.overlap_count >= minSuperOverlap && p.rankings.every(r => Number.isFinite(r.rank_position) && r.rank_position >= 1);
     p.min_rank = p.rankings.length > 0 ? Math.min(...p.rankings.map(r => r.rank_position)) : 1;
     p.avg_rank = p.rankings.length > 0 ? Number((p.rankings.reduce((sum, r) => sum + r.rank_position, 0) / p.rankings.length).toFixed(1)) : 1;
     p.rankings.sort((a, b) => a.rank_position - b.rank_position);
@@ -291,6 +349,29 @@ export async function buildFolderCrossoverMatrix({
         p.pin_age_days = Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000));
       }
     }
+
+    // Prevent impossible time-travel tenure (e.g. "41d in folder" on a 29d-old pin)
+    if (p.pin_age_days != null && p.folder_age_days != null && p.folder_age_days > p.pin_age_days) {
+      if (p.tenure_source === 'first_seen') {
+        p.folder_age_days = p.pin_age_days;
+      } else {
+        // Inherited parent keyword's added_at predates the pin itself; do not display a misleading tenure
+        p.folder_age_days = null;
+        p.tenure_source = null;
+      }
+    }
+
+    // Attach authentic per-pin rolling repins from pins_daily_metrics
+    if (hasPerPinRepins) {
+      const rr = repinByPinMap.get(p.pin_id);
+      if (rr) {
+        p.repins_gains_5d = safeNum(rr.repins_5d, null);
+        p.repins_gains_7d = safeNum(rr.repins_7d, null);
+        p.repins_gains_10d = safeNum(rr.repins_10d, null);
+        p.repins_gains_15d = safeNum(rr.repins_15d, null);
+      }
+    }
+
     if (!p.aspect_ratio) p.aspect_ratio = '2:3';
     if (!p.title || isSyntheticPinTitle(p.title)) {
       const pinKw = p.rankings[0]?.keyword || primaryKeyword;
@@ -308,9 +389,8 @@ export async function buildFolderCrossoverMatrix({
       p.title = decodeHtmlEntities(p.title);
     }
 
-    // [INVARIANT: VACUUM-PIN-CALCULATION]
-    const cleanDom = String(p.domain || '').trim();
-    p.is_vacuum_pin = Boolean(p.image_url) && (!cleanDom || cleanDom === 'Uploaded by user') && safeNum(p.save_count) >= 100;
+    // [INVARIANT: VACUUM-PIN-CALCULATION] Case-insensitive canonical check
+    p.is_vacuum_pin = Boolean(p.image_url) && isLinklessVacuumDomain(p.domain) && safeNum(p.save_count) >= 100;
     if (p.is_vacuum_pin) {
       vacuumPinsCount++;
     }
@@ -385,9 +465,9 @@ export async function buildFolderCrossoverMatrix({
   }
   allPins = Array.from(creativePinMap.values());
 
-  // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
+  // Super Pins: All pins appearing in >= 2 keywords across Active SERP + Vault
   const superPins = allPins
-    .filter(p => !p.is_displaced && p.overlap_count >= (totalKeywords > 1 ? 2 : 1) && p.rankings.length >= (totalKeywords > 1 ? 2 : 1) && p.rankings.every(r => !r.is_displaced && r.rank_position >= 1))
+    .filter(p => p.overlap_count >= minSuperOverlap && p.rankings.length >= minSuperOverlap && p.rankings.every(r => Number.isFinite(r.rank_position) && r.rank_position >= 1))
     .sort((a, b) => {
       const aVel = (a.effective_velocity != null) ? a.effective_velocity : (a.daily_save_velocity || 0);
       const bVel = (b.effective_velocity != null) ? b.effective_velocity : (b.daily_save_velocity || 0);
@@ -505,30 +585,6 @@ export async function buildFolderCrossoverMatrix({
   // =========================================================================
   // DIMENSION B: UNIVERSAL TAG BRIDGES & 1-TAG POWER LEADERS (Unified SSOT)
   // =========================================================================
-  const formatMatrixPin = (pin) => ({
-    pin_id: pin.pin_id,
-    title: decodeHtmlEntities(pin.title || 'Untitled Pin') || 'Untitled Pin',
-    image_url: pin.image_url,
-    domain: pin.domain || '',
-    creator_username: pin.creator_username || '',
-    save_count: Number(pin.save_count || 0),
-    repin_count: Number(pin.repin_count || 0),
-    repin_clones_count: Number(pin.repin_clones_count || 0),
-    daily_save_velocity: Number(pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
-    effective_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
-    delta_saves_24h: Number(pin.delta_saves_24h || 0),
-    delta_repins_24h: Number(pin.delta_repins_24h || 0),
-    gains_5d: pin.gains_5d != null ? Number(pin.gains_5d) : null,
-    gains_7d: pin.gains_7d != null ? Number(pin.gains_7d) : null,
-    gains_10d: pin.gains_10d != null ? Number(pin.gains_10d) : null,
-    gains_15d: pin.gains_15d != null ? Number(pin.gains_15d) : null,
-    pin_age_days: pin.pin_age_days,
-    folder_age_days: pin.folder_age_days,
-    dominant_color: pin.dominant_color || null,
-    aspect_ratio: pin.aspect_ratio || '2:3',
-    overlap_count: pin.overlap_count || (pin.rankings ? pin.rankings.length : 1)
-  });
-
   const tagMap = new Map();
 
   for (const pin of uniqueCreativePins) {
@@ -549,8 +605,7 @@ export async function buildFolderCrossoverMatrix({
           total_saves: 0,
           saves_gain: 0,
           velocity_gain: 0,
-          repins_gain: 0,
-          matching_pins: []
+          repins_gain: 0
         });
       }
       const record = tagMap.get(t);
@@ -562,18 +617,12 @@ export async function buildFolderCrossoverMatrix({
       for (const kw of pinKeywords) {
         record.keywords_set.add(kw);
       }
-      record.matching_pins.push(pin);
     }
   }
 
   const allTagBridges = Array.from(tagMap.values()).map(t => {
     const kwCount = t.keywords_set.size;
     const overlapPct = Math.round((kwCount / totalKeywords) * 100);
-    const sortedPins = t.matching_pins
-      .slice()
-      .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
-      .slice(0, 6)
-      .map(formatMatrixPin);
     const velGain = Number(t.velocity_gain.toFixed(1));
     const savesGain = Math.round(t.saves_gain);
     const repinsGain = Math.round(t.repins_gain);
@@ -597,9 +646,7 @@ export async function buildFolderCrossoverMatrix({
         repins: repinsGain
       },
       is_universal: overlapPct >= 50,
-      bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge',
-      sample_pins: sortedPins.slice(0, 3),
-      matching_pins: sortedPins
+      bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge'
     };
   })
   .sort((a, b) => {
@@ -802,8 +849,6 @@ export async function buildFolderCrossoverMatrix({
       }
     }
 
-    matchingPinsRaw.sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0));
-    const topMatchingPins = matchingPinsRaw.slice(0, 6).map(formatMatrixPin);
     const totalVel = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? 0)), 0) * 10) / 10;
     const totalRepins = Math.round(matchingPinsRaw.reduce((sum, pin) => sum + Math.max(0, Number(pin.delta_repins_24h || 0)), 0));
     const totalSaves = matchingPinsRaw.reduce((sum, pin) => sum + Number(pin.save_count || 0), 0);
@@ -830,8 +875,7 @@ export async function buildFolderCrossoverMatrix({
       overlap_percentage: overlapPct,
       composite_score: Number(p.total_score.toFixed(4)),
       dominant_color: p.dominant_color,
-      is_connector: kwCount >= 2,
-      matching_pins: topMatchingPins
+      is_connector: kwCount >= 2
     };
   })
   .filter(gp => gp.pin_count >= 1)
@@ -953,15 +997,40 @@ export async function buildFolderCrossoverMatrix({
   for (const dr of (domainRows || [])) {
     if (dr.domain) domainRollupMap.set(dr.domain.toLowerCase(), dr);
   }
+  let breakoutBabyDomainsCount = 0;
   for (const p of allPins) {
     const dom = cleanExternalDomain(p.domain);
     const dr = dom ? domainRollupMap.get(dom.toLowerCase()) : null;
     p.domain_age_days = dr?.age_days != null ? Number(dr.age_days) : null;
     p.domain_age_years = dr?.age_years != null ? Number(dr.age_years) : null;
     p.ad_network = dr?.ad_network || null;
+
+    // Authentic Breakout Baby Domain: domain age <= 2y (730d) AND authentic gains_7d >= 15 (zero fake *7 extrapolation)
+    const effectiveAgeDays = p.domain_age_days != null
+      ? p.domain_age_days
+      : (p.domain_age_years != null ? p.domain_age_years * 365 : 0);
+    p.is_breakout_baby_domain = effectiveAgeDays > 0 && effectiveAgeDays <= 730 && p.gains_7d != null && Number(p.gains_7d) >= 15;
+    if (p.is_breakout_baby_domain) {
+      breakoutBabyDomainsCount++;
+    }
   }
+
+  // Full-cluster competitor audience rollup across ALL matched creators (not just top 20)
+  let clusterReach24h = 0;
+  let clusterReach7d = 0;
+  let clusterReachAll = 0;
+  let matchedCreatorsCount = 0;
   for (const cp of (creatorRows || [])) {
-    if (cp.username) creatorProfilesMap.set(cp.username.toLowerCase(), cp);
+    if (cp.username) {
+      creatorProfilesMap.set(cp.username.toLowerCase(), cp);
+      matchedCreatorsCount++;
+      const d24 = Number(cp.delta_reach_24h ?? 0);
+      const d7 = Number(cp.reach_delta_7d ?? 0);
+      const totalReach = Number(cp.monthly_reach ?? 0);
+      if (Number.isFinite(d24) && d24 > 0) clusterReach24h += d24;
+      if (Number.isFinite(d7) && d7 > 0) clusterReach7d += d7;
+      if (Number.isFinite(totalReach) && totalReach > 0) clusterReachAll += totalReach;
+    }
   }
 
   const creatorMonopoly = Array.from(creatorMap.values()).map(c => {
@@ -1062,64 +1131,62 @@ export async function buildFolderCrossoverMatrix({
   }
 
   const hasTrends = trendsLoaded > 0;
-
-  const now = new Date();
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const maxWeekly = Math.max(...compositeWeeklyWave, 1);
-  const normalizedWeeklyWave = [];
-
-  for (let w = 0; w < 52; w++) {
-    const weekEndDate = new Date(now.getTime() - (51 - w) * msPerWeek);
-    const weekStartDate = new Date(weekEndDate.getTime() - 6 * 24 * 60 * 60 * 1000);
-    const actualMonthIdx = weekEndDate.getMonth();
-
-    monthScores[actualMonthIdx] += compositeWeeklyWave[w];
-    monthWeeksCount[actualMonthIdx] += 1;
-
-    normalizedWeeklyWave.push({
-      week: w + 1,
-      score: hasTrends ? Math.round((compositeWeeklyWave[w] / maxWeekly) * 100) : 0,
-      month: allMonths[actualMonthIdx],
-      start_date: weekStartDate.toISOString().slice(0, 10),
-      end_date: weekEndDate.toISOString().slice(0, 10)
-    });
-  }
-
-  const rollingMonths = [];
-  const currentMonthIdx = now.getMonth();
-  for (let i = 11; i >= 0; i--) {
-    const m = (currentMonthIdx - i + 12) % 12;
-    rollingMonths.push(allMonths[m]);
-  }
-
-  const avgMonthlyScores = monthScores.map((score, idx) => {
-    const weeksInMonth = Math.max(1, monthWeeksCount[idx]);
-    return score / weeksInMonth;
-  });
-  const maxAvgMonthVal = Math.max(...avgMonthlyScores, 1);
-
-  const meanMonthlyScore = avgMonthlyScores.reduce((sum, s) => sum + s, 0) / 12;
-  const variance = avgMonthlyScores.reduce((sum, s) => sum + Math.pow(s - meanMonthlyScore, 2), 0) / 12;
-  const stdDev = Math.sqrt(variance);
-
-  const monthCandidates = avgMonthlyScores
-    .map((val, idx) => {
-      const zScore = stdDev > 0 ? (val - meanMonthlyScore) / stdDev : 0;
-      const normalizedScore = Math.round((val / maxAvgMonthVal) * 100);
-      return {
-        month: allMonths[idx],
-        idx,
-        val,
-        score: normalizedScore,
-        zScore: Number(zScore.toFixed(2))
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
+  let normalizedWeeklyWave = [];
+  let rollingMonths = [];
   let peakMonths = [];
-  let recommendedLaunchWindow = 'Insufficient trends data (synchronize keyword trends to derive peak window)';
+  let recommendedLaunchWindow = 'Evergreen';
 
   if (hasTrends) {
+    const now = new Date();
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const maxWeekly = Math.max(...compositeWeeklyWave, 1);
+
+    for (let w = 0; w < 52; w++) {
+      const weekEndDate = new Date(now.getTime() - (51 - w) * msPerWeek);
+      const weekStartDate = new Date(weekEndDate.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const actualMonthIdx = weekEndDate.getMonth();
+
+      monthScores[actualMonthIdx] += compositeWeeklyWave[w];
+      monthWeeksCount[actualMonthIdx] += 1;
+
+      normalizedWeeklyWave.push({
+        week: w + 1,
+        score: Math.round((compositeWeeklyWave[w] / maxWeekly) * 100),
+        month: allMonths[actualMonthIdx],
+        start_date: weekStartDate.toISOString().slice(0, 10),
+        end_date: weekEndDate.toISOString().slice(0, 10)
+      });
+    }
+
+    const currentMonthIdx = now.getMonth();
+    for (let i = 11; i >= 0; i--) {
+      const m = (currentMonthIdx - i + 12) % 12;
+      rollingMonths.push(allMonths[m]);
+    }
+
+    const avgMonthlyScores = monthScores.map((score, idx) => {
+      const weeksInMonth = Math.max(1, monthWeeksCount[idx]);
+      return score / weeksInMonth;
+    });
+    const maxAvgMonthVal = Math.max(...avgMonthlyScores, 1);
+    const meanMonthlyScore = avgMonthlyScores.reduce((sum, s) => sum + s, 0) / 12;
+    const variance = avgMonthlyScores.reduce((sum, s) => sum + Math.pow(s - meanMonthlyScore, 2), 0) / 12;
+    const stdDev = Math.sqrt(variance);
+
+    const monthCandidates = avgMonthlyScores
+      .map((val, idx) => {
+        const zScore = stdDev > 0 ? (val - meanMonthlyScore) / stdDev : 0;
+        const normalizedScore = Math.round((val / maxAvgMonthVal) * 100);
+        return {
+          month: allMonths[idx],
+          idx,
+          val,
+          score: normalizedScore,
+          zScore: Number(zScore.toFixed(2))
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
     let selectedPeaks = monthCandidates.filter(m => m.zScore >= 1.25);
     if (selectedPeaks.length < 2) {
       selectedPeaks = monthCandidates.slice(0, 2);
@@ -1127,50 +1194,15 @@ export async function buildFolderCrossoverMatrix({
       selectedPeaks = selectedPeaks.slice(0, 4);
     }
 
-    const peakMonthIndices = selectedPeaks;
-    peakMonths = peakMonthIndices.map(m => m.month);
-
-    if (peakMonthIndices.length > 0) {
-      const highestPeakIdx = peakMonthIndices[0].idx;
+    peakMonths = selectedPeaks.map(m => m.month);
+    if (selectedPeaks.length > 0) {
+      const highestPeakIdx = selectedPeaks[0].idx;
       const launchMonthIdx = (highestPeakIdx - 2 + 12) % 12;
       recommendedLaunchWindow = `${allMonths[launchMonthIdx]} (Deploy pins 45-60 days before ${allMonths[highestPeakIdx]} peak)`;
     }
   }
 
-  // =========================================================================
-  // DIMENSION F: 1-CLICK TOPIC CLUSTER BLUEPRINT & CONTENT GENERATOR
-  // =========================================================================
-  const topTagNames = tagBridges
-    .map(t => t.tag)
-    .filter(t => t && t.length >= 3 && !STOPWORDS.has(t.toLowerCase()))
-    .slice(0, 12);
-  const topPivotTerms = guidedPivots.slice(0, 8).map(p => p.display_label || p.term);
-
-  const primaryKw = folderKeywords[0]?.keyword || 'Topic Cluster';
-  const spokeAngles = [];
-  const modifiers = topPivotTerms.length > 0 ? topPivotTerms : ['Easy', 'Quick', 'Best', 'Healthy', 'Budget'];
-
-  for (let i = 0; i < Math.min(5, Math.max(modifiers.length, 5)); i++) {
-    const mod = modifiers[i] || `Angle ${i + 1}`;
-    const targetKw = folderKeywords[i % folderKeywords.length]?.keyword || primaryKw;
-    const relevantTag = topTagNames[i] || 'Ideas';
-    const spokeTitle = synthesizeSpokeTitle(mod, targetKw);
-
-    spokeAngles.push({
-      angle_number: i + 1,
-      angle_title: spokeTitle,
-      target_keyword: targetKw,
-      modifier: mod,
-      hook_concept: `Focus on visual clarity with ${relevantTag} close-up and bold overlay text.`,
-      recommended_format: i === 0 ? 'VIDEO PIN' : (i % 2 === 0 ? 'PRODUCT CARD / CAROUSEL' : 'ORGANIC PIN (2:3 Standard)'),
-      recommended_aspect_ratio: i === 0 ? '9:16 Story' : '2:3 Standard',
-      target_tags: topTagNames.slice(i * 2, i * 2 + 4).join(', ')
-    });
-  }
-
-  const topicClusterBlueprint = null;
-
-  // Aggregate Dominant Color Swatches across deduplicated creative pins
+  // Aggregate Dominant Color Swatches across deduplicated creative pins (lean payload; client matches all_pins)
   const colorMap = new Map();
   for (const p of uniqueCreativePins) {
     const hex = String(p.dominant_color || '').trim().toUpperCase();
@@ -1183,8 +1215,7 @@ export async function buildFolderCrossoverMatrix({
           total_saves: 0,
           total_velocity: 0,
           total_repins_delta: 0,
-          keywords_set: new Set(),
-          matching_pins_raw: []
+          keywords_set: new Set()
         };
         colorMap.set(hex, cEntry);
       }
@@ -1195,16 +1226,10 @@ export async function buildFolderCrossoverMatrix({
       for (const r of (p.rankings || [])) {
         if (r.keyword) cEntry.keywords_set.add(r.keyword);
       }
-      cEntry.matching_pins_raw.push(p);
     }
   }
   const dominantColors = Array.from(colorMap.values())
     .map(c => {
-      const sortedPins = c.matching_pins_raw
-        .slice()
-        .sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.save_count || 0) - (a.save_count || 0))
-        .slice(0, 6)
-        .map(formatMatrixPin);
       const kwCount = c.keywords_set.size;
       return {
         hex: c.hex,
@@ -1216,8 +1241,7 @@ export async function buildFolderCrossoverMatrix({
         keywords: Array.from(c.keywords_set),
         total_saves: c.total_saves,
         total_velocity: Math.round(c.total_velocity * 10) / 10,
-        total_repins_delta: Math.round(c.total_repins_delta),
-        matching_pins: sortedPins
+        total_repins_delta: Math.round(c.total_repins_delta)
       };
     })
     .sort((a, b) => b.pin_count - a.pin_count || b.total_velocity - a.total_velocity)
@@ -1225,41 +1249,99 @@ export async function buildFolderCrossoverMatrix({
 
   const rocketsCount = allPins.filter(p => p.pin_age_days != null && Number(p.pin_age_days) <= 14 && (Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0)).length;
   const surging24hCount = allPins.filter(p => Number(p.effective_velocity ?? p.daily_save_velocity ?? 0) > 0 || Number(p.delta_repins_24h || 0) > 0).length;
+  const activeSerpSlotsCount = allPins.reduce((sum, p) => sum + (p.rankings || []).filter(r => !r.is_displaced).length, 0);
 
   for (const p of allPins) {
     delete p._canonical_tags;
   }
 
-  const sqlRepin5d = Number(repinWindowRows?.[0]?.repins_5d || 0);
-  const sqlRepin7d = Number(repinWindowRows?.[0]?.repins_7d || 0);
-  const sqlRepin10d = Number(repinWindowRows?.[0]?.repins_10d || 0);
-  const sqlRepin15d = Number(repinWindowRows?.[0]?.repins_15d || 0);
+  // Compute authentic rolling saves + repins totals and coverage counts (null when coverage === 0)
+  const sumWindowField = (field) => {
+    let total = 0;
+    let coverage = 0;
+    for (const p of allPins) {
+      if (p[field] != null && Number.isFinite(Number(p[field]))) {
+        total += Math.max(0, Number(p[field]));
+        coverage++;
+      }
+    }
+    return { total: coverage > 0 ? Math.round(total) : null, coverage };
+  };
+
+  const saves5d = sumWindowField('gains_5d');
+  const saves7d = sumWindowField('gains_7d');
+  const saves10d = sumWindowField('gains_10d');
+  const saves15d = sumWindowField('gains_15d');
+
+  let repin5dTotal = null, repin5dCov = 0;
+  let repin7dTotal = null, repin7dCov = 0;
+  let repin10dTotal = null, repin10dCov = 0;
+  let repin15dTotal = null, repin15dCov = 0;
+
+  if (hasPerPinRepins) {
+    const r5 = sumWindowField('repins_gains_5d');
+    const r7 = sumWindowField('repins_gains_7d');
+    const r10 = sumWindowField('repins_gains_10d');
+    const r15 = sumWindowField('repins_gains_15d');
+    repin5dTotal = r5.total; repin5dCov = r5.coverage;
+    repin7dTotal = r7.total; repin7dCov = r7.coverage;
+    repin10dTotal = r10.total; repin10dCov = r10.coverage;
+    repin15dTotal = r15.total; repin15dCov = r15.coverage;
+  } else {
+    const legRow = repinWindowRows?.[0] || null;
+    const parseLegacy = (val) => (val != null && Number.isFinite(Number(val)) ? Math.round(Number(val)) : null);
+    repin5dTotal = parseLegacy(legRow?.repins_5d);
+    repin7dTotal = parseLegacy(legRow?.repins_7d);
+    repin10dTotal = parseLegacy(legRow?.repins_10d);
+    repin15dTotal = parseLegacy(legRow?.repins_15d);
+    repin5dCov = repin5dTotal != null ? allPins.length : 0;
+    repin7dCov = repin7dTotal != null ? allPins.length : 0;
+    repin10dCov = repin10dTotal != null ? allPins.length : 0;
+    repin15dCov = repin15dTotal != null ? allPins.length : 0;
+  }
 
   return {
-    _crossover_schema_v: 6,
+    _crossover_schema_v: 7,
     folder,
     summary: {
       total_keywords: totalKeywords,
       total_unique_pins: allPins.length,
       unique_creative_pins_count: uniqueCreativePins.length,
       active_pins_count: allPins.filter(p => p.has_active_rank).length,
-      active_serp_slots_count: pinRows.length,
+      active_serp_slots_count: activeSerpSlotsCount,
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
       vacuum_pins_count: vacuumPinsCount,
+      breakout_baby_domains_count: breakoutBabyDomainsCount,
       rockets_count: rocketsCount,
       surging_24h_count: surging24hCount,
       universal_tags_count: universalTagsCount,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: domainMonopoly.length,
       monopoly_creator_count: creatorMonopoly.length,
+      competitor_audience_gains: {
+        '24h': Math.round(clusterReach24h),
+        '7d': Math.round(clusterReach7d),
+        'all': Math.round(clusterReachAll),
+        matched_creators_count: matchedCreatorsCount
+      },
       multi_window_gains: {
-        '24h': { saves: allPins.reduce((sum, p) => sum + (p.delta_saves_24h || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.delta_repins_24h || 0), 0) },
-        '5d': { saves: allPins.reduce((sum, p) => sum + (p.gains_5d || 0), 0), repins: sqlRepin5d },
-        '7d': { saves: allPins.reduce((sum, p) => sum + (p.gains_7d || 0), 0), repins: sqlRepin7d },
-        '10d': { saves: allPins.reduce((sum, p) => sum + (p.gains_10d || 0), 0), repins: sqlRepin10d },
-        '15d': { saves: allPins.reduce((sum, p) => sum + (p.gains_15d || 0), 0), repins: sqlRepin15d },
-        'all': { saves: allPins.reduce((sum, p) => sum + (p.save_count || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.repin_count || 0), 0) }
+        '24h': {
+          saves: Math.round(allPins.reduce((sum, p) => sum + Math.max(0, Number(p.delta_saves_24h || 0)), 0)),
+          repins: Math.round(allPins.reduce((sum, p) => sum + Math.max(0, Number(p.delta_repins_24h || 0)), 0)),
+          saves_coverage: allPins.length,
+          repins_coverage: allPins.length
+        },
+        '5d': { saves: saves5d.total, repins: repin5dTotal, saves_coverage: saves5d.coverage, repins_coverage: repin5dCov },
+        '7d': { saves: saves7d.total, repins: repin7dTotal, saves_coverage: saves7d.coverage, repins_coverage: repin7dCov },
+        '10d': { saves: saves10d.total, repins: repin10dTotal, saves_coverage: saves10d.coverage, repins_coverage: repin10dCov },
+        '15d': { saves: saves15d.total, repins: repin15dTotal, saves_coverage: saves15d.coverage, repins_coverage: repin15dCov },
+        'all': {
+          saves: Math.round(allPins.reduce((sum, p) => sum + Math.max(0, Number(p.save_count || 0)), 0)),
+          repins: Math.round(allPins.reduce((sum, p) => sum + Math.max(0, Number(p.repin_count || 0)), 0)),
+          saves_coverage: allPins.length,
+          repins_coverage: allPins.length
+        }
       }
     },
     super_pins: (superPins.length > 0 ? superPins : topRankedPins).slice(0, 20),
@@ -1268,8 +1350,7 @@ export async function buildFolderCrossoverMatrix({
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,
     dominant_colors: dominantColors,
-    domain_monopoly: domainMonopoly,
-    creator_monopoly: creatorMonopoly,
+    domain_monopoly: [],
     // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 4: Top Creators Rollup Wiring
     top_creators: creatorMonopoly,
     pulse_analytics: pulseAnalyticsPromise ? await pulseAnalyticsPromise : null,
@@ -1281,7 +1362,7 @@ export async function buildFolderCrossoverMatrix({
       recommended_launch_window: recommendedLaunchWindow,
       trends_loaded_count: trendsLoaded
     },
-    topic_cluster_blueprint: topicClusterBlueprint,
+    topic_cluster_blueprint: null,
     has_unhydrated_priority_pins: false
   };
 }

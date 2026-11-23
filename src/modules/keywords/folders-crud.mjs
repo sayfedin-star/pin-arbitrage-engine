@@ -114,10 +114,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
           ELSE 'other'
         END AS item_source,
         ksp.is_displaced,
-        CASE
-          WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
-          ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
-        END AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
         LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -125,29 +122,56 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
       WHERE (ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
          OR ksp.is_displaced = TRUE
     ),
-    combined_summary AS (
+    pin_status AS (
       SELECT
         folder_id,
-        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+        pin_id,
+        BOOL_OR(item_source = 'active') AS has_active,
+        BOOL_OR(item_source = 'vault') AS has_vault
+      FROM folder_pins
+      GROUP BY folder_id, pin_id
+    ),
+    pin_counts AS (
+      SELECT
+        folder_id,
+        COUNT(*)::int AS unique_pins_count,
+        COUNT(*) FILTER (WHERE has_active)::int AS active_pins_count,
+        COUNT(*) FILTER (WHERE NOT has_active AND has_vault)::int AS vault_pins_count
+      FROM pin_status
+      GROUP BY folder_id
+    ),
+    entity_counts AS (
+      SELECT
+        folder_id,
         COUNT(DISTINCT clean_domain) FILTER (
           WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+            AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+            AND POSITION('.' IN clean_domain) > 0
         )::int AS domain_count,
         COUNT(DISTINCT clean_username) FILTER (
           WHERE clean_username IS NOT NULL AND clean_username <> ''
             AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
         )::int AS discovered_creator_count
       FROM (
-        SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+        SELECT folder_id, clean_domain, clean_username FROM folder_pins
         UNION ALL
-        SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+        SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
         FROM folder_competitor_items fci
         JOIN competitor_profiles cp ON cp.id = fci.competitor_id
         WHERE cp.username IS NOT NULL AND cp.username <> ''
       ) comb
-      WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
       GROUP BY folder_id
+    ),
+    combined_summary AS (
+      SELECT
+        COALESCE(pc.folder_id, ec.folder_id) AS folder_id,
+        COALESCE(pc.unique_pins_count, 0)::int AS unique_pins_count,
+        COALESCE(pc.active_pins_count, 0)::int AS active_pins_count,
+        COALESCE(pc.vault_pins_count, 0)::int AS vault_pins_count,
+        COALESCE(ec.domain_count, 0)::int AS domain_count,
+        COALESCE(ec.discovered_creator_count, 0)::int AS discovered_creator_count
+      FROM pin_counts pc
+      FULL OUTER JOIN entity_counts ec ON ec.folder_id = pc.folder_id
     )
     SELECT 
       f.id,
@@ -220,10 +244,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
             ELSE 'other'
           END AS item_source,
           ksp.is_displaced,
-          CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
-            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
-          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
           LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -231,29 +252,56 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         WHERE (ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
            OR ksp.is_displaced = TRUE
       ),
-      combined_summary AS (
+      pin_status AS (
         SELECT
           folder_id,
-          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          pin_id,
+          BOOL_OR(item_source = 'active') AS has_active,
+          BOOL_OR(item_source = 'vault') AS has_vault
+        FROM folder_pins
+        GROUP BY folder_id, pin_id
+      ),
+      pin_counts AS (
+        SELECT
+          folder_id,
+          COUNT(*)::int AS unique_pins_count,
+          COUNT(*) FILTER (WHERE has_active)::int AS active_pins_count,
+          COUNT(*) FILTER (WHERE NOT has_active AND has_vault)::int AS vault_pins_count
+        FROM pin_status
+        GROUP BY folder_id
+      ),
+      entity_counts AS (
+        SELECT
+          folder_id,
           COUNT(DISTINCT clean_domain) FILTER (
             WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND POSITION('.' IN clean_domain) > 0
           )::int AS domain_count,
           COUNT(DISTINCT clean_username) FILTER (
             WHERE clean_username IS NOT NULL AND clean_username <> ''
               AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
           )::int AS discovered_creator_count
         FROM (
-          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
         GROUP BY folder_id
+      ),
+      combined_summary AS (
+        SELECT
+          COALESCE(pc.folder_id, ec.folder_id) AS folder_id,
+          COALESCE(pc.unique_pins_count, 0)::int AS unique_pins_count,
+          COALESCE(pc.active_pins_count, 0)::int AS active_pins_count,
+          COALESCE(pc.vault_pins_count, 0)::int AS vault_pins_count,
+          COALESCE(ec.domain_count, 0)::int AS domain_count,
+          COALESCE(ec.discovered_creator_count, 0)::int AS discovered_creator_count
+        FROM pin_counts pc
+        FULL OUTER JOIN entity_counts ec ON ec.folder_id = pc.folder_id
       )
       SELECT 
         f.id,
@@ -346,10 +394,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
             ELSE 'other'
           END AS item_source,
           ksp.is_displaced,
-          CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
-            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
-          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
           LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -357,29 +402,56 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         WHERE kfi.folder_id = ${fid}
           AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
       ),
-      combined_summary AS (
+      pin_status AS (
         SELECT
           folder_id,
-          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          pin_id,
+          BOOL_OR(item_source = 'active') AS has_active,
+          BOOL_OR(item_source = 'vault') AS has_vault
+        FROM folder_pins
+        GROUP BY folder_id, pin_id
+      ),
+      pin_counts AS (
+        SELECT
+          folder_id,
+          COUNT(*)::int AS unique_pins_count,
+          COUNT(*) FILTER (WHERE has_active)::int AS active_pins_count,
+          COUNT(*) FILTER (WHERE NOT has_active AND has_vault)::int AS vault_pins_count
+        FROM pin_status
+        GROUP BY folder_id
+      ),
+      entity_counts AS (
+        SELECT
+          folder_id,
           COUNT(DISTINCT clean_domain) FILTER (
             WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND POSITION('.' IN clean_domain) > 0
           )::int AS domain_count,
           COUNT(DISTINCT clean_username) FILTER (
             WHERE clean_username IS NOT NULL AND clean_username <> ''
               AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
           )::int AS discovered_creator_count
         FROM (
-          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
         GROUP BY folder_id
+      ),
+      combined_summary AS (
+        SELECT
+          COALESCE(pc.folder_id, ec.folder_id) AS folder_id,
+          COALESCE(pc.unique_pins_count, 0)::int AS unique_pins_count,
+          COALESCE(pc.active_pins_count, 0)::int AS active_pins_count,
+          COALESCE(pc.vault_pins_count, 0)::int AS vault_pins_count,
+          COALESCE(ec.domain_count, 0)::int AS domain_count,
+          COALESCE(ec.discovered_creator_count, 0)::int AS discovered_creator_count
+        FROM pin_counts pc
+        FULL OUTER JOIN entity_counts ec ON ec.folder_id = pc.folder_id
       )
       SELECT 
         f.*,
@@ -427,10 +499,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
             ELSE 'other'
           END AS item_source,
           ksp.is_displaced,
-          CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
-            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
-          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
           LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -438,29 +507,56 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         WHERE kfi.folder_id = ${fid}
           AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
       ),
-      combined_summary AS (
+      pin_status AS (
         SELECT
           folder_id,
-          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
-          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          pin_id,
+          BOOL_OR(item_source = 'active') AS has_active,
+          BOOL_OR(item_source = 'vault') AS has_vault
+        FROM folder_pins
+        GROUP BY folder_id, pin_id
+      ),
+      pin_counts AS (
+        SELECT
+          folder_id,
+          COUNT(*)::int AS unique_pins_count,
+          COUNT(*) FILTER (WHERE has_active)::int AS active_pins_count,
+          COUNT(*) FILTER (WHERE NOT has_active AND has_vault)::int AS vault_pins_count
+        FROM pin_status
+        GROUP BY folder_id
+      ),
+      entity_counts AS (
+        SELECT
+          folder_id,
           COUNT(DISTINCT clean_domain) FILTER (
             WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND POSITION('.' IN clean_domain) > 0
           )::int AS domain_count,
           COUNT(DISTINCT clean_username) FILTER (
             WHERE clean_username IS NOT NULL AND clean_username <> ''
               AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
           )::int AS discovered_creator_count
         FROM (
-          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
         GROUP BY folder_id
+      ),
+      combined_summary AS (
+        SELECT
+          COALESCE(pc.folder_id, ec.folder_id) AS folder_id,
+          COALESCE(pc.unique_pins_count, 0)::int AS unique_pins_count,
+          COALESCE(pc.active_pins_count, 0)::int AS active_pins_count,
+          COALESCE(pc.vault_pins_count, 0)::int AS vault_pins_count,
+          COALESCE(ec.domain_count, 0)::int AS domain_count,
+          COALESCE(ec.discovered_creator_count, 0)::int AS discovered_creator_count
+        FROM pin_counts pc
+        FULL OUTER JOIN entity_counts ec ON ec.folder_id = pc.folder_id
       )
       SELECT 
         f.*,
@@ -1635,41 +1731,91 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
   const resolvedMaxSaves = maxSaves !== null && maxSaves !== undefined ? Number(maxSaves) : null;
   const resolvedMaxRepins = maxRepins !== null && maxRepins !== undefined ? Number(maxRepins) : null;
 
-  return await sql`
-    SELECT
-      ksp.keyword_id,
-      ksp.pin_id,
-      ump.title,
-      ump.save_count,
-      ump.repin_count,
-      ump.daily_save_velocity,
-      ksp.is_displaced,
-      ump.created_at_pinterest,
-      tk.keyword,
-      i.added_at AS folder_added_at
-    FROM keyword_folder_items i
-    JOIN tracked_keywords tk ON tk.id = i.keyword_id
-    JOIN keyword_serp_positions ksp ON ksp.keyword_id = i.keyword_id
-    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-    WHERE i.folder_id = ${fid}
-      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
-      AND (
-        (${targetScope} = 'all') OR
-        (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
-        (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
-      )
-      AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
-      AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
-      AND (
-        ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
-        ump.created_at_pinterest IS NULL OR
-        ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
-      )
-      AND (
-        ${resolvedMinFolderAge === null} OR
-        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-      );
-  `;
+  const runCandidates = (withFirstSeen) => {
+    if (withFirstSeen) {
+      return sql`
+        SELECT
+          ksp.keyword_id,
+          ksp.pin_id,
+          ump.title,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ksp.is_displaced,
+          ump.created_at_pinterest,
+          tk.keyword,
+          COALESCE(ksp.first_seen_at, i.added_at) AS folder_added_at
+        FROM keyword_folder_items i
+        JOIN tracked_keywords tk ON tk.id = i.keyword_id
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = i.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE i.folder_id = ${fid}
+          AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+          AND (
+            (${targetScope} = 'all') OR
+            (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
+            (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
+          )
+          AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
+          AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
+          AND (
+            ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
+            ump.created_at_pinterest IS NULL OR
+            ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
+          )
+          AND (
+            ${resolvedMinFolderAge === null} OR
+            (COALESCE(ksp.first_seen_at, i.added_at) <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
+          );
+      `;
+    }
+    return sql`
+      SELECT
+        ksp.keyword_id,
+        ksp.pin_id,
+        ump.title,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ksp.is_displaced,
+        ump.created_at_pinterest,
+        tk.keyword,
+        i.added_at AS folder_added_at
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = i.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE i.folder_id = ${fid}
+        AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+        AND (
+          (${targetScope} = 'all') OR
+          (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
+          (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
+        )
+        AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
+        AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
+        AND (
+          ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
+          ump.created_at_pinterest IS NULL OR
+          ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
+        )
+        AND (
+          ${resolvedMinFolderAge === null} OR
+          (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
+        );
+    `;
+  };
+
+  try {
+    return await runCandidates(true);
+  } catch (err) {
+    const code = err?.code || err?.cause?.code;
+    const msg = String(err?.message || err?.cause?.message || '');
+    if (code === '42703' && /first_seen_at/i.test(msg)) {
+      return await runCandidates(false);
+    }
+    throw err;
+  }
 }
 
 /**

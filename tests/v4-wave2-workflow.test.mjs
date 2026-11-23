@@ -272,13 +272,13 @@ test('Pillar 1: Campaign Studio client velocity helpers react dynamically to 24h
   app.selectedTimeWindow = '5d';
   assert.equal(app.getSelectedWindowLabel(), '5d Gains');
   assert.equal(app.getPinWindowGain(samplePin), 1990);
-  assert.equal(app.getPinWindowRepins(samplePin), 1985);
+  assert.equal(app.getPinWindowRepins(samplePin), 1850);
   assert.equal(app.formatPinWindowPrimary(samplePin), '+1,990 (5d)');
 
   app.selectedTimeWindow = '7d';
   assert.equal(app.getSelectedWindowLabel(), '7d Gains');
   assert.equal(app.getPinWindowGain(samplePin), 2827);
-  assert.equal(app.getPinWindowRepins(samplePin), 2779);
+  assert.equal(app.getPinWindowRepins(samplePin), 2600);
   assert.equal(app.formatPinWindowPrimary(samplePin), '+2,827 (7d)');
 
   app.selectedTimeWindow = '10d';

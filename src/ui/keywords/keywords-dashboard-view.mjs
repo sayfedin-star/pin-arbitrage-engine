@@ -231,14 +231,16 @@ export function getKeywordsDashboardViewHtml() {
               </button>
             </div>
 
-            <!-- Campaign Folders filter dropdown -->
-            <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="ALL">All Folders</option>
-              <option value="UNASSIGNED">Unassigned (No Folder)</option>
-              <template x-for="f in folders" :key="f.id">
-                <option :value="f.id" x-text="f.name + ' (' + getFolderKeywordCount(f) + ')'"></option>
-              </template>
-            </select>
+            <!-- Campaign Folders filter dropdown (hidden inside scoped folder workspace) -->
+            <template x-if="!activeFolderId">
+              <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+                <option value="ALL">All Folders</option>
+                <option value="UNASSIGNED">Unassigned (No Folder)</option>
+                <template x-for="f in folders" :key="f.id">
+                  <option :value="f.id" x-text="f.name + ' (' + getFolderKeywordCount(f) + ')'"></option>
+                </template>
+              </select>
+            </template>
 
             <!-- Category filter dropdown -->
             <select x-model="dashboardCategoryFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
@@ -348,7 +350,7 @@ export function getKeywordsDashboardViewHtml() {
           </div>
 
           <!-- Active Folder Filter Indicator -->
-          <template x-if="dashboardFolderFilter !== 'ALL'">
+          <template x-if="!activeFolderId && dashboardFolderFilter !== 'ALL'">
             <div class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-700 dark:text-pink-300 text-xs font-semibold border border-pink-500/20 font-mono tabular-nums">
               <i data-lucide="folder" class="w-3 h-3 text-pink-500"></i>
               <span>Folder: <span x-text="activeFolderName"></span></span>

@@ -27,51 +27,13 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <button @click="scrollToSection('visual-crossover-hub')" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Jump to Visual Annotations, 3-Tag Triplets, Guided Capsules &amp; Color Swatches">
             <i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Visual &amp; Intent Matrix</span>
-          </button>
-          <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
-            <span x-show="!crossoverLoading" class="inline-flex"><i data-lucide="zap" class="w-3.5 h-3.5"></i></span>
-            <span x-show="crossoverLoading" class="inline-flex"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i></span>
-            <span x-text="crossoverLoading ? 'Recalculating Matrix...' : 'Re-Run Crossover Analysis'"></span>
+            <span class="px-1.5 py-0.2 rounded-full bg-purple-200/70 dark:bg-purple-800/70 text-[10px] font-mono tabular-nums" x-text="formatNumber(crossoverData?.summary?.universal_tags_count || 0) + ' Bridges · ' + formatNumber(crossoverData?.summary?.shared_pivots_count || 0) + ' Pivots'"></span>
           </button>
           <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
             <span x-show="!auditDispatching" class="inline-flex"><i data-lucide="rocket" class="w-3.5 h-3.5"></i></span>
             <span x-show="auditDispatching" class="inline-flex"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i></span>
             <span x-text="auditDispatching ? 'Launching 20 Runners...' : 'Deep Cluster Audit (20 Runners)'"></span>
           </button>
-        </div>
-      </div>
-
-      <!-- Telemetry KPIs Bar -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Cluster Keywords</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="crossoverData?.summary?.total_keywords || 0">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">Tracked search SERPs</span>
-        </div>
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Unique Pins</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">In folder snapshots</span>
-        </div>
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Super-Pins (>=2 Kw)</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-pink-600 dark:text-pink-400" x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">Cross-SERP dominators</span>
-        </div>
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Universal Bridges</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="formatNumber(crossoverData?.summary?.universal_tags_count || 0)">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">Visual tags (>=50% SERPs)</span>
-        </div>
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Shared Pivots</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="formatNumber(crossoverData?.summary?.shared_pivots_count || 0)">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">Guided search connectors</span>
-        </div>
-        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Monopoly Entities</span>
-          <span class="text-xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="(crossoverData?.domain_monopoly?.length || 0) + ' domains'">0</span>
-          <span class="text-[10px] text-slate-400 dark:text-slate-500">Top commercial players</span>
         </div>
       </div>
 
@@ -112,32 +74,27 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           </div>
         </div>
 
-        <!-- Rollup Cards: Winning Pins, Saves Gains, Repins Gains, Avg Daily Velocity, Competitor Gains -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
-          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
-            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Winning Cluster Pins</span>
-            <span class="text-base font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400" x-text="formatNumber(crossoverData?.summary?.super_pins_count || crossoverData?.super_pins?.length || 0)">0</span>
-            <span class="text-[10px] text-slate-400">Multi-ranking dominators</span>
-          </div>
+        <!-- Rollup Cards: Saves Gains, Repins Gains, Avg Daily Velocity, Competitor Gains -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Saves Gains (' + selectedTimeWindow + ')'">Saves Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(clusterWindowSavesGains)">+0</span>
-            <span class="text-[10px] text-slate-400">Cluster net saves gain</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowSavesGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-emerald-600 dark:text-emerald-400'" x-text="clusterWindowSavesGains === null ? '—' : ('+' + formatNumber(clusterWindowSavesGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterWindowSavesGains === null ? ('No ' + selectedTimeWindow + ' history yet') : 'Cluster net saves gain'">Cluster net saves gain</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Repins Gains (' + selectedTimeWindow + ')'">Repins Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="'+' + formatNumber(clusterWindowRepinsGains)">+0</span>
-            <span class="text-[10px] text-slate-400">Cluster shared repins</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowRepinsGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-sky-600 dark:text-sky-400'" x-text="clusterWindowRepinsGains === null ? '—' : ('+' + formatNumber(clusterWindowRepinsGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterWindowRepinsGains === null ? ('No ' + selectedTimeWindow + ' history yet') : 'Cluster shared repins'">Cluster shared repins</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Avg Daily Velocity</span>
             <span class="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + clusterAvgVelocity + '/d'">+0/d</span>
             <span class="text-[10px] text-slate-400">Per-pin daily momentum</span>
           </div>
-          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1 col-span-2 sm:col-span-1">
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Competitor Gains (' + selectedTimeWindow + ')'">Competitor Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="'+' + formatNumber(clusterCompetitorAudienceGains)">+0</span>
-            <span class="text-[10px] text-slate-400">Audience &amp; reach expansion</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterCompetitorAudienceGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-indigo-600 dark:text-indigo-400'" x-text="clusterCompetitorAudienceGains === null ? '—' : ('+' + formatNumber(clusterCompetitorAudienceGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterCompetitorAudienceGains === null ? 'Tracked on 24h & 7d windows' : ('Cluster reach (' + formatNumber(crossoverData?.summary?.competitor_audience_gains?.matched_creators_count || (crossoverData?.top_creators?.length || 0)) + ' creators)')">Audience &amp; reach expansion</span>
           </div>
         </div>
       </div>
@@ -148,7 +105,6 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="flex items-center gap-2">
             <i data-lucide="radar" class="w-4 h-4 text-indigo-500"></i>
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">Daily Tracked Pins (4 Sources)</h3>
-            <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'· Seeds: ' + formatNumber(pinGraphSeeds.length)"></span>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button type="button" @click="syncTopNSerpPins()" :disabled="syncingTopN" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingTopN ? 'animate-spin' : ''"></i><span x-text="syncingTopN ? 'Syncing...' : ('Sync Top ' + (trackedPinsSummary.serp_top_n || folderSettings.serp_top_n || 20))"></span></button>
@@ -188,6 +144,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="border-t border-slate-200 dark:border-[#27272A] pt-3">
             <div x-show="trackedPinsLoading" class="text-xs text-slate-500">Loading tracked pins...</div>
             <div x-show="!trackedPinsLoading && !(trackedPinsSummary.items || []).length" class="text-xs text-slate-500">No tracked pins in this source yet.</div>
+            <div x-show="!trackedPinsLoading && (trackedPinsSummary.items || []).length > 30" class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mb-2" x-text="'Showing top 30 of ' + formatNumber(trackedPinsSummary.total || (trackedPinsSummary.items || []).length) + ' tracked pins'"></div>
             <div x-show="!trackedPinsLoading && (trackedPinsSummary.items || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-60 overflow-y-auto">
               <template x-for="tp in (trackedPinsSummary.items || []).slice(0, 30)" :key="tp.pin_id + ':' + tp.source_type">
                 <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
@@ -229,76 +186,83 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           </div>
         </div>
 
-        <!-- Integrated Toolbar: Scope Switcher, Sorter & Search Filter Bar -->
-        <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
-            <button @click="scopeFilter = 'all'; currentPage = 1" 
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                    :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
-            </button>
-            <button @click="scopeFilter = 'active_only'; currentPage = 1" 
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
-                    :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
-                    :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
-            </button>
-            <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
-                    :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
-            </button>
-            <button @click="scopeFilter = 'super_only'; currentPage = 1" 
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
-                    :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-              <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
-            </button>
-            <button type="button" @click="onlySurging24h = !onlySurging24h; currentPage = 1" :class="onlySurging24h ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>24h Surges</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="formatNumber(crossoverData?.summary?.surging_24h_count || 0)"></span></button>
-            <button type="button" @click="onlyFreshRockets = !onlyFreshRockets; currentPage = 1" :class="onlyFreshRockets ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="rocket" class="w-3.5 h-3.5 shrink-0"></i><span>Rockets (≤14d)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300" x-text="formatNumber(crossoverData?.summary?.rockets_count || 0)"></span></button>
-            <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i><span>Breakout Baby Domains (&lt;2y + 7d Gains)</span></button>
-            <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Linkless Vacuums</span><span x-show="crossoverData?.summary?.vacuum_pins_count" class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300" x-text="crossoverData?.summary?.vacuum_pins_count"></span></button>
-            <template x-if="activeFolder?.items?.length">
-              <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
-                <option value="all">Filter by Keyword (All)</option>
-                <template x-for="item in activeFolder.items" :key="item.keyword">
-                  <option :value="item.keyword" x-text="item.keyword"></option>
-                </template>
-              </select>
-            </template>
+        <!-- Integrated Toolbar: Exclusive Scope Row + Stackable Signals, Sort & Search Row -->
+        <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-[#27272A] flex flex-col gap-2.5">
+          <!-- Row 1: Exclusive Scope + Keyword Selector -->
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
+              <button @click="scopeFilter = 'all'; currentPage = 1" 
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'active_only'; currentPage = 1" 
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
+                      :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'super_only'; currentPage = 1" 
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      title="All pins appearing in >= 2 keywords across Active SERP and Vault"
+                      :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
+              </button>
+              <template x-if="activeFolder?.items?.length">
+                <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm cursor-pointer">
+                  <option value="all">Filter by Keyword (All)</option>
+                  <template x-for="item in activeFolder.items" :key="item.keyword">
+                    <option :value="item.keyword" x-text="item.keyword"></option>
+                  </template>
+                </select>
+              </template>
+            </div>
           </div>
 
-          <div class="flex items-center gap-3 flex-wrap">
-            <!-- Sort Dropdown -->
-            <div class="flex items-center gap-1.5 text-xs">
-              <span class="text-slate-500 dark:text-slate-400">Sort:</span>
-              <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
-                <option value="velocity_desc">Daily Velocity (Fastest)</option>
-                <option value="repins_24h_desc">24h Repins Surge (Highest)</option>
-                <option value="saves_desc">Total Saves (High → Low)</option>
-                <option value="saves_asc">Total Saves (Low → High)</option>
-                <option value="pin_age_asc">Pin Age (Youngest First)</option>
-                <option value="pin_age_desc">Pin Age (Oldest First)</option>
-                <option value="folder_age_desc">Days in Folder (Longest)</option>
-                <option value="folder_age_asc">Days in Folder (Recent)</option>
-                <option value="rank_asc">Best Rank (#1 First)</option>
-                <option value="overlap_desc">Cross-SERP Overlap (Most)</option>
-                <option value="title_asc">Title (A → Z)</option>
-              </select>
+          <!-- Row 2: Stackable Signal Toggles + Sort + Search -->
+          <div class="flex items-center justify-between flex-wrap gap-2.5 pt-2 border-t border-slate-200/70 dark:border-[#27272A]/70">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Signals:</span>
+              <button type="button" @click="onlySurging24h = !onlySurging24h; currentPage = 1" :class="onlySurging24h ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>24h Surges</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full" :class="onlySurging24h ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-600 dark:text-rose-300'" x-text="formatNumber(crossoverData?.summary?.surging_24h_count || 0)"></span></button>
+              <button type="button" @click="onlyFreshRockets = !onlyFreshRockets; currentPage = 1" :class="onlyFreshRockets ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="rocket" class="w-3.5 h-3.5 shrink-0"></i><span>Rockets (≤14d)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full" :class="onlyFreshRockets ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-600 dark:text-amber-300'" x-text="formatNumber(crossoverData?.summary?.rockets_count || 0)"></span></button>
+              <button type="button" @click="onlyBreakoutBabyDomains = !onlyBreakoutBabyDomains; currentPage = 1" :class="onlyBreakoutBabyDomains ? 'bg-amber-600 text-white border-amber-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i><span>Breakout Baby Domains (&lt;2y + 7d Gains)</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full" :class="onlyBreakoutBabyDomains ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-600 dark:text-amber-300'" x-text="formatNumber(crossoverData?.summary?.breakout_baby_domains_count || 0)"></span></button>
+              <button type="button" @click="onlyVacuumPins = !onlyVacuumPins; currentPage = 1" :class="onlyVacuumPins ? 'bg-rose-600 text-white border-rose-500 shadow-xs' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>Linkless Vacuums</span><span class="px-1.5 py-0.2 text-[10px] font-mono tabular-nums rounded-full" :class="onlyVacuumPins ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-600 dark:text-rose-300'" x-text="formatNumber(crossoverData?.summary?.vacuum_pins_count || 0)"></span></button>
             </div>
 
-            <!-- Search Filter -->
-            <div class="relative">
-              <input type="text" x-model.debounce.150ms="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
-                     class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
-              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
+            <div class="flex items-center gap-3 flex-wrap">
+              <!-- Sort Dropdown -->
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-slate-500 dark:text-slate-400">Sort:</span>
+                <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm cursor-pointer">
+                  <option value="velocity_desc">Daily Velocity (Fastest)</option>
+                  <option value="repins_24h_desc">24h Repins Surge (Highest)</option>
+                  <option value="saves_desc">Total Saves (High → Low)</option>
+                  <option value="saves_asc">Total Saves (Low → High)</option>
+                  <option value="pin_age_asc">Pin Age (Youngest First)</option>
+                  <option value="pin_age_desc">Pin Age (Oldest First)</option>
+                  <option value="folder_age_desc">Days Tracked (Longest)</option>
+                  <option value="folder_age_asc">Days Tracked (Recent)</option>
+                  <option value="rank_asc">Best Rank (#1 First)</option>
+                  <option value="overlap_desc">Cross-SERP Overlap (Most)</option>
+                  <option value="title_asc">Title (A → Z)</option>
+                </select>
+              </div>
+
+              <!-- Search Filter -->
+              <div class="relative">
+                <input type="text" x-model.debounce.150ms="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
+                       class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
+              </div>
             </div>
-            
-             <a href="#visual-crossover-hub" @click.prevent="scrollToSection('visual-crossover-hub')" class="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-500 transition-colors flex items-center gap-1 ml-1" title="Jump to Visual Annotations & Power Pairs">
-               <i data-lucide="sparkles" class="w-3.5 h-3.5 shrink-0"></i><span>Visual Hub ↓</span>
-             </a>
-           </div>
-         </div>
+          </div>
+        </div>
 
          <!-- Active Structural Pattern / Entity Filter Bar -->
          <div x-show="activeMatrixFilter || entityFilter.type" x-cloak class="px-4 py-2.5 bg-purple-500/10 dark:bg-purple-950/40 border-b border-purple-500/20 flex items-center justify-between flex-wrap gap-2 text-xs font-mono tabular-nums">
@@ -421,11 +385,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                                  x-text="sp.format || 'ORGANIC PIN'"></span>
                            <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
                            <!-- Breakout Baby Domain Badge -->
-                           <template x-if="(Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && (Number(sp.gains_7d || (sp.daily_save_velocity ? sp.daily_save_velocity * 7 : 0)) >= 15)">
-                             <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold" title="Breakout Baby Domain (<2y + 7d Gains >= 15)"><i data-lucide="sparkles" class="w-2.5 h-2.5 shrink-0"></i><span>Baby Breakout</span></span>
+                           <template x-if="sp.is_breakout_baby_domain || ((Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && sp.gains_7d != null && Number(sp.gains_7d) >= 15)">
+                             <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold" title="Breakout Baby Domain (<2y + Authentic 7d Gains >= 15)"><i data-lucide="sparkles" class="w-2.5 h-2.5 shrink-0"></i><span>Baby Breakout</span></span>
                            </template>
                            <!-- Linkless Vacuum Pin Badge -->
-                           <template x-if="sp.is_vacuum_pin || ((!sp.domain || sp.domain === 'Uploaded by user') && Number(sp.save_count || 0) >= 100)">
+                           <template x-if="sp.is_vacuum_pin || (isLinklessVacuumDomain(sp.domain) && Number(sp.save_count || 0) >= 100)">
                              <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold" title="Linkless SERP Vacuum (High Saves, No Outbound Domain)"><i data-lucide="target" class="w-2.5 h-2.5 shrink-0"></i><span>Vacuum</span></span>
                            </template>
                          </div>
@@ -515,11 +479,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i>
                          <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
                        </span>
-                       <template x-if="sp.folder_age_days != null">
+                       <template x-if="sp.folder_age_days != null && (sp.pin_age_days == null || sp.folder_age_days <= sp.pin_age_days)">
                          <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1 w-fit"
-                               :title="'Added to folder: ' + sp.folder_age_days + ' days ago'">
+                               :title="sp.tenure_source === 'first_seen' ? ('First seen in cluster SERPs: ' + sp.folder_age_days + ' days ago') : ('Keyword added to folder: ' + sp.folder_age_days + ' days ago')">
                            <i data-lucide="folder" class="w-3 h-3 shrink-0"></i>
-                           <span x-text="sp.folder_age_days + 'd in folder'"></span>
+                           <span x-text="sp.tenure_source === 'first_seen' ? (sp.folder_age_days + 'd tracked') : (sp.folder_age_days + 'd in folder')"></span>
                          </span>
                        </template>
                      </div>
@@ -529,8 +493,8 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                    velocityHtml: `
                    <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
                      <div class="flex flex-col gap-0.5">
-                       <span class="font-bold" x-text="formatPinWindowPrimary(sp)"></span>
-                       <template x-if="getPinWindowRepins(sp) > 0">
+                       <span class="font-bold" :class="getPinWindowGain(sp) === null ? 'text-slate-400 dark:text-slate-500' : ''" x-text="formatPinWindowPrimary(sp)"></span>
+                       <template x-if="(getPinWindowRepins(sp) || 0) > 0">
                          <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(getPinWindowRepins(sp)) + ' repins (' + (selectedTimeWindow === 'all' ? 'total' : selectedTimeWindow) + ')'"></span>
                        </template>
                        <template x-if="selectedTimeWindow === '24h' && sp.gains_7d != null">

@@ -224,17 +224,19 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
           </select>
         </div>
 
-        <!-- 2. Campaign Folder -->
-        <div>
-          <select x-model="selectedFolderId"
-                  @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
-            <option value="">All Folders</option>
-            <template x-for="f in folders" :key="f.id">
-              <option :value="String(f.id)" :selected="String(f.id) === String(selectedFolderId)" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
-            </template>
-          </select>
-        </div>
+        <!-- 2. Campaign Folder (hidden inside scoped folder workspace) -->
+        <template x-if="!scopedFolderId">
+          <div>
+            <select x-model="selectedFolderId"
+                    @change="loadDomains(true)"
+                    class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
+              <option value="">All Folders</option>
+              <template x-for="f in folders" :key="f.id">
+                <option :value="String(f.id)" :selected="String(f.id) === String(selectedFolderId)" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
+              </template>
+            </select>
+          </div>
+        </template>
 
         <!-- 3. Domain Age -->
         <div>
